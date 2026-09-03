@@ -90,19 +90,10 @@ export class SyncPoller {
           }
         }
 
-        if (response?.snapshotRequest?.requested) {
-          this.internalEventHub.emit({
-            type: 'snapshotNeeded',
-            cursor: response.snapshotRequest.cursor,
-            requestedAt: response.snapshotRequest.requestedAt,
-          })
-        }
-
         await this.indexManager.updateLastSyncTime(Date.now())
         return 'success'
       }
 
-      let highestSnapshotRequest: { cursor: number; requestedAt: number } | null = null
       for (const chunkEntry of chunks) {
         const sentIds: string[] = []
         const pushMessages = await Promise.all(
@@ -156,23 +147,6 @@ export class SyncPoller {
             console.error('[SyncPoller] Error processing pull results', pullErr)
           }
         }
-
-        if (response?.snapshotRequest?.requested) {
-          if (!highestSnapshotRequest || response.snapshotRequest.cursor > highestSnapshotRequest.cursor) {
-            highestSnapshotRequest = {
-              cursor: response.snapshotRequest.cursor,
-              requestedAt: response.snapshotRequest.requestedAt,
-            }
-          }
-        }
-      }
-
-      if (highestSnapshotRequest) {
-        this.internalEventHub.emit({
-          type: 'snapshotNeeded',
-          cursor: highestSnapshotRequest.cursor,
-          requestedAt: highestSnapshotRequest.requestedAt,
-        })
       }
 
       await this.indexManager.updateLastSyncTime(Date.now())

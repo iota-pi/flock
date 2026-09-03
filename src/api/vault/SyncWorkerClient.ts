@@ -58,11 +58,6 @@ export type PollSyncBatchResponse = {
     }>
     hasMore: boolean
   }>
-  snapshotRequest?: {
-    requested: true
-    cursor: number
-    requestedAt: number
-  }
 }
 
 

@@ -19,6 +19,7 @@ class SyncBridgeService {
   private currentAccountId: string | null = null
   private readonly ITEM_UPDATE_BATCH_MAX = 50
   private onlineHandler: (() => void) | null = null
+  private visibilityHandler: (() => void) | null = null
 
   private pendingItemUpdates = new Map<string, Item | null>()
   private itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
@@ -203,6 +204,17 @@ class SyncBridgeService {
             'offline',
             this.onlineHandler,
           )
+        }
+
+        if (!this.visibilityHandler) {
+          this.visibilityHandler = () => {
+            if (document.visibilityState === 'hidden' && this.syncApi) {
+              void this.syncApi.pushSnapshots()
+            }
+          }
+
+          document.addEventListener('visibilitychange', this.visibilityHandler)
+          window.addEventListener('pagehide', this.visibilityHandler)
         }
 
         this.initRetryCount = 0
@@ -403,6 +415,12 @@ class SyncBridgeService {
         window.removeEventListener('online', this.onlineHandler)
         window.removeEventListener('offline', this.onlineHandler)
         this.onlineHandler = null
+      }
+
+      if (this.visibilityHandler) {
+        document.removeEventListener('visibilitychange', this.visibilityHandler)
+        window.removeEventListener('pagehide', this.visibilityHandler)
+        this.visibilityHandler = null
       }
     }
   }

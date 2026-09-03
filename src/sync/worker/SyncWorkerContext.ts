@@ -72,6 +72,7 @@ export class SyncWorkerContext {
         accountId: deps.accountId,
         repo: deps.repo,
         broker: deps.broker,
+        getLatestCursor: () => this.pullQueueManager.getGlobalLatestCursor(),
       },
       this.lastModifiedStore
     )

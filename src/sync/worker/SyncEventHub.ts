@@ -19,7 +19,6 @@ export type ClientEvent =
   | { type: 'quotaExceeded'; message: string }
 
 export type WorkerInternalEvent =
-  | { type: 'snapshotNeeded'; cursor: number; requestedAt: number }
   | { type: 'pollResult'; outcome: PollOutcome }
 
 export type ClientEventListener = (event: ClientEvent) => void | Promise<void>

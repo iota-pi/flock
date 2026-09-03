@@ -35,6 +35,7 @@ const mockSyncApi = {
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
   reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
   flushSync: vi.fn().mockReturnValue(undefined),
+  pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
 }
 
 vi.mock('comlink', () => {
@@ -330,16 +331,31 @@ describe('SyncBridge', () => {
     onLineSpy.mockRestore()
   })
 
-  it('removes online and offline event listeners on shutdown', async () => {
-    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
+  it('removes online, offline, and visibility event listeners on shutdown', async () => {
+    const windowRemoveSpy = vi.spyOn(window, 'removeEventListener')
+    const documentRemoveSpy = vi.spyOn(document, 'removeEventListener')
 
     await SyncBridge.initialize('test-account')
     await SyncBridge.shutdown()
 
-    expect(removeEventListenerSpy).toHaveBeenCalledWith('online', expect.any(Function))
-    expect(removeEventListenerSpy).toHaveBeenCalledWith('offline', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('online', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('offline', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('pagehide', expect.any(Function))
+    expect(documentRemoveSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
 
-    removeEventListenerSpy.mockRestore()
+    windowRemoveSpy.mockRestore()
+    documentRemoveSpy.mockRestore()
+  })
+
+  it('triggers pushSnapshots when document becomes hidden', async () => {
+    await SyncBridge.initialize('test-account')
+
+    const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(mockSyncApi.pushSnapshots).toHaveBeenCalledTimes(1)
+
+    visibilitySpy.mockRestore()
   })
 
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {

@@ -194,9 +194,6 @@ export class SyncWorker implements SyncApi {
         case 'pollResult':
           this.handlePollResult(event.outcome)
           break
-        case 'snapshotNeeded':
-          this.context.snapshotManager.scheduleSnapshotPush(event.cursor)
-          break
       }
     })
 
@@ -318,7 +315,7 @@ export class SyncWorker implements SyncApi {
     this.context.orchestrator.flush()
   }
 
-  async pushSnapshots() { return this.context.snapshotManager.pushSnapshots() }
+  async pushSnapshots() { return this.context.snapshotManager.flushPendingSnapshots() }
   async retryRecoveryItem(itemId: ItemId) { await this.context.itemOperations.retryRecoveryItem(itemId) }
   async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceOverwriteRecoveryItem(itemId) }
   async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceDeleteRecoveryItem(itemId) }

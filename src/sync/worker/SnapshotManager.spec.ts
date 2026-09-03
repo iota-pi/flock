@@ -493,5 +493,79 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(manager['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
     })
   })
+
+  describe('Client-Side 30s Debounce & Max-Wait', () => {
+    it('pushes snapshot after 30 seconds of inactivity when an item is marked dirty', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Advance 29 seconds: should not have pushed yet
+      await vi.advanceTimersByTimeAsync(29_000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      // Advance 1 second (total 30s): push executes
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('resets the 30-second timer when another item is marked dirty before the timer expires', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 2,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Advance 20 seconds
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      // Edit another item -> resets 30s timer
+      manager.markItemDirty('item-2' as ItemId)
+
+      // Advance 20 seconds (total 40s from start, but only 20s from item-2)
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      // Advance another 10 seconds (30s after item-2) -> pushes both items
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('flushes after maxWait (5 minutes) even if continuous changes keep resetting the 30s timer', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      // Simulate typing every 10 seconds for 5 minutes (300 seconds)
+      for (let second = 0; second < 290; second += 10) {
+        manager.markItemDirty('item-1' as ItemId)
+        await vi.advanceTimersByTimeAsync(10_000)
+      }
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      // Advance to reach 300,000ms (5 minutes maxWait)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('immediately flushes pending snapshots on flushPendingSnapshots()', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      await manager.flushPendingSnapshots()
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 

@@ -11,6 +11,8 @@ import { LastModifiedStore } from './stores/LastModifiedStore'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
+  debounceDelayMs?: number
+  maxWaitMs?: number
 }
 
 const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
@@ -28,6 +30,11 @@ export class SnapshotManager {
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
   private readonly maxPayloadBytes: number
 
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null
+  private maxWaitTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly debounceDelayMs: number
+  private readonly maxWaitMs: number
+
   private readonly flushDirtyDocumentsToIndexDebounced = debounce(
     () => void this.flushDirtyDocumentsToIndex(),
     1000,
@@ -40,11 +47,14 @@ export class SnapshotManager {
       accountId: string
       repo: Repo
       broker: SyncMessageBroker
+      getLatestCursor?: () => number
     },
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
     this.maxPayloadBytes = options?.maxPayloadBytes ?? 350 * 1024
+    this.debounceDelayMs = options?.debounceDelayMs ?? 30_000
+    this.maxWaitMs = options?.maxWaitMs ?? 5 * 60 * 1000
   }
 
   async loadLastModified(): Promise<void> {
@@ -72,6 +82,44 @@ export class SnapshotManager {
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.flushDirtyDocumentsToIndexDebounced()
+    this.scheduleDebouncedSnapshotPush()
+  }
+
+  private scheduleDebouncedSnapshotPush() {
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer)
+    }
+
+    if (this.maxWaitTimer === null) {
+      this.maxWaitTimer = setTimeout(() => {
+        this.clearDebounceTimers()
+        void this.triggerSnapshotPush()
+      }, this.maxWaitMs)
+    }
+
+    this.debounceTimer = setTimeout(() => {
+      this.clearDebounceTimers()
+      void this.triggerSnapshotPush()
+    }, this.debounceDelayMs)
+  }
+
+  private clearDebounceTimers() {
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer)
+      this.debounceTimer = null
+    }
+    if (this.maxWaitTimer !== null) {
+      clearTimeout(this.maxWaitTimer)
+      this.maxWaitTimer = null
+    }
+  }
+
+  async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
+    this.clearDebounceTimers()
+    if (this.dirtyItems.size === 0 && !this.snapshotPushInFlight) {
+      return { persisted: 0, total: 0 }
+    }
+    return this.triggerSnapshotPush()
   }
 
   private updateLastModifiedForDirtyItems(): void {
@@ -92,18 +140,24 @@ export class SnapshotManager {
     this.saveLastModifiedDebounced()
   }
 
-  scheduleSnapshotPush(cursor: number) {
-    this.snapshotRequestCursor = cursor
+  scheduleSnapshotPush(cursor?: number) {
+    if (typeof cursor === 'number') {
+      this.snapshotRequestCursor = cursor
+    }
+    void this.triggerSnapshotPush()
+  }
+
+  async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
     if (this.retryTimeoutId !== null) {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
     }
     if (this.snapshotPushInFlight) {
       this.snapshotPushPending = true
-      return
+      return { persisted: 0, total: 0 }
     }
 
-    void this.pushSnapshots()
+    return this.pushSnapshots()
   }
 
   private scheduleRetry() {
@@ -118,7 +172,7 @@ export class SnapshotManager {
 
     this.retryTimeoutId = setTimeout(() => {
       this.retryTimeoutId = null
-      if (this.snapshotRequestCursor !== null) {
+      if (this.dirtyItems.size > 0) {
         void this.pushSnapshots()
       }
     }, delayMs)
@@ -126,13 +180,13 @@ export class SnapshotManager {
 
   onOnlineStateChange(isOnline: boolean) {
     if (isOnline) {
-      if (this.snapshotRequestCursor !== null && this.dirtyItems.size > 0) {
+      if (this.dirtyItems.size > 0) {
         this.retryAttempt = 0
         if (this.retryTimeoutId !== null) {
           clearTimeout(this.retryTimeoutId)
           this.retryTimeoutId = null
         }
-        void this.pushSnapshots()
+        void this.triggerSnapshotPush()
       }
     } else {
       if (this.retryTimeoutId !== null) {
@@ -148,10 +202,6 @@ export class SnapshotManager {
     dirtyItems: { itemId: ItemId; tick: number }[]
     snapshotCursor: number
   } | null> {
-    if (this.snapshotRequestCursor === null) {
-      return null
-    }
-
     const authToken = await getActiveSessionToken()
     if (!authToken) {
       return null
@@ -163,11 +213,13 @@ export class SnapshotManager {
       return null
     }
 
+    const snapshotCursor = this.snapshotRequestCursor ?? (this.deps.getLatestCursor ? this.deps.getLatestCursor() : 0)
+
     return {
       accountId: this.deps.accountId,
       authToken,
       dirtyItems,
-      snapshotCursor: this.snapshotRequestCursor,
+      snapshotCursor,
     }
   }
 
@@ -357,17 +409,14 @@ export class SnapshotManager {
       this.snapshotPushInFlight = false
 
       const hasDirtyDocs = this.dirtyItems.size > 0
-      const hasCursor = this.snapshotRequestCursor !== null
 
-      if (!success && hasDirtyDocs && hasCursor) {
+      if (!success && hasDirtyDocs) {
         this.scheduleRetry()
       }
 
       if (this.snapshotPushPending) {
         this.snapshotPushPending = false
-        if (this.snapshotRequestCursor !== null) {
-          this.scheduleSnapshotPush(this.snapshotRequestCursor)
-        }
+        void this.triggerSnapshotPush()
       }
     }
   }
@@ -382,6 +431,7 @@ export class SnapshotManager {
   }
 
   async shutdown(): Promise<void> {
+    this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
     if (this.retryTimeoutId !== null) {
@@ -399,6 +449,7 @@ export class SnapshotManager {
   }
 
   clear() {
+    this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
     this.dirtyItems.clear()

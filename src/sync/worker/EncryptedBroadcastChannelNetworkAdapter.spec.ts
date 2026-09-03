@@ -268,9 +268,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     innerMessageCallback(message1)
     innerMessageCallback(message2)
 
-    await new Promise(resolve => setTimeout(resolve, 60))
-
-    expect(mockMessageListener).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => {
+      expect(mockMessageListener).toHaveBeenCalledTimes(2)
+    }, { timeout: 1000 })
     expect(mockMessageListener.mock.calls[0][0].documentId).toBe('doc1')
     expect(Array.from(mockMessageListener.mock.calls[0][0].data)).toEqual([1, 1, 1])
     expect(mockMessageListener.mock.calls[1][0].documentId).toBe('doc2')
