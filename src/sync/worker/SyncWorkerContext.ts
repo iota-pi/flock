@@ -7,7 +7,6 @@ import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
-import { DeletionQueueManager } from './DeletionQueueManager'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -48,7 +47,6 @@ export class SyncWorkerContext {
   public readonly pullQueueManager: SyncPullQueueManager
   public readonly snapshotManager: SnapshotManager
   public readonly orchestrator: SyncOrchestrator
-  public readonly deletionQueueManager: DeletionQueueManager
   public readonly manifestSyncManager: ManifestSyncManager
   public readonly itemOperations: ItemOperations
 
@@ -84,12 +82,6 @@ export class SyncWorkerContext {
       deps.clientEventHub,
       deps.internalEventHub
     )
-
-    this.deletionQueueManager = new DeletionQueueManager({
-      accountId: deps.accountId,
-      docStore: this.docStore,
-      indexManager: this.indexManager,
-    })
 
     this.itemOperations = new ItemOperations({
       accountId: deps.accountId,
@@ -134,12 +126,6 @@ export class SyncWorkerContext {
       await this.pullQueueManager.shutdown()
     } catch (err) {
       console.error('[SyncWorkerContext] Error shutting down PullQueueManager', err)
-    }
-
-    try {
-      await this.deletionQueueManager.shutdown()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down DeletionQueueManager', err)
     }
 
     try {

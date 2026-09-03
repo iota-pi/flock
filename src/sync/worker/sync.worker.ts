@@ -182,7 +182,6 @@ export class SyncWorker implements SyncApi {
           this.syncStatusManager.finishRequest()
           break
         case 'indexUpdated': {
-          this.scheduleDeletions(event.itemIds)
           this.updateItemSubscriptions(event.itemIds)
           break
         }
@@ -222,7 +221,6 @@ export class SyncWorker implements SyncApi {
 
     this.clientEventHub.emit({ type: 'ready' })
     this.syncStatusManager.reset(this.isOnline)
-    this._context.deletionQueueManager.startTimer()
   }
 
   async setOnlineState(isOnline: boolean) {
@@ -280,14 +278,6 @@ export class SyncWorker implements SyncApi {
         this.unsubscribe(subscribedId)
       }
     }
-  }
-
-  scheduleDeletions(itemIds: ItemId[]) {
-    const newItemIdsSet = new Set(itemIds)
-    void this.context.deletionQueueManager.handleIndexChange(
-      newItemIdsSet,
-      this.subscribedIds,
-    ).catch(console.error)
   }
 
   private unsubscribe(itemId: ItemId) {

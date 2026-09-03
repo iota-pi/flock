@@ -26,19 +26,30 @@ export async function reencryptAllItems(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
 ): Promise<ReencryptResult> {
+  if (!deps?.accountId || !deps?.repo || !deps?.indexManager) {
+    throw new Error('SyncWorker not initialized')
+  }
+
   const { accountId, repo, indexManager } = deps
   const authToken = await getActiveSessionToken()
   if (!authToken) {
-    throw new Error('Authentication token not found in worker store')
+    throw new Error('No active session token available')
   }
 
   const allItemIds = await indexManager.listAutomergeItemIds()
   const total = allItemIds.length
+  if (total === 0) {
+    if (onProgress) {
+      onProgress(0, 0)
+    }
+    return { succeeded: [], failed: [] }
+  }
+
   let processed = 0
   const succeeded: ItemId[] = []
   const failed: Array<{ itemId: ItemId; error: string }> = []
 
-  const itemChunks = chunk(allItemIds, 25)
+  const itemChunks = chunk(allItemIds, 10)
 
   for (const chunkIds of itemChunks) {
     const snapshotPromises = chunkIds.map(async itemId => {
