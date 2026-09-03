@@ -1,11 +1,13 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
+import { chunk } from 'lodash'
+
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { ItemId } from 'src/shared/schemas/items'
-import type { EncryptedSnapshot } from 'src/shared/schemas/vault'
+import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 const MAX_BATCH_RETRIES = 3
 
@@ -24,39 +26,32 @@ export async function reencryptAllItems(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
 ): Promise<ReencryptResult> {
-  if (!deps.accountId || !deps.repo || !deps.indexManager) {
-    throw new Error('SyncWorker not initialized')
-  }
+  const { accountId, repo, indexManager } = deps
   const authToken = await getActiveSessionToken()
   if (!authToken) {
-    throw new Error('No active session token available')
+    throw new Error('Authentication token not found in worker store')
   }
 
-  const itemIds = await deps.indexManager.listAutomergeItemIds()
-  const total = itemIds.length
-  if (total === 0) {
-    if (onProgress) {
-      onProgress(0, 0)
-    }
-    return { succeeded: [], failed: [] }
-  }
-
-  const snapshotCursor = Date.now()
-  const batchSize = 10
+  const allItemIds = await indexManager.listAutomergeItemIds()
+  const total = allItemIds.length
+  let processed = 0
   const succeeded: ItemId[] = []
   const failed: Array<{ itemId: ItemId; error: string }> = []
 
-  for (let start = 0; start < total; start += batchSize) {
-    const chunkIds = itemIds.slice(start, start + batchSize)
+  const itemChunks = chunk(allItemIds, 25)
+
+  for (const chunkIds of itemChunks) {
     const snapshotPromises = chunkIds.map(async itemId => {
-      let lastError: unknown = null
-      for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
+      let retries = 0
+      let lastError: Error | null = null
+      while (retries < MAX_BATCH_RETRIES) {
         try {
-          return await buildSnapshot(deps.repo, itemId, snapshotCursor)
+          return await buildSnapshot(repo, itemId, 0)
         } catch (err) {
-          lastError = err
+          lastError = err instanceof Error ? err : new Error(String(err))
+          retries += 1
           console.warn(
-            `[reencryptAllItems] Attempt ${attempt} failed to build snapshot for item ${itemId}:`,
+            `[reencryptAllItems] Retry ${retries}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
             err
           )
         }
@@ -65,7 +60,7 @@ export async function reencryptAllItems(
     })
     const settled = await Promise.allSettled(snapshotPromises)
 
-    const readySnapshots: Array<{ itemId: ItemId; snapshot: EncryptedSnapshot }> = []
+    const readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }> = []
     for (const [index, result] of settled.entries()) {
       const itemId = chunkIds[index]
       if (result.status === 'fulfilled') {
@@ -110,7 +105,7 @@ export async function reencryptAllItems(
       for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
         try {
           const response = await putSnapshotsWithToken({
-            account: deps.accountId,
+            account: accountId,
             authToken,
             snapshots: readySnapshots.map(r => r.snapshot),
           })
@@ -122,7 +117,7 @@ export async function reencryptAllItems(
         } catch (err) {
           lastError = err
           console.warn(
-            `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch at index ${start}:`,
+            `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
             err
           )
         }
@@ -134,13 +129,13 @@ export async function reencryptAllItems(
         }
       } else {
         const errMsg =
-          `Failed to upload snapshots for batch starting at index ${start} after ${MAX_BATCH_RETRIES} attempts` +
-            (lastError instanceof Error ? `: ${lastError.message}` : '')
+          `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
+          (lastError instanceof Error ? `: ${lastError.message}` : '')
         console.error(`[reencryptAllItems] ${errMsg}`)
         for (const item of readySnapshots) {
           failed.push({ itemId: item.itemId, error: errMsg })
           try {
-            await upsertManualRecoveryEntry(deps.accountId, {
+            await upsertManualRecoveryEntry(accountId, {
               itemId: item.itemId,
               reason: `Re-encryption upload failed: ${errMsg}`,
             })
@@ -151,9 +146,9 @@ export async function reencryptAllItems(
       }
     }
 
+    processed += chunkIds.length
     if (onProgress) {
-      const done = Math.min(start + batchSize, total)
-      onProgress(done, total)
+      onProgress(Math.min(processed, total), total)
     }
   }
 

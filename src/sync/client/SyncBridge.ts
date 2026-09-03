@@ -336,11 +336,6 @@ class SyncBridgeService {
     return result
   }
 
-  async reencryptAllItems(onProgress: (done: number, total: number) => void) {
-    await this.ensureReady()
-    await this.syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
-  }
-
   async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean }) {
     if (!options?.internalRestart) {
       this.currentInitSession += 1

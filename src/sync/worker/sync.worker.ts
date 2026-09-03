@@ -22,6 +22,7 @@ import { IndexStore } from './stores/IndexStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWorkerContext } from './SyncWorkerContext'
+import type { WalEntry } from './SyncWriteAheadLog'
 import { normalizeItemSnapshot, RepoDoc } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
@@ -345,10 +346,10 @@ export class SyncWorker implements SyncApi {
   async exportSyncState(): Promise<BackupSyncState> {
     const context = this.context
     const cursors = context.broker.exportCursors()
-    const walMap = context.wal ? await context.wal.readAll() : new Map()
+    const walMap = context.wal ? await context.wal.readAll() : new Map<ItemId, WalEntry[]>()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
-      entries.map(e => e.data.toBase64()),
+      entries.map((e: WalEntry) => e.data.toBase64()),
     ])
     const lastModified = context.snapshotManager.exportLastModified()
 
