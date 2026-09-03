@@ -18,7 +18,7 @@ class SyncBridgeService {
   private workerInstance: Worker | null = null
   private currentAccountId: string | null = null
   private readonly ITEM_UPDATE_BATCH_MAX = 50
-  private onlineListenerAttached = false
+  private onlineHandler: (() => void) | null = null
 
   private pendingItemUpdates = new Map<string, Item | null>()
   private itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
@@ -189,21 +189,19 @@ class SyncBridgeService {
 
         this.syncApi = wrappedApi
 
-        if (!this.onlineListenerAttached) {
-          this.onlineListenerAttached = true
-
-          const handleOnlineStateChange = () => {
+        if (!this.onlineHandler) {
+          this.onlineHandler = () => {
             if (!this.syncApi) return
             void this.syncApi.setOnlineState(getOnlineState())
           }
 
           window.addEventListener(
             'online',
-            handleOnlineStateChange,
+            this.onlineHandler,
           )
           window.addEventListener(
             'offline',
-            handleOnlineStateChange,
+            this.onlineHandler,
           )
         }
 
@@ -400,6 +398,12 @@ class SyncBridgeService {
         listener([])
       }
       this.recoveryEntriesListeners.clear()
+
+      if (this.onlineHandler) {
+        window.removeEventListener('online', this.onlineHandler)
+        window.removeEventListener('offline', this.onlineHandler)
+        this.onlineHandler = null
+      }
     }
   }
 

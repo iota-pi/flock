@@ -330,6 +330,18 @@ describe('SyncBridge', () => {
     onLineSpy.mockRestore()
   })
 
+  it('removes online and offline event listeners on shutdown', async () => {
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
+
+    await SyncBridge.initialize('test-account')
+    await SyncBridge.shutdown()
+
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('online', expect.any(Function))
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('offline', expect.any(Function))
+
+    removeEventListenerSpy.mockRestore()
+  })
+
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
     let worker1Terminate: any
     let worker2Terminate: any
