@@ -14,7 +14,10 @@ export const syncRouter = router({
     .mutation(async ({ ctx, input }) => {
       const repository = createDynamoAutomergeSyncRepository(ctx.vault)
       const service = createAutomergeSyncService({ repository })
-      return service.pushAutomergeSyncBatch(input)
+      return service.pushAutomergeSyncBatch({
+        ...input,
+        account: ctx.account,
+      })
     }),
 
   pollSync: protectedProcedure
@@ -24,21 +27,21 @@ export const syncRouter = router({
       const service = createAutomergeSyncService({ repository })
 
       const account = await ctx.vault.getAccount({
-        account: input.account,
+        account: ctx.account,
         session: ctx.authToken,
       })
 
       let pushResults: Array<{ itemId: ItemId; cursor: number }> = []
       if (input.pushMessages.length > 0) {
         const pushResult = await service.pushAutomergeSyncBatch({
-          account: input.account,
+          account: ctx.account,
           messages: input.pushMessages,
         })
         pushResults = pushResult.results
       }
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
-      
+
       if (typeof input.clientLatestCursor === 'number') {
         if (input.clientLatestCursor > 0 && input.clientLatestCursor >= (account.latestSyncCursor ?? 0)) {
           // Fast Path: Client is fully up to date globally, skip database query
