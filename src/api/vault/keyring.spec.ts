@@ -16,6 +16,11 @@ import {
   handleSessionExpired,
   readCachedKeyring,
   KEYRING_CACHE_KEY,
+  hasVaultKey,
+  waitForKeyVersion,
+  broadcastVaultEvent,
+  reloadKeyringFromStorage,
+  VAULT_EVENTS_CHANNEL,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
@@ -458,5 +463,75 @@ describe('Vault Keyring Integration', () => {
     ).rejects.toThrow(/Incorrect password/)
 
     expect(() => getVaultKey('1')).toThrow()
+  })
+
+  describe('Cross-tab key version utilities & storage reload', () => {
+    it('correctly reports hasVaultKey for existing and missing versions', async () => {
+      await initialiseVault({ password: 'password123', salt: 'salt123', iterations: 1000 })
+      expect(hasVaultKey('1')).toBe(true)
+      expect(hasVaultKey()).toBe(true)
+      expect(hasVaultKey('2')).toBe(false)
+      expect(hasVaultKey('99')).toBe(false)
+    })
+
+    it('resolves waitForKeyVersion when key is imported via initWorkerVault', async () => {
+      await initialiseVault({ password: 'password123', salt: 'salt123', iterations: 1000 })
+      const exported = await exportKeyringData()
+
+      // Reset keyring
+      await removeVaultFromDevice()
+      expect(hasVaultKey('1')).toBe(false)
+
+      // Start waiting for version 1
+      const waitPromise = waitForKeyVersion('1', 2000)
+
+      // Now worker receives and imports the key
+      await initWorkerVault(exported)
+
+      const result = await waitPromise
+      expect(result).toBe(true)
+      expect(hasVaultKey('1')).toBe(true)
+    })
+
+    it('returns false from waitForKeyVersion on timeout', async () => {
+      const result = await waitForKeyVersion('nonexistent-ver', 50)
+      expect(result).toBe(false)
+    })
+
+    it('reloadKeyringFromStorage successfully decrypts and returns keyringData', async () => {
+      await loginVault({
+        account: 'test-account',
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+      await storeVault('test-account')
+
+      const result = await reloadKeyringFromStorage('test-account')
+      expect(result.success).toBe(true)
+      expect(result.passwordChanged).toBeUndefined()
+      expect(result.keyringData).toBeDefined()
+    })
+
+    it('reloadKeyringFromStorage detects passwordChanged when cached keyring cannot be decrypted', async () => {
+      await loginVault({
+        account: 'test-account',
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+
+      // Corrupt the cached keyring
+      localStorage.setItem(KEYRING_CACHE_KEY, JSON.stringify({
+        iv: 'invalid',
+        cipher: 'invalid-cipher-data',
+        kver: '1',
+        version: '1.0',
+      }))
+
+      const result = await reloadKeyringFromStorage('test-account')
+      expect(result.success).toBe(false)
+      expect(result.passwordChanged).toBe(true)
+    })
   })
 })

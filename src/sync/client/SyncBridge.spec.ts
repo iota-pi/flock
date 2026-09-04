@@ -8,6 +8,10 @@ import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 vi.mock('src/api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
+  reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
+  lockVault: vi.fn().mockResolvedValue(undefined),
+  KEYRING_CACHE_KEY: 'FlockKeyringCache',
+  VAULT_EVENTS_CHANNEL: 'flock-vault-events',
 }))
 
 
@@ -45,11 +49,16 @@ vi.mock('comlink', () => {
   }
 })
 
+let lastEventPort: MessagePort | null = null
+
 class MockWorker {
   url: string
   options: any
   terminate = vi.fn()
   postMessage = vi.fn((data: any) => {
+    if (data && data.type === 'EVENT_PORT' && data.port) {
+      lastEventPort = data.port
+    }
     if (data && data.type === 'INIT_PING_PORT' && data.port) {
       const port = data.port
       const reply = () => {
@@ -341,6 +350,7 @@ describe('SyncBridge', () => {
     expect(windowRemoveSpy).toHaveBeenCalledWith('online', expect.any(Function))
     expect(windowRemoveSpy).toHaveBeenCalledWith('offline', expect.any(Function))
     expect(windowRemoveSpy).toHaveBeenCalledWith('pagehide', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('storage', expect.any(Function))
     expect(documentRemoveSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
 
     windowRemoveSpy.mockRestore()
@@ -356,6 +366,63 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.pushSnapshots).toHaveBeenCalledTimes(1)
 
     visibilitySpy.mockRestore()
+  })
+
+  it('reloads keyring and updates worker on storage event for KEYRING_CACHE_KEY', async () => {
+    const { reloadKeyringFromStorage } = await import('src/api/vault')
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+      success: true,
+      keyringData: 'new-keyring-version-2',
+    })
+
+    await SyncBridge.initialize('test-account')
+
+    const storageEvent = new StorageEvent('storage', {
+      key: 'FlockKeyringCache',
+    })
+    window.dispatchEvent(storageEvent)
+
+    await vi.waitFor(() => {
+      expect(reloadKeyringFromStorage).toHaveBeenCalledWith('test-account')
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-2')
+    })
+  })
+
+  it('locks vault when storage reload indicates passwordChanged', async () => {
+    const { reloadKeyringFromStorage, lockVault } = await import('src/api/vault')
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+      success: false,
+      passwordChanged: true,
+    })
+
+    await SyncBridge.initialize('test-account')
+
+    const storageEvent = new StorageEvent('storage', {
+      key: 'FlockKeyringCache',
+    })
+    window.dispatchEvent(storageEvent)
+
+    await vi.waitFor(() => {
+      expect(lockVault).toHaveBeenCalled()
+    })
+  })
+
+  it('reloads keyring and updates worker when keyVersionMissing event is received', async () => {
+    const { reloadKeyringFromStorage } = await import('src/api/vault')
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+      success: true,
+      keyringData: 'new-keyring-version-3',
+    })
+
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '3' })
+
+    await vi.waitFor(() => {
+      expect(reloadKeyringFromStorage).toHaveBeenCalledWith('test-account')
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-3')
+    })
   })
 
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {

@@ -134,7 +134,9 @@ export class SyncWorker implements SyncApi {
 
     this.adapter = new VaultNetworkAdapter()
     this.repoManager = new AutomergeRepoManager(accountId)
-    const repo = this.repoManager.init(this.adapter)
+    const repo = this.repoManager.init(this.adapter, {
+      onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+    })
 
     const cursorStore = new CursorStore(accountId)
     const indexStore = new IndexStore(accountId)

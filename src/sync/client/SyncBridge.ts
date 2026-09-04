@@ -3,7 +3,12 @@ import * as Comlink from 'comlink'
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
-import { exportKeyringData } from 'src/api/vault'
+import {
+  exportKeyringData,
+  KEYRING_CACHE_KEY,
+  VAULT_EVENTS_CHANNEL,
+  type VaultBroadcastEvent,
+} from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
 import type { BackupSyncState } from 'src/types/backup'
@@ -20,6 +25,8 @@ class SyncBridgeService {
   private readonly ITEM_UPDATE_BATCH_MAX = 50
   private onlineHandler: (() => void) | null = null
   private visibilityHandler: (() => void) | null = null
+  private storageHandler: ((event: StorageEvent) => void) | null = null
+  private vaultEventsChannel: BroadcastChannel | null = null
 
   private pendingItemUpdates = new Map<string, Item | null>()
   private itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
@@ -107,6 +114,23 @@ class SyncBridgeService {
         syncStore.setSyncWarning(event.message)
         break
       }
+      case 'keyVersionMissing':
+        void this.handleKeyringUpdate()
+        break
+    }
+  }
+
+  private handleKeyringUpdate = async () => {
+    if (!this.currentAccountId) return
+    const { reloadKeyringFromStorage, lockVault } = await import('src/api/vault')
+    const result = await reloadKeyringFromStorage(this.currentAccountId)
+    if (result.passwordChanged) {
+      console.warn('[SyncBridge] Password changed in another tab/device. Locking vault.')
+      await lockVault()
+      return
+    }
+    if (result.success && result.keyringData && this.syncApi) {
+      await this.syncApi.updateVaultKey(result.keyringData)
     }
   }
 
@@ -215,6 +239,28 @@ class SyncBridgeService {
 
           document.addEventListener('visibilitychange', this.visibilityHandler)
           window.addEventListener('pagehide', this.visibilityHandler)
+        }
+
+        if (!this.storageHandler && typeof window !== 'undefined') {
+          this.storageHandler = (event: StorageEvent) => {
+            if (event.key === KEYRING_CACHE_KEY) {
+              void this.handleKeyringUpdate()
+            }
+          }
+          window.addEventListener('storage', this.storageHandler)
+        }
+
+        if (!this.vaultEventsChannel && typeof BroadcastChannel !== 'undefined') {
+          try {
+            this.vaultEventsChannel = new BroadcastChannel(VAULT_EVENTS_CHANNEL)
+            this.vaultEventsChannel.onmessage = (ev: MessageEvent<VaultBroadcastEvent>) => {
+              if (ev.data?.type === 'KEY_ROTATED' || ev.data?.type === 'PASSWORD_CHANGED') {
+                void this.handleKeyringUpdate()
+              }
+            }
+          } catch (err) {
+            console.warn('[SyncBridge] Failed to create vault events BroadcastChannel:', err)
+          }
         }
 
         this.initRetryCount = 0
@@ -421,6 +467,16 @@ class SyncBridgeService {
         document.removeEventListener('visibilitychange', this.visibilityHandler)
         window.removeEventListener('pagehide', this.visibilityHandler)
         this.visibilityHandler = null
+      }
+
+      if (this.storageHandler) {
+        window.removeEventListener('storage', this.storageHandler)
+        this.storageHandler = null
+      }
+
+      if (this.vaultEventsChannel) {
+        this.vaultEventsChannel.close()
+        this.vaultEventsChannel = null
       }
     }
   }

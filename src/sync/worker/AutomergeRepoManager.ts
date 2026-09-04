@@ -32,13 +32,17 @@ export function getAutomergeDBName(accountId: string): string {
   return `flock-automerge-db-${accountId}`
 }
 
+export interface AutomergeRepoManagerOptions {
+  onKeyVersionMissing?: (kver: string) => void
+}
+
 export class AutomergeRepoManager {
   private repo: Repo | null = null
   private indexedDbAdapter: FlockIndexedDBStorageAdapter | null = null
 
   constructor(private readonly accountId: string) {}
 
-  init(vaultNetworkAdapter: VaultNetworkAdapter): Repo {
+  init(vaultNetworkAdapter: VaultNetworkAdapter, options?: AutomergeRepoManagerOptions): Repo {
     if (this.repo) {
       throw new Error(`Automerge repo for account ${this.accountId} has already been initialized`)
     }
@@ -51,6 +55,7 @@ export class AutomergeRepoManager {
       network: [
         new EncryptedBroadcastChannelNetworkAdapter({
           channelName: `flock-automerge-broadcast-${this.accountId}`,
+          onKeyVersionMissing: options?.onKeyVersionMissing,
         }),
         vaultNetworkAdapter,
       ],

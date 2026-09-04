@@ -105,6 +105,87 @@ function getActiveKey(): CryptoKey {
 }
 
 
+export function hasVaultKey(kver?: string): boolean {
+  if (!kver) {
+    return keyring.has(activeKeyVersion)
+  }
+  return keyring.has(kver)
+}
+
+type KeyVersionWaiter = {
+  kver: string
+  resolve: (found: boolean) => void
+  timer: ReturnType<typeof setTimeout>
+}
+const pendingKeyWaiters = new Set<KeyVersionWaiter>()
+
+export function waitForKeyVersion(kver: string, timeoutMs = 5000): Promise<boolean> {
+  if (hasVaultKey(kver)) {
+    return Promise.resolve(true)
+  }
+  return new Promise(resolve => {
+    const waiter: KeyVersionWaiter = {
+      kver,
+      resolve: (found: boolean) => {
+        pendingKeyWaiters.delete(waiter)
+        clearTimeout(waiter.timer)
+        resolve(found)
+      },
+      timer: setTimeout(() => {
+        pendingKeyWaiters.delete(waiter)
+        resolve(false)
+      }, timeoutMs),
+    }
+    pendingKeyWaiters.add(waiter)
+  })
+}
+
+function notifyKeyWaiters(): void {
+  for (const waiter of Array.from(pendingKeyWaiters)) {
+    if (hasVaultKey(waiter.kver)) {
+      waiter.resolve(true)
+    }
+  }
+}
+
+export const VAULT_EVENTS_CHANNEL = 'flock-vault-events'
+
+export type VaultBroadcastEvent =
+  | { type: 'KEY_ROTATED'; account: string; keyVersion: string }
+  | { type: 'PASSWORD_CHANGED'; account: string }
+
+export function broadcastVaultEvent(event: VaultBroadcastEvent): void {
+  if (typeof BroadcastChannel === 'undefined') return
+  try {
+    const channel = new BroadcastChannel(VAULT_EVENTS_CHANNEL)
+    channel.postMessage(event)
+    channel.close()
+  } catch (err) {
+    console.warn('[vault] Failed to broadcast vault event:', err)
+  }
+}
+
+export async function reloadKeyringFromStorage(account?: string): Promise<{
+  success: boolean
+  passwordChanged?: boolean
+  keyringData?: string
+}> {
+  const cachedKeyring = readCachedKeyring()
+  if (!cachedKeyring) {
+    return { success: false }
+  }
+
+  try {
+    await loadKeyringFromEncrypted(cachedKeyring)
+    notifyKeyWaiters()
+    const keyringData = await exportKeyringData()
+    return { success: true, keyringData }
+  } catch (err) {
+    console.warn('[vault] Failed to decrypt cached keyring with current masterKey:', err)
+    return { success: false, passwordChanged: true }
+  }
+}
+
 export function getVaultKey(kver?: string): CryptoKey {
   if (!kver) {
     return getActiveKey()
@@ -271,6 +352,8 @@ export async function initWorkerVault(vaultKeyOrKeyring: string) {
     activeKeyVersion = '1'
   }
 
+  notifyKeyWaiters()
+
   const sessionToken = await getActiveSessionToken()
   if (sessionToken) {
     setApiAuthToken(sessionToken)
@@ -381,6 +464,11 @@ function clearKeyData() {
   session = ''
   activeAccount = ''
   setApiAuthToken('')
+  for (const waiter of pendingKeyWaiters) {
+    clearTimeout(waiter.timer)
+    waiter.resolve(false)
+  }
+  pendingKeyWaiters.clear()
 }
 
 export async function lockVault() {
@@ -506,6 +594,7 @@ export async function changePassword(account: string, currentPassword: string, n
     saltVersion: newSaltVersion,
   })
   await establishSessionFromKeyHash(account, newAuthToken)
+  broadcastVaultEvent({ type: 'PASSWORD_CHANGED', account })
 }
 
 export async function rotateVaultKey(account: string): Promise<void> {
@@ -514,8 +603,10 @@ export async function rotateVaultKey(account: string): Promise<void> {
   const nextActiveVer = (currentActiveVer + 1).toString()
   keyring.set(nextActiveVer, newKey)
   activeKeyVersion = nextActiveVer
+  notifyKeyWaiters()
   try {
     await storeVault(account)
+    broadcastVaultEvent({ type: 'KEY_ROTATED', account, keyVersion: nextActiveVer })
   } catch (err) {
     keyring.delete(nextActiveVer)
     activeKeyVersion = currentActiveVer.toString()

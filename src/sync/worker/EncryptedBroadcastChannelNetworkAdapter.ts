@@ -9,18 +9,28 @@ import {
   type BroadcastChannelNetworkAdapterOptions,
 } from '@automerge/automerge-repo-network-broadcastchannel'
 
-import { encryptBytes, decryptBytes, type CryptoResult } from 'src/api/vault'
+import {
+  encryptBytes,
+  decryptBytes,
+  hasVaultKey,
+  waitForKeyVersion,
+  type CryptoResult,
+} from 'src/api/vault'
 
+export interface EncryptedBroadcastChannelOptions extends BroadcastChannelNetworkAdapterOptions {
+  onKeyVersionMissing?: (kver: string) => void
+  keyWaitTimeoutMs?: number
+}
 
 export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
-  private options?: BroadcastChannelNetworkAdapterOptions
+  private options?: EncryptedBroadcastChannelOptions
   private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: Message[] = []
   private isSending = false
   private receiveQueue: Message[] = []
   private isReceiving = false
 
-  constructor(options?: BroadcastChannelNetworkAdapterOptions) {
+  constructor(options?: EncryptedBroadcastChannelOptions) {
     super()
     this.options = options
     this.setupInner()
@@ -99,6 +109,20 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           if (message.type === 'sync' && message.data) {
             const jsonString = new TextDecoder().decode(message.data)
             const cryptoResult = JSON.parse(jsonString) as CryptoResult
+            const kver = cryptoResult.kver || '1'
+
+            if (!hasVaultKey(kver)) {
+              if (this.options?.onKeyVersionMissing) {
+                this.options.onKeyVersionMissing(kver)
+              }
+              const timeout = this.options?.keyWaitTimeoutMs ?? 5000
+              const keyAcquired = await waitForKeyVersion(kver, timeout)
+              if (!keyAcquired) {
+                console.warn(`[EncryptedBroadcastChannel] Timed out waiting for key version ${kver}. Dropping message.`)
+                continue
+              }
+            }
+
             const decryptedData = await decryptBytes(cryptoResult)
             this.emit('message', { ...message, data: decryptedData })
           } else {
