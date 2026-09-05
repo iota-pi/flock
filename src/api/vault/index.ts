@@ -486,7 +486,11 @@ export async function removeVaultFromDevice() {
   const { useAppStore } = await import('src/state/store')
   const { account, updateAuth } = useAppStore.getState()
 
-  await SyncBridge.shutdown({ clearLocalData: true })
+  if (account) {
+    SyncBridge.requestClearOnShutdown?.(account)
+  }
+
+  await SyncBridge.shutdown({ clearLocalData: true, accountId: account })
 
   if (account) {
     try {
@@ -494,6 +498,8 @@ export async function removeVaultFromDevice() {
     } catch (error) {
       console.error('Failed to unsubscribe from notifications', error)
     }
+    const { clearSyncBatch } = await import('src/sync/shared/VaultPersistence')
+    await clearSyncBatch(account).catch(console.error)
     await SyncWriteAheadLog.clear(account)
     await clearManualRecoveryEntries(account)
   }

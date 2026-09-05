@@ -16,12 +16,56 @@ import type { ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
 import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
+import { getAutomergeDBName } from '../worker/AutomergeRepoManager'
+import { IndexStore } from '../worker/stores/IndexStore'
+import { CursorStore } from '../worker/stores/CursorStore'
+import { LastModifiedStore } from '../worker/stores/LastModifiedStore'
+import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
+import { clearSyncBatch } from '../shared/VaultPersistence'
+import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
 
+export async function clearAutomergeIndexedDb(accountId: string): Promise<void> {
+  const dbName = getAutomergeDBName(accountId)
+  if (typeof indexedDB !== 'undefined') {
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase(dbName)
+      req.onsuccess = () => resolve()
+      req.onerror = () => {
+        console.error(`[SyncBridge] Error deleting IndexedDB database ${dbName}:`, req.error)
+        resolve()
+      }
+      req.onblocked = () => {
+        console.warn(`[SyncBridge] deleteDatabase blocked for ${dbName}`)
+        resolve()
+      }
+    })
+  }
+}
+
+export async function clearAccountLocalData(accountId: string): Promise<void> {
+  if (!accountId) return
+  try {
+    await Promise.allSettled([
+      clearAutomergeIndexedDb(accountId),
+      new IndexStore(accountId).clear().catch(err => console.error('[SyncBridge] Failed to clear IndexStore', err)),
+      new CursorStore(accountId).clear().catch(err => console.error('[SyncBridge] Failed to clear CursorStore', err)),
+      new LastModifiedStore(accountId).clear().catch(err => console.error('[SyncBridge] Failed to clear LastModifiedStore', err)),
+      SyncWriteAheadLog.clear(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
+      clearSyncBatch(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncBatch', err)),
+      clearManualRecoveryEntries(accountId).catch(err => console.error('[SyncBridge] Failed to clear ManualRecovery', err)),
+    ])
+  } catch (err) {
+    console.error(`[SyncBridge] Error clearing local data for account ${accountId}:`, err)
+  }
+}
 
 class SyncBridgeService {
   private syncApi: Comlink.Remote<SyncApi> | null = null
   private workerInstance: Worker | null = null
   private currentAccountId: string | null = null
+  private lastKnownAccountId: string | null = null
+  private pendingClearLocalData = false
+  private activeShutdownPromise: Promise<void> | null = null
   private readonly ITEM_UPDATE_BATCH_MAX = 50
   private onlineHandler: (() => void) | null = null
   private visibilityHandler: (() => void) | null = null
@@ -42,6 +86,21 @@ class SyncBridgeService {
   private static readonly MAX_INIT_RETRIES = 5
   private static readonly INIT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000]
   private _restartResolve: (() => void) | null = null
+
+  requestClearOnShutdown(accountId?: string): void {
+    this.pendingClearLocalData = true
+    if (accountId) {
+      this.lastKnownAccountId = accountId
+    }
+  }
+
+  isClearingLocalData(): boolean {
+    return this.pendingClearLocalData
+  }
+
+  hasPendingClear(): boolean {
+    return this.pendingClearLocalData
+  }
 
   private flushItemUpdates = () => {
     if (this.pendingItemUpdates.size === 0) return
@@ -149,11 +208,16 @@ class SyncBridgeService {
       return this.initializationPromise
     }
 
+    this.lastKnownAccountId = accountId
+    this.pendingClearLocalData = false
     this.currentAccountId = accountId
     this.currentInitSession += 1
     const initSession = this.currentInitSession
 
     this.initializationPromise = (async () => {
+      if (this.activeShutdownPromise) {
+        await this.activeShutdownPromise
+      }
       if (this.syncApi || this.workerInstance) {
         await this.shutdown({ internalRestart: true })
       }
@@ -392,7 +456,43 @@ class SyncBridgeService {
     return result
   }
 
-  async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean }) {
+  async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
+    if (options?.clearLocalData) {
+      this.pendingClearLocalData = true
+    }
+    if (options?.accountId) {
+      this.lastKnownAccountId = options.accountId
+    } else if (this.currentAccountId) {
+      this.lastKnownAccountId = this.currentAccountId
+    }
+
+    if (this.activeShutdownPromise) {
+      await this.activeShutdownPromise
+      if (this.pendingClearLocalData) {
+        const targetAccountId = this.lastKnownAccountId || useAppStore.getState().account
+        if (targetAccountId) {
+          await clearAccountLocalData(targetAccountId)
+        }
+        this.pendingClearLocalData = false
+      }
+      return
+    }
+
+    const shutdownPromise = this._performShutdown(options)
+    this.activeShutdownPromise = shutdownPromise
+    try {
+      await shutdownPromise
+    } finally {
+      if (this.activeShutdownPromise === shutdownPromise) {
+        this.activeShutdownPromise = null
+      }
+    }
+  }
+
+  private async _performShutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
+    const shouldClearLocalData = Boolean(options?.clearLocalData || this.pendingClearLocalData)
+    const targetAccountId = options?.accountId || this.currentAccountId || this.lastKnownAccountId || useAppStore.getState().account
+
     if (!options?.internalRestart) {
       this.currentInitSession += 1
       this.initializationPromise = null
@@ -427,7 +527,10 @@ class SyncBridgeService {
     if (oldSyncApi) {
       try {
         await Promise.race([
-          oldSyncApi.shutdown(options),
+          oldSyncApi.shutdown({
+            ...options,
+            clearLocalData: shouldClearLocalData,
+          }),
           new Promise<void>((_, reject) =>
             setTimeout(() => reject(new Error('Sync worker shutdown timed out')), 1000)
           ),
@@ -478,6 +581,11 @@ class SyncBridgeService {
         this.vaultEventsChannel.close()
         this.vaultEventsChannel = null
       }
+    }
+
+    if (shouldClearLocalData && targetAccountId) {
+      await clearAccountLocalData(targetAccountId)
+      this.pendingClearLocalData = false
     }
   }
 
@@ -566,7 +674,12 @@ class SyncBridgeService {
     failed: Array<{ itemId: ItemId; error: string }>
   }> {
     await this.ensureReady()
-    return this.syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
+    const refreshAuthToken = Comlink.proxy(async () => {
+      const { handleSessionExpired, getVaultSession } = await import('src/api/vault')
+      await handleSessionExpired()
+      return getVaultSession() || null
+    })
+    return this.syncApi!.reencryptAllItems(Comlink.proxy(onProgress), refreshAuthToken)
   }
 
   async exportSyncState(): Promise<BackupSyncState> {

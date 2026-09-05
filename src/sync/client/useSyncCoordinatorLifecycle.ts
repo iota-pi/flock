@@ -39,7 +39,10 @@ export default function useSyncCoordinatorLifecycle(
 
       return () => {
         window.removeEventListener('online', handleOnline)
-        void SyncBridge.shutdown().catch(error => {
+        if (SyncBridge.isClearingLocalData?.()) {
+          return
+        }
+        void SyncBridge.shutdown({ accountId: account }).catch(error => {
           console.error('[useSyncCoordinatorLifecycle] shutdown failed', error)
         })
       }

@@ -836,6 +836,78 @@ describe('SyncBridge', () => {
       expect(listResult).toEqual(entries)
     })
 
+    it('clears local data when shutdown({ clearLocalData: true }) is called after syncApi is already null', async () => {
+      await SyncBridge.initialize('test-account-cleared')
+      // Simulate unmount shutdown without args
+      await SyncBridge.shutdown()
+
+      // Now explicit logout occurs when syncApi is null
+      await expect(SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-cleared' })).resolves.not.toThrow()
+    })
+
+    it('preserves clearLocalData instruction when concurrent shutdown() is followed by shutdown({ clearLocalData: true })', async () => {
+      const { SyncWriteAheadLog } = await import('../worker/SyncWriteAheadLog')
+      const walClearSpy = vi.spyOn(SyncWriteAheadLog, 'clear')
+
+      await SyncBridge.initialize('test-account-race-1')
+
+      let resolveShutdown: () => void = () => {}
+      mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
+        resolveShutdown = resolve
+      }))
+
+      // Unmount starts shutdown without clearLocalData
+      const unmountShutdown = SyncBridge.shutdown()
+
+      // Logout thunk immediately calls shutdown with clearLocalData: true
+      const logoutShutdown = SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-race-1' })
+
+      resolveShutdown()
+      await unmountShutdown
+      await logoutShutdown
+
+      expect(walClearSpy).toHaveBeenCalledWith('test-account-race-1')
+      expect(SyncBridge.isClearingLocalData()).toBe(false)
+      walClearSpy.mockRestore()
+    })
+
+    it('preserves clearLocalData instruction when shutdown({ clearLocalData: true }) is followed by unmount shutdown()', async () => {
+      await SyncBridge.initialize('test-account-race-2')
+
+      let resolveShutdown: () => void = () => {}
+      mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
+        resolveShutdown = resolve
+      }))
+
+      // Logout thunk starts shutdown with clearLocalData: true
+      const logoutShutdown = SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-race-2' })
+
+      // Unmount effect fires shutdown without args while logout is in-flight
+      const unmountShutdown = SyncBridge.shutdown()
+
+      resolveShutdown()
+      await logoutShutdown
+      await unmountShutdown
+
+      expect(mockSyncApi.shutdown).toHaveBeenCalledWith(
+        expect.objectContaining({ clearLocalData: true })
+      )
+    })
+
+    it('executes clearLocalData if requestClearOnShutdown was called before unmount shutdown', async () => {
+      await SyncBridge.initialize('test-account-preempt')
+
+      SyncBridge.requestClearOnShutdown('test-account-preempt')
+      expect(SyncBridge.isClearingLocalData()).toBe(true)
+
+      await SyncBridge.shutdown()
+
+      expect(mockSyncApi.shutdown).toHaveBeenCalledWith(
+        expect.objectContaining({ clearLocalData: true })
+      )
+      expect(SyncBridge.isClearingLocalData()).toBe(false)
+    })
+
   })
 })
 
