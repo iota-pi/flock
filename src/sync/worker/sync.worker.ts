@@ -324,11 +324,15 @@ export class SyncWorker implements SyncApi {
   async dismissRecoveryItem(entryId: string) { await this.context.itemOperations.dismissRecoveryItem(entryId) }
   async listRecoveryItems() { return this.context.itemOperations.listRecoveryItems() }
   async updateVaultKey(vaultKey: string) { await initWorkerVault(vaultKey) }
-  async reencryptAllItems(onProgress: (done: number, total: number) => void) {
+  async reencryptAllItems(
+    onProgress: (done: number, total: number) => void,
+    refreshAuthToken?: () => Promise<string | null>
+  ) {
     return await reencryptAllItems({
       accountId: this.context.accountId,
       repo: this.context.repo,
       indexManager: this.context.indexManager,
+      refreshAuthToken,
     }, onProgress)
   }
 

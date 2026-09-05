@@ -134,7 +134,13 @@ export class SyncMessageBroker {
     return this.pullQueueManager.hasPendingPulls()
   }
 
+  abortPoll(): void {
+    this.syncPoller.shutdown()
+  }
+
   async shutdown(): Promise<void> {
+    this.syncPoller.shutdown()
     await this.pullQueueManager.shutdown()
   }
 }
+

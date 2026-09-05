@@ -13,6 +13,7 @@ export class SyncOrchestrator {
   private isShutdown = false
 
   private pendingFlush = false
+  private activePollPromise: Promise<void> | null = null
 
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
@@ -176,41 +177,53 @@ export class SyncOrchestrator {
     if (!force && this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
-    let outcome: PollOutcome
-    try {
-      outcome = await this.broker.executePoll()
-    } catch (_) {
-      outcome = 'failure'
-    } finally {
-      this.isPolling = false
-    }
+    const pollTask = async () => {
+      let outcome: PollOutcome
+      try {
+        outcome = await this.broker.executePoll()
+      } catch (_) {
+        outcome = 'failure'
+      } finally {
+        this.isPolling = false
+      }
 
-    if (this.isShutdown) return
+      if (this.isShutdown) return
 
-    if (outcome === 'auth-failure') {
-      this.pollingPausedForAuth = true
-      this.stopPolling()
-      this.clientEventHub.emit({ type: 'authFailure', message: 'Sync paused: your session has expired. Please sign in again.' })
+      if (outcome === 'auth-failure') {
+        this.pollingPausedForAuth = true
+        this.stopPolling()
+        this.clientEventHub.emit({ type: 'authFailure', message: 'Sync paused: your session has expired. Please sign in again.' })
+        this.internalEventHub.emit({ type: 'pollResult', outcome })
+        return
+      }
+
+      const wasFlushPending = this.pendingFlush
+      this.pendingFlush = false
+
+      if (outcome === 'failure') {
+        this.increasePollBackoff()
+      } else {
+        this.resetPollBackoff()
+        this.pollingPausedForAuth = false
+      }
+
       this.internalEventHub.emit({ type: 'pollResult', outcome })
-      return
+
+      if (wasFlushPending || (outcome === 'success' && this.broker.hasPendingPulls())) {
+        this.scheduleNextPoll(0)
+      } else {
+        this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+      }
     }
 
-    const wasFlushPending = this.pendingFlush
-    this.pendingFlush = false
-
-    if (outcome === 'failure') {
-      this.increasePollBackoff()
-    } else {
-      this.resetPollBackoff()
-      this.pollingPausedForAuth = false
-    }
-
-    this.internalEventHub.emit({ type: 'pollResult', outcome })
-
-    if (wasFlushPending || (outcome === 'success' && this.broker.hasPendingPulls())) {
-      this.scheduleNextPoll(0)
-    } else {
-      this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+    const currentPoll = pollTask()
+    this.activePollPromise = currentPoll
+    try {
+      await currentPoll
+    } finally {
+      if (this.activePollPromise === currentPoll) {
+        this.activePollPromise = null
+      }
     }
   }
 
@@ -222,5 +235,10 @@ export class SyncOrchestrator {
       this.leaderElection = null
     }
     this.stopPolling()
+
+    this.broker.abortPoll?.()
+    if (this.activePollPromise) {
+      await this.activePollPromise
+    }
   }
 }

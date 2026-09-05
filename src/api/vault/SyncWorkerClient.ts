@@ -62,11 +62,12 @@ export type PollSyncBatchResponse = {
 
 
 export async function pollSyncBatchWithToken(
-  input: z.infer<typeof SyncPollBatchSchema> & { authToken: string }
+  input: z.infer<typeof SyncPollBatchSchema> & { authToken: string },
+  options?: { signal?: AbortSignal }
 ): Promise<PollSyncBatchResponse> {
   const client = createWorkerSyncClient(input.authToken)
   const { authToken, ...rpcInput } = input
-  return client.sync.pollSync.mutate(rpcInput)
+  return client.sync.pollSync.mutate(rpcInput, options?.signal ? { signal: options.signal } : undefined)
 }
 
 export async function putSnapshotsWithToken(input: {

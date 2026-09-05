@@ -23,7 +23,10 @@ export interface SyncApi {
   dismissRecoveryItem: (entryId: string) => Promise<void>
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
-  reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<{
+  reencryptAllItems: (
+    onProgress: (done: number, total: number) => void,
+    refreshAuthToken?: () => Promise<string | null>
+  ) => Promise<{
     succeeded: ItemId[]
     failed: Array<{ itemId: ItemId; error: string }>
   }>

@@ -211,4 +211,110 @@ describe('reencryptAllItems', () => {
     consoleErrorSpy.mockRestore()
     consoleWarnSpy.mockRestore()
   })
+
+  it('dynamically picks up a new auth token between batches', async () => {
+    const items = Array.from({ length: 12 }, (_, i) => `item-${i}`)
+    mockListAutomergeItemIds.mockResolvedValue(items)
+
+    mockGetActiveSessionToken
+      .mockResolvedValueOnce('token-1')
+      .mockResolvedValueOnce('token-1')
+      .mockResolvedValueOnce('token-2')
+    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+
+    const result = await reencryptAllItems(context as any)
+
+    expect(result.succeeded).toHaveLength(12)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('token-1')
+    expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('token-2')
+  })
+
+  it('recovers from 401 auth error using refreshAuthToken and retries successfully', async () => {
+    mockGetActiveSessionToken.mockResolvedValue('old-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
+
+    const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-token')
+    const deps = {
+      ...context,
+      refreshAuthToken,
+    }
+
+    mockPutSnapshotsWithToken
+      .mockRejectedValueOnce({ data: { httpStatus: 401 }, message: 'UNAUTHORIZED' })
+      .mockResolvedValueOnce({ success: true })
+
+    const result = await reencryptAllItems(deps as any)
+
+    expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('old-token')
+    expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('refreshed-token')
+    expect(result.succeeded).toEqual(['item-1', 'item-2'])
+    expect(result.failed).toEqual([])
+    expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+  })
+
+  it('recovers from 401 auth error when a newer token is in store', async () => {
+    mockGetActiveSessionToken
+      .mockResolvedValueOnce('stale-token')
+      .mockResolvedValueOnce('stale-token')
+      .mockResolvedValueOnce('new-store-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+
+    mockPutSnapshotsWithToken
+      .mockRejectedValueOnce({ data: { httpStatus: 401 } })
+      .mockResolvedValueOnce({ success: true })
+
+    const result = await reencryptAllItems(context as any)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('stale-token')
+    expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('new-store-token')
+    expect(result.succeeded).toEqual(['item-1'])
+    expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+  })
+
+  it('aborts immediately and DOES NOT quarantine items when auth error cannot be resolved', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
+    mockListAutomergeItemIds.mockResolvedValue(items)
+    mockGetActiveSessionToken.mockResolvedValue('expired-token')
+
+    mockPutSnapshotsWithToken.mockRejectedValue({
+      data: { httpStatus: 401 },
+      message: 'UNAUTHORIZED',
+    })
+
+    await expect(reencryptAllItems(context as any)).rejects.toThrow(
+      /Re-encryption aborted: authentication session expired/
+    )
+
+    // CRITICAL: Items must NOT be quarantined into manualRecoveryStore
+    expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+    // CRITICAL: Subsequent batches must NOT be processed (only attempt 1 was made before aborting)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('initializes token via refreshAuthToken if initial getActiveSessionToken is empty', async () => {
+    mockGetActiveSessionToken.mockResolvedValue(null)
+    const refreshAuthToken = vi.fn().mockResolvedValue('recovered-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+
+    const deps = {
+      ...context,
+      refreshAuthToken,
+    }
+
+    const result = await reencryptAllItems(deps as any)
+
+    expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+    expect(result.succeeded).toEqual(['item-1'])
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledWith(
+      expect.objectContaining({ authToken: 'recovered-token' })
+    )
+  })
 })

@@ -114,6 +114,9 @@ describe('SyncPoller', () => {
         pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
         clientLatestCursor: 0,
       }),
+      expect.objectContaining({
+        signal: expect.any(Object),
+      }),
     )
 
     // Second chunk - should also carry cursors
@@ -122,6 +125,9 @@ describe('SyncPoller', () => {
       expect.objectContaining({
         pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
         clientLatestCursor: 0,
+      }),
+      expect.objectContaining({
+        signal: expect.any(Object),
       }),
     )
 
@@ -220,4 +226,126 @@ describe('SyncPoller', () => {
       expect(outcome).toBe('success')
     })
   })
+
+  describe('shutdown and in-flight cancellation', () => {
+    it('returns no-poll and skips network calls if poller is already shutdown', async () => {
+      poller.shutdown()
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('no-poll')
+      expect(mockPollSyncBatchWithToken).not.toHaveBeenCalled()
+    })
+
+    it('discards response and skips writes to WAL, cursors, and indexManager if shutdown happens while network request is in-flight', async () => {
+      let resolveNetwork: (val: any) => void = () => {}
+      let networkStarted = false
+      mockPollSyncBatchWithToken.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            networkStarted = true
+            resolveNetwork = resolve
+          })
+      )
+
+      const pushResultsSpy = vi.spyOn(pullQueueManager, 'processPushResults')
+      const pullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults')
+
+      const pollPromise = poller.executePoll()
+
+      // Wait until network request has actually started
+      await vi.waitFor(() => {
+        expect(networkStarted).toBe(true)
+      })
+
+      // Poller is in-flight; trigger shutdown (e.g. user logout)
+      poller.shutdown()
+
+      // Network request completes after shutdown
+      resolveNetwork({
+        success: true,
+        pushResults: [{ itemId: 'item-1', cursor: 1 }],
+        pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
+      })
+
+      const outcome = await pollPromise
+      expect(outcome).toBe('no-poll')
+
+      // Must NOT have written to stores
+      expect(pushResultsSpy).not.toHaveBeenCalled()
+      expect(pullResultsSpy).not.toHaveBeenCalled()
+      expect(mockWal.remove).not.toHaveBeenCalled()
+      expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
+    })
+
+    it('passes abort signal to pollSyncBatchWithToken and handles abort cleanly', async () => {
+      let signalCaptured: AbortSignal | undefined
+      mockPollSyncBatchWithToken.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
+        signalCaptured = options?.signal
+        return new Promise((_, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('AbortError')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      })
+
+      const pollPromise = poller.executePoll()
+
+      await vi.waitFor(() => {
+        expect(signalCaptured).toBeDefined()
+      })
+
+      expect(signalCaptured?.aborted).toBe(false)
+
+      poller.shutdown()
+      expect(signalCaptured?.aborted).toBe(true)
+
+      const outcome = await pollPromise
+      expect(outcome).toBe('no-poll')
+      expect(mockWal.remove).not.toHaveBeenCalled()
+    })
+
+    it('stops multi-chunk loop immediately if shutdown occurs after the first chunk', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      for (let i = 0; i < 6; i++) {
+        walMap.set(`item-${i}` as ItemId, [
+          { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: i },
+        ])
+      }
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatchWithToken.mockImplementation(async () => {
+        // Shut down poller during chunk 1 processing
+        poller.shutdown()
+        return {
+          success: true,
+          pushResults: [],
+          pullResults: [],
+        }
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('no-poll')
+
+      // Only chunk 1 was attempted; chunk 2 was aborted/skipped
+      expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(1)
+      // WAL removal should have been suppressed because of shutdown
+      expect(mockWal.remove).not.toHaveBeenCalled()
+    })
+
+    it('resets isShutdown when setAccount is called with valid account', async () => {
+      poller.shutdown()
+      expect(await poller.executePoll()).toBe('no-poll')
+
+      poller.setAccount('new-account')
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+
+      expect(await poller.executePoll()).toBe('success')
+    })
+  })
 })
+

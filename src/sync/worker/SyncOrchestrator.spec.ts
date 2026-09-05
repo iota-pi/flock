@@ -281,15 +281,47 @@ describe('SyncOrchestrator', () => {
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
 
     // Shutdown while poll is in flight
-    await orchestrator.shutdown()
+    const shutdownPromise = orchestrator.shutdown()
 
     // Complete in-flight poll
     resolvePoll('success')
     await vi.advanceTimersByTimeAsync(0)
+    await shutdownPromise
 
     // Advancing timers further should not trigger any scheduled next polls
     await vi.advanceTimersByTimeAsync(100000)
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+  })
+
+  it('awaits in-flight poll before shutdown promise resolves', async () => {
+    let resolvePoll: (val: any) => void = () => {}
+    const pollPromise = new Promise(resolve => {
+      resolvePoll = resolve
+    })
+
+    mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    let shutdownCompleted = false
+    const shutdownPromise = orchestrator.shutdown().then(() => {
+      shutdownCompleted = true
+    })
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(shutdownCompleted).toBe(false)
+
+    resolvePoll('success')
+    await shutdownPromise
+    expect(shutdownCompleted).toBe(true)
+  })
+
+  it('calls abortPoll on broker during shutdown if available', async () => {
+    mockBroker.abortPoll = vi.fn()
+    await orchestrator.shutdown()
+    expect(mockBroker.abortPoll).toHaveBeenCalledTimes(1)
   })
 
   it('does not set pendingFlush when shutting down with a pending batch timeout', async () => {

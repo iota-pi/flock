@@ -7,6 +7,8 @@ import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncWriteAheadLog, packBatchedMessages, type WalEntry } from './SyncWriteAheadLog'
+import { isAuthError } from './utils/auth'
+import { pollSyncBatchWithToken } from '../../api/vault/SyncWorkerClient'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
@@ -14,6 +16,8 @@ export class SyncPoller {
   private account: string | null = null
   private isOnline = true
   private isPolling = false
+  private isShutdown = false
+  private abortController: AbortController | null = null
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
@@ -25,6 +29,9 @@ export class SyncPoller {
 
   setAccount(account: string | null): void {
     this.account = account
+    if (account) {
+      this.isShutdown = false
+    }
   }
 
   setWal(wal: SyncWriteAheadLog | null): void {
@@ -39,13 +46,28 @@ export class SyncPoller {
     return this.isPolling
   }
 
+  abort(): void {
+    if (this.abortController) {
+      this.abortController.abort()
+      this.abortController = null
+    }
+  }
+
+  shutdown(): void {
+    this.isShutdown = true
+    this.abort()
+  }
+
   async executePoll(): Promise<PollOutcome> {
-    if (this.isPolling || !this.isOnline || !this.account) return 'no-poll'
+    if (this.isShutdown || this.isPolling || !this.isOnline || !this.account) return 'no-poll'
     this.isPolling = true
+    this.abortController = new AbortController()
+    const signal = this.abortController.signal
 
     this.clientEventHub.emit({ type: 'startRequest' })
     try {
       const authToken = await getActiveSessionToken()
+      if (this.isShutdown || signal.aborted) return 'no-poll'
       if (!authToken) return 'no-poll'
 
       let batchEntries: [ItemId, WalEntry[]][]
@@ -61,18 +83,24 @@ export class SyncPoller {
         return 'failure'
       }
 
+      if (this.isShutdown || signal.aborted) return 'no-poll'
+
       const chunks = chunk(batchEntries, 5)
       const pullCursors = this.pullQueueManager.getCursors()
 
       if (chunks.length === 0) {
-        const { pollSyncBatchWithToken } = await import('../../api/vault/SyncWorkerClient')
-        const response = await pollSyncBatchWithToken({
-          account: this.account,
-          authToken,
-          pushMessages: [],
-          pullCursors,
-          clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
-        })
+        const response = await pollSyncBatchWithToken(
+          {
+            account: this.account,
+            authToken,
+            pushMessages: [],
+            pullCursors,
+            clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
+          },
+          { signal }
+        )
+
+        if (this.isShutdown || signal.aborted) return 'no-poll'
 
         if (response && response.pushResults) {
           try {
@@ -82,6 +110,8 @@ export class SyncPoller {
           }
         }
 
+        if (this.isShutdown || signal.aborted) return 'no-poll'
+
         if (response && response.pullResults) {
           try {
             await this.pullQueueManager.processPullResults(response.pullResults)
@@ -90,11 +120,15 @@ export class SyncPoller {
           }
         }
 
+        if (this.isShutdown || signal.aborted) return 'no-poll'
+
         await this.indexManager.updateLastSyncTime(Date.now())
         return 'success'
       }
 
       for (const chunkEntry of chunks) {
+        if (this.isShutdown || signal.aborted) return 'no-poll'
+
         const sentIds: string[] = []
         const pushMessages = await Promise.all(
           chunkEntry.map(async ([itemId, messages]) => {
@@ -115,14 +149,20 @@ export class SyncPoller {
           })
         )
 
-        const { pollSyncBatchWithToken } = await import('../../api/vault/SyncWorkerClient')
-        const response = await pollSyncBatchWithToken({
-          account: this.account,
-          authToken,
-          pushMessages,
-          pullCursors: this.pullQueueManager.getCursors(),
-          clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
-        })
+        if (this.isShutdown || signal.aborted) return 'no-poll'
+
+        const response = await pollSyncBatchWithToken(
+          {
+            account: this.account,
+            authToken,
+            pushMessages,
+            pullCursors: this.pullQueueManager.getCursors(),
+            clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
+          },
+          { signal }
+        )
+
+        if (this.isShutdown || signal.aborted) return 'no-poll'
 
         if (this.wal && sentIds.length > 0) {
           try {
@@ -132,6 +172,8 @@ export class SyncPoller {
           }
         }
 
+        if (this.isShutdown || signal.aborted) return 'no-poll'
+
         if (response && response.pushResults) {
           try {
             this.pullQueueManager.processPushResults(response.pushResults)
@@ -139,6 +181,8 @@ export class SyncPoller {
             console.error('[SyncPoller] Error processing push results', pushErr)
           }
         }
+
+        if (this.isShutdown || signal.aborted) return 'no-poll'
 
         if (response && response.pullResults) {
           try {
@@ -149,9 +193,15 @@ export class SyncPoller {
         }
       }
 
+      if (this.isShutdown || signal.aborted) return 'no-poll'
+
       await this.indexManager.updateLastSyncTime(Date.now())
       return 'success'
     } catch (error) {
+      if (this.isShutdown || signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        return 'no-poll'
+      }
+
       if (this.isAuthError(error)) {
         console.error('[SyncPoller] Auth failure during polling', error)
         return 'auth-failure'
@@ -161,46 +211,12 @@ export class SyncPoller {
       return 'failure'
     } finally {
       this.isPolling = false
+      this.abortController = null
       this.clientEventHub.emit({ type: 'finishRequest' })
     }
   }
 
   private isAuthError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
-      return false
-    }
-
-    const anyError = error as { [key: string]: unknown }
-    const data = (anyError.data || (anyError as { shape?: { data?: unknown } }).shape?.data) as
-      | { httpStatus?: number; code?: string }
-      | undefined
-    const httpStatus = data?.httpStatus ?? (anyError.httpStatus as number | undefined) ?? (anyError.status as number | undefined) ?? (anyError.statusCode as number | undefined)
-    if (httpStatus === 401 || httpStatus === 403) {
-      return true
-    }
-
-    const code = data?.code ?? (anyError.code as string | undefined)
-    if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') {
-      return true
-    }
-
-    if (anyError.cause && typeof anyError.cause === 'object') {
-      const cause = anyError.cause as { [key: string]: unknown }
-      const causeStatus = (cause.status ?? cause.statusCode ?? cause.httpStatus) as number | undefined
-      if (causeStatus === 401 || causeStatus === 403) {
-        return true
-      }
-      const causeCode = cause.code as string | undefined
-      if (causeCode === 'UNAUTHORIZED' || causeCode === 'FORBIDDEN') {
-        return true
-      }
-    }
-
-    const name = anyError.name as string | undefined
-    if (name === 'UnauthorizedError' || name === 'ForbiddenError') {
-      return true
-    }
-
-    return false
+    return isAuthError(error)
   }
 }

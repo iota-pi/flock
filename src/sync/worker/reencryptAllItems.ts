@@ -6,6 +6,7 @@ import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import { isAuthError } from './utils/auth'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
@@ -15,6 +16,8 @@ export interface ReencryptDeps {
   accountId: string
   repo: Repo
   indexManager: AutomergeIndexManager
+  getAuthToken?: () => Promise<string | null>
+  refreshAuthToken?: () => Promise<string | null>
 }
 
 export interface ReencryptResult {
@@ -31,7 +34,15 @@ export async function reencryptAllItems(
   }
 
   const { accountId, repo, indexManager } = deps
-  const authToken = await getActiveSessionToken()
+  const getAuth = deps.getAuthToken ?? getActiveSessionToken
+  let authToken = await getAuth()
+  if (!authToken && deps.refreshAuthToken) {
+    try {
+      authToken = await deps.refreshAuthToken()
+    } catch (refreshErr) {
+      console.warn('[reencryptAllItems] Initial token refresh callback failed:', refreshErr)
+    }
+  }
   if (!authToken) {
     throw new Error('No active session token available')
   }
@@ -52,6 +63,11 @@ export async function reencryptAllItems(
   const itemChunks = chunk(allItemIds, 10)
 
   for (const chunkIds of itemChunks) {
+    const currentToken = await getAuth()
+    if (currentToken) {
+      authToken = currentToken
+    }
+
     const snapshotPromises = chunkIds.map(async itemId => {
       let retries = 0
       let lastError: Error | null = null
@@ -131,6 +147,34 @@ export async function reencryptAllItems(
             `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
             err
           )
+
+          if (isAuthError(err)) {
+            let refreshedToken: string | null = null
+            if (deps.refreshAuthToken) {
+              try {
+                refreshedToken = await deps.refreshAuthToken()
+              } catch (refreshErr) {
+                console.warn('[reencryptAllItems] Token refresh callback failed:', refreshErr)
+              }
+            }
+            if (!refreshedToken) {
+              refreshedToken = await getAuth()
+            }
+
+            if (refreshedToken && refreshedToken !== authToken) {
+              console.info('[reencryptAllItems] Acquired fresh auth token, retrying batch upload...')
+              authToken = refreshedToken
+              continue
+            }
+
+            // Auth error cannot be resolved; abort immediately without quarantining items!
+            throw new Error(
+              `Re-encryption aborted: authentication session expired (${
+                err instanceof Error ? err.message : String(err)
+              })`,
+              { cause: err }
+            )
+          }
         }
       }
 
@@ -139,6 +183,14 @@ export async function reencryptAllItems(
           succeeded.push(item.itemId)
         }
       } else {
+        if (isAuthError(lastError)) {
+          throw new Error(
+            `Re-encryption aborted: authentication session expired (${
+              lastError instanceof Error ? lastError.message : String(lastError)
+            })`,
+            { cause: lastError }
+          )
+        }
         const errMsg =
           `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
           (lastError instanceof Error ? `: ${lastError.message}` : '')
