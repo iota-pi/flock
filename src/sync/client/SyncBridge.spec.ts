@@ -9,6 +9,8 @@ import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 vi.mock('src/api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
   reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
+  hasVaultKey: vi.fn().mockReturnValue(true),
+  syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
   lockVault: vi.fn().mockResolvedValue(undefined),
   KEYRING_CACHE_KEY: 'FlockKeyringCache',
   VAULT_EVENTS_CHANNEL: 'flock-vault-events',
@@ -422,6 +424,25 @@ describe('SyncBridge', () => {
     await vi.waitFor(() => {
       expect(reloadKeyringFromStorage).toHaveBeenCalledWith('test-account')
       expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-3')
+    })
+  })
+
+  it('fetches keyring from server when keyVersionMissing references a key not in local storage', async () => {
+    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('src/api/vault')
+    vi.mocked(hasVaultKey).mockReturnValueOnce(false)
+    vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(undefined)
+    vi.mocked(reloadKeyringFromStorage)
+      .mockResolvedValueOnce({ success: true, keyringData: 'old-key' })
+      .mockResolvedValueOnce({ success: true, keyringData: 'server-fetched-keyring-version-5' })
+
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '5' })
+
+    await vi.waitFor(() => {
+      expect(syncKeyringFromServer).toHaveBeenCalledWith('test-account')
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('server-fetched-keyring-version-5')
     })
   })
 

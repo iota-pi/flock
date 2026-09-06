@@ -395,7 +395,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       })
     })
 
-    it('drops message and continues queue if waitForKeyVersion times out', async () => {
+    it('buffers message and continues queue if waitForKeyVersion times out, decrypting when key arrives', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const onKeyVersionMissing = vi.fn()
       const adapterWithMissingKey = new EncryptedBroadcastChannelNetworkAdapter({
@@ -413,8 +413,21 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       }
 
       const { hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
-      vi.mocked(hasVaultKey).mockImplementation((kver?: string) => kver !== '3')
-      vi.mocked(waitForKeyVersion).mockResolvedValueOnce(false) // Timed out
+      let key3Available = false
+      vi.mocked(hasVaultKey).mockImplementation((kver?: string) => {
+        if (kver === '3') return key3Available
+        return true
+      })
+
+      const keyWaitResolvers: Array<(val: boolean) => void> = []
+      vi.mocked(waitForKeyVersion).mockImplementation((kver: string) => {
+        if (kver === '3' && !key3Available) {
+          return new Promise(resolve => {
+            keyWaitResolvers.push(resolve)
+          })
+        }
+        return Promise.resolve(true)
+      })
 
       const badPayload = { iv: 'iv-k3', cipher: 'mock-cipher-1,2', kver: '3', version: '1.0' }
       const goodPayload = { iv: 'iv-k1', cipher: 'mock-cipher-3,4', kver: '1', version: '1.0' }
@@ -438,19 +451,135 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       innerCallback(msg1)
       innerCallback(msg2)
 
+      // Wait for msg1 to start waiting on key 3
+      await vi.waitFor(() => {
+        expect(keyWaitResolvers.length).toBeGreaterThan(0)
+      })
+
+      // Simulate timeout for msg1
+      const initialResolver = keyWaitResolvers.shift()
+      initialResolver?.(false)
+
+      // msg2 (kver 1) should be emitted while msg1 is buffered
       await vi.waitFor(() => {
         expect(messageListener).toHaveBeenCalledTimes(1)
       })
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Timed out waiting for key version 3. Dropping message.'
+        '[EncryptedBroadcastChannel] Timed out waiting for key version 3. Buffering message until key arrives.'
       )
       expect(messageListener).toHaveBeenCalledWith({
         ...msg2,
         data: new Uint8Array([3, 4]),
       })
 
+      // Now key 3 arrives
+      key3Available = true
+      for (const res of keyWaitResolvers) {
+        res(true)
+      }
+      keyWaitResolvers.length = 0
+
+      // Buffered msg1 should now be decrypted and emitted without data loss
+      await vi.waitFor(() => {
+        expect(messageListener).toHaveBeenCalledTimes(2)
+      })
+
+      expect(messageListener).toHaveBeenLastCalledWith({
+        ...msg1,
+        data: new Uint8Array([1, 2]),
+      })
+
       consoleWarnSpy.mockRestore()
+    })
+
+    it('buffers multiple messages for missing key and delivers all in order once key propagates', async () => {
+      const onKeyVersionMissing = vi.fn()
+      const adapter = new EncryptedBroadcastChannelNetworkAdapter({
+        channelName: 'test-channel',
+        onKeyVersionMissing,
+        keyWaitTimeoutMs: 50,
+      })
+      const innerMock = (adapter as any).inner
+      const messageListener = vi.fn()
+      adapter.on('message', messageListener)
+
+      let innerCallback: any
+      for (const call of innerMock.on.mock.calls) {
+        if (call[0] === 'message') innerCallback = call[1]
+      }
+
+      const { hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+      let key4Available = false
+      vi.mocked(hasVaultKey).mockImplementation((kver?: string) => {
+        if (kver === '4') return key4Available
+        return true
+      })
+
+      const keyWaitResolvers: Array<(val: boolean) => void> = []
+      vi.mocked(waitForKeyVersion).mockImplementation((kver: string) => {
+        if (kver === '4' && !key4Available) {
+          return new Promise(resolve => {
+            keyWaitResolvers.push(resolve)
+          })
+        }
+        return Promise.resolve(true)
+      })
+
+      const payload1 = { iv: 'iv-1', cipher: 'mock-cipher-10,11', kver: '4', version: '1.0' }
+      const payload2 = { iv: 'iv-2', cipher: 'mock-cipher-12,13', kver: '4', version: '1.0' }
+
+      const msgA: Message = {
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'docA' as DocumentId,
+        data: new TextEncoder().encode(JSON.stringify(payload1)),
+      }
+
+      const msgB: Message = {
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'docB' as DocumentId,
+        data: new TextEncoder().encode(JSON.stringify(payload2)),
+      }
+
+      innerCallback(msgA)
+      innerCallback(msgB)
+
+      // Wait for msgA to start waiting
+      await vi.waitFor(() => {
+        expect(keyWaitResolvers.length).toBeGreaterThan(0)
+      })
+
+      // Simulate timeout
+      const initialResolver = keyWaitResolvers.shift()
+      initialResolver?.(false)
+
+      // Allow queue to process and buffer msgA and msgB
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(messageListener).not.toHaveBeenCalled()
+
+      // Key 4 arrives
+      key4Available = true
+      for (const res of keyWaitResolvers) {
+        res(true)
+      }
+      keyWaitResolvers.length = 0
+
+      await vi.waitFor(() => {
+        expect(messageListener).toHaveBeenCalledTimes(2)
+      })
+
+      expect(messageListener.mock.calls[0][0]).toEqual({
+        ...msgA,
+        data: new Uint8Array([10, 11]),
+      })
+      expect(messageListener.mock.calls[1][0]).toEqual({
+        ...msgB,
+        data: new Uint8Array([12, 13]),
+      })
     })
   })
 })

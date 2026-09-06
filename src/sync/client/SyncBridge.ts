@@ -5,7 +5,11 @@ import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
 import {
   exportKeyringData,
+  hasVaultKey,
   KEYRING_CACHE_KEY,
+  lockVault,
+  reloadKeyringFromStorage,
+  syncKeyringFromServer,
   VAULT_EVENTS_CHANNEL,
   type VaultBroadcastEvent,
 } from 'src/api/vault'
@@ -174,19 +178,26 @@ class SyncBridgeService {
         break
       }
       case 'keyVersionMissing':
-        void this.handleKeyringUpdate()
+        void this.handleKeyringUpdate(event.kver)
         break
     }
   }
 
-  private handleKeyringUpdate = async () => {
+  private handleKeyringUpdate = async (kver?: string) => {
     if (!this.currentAccountId) return
-    const { reloadKeyringFromStorage, lockVault } = await import('src/api/vault')
-    const result = await reloadKeyringFromStorage(this.currentAccountId)
+    let result = await reloadKeyringFromStorage(this.currentAccountId)
     if (result.passwordChanged) {
       console.warn('[SyncBridge] Password changed in another tab/device. Locking vault.')
       await lockVault()
       return
+    }
+    if (kver && !hasVaultKey(kver)) {
+      try {
+        await syncKeyringFromServer(this.currentAccountId)
+        result = await reloadKeyringFromStorage(this.currentAccountId)
+      } catch (err) {
+        console.warn('[SyncBridge] Failed to sync keyring from server:', err)
+      }
     }
     if (result.success && result.keyringData && this.syncApi) {
       await this.syncApi.updateVaultKey(result.keyringData)

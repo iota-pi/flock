@@ -20,6 +20,7 @@ import {
 export interface EncryptedBroadcastChannelOptions extends BroadcastChannelNetworkAdapterOptions {
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
+  maxPendingMessagesPerKey?: number
 }
 
 export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
@@ -29,10 +30,15 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private isSending = false
   private receiveQueue: Message[] = []
   private isReceiving = false
+  private pendingKeyMessages = new Map<string, Message[]>()
+  private activeKeyWaiters = new Set<string>()
+  private isDisconnected = false
+  private maxPendingMessagesPerKey: number
 
   constructor(options?: EncryptedBroadcastChannelOptions) {
     super()
     this.options = options
+    this.maxPendingMessagesPerKey = options?.maxPendingMessagesPerKey ?? 1000
     this.setupInner()
   }
 
@@ -56,12 +62,18 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
+    this.isDisconnected = false
     this.peerId = peerId
     this.peerMetadata = peerMetadata
     this.inner.connect(peerId, peerMetadata)
   }
 
   disconnect() {
+    this.isDisconnected = true
+    this.pendingKeyMessages.clear()
+    this.activeKeyWaiters.clear()
+    this.receiveQueue = []
+    this.sendQueue = []
     this.inner.disconnect()
   }
 
@@ -99,6 +111,69 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     void this.processReceiveQueue()
   }
 
+  private hasPendingMessages(kver: string): boolean {
+    const pending = this.pendingKeyMessages.get(kver)
+    return Boolean(pending && pending.length > 0)
+  }
+
+  private bufferPendingMessage(kver: string, message: Message) {
+    let pending = this.pendingKeyMessages.get(kver)
+    if (!pending) {
+      pending = []
+      this.pendingKeyMessages.set(kver, pending)
+    }
+    if (pending.length >= this.maxPendingMessagesPerKey) {
+      console.warn(
+        `[EncryptedBroadcastChannel] Pending queue for key version ${kver} exceeded max capacity (${this.maxPendingMessagesPerKey}). Evicting oldest message.`
+      )
+      pending.shift()
+    }
+    pending.push(message)
+  }
+
+  private ensureKeyWaiter(kver: string) {
+    if (this.activeKeyWaiters.has(kver)) return
+    this.activeKeyWaiters.add(kver)
+    void this.waitForKeyAndDrain(kver)
+  }
+
+  private async waitForKeyAndDrain(kver: string) {
+    try {
+      while (this.hasPendingMessages(kver) && !this.isDisconnected) {
+        if (hasVaultKey(kver)) {
+          this.requeuePendingMessages(kver)
+          break
+        }
+
+        const timeout = this.options?.keyWaitTimeoutMs ?? 5000
+        const keyAcquired = await waitForKeyVersion(kver, timeout)
+        if (keyAcquired || hasVaultKey(kver)) {
+          this.requeuePendingMessages(kver)
+          break
+        }
+
+        if (this.hasPendingMessages(kver) && !this.isDisconnected && this.options?.onKeyVersionMissing) {
+          this.options.onKeyVersionMissing(kver)
+        }
+      }
+    } catch (err) {
+      console.error(`[EncryptedBroadcastChannel] Error waiting for key version ${kver}:`, err)
+    } finally {
+      this.activeKeyWaiters.delete(kver)
+    }
+  }
+
+  private requeuePendingMessages(kver: string) {
+    const pending = this.pendingKeyMessages.get(kver)
+    if (!pending || pending.length === 0) {
+      this.pendingKeyMessages.delete(kver)
+      return
+    }
+    this.pendingKeyMessages.delete(kver)
+    this.receiveQueue.unshift(...pending)
+    void this.processReceiveQueue()
+  }
+
   private async processReceiveQueue() {
     if (this.isReceiving) return
     this.isReceiving = true
@@ -112,13 +187,22 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
             const kver = cryptoResult.kver || '1'
 
             if (!hasVaultKey(kver)) {
+              if (this.hasPendingMessages(kver)) {
+                this.bufferPendingMessage(kver, message)
+                continue
+              }
+
               if (this.options?.onKeyVersionMissing) {
                 this.options.onKeyVersionMissing(kver)
               }
               const timeout = this.options?.keyWaitTimeoutMs ?? 5000
               const keyAcquired = await waitForKeyVersion(kver, timeout)
-              if (!keyAcquired) {
-                console.warn(`[EncryptedBroadcastChannel] Timed out waiting for key version ${kver}. Dropping message.`)
+              if (!keyAcquired && !hasVaultKey(kver)) {
+                console.warn(
+                  `[EncryptedBroadcastChannel] Timed out waiting for key version ${kver}. Buffering message until key arrives.`
+                )
+                this.bufferPendingMessage(kver, message)
+                this.ensureKeyWaiter(kver)
                 continue
               }
             }
