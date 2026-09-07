@@ -10,6 +10,7 @@ export interface WalEntry {
   data: Uint8Array
   createdAt: number
   isBatched?: boolean
+  replaces?: string[]
 }
 
 /**
@@ -98,12 +99,24 @@ export class SyncWriteAheadLog {
     this.storage = SyncWriteAheadLog.getStorage(accountId)
   }
 
+  private compactionPromise: Promise<number> | null = null
+
   /**
    * Compacts WAL by grouping entries by itemId and merging multiple entries
    * into a single batched entry per itemId.
    * Returns the number of entries reduced.
    */
   async compact(): Promise<number> {
+    if (this.compactionPromise) {
+      return this.compactionPromise
+    }
+    this.compactionPromise = this.performCompact().finally(() => {
+      this.compactionPromise = null
+    })
+    return this.compactionPromise
+  }
+
+  private async performCompact(): Promise<number> {
     const byItem = await this.readAll()
     let reducedCount = 0
 
@@ -114,19 +127,24 @@ export class SyncWriteAheadLog {
       const latestCreatedAt = Math.max(...entries.map(e => e.createdAt || 0))
       const newId = nanoid()
 
+      // Track all old IDs being replaced (including transitive replacements)
+      const oldIds = Array.from(
+        new Set(entries.flatMap(e => [e.id, ...(e.replaces || [])]))
+      )
+
       const compactedEntry: WalEntry = {
         id: newId,
         itemId,
         data: combinedData,
         createdAt: latestCreatedAt,
         isBatched: true,
+        replaces: oldIds,
       }
 
       // Save new compacted entry first
       await runStorageOperation(() => this.storage.setItem(newId, compactedEntry))
 
       // Remove the old individual entries
-      const oldIds = entries.map(e => e.id)
       await this.remove(oldIds)
 
       reducedCount += entries.length - 1
@@ -142,16 +160,35 @@ export class SyncWriteAheadLog {
     if (count <= 0) return
     try {
       const allEntries: { id: string; createdAt: number }[] = []
+      const supersededIds = new Set<string>()
+
       await this.storage.iterate<WalEntry, void>(entry => {
         if (entry && entry.id) {
           allEntries.push({
             id: entry.id,
             createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
           })
+          if (Array.isArray(entry.replaces)) {
+            for (const oldId of entry.replaces) {
+              if (typeof oldId === 'string') {
+                supersededIds.add(oldId)
+              }
+            }
+          }
         }
       })
-      allEntries.sort((a, b) => a.createdAt - b.createdAt)
-      const toRemove = allEntries.slice(0, count).map(e => e.id)
+
+      // Clean up superseded entries first
+      const supersededInStorage = allEntries
+        .filter(e => supersededIds.has(e.id))
+        .map(e => e.id)
+      if (supersededInStorage.length > 0) {
+        await this.remove(supersededInStorage)
+      }
+
+      const validEntries = allEntries.filter(e => !supersededIds.has(e.id))
+      validEntries.sort((a, b) => a.createdAt - b.createdAt)
+      const toRemove = validEntries.slice(0, count).map(e => e.id)
       await this.remove(toRemove)
     } catch (err) {
       console.error('[SyncWriteAheadLog] Failed to prune oldest entries', err)
@@ -218,9 +255,12 @@ export class SyncWriteAheadLog {
 
   /**
    * Read all pending WAL entries, grouped by item, ordered by creation time.
+   * Reconciles any superseded entries left behind by interrupted compactions.
    */
   async readAll(): Promise<Map<ItemId, WalEntry[]>> {
-    const result = new Map<ItemId, WalEntry[]>()
+    const rawEntries: WalEntry[] = []
+    const supersededIds = new Set<string>()
+
     await this.storage.iterate<WalEntry, void>(entry => {
       if (entry && entry.id && entry.itemId && entry.data) {
         const normalizedData = toUint8Array(entry.data)
@@ -230,12 +270,39 @@ export class SyncWriteAheadLog {
           data: normalizedData,
           createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
           isBatched: entry.isBatched === true,
+          replaces: Array.isArray(entry.replaces)
+            ? entry.replaces.filter((r): r is string => typeof r === 'string' && r.length > 0 && r !== entry.id)
+            : undefined,
         }
-        const list = result.get(validEntry.itemId) ?? []
-        list.push(validEntry)
-        result.set(validEntry.itemId, list)
+        rawEntries.push(validEntry)
+        if (validEntry.replaces) {
+          for (const oldId of validEntry.replaces) {
+            supersededIds.add(oldId)
+          }
+        }
       }
     })
+
+    // If any superseded entries are still present in storage (e.g. crash during compaction),
+    // purge them from storage immediately.
+    if (supersededIds.size > 0) {
+      const idsToDelete = rawEntries
+        .filter(e => supersededIds.has(e.id))
+        .map(e => e.id)
+      if (idsToDelete.length > 0) {
+        await this.remove(idsToDelete)
+      }
+    }
+
+    const result = new Map<ItemId, WalEntry[]>()
+    for (const entry of rawEntries) {
+      if (supersededIds.has(entry.id)) {
+        continue
+      }
+      const list = result.get(entry.itemId) ?? []
+      list.push(entry)
+      result.set(entry.itemId, list)
+    }
 
     for (const list of result.values()) {
       list.sort((a, b) => a.createdAt - b.createdAt)
