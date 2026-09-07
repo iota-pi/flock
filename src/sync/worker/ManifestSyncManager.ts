@@ -15,6 +15,7 @@ import type { VaultItem } from '../../api/vault/clientTypes'
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 const BATCH_SIZE = 50
+const SKEW_BUFFER_MS = 60 * 1000
 
 export class ManifestSyncManager {
   constructor(
@@ -59,10 +60,15 @@ export class ManifestSyncManager {
     }
 
     let manifestResponse: Awaited<ReturnType<typeof fetchManifest>>
+    let clockSkew = 0
     try {
+      const requestStartTime = Date.now()
       manifestResponse = await fetchManifest({
         account: this.deps.accountId,
       })
+      const requestEndTime = Date.now()
+      const clientMidTime = Math.round((requestStartTime + requestEndTime) / 2)
+      clockSkew = clientMidTime - manifestResponse.serverTime
     } catch (e) {
       if (hasKnownItems) {
         console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
@@ -70,6 +76,12 @@ export class ManifestSyncManager {
       }
       console.error('[ManifestSyncManager] Failed to fetch manifest', e)
       throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
+    }
+
+    try {
+      await this.deps.snapshotManager.flushPendingSnapshots()
+    } catch (flushErr) {
+      console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
     }
 
     const knownSet = new Set(knownItemIds)
@@ -80,8 +92,20 @@ export class ManifestSyncManager {
         const id = itemId as ItemId
         if (!id) return false
         if (!knownSet.has(id)) return true
+
         const localTime = localLastModifiedMap.get(id) ?? 0
-        return serverTime > localTime
+        if (localTime === 0) return true
+        if (serverTime === localTime) return false
+        if (serverTime > localTime) return true
+
+        // Clock skew + buffer compensation for cases where client clock was ahead
+        const adjustedLocalTime = localTime - Math.max(0, clockSkew) - SKEW_BUFFER_MS
+        if (serverTime > adjustedLocalTime) return true
+
+        // If local timestamp is physically in the server's future, client clock was skewed
+        if (localTime > manifestResponse.serverTime) return true
+
+        return false
       })
       .map(([itemId]) => itemId as ItemId)
 

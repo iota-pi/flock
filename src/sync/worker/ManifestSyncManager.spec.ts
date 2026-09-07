@@ -79,6 +79,7 @@ describe('ManifestSyncManager', () => {
     const mockSnapshotManager = {
       exportLastModified: vi.fn().mockReturnValue([]),
       importLastModified: vi.fn().mockResolvedValue(undefined),
+      flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
     } as any
 
     depsObj = { accountId: 'acc-123', docStore: mockDocStore, indexManager: mockIndexManager, snapshotManager: mockSnapshotManager }
@@ -528,4 +529,172 @@ describe('ManifestSyncManager', () => {
       vi.unstubAllGlobals()
     })
   })
+
+  describe('clock skew compensation & safety buffer', () => {
+    it('flushes pending snapshots before evaluating manifest diffs', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 100]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 100]],
+        serverTime: Date.now(),
+      })
+
+      await manifestSyncManager.sync()
+
+      expect(depsObj.snapshotManager.flushPendingSnapshots).toHaveBeenCalledTimes(1)
+    })
+
+    it('continues gracefully if flushPendingSnapshots throws', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      depsObj.snapshotManager.flushPendingSnapshots.mockRejectedValue(new Error('Flush failed'))
+
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 100]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 100]],
+        serverTime: Date.now(),
+      })
+
+      await expect(manifestSyncManager.sync()).resolves.toEqual({ added: [] })
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to flush pending snapshots before sync'),
+        expect.any(Error)
+      )
+      warnSpy.mockRestore()
+    })
+
+    it('skips fetching when serverTime === localTime (exact match guard)', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 5000]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 5000]],
+        serverTime: 6000,
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(result).toEqual({ added: [] })
+    })
+
+    it('pulls valid server update when client clock is ahead of server (fast client clock)', async () => {
+      // Client is ahead of server:
+      // Client time: 1,300,000 (Date.now())
+      // Server response serverTime: 1,000,000
+      // clockSkew = 1,300,000 - 1,000,000 = 300,000 ms (5 mins fast)
+      const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_300_000)
+
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      // Local client previously saved timestamp with fast clock:
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 1_250_000]])
+
+      // Server has update for item-1 with server timestamp 1,050,000:
+      // Without compensation: 1,050,000 > 1,250,000 is FALSE (missed update)
+      // With compensation: adjusted = 1,250,000 - 300,000 - 60,000 = 890,000; 1,050,000 > 890,000 is TRUE
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 1_050_000]],
+        serverTime: 1_000_000,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-1',
+            snapshot: { iv: 'iv-1', cipher: 'c-1' },
+          },
+        ],
+        serverTime: 1_000_000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      const result = await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
+        account: 'acc-123',
+        itemIds: ['item-1'],
+      })
+      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]))
+      expect(result).toEqual({ added: ['item-1'] })
+
+      dateNowSpy.mockRestore()
+    })
+
+    it('pulls server update within 60-second SKEW_BUFFER_MS window when timestamps differ', async () => {
+      // Client time == Server time (0 clock skew)
+      const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      // Local client timestamp is slightly ahead (e.g. 20 seconds ahead due to clock drift)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 500_020]])
+
+      // Server timestamp is 500_000 (differing, but within 60s buffer)
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 500_000]],
+        serverTime: 1_000_000,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-1',
+            snapshot: { iv: 'iv-1', cipher: 'c-1' },
+          },
+        ],
+        serverTime: 1_000_000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([4, 5, 6]))
+
+      const result = await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
+        account: 'acc-123',
+        itemIds: ['item-1'],
+      })
+      expect(result).toEqual({ added: ['item-1'] })
+
+      dateNowSpy.mockRestore()
+    })
+
+    it('pulls update when localTime is in the server future (future timestamp detection)', async () => {
+      const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(2_000_000)
+
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      // Local time is in the future relative to server's current time (1_000_000)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 1_500_000]])
+
+      // Server manifest has 900_000 for item-1 and serverTime is 1_000_000
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 900_000]],
+        serverTime: 1_000_000,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-1',
+            snapshot: { iv: 'iv-1', cipher: 'c-1' },
+          },
+        ],
+        serverTime: 1_000_000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([7, 8, 9]))
+
+      const result = await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
+        account: 'acc-123',
+        itemIds: ['item-1'],
+      })
+      expect(result).toEqual({ added: ['item-1'] })
+
+      dateNowSpy.mockRestore()
+    })
+  })
 })
+
