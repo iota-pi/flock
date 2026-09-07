@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CryptoResultSchema } from './crypto'
+import { ITEM_LIMITS } from '../constants/limits'
 
 export const ITEM_TYPES = ['person', 'group', 'topic'] as const
 export const ERROR_ITEM_TYPE = 'error'
@@ -24,7 +25,7 @@ export const frequencySchema = z.union([
 
 const noteSchema = z.looseObject({
   id: z.string(),
-  text: z.string(),
+  text: z.string().max(ITEM_LIMITS.NOTE_MAX),
   archived: z.boolean(),
   time: z.number().int().positive(),
 })
@@ -33,10 +34,10 @@ const baseItemSchema = z.looseObject({
   archived: z.boolean(),
   created: z.number().int().positive(),
   deleted: z.boolean().optional(),
-  description: z.string(),
+  description: z.string().max(ITEM_LIMITS.DESCRIPTION_MAX),
   id: ItemIdSchema,
   isNew: z.literal(true).optional(),
-  name: z.string(),
+  name: z.string().max(ITEM_LIMITS.NAME_MAX),
   notes: z.array(noteSchema).catch([]),
   prayedFor: z.array(z.number()).catch([]),
   prayerFrequency: frequencySchema,
@@ -98,7 +99,8 @@ export const ItemEnvelopeMetadataSchema = z.object({
 export const StandardItemEnvelopeSchema = z.object({
   item: ItemIdSchema,
   cipher: z.undefined().optional(),
-  snapshot: CryptoResultSchema,
+  snapshot: CryptoResultSchema.optional(),
+  snapshotUrl: z.string().url().optional(),
   metadata: ItemEnvelopeMetadataSchema,
 })
 

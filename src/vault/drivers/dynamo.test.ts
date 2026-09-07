@@ -3,6 +3,13 @@ import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
 import { ItemId } from 'src/shared/schemas/items'
+import * as blobStore from '../services/blobStore'
+
+vi.mock('../services/blobStore', () => ({
+  putSnapshotBlob: vi.fn().mockResolvedValue(undefined),
+  getSnapshotPresignedUrl: vi.fn().mockImplementation(async (key: string) => `https://s3.example.com/${key}?presigned=true`),
+  deleteSnapshotBlob: vi.fn().mockResolvedValue(undefined),
+}))
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -32,7 +39,7 @@ describe('DynamoDriver', function () {
     const item = generateItemId()
     const type: ItemType = 'person'
     const modified = new Date().getTime()
-    const cipher = 'x'.repeat(60000)
+    const cipher = 'x'.repeat(210_000)
 
     await expect(
       driver.set({ account, item, cipher, metadata: { type, iv: 'iv', modified } })
@@ -349,4 +356,77 @@ describe('DynamoDriver', function () {
     expect(fetchedIds).toContain(item3)
     expect(fetchedIds).not.toContain(item2)
   })
+
+  it('stores small snapshot inline as binary and returns as base64', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const payload = Buffer.from('hello-binary-snapshot').toString('base64')
+    const modified = Date.now()
+
+    await driver.set({
+      account,
+      item,
+      metadata: { type, iv: 'iv', modified },
+      snapshot: {
+        cipher: payload,
+        iv: 'snapshot-iv',
+        kver: '1',
+      },
+    })
+
+    const results = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(results.length).toBe(1)
+    expect(results[0].storageType).toBe('inline')
+    expect(results[0].snapshot?.cipher).toBe(payload)
+    expect(results[0].snapshot?.iv).toBe('snapshot-iv')
+  })
+
+  it('offloads large snapshot (> 150KB) to S3 and returns presigned snapshotUrl', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const largeBuffer = Buffer.alloc(160 * 1024, 0x41)
+    const payload = largeBuffer.toString('base64')
+    const modified = Date.now()
+
+    await driver.set({
+      account,
+      item,
+      metadata: { type, iv: 'iv', modified },
+      snapshot: {
+        cipher: payload,
+        iv: 'snapshot-iv',
+        kver: '1',
+      },
+    })
+
+    expect(blobStore.putSnapshotBlob).toHaveBeenCalledWith(
+      `snapshots/${account}/${item}.bin`,
+      expect.any(Buffer),
+    )
+
+    const results = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(results.length).toBe(1)
+    expect(results[0].storageType).toBe('external')
+    expect(results[0].externalKey).toBe(`snapshots/${account}/${item}.bin`)
+    expect(results[0].snapshotUrl).toBe(`https://s3.example.com/snapshots/${account}/${item}.bin?presigned=true`)
+    expect(results[0].snapshot?.cipher).toBeUndefined()
+  })
+
+  it('deletes external snapshot blob when item is deleted', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+
+    await driver.set({
+      account,
+      item,
+      externalKey: `snapshots/${account}/${item}.bin`,
+      metadata: { type, iv: 'iv', modified: Date.now(), deleted: true },
+    })
+
+    expect(blobStore.deleteSnapshotBlob).toHaveBeenCalledWith(`snapshots/${account}/${item}.bin`)
+  })
 })
+

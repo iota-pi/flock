@@ -51,10 +51,19 @@ export const VaultAccountWithAuthSchema = VaultAccountSchema.extend({
   session: z.string(),
 })
 
+export const VaultItemSnapshotSchema = z.object({
+  iv: z.string(),
+  cipher: z.union([z.string(), z.instanceof(Uint8Array), z.any()]).optional(),
+  kver: z.string().optional(),
+})
+
 export const VaultItemSchema = VaultKeySchema.extend({
   metadata: VaultMetaDataSchema,
   cipher: z.string().optional(),
-  snapshot: CryptoResultSchema.optional(),
+  snapshot: VaultItemSnapshotSchema.optional(),
+  snapshotUrl: z.string().url().optional(),
+  storageType: z.enum(['inline', 'external']).optional(),
+  externalKey: z.string().optional(),
   ttl: z.number().optional(),
   version: z.number().optional(),
 })

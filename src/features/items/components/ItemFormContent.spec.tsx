@@ -85,4 +85,58 @@ describe('ItemFormContent', () => {
 
     expect(screen.getByText(/other person with this name/i)).toBeTruthy()
   })
+
+  it('shows warning helper text when name length reaches 80% of limit', () => {
+    const handleChange = vi.fn()
+    const item = {
+      ...getBlankPerson('item-1' as ItemId, false),
+      name: 'A'.repeat(400),
+    } as Item
+
+    renderWithContext(
+      <ItemFormContent
+        item={item}
+        handleChange={handleChange}
+      />,
+    )
+
+    expect(screen.getByText(/400\/500 characters/)).toBeTruthy()
+  })
+
+  it('shows warning helper text when description length reaches 80% of limit', () => {
+    const handleChange = vi.fn()
+    const item = {
+      ...getBlankPerson('item-1' as ItemId, false),
+      description: 'B'.repeat(800),
+    } as Item
+
+    renderWithContext(
+      <ItemFormContent
+        item={item}
+        handleChange={handleChange}
+      />,
+    )
+
+    expect(screen.getByText(/800\/1000 characters/)).toBeTruthy()
+  })
+
+  it('does not show warning helper text when fields are well below 80%', () => {
+    const handleChange = vi.fn()
+    const item = {
+      ...getBlankPerson('item-1' as ItemId, false),
+      name: 'Alice',
+      description: 'Some short notes',
+    } as Item
+
+    renderWithContext(
+      <ItemFormContent
+        item={item}
+        handleChange={handleChange}
+      />,
+    )
+
+    expect(screen.queryByText(/\/500 characters/)).toBeNull()
+    expect(screen.queryByText(/\/1000 characters/)).toBeNull()
+  })
 })
+

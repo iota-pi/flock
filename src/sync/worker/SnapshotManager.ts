@@ -8,6 +8,8 @@ import type { SyncMessageBroker } from './SyncMessageBroker'
 import { buildSnapshot, type BuildSnapshotResult } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
 import { LastModifiedStore } from './stores/LastModifiedStore'
+import type { ClientEventHub } from './SyncEventHub'
+import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -48,11 +50,12 @@ export class SnapshotManager {
       repo: Repo
       broker: SyncMessageBroker
       getLatestCursor?: () => number
+      eventHub?: ClientEventHub
     },
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
-    this.maxPayloadBytes = options?.maxPayloadBytes ?? 350 * 1024
+    this.maxPayloadBytes = options?.maxPayloadBytes ?? 5 * 1024 * 1024
     this.debounceDelayMs = options?.debounceDelayMs ?? 30_000
     this.maxWaitMs = options?.maxWaitMs ?? 5 * 60 * 1000
   }
@@ -300,6 +303,15 @@ export class SnapshotManager {
           `[SnapshotManager] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`
         )
         success = false
+        this.deps.eventHub?.emit({
+          type: 'quotaExceeded',
+          message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the maximum allowed payload size.`,
+        })
+        void upsertManualRecoveryEntry(accountId, {
+          itemId,
+          reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds max payload limit (${Math.round(this.maxPayloadBytes / 1024)} KB)`,
+        }).catch(() => {})
+
         if (this.dirtyItems.get(itemId) === tick) {
           this.dirtyItems.delete(itemId)
         }
@@ -308,7 +320,7 @@ export class SnapshotManager {
 
       // Check if we should flush the current batch before adding this snapshot.
       const wouldExceedCount = currentBatch.length >= 25
-      const wouldExceedBytes = currentBatchBytes + snapshotSize > this.maxPayloadBytes
+      const wouldExceedBytes = currentBatchBytes + snapshotSize > Math.min(this.maxPayloadBytes, 2 * 1024 * 1024)
 
       if ((wouldExceedCount || wouldExceedBytes) && currentBatch.length > 0) {
         total += currentBatch.length

@@ -98,6 +98,7 @@ describe('ManifestSyncManager', () => {
     mockGetLastManifestSyncTime.mockResolvedValue(0)
     mockUpdateLastManifestSyncTime.mockResolvedValue(undefined)
     mockGetMetadataQuery.mockResolvedValue({ success: false })
+    mockHydrateAutomergeDocumentBinary.mockResolvedValue(undefined)
   })
 
   describe('gating & lifecycle', () => {
@@ -483,6 +484,48 @@ describe('ManifestSyncManager', () => {
       expect(result).toEqual({ added: [] })
 
       warnSpy.mockRestore()
+    })
+
+    it('downloads snapshot directly from snapshotUrl when present, decrypts and hydrates', async () => {
+      const mockBlob = new Uint8Array([10, 20, 30])
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        arrayBuffer: vi.fn().mockResolvedValue(mockBlob.buffer),
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-large', 600]],
+        serverTime: 600,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-large',
+            snapshotUrl: 'https://s3.example.com/item-large.bin?presigned=true',
+            snapshot: { iv: 's3-iv', kver: '1' },
+          },
+        ],
+        serverTime: 600,
+      })
+
+      const decryptedBytes = new Uint8Array([99, 88, 77])
+      mockDecryptBytes.mockResolvedValue(decryptedBytes)
+
+      const result = await manifestSyncManager.sync()
+
+      expect(mockFetch).toHaveBeenCalledWith('https://s3.example.com/item-large.bin?presigned=true')
+      expect(mockDecryptBytes).toHaveBeenCalledWith({
+        iv: 's3-iv',
+        cipher: mockBlob.toBase64(),
+        kver: '1',
+      })
+      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-large', decryptedBytes)
+      expect(result).toEqual({ added: ['item-large'] })
+
+      vi.unstubAllGlobals()
     })
   })
 })

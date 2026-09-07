@@ -12,6 +12,11 @@ vi.mock('../shared/workerAuthStore', () => ({
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-auth-token'),
 }))
 
+const mockUpsertManualRecoveryEntry = vi.fn().mockResolvedValue(undefined)
+vi.mock('../shared/manualRecoveryStore', () => ({
+  upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
+}))
+
 vi.mock('../../api/vault', () => ({
   encryptBytes: vi.fn().mockResolvedValue({
     iv: 'mock-iv',
@@ -567,5 +572,45 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('Oversized Snapshots', () => {
+    it('notifies client eventHub and records to manualRecoveryStore without silent abandonment', async () => {
+      const mockEventHub = {
+        emit: vi.fn(),
+      }
+      const managerWithLimits = new SnapshotManager(
+        {
+          accountId: 'test-account',
+          repo: mockRepo,
+          broker: {} as any,
+          eventHub: mockEventHub as any,
+        },
+        lastModifiedStore,
+        {
+          // Very small limit so snapshot exceeds it
+          maxPayloadBytes: 10,
+        },
+      )
+
+      managerWithLimits.markItemDirty('item-1' as ItemId)
+      await managerWithLimits.flushPendingSnapshots()
+
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+      expect(mockEventHub.emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'quotaExceeded',
+          message: expect.stringContaining('exceeds the maximum allowed payload size'),
+        }),
+      )
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
+        'test-account',
+        expect.objectContaining({
+          itemId: 'item-1',
+          reason: expect.stringContaining('exceeds max payload limit'),
+        }),
+      )
+    })
+  })
 })
+
 

@@ -73,6 +73,7 @@ export class SyncWorkerContext {
         repo: deps.repo,
         broker: deps.broker,
         getLatestCursor: () => this.pullQueueManager.getGlobalLatestCursor(),
+        eventHub: deps.clientEventHub,
       },
       this.lastModifiedStore
     )
