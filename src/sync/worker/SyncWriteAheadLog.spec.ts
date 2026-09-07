@@ -103,6 +103,21 @@ describe('SyncWriteAheadLog', () => {
     expect(list1[0].id).toBe(id2)
   })
 
+  it('handles empty, nullish, or duplicate IDs safely on remove()', async () => {
+    const id1 = await wal.append('item-1' as ItemId, new Uint8Array([1]))
+    const id2 = await wal.append('item-1' as ItemId, new Uint8Array([2]))
+
+    // Empty array should be no-op
+    await wal.remove([])
+    expect((await wal.readAll()).get('item-1' as ItemId)).toHaveLength(2)
+
+    // Duplicate IDs should be deduplicated and remove the item
+    await wal.remove([id1, id1, '', null as any, undefined as any])
+    const remaining = (await wal.readAll()).get('item-1' as ItemId)!
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].id).toBe(id2)
+  })
+
   it('clears all entries on clear()', async () => {
     await wal.append('item-1' as ItemId, new Uint8Array([1]))
     await wal.append('item-2' as ItemId, new Uint8Array([2]))

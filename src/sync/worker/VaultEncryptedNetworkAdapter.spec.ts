@@ -159,11 +159,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     adapter.setAccount(accountId)
     await broker.setAccount(accountId)
 
-    mockPollSyncBatchWithToken.mockResolvedValue({
+    mockPollSyncBatchWithToken.mockImplementation(async (input: any) => ({
       success: true,
-      pushResults: [],
+      pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
+        itemId: m.itemId,
+        cursor: idx,
+      })),
       pullResults: [],
-    })
+    }))
 
     // Queue messages for 7 different items while offline to prevent early polls
     for (let i = 1; i <= 7; i++) {
@@ -204,7 +207,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     adapter.setAccount(accountId)
     await broker.setAccount(accountId)
 
-    mockPollSyncBatchWithToken.mockImplementation(async () => {
+    mockPollSyncBatchWithToken.mockImplementation(async (input: any) => {
       // Simulate concurrent local edits added while the poll request is in flight
       // using the real send/append path
       adapter.send({
@@ -224,7 +227,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
       return {
         success: true,
-        pushResults: [],
+        pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
+          itemId: m.itemId,
+          cursor: idx + 1,
+        })),
         pullResults: [],
       }
     })

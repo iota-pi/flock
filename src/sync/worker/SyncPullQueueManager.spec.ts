@@ -932,6 +932,23 @@ describe('SyncPullQueueManager', () => {
     })
   })
 
+  describe('processPushResults', () => {
+    it('ignores failed push results with success: false', async () => {
+      await manager.setAccount('test-account')
+      manager.addPendingItem('item-fail' as ItemId)
+
+      manager.processPushResults([
+        { itemId: 'item-fail' as ItemId, cursor: 100, success: false },
+        { itemId: 'item-ok' as ItemId, cursor: 50, success: true },
+      ])
+
+      const cursors = manager.exportCursors()
+      expect(cursors).toContainEqual(['item-ok', 50])
+      expect(cursors).toContainEqual(['item-fail', 0])
+      expect(manager.hasPendingPulls()).toBe(true)
+    })
+  })
+
   describe('importCursors', () => {
     it('stores imported cursors to cursorStore', async () => {
       await manager.setAccount('account-import')

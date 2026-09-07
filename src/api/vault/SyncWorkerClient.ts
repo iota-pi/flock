@@ -45,9 +45,16 @@ export type PullSyncMessagesResponse = {
   hasMore: boolean
 }
 
+export type PushResultItem = {
+  itemId: ItemId
+  cursor?: number
+  success?: boolean
+  error?: string
+}
+
 export type PollSyncBatchResponse = {
   success: boolean
-  pushResults: Array<{ itemId: ItemId; cursor: number }>
+  pushResults: Array<PushResultItem>
   pullResults: Array<{
     success: true
     itemId: ItemId

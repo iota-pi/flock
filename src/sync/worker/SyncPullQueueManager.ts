@@ -1,7 +1,7 @@
 import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 import { debounce } from 'lodash-es'
 
-import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
+import type { PullSyncMessagesResponse, PushResultItem } from '../../api/vault/SyncWorkerClient'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { decryptBytes } from 'src/api/vault'
@@ -274,11 +274,11 @@ export class SyncPullQueueManager {
     }
   }
 
-  processPushResults(results: Array<{ itemId: ItemId; cursor: number }>): void {
+  processPushResults(results: Array<PushResultItem>): void {
     if (!this.account) return
     let cursorsUpdated = false
     for (const res of results) {
-      if (res.itemId && Number.isFinite(res.cursor)) {
+      if (res.itemId && typeof res.cursor === 'number' && Number.isFinite(res.cursor) && res.success !== false) {
         const state = this.getOrCreateState(res.itemId)
         if (res.cursor > state.cursor) {
           state.cursor = res.cursor

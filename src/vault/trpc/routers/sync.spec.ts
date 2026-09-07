@@ -1,5 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { syncRouter } from './sync'
+import { StoredSyncMessage } from 'src/vault/drivers/base'
+import { ItemId } from 'src/shared/schemas/items'
 
 function createContext(overrides?: {
   authToken?: string
@@ -26,7 +28,7 @@ function createContext(overrides?: {
       }
     }),
     updateAccountData: vi.fn(async () => undefined),
-    getGlobalSyncMessagesAfterCursor: vi.fn(async () => ({ items: [], hasMore: false })),
+    getGlobalSyncMessagesAfterCursor: vi.fn(async () => ({ items: [] as Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>, hasMore: false })),
     getSyncMessages: vi.fn(async () => ({ messages: [], hasMore: false })),
     pushSyncMessagesBatch: vi.fn(async () => undefined),
   }
@@ -46,7 +48,7 @@ describe('syncRouter authorization & IDOR protection', () => {
     account: 'target-account',
     messages: [
       {
-        itemId: 'item-1' as any,
+        itemId: 'item-1' as ItemId,
         encryptedMessage: {
           iv: 'test-iv',
           cipher: 'test-cipher',
@@ -126,7 +128,7 @@ describe('pollSync behavior (C1 resolution: fast path removal & deferred getAcco
     ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
       items: [
         {
-          itemId: 'item-1' as any,
+          itemId: 'item-1' as ItemId,
           messages: [
             {
               cursor: 120,
@@ -185,7 +187,7 @@ describe('pollSync behavior (C1 resolution: fast path removal & deferred getAcco
       account: 'target-account',
       pushMessages: [
         {
-          itemId: 'item-1' as any,
+          itemId: 'item-1' as ItemId,
           encryptedMessage: { iv: 'iv', cipher: 'c' },
         },
       ],
@@ -220,7 +222,7 @@ describe('pollSync behavior (C1 resolution: fast path removal & deferred getAcco
       account: 'target-account',
       pushMessages: [
         {
-          itemId: 'item-1' as any,
+          itemId: 'item-1' as ItemId,
           encryptedMessage: { iv: 'iv', cipher: 'c' },
         },
       ],
@@ -252,7 +254,7 @@ describe('pollSync behavior (C1 resolution: fast path removal & deferred getAcco
       account: 'target-account',
       pushMessages: [
         {
-          itemId: 'item-1' as any,
+          itemId: 'item-1' as ItemId,
           encryptedMessage: { iv: 'iv', cipher: 'c' },
         },
       ],

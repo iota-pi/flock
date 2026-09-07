@@ -315,8 +315,10 @@ export class SyncWriteAheadLog {
    * Remove specific entries by ID after successful network send.
    */
   async remove(entryIds: string[]): Promise<void> {
-    if (entryIds.length === 0) return
-    await Promise.all(entryIds.map(id => this.storage.removeItem(id)))
+    if (!entryIds || entryIds.length === 0) return
+    const uniqueIds = Array.from(new Set(entryIds.filter((id): id is string => typeof id === 'string' && id.length > 0)))
+    if (uniqueIds.length === 0) return
+    await Promise.all(uniqueIds.map(id => this.storage.removeItem(id)))
   }
 
   /**

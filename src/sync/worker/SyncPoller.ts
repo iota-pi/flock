@@ -8,7 +8,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncWriteAheadLog, packBatchedMessages, type WalEntry } from './SyncWriteAheadLog'
 import { isAuthError } from './utils/auth'
-import { pollSyncBatchWithToken } from '../../api/vault/SyncWorkerClient'
+import { pollSyncBatchWithToken, type PushResultItem } from '../../api/vault/SyncWorkerClient'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
@@ -129,12 +129,13 @@ export class SyncPoller {
       for (const chunkEntry of chunks) {
         if (this.isShutdown || signal.aborted) return 'no-poll'
 
-        const sentIds: string[] = []
+        const sentIdsByItem = new Map<ItemId, string[]>()
         const pushMessages = await Promise.all(
           chunkEntry.map(async ([itemId, messages]) => {
-            for (const m of messages) {
-              sentIds.push(m.id)
-            }
+            sentIdsByItem.set(
+              itemId,
+              messages.map(m => m.id)
+            )
             const combined = packBatchedMessages(messages)
             const encryptedMessage = await encryptBytes(combined)
             return {
@@ -164,11 +165,34 @@ export class SyncPoller {
 
         if (this.isShutdown || signal.aborted) return 'no-poll'
 
-        if (this.wal && sentIds.length > 0) {
+        const acknowledgedIds: string[] = []
+        const acknowledgedItemIds = new Set<ItemId>()
+
+        if (response && Array.isArray(response.pushResults)) {
+          for (const result of response.pushResults) {
+            if (this.isPushResultSuccessful(result)) {
+              acknowledgedItemIds.add(result.itemId)
+              const ids = sentIdsByItem.get(result.itemId)
+              if (ids && ids.length > 0) {
+                acknowledgedIds.push(...ids)
+              }
+            } else {
+              console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
+            }
+          }
+        }
+
+        for (const [sentItemId] of chunkEntry) {
+          if (!acknowledgedItemIds.has(sentItemId)) {
+            console.warn(`[SyncPoller] Item ${sentItemId} was not acknowledged in pushResults, preserving in WAL`)
+          }
+        }
+
+        if (this.wal && acknowledgedIds.length > 0) {
           try {
-            await this.wal.remove(sentIds)
+            await this.wal.remove(acknowledgedIds)
           } catch (walErr) {
-            console.error('[SyncPoller] Failed to remove sent IDs from WAL', walErr)
+            console.error('[SyncPoller] Failed to remove acknowledged IDs from WAL', walErr)
           }
         }
 
@@ -218,5 +242,12 @@ export class SyncPoller {
 
   private isAuthError(error: unknown): boolean {
     return isAuthError(error)
+  }
+
+  private isPushResultSuccessful(result: PushResultItem): boolean {
+    if (!result || !result.itemId) return false
+    if (result.success === false) return false
+    if (result.success === true) return true
+    return typeof result.cursor === 'number' && Number.isFinite(result.cursor) && result.cursor >= 0
   }
 }

@@ -94,12 +94,20 @@ describe('SyncPoller', () => {
     mockPollSyncBatchWithToken
       .mockResolvedValueOnce({
         success: true,
-        pushResults: [],
+        pushResults: [
+          { itemId: 'item-0', cursor: 0 },
+          { itemId: 'item-1', cursor: 1 },
+          { itemId: 'item-2', cursor: 2 },
+          { itemId: 'item-3', cursor: 3 },
+          { itemId: 'item-4', cursor: 4 },
+        ],
         pullResults: [],
       })
       .mockResolvedValueOnce({
         success: true,
-        pushResults: [],
+        pushResults: [
+          { itemId: 'item-5', cursor: 5 },
+        ],
         pullResults: [],
       })
 
@@ -345,6 +353,138 @@ describe('SyncPoller', () => {
       })
 
       expect(await poller.executePoll()).toBe('success')
+    })
+  })
+
+  describe('pushResults inspection and selective WAL removal', () => {
+    it('removes only WAL entries for items explicitly acknowledged as successful when some items fail', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 10, success: true },
+          { itemId: 'item-2', success: false, error: 'ConditionalCheckFailed' },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledTimes(1)
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+      expect(mockWal.remove).not.toHaveBeenCalledWith(expect.arrayContaining(['msg-2']))
+    })
+
+    it('removes only WAL entries for items present in pushResults when an item is omitted', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 10 },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledTimes(1)
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+    })
+
+    it('does not remove any WAL entries when pushResults is empty', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).not.toHaveBeenCalled()
+    })
+
+    it('removes all batched WAL entries for an acknowledged item', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1a', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1b', itemId: 'item-1' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+        { id: 'msg-1c', itemId: 'item-1' as ItemId, data: new Uint8Array([3]), createdAt: 3 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 25 },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1a', 'msg-1b', 'msg-1c'])
+    })
+
+    it('does not remove WAL entries when item has invalid or missing cursor without explicit success', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: NaN },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).not.toHaveBeenCalled()
+    })
+
+    it('removes WAL entries when pushResult has explicit success: true even without cursor', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', success: true },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
     })
   })
 })
