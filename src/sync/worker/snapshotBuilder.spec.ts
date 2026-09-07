@@ -1,14 +1,21 @@
 import { ItemId } from 'src/shared/schemas/items'
 import { buildSnapshot } from './snapshotBuilder'
+import { VaultNotInitializedError } from '../../api/vault'
 
 const mockEncryptBytes = vi.fn()
 const mockNormalizeItemSnapshot = vi.fn()
 const mockSave = vi.fn()
 const mockToAutomergeUrlFromItemId = vi.fn()
 
-vi.mock('../../api/vault', () => ({
-  encryptBytes: (...args: any[]) => mockEncryptBytes(...args),
-}))
+vi.mock('../../api/vault', () => {
+  class MockVaultNotInitializedError extends Error {
+    name = 'VaultNotInitializedError'
+  }
+  return {
+    encryptBytes: (...args: any[]) => mockEncryptBytes(...args),
+    VaultNotInitializedError: MockVaultNotInitializedError,
+  }
+})
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: (...args: any[]) => mockSave(...args),
@@ -75,11 +82,11 @@ describe('buildSnapshot helper function', () => {
   it('returns error if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
     let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
 
     mockRepo.find.mockResolvedValue(undefined)
     result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
   })
 
   it('returns not-ready if document handle is not ready', async () => {
@@ -91,18 +98,18 @@ describe('buildSnapshot helper function', () => {
   it('returns error if doc is missing or saving binary is empty', async () => {
     mockHandle.doc.mockReturnValue(undefined)
     let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Document data not available' })
 
     mockHandle.doc.mockReturnValue({ id: 'item-1' })
     mockSave.mockReturnValue(new Uint8Array([]))
     result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Failed to serialize document binary' })
   })
 
   it('returns error if normalizeItemSnapshot returns null', async () => {
     mockNormalizeItemSnapshot.mockReturnValue(null)
     const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Failed to normalize item snapshot' })
   })
 
   it('correctly reports deleted status if document is deleted', async () => {
@@ -120,7 +127,17 @@ describe('buildSnapshot helper function', () => {
     })
   })
 
-  it('propagates encryptBytes exception (caller handles it)', async () => {
+  it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
+    mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
+
+    mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
+  })
+
+  it('propagates non-transient encryptBytes exception (caller handles it)', async () => {
     const error = new Error('Crypto error')
     mockEncryptBytes.mockRejectedValue(error)
 

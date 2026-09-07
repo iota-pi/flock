@@ -5,11 +5,15 @@ import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
-import { buildSnapshot, type BuildSnapshotResult } from './snapshotBuilder'
+import { buildSnapshot, isTransientVaultError, type BuildSnapshotResult } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import type { ClientEventHub } from './SyncEventHub'
-import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import {
+  readManualRecoveryEntries,
+  removeManualRecoveryEntryByItemId,
+  upsertManualRecoveryEntry,
+} from '../shared/manualRecoveryStore'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -251,15 +255,42 @@ export class SnapshotManager {
     }
   }
 
-  private handleSnapshotFailure(itemId: ItemId, tick: number, failureType: string) {
+  private async handleSnapshotFailure(
+    itemId: ItemId,
+    tick: number,
+    failureType: string,
+    reason?: string,
+  ) {
     const failures = (this.consecutiveFailures.get(itemId) ?? 0) + 1
     if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
+      const detailedReason =
+        reason ||
+        `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`
       console.error(
-        `[SnapshotManager] Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Removing from dirty queue.`
+        `[SnapshotManager] Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`
       )
       this.consecutiveFailures.delete(itemId)
       if (this.dirtyItems.get(itemId) === tick) {
         this.dirtyItems.delete(itemId)
+      }
+
+      this.deps.eventHub?.emit({
+        type: 'snapshotFailed',
+        itemId,
+        message: `Snapshot sync failed for item ${itemId}: ${detailedReason}. Changes are stored locally only.`,
+      })
+
+      if (this.deps.accountId) {
+        try {
+          await upsertManualRecoveryEntry(this.deps.accountId, {
+            itemId,
+            reason: `Snapshot failure: ${detailedReason}`,
+          })
+          const entries = await readManualRecoveryEntries(this.deps.accountId)
+          this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
+        } catch (recoveryError) {
+          console.error('[SnapshotManager] Failed to record manual recovery entry', recoveryError)
+        }
       }
     } else {
       this.consecutiveFailures.set(itemId, failures)
@@ -289,7 +320,7 @@ export class SnapshotManager {
 
       if (buildResult.type === 'error') {
         success = false
-        this.handleSnapshotFailure(itemId, tick, 'build')
+        await this.handleSnapshotFailure(itemId, tick, 'build', buildResult.reason)
         continue
       }
 
@@ -310,7 +341,12 @@ export class SnapshotManager {
         void upsertManualRecoveryEntry(accountId, {
           itemId,
           reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds max payload limit (${Math.round(this.maxPayloadBytes / 1024)} KB)`,
-        }).catch(() => {})
+        })
+          .then(async () => {
+            const entries = await readManualRecoveryEntries(accountId)
+            this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
+          })
+          .catch(() => {})
 
         if (this.dirtyItems.get(itemId) === tick) {
           this.dirtyItems.delete(itemId)
@@ -332,15 +368,13 @@ export class SnapshotManager {
         if (!result.success) {
           success = false
           sendFailed = true
-          for (const item of currentBatch) {
-            this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'send')
-          }
           break
         }
         for (const item of currentBatch) {
           if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
+          void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
         persisted += result.persisted
         currentBatch = []
@@ -361,14 +395,12 @@ export class SnapshotManager {
       )
       if (!result.success) {
         success = false
-        for (const item of currentBatch) {
-          this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'send')
-        }
       } else {
         for (const item of currentBatch) {
           if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
+          void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
         persisted += result.persisted
       }
@@ -436,9 +468,13 @@ export class SnapshotManager {
   private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
     try {
       return await buildSnapshot(this.deps.repo, itemId, snapshotCursor)
-    } catch (error) {
+    } catch (error: any) {
+      if (isTransientVaultError(error)) {
+        console.warn('[SnapshotManager] Vault is locked or uninitialized during snapshot build, waiting', error)
+        return { type: 'not-ready' }
+      }
       console.error('[SnapshotManager] failed to encrypt snapshot binary', error)
-      return { type: 'error' }
+      return { type: 'error', reason: error?.message || 'Failed to encrypt snapshot binary' }
     }
   }
 

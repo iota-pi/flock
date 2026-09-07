@@ -318,7 +318,11 @@ export class SyncWorker implements SyncApi {
   }
 
   async pushSnapshots() { return this.context.snapshotManager.flushPendingSnapshots() }
-  async retryRecoveryItem(itemId: ItemId) { await this.context.itemOperations.retryRecoveryItem(itemId) }
+  async retryRecoveryItem(itemId: ItemId) {
+    await this.context.itemOperations.retryRecoveryItem(itemId)
+    this.context.snapshotManager.markItemDirty(itemId)
+    void this.context.snapshotManager.flushPendingSnapshots()
+  }
   async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceOverwriteRecoveryItem(itemId) }
   async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceDeleteRecoveryItem(itemId) }
   async dismissRecoveryItem(entryId: string) { await this.context.itemOperations.dismissRecoveryItem(entryId) }

@@ -177,6 +177,12 @@ class SyncBridgeService {
         syncStore.setSyncWarning(event.message)
         break
       }
+      case 'snapshotFailed': {
+        const syncStore = useAppStore.getState()
+        syncStore.setSyncStatus('degraded')
+        syncStore.setSyncWarning(event.message)
+        break
+      }
       case 'keyVersionMissing':
         void this.handleKeyringUpdate(event.kver)
         break

@@ -4,7 +4,7 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { encryptBytes } from '../../api/vault'
+import { encryptBytes, VaultNotInitializedError } from '../../api/vault'
 import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -12,7 +12,21 @@ import { ItemId } from 'src/shared/schemas/items'
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput }
   | { type: 'not-ready' }
-  | { type: 'error' }
+  | { type: 'error'; reason?: string }
+
+export function isTransientVaultError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof VaultNotInitializedError) return true
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  const name = error instanceof Error ? error.name : ''
+  return (
+    name === 'VaultNotInitializedError' ||
+    message.includes('vault is locked') ||
+    message.includes('vaultnotinitializederror') ||
+    message.includes('not initialized') ||
+    message.includes('active key not found')
+  )
+}
 
 export async function buildSnapshot(
   repo: Repo,
@@ -22,7 +36,7 @@ export async function buildSnapshot(
   const documentUrl = toAutomergeUrlFromItemId(itemId)
   const handle = await repo.find(documentUrl).catch(() => undefined)
   if (!handle) {
-    return { type: 'error' }
+    return { type: 'error', reason: 'Document handle not found' }
   }
 
   if (!handle.isReady()) {
@@ -31,19 +45,27 @@ export async function buildSnapshot(
 
   const doc = handle.doc()
   if (!doc) {
-    return { type: 'error' }
+    return { type: 'error', reason: 'Document data not available' }
   }
 
   const binary = Automerge.save(doc)
   if (!binary || binary.byteLength === 0) {
-    return { type: 'error' }
+    return { type: 'error', reason: 'Failed to serialize document binary' }
   }
 
-  const encryptedDoc = await encryptBytes(binary)
+  let encryptedDoc
+  try {
+    encryptedDoc = await encryptBytes(binary)
+  } catch (error) {
+    if (isTransientVaultError(error)) {
+      return { type: 'not-ready' }
+    }
+    throw error
+  }
 
   const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>)
   if (!itemSnapshot) {
-    return { type: 'error' }
+    return { type: 'error', reason: 'Failed to normalize item snapshot' }
   }
 
   const originalType = (

@@ -446,6 +446,24 @@ describe('SyncBridge', () => {
     })
   })
 
+  it('updates syncStatus to degraded and sets syncWarning when snapshotFailed event is received', async () => {
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({
+      type: 'snapshotFailed',
+      itemId: 'item-1',
+      message: 'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
+    })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().syncStatus).toBe('degraded')
+      expect(useAppStore.getState().syncWarning).toBe(
+        'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
+      )
+    })
+  })
+
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
     let worker1Terminate: any
     let worker2Terminate: any

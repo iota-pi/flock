@@ -13,8 +13,12 @@ vi.mock('../shared/workerAuthStore', () => ({
 }))
 
 const mockUpsertManualRecoveryEntry = vi.fn().mockResolvedValue(undefined)
+const mockRemoveManualRecoveryEntryByItemId = vi.fn().mockResolvedValue(undefined)
+const mockReadManualRecoveryEntries = vi.fn().mockResolvedValue([])
 vi.mock('../shared/manualRecoveryStore', () => ({
   upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
+  removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
+  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
 }))
 
 vi.mock('../../api/vault', () => ({
@@ -48,10 +52,12 @@ describe('SnapshotManager Retry Mechanism', () => {
   let manager: SnapshotManager
   let mockRepo: any
   let mockHandle: any
+  let mockEventHub: { emit: ReturnType<typeof vi.fn> }
   let context: {
     accountId: string | null
     repo: any
     broker: any
+    eventHub: any
   }
   let lastModifiedStore: LastModifiedStore
 
@@ -68,10 +74,15 @@ describe('SnapshotManager Retry Mechanism', () => {
       find: vi.fn().mockResolvedValue(mockHandle),
     }
 
+    mockEventHub = {
+      emit: vi.fn(),
+    }
+
     context = {
       accountId: 'test-account',
       repo: mockRepo,
       broker: {} as any,
+      eventHub: mockEventHub,
     }
 
     lastModifiedStore = new LastModifiedStore('test-account')
@@ -482,8 +493,11 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(manager['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
     })
 
-    it('increments consecutiveBuildFailures and drops item after MAX_CONSECUTIVE_SNAPSHOT_FAILURES on real error', async () => {
+    it('increments consecutiveBuildFailures and moves item to manual recovery with user notification after MAX_CONSECUTIVE_SNAPSHOT_FAILURES on real error', async () => {
       mockHandle.doc.mockReturnValue(undefined) // Triggers error in buildSnapshot
+      mockReadManualRecoveryEntries.mockResolvedValueOnce([
+        { id: 'item-1', itemId: 'item-1', reason: 'Snapshot failure: Document data not available', createdAt: Date.now() },
+      ])
 
       manager.markItemDirty('item-1' as ItemId)
 
@@ -493,9 +507,94 @@ describe('SnapshotManager Retry Mechanism', () => {
         await vi.advanceTimersByTimeAsync(0)
       }
 
-      // Item should now be dropped from dirty queue
+      // Item should now be dropped from active dirty queue
       expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
       expect(manager['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
+
+      // User notification emitted via eventHub
+      expect(mockEventHub.emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'snapshotFailed',
+          itemId: 'item-1',
+          message: expect.stringContaining('Snapshot sync failed for item item-1'),
+        }),
+      )
+
+      // Persisted to manual recovery store
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
+        'test-account',
+        expect.objectContaining({
+          itemId: 'item-1',
+          reason: expect.stringContaining('Snapshot failure:'),
+        }),
+      )
+
+      // Recovery items changed event emitted to update UI
+      expect(mockEventHub.emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'recoveryItemsChanged',
+        }),
+      )
+    })
+
+    it('does not increment failures or drop items on transient vault errors (e.g. Vault is locked)', async () => {
+      const { encryptBytes } = await import('../../api/vault')
+      vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Vault is locked'))
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Run 6 push attempts while vault is locked
+      for (let i = 0; i < 6; i++) {
+        vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Vault is locked'))
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+      }
+
+      // Item must remain dirty and NOT be dropped
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
+      expect(mockEventHub.emit).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'snapshotFailed' }),
+      )
+      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
+    })
+
+    it('does not drop items or count failures when batch network send fails', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: false,
+        persisted: 0,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.markItemDirty('item-2' as ItemId)
+
+      // Run 6 push attempts where network fails
+      for (let i = 0; i < 6; i++) {
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+      }
+
+      // Items must remain dirty for subsequent retry and NOT be dropped
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(true)
+      expect(manager['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['consecutiveFailures'].has('item-2' as ItemId)).toBe(false)
+      expect(mockEventHub.emit).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'snapshotFailed' }),
+      )
+    })
+
+    it('clears manual recovery entry when snapshot upload subsequently succeeds', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('test-account', 'item-1')
     })
   })
 

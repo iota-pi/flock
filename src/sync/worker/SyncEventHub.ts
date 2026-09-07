@@ -18,6 +18,7 @@ export type ClientEvent =
   | { type: 'recoveryItemsChanged'; entries: ManualRecoveryEntry[] }
   | { type: 'quotaExceeded'; message: string }
   | { type: 'keyVersionMissing'; kver: string }
+  | { type: 'snapshotFailed'; itemId: ItemId; message: string }
 
 export type WorkerInternalEvent =
   | { type: 'pollResult'; outcome: PollOutcome }
