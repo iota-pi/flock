@@ -26,11 +26,6 @@ export const syncRouter = router({
       const repository = createDynamoAutomergeSyncRepository(ctx.vault)
       const service = createAutomergeSyncService({ repository })
 
-      const account = await ctx.vault.getAccount({
-        account: ctx.account,
-        session: ctx.authToken,
-      })
-
       let pushResults: Array<{ itemId: ItemId; cursor: number }> = []
       if (input.pushMessages.length > 0) {
         const pushResult = await service.pushAutomergeSyncBatch({
@@ -43,16 +38,11 @@ export const syncRouter = router({
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
 
       if (typeof input.clientLatestCursor === 'number') {
-        if (input.clientLatestCursor > 0 && input.clientLatestCursor >= (account.latestSyncCursor ?? 0)) {
-          // Fast Path: Client is fully up to date globally, skip database query
-          pullResults = []
-        } else {
-          const pullResult = await service.pullAutomergeSyncGlobal({
-            account: input.account,
-            cursor: input.clientLatestCursor,
-          })
-          pullResults = pullResult.results
-        }
+        const pullResult = await service.pullAutomergeSyncGlobal({
+          account: input.account,
+          cursor: input.clientLatestCursor,
+        })
+        pullResults = pullResult.results
       } else if (input.pullCursors.length > 0) {
         const pullResult = await service.pullAutomergeSyncBatch({
           account: input.account,
@@ -64,12 +54,18 @@ export const syncRouter = router({
       if (pushResults.length > 0) {
         const maxPushCursor = Math.max(...pushResults.map(result => result.cursor))
         const maxRetries = 3
-        let currentAccount = account
+        let currentAccount = await ctx.vault.getAccount({
+          account: ctx.account,
+          session: ctx.authToken,
+        })
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          if ((currentAccount.latestSyncCursor ?? 0) >= maxPushCursor) {
+            break
+          }
           try {
             await ctx.vault.updateAccountData({
               account: input.account,
-              latestSyncCursor: Math.max(maxPushCursor, currentAccount.latestSyncCursor ?? 0),
+              latestSyncCursor: maxPushCursor,
             })
             break
           } catch (err) {
