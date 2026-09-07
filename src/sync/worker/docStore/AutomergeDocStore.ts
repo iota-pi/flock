@@ -342,6 +342,39 @@ export class AutomergeDocStore {
     })
   }
 
+  async compactDocument(itemId: ItemId, item: Item): Promise<boolean> {
+    const normalizedItemId = normalizeItemId(itemId)
+    if (!normalizedItemId) {
+      return false
+    }
+    const { documentId } = this.resolveDocumentId(normalizedItemId)
+
+    // Create fresh new doc with only current state (0 historical tombstones)
+    let newDoc = Automerge.init<RepoDoc>()
+    newDoc = Automerge.change(newDoc, doc => {
+      for (const [key, value] of Object.entries(item)) {
+        doc[key] = value
+      }
+    })
+    const compactedBinary = Automerge.save(newDoc)
+
+    try {
+      this.repo.delete(documentId)
+    } catch {
+      // Ignore
+    }
+    try {
+      await this.repo.removeFromCache(documentId)
+    } catch {
+      // Ignore
+    }
+
+    this.repo.import<RepoDoc>(compactedBinary, {
+      docId: documentId,
+    })
+    return true
+  }
+
   async exportAllBinaries(indexManager: AutomergeIndexManager): Promise<{
     documents: Partial<Record<BackupDocId, string>>
     skipped: ItemId[]

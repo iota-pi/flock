@@ -82,17 +82,6 @@ export default $config({
       },
     });
     // -----------------------------------------------------------------
-    // S3 Snapshots Bucket
-    // -----------------------------------------------------------------
-    const snapshotsBucket = new sst.aws.Bucket("VaultSnapshots", {
-      cors: {
-        allowOrigins: ["*"],
-        allowMethods: ["GET", "PUT", "HEAD"],
-        allowHeaders: ["*"],
-        maxAge: "1 day",
-      },
-    });
-    // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
     const vaultApi = new sst.aws.Function("VaultApi", {
@@ -107,10 +96,8 @@ export default $config({
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
         SYNC_MESSAGES_TABLE: syncMessagesTable.name,
-        SNAPSHOTS_BUCKET_NAME: snapshotsBucket.name,
-        LARGE_OBJECT_THRESHOLD_BYTES: "153600",
       },
-      link: [accountsTable, itemsTable, syncMessagesTable, snapshotsBucket],
+      link: [accountsTable, itemsTable, syncMessagesTable],
     });
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)
@@ -124,10 +111,8 @@ export default $config({
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
         SYNC_MESSAGES_TABLE: syncMessagesTable.name,
-        SNAPSHOTS_BUCKET_NAME: snapshotsBucket.name,
-        LARGE_OBJECT_THRESHOLD_BYTES: "153600",
       },
-      link: [accountsTable, itemsTable, syncMessagesTable, snapshotsBucket],
+      link: [accountsTable, itemsTable, syncMessagesTable],
     });
     // -----------------------------------------------------------------
     // Push Notifications (Queue + Worker)

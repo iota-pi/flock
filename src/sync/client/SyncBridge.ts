@@ -676,6 +676,11 @@ class SyncBridgeService {
     return this.syncApi!.forceDeleteRecoveryItem(itemId)
   }
 
+  async compactItem(itemId: ItemId): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.compactItem(itemId)
+  }
+
   async dismissRecoveryItem(entryId: string): Promise<void> {
     await this.ensureReady()
     return this.syncApi!.dismissRecoveryItem(entryId)

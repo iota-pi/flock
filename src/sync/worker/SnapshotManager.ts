@@ -59,7 +59,7 @@ export class SnapshotManager {
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
-    this.maxPayloadBytes = options?.maxPayloadBytes ?? 5 * 1024 * 1024
+    this.maxPayloadBytes = options?.maxPayloadBytes ?? 350 * 1024
     this.debounceDelayMs = options?.debounceDelayMs ?? 30_000
     this.maxWaitMs = options?.maxWaitMs ?? 5 * 60 * 1000
   }
@@ -336,11 +336,11 @@ export class SnapshotManager {
         success = false
         this.deps.eventHub?.emit({
           type: 'quotaExceeded',
-          message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the maximum allowed payload size.`,
+          message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
         })
         void upsertManualRecoveryEntry(accountId, {
           itemId,
-          reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds max payload limit (${Math.round(this.maxPayloadBytes / 1024)} KB)`,
+          reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
         })
           .then(async () => {
             const entries = await readManualRecoveryEntries(accountId)

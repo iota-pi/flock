@@ -24,7 +24,6 @@ export type AccountCreationResponse = z.infer<typeof AccountCreationResponseSche
 const VaultItemSchema = VaultEnvelopeSchema.and(
   z.object({
     account: z.string().optional(),
-    snapshotUrl: z.string().url().optional(),
     ttl: z.number().optional(),
     syncMessages: z.array(
       z.object({

@@ -61,9 +61,6 @@ export const VaultItemSchema = VaultKeySchema.extend({
   metadata: VaultMetaDataSchema,
   cipher: z.string().optional(),
   snapshot: VaultItemSnapshotSchema.optional(),
-  snapshotUrl: z.string().url().optional(),
-  storageType: z.enum(['inline', 'external']).optional(),
-  externalKey: z.string().optional(),
   ttl: z.number().optional(),
   version: z.number().optional(),
 })

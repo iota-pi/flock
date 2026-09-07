@@ -698,14 +698,14 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockEventHub.emit).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'quotaExceeded',
-          message: expect.stringContaining('exceeds the maximum allowed payload size'),
+          message: expect.stringContaining('exceeds the 350 KB limit'),
         }),
       )
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
         'test-account',
         expect.objectContaining({
           itemId: 'item-1',
-          reason: expect.stringContaining('exceeds max payload limit'),
+          reason: expect.stringContaining('exceeds 350 KB limit'),
         }),
       )
     })

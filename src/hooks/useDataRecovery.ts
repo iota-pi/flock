@@ -81,6 +81,21 @@ export function useDataRecovery() {
     }
   }, [setMessage])
 
+  const handleCompactItem = useCallback(async (itemId: ItemId) => {
+    setIsRetrying(itemId)
+    try {
+      await SyncBridge.compactItem(itemId)
+      setMessage({ message: `Compacted edit history for ${itemId}. Resuming sync.` })
+    } catch (error: unknown) {
+      setMessage({
+        severity: 'error',
+        message: (error as Error).message || `Failed to compact ${itemId}.`,
+      })
+    } finally {
+      setIsRetrying(current => (current === itemId ? null : current))
+    }
+  }, [setMessage])
+
   return {
     recoveryItems,
     isRetrying,
@@ -88,6 +103,7 @@ export function useDataRecovery() {
     handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
+    handleCompactItem,
   }
 }
 

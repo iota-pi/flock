@@ -169,5 +169,31 @@ describe('ItemOperations', () => {
       })
     })
   })
+
+  describe('compactItem', () => {
+    it('compacts document, cleans up manual recovery, marks dirty, and emits updated item', async () => {
+      const compactDocumentMock = vi.fn().mockResolvedValue(true)
+      deps.docStore.compactDocument = compactDocumentMock
+      const localItem = { id: 'item-1' as ItemId, type: 'note', text: 'survived content' } as unknown as Item
+      getAutomergeItemMock.mockResolvedValue(localItem)
+
+      await operations.compactItem('item-1' as ItemId)
+
+      expect(getAutomergeItemMock).toHaveBeenCalledWith('item-1')
+      expect(compactDocumentMock).toHaveBeenCalledWith('item-1', localItem)
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'itemUpdated',
+        id: 'item-1',
+        item: localItem,
+      })
+    })
+
+    it('throws error if item is not found locally', async () => {
+      getAutomergeItemMock.mockResolvedValue(null)
+
+      await expect(operations.compactItem('missing-item' as ItemId)).rejects.toThrow('No local item found')
+    })
+  })
 })
 

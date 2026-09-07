@@ -167,33 +167,6 @@ export class ManifestSyncManager {
 
         let decryptedSuccessfully = false
 
-        if (item.snapshotUrl && item.snapshot?.iv) {
-          try {
-            const res = await fetch(item.snapshotUrl)
-            if (res.ok) {
-              const arrayBuf = await res.arrayBuffer()
-              const cipherBase64 = new Uint8Array(arrayBuf).toBase64()
-              const binary = await this.decryptSnapshotBinary({
-                iv: item.snapshot.iv,
-                cipher: cipherBase64,
-                kver: item.snapshot.kver,
-              })
-              if (binary) {
-                await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
-                hydratedIds.push(itemId)
-                lastModifiedUpdates.push([itemId, serverTime])
-                decryptedSuccessfully = true
-                return
-              }
-            }
-          } catch (fetchErr) {
-            console.error(
-              `[ManifestSyncManager] Failed to fetch external snapshot for ${item.item}`,
-              fetchErr,
-            )
-          }
-        }
-
         if (item.snapshot) {
           const binary = await this.decryptSnapshotBinary(item.snapshot)
           if (binary) {

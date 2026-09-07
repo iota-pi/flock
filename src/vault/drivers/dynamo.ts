@@ -38,18 +38,10 @@ import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
 import { VersionConflictError } from '../../shared/syncErrors'
 import type { ItemId } from 'src/shared/schemas/items'
-import {
-  putSnapshotBlob,
-  getSnapshotPresignedUrl,
-  deleteSnapshotBlob,
-} from '../services/blobStore'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
-
-export const LARGE_OBJECT_THRESHOLD_BYTES =
-  parseInt(process.env.LARGE_OBJECT_THRESHOLD_BYTES || '', 10) || 150 * 1024
 
 const SYNC_MESSAGE_TTL = 30 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
@@ -60,19 +52,15 @@ const DATA_ATTRIBUTES = [
   '#cipher',
   '#snapshot',
   '#version',
-  '#storageType',
-  '#externalKey',
 ]
 const DATA_ATTRIBUTE_NAMES = {
   '#metadata': 'metadata',
   '#cipher': 'cipher',
   '#snapshot': 'snapshot',
   '#version': 'version',
-  '#storageType': 'storageType',
-  '#externalKey': 'externalKey',
 }
 
-const MAX_ITEM_SIZE = 200_000
+export const MAX_ITEM_SIZE = 350 * 1024
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 
@@ -91,7 +79,7 @@ type PersistedVaultItem = VaultItem & {
 function validateItem(item: VaultItem) {
   const isTombstone = item.metadata.deleted === true
   const isLegacy = !!item.cipher
-  const isSnapshot = !!item.snapshot || !!item.snapshotUrl || item.storageType === 'external'
+  const isSnapshot = !!item.snapshot
 
   const hasValidPayload = isTombstone
     ? !!item.metadata.type
@@ -626,38 +614,15 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         cipherBytes = Buffer.from([])
       }
 
-      if (cipherBytes.byteLength > LARGE_OBJECT_THRESHOLD_BYTES) {
-        // Offload large object to S3
-        const key = `snapshots/${item.account}/${item.item}.bin`
-        await putSnapshotBlob(key, cipherBytes)
-
-        itemToPersist = {
-          ...item,
-          storageType: 'external',
-          externalKey: key,
-          snapshot: {
-            iv: item.snapshot.iv,
-            kver: item.snapshot.kver,
-            cipher: undefined,
-          },
-        }
-      } else {
-        // Store inline in DynamoDB as binary Buffer (DynamoDB type 'B')
-        itemToPersist = {
-          ...item,
-          storageType: 'inline',
-          externalKey: undefined,
-          snapshot: {
-            iv: item.snapshot.iv,
-            kver: item.snapshot.kver,
-            cipher: cipherBytes,
-          },
-        }
+      // Store inline in DynamoDB as binary Buffer (DynamoDB type 'B')
+      itemToPersist = {
+        ...item,
+        snapshot: {
+          iv: item.snapshot.iv,
+          kver: item.snapshot.kver,
+          cipher: cipherBytes,
+        },
       }
-    }
-
-    if (item.metadata?.deleted === true && item.externalKey) {
-      await deleteSnapshotBlob(item.externalKey).catch(() => {})
     }
 
     const params = getItemPutParams(itemToPersist)
@@ -796,16 +761,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     for (const record of results) {
-      if (record.storageType === 'external' && record.externalKey) {
-        try {
-          record.snapshotUrl = await getSnapshotPresignedUrl(record.externalKey)
-        } catch (error) {
-          console.error(
-            `[DynamoDriver] Failed to generate presigned URL for ${record.externalKey}`,
-            error,
-          )
-        }
-      } else if (record.snapshot?.cipher) {
+      if (record.snapshot?.cipher) {
         if (
           Buffer.isBuffer(record.snapshot.cipher) ||
           record.snapshot.cipher instanceof Uint8Array

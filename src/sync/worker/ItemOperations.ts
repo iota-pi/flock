@@ -310,6 +310,24 @@ export class ItemOperations {
     await this.pushRecoveryItems()
   }
 
+  async compactItem(itemId: ItemId): Promise<void> {
+    if (!this.deps.accountId) return
+    const localItem = await this.deps.docStore.getAutomergeItem(itemId)
+    if (!localItem) {
+      throw new Error(`No local item found for ${itemId} to compact.`)
+    }
+
+    await this.deps.docStore.compactDocument(itemId, localItem)
+
+    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
+    this.clearRecoveryCooldown(itemId)
+    this.setInFlight(itemId, false)
+    await this.pushRecoveryItems()
+
+    this.deps.markDocumentDirty(itemId)
+    this.deps.eventHub.emit({ type: 'itemUpdated', id: itemId, item: localItem })
+  }
+
   async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
     if (!this.deps.accountId) return []
     return await readManualRecoveryEntries(this.deps.accountId)

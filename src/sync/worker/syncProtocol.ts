@@ -20,6 +20,7 @@ export interface SyncApi {
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
   forceOverwriteRecoveryItem: (itemId: ItemId) => Promise<void>
   forceDeleteRecoveryItem: (itemId: ItemId) => Promise<void>
+  compactItem: (itemId: ItemId) => Promise<void>
   dismissRecoveryItem: (entryId: string) => Promise<void>
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>

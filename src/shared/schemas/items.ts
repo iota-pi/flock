@@ -100,7 +100,6 @@ export const StandardItemEnvelopeSchema = z.object({
   item: ItemIdSchema,
   cipher: z.undefined().optional(),
   snapshot: CryptoResultSchema.optional(),
-  snapshotUrl: z.string().url().optional(),
   metadata: ItemEnvelopeMetadataSchema,
 })
 
