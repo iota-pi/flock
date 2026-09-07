@@ -571,5 +571,252 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await Promise.resolve()
     expect(receiveSpy).toHaveBeenCalledTimes(3)
   })
+
+  it('buffers outbound sync messages with changes when disconnected and flushes on connect()', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const sentMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      sentMessages.push(msg)
+    }
+
+    const syncMsgWithChanges = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [new Uint8Array([1, 2, 3])],
+    })
+
+    const message: Message = {
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-buf-1' as DocumentId,
+      data: syncMsgWithChanges,
+    }
+
+    // Attempt send while adapter is not connected
+    testAdapter.send(message)
+
+    expect(sentMessages).toHaveLength(0)
+    expect(testAdapter.getPendingOutboundCount()).toBe(1)
+
+    // Connect adapter -> should flush buffered messages
+    testAdapter.connect('test-peer' as PeerId)
+
+    expect(sentMessages).toHaveLength(1)
+    expect(sentMessages[0].documentId).toBe('doc-buf-1')
+    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+  })
+
+  it('buffers outbound sync messages when sendEnabled is false and flushes on setSendEnabled(true)', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.connect('test-peer' as PeerId)
+    testAdapter.setAccount('test-account')
+    testAdapter.setSendEnabled(false)
+
+    const sentMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      sentMessages.push(msg)
+    }
+
+    const syncMsgWithChanges = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [new Uint8Array([4, 5, 6])],
+    })
+
+    const message: Message = {
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-buf-2' as DocumentId,
+      data: syncMsgWithChanges,
+    }
+
+    testAdapter.send(message)
+
+    expect(sentMessages).toHaveLength(0)
+    expect(testAdapter.getPendingOutboundCount()).toBe(1)
+
+    // Enabling send flushes the buffered message
+    testAdapter.setSendEnabled(true)
+
+    expect(sentMessages).toHaveLength(1)
+    expect(sentMessages[0].documentId).toBe('doc-buf-2')
+    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+  })
+
+  it('drops empty negotiation messages during disconnect window without buffering', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+    testAdapter.disconnect() // disconnected
+
+    const sentMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      sentMessages.push(msg)
+    }
+
+    const emptySyncMsg = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-empty' as DocumentId,
+      data: emptySyncMsg,
+    })
+
+    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+    expect(sentMessages).toHaveLength(0)
+  })
+
+  it('clears outbound queue when switching accounts or setting account to null', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('account-A')
+
+    const syncMsgWithChanges = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [new Uint8Array([1])],
+    })
+
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-A' as DocumentId,
+      data: syncMsgWithChanges,
+    })
+
+    expect(testAdapter.getPendingOutboundCount()).toBe(1)
+
+    // Switch account to account-B -> queue for account-A must be cleared
+    testAdapter.setAccount('account-B')
+    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+
+    // Buffer another message for account-B
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-B' as DocumentId,
+      data: syncMsgWithChanges,
+    })
+    expect(testAdapter.getPendingOutboundCount()).toBe(1)
+
+    // Clear account to null -> queue must be cleared
+    testAdapter.setAccount(null)
+    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+  })
+
+  it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
+    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultEncryptedNetworkAdapter')
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const totalToSend = MAX_OUTBOUND_QUEUE_SIZE + 5
+    for (let i = 0; i < totalToSend; i++) {
+      const syncMsg = encodeSyncMessage({
+        heads: [],
+        need: [],
+        have: [],
+        changes: [new Uint8Array([i % 256])],
+      })
+      testAdapter.send({
+        type: 'sync',
+        senderId: 'client' as PeerId,
+        targetId: 'vault' as PeerId,
+        documentId: `doc-${i}` as DocumentId,
+        data: syncMsg,
+      })
+    }
+
+    expect(testAdapter.getPendingOutboundCount()).toBe(MAX_OUTBOUND_QUEUE_SIZE)
+
+    const sentMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      sentMessages.push(msg)
+    }
+
+    testAdapter.connect('test-peer' as PeerId)
+
+    expect(sentMessages).toHaveLength(MAX_OUTBOUND_QUEUE_SIZE)
+    // Oldest 5 (doc-0 .. doc-4) should have been evicted; first flushed message is doc-5
+    expect(sentMessages[0].documentId).toBe('doc-5')
+    expect(sentMessages[sentMessages.length - 1].documentId).toBe(`doc-${totalToSend - 1}`)
+    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+  })
+
+  it('preserves Automerge Repo document mutations sent during disconnect window', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const outgoingMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      outgoingMessages.push(msg)
+    }
+
+    const repo = new Repo({
+      network: [testAdapter],
+    })
+
+    // Initial doc creation and sync
+    const handle = repo.create<{ count: number }>()
+    handle.change(doc => {
+      doc.count = 1
+    })
+
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve()
+
+    // Temporary disconnect
+    testAdapter.disconnect()
+
+    // Automerge Repo sends a mutation message during the disconnect window
+    const syncMsgWithChange = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [new Uint8Array([1, 2, 3])],
+    })
+
+    testAdapter.send({
+      type: 'sync',
+      senderId: repo.peerId,
+      targetId: 'vault' as PeerId,
+      documentId: handle.documentId,
+      data: syncMsgWithChange,
+    })
+
+    // Message must be buffered in outbound queue rather than silently dropped
+    expect(testAdapter.getPendingOutboundCount()).toBe(1)
+    expect(outgoingMessages).toHaveLength(0)
+
+    // Reconnect adapter to simulate connection restoration
+    testAdapter.connect(repo.peerId)
+
+    // Flushed to onMessageToSend
+    expect(outgoingMessages.length).toBe(1)
+    expect(outgoingMessages[0].documentId).toBe(handle.documentId)
+    const decoded = decodeSyncMessage(outgoingMessages[0].data as Uint8Array)
+    expect(decoded.changes.length).toBeGreaterThan(0)
+    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+
+    await repo.shutdown()
+  })
 })
 

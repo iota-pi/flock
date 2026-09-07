@@ -10,6 +10,7 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
+export const MAX_OUTBOUND_QUEUE_SIZE = 1000
 
 export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
@@ -19,6 +20,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private readonly readyPromise: Promise<void>
   private sendEnabled = false
   private seededDocuments = new Set<DocumentId>()
+  private outboundQueue: Message[] = []
 
   public onMessageToSend: ((message: Message) => void) | null = null
 
@@ -29,6 +31,10 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     })
   }
 
+  private canSend(): boolean {
+    return this.connected && Boolean(this.account) && this.sendEnabled
+  }
+
   setSendEnabled(sendEnabled: boolean): void {
     if (this.sendEnabled === sendEnabled) {
       return
@@ -36,6 +42,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.sendEnabled = sendEnabled
 
     if (sendEnabled) {
+      if (this.canSend()) {
+        this.flushOutboundQueue()
+      }
       this.connectPeer()
     } else {
       this.disconnectPeer()
@@ -54,10 +63,19 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       this.disconnectPeer()
     }
 
+    if (this.account && this.account !== nextAccount) {
+      this.clearOutboundQueue()
+    }
+
     this.account = nextAccount
 
     if (this.account) {
+      if (this.canSend()) {
+        this.flushOutboundQueue()
+      }
       this.connectPeer()
+    } else {
+      this.clearOutboundQueue()
     }
   }
 
@@ -80,18 +98,63 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       this.readyPromiseResolver = null
     }
 
+    if (this.canSend()) {
+      this.flushOutboundQueue()
+    }
     this.connectPeer()
   }
 
   send(message: Message): void {
-    if (!this.connected || !this.account || message.targetId !== VAULT_PEER_ID) {
+    if (message.targetId !== VAULT_PEER_ID) {
       return
     }
 
-    if (!this.sendEnabled) {
+    if (!this.canSend()) {
+      this.enqueueOutboundMessage(message)
       return
     }
 
+    this.flushOutboundQueue()
+    this.processMessage(message)
+  }
+
+  private enqueueOutboundMessage(message: Message): void {
+    if (message.type === 'sync' && message.data instanceof Uint8Array) {
+      try {
+        const decoded = decodeSyncMessage(message.data)
+        if (!decoded.changes || decoded.changes.length === 0) {
+          // Drop empty negotiation/ACK messages during disconnect window.
+          // Since the peer is not connected, reflecting an ACK is invalid.
+          // When the connection is restored, Automerge will initiate a fresh
+          // sync negotiation with the peer.
+          return
+        }
+      } catch (err) {
+        console.warn('[VaultNetworkAdapter] Failed to decode sync message while enqueuing', err)
+      }
+    }
+
+    if (this.outboundQueue.length >= MAX_OUTBOUND_QUEUE_SIZE) {
+      console.warn(
+        `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
+      )
+      this.outboundQueue.shift()
+    }
+    this.outboundQueue.push(message)
+  }
+
+  private flushOutboundQueue(): void {
+    if (!this.canSend()) {
+      return
+    }
+
+    while (this.outboundQueue.length > 0) {
+      const message = this.outboundQueue.shift()!
+      this.processMessage(message)
+    }
+  }
+
+  private processMessage(message: Message): void {
     if (message.type === 'sync' && message.data instanceof Uint8Array) {
       try {
         const decoded = decodeSyncMessage(message.data)
@@ -154,6 +217,14 @@ export class VaultNetworkAdapter extends NetworkAdapter {
 
   removeSeededDocument(documentId: DocumentId): void {
     this.seededDocuments.delete(documentId)
+  }
+
+  clearOutboundQueue(): void {
+    this.outboundQueue = []
+  }
+
+  getPendingOutboundCount(): number {
+    return this.outboundQueue.length
   }
 
   private connectPeer(): void {
