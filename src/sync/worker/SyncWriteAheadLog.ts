@@ -162,11 +162,23 @@ export class SyncWriteAheadLog {
     return reducedCount
   }
 
+  private pruningPromise: Promise<void> | null = null
+
   /**
    * Prunes oldest entries from WAL to keep size within limits or free space.
    */
   private async pruneOldest(count: number): Promise<void> {
     if (count <= 0) return
+    if (this.pruningPromise) {
+      return this.pruningPromise
+    }
+    this.pruningPromise = this.performPruneOldest(count).finally(() => {
+      this.pruningPromise = null
+    })
+    return this.pruningPromise
+  }
+
+  private async performPruneOldest(count: number): Promise<void> {
     try {
       const allEntries: { id: string; createdAt: number; seq: number }[] = []
       const supersededIds = new Set<string>()
@@ -205,7 +217,19 @@ export class SyncWriteAheadLog {
     }
   }
 
+  private enforceSizeLimitPromise: Promise<void> | null = null
+
   private async enforceSizeLimit(): Promise<void> {
+    if (this.enforceSizeLimitPromise) {
+      return this.enforceSizeLimitPromise
+    }
+    this.enforceSizeLimitPromise = this.performEnforceSizeLimit().finally(() => {
+      this.enforceSizeLimitPromise = null
+    })
+    return this.enforceSizeLimitPromise
+  }
+
+  private async performEnforceSizeLimit(): Promise<void> {
     try {
       const currentLength = await this.storage.length()
       if (currentLength >= SyncWriteAheadLog.MAX_ENTRIES) {

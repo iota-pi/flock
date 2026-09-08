@@ -470,5 +470,78 @@ describe('SyncWriteAheadLog', () => {
     expect(entries[0].seq).toBe(0)
     expect(entries[1].seq).toBe(0)
   })
+
+  it('serializes concurrent enforceSizeLimit() calls during concurrent appends to prevent over-deleting entries', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+    // Populate store directly with MAX_ENTRIES unique items so compact() cannot reduce them
+    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+      store.store.set(`id-unique-${i}`, {
+        id: `id-unique-${i}`,
+        itemId: `item-unique-${i}` as ItemId,
+        data: new Uint8Array([1]),
+        createdAt: i,
+        seq: i,
+      })
+    }
+
+    expect(await store.length()).toBe(SyncWriteAheadLog.MAX_ENTRIES)
+
+    // Spy on performPruneOldest to verify call count and behavior
+    const pruneSpy = vi.spyOn(wal as any, 'performPruneOldest')
+
+    // Simulate 5 concurrent handleOutgoingMessage -> wal.append calls
+    const appendPromises = [
+      wal.append('item-new-1' as ItemId, new Uint8Array([10])),
+      wal.append('item-new-2' as ItemId, new Uint8Array([20])),
+      wal.append('item-new-3' as ItemId, new Uint8Array([30])),
+      wal.append('item-new-4' as ItemId, new Uint8Array([40])),
+      wal.append('item-new-5' as ItemId, new Uint8Array([50])),
+    ]
+
+    const newIds = await Promise.all(appendPromises)
+
+    // pruneOldest should only be performed ONCE (pruning PRUNE_BATCH_SIZE entries)
+    // rather than 5 times (which would have pruned 5 * PRUNE_BATCH_SIZE entries)
+    expect(pruneSpy).toHaveBeenCalledTimes(1)
+
+    // All 5 new entries must be present
+    for (const newId of newIds) {
+      expect(store.store.has(newId)).toBe(true)
+    }
+
+    // Expected storage length: MAX_ENTRIES (2000) - PRUNE_BATCH_SIZE (100) + 5 new entries = 1905
+    const finalLength = await store.length()
+    expect(finalLength).toBe(SyncWriteAheadLog.MAX_ENTRIES - 100 + 5)
+  })
+
+  it('serializes concurrent pruneOldest() calls to avoid duplicate deletion', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+    for (let i = 0; i < 50; i++) {
+      store.store.set(`id-${i}`, {
+        id: `id-${i}`,
+        itemId: `item-${i}` as ItemId,
+        data: new Uint8Array([i]),
+        createdAt: i,
+        seq: i,
+      })
+    }
+
+    expect(await store.length()).toBe(50)
+
+    const pruneSpy = vi.spyOn(wal as any, 'performPruneOldest')
+
+    // Fire 3 concurrent pruneOldest calls
+    await Promise.all([
+      (wal as any).pruneOldest(10),
+      (wal as any).pruneOldest(10),
+      (wal as any).pruneOldest(10),
+    ])
+
+    // Should only have executed performPruneOldest once for the batch
+    expect(pruneSpy).toHaveBeenCalledTimes(1)
+    expect(await store.length()).toBe(40)
+  })
 })
 
