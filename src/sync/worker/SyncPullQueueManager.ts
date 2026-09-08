@@ -23,6 +23,9 @@ export class SyncPullQueueManager {
   private readonly seenMessageCursors = new Set<string>() // "itemId:cursor" compound keys
   private static readonly SEEN_CACHE_MAX = 2000
 
+  private readonly batchProgress = new Map<string, number>() // "itemId:cursor" -> succeeded prefix count
+  private static readonly BATCH_PROGRESS_CACHE_MAX = 500
+
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
   public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
@@ -70,12 +73,39 @@ export class SyncPullQueueManager {
     return this.seenMessageCursors.has(this.makeSeenKey(itemId, cursor))
   }
 
+  private getBatchProgress(itemId: ItemId, cursor: number): number {
+    return this.batchProgress.get(this.makeSeenKey(itemId, cursor)) ?? 0
+  }
+
+  private setBatchProgress(itemId: ItemId, cursor: number, count: number): void {
+    const key = this.makeSeenKey(itemId, cursor)
+    this.batchProgress.set(key, count)
+    if (this.batchProgress.size > SyncPullQueueManager.BATCH_PROGRESS_CACHE_MAX) {
+      const oldest = this.batchProgress.keys().next().value
+      if (oldest) this.batchProgress.delete(oldest)
+    }
+  }
+
+  private clearBatchProgress(itemId: ItemId, cursor: number): void {
+    this.batchProgress.delete(this.makeSeenKey(itemId, cursor))
+  }
+
+  private clearBatchProgressForItem(itemId: ItemId): void {
+    const prefix = `${itemId}:`
+    for (const key of this.batchProgress.keys()) {
+      if (key.startsWith(prefix)) {
+        this.batchProgress.delete(key)
+      }
+    }
+  }
+
   setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
     this.account = account
 
     this.itemStates.clear()
     this.seenMessageCursors.clear()
+    this.batchProgress.clear()
     this.onRetryingStateChange?.(false)
 
     if (account) {
@@ -118,6 +148,7 @@ export class SyncPullQueueManager {
     await this.persistCursors()
     this.itemStates.clear()
     this.seenMessageCursors.clear()
+    this.batchProgress.clear()
   }
 
   addPendingItem(itemId: ItemId): void {
@@ -140,7 +171,24 @@ export class SyncPullQueueManager {
       const isBatched = entry.encryptedMessage.version === '1.0'
       let hasError = false
       if (isBatched) {
-        const success = parseBatchedMessages(itemId, documentId, decrypted, this.onMessageParsed)
+        const startIndex = Number.isFinite(entry.cursor)
+          ? this.getBatchProgress(itemId, entry.cursor)
+          : 0
+
+        const success = parseBatchedMessages(
+          itemId,
+          documentId,
+          decrypted,
+          this.onMessageParsed,
+          {
+            startIndex,
+            onMessageSuccess: (index) => {
+              if (Number.isFinite(entry.cursor)) {
+                this.setBatchProgress(itemId, entry.cursor, index + 1)
+              }
+            },
+          }
+        )
         if (!success) {
           hasError = true
         }
@@ -221,6 +269,7 @@ export class SyncPullQueueManager {
               successfullyPulledItemIds.add(itemId)
               if (Number.isFinite(handled.cursor)) {
                 this.markSeen(itemId, handled.cursor!)
+                this.clearBatchProgress(itemId, handled.cursor!)
                 highestCursor = Math.max(highestCursor, handled.cursor!)
               }
             } else {
@@ -249,6 +298,7 @@ export class SyncPullQueueManager {
             if (state.retryCount >= SyncPullQueueManager.MAX_PULL_RETRIES) {
               state.pending = false
               state.retryCount = 0
+              this.clearBatchProgressForItem(itemId)
               this.onDecryptionFailure?.(
                 itemId,
                 new Error(
@@ -330,6 +380,7 @@ export class SyncPullQueueManager {
   async resetCursors(): Promise<void> {
     if (!this.account) return
     this.itemStates.clear()
+    this.batchProgress.clear()
     await this.cursorStore.clear()
     this.onRetryingStateChange?.(false)
   }

@@ -727,9 +727,10 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(false)
     })
 
-    it('handles message processing failure in a batch without dropping remaining messages and preserves item for retry', async () => {
+    it('halts on message processing failure in a batch to preserve causal order and preserves item for retry', async () => {
+      let failMessage1 = true
       const onMessageParsedSpy = vi.fn().mockImplementation((itemId, docId, msg) => {
-        if (msg[0] === 10) {
+        if (failMessage1 && msg[0] === 10) {
           throw new Error('Transient processing error for message 1')
         }
       })
@@ -750,7 +751,7 @@ describe('SyncPullQueueManager', () => {
       offset += 4
       combined.set(msg2, offset)
 
-      mockDecryptBytes.mockResolvedValueOnce(combined)
+      mockDecryptBytes.mockResolvedValue(combined)
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -771,27 +772,177 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
+      // Attempt 1: Message 1 throws, halts immediately so message 2 is not applied out-of-order
       await manager.processPullResults(pullResults)
 
       const expectedDocId = interpretAsDocumentId(
         toAutomergeUrlFromItemId('item-batch-error' as ItemId)
       )
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
         'item-batch-error',
         expectedDocId,
         msg1,
       )
+
+      expect(manager.exportCursors()).toEqual([['item-batch-error', 0]])
+      expect(manager.hasPendingPulls()).toBe(true)
+
+      // Attempt 2 (retry): Transient failure resolved; both messages applied sequentially in batch order
+      failMessage1 = false
+      await manager.processPullResults(pullResults)
+
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         2,
         'item-batch-error',
         expectedDocId,
+        msg1,
+      )
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
+        3,
+        'item-batch-error',
+        expectedDocId,
         msg2,
       )
+      expect(manager.exportCursors()).toEqual([['item-batch-error', 15]])
+      expect(manager.hasPendingPulls()).toBe(false)
+    })
 
-      expect(manager.exportCursors()).toEqual([['item-batch-error', 0]])
+    it('prevents duplicate processing of already succeeded inner messages when retrying a partially failed batch', async () => {
+      let failMessage2 = true
+      const onMessageParsedSpy = vi.fn().mockImplementation((itemId, docId, msg) => {
+        if (failMessage2 && msg[0] === 40) {
+          throw new Error('Transient processing error for message 2')
+        }
+      })
+      manager.onMessageParsed = onMessageParsedSpy
+
+      const msg1 = new Uint8Array([10, 20, 30])
+      const msg2 = new Uint8Array([40, 50])
+      const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
+      const view = new DataView(combined.buffer)
+
+      let offset = 0
+      view.setUint32(offset, msg1.length, false)
+      offset += 4
+      combined.set(msg1, offset)
+      offset += msg1.length
+
+      view.setUint32(offset, msg2.length, false)
+      offset += 4
+      combined.set(msg2, offset)
+
+      mockDecryptBytes.mockResolvedValue(combined)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-partial-retry' as ItemId,
+          hasMore: false,
+          nextCursor: 15,
+          messages: [
+            {
+              cursor: 12,
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'abc',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ]
+
+      const expectedDocId = interpretAsDocumentId(
+        toAutomergeUrlFromItemId('item-partial-retry' as ItemId)
+      )
+
+      // Attempt 1: msg1 succeeds, msg2 fails
+      await manager.processPullResults(pullResults)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(1, 'item-partial-retry', expectedDocId, msg1)
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(2, 'item-partial-retry', expectedDocId, msg2)
+      expect(manager.exportCursors()).toEqual([['item-partial-retry', 0]])
       expect(manager.hasPendingPulls()).toBe(true)
+
+      // Attempt 2 (retry): msg1 must NOT be re-applied; msg2 succeeds
+      failMessage2 = false
+      await manager.processPullResults(pullResults)
+      // Only 1 additional call for msg2! (3 total, NOT 4)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(3, 'item-partial-retry', expectedDocId, msg2)
+      expect(manager.exportCursors()).toEqual([['item-partial-retry', 15]])
+      expect(manager.hasPendingPulls()).toBe(false)
+    })
+
+    it('does not re-apply succeeded inner messages across 5 failed retries until quarantine', async () => {
+      const onMessageParsedSpy = vi.fn().mockImplementation((itemId, docId, msg) => {
+        if (msg[0] === 40) {
+          throw new Error('Persistent failure for message 2')
+        }
+      })
+      manager.onMessageParsed = onMessageParsedSpy
+      const mockOnDecryptionFailure = vi.fn()
+      manager.onDecryptionFailure = mockOnDecryptionFailure
+
+      const msg1 = new Uint8Array([10, 20, 30])
+      const msg2 = new Uint8Array([40, 50])
+      const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
+      const view = new DataView(combined.buffer)
+
+      let offset = 0
+      view.setUint32(offset, msg1.length, false)
+      offset += 4
+      combined.set(msg1, offset)
+      offset += msg1.length
+
+      view.setUint32(offset, msg2.length, false)
+      offset += 4
+      combined.set(msg2, offset)
+
+      mockDecryptBytes.mockResolvedValue(combined)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-5-retries' as ItemId,
+          hasMore: false,
+          nextCursor: 15,
+          messages: [
+            {
+              cursor: 12,
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'abc',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ]
+
+      // 5 attempts
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await manager.processPullResults(pullResults)
+      }
+
+      // msg1 was executed ONCE (on attempt 1) and never re-applied on attempts 2-5!
+      // msg2 was attempted 5 times (failed each time)
+      // Total calls = 1 + 5 = 6
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(6)
+      const msg1Calls = onMessageParsedSpy.mock.calls.filter(call => call[2] === msg1 || (call[2] && call[2][0] === 10))
+      expect(msg1Calls).toHaveLength(1)
+
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(mockOnDecryptionFailure).toHaveBeenCalledWith(
+        'item-5-retries',
+        expect.objectContaining({
+          message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
+        })
+      )
+      expect(manager.hasPendingPulls()).toBe(false)
     })
 
     it('handles message processing error for non-batched message and preserves item for retry', async () => {
