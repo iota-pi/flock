@@ -243,12 +243,43 @@ class SyncBridgeService {
       const initialOnlineState = getOnlineState()
 
       let worker: Worker | null = null
+      let wrappedApi: Comlink.Remote<SyncApi> | null = null
+      let globalEventChannel: MessageChannel | null = null
+      let pingChannel: MessageChannel | null = null
+      let didAssignSyncApi = false
+
+      const cleanupSessionResources = () => {
+        if (worker) {
+          worker.terminate()
+        }
+        if (globalEventChannel) {
+          globalEventChannel.port1.onmessage = null
+          globalEventChannel.port1.close()
+        }
+        if (pingChannel) {
+          pingChannel.port1.close()
+        }
+        if (this.workerInstance === worker) {
+          this.workerInstance = null
+        }
+        if (this.globalEventChannel === globalEventChannel) {
+          this.globalEventChannel = null
+        }
+        if (this.pingChannel === pingChannel) {
+          this.pingChannel = null
+        }
+        if (didAssignSyncApi && this.syncApi === wrappedApi) {
+          this.syncApi = null
+        }
+      }
+
       try {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
         if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
+          cleanupSessionResources()
           return
         }
 
@@ -262,9 +293,9 @@ class SyncBridgeService {
         })
 
         this.workerInstance = worker
-        const wrappedApi = Comlink.wrap<SyncApi>(worker)
+        wrappedApi = Comlink.wrap<SyncApi>(worker)
 
-        const globalEventChannel = new MessageChannel()
+        globalEventChannel = new MessageChannel()
         this.globalEventChannel = globalEventChannel
         globalEventChannel.port1.onmessage = ev => {
           this.handleSyncEvent(ev.data as ClientEvent)
@@ -272,7 +303,7 @@ class SyncBridgeService {
         globalEventChannel.port1.start()
         worker.postMessage({ type: 'EVENT_PORT', port: globalEventChannel.port2 }, [globalEventChannel.port2])
 
-        const pingChannel = new MessageChannel()
+        pingChannel = new MessageChannel()
         this.pingChannel = pingChannel
         pingChannel.port1.start()
         worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
@@ -281,19 +312,29 @@ class SyncBridgeService {
           accountId,
           vaultKey,
         )
+        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
+          console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
+          cleanupSessionResources()
+          return
+        }
+
         await wrappedApi.setOnlineState(initialOnlineState)
+        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
+          console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
+          cleanupSessionResources()
+          return
+        }
+
         await wrappedApi.bootstrapItems()
 
         if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
-          worker.terminate()
-          if (this.workerInstance === worker) {
-            this.workerInstance = null
-          }
+          cleanupSessionResources()
           return
         }
 
         this.syncApi = wrappedApi
+        didAssignSyncApi = true
 
         if (!this.onlineHandler) {
           this.onlineHandler = () => {
@@ -352,12 +393,17 @@ class SyncBridgeService {
           isCurrentWorker: () => this.workerInstance === worker && !!this.syncApi,
           onCrash: (willRestart = true) => {
             if (this.workerInstance === worker) {
-              if (this.globalEventChannel) {
-                this.globalEventChannel.port1.close()
+              if (globalEventChannel) {
+                globalEventChannel.port1.onmessage = null
+                globalEventChannel.port1.close()
+              }
+              if (this.globalEventChannel === globalEventChannel) {
                 this.globalEventChannel = null
               }
-              if (this.pingChannel) {
-                this.pingChannel.port1.close()
+              if (pingChannel) {
+                pingChannel.port1.close()
+              }
+              if (this.pingChannel === pingChannel) {
                 this.pingChannel = null
               }
               this.workerInstance = null
@@ -397,23 +443,7 @@ class SyncBridgeService {
         })
       } catch (error) {
         console.error('Failed to initialize SyncBridge:', error)
-        if (worker) {
-          worker.terminate()
-        }
-        if (this.globalEventChannel) {
-          this.globalEventChannel.port1.close()
-          this.globalEventChannel = null
-        }
-        if (this.pingChannel) {
-          this.pingChannel.port1.close()
-          this.pingChannel = null
-        }
-        if (this.workerInstance === worker) {
-          this.workerInstance = null
-        }
-        if (this.syncApi) {
-          this.syncApi = null
-        }
+        cleanupSessionResources()
 
         if (initSession === this.currentInitSession && this.initRetryCount < SyncBridgeService.MAX_INIT_RETRIES) {
           const delay = SyncBridgeService.INIT_RETRY_DELAYS[

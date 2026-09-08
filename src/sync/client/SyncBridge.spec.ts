@@ -602,6 +602,146 @@ describe('SyncBridge', () => {
     }
   })
 
+  it('closes MessagePorts from globalEventChannel and pingChannel when initialization is aborted', async () => {
+    const originalMessageChannel = globalThis.MessageChannel
+    const channelCloseSpies: any[] = []
+    class MockMessageChannel {
+      port1 = {
+        onmessage: null,
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
+
+      port2 = {
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
+
+      constructor() {
+        channelCloseSpies.push(this.port1.close)
+      }
+    }
+    globalThis.MessageChannel = MockMessageChannel as any
+
+    try {
+      let init1ResolveRepo: () => void = () => {}
+      mockSyncApi.initRepo.mockImplementation((accountId: string) => {
+        if (accountId === 'account-1') {
+          return new Promise<void>(resolve => {
+            init1ResolveRepo = resolve
+          })
+        }
+        return Promise.resolve()
+      })
+
+      const init1Promise = SyncBridge.initialize('account-1')
+      await new Promise(r => setTimeout(r, 10))
+
+      // Session 1 channels have been created (globalEventChannel and pingChannel)
+      expect(channelCloseSpies.length).toBe(2)
+      expect(channelCloseSpies[0]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[1]).not.toHaveBeenCalled()
+
+      // Concurrently start session 2, which supersedes session 1
+      const init2Promise = SyncBridge.initialize('account-2')
+      await new Promise(r => setTimeout(r, 10))
+
+      // Now complete initRepo for account-1 so it reaches the abort check
+      init1ResolveRepo()
+      await init1Promise
+      await init2Promise
+
+      // Session 1's ports (indices 0 and 1) must be closed because initialization aborted
+      expect(channelCloseSpies[0]).toHaveBeenCalled()
+      expect(channelCloseSpies[1]).toHaveBeenCalled()
+
+      // Session 2's ports (indices 2 and 3) must remain open
+      expect(channelCloseSpies.length).toBe(4)
+      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
+    } finally {
+      globalThis.MessageChannel = originalMessageChannel
+    }
+  })
+
+  it('does not close newer session MessagePorts in catch block if superseded by another init session', async () => {
+    const originalMessageChannel = globalThis.MessageChannel
+    const channelCloseSpies: any[] = []
+    class MockMessageChannel {
+      port1 = {
+        onmessage: null,
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
+
+      port2 = {
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
+
+      constructor() {
+        channelCloseSpies.push(this.port1.close)
+      }
+    }
+    globalThis.MessageChannel = MockMessageChannel as any
+
+    try {
+      let init1RejectRepo: (err: Error) => void = () => {}
+      mockSyncApi.initRepo.mockImplementation((accountId: string) => {
+        if (accountId === 'account-fail') {
+          return new Promise<void>((_, reject) => {
+            init1RejectRepo = reject
+          })
+        }
+        return Promise.resolve()
+      })
+
+      const init1Promise = SyncBridge.initialize('account-fail')
+      await new Promise(r => setTimeout(r, 10))
+
+      // Session 1 has created 2 channels
+      expect(channelCloseSpies.length).toBe(2)
+
+      // Session 2 starts and initializes successfully with account-success
+      const init2Promise = SyncBridge.initialize('account-success')
+      await init2Promise
+
+      // Session 2 created 2 new channels (indices 2 and 3)
+      expect(channelCloseSpies.length).toBe(4)
+      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
+
+      // Now reject session 1's initRepo to trigger its catch block
+      init1RejectRepo(new Error('Init 1 failed'))
+      await expect(init1Promise).rejects.toThrow('Init 1 failed')
+
+      // Session 1's own ports should be closed
+      expect(channelCloseSpies[0]).toHaveBeenCalled()
+      expect(channelCloseSpies[1]).toHaveBeenCalled()
+
+      // Session 2's ports must NOT have been closed by session 1's catch block
+      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
+
+      // And ensureReady should succeed because session 2 is active
+      await expect(SyncBridge.ensureReady()).resolves.toBeUndefined()
+    } finally {
+      globalThis.MessageChannel = originalMessageChannel
+    }
+  })
+
   it('schedules retry with backoff on initialization failure and queues ensureReady callers', async () => {
     vi.useFakeTimers()
     mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed transiently'))
