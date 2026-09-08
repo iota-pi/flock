@@ -199,11 +199,21 @@ export class SyncPullQueueManager {
           const originalCursor = state.cursor
           let highestCursor = originalCursor
           let hasParseFailure = false
-
           const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
-          for (const entry of result.messages || []) {
+          // Sort messages ascending by cursor to ensure causal processing order and prevent
+          // out-of-order cursors from prematurely advancing state.cursor if an earlier cursor fails.
+          const sortedMessages = [...(result.messages || [])].sort((a, b) => {
+            const cursorA = Number.isFinite(a?.cursor) ? (a.cursor as number) : 0
+            const cursorB = Number.isFinite(b?.cursor) ? (b.cursor as number) : 0
+            if (cursorA < cursorB) return -1
+            if (cursorA > cursorB) return 1
+            return 0
+          })
+
+          for (const entry of sortedMessages) {
             if (Number.isFinite(entry.cursor) && this.hasSeen(itemId, entry.cursor)) {
+              highestCursor = Math.max(highestCursor, entry.cursor!)
               continue // overlap window dedup
             }
             const handled = await this.handleMessageEntry(itemId, documentId, entry)
@@ -219,7 +229,7 @@ export class SyncPullQueueManager {
             }
           }
 
-          if (!hasParseFailure && Number.isFinite(result.nextCursor)) {
+          if (!hasParseFailure && typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor)) {
             highestCursor = Math.max(highestCursor, result.nextCursor)
           }
 

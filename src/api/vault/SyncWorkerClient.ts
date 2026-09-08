@@ -37,7 +37,7 @@ function createWorkerSyncClient(authToken: string) {
 export type PullSyncMessagesResponse = {
   success: boolean
   itemId: ItemId
-  nextCursor: number
+  nextCursor?: number
   messages: Array<{
     cursor: number
     encryptedMessage: SyncMessageEnvelope
@@ -58,7 +58,7 @@ export type PollSyncBatchResponse = {
   pullResults: Array<{
     success: true
     itemId: ItemId
-    nextCursor: number
+    nextCursor?: number
     messages: Array<{
       cursor: number
       encryptedMessage: SyncMessageEnvelope

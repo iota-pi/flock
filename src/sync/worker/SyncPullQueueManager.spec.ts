@@ -527,6 +527,71 @@ describe('SyncPullQueueManager', () => {
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
     })
 
+    it('advances cursor when batch consists entirely of seen messages and server omits nextCursor', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.onMessageParsed = onMessageParsedSpy
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      // First, process messages with cursor 10 and 20 to populate seenMessageCursors
+      await manager.processPullResults([
+        {
+          success: true,
+          itemId: 'item-stagnate' as ItemId,
+          hasMore: false,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'msg1',
+              },
+            },
+            {
+              cursor: 20,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'msg2',
+              },
+            },
+          ],
+        },
+      ])
+
+      expect(manager.exportCursors()).toContainEqual(['item-stagnate', 20])
+
+      // Simulate state cursor being lower (e.g. from stored state or retry with lower cursor)
+      await manager.importCursors([['item-stagnate' as ItemId, 5]])
+      expect(manager.exportCursors()).toContainEqual(['item-stagnate', 5])
+
+      // Receive a batch consisting entirely of seen messages with nextCursor omitted
+      await manager.processPullResults([
+        {
+          success: true,
+          itemId: 'item-stagnate' as ItemId,
+          hasMore: false,
+          messages: [
+            {
+              cursor: 10, // already seen
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'msg1',
+              },
+            },
+            {
+              cursor: 20, // already seen
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'msg2',
+              },
+            },
+          ],
+        },
+      ])
+
+      // Cursor should have advanced to 20 instead of remaining at 5
+      expect(manager.exportCursors()).toContainEqual(['item-stagnate', 20])
+    })
+
     it('evicts oldest seen message cache entries when exceeding SEEN_CACHE_MAX', async () => {
       const onMessageParsedSpy = vi.fn()
       manager.onMessageParsed = onMessageParsedSpy
@@ -885,6 +950,129 @@ describe('SyncPullQueueManager', () => {
 
       expect(manager.exportCursors()).toContainEqual(['item-success', 20])
       expect(manager.exportCursors()).not.toContainEqual(['item-throw-error', 10])
+    })
+
+    it('does not advance cursor past failed message when batch contains out-of-order cursors', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.onMessageParsed = onMessageParsedSpy
+
+      // cursor 2 will fail, cursor 3 would succeed if reached
+      mockDecryptBytes.mockImplementation(async (encrypted: any) => {
+        if (encrypted.cipher === 'fail-msg2') {
+          throw new Error('Decryption failed for cursor 2')
+        }
+        return new Uint8Array([3])
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-out-of-order' as ItemId,
+          hasMore: false,
+          nextCursor: 5,
+          messages: [
+            {
+              cursor: 3,
+              encryptedMessage: {
+                iv: 'iv-3',
+                cipher: 'ok-msg3',
+              },
+            },
+            {
+              cursor: 2,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'fail-msg2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      // Cursor 2 must be processed first due to ascending sort; it fails immediately.
+      // Cursor must NOT have advanced to 3, preserving cursor 0 for retry so cursor 2 is not skipped.
+      expect(manager.exportCursors()).toEqual([['item-out-of-order', 0]])
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-out-of-order', cursor: 0 }])
+      expect(onMessageParsedSpy).not.toHaveBeenCalled()
+    })
+
+    it('processes out-of-order messages in ascending cursor order', async () => {
+      const processedCursors: number[] = []
+      manager.onMessageParsed = (_itemId, _docId, msg) => {
+        processedCursors.push(msg[0])
+      }
+
+      mockDecryptBytes.mockImplementation(async (encrypted: any) => {
+        return new Uint8Array([encrypted.val])
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-sort-order' as ItemId,
+          hasMore: false,
+          nextCursor: 35,
+          messages: [
+            { cursor: 30, encryptedMessage: { iv: 'iv-3', cipher: 'c3', val: 30 } as any },
+            { cursor: 10, encryptedMessage: { iv: 'iv-1', cipher: 'c1', val: 10 } as any },
+            { cursor: 20, encryptedMessage: { iv: 'iv-2', cipher: 'c2', val: 20 } as any },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      expect(processedCursors).toEqual([10, 20, 30])
+      expect(manager.exportCursors()).toContainEqual(['item-sort-order', 35])
+    })
+
+    it('advances cursor to earlier successful message when higher out-of-order message fails', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.onMessageParsed = onMessageParsedSpy
+
+      mockDecryptBytes.mockImplementation(async (encrypted: any) => {
+        if (encrypted.cipher === 'fail-msg30') {
+          throw new Error('Decryption failed for cursor 30')
+        }
+        return new Uint8Array([20])
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-partial-out-of-order' as ItemId,
+          hasMore: false,
+          nextCursor: 40,
+          messages: [
+            {
+              cursor: 30,
+              encryptedMessage: {
+                iv: 'iv-30',
+                cipher: 'fail-msg30',
+              },
+            },
+            {
+              cursor: 20,
+              encryptedMessage: {
+                iv: 'iv-20',
+                cipher: 'ok-msg20',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      // Cursor 20 succeeds, cursor 30 fails.
+      // Cursor should advance to 20, and item should remain pending to retry cursor 30.
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-partial-out-of-order', 20])
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-partial-out-of-order', cursor: 20 }])
     })
   })
 
