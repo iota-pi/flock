@@ -394,7 +394,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
   describe('Shutdown and Persistence', () => {
     it('persists lastModified on shutdown without clearing the persisted store', async () => {
-      const saveSpy = vi.spyOn(lastModifiedStore, 'saveLastModified')
+      const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
       const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
 
       // Set some lastModified state
@@ -403,7 +403,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       // Execute shutdown
       await manager.shutdown()
 
-      expect(saveSpy).toHaveBeenCalledWith([['item-1', 123456]])
+      expect(saveSpy).toHaveBeenCalledWith([['item-1', { localModifiedAt: 123456, lastSnapshotAt: 123456 }]])
       expect(clearSpy).not.toHaveBeenCalled()
     })
 
@@ -418,7 +418,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('flushes dirty documents on shutdown without scheduling a dangling debounced save', async () => {
-      const saveSpy = vi.spyOn(lastModifiedStore, 'saveLastModified')
+      const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
 
       manager.markItemDirty('item-1' as ItemId)
 
@@ -786,6 +786,63 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
   })
+
+  describe('Dual Timestamp & Startup Dirty Audit', () => {
+    it('restores un-snapshotted items into dirtyItems on loadLastModified', async () => {
+      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
+        ['item-unpushed' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
+        ['item-clean' as ItemId, { localModifiedAt: 3000, lastSnapshotAt: 3000 }],
+        ['item-never-snapshotted' as ItemId, { localModifiedAt: 4000 }],
+      ])
+
+      await manager.loadLastModified()
+
+      expect(manager['dirtyItems'].has('item-unpushed' as ItemId)).toBe(true)
+      expect(manager['dirtyItems'].has('item-never-snapshotted' as ItemId)).toBe(true)
+      expect(manager['dirtyItems'].has('item-clean' as ItemId)).toBe(false)
+      expect(manager['debounceTimer']).not.toBeNull()
+    })
+
+    it('updates lastSnapshotAt on successful snapshot push', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+        total: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      await manager.flushPendingSnapshots()
+
+      const lastSnapshotAt = manager.getLastSnapshotAt('item-1' as ItemId)
+      expect(lastSnapshotAt).toBeDefined()
+      expect(typeof lastSnapshotAt).toBe('number')
+      expect(lastSnapshotAt).toBeGreaterThan(0)
+    })
+
+    it('recordInboundChange updates localModifiedAt without adding to dirtyItems', () => {
+      manager.recordInboundChange('item-inbound' as ItemId, 9999)
+
+      expect(manager.getLocalModifiedAt('item-inbound' as ItemId)).toBe(9999)
+      expect(manager['dirtyItems'].has('item-inbound' as ItemId)).toBe(false)
+    })
+
+    it('markItemDirty respects custom debounce delay (e.g. 2000ms)', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+        total: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId, 2000)
+
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(600)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    })
+  })
 })
+
 
 

@@ -7,7 +7,7 @@ import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { buildSnapshot, isTransientVaultError, type BuildSnapshotResult } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
-import { LastModifiedStore } from './stores/LastModifiedStore'
+import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import type { ClientEventHub } from './SyncEventHub'
 import {
   readManualRecoveryEntries,
@@ -28,6 +28,7 @@ export class SnapshotManager {
   private dirtyItemsTick = 0
   private consecutiveFailures = new Map<ItemId, number>()
   private lastModifiedByItemId = new Map<ItemId, number>()
+  private lastSnapshotAtByItemId = new Map<ItemId, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
@@ -66,9 +67,29 @@ export class SnapshotManager {
 
   async loadLastModified(): Promise<void> {
     try {
-      const stored = await this.lastModifiedStore.loadLastModified()
+      const stored = await this.lastModifiedStore.loadTimestamps()
       if (stored && Array.isArray(stored)) {
-        this.lastModifiedByItemId = new Map(stored)
+        for (const [itemId, ts] of stored) {
+          this.lastModifiedByItemId.set(itemId, ts.localModifiedAt)
+          if (typeof ts.lastSnapshotAt === 'number') {
+            this.lastSnapshotAtByItemId.set(itemId, ts.lastSnapshotAt)
+          }
+        }
+      }
+
+      // Startup Dirty Audit: Re-enqueue un-snapshotted items
+      let auditCount = 0
+      for (const [itemId, localMod] of this.lastModifiedByItemId.entries()) {
+        const lastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
+        if (localMod > lastSnap) {
+          this.dirtyItemsTick += 1
+          this.dirtyItems.set(itemId, this.dirtyItemsTick)
+          auditCount++
+        }
+      }
+      if (auditCount > 0) {
+        console.info(`[SnapshotManager] Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
+        this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
       console.error('[SnapshotManager] Failed to load lastModified timestamps', error)
@@ -76,23 +97,46 @@ export class SnapshotManager {
   }
 
   async persistLastModified(): Promise<void> {
-    const data = Array.from(this.lastModifiedByItemId.entries())
+    const data: [ItemId, ItemSyncTimestamps][] = Array.from(this.lastModifiedByItemId.entries()).map(
+      ([itemId, localModifiedAt]) => [
+        itemId,
+        {
+          localModifiedAt,
+          lastSnapshotAt: this.lastSnapshotAtByItemId.get(itemId),
+        },
+      ],
+    )
     try {
-      await this.lastModifiedStore.saveLastModified(data)
+      await this.lastModifiedStore.saveTimestamps(data)
     } catch (error) {
       console.error('[SnapshotManager] Failed to save lastModified timestamps', error)
     }
   }
 
-  markItemDirty(itemId: ItemId) {
+  markItemDirty(itemId: ItemId, customDebounceDelayMs?: number) {
     if (!itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.flushDirtyDocumentsToIndexDebounced()
-    this.scheduleDebouncedSnapshotPush()
+    this.scheduleDebouncedSnapshotPush(customDebounceDelayMs)
   }
 
-  private scheduleDebouncedSnapshotPush() {
+  recordInboundChange(itemId: ItemId, timestamp: number = Date.now()): void {
+    if (!itemId) return
+    this.lastModifiedByItemId.set(itemId, timestamp)
+    this.saveLastModifiedDebounced()
+  }
+
+  getLastSnapshotAt(itemId: ItemId): number | undefined {
+    return this.lastSnapshotAtByItemId.get(itemId)
+  }
+
+  getLocalModifiedAt(itemId: ItemId): number | undefined {
+    return this.lastModifiedByItemId.get(itemId)
+  }
+
+  scheduleDebouncedSnapshotPush(customDelayMs?: number) {
+    const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer)
     }
@@ -107,7 +151,7 @@ export class SnapshotManager {
     this.debounceTimer = setTimeout(() => {
       this.clearDebounceTimers()
       void this.triggerSnapshotPush()
-    }, this.debounceDelayMs)
+    }, delay)
   }
 
   private clearDebounceTimers() {
@@ -375,8 +419,10 @@ export class SnapshotManager {
           if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
+          this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
           void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
+        this.saveLastModifiedDebounced()
         persisted += result.persisted
         currentBatch = []
         currentBatchBytes = 0
@@ -401,8 +447,10 @@ export class SnapshotManager {
           if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
+          this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
           void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
+        this.saveLastModifiedDebounced()
         persisted += result.persisted
       }
     }
@@ -507,6 +555,7 @@ export class SnapshotManager {
     this.dirtyItems.clear()
     this.consecutiveFailures.clear()
     this.lastModifiedByItemId.clear()
+    this.lastSnapshotAtByItemId.clear()
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
@@ -523,6 +572,9 @@ export class SnapshotManager {
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {
     this.lastModifiedByItemId = new Map(data)
-    await this.lastModifiedStore.saveLastModified(data)
+    for (const [itemId, mod] of data) {
+      this.lastSnapshotAtByItemId.set(itemId, mod)
+    }
+    await this.persistLastModified()
   }
 }

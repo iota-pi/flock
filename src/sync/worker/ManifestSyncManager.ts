@@ -13,9 +13,10 @@ import { getTrpcClient } from 'src/api/trpcClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
 const BATCH_SIZE = 50
 const SKEW_BUFFER_MS = 60 * 1000
+const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
 
 export class ManifestSyncManager {
   constructor(
@@ -43,7 +44,7 @@ export class ManifestSyncManager {
     // - Force runs unconditionally
     // - If it has been more than 7 days, always run (even if not forced)
     // - If we already have items and last run was less than 24 hours ago, skip
-    const isOfflineTooLong = timeSinceLastSync >= SEVEN_DAYS_MS
+    const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
     const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
 
     if (!force && !isOfflineTooLong && isWithinDailyWindow) {
@@ -86,6 +87,7 @@ export class ManifestSyncManager {
 
     const knownSet = new Set(knownItemIds)
     const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
+    const serverManifestMap = new Map<string, number>(manifestResponse.manifest)
 
     const missingIds = manifestResponse.manifest
       .filter(([itemId, serverTime]) => {
@@ -108,6 +110,31 @@ export class ManifestSyncManager {
         return false
       })
       .map(([itemId]) => itemId as ItemId)
+
+    // Two-Way Manifest Reconciliation (Upstream):
+    // Identify local items that need to be pushed as snapshots to the server
+    const upstreamIds: ItemId[] = []
+    for (const localId of knownItemIds) {
+      const serverTime = serverManifestMap.get(localId)
+      const localTime = localLastModifiedMap.get(localId) ?? 0
+
+      if (serverTime === undefined) {
+        // Item exists locally but is completely missing from server manifest
+        upstreamIds.push(localId)
+      } else {
+        // Clock skew + buffer compensation: if local time exceeds server time
+        const adjustedLocalTime = localTime - Math.max(0, clockSkew) - SKEW_BUFFER_MS
+        if (adjustedLocalTime > serverTime) {
+          upstreamIds.push(localId)
+        }
+      }
+    }
+
+    if (upstreamIds.length > 0) {
+      for (const id of upstreamIds) {
+        this.deps.snapshotManager.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      }
+    }
 
     if (missingIds.length === 0) {
       await this.hydrateMetadata()

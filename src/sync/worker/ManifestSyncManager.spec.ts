@@ -80,6 +80,7 @@ describe('ManifestSyncManager', () => {
       exportLastModified: vi.fn().mockReturnValue([]),
       importLastModified: vi.fn().mockResolvedValue(undefined),
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+      markItemDirty: vi.fn(),
     } as any
 
     depsObj = { accountId: 'acc-123', docStore: mockDocStore, indexManager: mockIndexManager, snapshotManager: mockSnapshotManager }
@@ -657,5 +658,59 @@ describe('ManifestSyncManager', () => {
       dateNowSpy.mockRestore()
     })
   })
+
+  describe('Two-Way Manifest Reconciliation (Upstream)', () => {
+    it('marks item dirty with 2s debounce when local item is missing entirely from server manifest', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-local-only' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-local-only', 1000]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [],
+        serverTime: 1000,
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-local-only', 2000)
+      expect(result).toEqual({ added: [] })
+    })
+
+    it('marks item dirty with 2s debounce when local item is newer than server snapshot', async () => {
+      const now = Date.now()
+      const itemServerTime = now - 120_000 // Server snapshot is 2 minutes old
+      const localTime = now // Local was edited just now
+
+      mockListAutomergeItemIds.mockResolvedValue(['item-newer' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-newer', localTime]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-newer', itemServerTime]],
+        serverTime: now,
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-newer', 2000)
+      expect(result).toEqual({ added: [] })
+    })
+
+    it('does not mark item dirty when local item is equal to or older than server snapshot', async () => {
+      const serverTime = 500_000
+
+      mockListAutomergeItemIds.mockResolvedValue(['item-synced' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-synced', serverTime]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-synced', serverTime]],
+        serverTime,
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(depsObj.snapshotManager.markItemDirty).not.toHaveBeenCalled()
+      expect(result).toEqual({ added: [] })
+    })
+  })
 })
+
 
