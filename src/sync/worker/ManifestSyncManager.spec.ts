@@ -622,38 +622,28 @@ describe('ManifestSyncManager', () => {
       dateNowSpy.mockRestore()
     })
 
-    it('pulls update when localTime is in the server future (future timestamp detection)', async () => {
+    it('does not redundantly pull older server snapshots when local client clock is ahead of server', async () => {
+      // Client time is 2,000,000 while server time is 1,000,000 (clockSkew = 1,000,000)
       const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(2_000_000)
 
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      // Local time is in the future relative to server's current time (1_000_000)
-      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 1_500_000]])
+      // Local time is physically in server's future (1_980_000 vs serverTime 1_000_000, equivalent to 980_000 in server time)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 1_980_000]])
 
-      // Server manifest has 900_000 for item-1 and serverTime is 1_000_000
+      // Server manifest has older snapshot 900_000 for item-1 and serverTime is 1_000_000
       mockFetchManifest.mockResolvedValue({
         manifest: [['item-1', 900_000]],
         serverTime: 1_000_000,
       })
 
-      mockFetchSnapshotsByIds.mockResolvedValue({
-        items: [
-          {
-            item: 'item-1',
-            snapshot: { iv: 'iv-1', cipher: 'c-1' },
-          },
-        ],
-        serverTime: 1_000_000,
-      })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([7, 8, 9]))
-
       const result = await manifestSyncManager.sync()
 
-      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
-        account: 'acc-123',
-        itemIds: ['item-1'],
-      })
-      expect(result).toEqual({ added: ['item-1'] })
+      // Should NOT fetch snapshot since local item is newer in server timeline (980k > 900k)
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(result).toEqual({ added: [] })
+      // Local is newer so upstream reconciliation should queue it for push
+      expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1', 2000)
 
       dateNowSpy.mockRestore()
     })
@@ -709,6 +699,30 @@ describe('ManifestSyncManager', () => {
 
       expect(depsObj.snapshotManager.markItemDirty).not.toHaveBeenCalled()
       expect(result).toEqual({ added: [] })
+    })
+
+    it('does not mark item dirty upstream if it is currently being pulled downstream in missingIds', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-pulling' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-pulling', 0]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-pulling', 2000]],
+        serverTime: 2000,
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-pulling',
+            snapshot: { iv: 'iv', cipher: 'c' },
+          },
+        ],
+        serverTime: 2000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1]))
+
+      await manifestSyncManager.sync()
+
+      expect(depsObj.snapshotManager.markItemDirty).not.toHaveBeenCalled()
     })
   })
 })

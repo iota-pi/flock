@@ -104,17 +104,16 @@ export class ManifestSyncManager {
         const adjustedLocalTime = localTime - Math.max(0, clockSkew) - SKEW_BUFFER_MS
         if (serverTime > adjustedLocalTime) return true
 
-        // If local timestamp is physically in the server's future, client clock was skewed
-        if (localTime > manifestResponse.serverTime) return true
-
         return false
       })
       .map(([itemId]) => itemId as ItemId)
 
     // Two-Way Manifest Reconciliation (Upstream):
     // Identify local items that need to be pushed as snapshots to the server
+    const missingSet = new Set(missingIds)
     const upstreamIds: ItemId[] = []
     for (const localId of knownItemIds) {
+      if (missingSet.has(localId)) continue
       const serverTime = serverManifestMap.get(localId)
       const localTime = localLastModifiedMap.get(localId) ?? 0
 
@@ -183,7 +182,7 @@ export class ManifestSyncManager {
     const promises = validFetchedItems.map(async item => {
       try {
         const manifestEntry = manifestResponse.manifest.find(([id]) => id === item.item)
-        const serverTime = manifestEntry ? manifestEntry[1] : Date.now()
+        const serverTime = manifestEntry ? manifestEntry[1] : manifestResponse.serverTime
         const itemId = item.item
 
         if (item.metadata?.deleted === true) {
