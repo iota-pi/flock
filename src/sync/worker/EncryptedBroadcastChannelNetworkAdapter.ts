@@ -21,6 +21,7 @@ export interface EncryptedBroadcastChannelOptions extends BroadcastChannelNetwor
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
   maxPendingMessagesPerKey?: number
+  /** @deprecated No longer used. Connection is no longer reset on crypto failures. */
   resetCooldownMs?: number
 }
 
@@ -35,14 +36,11 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private activeKeyWaiters = new Set<string>()
   private isDisconnected = false
   private maxPendingMessagesPerKey: number
-  private lastResetTime = 0
-  private resetCooldownMs: number
 
   constructor(options?: EncryptedBroadcastChannelOptions) {
     super()
     this.options = options
     this.maxPendingMessagesPerKey = options?.maxPendingMessagesPerKey ?? 1000
-    this.resetCooldownMs = options?.resetCooldownMs ?? 1000
     this.setupInner()
   }
 
@@ -54,28 +52,6 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.inner.on('peer-disconnected', payload => this.emit('peer-disconnected', payload))
     this.inner.on('message', message => this.handleIncomingMessage(message))
     this.inner.on('close', () => this.emit('close'))
-  }
-
-  private resetConnection() {
-    this.sendQueue = []
-    this.receiveQueue = []
-    this.pendingKeyMessages.clear()
-    this.activeKeyWaiters.clear()
-
-    const now = Date.now()
-    if (now - this.lastResetTime < this.resetCooldownMs) {
-      console.warn('[EncryptedBroadcastChannel] Reset suppressed due to cooldown')
-      return
-    }
-    this.lastResetTime = now
-
-    console.warn('[EncryptedBroadcastChannel] Resetting broadcast channel connection due to crypto failure')
-    this.inner.disconnect()
-    this.inner.removeAllListeners?.()
-    this.setupInner()
-    if (this.peerId) {
-      this.inner.connect(this.peerId, this.peerMetadata)
-    }
   }
 
 
@@ -125,8 +101,6 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           }
         } catch (err) {
           console.error('[EncryptedBroadcastChannel] Error sending message:', err)
-          this.resetConnection()
-          break
         }
       }
     } finally {
@@ -208,11 +182,12 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     try {
       while (this.receiveQueue.length > 0) {
         const message = this.receiveQueue.shift()!
+        let kver: string | undefined
         try {
           if (message.type === 'sync' && message.data) {
             const jsonString = new TextDecoder().decode(message.data)
             const cryptoResult = JSON.parse(jsonString) as CryptoResult
-            const kver = cryptoResult.kver || '1'
+            kver = cryptoResult.kver || '1'
 
             if (!hasVaultKey(kver)) {
               if (this.hasPendingMessages(kver)) {
@@ -242,8 +217,9 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           }
         } catch (err) {
           console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
-          this.resetConnection()
-          break
+          if (kver && this.options?.onKeyVersionMissing) {
+            this.options.onKeyVersionMissing(kver)
+          }
         }
       }
     } finally {
