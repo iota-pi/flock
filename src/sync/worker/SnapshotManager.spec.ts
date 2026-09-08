@@ -478,6 +478,174 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
   })
 
+  describe('flushPendingSnapshots with In-Flight Pushes', () => {
+    it('waits for in-flight snapshot push to complete before returning', async () => {
+      let resolveUpload: (val: any) => void
+      const uploadPromise = new Promise(resolve => {
+        resolveUpload = resolve
+      })
+      mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+
+      // Start the snapshot push
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+      let flushed = false
+      const flushPromise = manager.flushPendingSnapshots().then(res => {
+        flushed = true
+        return res
+      })
+
+      // Advance timers; flush should NOT have resolved yet because push is in flight
+      await vi.advanceTimersByTimeAsync(0)
+      expect(flushed).toBe(false)
+
+      // Complete in-flight upload
+      resolveUpload!({
+        success: true,
+        persisted: 1,
+      })
+
+      const result = await flushPromise
+      expect(flushed).toBe(true)
+      expect(result).toEqual({ persisted: 1, total: 1 })
+      expect(manager['dirtyItems'].size).toBe(0)
+    })
+
+    it('flushes newly dirtied items after waiting for in-flight push to complete', async () => {
+      let resolveUpload1: (val: any) => void
+      const uploadPromise1 = new Promise(resolve => {
+        resolveUpload1 = resolve
+      })
+      let resolveUpload2: (val: any) => void
+      const uploadPromise2 = new Promise(resolve => {
+        resolveUpload2 = resolve
+      })
+
+      mockPutSnapshotsWithToken
+        .mockImplementationOnce(() => uploadPromise1)
+        .mockImplementationOnce(() => uploadPromise2)
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+      // While upload 1 is in-flight, mark item-2 dirty and call flushPendingSnapshots
+      manager.markItemDirty('item-2' as ItemId)
+      let flushed = false
+      const flushPromise = manager.flushPendingSnapshots().then(res => {
+        flushed = true
+        return res
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(flushed).toBe(false)
+
+      // Resolve upload 1
+      resolveUpload1!({ success: true, persisted: 1 })
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Upload 2 should now be invoked for item-2
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+      expect(flushed).toBe(false)
+
+      // Resolve upload 2
+      resolveUpload2!({ success: true, persisted: 1 })
+      const result = await flushPromise
+
+      expect(flushed).toBe(true)
+      expect(result).toEqual({ persisted: 2, total: 2 })
+      expect(manager['dirtyItems'].size).toBe(0)
+    })
+
+    it('multiple concurrent callers of flushPendingSnapshots all wait for in-flight push', async () => {
+      let resolveUpload: (val: any) => void
+      const uploadPromise = new Promise(resolve => {
+        resolveUpload = resolve
+      })
+      mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+      await vi.advanceTimersByTimeAsync(0)
+
+      let flushed1 = false
+      let flushed2 = false
+      const p1 = manager.flushPendingSnapshots().then(res => {
+        flushed1 = true
+        return res
+      })
+      const p2 = manager.flushPendingSnapshots().then(res => {
+        flushed2 = true
+        return res
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(flushed1).toBe(false)
+      expect(flushed2).toBe(false)
+
+      resolveUpload!({ success: true, persisted: 1 })
+      const [res1, res2] = await Promise.all([p1, p2])
+
+      expect(flushed1).toBe(true)
+      expect(flushed2).toBe(true)
+      expect(res1).toEqual({ persisted: 1, total: 1 })
+      expect(res2).toEqual({ persisted: 1, total: 1 })
+    })
+
+    it('aborts flush and returns when in-flight push fails, avoiding infinite loops', async () => {
+      let resolveUpload: (val: any) => void
+      const uploadPromise = new Promise(resolve => {
+        resolveUpload = resolve
+      })
+      mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+      await vi.advanceTimersByTimeAsync(0)
+
+      const flushPromise = manager.flushPendingSnapshots()
+
+      // Fail the in-flight upload
+      resolveUpload!({ success: false, persisted: 0 })
+
+      const result = await flushPromise
+      expect(result).toEqual({ persisted: 0, total: 1 })
+      // Item remains dirty and retry is scheduled
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['retryTimeoutId']).not.toBeNull()
+    })
+
+    it('shutdown awaits in-flight push if one is running', async () => {
+      let resolveUpload: (val: any) => void
+      const uploadPromise = new Promise(resolve => {
+        resolveUpload = resolve
+      })
+      mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+      await vi.advanceTimersByTimeAsync(0)
+
+      let shutdownFinished = false
+      const shutdownPromise = manager.shutdown().then(() => {
+        shutdownFinished = true
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(shutdownFinished).toBe(false)
+
+      resolveUpload!({ success: true, persisted: 1 })
+      await shutdownPromise
+
+      expect(shutdownFinished).toBe(true)
+    })
+  })
+
   describe('Not-Ready vs Error Build Failure Handling', () => {
     it('does not increment consecutiveBuildFailures or drop item when handle is not ready', async () => {
       mockHandle.isReady.mockReturnValue(false)

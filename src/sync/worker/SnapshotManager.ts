@@ -21,6 +21,12 @@ export interface SnapshotManagerOptions {
   maxWaitMs?: number
 }
 
+interface SnapshotPushResult {
+  persisted: number
+  total: number
+  success: boolean
+}
+
 const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
 export class SnapshotManager {
@@ -31,6 +37,7 @@ export class SnapshotManager {
   private lastSnapshotAtByItemId = new Map<ItemId, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
+  private activePushPromise: Promise<SnapshotPushResult> | null = null
   private snapshotRequestCursor: number | null = null
   private retryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private retryAttempt = 0
@@ -167,10 +174,32 @@ export class SnapshotManager {
 
   async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
     this.clearDebounceTimers()
-    if (this.dirtyItems.size === 0 && !this.snapshotPushInFlight) {
+    if (this.dirtyItems.size === 0 && !this.activePushPromise) {
       return { persisted: 0, total: 0 }
     }
-    return this.triggerSnapshotPush()
+
+    let persisted = 0
+    let total = 0
+
+    while (this.activePushPromise || this.dirtyItems.size > 0) {
+      if (this.activePushPromise) {
+        const result = await this.activePushPromise
+        persisted += result.persisted
+        total += result.total
+        if (!result.success || (result.persisted === 0 && this.dirtyItems.size > 0)) {
+          break
+        }
+      } else {
+        const result = await this.startPush()
+        persisted += result.persisted
+        total += result.total
+        if (!result.success || (result.persisted === 0 && this.dirtyItems.size > 0)) {
+          break
+        }
+      }
+    }
+
+    return { persisted, total }
   }
 
   private updateLastModifiedForDirtyItems(): void {
@@ -203,9 +232,10 @@ export class SnapshotManager {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
     }
-    if (this.snapshotPushInFlight) {
+    if (this.activePushPromise) {
       this.snapshotPushPending = true
-      return { persisted: 0, total: 0 }
+      const res = await this.activePushPromise
+      return { persisted: res.persisted, total: res.total }
     }
 
     return this.pushSnapshots()
@@ -458,10 +488,10 @@ export class SnapshotManager {
     return { persisted, total, success }
   }
 
-  async pushSnapshots(): Promise<{ persisted: number; total: number }> {
-    if (this.snapshotPushInFlight) {
+  private startPush(): Promise<SnapshotPushResult> {
+    if (this.activePushPromise) {
       this.snapshotPushPending = true
-      return { persisted: 0, total: 0 }
+      return this.activePushPromise
     }
 
     if (this.retryTimeoutId !== null) {
@@ -470,6 +500,17 @@ export class SnapshotManager {
     }
 
     this.snapshotPushInFlight = true
+    const pushPromise = this.executePush()
+    this.activePushPromise = pushPromise
+    return pushPromise
+  }
+
+  async pushSnapshots(): Promise<{ persisted: number; total: number }> {
+    const res = await this.startPush()
+    return { persisted: res.persisted, total: res.total }
+  }
+
+  private async executePush(): Promise<SnapshotPushResult> {
     let persisted = 0
     let total = 0
     let success = true
@@ -480,7 +521,7 @@ export class SnapshotManager {
         if (this.dirtyItems.size > 0) {
           success = false
         }
-        return { persisted: 0, total: 0 }
+        return { persisted: 0, total: 0, success }
       }
 
       const result = await this.processSnapshotPush(context)
@@ -496,12 +537,13 @@ export class SnapshotManager {
         this.retryAttempt = 0
       }
 
-      return { persisted, total }
+      return { persisted, total, success }
     } catch (error) {
       console.error('[SnapshotManager] Error during pushSnapshots', error)
       success = false
-      return { persisted, total }
+      return { persisted, total, success }
     } finally {
+      this.activePushPromise = null
       this.snapshotPushInFlight = false
 
       const hasDirtyDocs = this.dirtyItems.size > 0
@@ -510,9 +552,11 @@ export class SnapshotManager {
         this.scheduleRetry()
       }
 
-      if (this.snapshotPushPending) {
+      if (this.snapshotPushPending && hasDirtyDocs) {
         this.snapshotPushPending = false
         void this.triggerSnapshotPush()
+      } else {
+        this.snapshotPushPending = false
       }
     }
   }
@@ -531,6 +575,11 @@ export class SnapshotManager {
   }
 
   async shutdown(): Promise<void> {
+    if (this.activePushPromise) {
+      try {
+        await this.activePushPromise
+      } catch {}
+    }
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
@@ -559,6 +608,7 @@ export class SnapshotManager {
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
+    this.activePushPromise = null
     if (this.retryTimeoutId !== null) {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
