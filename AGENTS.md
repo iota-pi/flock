@@ -130,7 +130,7 @@ The system has two complementary server sync mechanisms:
 
 #### Leader Election and Multi-Tab
 
-Only one tab performs server sync at a time. `LeaderElection` uses `navigator.locks` (with a BroadcastChannel fallback) to elect a leader. The leader tab runs the `SyncOrchestrator` polling loop; follower tabs still have a running Automerge Repo but rely on the `EncryptedBroadcastChannelNetworkAdapter` for cross-tab document sync.
+Only one tab performs server sync at a time. `LeaderElection` uses `navigator.locks` to elect a leader. The leader tab runs the `SyncOrchestrator` polling loop; follower tabs still have a running Automerge Repo but rely on the `EncryptedBroadcastChannelNetworkAdapter` for cross-tab document sync.
 
 #### Offline and Reconnection
 
