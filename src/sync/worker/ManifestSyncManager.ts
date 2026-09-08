@@ -170,7 +170,9 @@ export class ManifestSyncManager {
         if (item.snapshot) {
           const binary = await this.decryptSnapshotBinary(item.snapshot)
           if (binary) {
-            await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
+            await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
+              knownToExist: knownSet.has(itemId),
+            })
             hydratedIds.push(itemId)
             lastModifiedUpdates.push([itemId, serverTime])
             decryptedSuccessfully = true

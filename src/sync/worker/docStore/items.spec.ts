@@ -256,5 +256,116 @@ describe('items operations', () => {
     expect(noteTexts).toContain('Local Note')
     expect(noteTexts).toContain('Remote Note')
   })
+
+  it('should non-destructively merge local storage edits with incoming snapshot when findHandle times out and doc exists in storage', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Create a base doc with a common ancestor
+    const baseDoc = Automerge.change(Automerge.init<Item>(), doc => {
+      doc.id = 'timeout-item' as ItemId
+      doc.type = 'person'
+      doc.name = 'Base Name'
+      doc.description = 'Base Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = []
+      doc.prayedFor = []
+    })
+    const baseBinary = Automerge.save(baseDoc)
+
+    // Local edit (stored in IndexedDB storage)
+    const localDoc = Automerge.change(Automerge.load<Item>(baseBinary), doc => {
+      doc.name = 'Unsynced Local Name'
+    })
+    const localBinary = Automerge.save(localDoc)
+
+    // Remote snapshot (from server)
+    const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), doc => {
+      doc.description = 'Server Updated Description'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    // Mock storageSubsystem to return the local doc data
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(localBinary),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    // Mock repo.find to time out
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    // Hydrate should NOT clobber unsynced local edits; it should perform non-destructive CRDT merge
+    await customDocStore.hydrateAutomergeDocumentBinary('timeout-item', remoteBinary)
+
+    // Verify import was called with the merged binary
+    expect(importSpy).toHaveBeenCalled()
+    const importedBinary = importSpy.mock.calls[0][0] as Uint8Array
+    const importedDoc = Automerge.load<Item>(importedBinary)
+    expect(importedDoc.name).toBe('Unsynced Local Name')
+    expect(importedDoc.description).toBe('Server Updated Description')
+  })
+
+  it('should refuse to overwrite existing storage document and throw error when findHandle times out and fallback merge fails', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Corrupt binary in storage that cannot be merged
+    const corruptBinary = new Uint8Array([0, 1, 2, 3])
+
+    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+      doc.id = 'timeout-corrupt' as ItemId
+      doc.type = 'person'
+      doc.name = 'Remote Name'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(corruptBinary),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await expect(
+      customDocStore.hydrateAutomergeDocumentBinary('timeout-corrupt', remoteBinary)
+    ).rejects.toThrow('Refusing to overwrite existing storage data')
+
+    // Must NOT import the remote binary over existing storage
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should cleanly seed imported document if doc does NOT exist in storage when findHandle returns undefined', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+      doc.id = 'clean-new-item' as ItemId
+      doc.type = 'person'
+      doc.name = 'Brand New Item'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(undefined),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await customDocStore.hydrateAutomergeDocumentBinary('clean-new-item', remoteBinary)
+
+    expect(importSpy).toHaveBeenCalledWith(remoteBinary, expect.objectContaining({ docId: expect.any(String) }))
+  })
 })
 

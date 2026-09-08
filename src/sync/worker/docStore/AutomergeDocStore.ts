@@ -84,15 +84,20 @@ export class AutomergeDocStore {
     return { url, documentId: interpretAsDocumentId(url) }
   }
 
-  private async hasDataInStorage(itemId: ItemId): Promise<boolean> {
-    if (!this.repo.storageSubsystem) return false
+  async loadDocDataFromStorage(itemId: ItemId): Promise<Uint8Array | undefined> {
+    if (!this.repo.storageSubsystem) return undefined
     const { documentId } = this.resolveDocumentId(itemId)
     try {
       const data = await this.repo.storageSubsystem.loadDocData(documentId)
-      return !!(data && data.length > 0)
+      return (data && data.length > 0) ? data : undefined
     } catch {
-      return false
+      return undefined
     }
+  }
+
+  async hasDataInStorage(itemId: ItemId): Promise<boolean> {
+    const data = await this.loadDocDataFromStorage(itemId)
+    return !!data
   }
 
   private async timedFind(
@@ -296,6 +301,7 @@ export class AutomergeDocStore {
   async hydrateAutomergeDocumentBinary(
     itemId: string,
     binary: Uint8Array,
+    options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<void> {
     const normalizedItemId = normalizeItemId(itemId)
     if (!normalizedItemId || !(binary instanceof Uint8Array) || binary.byteLength === 0) {
@@ -303,7 +309,7 @@ export class AutomergeDocStore {
     }
 
     try {
-      const existingHandle = await this.findHandle(normalizedItemId)
+      const existingHandle = await this.findHandle(normalizedItemId, options)
 
       if (existingHandle && existingHandle.isReady()) {
         const incomingHandle = this.repo.import<RepoDoc>(binary)
@@ -317,6 +323,46 @@ export class AutomergeDocStore {
           }
         }
       } else {
+        // Document handle was not available or not ready within timeout.
+        // Check whether document exists in storage to avoid clobbering local edits.
+        let existsInStorage = options.knownToExist
+        let localBinary: Uint8Array | undefined
+
+        if (existsInStorage) {
+          localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+        } else {
+          localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+          existsInStorage = !!localBinary
+        }
+
+        if (existsInStorage) {
+          // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
+          if (localBinary && localBinary.byteLength > 0) {
+            try {
+              const localDoc = Automerge.load<RepoDoc>(localBinary)
+              const incomingDoc = Automerge.load<RepoDoc>(binary)
+              const mergedDoc = Automerge.merge(localDoc, incomingDoc)
+              const mergedBinary = Automerge.save(mergedDoc)
+              await this.seedImportedDocument(normalizedItemId, mergedBinary)
+              return
+            } catch (mergeError) {
+              console.error('[AutomergeDocStore] Non-destructive direct merge failed', {
+                itemId: normalizedItemId,
+                error: mergeError,
+              })
+            }
+          }
+
+          console.error(
+            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}. ` +
+            `Document exists in storage but handle could not be loaded within timeout and fallback merge failed.`
+          )
+          throw new Error(
+            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}`
+          )
+        }
+
+        // Genuinely new document - safe to seed
         await this.seedImportedDocument(normalizedItemId, binary)
       }
     } catch (error) {
@@ -324,7 +370,7 @@ export class AutomergeDocStore {
         itemId,
         error,
       })
-      return
+      throw error
     }
   }
 
@@ -434,12 +480,15 @@ export class AutomergeDocStore {
       const normalizedItemId = normalizeItemId(itemId)
       if (!normalizedItemId) continue
 
-      await this.hydrateAutomergeDocumentBinary(
-        normalizedItemId,
-        Uint8Array.fromBase64(encodedBinary)
-      )
-
-      restoredItemIds.push(normalizedItemId)
+      try {
+        await this.hydrateAutomergeDocumentBinary(
+          normalizedItemId,
+          Uint8Array.fromBase64(encodedBinary)
+        )
+        restoredItemIds.push(normalizedItemId)
+      } catch (err) {
+        console.error(`[AutomergeDocStore] Failed to restore document for ${normalizedItemId}`, err)
+      }
     }
 
     await indexManager.addAutomergeItemIdsToIndex(restoredItemIds)

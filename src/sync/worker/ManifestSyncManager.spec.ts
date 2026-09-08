@@ -209,7 +209,7 @@ describe('ManifestSyncManager', () => {
       })
 
       expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'cipher-1', kver: '1' })
-      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-snap', new Uint8Array([1, 2, 3]))
+      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-snap', new Uint8Array([1, 2, 3]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-snap'])
 
       expect(storeItemsSpy).toHaveBeenCalledWith([
@@ -252,7 +252,7 @@ describe('ManifestSyncManager', () => {
         account: 'acc-123',
         itemIds: ['item-3'],
       })
-      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-3', new Uint8Array([9, 9]))
+      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-3', new Uint8Array([9, 9]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-3'])
       expect(result).toEqual({ added: ['item-3'] })
     })
@@ -431,9 +431,12 @@ describe('ManifestSyncManager', () => {
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
       mockHydrateAutomergeDocumentBinary.mockRejectedValue(new Error('CRDT hydration crashed'))
 
-      await manifestSyncManager.sync()
+      const result = await manifestSyncManager.sync()
 
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
+      expect(mockAddAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+      expect(depsObj.snapshotManager.importLastModified).not.toHaveBeenCalled()
+      expect(result).toEqual({ added: [] })
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Some batches or items failed to sync; lastManifestSyncTime not updated')
       )
@@ -575,7 +578,7 @@ describe('ManifestSyncManager', () => {
         account: 'acc-123',
         itemIds: ['item-1'],
       })
-      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]))
+      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
       expect(result).toEqual({ added: ['item-1'] })
 
       dateNowSpy.mockRestore()
