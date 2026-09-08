@@ -9,6 +9,7 @@ export interface WalEntry {
   itemId: ItemId
   data: Uint8Array
   createdAt: number
+  seq?: number
   isBatched?: boolean
   replaces?: string[]
 }
@@ -66,11 +67,17 @@ const storageInstances = new Map<string, LocalForage>()
 
 export function clearWalInstancesCacheForTesting(): void {
   storageInstances.clear()
+  SyncWriteAheadLog.resetSeqCounterForTesting()
 }
 
 export class SyncWriteAheadLog {
   public static readonly MAX_ENTRIES = 2000
   private static readonly PRUNE_BATCH_SIZE = 100
+  private static seqCounter = 0
+
+  public static resetSeqCounterForTesting(): void {
+    SyncWriteAheadLog.seqCounter = 0
+  }
 
   private readonly storage: LocalForage
 
@@ -125,6 +132,7 @@ export class SyncWriteAheadLog {
 
       const combinedData = packBatchedMessages(entries)
       const latestCreatedAt = Math.max(...entries.map(e => e.createdAt || 0))
+      const latestSeq = Math.max(...entries.map(e => e.seq ?? 0))
       const newId = nanoid()
 
       // Track all old IDs being replaced (including transitive replacements)
@@ -137,6 +145,7 @@ export class SyncWriteAheadLog {
         itemId,
         data: combinedData,
         createdAt: latestCreatedAt,
+        seq: latestSeq,
         isBatched: true,
         replaces: oldIds,
       }
@@ -159,7 +168,7 @@ export class SyncWriteAheadLog {
   private async pruneOldest(count: number): Promise<void> {
     if (count <= 0) return
     try {
-      const allEntries: { id: string; createdAt: number }[] = []
+      const allEntries: { id: string; createdAt: number; seq: number }[] = []
       const supersededIds = new Set<string>()
 
       await this.storage.iterate<WalEntry, void>(entry => {
@@ -167,6 +176,7 @@ export class SyncWriteAheadLog {
           allEntries.push({
             id: entry.id,
             createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
+            seq: typeof entry.seq === 'number' ? entry.seq : 0,
           })
           if (Array.isArray(entry.replaces)) {
             for (const oldId of entry.replaces) {
@@ -187,7 +197,7 @@ export class SyncWriteAheadLog {
       }
 
       const validEntries = allEntries.filter(e => !supersededIds.has(e.id))
-      validEntries.sort((a, b) => a.createdAt - b.createdAt)
+      validEntries.sort((a, b) => (a.createdAt - b.createdAt) || (a.seq - b.seq))
       const toRemove = validEntries.slice(0, count).map(e => e.id)
       await this.remove(toRemove)
     } catch (err) {
@@ -226,12 +236,14 @@ export class SyncWriteAheadLog {
   async append(itemId: ItemId, data: Uint8Array): Promise<string> {
     await this.enforceSizeLimit()
 
+    SyncWriteAheadLog.seqCounter += 1
     const id = nanoid()
     const entry: WalEntry = {
       id,
       itemId,
       data,
       createdAt: Date.now(),
+      seq: SyncWriteAheadLog.seqCounter,
     }
 
     try {
@@ -269,6 +281,7 @@ export class SyncWriteAheadLog {
           itemId: entry.itemId,
           data: normalizedData,
           createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
+          seq: typeof entry.seq === 'number' ? entry.seq : 0,
           isBatched: entry.isBatched === true,
           replaces: Array.isArray(entry.replaces)
             ? entry.replaces.filter((r): r is string => typeof r === 'string' && r.length > 0 && r !== entry.id)
@@ -305,7 +318,7 @@ export class SyncWriteAheadLog {
     }
 
     for (const list of result.values()) {
-      list.sort((a, b) => a.createdAt - b.createdAt)
+      list.sort((a, b) => (a.createdAt - b.createdAt) || ((a.seq ?? 0) - (b.seq ?? 0)))
     }
 
     return result

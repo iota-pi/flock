@@ -410,4 +410,65 @@ describe('SyncWriteAheadLog', () => {
     // c1 remains
     expect(store.store.has('c1')).toBe(true)
   })
+
+  it('guarantees ordering of entries appended in the same millisecond using seq counter', async () => {
+    const fixedNow = 1700000000000
+    vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
+
+    const ids: string[] = []
+    // Append 10 entries within the identical millisecond
+    for (let i = 1; i <= 10; i++) {
+      const id = await wal.append('item-same-ms' as ItemId, new Uint8Array([i]))
+      ids.push(id)
+    }
+
+    const entriesMap = await wal.readAll()
+    const entries = entriesMap.get('item-same-ms' as ItemId)!
+
+    expect(entries).toHaveLength(10)
+    // Verify each entry has identical createdAt but strictly increasing seq and matches append order
+    for (let i = 0; i < 10; i++) {
+      expect(entries[i].id).toBe(ids[i])
+      expect(entries[i].createdAt).toBe(fixedNow)
+      expect(entries[i].data).toEqual(new Uint8Array([i + 1]))
+      expect(entries[i].seq).toBeDefined()
+    }
+    for (let i = 1; i < 10; i++) {
+      expect(entries[i].seq!).toBeGreaterThan(entries[i - 1].seq!)
+    }
+
+    vi.restoreAllMocks()
+  })
+
+  it('preserves seq ordering across compaction', async () => {
+    const fixedNow = 1700000000000
+    vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
+
+    await wal.append('item-compact-seq' as ItemId, new Uint8Array([1]))
+    await wal.append('item-compact-seq' as ItemId, new Uint8Array([2]))
+
+    const reduced = await wal.compact()
+    expect(reduced).toBe(1)
+
+    const entriesMap = await wal.readAll()
+    const entries = entriesMap.get('item-compact-seq' as ItemId)!
+    expect(entries).toHaveLength(1)
+    expect(entries[0].isBatched).toBe(true)
+    expect(entries[0].seq).toBeGreaterThan(0)
+
+    vi.restoreAllMocks()
+  })
+
+  it('handles legacy entries lacking seq gracefully in readAll', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+    store.store.set('legacy-1', { id: 'legacy-1', itemId: 'item-legacy' as ItemId, data: new Uint8Array([1]), createdAt: 100 })
+    store.store.set('legacy-2', { id: 'legacy-2', itemId: 'item-legacy' as ItemId, data: new Uint8Array([2]), createdAt: 100 })
+
+    const entriesMap = await wal.readAll()
+    const entries = entriesMap.get('item-legacy' as ItemId)!
+    expect(entries).toHaveLength(2)
+    expect(entries[0].seq).toBe(0)
+    expect(entries[1].seq).toBe(0)
+  })
 })
+
