@@ -209,14 +209,15 @@ export class SnapshotManager {
     dirtyItems: { itemId: ItemId; tick: number }[]
     snapshotCursor: number
   } | null> {
-    const authToken = await getActiveSessionToken()
-    if (!authToken) {
-      return null
-    }
-
     const dirtyItems = Array.from(this.dirtyItems.entries()).map(([itemId, tick]) => ({ itemId, tick }))
     if (dirtyItems.length === 0) {
       this.snapshotRequestCursor = null
+      return null
+    }
+
+    const authToken = await getActiveSessionToken()
+    if (!authToken) {
+      console.warn('[SnapshotManager] Cannot push snapshots: missing active session token')
       return null
     }
 
@@ -428,6 +429,9 @@ export class SnapshotManager {
     try {
       const context = await this.preparePushContext()
       if (!context) {
+        if (this.dirtyItems.size > 0) {
+          success = false
+        }
         return { persisted: 0, total: 0 }
       }
 

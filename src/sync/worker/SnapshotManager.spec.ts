@@ -1,6 +1,7 @@
 import { ItemId } from 'src/shared/schemas/items'
 import { SnapshotManager } from './SnapshotManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
+import { getActiveSessionToken } from '../shared/workerAuthStore'
 
 const mockPutSnapshotsWithToken = vi.fn()
 
@@ -64,6 +65,7 @@ describe('SnapshotManager Retry Mechanism', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+    vi.mocked(getActiveSessionToken).mockResolvedValue('mock-auth-token')
 
     mockHandle = {
       isReady: vi.fn().mockReturnValue(true),
@@ -708,6 +710,80 @@ describe('SnapshotManager Retry Mechanism', () => {
           reason: expect.stringContaining('exceeds 350 KB limit'),
         }),
       )
+    })
+  })
+
+  describe('Missing Auth Token Handling', () => {
+    it('schedules retry when getActiveSessionToken returns null and dirty items exist', async () => {
+      vi.mocked(getActiveSessionToken).mockResolvedValue(null)
+
+      manager.markItemDirty('item-1' as ItemId)
+      const result = await manager.flushPendingSnapshots()
+
+      expect(result).toEqual({ persisted: 0, total: 0 })
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['retryAttempt']).toBe(1)
+      expect(manager['retryTimeoutId']).not.toBeNull()
+      expect(manager['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
+    })
+
+    it('recovers and pushes snapshots when auth token becomes available on retry', async () => {
+      vi.mocked(getActiveSessionToken).mockResolvedValueOnce(null)
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      await manager.flushPendingSnapshots()
+
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['retryAttempt']).toBe(1)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      // Restore auth token and advance to the first retry interval (2000ms)
+      vi.mocked(getActiveSessionToken).mockResolvedValue('restored-auth-token')
+      await vi.advanceTimersByTimeAsync(2000)
+
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authToken: 'restored-auth-token',
+        }),
+      )
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['retryAttempt']).toBe(0)
+    })
+
+    it('does not schedule retry or treat as failure when dirtyItems is empty', async () => {
+      vi.mocked(getActiveSessionToken).mockResolvedValue(null)
+
+      const result = await manager.pushSnapshots()
+
+      expect(result).toEqual({ persisted: 0, total: 0 })
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+      expect(manager['retryTimeoutId']).toBeNull()
+      expect(manager['retryAttempt']).toBe(0)
+    })
+
+    it('does not increment consecutiveFailures or move items to manual recovery when auth token is missing repeatedly', async () => {
+      vi.mocked(getActiveSessionToken).mockResolvedValue(null)
+
+      manager.markItemDirty('item-1' as ItemId)
+      await manager.flushPendingSnapshots()
+
+      // Progress through retries: 2s, 5s, 10s, 30s, 60s
+      await vi.advanceTimersByTimeAsync(2000)
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(10000)
+      await vi.advanceTimersByTimeAsync(30000)
+      await vi.advanceTimersByTimeAsync(60000)
+
+      expect(manager['retryAttempt']).toBe(6)
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
+      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
   })
 })
