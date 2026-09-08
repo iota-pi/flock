@@ -2,8 +2,128 @@ import {
   setupWorkerHealthCheck,
   stopWorkerHeartbeat,
   resetCrashMetrics,
+  sendPing,
 } from './syncWorkerHealth'
 import { useAppStore } from '../../state/store'
+
+describe('sendPing', () => {
+  let channel: MessageChannel
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    channel = new MessageChannel()
+  })
+
+  afterEach(() => {
+    channel.port1.close()
+    channel.port2.close()
+    vi.useRealTimers()
+  })
+
+  it('resolves on pong and cleans up event listeners', async () => {
+    const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
+    channel.port2.onmessage = ev => {
+      if (ev.data === 'ping') {
+        channel.port2.postMessage('pong')
+      }
+    }
+
+    const pingPromise = sendPing(channel.port1)
+    await expect(pingPromise).resolves.toBeUndefined()
+    expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
+    expect(removeListenerSpy).toHaveBeenCalledWith('messageerror', expect.any(Function))
+  })
+
+  it('rejects and cleans up event listeners on signal abort', async () => {
+    const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
+    const controller = new AbortController()
+
+    const pingPromise = sendPing(channel.port1, controller.signal)
+    controller.abort(new Error('Worker crashed'))
+
+    await expect(pingPromise).rejects.toThrow('Worker crashed')
+    expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
+    expect(removeListenerSpy).toHaveBeenCalledWith('messageerror', expect.any(Function))
+  })
+
+  it('rejects immediately if signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('Already aborted'))
+
+    const addListenerSpy = vi.spyOn(channel.port1, 'addEventListener')
+    const pingPromise = sendPing(channel.port1, controller.signal)
+
+    await expect(pingPromise).rejects.toThrow('Already aborted')
+    expect(addListenerSpy).not.toHaveBeenCalled()
+  })
+
+  it('rejects and cleans up on timeout', async () => {
+    const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
+    const pingPromise = sendPing(channel.port1, { timeoutMs: 5000 })
+
+    vi.advanceTimersByTime(5000)
+
+    await expect(pingPromise).rejects.toThrow('Heartbeat timeout')
+    expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
+  })
+
+  it('rejects and cleans up on messageerror', async () => {
+    const listeners: Record<string, ((ev: any) => void)[]> = {}
+    const mockPort = {
+      postMessage: vi.fn(),
+      start: vi.fn(),
+      addEventListener: vi.fn((event: string, handler: (ev: any) => void) => {
+        if (!listeners[event]) listeners[event] = []
+        listeners[event].push(handler)
+      }),
+      removeEventListener: vi.fn((event: string, handler: (ev: any) => void) => {
+        if (listeners[event]) {
+          listeners[event] = listeners[event].filter(h => h !== handler)
+        }
+      }),
+    } as unknown as MessagePort
+
+    const pingPromise = sendPing(mockPort)
+    listeners['messageerror']?.forEach(fn => fn(new Event('messageerror')))
+
+    await expect(pingPromise).rejects.toThrow('MessagePort error')
+    expect(mockPort.removeEventListener).toHaveBeenCalledWith('message', expect.any(Function))
+    expect(mockPort.removeEventListener).toHaveBeenCalledWith('messageerror', expect.any(Function))
+  })
+
+  it('rejects and cleans up when postMessage throws', async () => {
+    const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
+    vi.spyOn(channel.port1, 'postMessage').mockImplementation(() => {
+      throw new Error('Port closed')
+    })
+
+    const pingPromise = sendPing(channel.port1)
+
+    await expect(pingPromise).rejects.toThrow('Port closed')
+    expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
+  })
+
+  it('cleans up onmessage and onmessageerror when addEventListener is not supported', async () => {
+    const mockPort = {
+      postMessage: vi.fn(),
+      start: vi.fn(),
+      onmessage: null as any,
+      onmessageerror: null as any,
+    } as unknown as MessagePort
+
+    const controller = new AbortController()
+    const pingPromise = sendPing(mockPort, controller.signal)
+
+    expect(typeof mockPort.onmessage).toBe('function')
+    expect(typeof mockPort.onmessageerror).toBe('function')
+
+    controller.abort(new Error('Manual abort'))
+    await expect(pingPromise).rejects.toThrow('Manual abort')
+
+    expect(mockPort.onmessage).toBeNull()
+    expect(mockPort.onmessageerror).toBeNull()
+  })
+})
 
 describe('syncWorkerHealth', () => {
   let mockWorker: any
@@ -19,7 +139,11 @@ describe('syncWorkerHealth', () => {
         if (!listeners[event]) listeners[event] = []
         listeners[event].push(handler)
       }),
-      removeEventListener: vi.fn(),
+      removeEventListener: vi.fn((event: string, handler: (ev: any) => void) => {
+        if (listeners[event]) {
+          listeners[event] = listeners[event].filter(h => h !== handler)
+        }
+      }),
       dispatchEvent: vi.fn((event: any) => {
         const handlers = listeners[event.type] || []
         handlers.forEach(h => h(event))
@@ -132,4 +256,75 @@ describe('syncWorkerHealth', () => {
     expect(mockWorker.terminate).toHaveBeenCalledTimes(1)
     expect(onRestart).toHaveBeenCalledTimes(1)
   })
+
+  it('aborts in-flight ping and prevents secondary crash handling when worker crashes during ping', async () => {
+    const onCrash = vi.fn()
+    const onRestart = vi.fn()
+
+    const channel = new MessageChannel()
+    const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
+
+    setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel.port1,
+      isCurrentWorker: () => true,
+      onCrash,
+      onRestart,
+    })
+
+    // Advance 15s so ping is sent and in flight
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(onCrash).not.toHaveBeenCalled()
+
+    // Worker crashes while ping is in flight
+    mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Worker crashed mid-ping' }))
+    expect(onCrash).toHaveBeenCalledTimes(1)
+    expect(mockWorker.terminate).toHaveBeenCalledTimes(1)
+
+    // Listeners on pingPort must be cleaned up immediately
+    expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
+    expect(removeListenerSpy).toHaveBeenCalledWith('messageerror', expect.any(Function))
+
+    // Advance 45s (past the 30s heartbeat timeout)
+    await vi.advanceTimersByTimeAsync(45000)
+    // Must NOT trigger onCrash a second time
+    expect(onCrash).toHaveBeenCalledTimes(1)
+
+    channel.port1.close()
+    channel.port2.close()
+  })
+
+  it('cleans up in-flight ping and listeners when stopWorkerHeartbeat is called', async () => {
+    const onCrash = vi.fn()
+    const onRestart = vi.fn()
+
+    const channel = new MessageChannel()
+    const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
+
+    setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel.port1,
+      isCurrentWorker: () => true,
+      onCrash,
+      onRestart,
+    })
+
+    // Advance 15s to start ping
+    await vi.advanceTimersByTimeAsync(15000)
+
+    // Stop heartbeat while ping is in flight
+    stopWorkerHeartbeat()
+
+    // Verify listeners were cleaned up
+    expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
+    expect(removeListenerSpy).toHaveBeenCalledWith('messageerror', expect.any(Function))
+
+    // Advance past timeout
+    await vi.advanceTimersByTimeAsync(45000)
+    expect(onCrash).not.toHaveBeenCalled()
+
+    channel.port1.close()
+    channel.port2.close()
+  })
 })
+
