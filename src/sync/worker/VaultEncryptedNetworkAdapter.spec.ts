@@ -824,5 +824,177 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     await repo.shutdown()
   })
+
+  it('triggers re-negotiation for documents evicted from outbound queue', async () => {
+    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultEncryptedNetworkAdapter')
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
+
+    // Seed doc-0 first
+    const initialSyncMsg = encodeSyncMessage({
+      heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
+      need: [],
+      have: [],
+      changes: [],
+    })
+    testAdapter.connect('client-peer' as PeerId)
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-0' as DocumentId,
+      data: initialSyncMsg,
+    })
+    await Promise.resolve()
+
+    // Temporarily disable sending to accumulate outbound queue
+    testAdapter.setSendEnabled(false)
+
+    // Send a message for doc-0 with changes
+    const syncMsgWithChange = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [new Uint8Array([1, 2, 3])],
+    })
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-0' as DocumentId,
+      data: syncMsgWithChange,
+    })
+
+    // Also send a second message for doc-0 that should be purged when doc-0 is evicted
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-0' as DocumentId,
+      data: syncMsgWithChange,
+    })
+
+    // Now send MAX_OUTBOUND_QUEUE_SIZE other messages to evict doc-0's oldest message
+    for (let i = 1; i <= MAX_OUTBOUND_QUEUE_SIZE; i++) {
+      testAdapter.send({
+        type: 'sync',
+        senderId: 'client-peer' as PeerId,
+        targetId: 'vault' as PeerId,
+        documentId: `doc-${i}` as DocumentId,
+        data: syncMsgWithChange,
+      })
+    }
+
+    // doc-0 was evicted:
+    // 1. Pending re-negotiation recorded
+    expect(testAdapter.getPendingReNegotiationCount()).toBeGreaterThanOrEqual(1)
+    // 2. doc-0's secondary queued message was also purged to prevent sending broken causal chain
+    const pendingDocs = (testAdapter as any).outboundQueue.map((m: any) => m.documentId)
+    expect(pendingDocs).not.toContain('doc-0')
+
+    // Re-enable send: pending re-negotiation should flush empty sync message to client
+    testAdapter.setSendEnabled(true)
+    expect(testAdapter.getPendingReNegotiationCount()).toBe(0)
+
+    const renegCalls = receiveSpy.mock.calls.filter(call => call[0] === 'doc-0')
+    expect(renegCalls.length).toBeGreaterThanOrEqual(1)
+    const emptyMsgPayload = renegCalls[renegCalls.length - 1][1] as Uint8Array
+    const decodedEmpty = decodeSyncMessage(emptyMsgPayload)
+    expect(decodedEmpty.heads).toEqual([])
+    expect(decodedEmpty.changes).toEqual([])
+  })
+
+  it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
+    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultEncryptedNetworkAdapter')
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const outgoingMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      outgoingMessages.push(msg)
+    }
+
+    const repo = new Repo({
+      network: [testAdapter],
+    })
+
+    // 1. Initial doc creation and sync handshake
+    const handle = repo.create<{ count: number }>()
+    handle.change(doc => {
+      doc.count = 1
+    })
+
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve()
+
+    // 2. Disconnect adapter temporarily so messages are queued
+    testAdapter.setSendEnabled(false)
+
+    // 3. Perform a mutation during disconnect window
+    handle.change(doc => {
+      doc.count = 2
+    })
+
+    // Manually pass a mutation message for this doc to adapter
+    const syncMsgWithChange = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [new Uint8Array([1, 2, 3])],
+    })
+    testAdapter.send({
+      type: 'sync',
+      senderId: repo.peerId,
+      targetId: 'vault' as PeerId,
+      documentId: handle.documentId,
+      data: syncMsgWithChange,
+    })
+
+    // 4. Flood queue to force eviction of handle's message
+    for (let i = 0; i < MAX_OUTBOUND_QUEUE_SIZE; i++) {
+      testAdapter.send({
+        type: 'sync',
+        senderId: repo.peerId,
+        targetId: 'vault' as PeerId,
+        documentId: `filler-${i}` as DocumentId,
+        data: syncMsgWithChange,
+      })
+    }
+
+    expect(testAdapter.getPendingReNegotiationCount()).toBe(1)
+
+    // 5. Re-enable sending
+    testAdapter.setSendEnabled(true)
+    expect(testAdapter.getPendingReNegotiationCount()).toBe(0)
+
+    // Allow re-negotiation handshake microtasks and timers to execute
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve()
+
+    outgoingMessages.length = 0
+
+    // 6. Perform a new mutation on handle
+    handle.change(doc => {
+      doc.count = 3
+    })
+
+    for (let i = 0; i < 10; i++) {
+      await vi.advanceTimersByTimeAsync(50)
+      await Promise.resolve()
+      if (outgoingMessages.some(m => m.documentId === handle.documentId)) break
+    }
+
+    // 7. Handle must produce a sync message with changes despite previous eviction!
+    const handleMsgs = outgoingMessages.filter(m => m.documentId === handle.documentId)
+    expect(handleMsgs.length).toBeGreaterThanOrEqual(1)
+    const decoded = decodeSyncMessage(handleMsgs[0].data as Uint8Array)
+    expect(decoded.changes.length).toBeGreaterThan(0)
+
+    await repo.shutdown()
+  })
 })
 

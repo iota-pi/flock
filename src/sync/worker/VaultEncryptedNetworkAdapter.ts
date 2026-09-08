@@ -21,6 +21,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private sendEnabled = false
   private seededDocuments = new Set<DocumentId>()
   private outboundQueue: Message[] = []
+  private pendingReNegotiations = new Set<DocumentId>()
 
   public onMessageToSend: ((message: Message) => void) | null = null
 
@@ -46,6 +47,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
         this.flushOutboundQueue()
       }
       this.connectPeer()
+      if (this.canSend()) {
+        this.flushPendingReNegotiations()
+      }
     } else {
       this.disconnectPeer()
     }
@@ -74,6 +78,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
         this.flushOutboundQueue()
       }
       this.connectPeer()
+      if (this.canSend()) {
+        this.flushPendingReNegotiations()
+      }
     } else {
       this.clearOutboundQueue()
     }
@@ -102,6 +109,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       this.flushOutboundQueue()
     }
     this.connectPeer()
+    if (this.canSend()) {
+      this.flushPendingReNegotiations()
+    }
   }
 
   send(message: Message): void {
@@ -138,9 +148,49 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       console.warn(
         `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
       )
-      this.outboundQueue.shift()
+      const evicted = this.outboundQueue.shift()
+      if (evicted?.documentId) {
+        this.triggerReNegotiation(evicted.documentId)
+      }
     }
     this.outboundQueue.push(message)
+  }
+
+  triggerReNegotiation(documentId: DocumentId): void {
+    this.removeSeededDocument(documentId)
+    this.outboundQueue = this.outboundQueue.filter(m => m.documentId !== documentId)
+
+    if (this.canSend() && this.peerId) {
+      const emptySyncMsg = encodeSyncMessage({
+        heads: [],
+        need: [],
+        have: [],
+        changes: [],
+      })
+      this.receiveMessage(documentId, emptySyncMsg)
+    } else {
+      this.pendingReNegotiations.add(documentId)
+    }
+  }
+
+  private flushPendingReNegotiations(): void {
+    if (!this.canSend() || !this.peerId || this.pendingReNegotiations.size === 0) {
+      return
+    }
+
+    const docIds = Array.from(this.pendingReNegotiations)
+    this.pendingReNegotiations.clear()
+
+    const emptySyncMsg = encodeSyncMessage({
+      heads: [],
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    for (const docId of docIds) {
+      this.receiveMessage(docId, emptySyncMsg)
+    }
   }
 
   private flushOutboundQueue(): void {
@@ -207,6 +257,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   disconnect(): void {
     this.connected = false
     this.seededDocuments.clear()
+    this.pendingReNegotiations.clear()
     this.disconnectPeer()
     this.emit('close')
   }
@@ -221,10 +272,15 @@ export class VaultNetworkAdapter extends NetworkAdapter {
 
   clearOutboundQueue(): void {
     this.outboundQueue = []
+    this.pendingReNegotiations.clear()
   }
 
   getPendingOutboundCount(): number {
     return this.outboundQueue.length
+  }
+
+  getPendingReNegotiationCount(): number {
+    return this.pendingReNegotiations.size
   }
 
   private connectPeer(): void {
