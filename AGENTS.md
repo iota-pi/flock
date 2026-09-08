@@ -145,6 +145,7 @@ All data is end-to-end encrypted client-side before leaving the browser:
 - Encryption keys are derived from the user's password and stored in-memory in the vault keyring.
 - Key rotation triggers `reencryptAllItems`, which re-encrypts and re-uploads all snapshots with the new key.
 - Cross-tab sync messages are also encrypted via `EncryptedBroadcastChannelNetworkAdapter`.
+- The server (lambda) cannot and does not decrypt the Automerge binaries. This means that no Automerge merging or reconcillition happens server-side. The server is a "dumb" relay.
 
 #### Error Recovery
 
