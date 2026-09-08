@@ -12,7 +12,6 @@ Flock is a prayer-tracking Progressive Web App (PWA) with end-to-end encrypted s
 | Local Storage | IndexedDB (via localforage + custom adapter) |
 | Server | Fastify + tRPC, deployed as AWS Lambda via SST |
 | Database | DynamoDB (3 tables: accounts, items, sync messages) |
-| Blob Storage | S3 (encrypted Automerge snapshots) |
 | Infrastructure | SST v4, AWS (ap-southeast-2), Cloudflare DNS |
 | Auth | Session-based with encrypted vault keys |
 | Encryption | Client-side AES encryption with versioned key rotation |
@@ -162,7 +161,6 @@ The server is a Fastify app with tRPC routers, deployed as an AWS Lambda behind 
   - `FlockAccounts` — account records (hash: `account`)
   - `FlockItems` — item metadata + encrypted ciphers (hash: `account`, range: `item`, GSI: `account` + `modifiedAt`)
   - `FlockSyncMessages` — incremental Automerge sync messages (hash: `syncId`, range: `cursor`, GSI: `account` + `cursor`, TTL: `expiresAt`)
-- **S3 Bucket**: `VaultSnapshots` — stores encrypted Automerge binary snapshots for items exceeding `LARGE_OBJECT_THRESHOLD_BYTES` (150KB)
 - **tRPC Routers**: `accounts`, `items`, `sync` — handle account CRUD, item CRUD, and sync push/pull operations
 
 ## State Management
