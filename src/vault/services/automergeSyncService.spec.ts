@@ -160,4 +160,44 @@ describe('AutomergeSyncService', () => {
     expect(firstCursor).toBeGreaterThanOrEqual(currentSecondNamespaceStart)
     expect(lastCursor).toBeLessThan(nextSecondNamespaceStart)
   })
+
+  it('applies the 10-second overlap buffer when pulling sync messages for an item', async () => {
+    const repository = createMockRepository()
+    repository.getSyncMessages.mockResolvedValueOnce({ messages: [], hasMore: false })
+    const service = createAutomergeSyncService({ repository })
+
+    const inputCursor = 150_000_000 // 15 seconds into epoch
+    await service.pullAutomergeSyncBatch({
+      account: 'test-account',
+      cursors: [{ itemId: 'item-1' as ItemId, cursor: inputCursor }],
+    })
+
+    expect(repository.getSyncMessages).toHaveBeenCalledWith({
+      account: 'test-account',
+      itemId: 'item-1',
+      // inputCursor (150_000_000) - OVERLAP_CURSOR_DELTA (100_000_000) = 50_000_000
+      fromCursor: 50_000_000,
+      limit: 200,
+    })
+  })
+
+  it('applies the 10-second overlap buffer when querying global sync messages across items', async () => {
+    const repository = {
+      ...createMockRepository(),
+      getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({ items: [], hasMore: false }),
+    } as unknown as Mocked<AutomergeSyncRepository>
+    const service = createAutomergeSyncService({ repository })
+
+    const inputCursor = 200_000_000 // 20 seconds into epoch
+    await service.pullAutomergeSyncGlobal({
+      account: 'test-account',
+      cursor: inputCursor,
+    })
+
+    expect(repository.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith({
+      account: 'test-account',
+      // inputCursor (200_000_000) - OVERLAP_CURSOR_DELTA (100_000_000) = 100_000_000
+      cursor: 100_000_000,
+    })
+  })
 })

@@ -45,6 +45,8 @@ const SYNC_MESSAGE_PAGE_LIMIT = 200
 const TIMESTAMP_MULTIPLIER = 10_000_000
 const MAX_OFFSET = 9_999_000
 const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
+export const OVERLAP_WINDOW_SECONDS = 10
+export const OVERLAP_CURSOR_DELTA = OVERLAP_WINDOW_SECONDS * TIMESTAMP_MULTIPLIER
 
 export function createAutomergeSyncService({
   now = Date.now,
@@ -96,7 +98,7 @@ export function createAutomergeSyncService({
     hasMore: boolean
   }> {
     const fromCursor = typeof input.cursor === 'number' ? input.cursor : 0
-    const overlapCursor = Math.max(0, fromCursor - TIMESTAMP_MULTIPLIER)
+    const overlapCursor = Math.max(0, fromCursor - OVERLAP_CURSOR_DELTA)
     const { messages: storedMessages, hasMore } = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
@@ -160,7 +162,7 @@ export function createAutomergeSyncService({
       hasMore: boolean
     }>
   }> {
-    const overlapCursor = Math.max(0, input.cursor - TIMESTAMP_MULTIPLIER)
+    const overlapCursor = Math.max(0, input.cursor - OVERLAP_CURSOR_DELTA)
     const { items, hasMore } = await repository.getGlobalSyncMessagesAfterCursor({
       account: input.account,
       cursor: overlapCursor,
