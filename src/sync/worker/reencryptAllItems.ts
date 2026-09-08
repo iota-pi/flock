@@ -7,10 +7,54 @@ import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { isAuthError } from './utils/auth'
+import { isNetworkError } from './utils/network'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 const MAX_BATCH_RETRIES = 3
+const REENCRYPT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000]
+
+let scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
+let scheduledRetryAttempt = 0
+
+export function cancelScheduledReencryption(): void {
+  if (scheduledRetryTimeoutId !== null) {
+    clearTimeout(scheduledRetryTimeoutId)
+    scheduledRetryTimeoutId = null
+  }
+  scheduledRetryAttempt = 0
+}
+
+function scheduleReencryptRetry(
+  deps: ReencryptDeps,
+  onProgress?: (done: number, total: number) => void
+): number {
+  const delayMs =
+    REENCRYPT_RETRY_DELAYS[
+      Math.min(scheduledRetryAttempt, REENCRYPT_RETRY_DELAYS.length - 1)
+    ]
+  scheduledRetryAttempt += 1
+
+  console.warn(
+    `[reencryptAllItems] Scheduling re-encryption retry (attempt ${scheduledRetryAttempt}) in ${delayMs}ms`
+  )
+
+  if (deps.scheduleRetry) {
+    deps.scheduleRetry(delayMs)
+  } else {
+    if (scheduledRetryTimeoutId !== null) {
+      clearTimeout(scheduledRetryTimeoutId)
+    }
+    scheduledRetryTimeoutId = setTimeout(() => {
+      scheduledRetryTimeoutId = null
+      void reencryptAllItems(deps, onProgress).catch(err => {
+        console.warn('[reencryptAllItems] Scheduled retry failed:', err)
+      })
+    }, delayMs)
+  }
+
+  return delayMs
+}
 
 export interface ReencryptDeps {
   accountId: string
@@ -18,6 +62,7 @@ export interface ReencryptDeps {
   indexManager: AutomergeIndexManager
   getAuthToken?: () => Promise<string | null>
   refreshAuthToken?: () => Promise<string | null>
+  scheduleRetry?: (delayMs?: number) => void
 }
 
 export interface ReencryptResult {
@@ -53,6 +98,7 @@ export async function reencryptAllItems(
     if (onProgress) {
       onProgress(0, 0)
     }
+    scheduledRetryAttempt = 0
     return { succeeded: [], failed: [] }
   }
 
@@ -63,6 +109,13 @@ export async function reencryptAllItems(
   const itemChunks = chunk(allItemIds, 10)
 
   for (const chunkIds of itemChunks) {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const errMsg = 'Network is offline'
+      console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
+      scheduleReencryptRetry(deps, onProgress)
+      throw new Error(`Re-encryption aborted: network error (${errMsg})`)
+    }
+
     const currentToken = await getAuth()
     if (currentToken) {
       authToken = currentToken
@@ -175,6 +228,12 @@ export async function reencryptAllItems(
               { cause: err }
             )
           }
+
+          if (isNetworkError(err)) {
+            if (typeof navigator !== 'undefined' && !navigator.onLine) {
+              break
+            }
+          }
         }
       }
 
@@ -191,6 +250,19 @@ export async function reencryptAllItems(
             { cause: lastError }
           )
         }
+
+        if (isNetworkError(lastError)) {
+          const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
+          console.warn(
+            `[reencryptAllItems] Transient network error during upload: ${errMsg}. Aborting operation and scheduling retry.`
+          )
+          scheduleReencryptRetry(deps, onProgress)
+          throw new Error(
+            `Re-encryption aborted: network error (${errMsg})`,
+            { cause: lastError }
+          )
+        }
+
         const errMsg =
           `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
           (lastError instanceof Error ? `: ${lastError.message}` : '')
@@ -215,5 +287,6 @@ export async function reencryptAllItems(
     }
   }
 
+  scheduledRetryAttempt = 0
   return { succeeded, failed }
 }

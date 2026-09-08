@@ -16,6 +16,7 @@ describe('useSyncCoordinatorLifecycle', () => {
   let shutdownSpy: any
 
   beforeEach(() => {
+    vi.clearAllMocks()
     initializeSpy = vi.spyOn(SyncBridge, 'initialize').mockResolvedValue(undefined)
     shutdownSpy = vi.spyOn(SyncBridge, 'shutdown').mockResolvedValue(undefined)
     useAppStore.setState({ fatalError: null, syncWarning: null })
@@ -48,5 +49,16 @@ describe('useSyncCoordinatorLifecycle', () => {
 
     unmount()
     expect(shutdownSpy).not.toHaveBeenCalled()
+  })
+
+  it('resumes pending re-encryption when coming online', async () => {
+    const { resumePendingReencryption } = await import('../../api/vault/reencrypt')
+    renderHook(() => useSyncCoordinatorLifecycle('test-acc-3', true))
+
+    window.dispatchEvent(new Event('online'))
+
+    await vi.waitFor(() => {
+      expect(resumePendingReencryption).toHaveBeenCalledWith('test-acc-3')
+    })
   })
 })

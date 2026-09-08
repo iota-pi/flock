@@ -1,4 +1,4 @@
-import { reencryptAllItems } from './reencryptAllItems'
+import { reencryptAllItems, cancelScheduledReencryption } from './reencryptAllItems'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 const mockPutSnapshotsWithToken = vi.fn()
@@ -58,6 +58,7 @@ describe('reencryptAllItems', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    cancelScheduledReencryption()
 
     mockHandle = {
       isReady: vi.fn().mockReturnValue(true),
@@ -316,5 +317,107 @@ describe('reencryptAllItems', () => {
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledWith(
       expect.objectContaining({ authToken: 'recovered-token' })
     )
+  })
+
+  describe('network failure during key rotation', () => {
+    afterEach(() => {
+      cancelScheduledReencryption()
+    })
+
+    it('aborts immediately and DOES NOT quarantine items when upload fails with a network error', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      // 20 items -> 2 batches of 10
+      const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
+      mockListAutomergeItemIds.mockResolvedValue(items)
+
+      mockPutSnapshotsWithToken.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      await expect(reencryptAllItems(context as any)).rejects.toThrow(
+        /Re-encryption aborted: network error/
+      )
+
+      // CRITICAL: Items must NOT be quarantined into manualRecoveryStore
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+      // CRITICAL: Subsequent batches must NOT be processed (only batch 1 retried 3 times)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+
+      consoleWarnSpy.mockRestore()
+    })
+
+    it('aborts immediately and DOES NOT quarantine items when offline (navigator.onLine === false)', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
+      mockListAutomergeItemIds.mockResolvedValue(items)
+
+      const originalNavigator = globalThis.navigator
+      try {
+        Object.defineProperty(globalThis, 'navigator', {
+          value: { onLine: false },
+          configurable: true,
+          writable: true,
+        })
+
+        await expect(reencryptAllItems(context as any)).rejects.toThrow(
+          /Re-encryption aborted: network error \(Network is offline\)/
+        )
+
+        // CRITICAL: No items quarantined, no upload attempts made while offline
+        expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+        expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+      } finally {
+        Object.defineProperty(globalThis, 'navigator', {
+          value: originalNavigator,
+          configurable: true,
+          writable: true,
+        })
+        consoleWarnSpy.mockRestore()
+      }
+    })
+
+    it('invokes scheduleRetry callback when provided upon encountering a network error', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockPutSnapshotsWithToken.mockRejectedValue(new Error('The network connection was lost.'))
+
+      const scheduleRetry = vi.fn()
+      const deps = {
+        ...context,
+        scheduleRetry,
+      }
+
+      await expect(reencryptAllItems(deps as any)).rejects.toThrow(
+        /Re-encryption aborted: network error/
+      )
+
+      expect(scheduleRetry).toHaveBeenCalledTimes(1)
+      expect(scheduleRetry).toHaveBeenCalledWith(expect.any(Number))
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+
+      consoleWarnSpy.mockRestore()
+    })
+
+    it('distinguishes permanent upload failures from transient network errors', async () => {
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      mockListAutomergeItemIds.mockResolvedValue(['item-perm-fail'])
+
+      // Permanent failure (e.g. 400 Bad Request)
+      mockPutSnapshotsWithToken.mockRejectedValue({
+        data: { httpStatus: 400 },
+        message: 'Bad Request: Invalid snapshot schema',
+      })
+
+      const result = await reencryptAllItems(context as any)
+
+      // Permanent failure: quarantined to manual recovery store and reported in failed
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].itemId).toBe('item-perm-fail')
+      expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
+        itemId: 'item-perm-fail',
+        reason: expect.stringContaining('Re-encryption upload failed'),
+      })
+    })
   })
 })

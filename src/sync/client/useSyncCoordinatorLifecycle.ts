@@ -33,6 +33,7 @@ export default function useSyncCoordinatorLifecycle(
           useAppStore.getState().clearSyncWarning()
           SyncBridge.flushSync().catch(console.error)
         }
+        void resumePendingReencryption(account)
       }
 
       window.addEventListener('online', handleOnline)
