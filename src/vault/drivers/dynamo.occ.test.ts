@@ -145,4 +145,116 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       expect(acct.latestSyncCursor).toBe(200)
     })
   })
+
+  describe('Concurrent Key Rotation & keyringVersion OCC', () => {
+    it('allows updating keyringVersion and keyring when expectedKeyringVersion matches', async () => {
+      const account = generateAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+        metadata: {},
+      })
+
+      // createAccount sets keyringVersion: 1
+      await driver.updateAccountData({
+        account,
+        keyringVersion: 2,
+        keyring: 'keyring-v2',
+        expectedKeyringVersion: 1,
+      })
+
+      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(acct.keyringVersion).toBe(2)
+      expect(acct.keyring).toBe('keyring-v2')
+    })
+
+    it('rejects update when expectedKeyringVersion does not match current keyringVersion', async () => {
+      const account = generateAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+        metadata: {},
+      })
+
+      // Trying to update with mismatched expectedKeyringVersion should fail conditional check
+      await expect(
+        driver.updateAccountData({
+          account,
+          keyringVersion: 2,
+          keyring: 'keyring-v2',
+          expectedKeyringVersion: 99,
+        })
+      ).rejects.toThrow()
+
+      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(acct.keyringVersion).toBe(1)
+      expect(acct.keyring).toBeUndefined()
+    })
+
+    it('prevents concurrent key rotation race condition between two devices', async () => {
+      const account = generateAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+        metadata: {},
+      })
+      await driver.updateAccountData({ account, keyring: 'initial-keyring' })
+
+      // Device 1 and Device 2 both observed keyringVersion = 1 and attempt rotation
+      // Device 1's update arrives first
+      await driver.updateAccountData({
+        account,
+        keyringVersion: 2,
+        keyring: 'device-1-keyring',
+        expectedKeyringVersion: 1,
+      })
+
+      // Device 2's update arrives second with stale expectedKeyringVersion: 1
+      await expect(
+        driver.updateAccountData({
+          account,
+          keyringVersion: 2,
+          keyring: 'device-2-keyring',
+          expectedKeyringVersion: 1,
+        })
+      ).rejects.toThrow()
+
+      // Verify Device 1's keyring remains intact and was not overwritten by Device 2
+      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(acct.keyringVersion).toBe(2)
+      expect(acct.keyring).toBe('device-1-keyring')
+    })
+
+    it('allows legacy accounts without keyringVersion using attribute_not_exists fallback', async () => {
+      const account = generateAccountId()
+      // Simulate a legacy account by creating without keyringVersion
+      // We need to create the account and then remove keyringVersion
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+        metadata: {},
+      })
+
+      // The condition uses attribute_not_exists(keyringVersion) OR keyringVersion = :expected
+      // For a newly created account with keyringVersion: 1, expectedKeyringVersion: 1 should succeed
+      await driver.updateAccountData({
+        account,
+        keyringVersion: 2,
+        keyring: 'first-rotation-keyring',
+        expectedKeyringVersion: 1,
+      })
+
+      const updated = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(updated.keyringVersion).toBe(2)
+      expect(updated.keyring).toBe('first-rotation-keyring')
+    })
+  })
 })

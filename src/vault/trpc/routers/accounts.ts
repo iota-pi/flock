@@ -221,10 +221,31 @@ export const accountsRouter = router({
   updateKeyring: protectedProcedure
     .input(UpdateKeyringBodySchema)
     .mutation(async ({ ctx, input }) => {
-      await ctx.vault.updateAccountData({
-        account: input.account,
-        keyring: input.keyring,
-      })
+      try {
+        await ctx.vault.updateAccountData({
+          account: input.account,
+          keyring: input.keyring,
+          ...(typeof input.keyringVersion === 'number'
+            ? { keyringVersion: input.keyringVersion }
+            : {}),
+          ...(typeof input.expectedKeyringVersion === 'number'
+            ? { expectedKeyringVersion: input.expectedKeyringVersion }
+            : {}),
+        })
+      } catch (err) {
+        if (
+          err instanceof Error && (
+            err.name === 'ConditionalCheckFailedException'
+            || err.message.includes('ConditionalCheckFailed')
+          )
+        ) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Concurrent key rotation detected: keyringVersion conflict',
+          })
+        }
+        throw err
+      }
 
       return { success: true }
     }),
@@ -248,15 +269,36 @@ export const accountsRouter = router({
       const currentSessionToken = ctx.authToken
       const currentSessionExpiry = accountData.sessions?.find(s => s.token === currentSessionToken)?.expiry ?? (now + 30 * 24 * 60 * 60 * 1000)
 
-      await ctx.vault.updateAccountData({
-        account: input.account,
-        authToken: newAuthTokenHash,
-        salt: input.newSalt,
-        iterations: input.newIterations,
-        keyring: input.newKeyring,
-        saltVersion: input.saltVersion,
-        sessions: [{ token: currentSessionToken, expiry: currentSessionExpiry }],
-      })
+      try {
+        await ctx.vault.updateAccountData({
+          account: input.account,
+          authToken: newAuthTokenHash,
+          salt: input.newSalt,
+          iterations: input.newIterations,
+          keyring: input.newKeyring,
+          saltVersion: input.saltVersion,
+          ...(typeof input.keyringVersion === 'number'
+            ? { keyringVersion: input.keyringVersion }
+            : {}),
+          ...(typeof input.expectedKeyringVersion === 'number'
+            ? { expectedKeyringVersion: input.expectedKeyringVersion }
+            : {}),
+          sessions: [{ token: currentSessionToken, expiry: currentSessionExpiry }],
+        })
+      } catch (err) {
+        if (
+          err instanceof Error && (
+            err.name === 'ConditionalCheckFailedException'
+            || err.message.includes('ConditionalCheckFailed')
+          )
+        ) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Concurrent credential update detected: keyringVersion conflict',
+          })
+        }
+        throw err
+      }
 
       return { success: true }
     }),

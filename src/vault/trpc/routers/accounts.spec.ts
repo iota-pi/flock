@@ -146,6 +146,44 @@ describe('accountsRouter security contracts', () => {
     })
   })
 
+  it('passes keyringVersion and expectedKeyringVersion to updateAccountData when provided', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+    const newKeyring = 'new-encrypted-keyring'
+
+    const result = await caller.updateKeyring({
+      account: 'acct-1',
+      keyring: newKeyring,
+      keyringVersion: 2,
+      expectedKeyringVersion: 1,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+      account: 'acct-1',
+      keyring: newKeyring,
+      keyringVersion: 2,
+      expectedKeyringVersion: 1,
+    })
+  })
+
+  it('throws CONFLICT when updateKeyring experiences ConditionalCheckFailedException', async () => {
+    const ctx = createContext()
+    const error = new Error('ConditionalCheckFailedException: The conditional request failed')
+    error.name = 'ConditionalCheckFailedException'
+    ctx.vault.updateAccountData.mockRejectedValueOnce(error)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.updateKeyring({
+      account: 'acct-1',
+      keyring: 'some-keyring',
+      expectedKeyringVersion: 1,
+    })).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Concurrent key rotation detected: keyringVersion conflict',
+    })
+  })
+
   it('allows changing password when authorized and credentials are correct', async () => {
     const ctx = createContext()
     const rawCurrentPassword = 'current-password'
@@ -207,6 +245,36 @@ describe('accountsRouter security contracts', () => {
     })).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
       message: 'Incorrect current password',
+    })
+  })
+
+  it('throws CONFLICT when changePassword experiences ConditionalCheckFailedException', async () => {
+    const ctx = createContext()
+    const clientCurrentAuthToken = hashString('correct-password')
+    const serverStoredAuthToken = hashString(clientCurrentAuthToken)
+
+    ctx.vault.getAccount.mockResolvedValueOnce({
+      account: 'acct-1',
+      authToken: serverStoredAuthToken,
+      sessions: [{ token: 'session-token', expiry: 12345 }],
+    } as any)
+
+    const error = new Error('ConditionalCheckFailedException: The conditional request failed')
+    error.name = 'ConditionalCheckFailedException'
+    ctx.vault.updateAccountData.mockRejectedValueOnce(error)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.changePassword({
+      account: 'acct-1',
+      currentAuthToken: clientCurrentAuthToken,
+      newAuthToken: hashString('new-password'),
+      newSalt: 'new-salt',
+      newIterations: 100000,
+      newKeyring: 'new-keyring',
+      expectedKeyringVersion: 1,
+    })).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Concurrent credential update detected: keyringVersion conflict',
     })
   })
 })

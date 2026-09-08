@@ -123,6 +123,20 @@ describe('AccountClient', () => {
     })
   })
 
+  it('passes expectedKeyringVersion and keyringVersion when updating keyring', async () => {
+    vi.mocked(getTrpcClient().accounts.updateKeyring.mutate).mockResolvedValue({
+      success: true,
+    })
+
+    await updateKeyring('acc-1', 'new-keyring-data', 1, 2)
+    expect(getTrpcClient().accounts.updateKeyring.mutate).toHaveBeenCalledWith({
+      account: 'acc-1',
+      keyring: 'new-keyring-data',
+      expectedKeyringVersion: 1,
+      keyringVersion: 2,
+    })
+  })
+
   it('calls changePassword with expected params', async () => {
     vi.mocked(getTrpcClient().accounts.changePassword.mutate).mockResolvedValue({
       success: true,

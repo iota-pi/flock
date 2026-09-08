@@ -70,6 +70,8 @@ export default abstract class BaseDriver<T = unknown> {
     salt?: string,
     iterations?: number,
     saltVersion?: number,
+    keyringVersion?: number,
+    expectedKeyringVersion?: number,
   }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)

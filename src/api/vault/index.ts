@@ -452,7 +452,9 @@ export async function storeVault(account: string) {
   writeCachedKeyring(encryptedStr)
 
   if (session) {
-    await updateKeyring(account, encryptedStr)
+    const currentVer = parseInt(activeKeyVersion, 10)
+    const expectedVer = Math.max(currentVer - 1, 1)
+    await updateKeyring(account, encryptedStr, expectedVer, currentVer)
   }
 }
 
@@ -581,6 +583,8 @@ export async function changePassword(account: string, currentPassword: string, n
   const plaintext = JSON.stringify(keyringData)
   const encryptedKeyring = await encryptWithKey(newMasterKey, plaintext, 'master')
 
+  const currentKeyringVer = parseInt(activeKeyVersion, 10)
+
   await changePasswordClient({
     account,
     currentAuthToken,
@@ -589,6 +593,8 @@ export async function changePassword(account: string, currentPassword: string, n
     newIterations,
     newKeyring: JSON.stringify(encryptedKeyring),
     saltVersion: newSaltVersion,
+    expectedKeyringVersion: currentKeyringVer,
+    keyringVersion: currentKeyringVer,
   })
 
   masterKey = newMasterKey

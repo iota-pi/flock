@@ -317,6 +317,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         iterations,
         saltVersion,
         sessions: [],
+        keyringVersion: 1,
       },
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
@@ -431,6 +432,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       salt,
       iterations,
       saltVersion,
+      keyringVersion,
+      expectedKeyringVersion,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -448,6 +451,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       salt?: string,
       iterations?: number,
       saltVersion?: number,
+      keyringVersion?: number,
+      expectedKeyringVersion?: number,
     },
   ): Promise<void> {
     const updateExpressions: string[] = []
@@ -523,6 +528,14 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof saltVersion === 'number') {
       updateExpressions.push('saltVersion = :saltVersion')
       expressionAttributeValues[':saltVersion'] = saltVersion
+    }
+    if (typeof keyringVersion === 'number') {
+      updateExpressions.push('keyringVersion = :keyringVersion')
+      expressionAttributeValues[':keyringVersion'] = keyringVersion
+    }
+    if (typeof expectedKeyringVersion === 'number') {
+      conditionExpressions.push('(keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))')
+      expressionAttributeValues[':expectedKeyringVersion'] = expectedKeyringVersion
     }
 
     if (updateExpressions.length === 0) {

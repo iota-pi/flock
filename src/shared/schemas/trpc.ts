@@ -44,6 +44,8 @@ export const UpdateMetadataBodySchema = z.object({
 export const UpdateKeyringBodySchema = z.object({
   account: z.string().min(1),
   keyring: z.string().min(1),
+  keyringVersion: z.number().int().min(1).optional(),
+  expectedKeyringVersion: z.number().int().min(1).optional(),
 })
 
 export const ChangePasswordBodySchema = z.object({
@@ -54,6 +56,8 @@ export const ChangePasswordBodySchema = z.object({
   newIterations: z.number().int().min(1),
   newKeyring: z.string().min(1),
   saltVersion: z.number().int().min(1).optional(),
+  keyringVersion: z.number().int().min(1).optional(),
+  expectedKeyringVersion: z.number().int().min(1).optional(),
 })
 
 export const FetchItemsInputSchema = z.object({
