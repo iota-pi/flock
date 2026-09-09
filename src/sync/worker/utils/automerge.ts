@@ -33,6 +33,11 @@ export function toAutomergeUrlFromItemId(itemId: ItemId): AutomergeUrl {
   return stringifyAutomergeUrl(binary as BinaryDocumentId)
 }
 
+export function toDocumentIdFromItemId(itemId: ItemId): DocumentId {
+  const url = toAutomergeUrlFromItemId(itemId)
+  return url.replace(/^automerge:/, '') as DocumentId
+}
+
 export function toVaultItemIdFromAutomergeId(documentId: DocumentId): ItemId {
   if (documentId.length === 0) {
     return documentId as unknown as ItemId

@@ -132,7 +132,7 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
     Item: persistedItem,
     ConditionExpression: typeof item.version === 'number'
       ? 'attribute_not_exists(account) OR version = :expectedVersion'
-      : 'attribute_not_exists(account)',
+      : undefined,
     ExpressionAttributeValues: typeof item.version === 'number'
       ? { ':expectedVersion': item.version }
       : undefined,

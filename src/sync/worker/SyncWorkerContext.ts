@@ -5,6 +5,7 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
+import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ManifestSyncManager } from './ManifestSyncManager'
@@ -14,7 +15,7 @@ import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { toVaultItemIdFromAutomergeId } from './utils/automerge'
+import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 
 export interface SyncWorkerContextDeps {
   accountId: string
@@ -28,6 +29,7 @@ export interface SyncWorkerContextDeps {
   cursorStore: CursorStore
   pullQueueManager: SyncPullQueueManager
   wal?: SyncWriteAheadLog
+  syncedHeadsStore?: SyncedHeadsStore
 }
 
 export class SyncWorkerContext {
@@ -41,6 +43,7 @@ export class SyncWorkerContext {
   public readonly indexStore: IndexStore
   public readonly cursorStore: CursorStore
   public readonly lastModifiedStore: LastModifiedStore
+  public readonly syncedHeadsStore: SyncedHeadsStore
   public readonly wal: SyncWriteAheadLog
 
   public readonly docStore: AutomergeDocStore
@@ -64,6 +67,8 @@ export class SyncWorkerContext {
     this.cursorStore = deps.cursorStore
     this.pullQueueManager = deps.pullQueueManager
     this.lastModifiedStore = new LastModifiedStore(deps.accountId)
+    this.syncedHeadsStore = deps.syncedHeadsStore ?? new SyncedHeadsStore(deps.accountId)
+    this.adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
     this.wal = deps.wal ?? new SyncWriteAheadLog(deps.accountId)
 
     this.docStore = new AutomergeDocStore(deps.repo)
@@ -123,6 +128,10 @@ export class SyncWorkerContext {
       (itemId, error) => {
         void this.itemOperations.reportDecryptionFailure(itemId, error)
       },
+      (itemId, heads) => {
+        const docId = toDocumentIdFromItemId(itemId)
+        this.adapter.setSyncedHeads(docId, heads)
+      },
     )
   }
 
@@ -131,6 +140,12 @@ export class SyncWorkerContext {
       this.indexManager.ensureIndexDocument(),
       this.snapshotManager.loadLastModified(),
     ])
+
+    const storedHeads = await this.syncedHeadsStore.loadSyncedHeads()
+    if (storedHeads && storedHeads.length > 0) {
+      this.adapter.loadSyncedHeads(storedHeads)
+    }
+
     await this.orchestrator.start()
   }
 
@@ -164,6 +179,7 @@ export class SyncWorkerContext {
           this.cursorStore.clear(),
           this.lastModifiedStore.clear(),
           this.wal.clear(),
+          this.syncedHeadsStore.clear(),
         ])
       } catch (err) {
         console.error('[SyncWorkerContext] Error clearing metadata stores on logout', err)

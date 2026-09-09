@@ -1,4 +1,5 @@
 import { chunk } from 'lodash-es'
+import * as Automerge from '@automerge/automerge/slim'
 
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
@@ -28,7 +29,8 @@ export class ManifestSyncManager {
     },
     private storeItems: (items: Item[]) => Promise<void>,
     private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>,
-    private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
+    private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
+    private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {}
 
   async sync(force = false): Promise<{ added: ItemId[] }> {
@@ -199,6 +201,11 @@ export class ManifestSyncManager {
             await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
               knownToExist: knownSet.has(itemId),
             })
+            try {
+              const doc = Automerge.load(binary)
+              const heads = Automerge.getHeads(doc)
+              this.onItemSnapshotHydrated?.(itemId, heads)
+            } catch {}
             hydratedIds.push(itemId)
             lastModifiedUpdates.push([itemId, serverTime])
             decryptedSuccessfully = true

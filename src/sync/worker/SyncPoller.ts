@@ -7,10 +7,22 @@ import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncWriteAheadLog, packBatchedMessages, type WalEntry } from './SyncWriteAheadLog'
+import { decodeSyncMessage } from '@automerge/automerge/slim'
+import { parseBatchedMessages } from './utils/messageParser'
 import { isAuthError } from './utils/auth'
 import { pollSyncBatchWithToken, type PushResultItem } from '../../api/vault/SyncWorkerClient'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
+
+function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
+  if (!entry || !entry.data || entry.data.byteLength === 0) return null
+  if (!entry.isBatched) return entry.data
+  let last: Uint8Array | null = null
+  parseBatchedMessages(entry.itemId, '' as any, entry.data, (_itemId, _docId, msg) => {
+    last = msg
+  })
+  return last
+}
 
 export class SyncPoller {
   private account: string | null = null
@@ -18,6 +30,8 @@ export class SyncPoller {
   private isPolling = false
   private isShutdown = false
   private abortController: AbortController | null = null
+
+  public onPushAcknowledged: ((itemId: ItemId, heads: string[]) => void) | null = null
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
@@ -186,6 +200,21 @@ export class SyncPoller {
               const ids = sentIdsByItem.get(result.itemId)
               if (ids && ids.length > 0) {
                 acknowledgedIds.push(...ids)
+              }
+              const itemMessages = chunkEntry.find(([id]) => id === result.itemId)?.[1]
+              const lastEntry = itemMessages?.[itemMessages.length - 1]
+              if (lastEntry) {
+                const rawMsg = extractLastSyncMessage(lastEntry)
+                if (rawMsg) {
+                  try {
+                    const decoded = decodeSyncMessage(rawMsg)
+                    if (decoded.heads && decoded.heads.length > 0) {
+                      this.onPushAcknowledged?.(result.itemId, decoded.heads)
+                    }
+                  } catch (err) {
+                    console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)
+                  }
+                }
               }
             } else {
               console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)

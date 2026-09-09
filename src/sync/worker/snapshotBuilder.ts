@@ -10,7 +10,7 @@ import { ItemId } from 'src/shared/schemas/items'
 
 
 export type BuildSnapshotResult =
-  | { type: 'success'; snapshot: VaultSnapshotInput }
+  | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
   | { type: 'not-ready' }
   | { type: 'error'; reason?: string }
 
@@ -48,6 +48,7 @@ export async function buildSnapshot(
     return { type: 'error', reason: 'Document data not available' }
   }
 
+  const heads = Automerge.getHeads(doc)
   const binary = Automerge.save(doc)
   if (!binary || binary.byteLength === 0) {
     return { type: 'error', reason: 'Failed to serialize document binary' }
@@ -83,5 +84,6 @@ export async function buildSnapshot(
       modified: Date.now(),
       deleted: !!itemSnapshot.deleted || undefined,
     },
+    heads,
   }
 }

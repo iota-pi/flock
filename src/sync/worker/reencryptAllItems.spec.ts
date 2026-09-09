@@ -28,6 +28,7 @@ vi.mock('../../api/vault', () => ({
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+  getHeads: vi.fn().mockReturnValue(['mock-head']),
 }))
 
 vi.mock('./docStore/AutomergeIndexManager', () => ({

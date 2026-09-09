@@ -190,7 +190,7 @@ export async function reencryptAllItems(
             snapshots: readySnapshots.map(r => r.snapshot),
           })
 
-          if (response?.success) {
+          if (response?.success && (response.persisted === undefined || response.persisted === readySnapshots.length)) {
             uploadSuccess = true
             break
           }

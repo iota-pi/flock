@@ -8,9 +8,25 @@ import {
 } from '@automerge/automerge-repo/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
+import { debounce } from 'lodash-es'
+import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
+
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
 export const MAX_OUTBOUND_QUEUE_SIZE = 1000
+
+export function areHeadsEqual(a?: string[], b?: string[]): boolean {
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  if (a.length === 0) return true
+  if (a.length === 1) return a[0] === b[0]
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  for (let i = 0; i < sortedA.length; i++) {
+    if (sortedA[i] !== sortedB[i]) return false
+  }
+  return true
+}
 
 export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
@@ -22,6 +38,8 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private seededDocuments = new Set<DocumentId>()
   private outboundQueue: Message[] = []
   private pendingReNegotiations = new Set<DocumentId>()
+  private syncedHeads = new Map<DocumentId, string[]>()
+  private syncedHeadsStore: SyncedHeadsStore | null = null
 
   public onMessageToSend: ((message: Message) => void) | null = null
   public onReNegotiationTriggered: ((documentId: DocumentId) => void) | null = null
@@ -63,6 +81,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     }
 
     this.seededDocuments.clear()
+    this.clearSyncedHeads()
 
     if (this.account && !nextAccount) {
       this.disconnectPeer()
@@ -213,10 +232,13 @@ export class VaultNetworkAdapter extends NetworkAdapter {
         const decoded = decodeSyncMessage(message.data)
         if (!decoded.changes || decoded.changes.length === 0) {
           // Drop empty negotiation/ACK messages to prevent broadcast spam since the vault
-          // peer is a passive relay. On the first negotiation for a document, reflect the
-          // client's own heads and have state back so Automerge believes the vault is
-          // already in sync. This avoids dumping the entire document history and ensures
-          // only future changes are sent through the push pipeline.
+          // peer is a passive relay.
+          // On initial negotiation for a document, check if we have confirmed synced heads.
+          // If the document is already in sync with the vault peer, acknowledge with empty need
+          // to prevent dumping entire history.
+          // If the document has unpushed offline changes (or is newly created), acknowledge with
+          // the last confirmed synced heads and request the missing local heads (need: decoded.heads),
+          // prompting Automerge to emit the delta changes.
           if (message.documentId && !this.seededDocuments.has(message.documentId)) {
             if (this.seededDocuments.size >= MAX_SEEDED_DOCUMENTS) {
               const oldest = this.seededDocuments.values().next().value
@@ -225,11 +247,15 @@ export class VaultNetworkAdapter extends NetworkAdapter {
               }
             }
             this.seededDocuments.add(message.documentId)
+
+            const synced = this.syncedHeads.get(message.documentId)
+            const isFullySynced = Boolean(synced && areHeadsEqual(synced, decoded.heads))
+
             const ackMsg = encodeSyncMessage({
-              heads: decoded.heads || [],
-              need: [],
-              have: decoded.have || [],
-              changes: []
+              heads: synced || [],
+              need: isFullySynced ? [] : (decoded.heads || []),
+              have: isFullySynced ? (decoded.have || []) : [],
+              changes: [],
             })
             queueMicrotask(() => {
               if (this.connected) {
@@ -261,8 +287,51 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.connected = false
     this.seededDocuments.clear()
     this.pendingReNegotiations.clear()
+    this.clearSyncedHeads()
     this.disconnectPeer()
     this.emit('close')
+  }
+
+  setSyncedHeadsStore(store: SyncedHeadsStore | null): void {
+    this.syncedHeadsStore = store
+  }
+
+  loadSyncedHeads(entries: [DocumentId, string[]][]): void {
+    for (const [docId, heads] of entries) {
+      this.syncedHeads.set(docId, heads)
+    }
+  }
+
+  getSyncedHeads(documentId: DocumentId): string[] | undefined {
+    return this.syncedHeads.get(documentId)
+  }
+
+  setSyncedHeads(documentId: DocumentId, heads: string[]): void {
+    const existing = this.syncedHeads.get(documentId)
+    if (existing && areHeadsEqual(existing, heads)) {
+      return
+    }
+    this.syncedHeads.set(documentId, heads)
+    this.saveSyncedHeadsDebounced()
+  }
+
+  private readonly saveSyncedHeadsDebounced = debounce(() => {
+    void this.persistSyncedHeads()
+  }, 1000)
+
+  async persistSyncedHeads(): Promise<void> {
+    if (!this.syncedHeadsStore) return
+    const entries = Array.from(this.syncedHeads.entries())
+    try {
+      await this.syncedHeadsStore.saveSyncedHeads(entries)
+    } catch (err) {
+      console.error('[VaultNetworkAdapter] Failed to persist synced heads', err)
+    }
+  }
+
+  clearSyncedHeads(): void {
+    this.saveSyncedHeadsDebounced.cancel()
+    this.syncedHeads.clear()
   }
 
   clearSeededDocuments(): void {

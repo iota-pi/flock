@@ -160,9 +160,9 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-1')
 
       // Add multiple cursors to internal state
-      manager.processPushResults([
-        { itemId: 'item-1' as ItemId, cursor: 10 },
-        { itemId: 'item-2' as ItemId, cursor: 20 },
+      await manager.importCursors([
+        ['item-1' as ItemId, 10],
+        ['item-2' as ItemId, 20],
       ])
 
       // Since none are pending yet, cursors should be empty
@@ -1227,23 +1227,139 @@ describe('SyncPullQueueManager', () => {
     })
   })
 
-  describe('processPushResults', () => {
+  describe('processPushResults (B4 fix)', () => {
     beforeEach(async () => {
       await manager.setAccount('account-1')
     })
 
-    it('updates cursor only if higher and clears matching pending pull', async () => {
+    it('does not advance pull cursor or clear pending status', async () => {
+      await manager.importCursors([['item-y' as ItemId, 10]])
       manager.addPendingItem('item-y' as ItemId)
 
-      // Push results with higher cursor
+      // Push results arrive with higher cursor (e.g. cursor 50 assigned to this client's push)
       manager.processPushResults([{ itemId: 'item-y' as ItemId, cursor: 50 }])
 
-      expect(manager.exportCursors()).toContainEqual(['item-y', 50])
-      expect(manager.hasPendingPulls()).toBe(false) // should delete item-y from pending
+      // Pull cursor MUST NOT jump forward to 50 (which would skip peer messages < 50)
+      expect(manager.exportCursors()).toContainEqual(['item-y', 10])
+      expect(manager.getGlobalLatestCursor()).toBe(10)
 
-      // Push results with lower cursor (should be ignored)
-      manager.processPushResults([{ itemId: 'item-y' as ItemId, cursor: 40 }])
-      expect(manager.exportCursors()).toContainEqual(['item-y', 50])
+      // Pending pull status MUST NOT be cleared (which would kill pagination)
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-y', cursor: 10 }])
+    })
+
+    it('preserves multi-page pull pagination when push results arrive', async () => {
+      // Step 1: Simulate a multi-page pull result where hasMore: true sets pending: true
+      await manager.processPullResults([
+        {
+          itemId: 'item-page' as ItemId,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: { iv: 'iv1', cipher: 'c1', version: 'legacy' },
+            },
+          ],
+          hasMore: true,
+          nextCursor: 100,
+        },
+      ])
+
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-page', cursor: 100 }])
+
+      // Step 2: Push results arrive (e.g. from an outbound push chunk)
+      manager.processPushResults([{ itemId: 'item-page' as ItemId, cursor: 500 }])
+
+      // Step 3: Pagination must still be alive (pending = true, cursor = 100)
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-page', cursor: 100 }])
+
+      // Step 4: Next page can be pulled successfully
+      await manager.processPullResults([
+        {
+          itemId: 'item-page' as ItemId,
+          messages: [
+            {
+              cursor: 200,
+              encryptedMessage: { iv: 'iv2', cipher: 'c2', version: 'legacy' },
+            },
+          ],
+          hasMore: false,
+          nextCursor: 200,
+        },
+      ])
+
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.exportCursors()).toContainEqual(['item-page', 200])
+    })
+
+    it('marks pushed messages as seen so they are deduplicated when pulled', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.onMessageParsed = onMessageParsedSpy
+
+      // Client pushes a message and gets cursor 500
+      manager.processPushResults([{ itemId: 'item-sync' as ItemId, cursor: 500 }])
+
+      // Subsequent pull returns peer message at 450 and echoed push message at 500
+      await manager.processPullResults([
+        {
+          itemId: 'item-sync' as ItemId,
+          messages: [
+            {
+              cursor: 450,
+              encryptedMessage: { iv: 'iv-peer', cipher: 'c-peer', version: 'legacy' },
+            },
+            {
+              cursor: 500,
+              encryptedMessage: { iv: 'iv-pushed', cipher: 'c-pushed', version: 'legacy' },
+            },
+          ],
+          hasMore: false,
+          nextCursor: 500,
+        },
+      ])
+
+      // Peer message at 450 must be parsed, pushed message at 500 must be skipped (deduped)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-sync', 500])
+    })
+
+    it('ignores failed push results with success: false', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.onMessageParsed = onMessageParsedSpy
+
+      manager.processPushResults([
+        { itemId: 'item-fail' as ItemId, cursor: 100, success: false },
+        { itemId: 'item-ok' as ItemId, cursor: 50, success: true },
+      ])
+
+      // Pull both messages
+      await manager.processPullResults([
+        {
+          itemId: 'item-fail' as ItemId,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: { iv: 'iv-fail', cipher: 'c-fail', version: 'legacy' },
+            },
+          ],
+          hasMore: false,
+        },
+        {
+          itemId: 'item-ok' as ItemId,
+          messages: [
+            {
+              cursor: 50,
+              encryptedMessage: { iv: 'iv-ok', cipher: 'c-ok', version: 'legacy' },
+            },
+          ],
+          hasMore: false,
+        },
+      ])
+
+      // item-fail was NOT marked seen (success: false), so its message is parsed.
+      // item-ok WAS marked seen (success: true), so its message is skipped.
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -1253,10 +1369,10 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('handles storage quota error during persistCursors', async () => {
+      await manager.importCursors([['item-quota' as ItemId, 5]])
+
       const error = new DOMException('Quota Exceeded', 'QuotaExceededError')
       activeStore!.setItem.mockRejectedValueOnce(error)
-
-      manager.processPushResults([{ itemId: 'item-quota' as ItemId, cursor: 5 }])
 
       // Trigger immediate persist instead of debounced
       await expect(manager.persistCursors()).resolves.toBeUndefined()
@@ -1264,27 +1380,10 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('persists cursors on shutdown and cancels debounced timer', async () => {
-      manager.processPushResults([{ itemId: 'item-z' as ItemId, cursor: 500 }])
+      await manager.importCursors([['item-z' as ItemId, 500]])
       await manager.shutdown()
 
       expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', expect.any(Array))
-    })
-  })
-
-  describe('processPushResults', () => {
-    it('ignores failed push results with success: false', async () => {
-      await manager.setAccount('test-account')
-      manager.addPendingItem('item-fail' as ItemId)
-
-      manager.processPushResults([
-        { itemId: 'item-fail' as ItemId, cursor: 100, success: false },
-        { itemId: 'item-ok' as ItemId, cursor: 50, success: true },
-      ])
-
-      const cursors = manager.exportCursors()
-      expect(cursors).toContainEqual(['item-ok', 50])
-      expect(cursors).toContainEqual(['item-fail', 0])
-      expect(manager.hasPendingPulls()).toBe(true)
     })
   })
 

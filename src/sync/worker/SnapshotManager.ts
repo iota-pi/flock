@@ -341,10 +341,10 @@ export class SnapshotManager {
         snapshots: batch,
       })
 
-      if (response?.success) {
+      if (response?.success && response.persisted === batch.length) {
         return { success: true, persisted: response.persisted }
       }
-      return { success: false, persisted: 0 }
+      return { success: false, persisted: response?.persisted ?? 0 }
     } catch (error) {
       console.error('[SnapshotManager] Failed to put snapshots', error)
       return { success: false, persisted: 0 }
@@ -404,7 +404,7 @@ export class SnapshotManager {
     let total = 0
     let success = true
     let sendFailed = false
-    let currentBatch: { snapshot: VaultSnapshotInput; tick: number }[] = []
+    let currentBatch: { snapshot: VaultSnapshotInput; tick: number; heads?: string[] }[] = []
     let currentBatchBytes = 0
 
     for (const itemId of dirtyItemIds) {
@@ -486,6 +486,9 @@ export class SnapshotManager {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
           this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
+          if (item.heads && item.heads.length > 0) {
+            this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
+          }
           void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
         this.saveLastModifiedDebounced()
@@ -494,7 +497,7 @@ export class SnapshotManager {
         currentBatchBytes = 0
       }
 
-      currentBatch.push({ snapshot, tick })
+      currentBatch.push({ snapshot, tick, heads: buildResult.heads })
       currentBatchBytes += snapshotSize
     }
 
@@ -514,6 +517,9 @@ export class SnapshotManager {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
           this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
+          if (item.heads && item.heads.length > 0) {
+            this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
+          }
           void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
         this.saveLastModifiedDebounced()

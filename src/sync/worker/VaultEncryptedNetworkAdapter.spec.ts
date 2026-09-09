@@ -1,4 +1,5 @@
 import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/automerge-repo/slim'
+import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
@@ -332,7 +333,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     appendSpy.mockRestore()
   })
 
-  it('sends reflected heads ACK to adapter when receiving initial negotiation message with empty changes', async () => {
+  it('sends reflected heads ACK with empty need when document is fully in sync', async () => {
     const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
     const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
     const initialSyncMsg = encodeSyncMessage({
@@ -344,6 +345,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     adapter.setSendEnabled(true)
     adapter.setAccount('test')
+    adapter.loadSyncedHeads([['automerge:item-test' as DocumentId, testHeads]])
     adapter.connect('vault' as PeerId)
 
     adapter.send({
@@ -364,6 +366,43 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const receivedPayload = receiveMessageSpy.mock.calls[0][1] as Uint8Array
     const decodedAck = decodeSyncMessage(receivedPayload)
     expect(decodedAck.heads).toEqual(testHeads)
+    expect(decodedAck.need).toEqual([])
+    expect(decodedAck.changes).toEqual([])
+  })
+
+  it('requests document heads when document is not yet in sync or has offline edits', async () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
+    const initialSyncMsg = encodeSyncMessage({
+      heads: testHeads,
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    adapter.setSendEnabled(true)
+    adapter.setAccount('test')
+    adapter.connect('vault' as PeerId)
+
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-unsynced' as DocumentId,
+      data: initialSyncMsg,
+    })
+
+    await Promise.resolve()
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(
+      'automerge:item-unsynced',
+      expect.any(Uint8Array),
+    )
+
+    const receivedPayload = receiveMessageSpy.mock.calls[0][1] as Uint8Array
+    const decodedAck = decodeSyncMessage(receivedPayload)
+    expect(decodedAck.heads).toEqual([])
+    expect(decodedAck.need).toEqual(testHeads)
     expect(decodedAck.changes).toEqual([])
   })
 
@@ -400,7 +439,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(emitSpy).not.toHaveBeenCalledWith('message', expect.anything())
   })
 
-  it('reflects heads to prevent history dumps and allows future changes through Automerge Repo', async () => {
+  it('prevents history dumps when syncedHeads matches and allows future changes through Automerge Repo', async () => {
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
@@ -414,17 +453,20 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       network: [testAdapter],
     })
 
-    // Create a document and populate it with initial data before connection settles
+    // Create a document and populate it with initial data
     const handle = repo.create<{ count: number; name?: string }>()
     handle.change(doc => {
       doc.count = 1
     })
 
+    // Simulate that the server already has these heads (syncedHeads confirmed)
+    testAdapter.setSyncedHeads(handle.documentId, Automerge.getHeads(handle.doc()!))
+
     // Allow microtasks and timers for Automerge Repo network handshake and negotiation to execute
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve() // flush microtasks
 
-    // 1. Initial negotiation should have been intercepted, heads reflected, and NO changes emitted to onMessageToSend
+    // 1. Fully in-sync doc should produce NO changes in onMessageToSend (no history dump!)
     expect(outgoingMessages.length).toBe(0)
 
     // 2. Now perform a new mutation
@@ -446,6 +488,45 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(lastMsg.data).toBeInstanceOf(Uint8Array)
 
     const decoded = decodeSyncMessage(lastMsg.data as Uint8Array)
+    expect(decoded.changes.length).toBeGreaterThan(0)
+
+    await repo.shutdown()
+  })
+
+  it('emits offline edits on startup when document heads differ from syncedHeads', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const outgoingMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      outgoingMessages.push(msg)
+    }
+
+    // Prepare a doc that was previously synced at count = 1
+    let doc = Automerge.init<{ count: number }>()
+    doc = Automerge.change(doc, d => { d.count = 1 })
+    const oldHeads = Automerge.getHeads(doc)
+
+    // Offline edit made prior to reload
+    doc = Automerge.change(doc, d => { d.count = 2 })
+    const newBinary = Automerge.save(doc)
+
+    // Adapter knows about old heads only
+    const repo = new Repo({
+      network: [testAdapter],
+    })
+    const handle = repo.import<{ count: number }>(newBinary)
+    testAdapter.setSyncedHeads(handle.documentId, oldHeads)
+
+    // Allow network handshake and negotiation
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve()
+
+    // Offline delta changes MUST be emitted to onMessageToSend!
+    const offlineMsgs = outgoingMessages.filter(m => m.documentId === handle.documentId)
+    expect(offlineMsgs.length).toBeGreaterThanOrEqual(1)
+    const decoded = decodeSyncMessage(offlineMsgs[0].data as Uint8Array)
     expect(decoded.changes.length).toBeGreaterThan(0)
 
     await repo.shutdown()
@@ -791,6 +872,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Temporary disconnect
     testAdapter.disconnect()
+    outgoingMessages.length = 0
 
     // Automerge Repo sends a mutation message during the disconnect window
     const syncMsgWithChange = encodeSyncMessage({
@@ -916,6 +998,18 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const outgoingMessages: Message[] = []
     testAdapter.onMessageToSend = msg => {
       outgoingMessages.push(msg)
+      if (msg.type === 'sync' && msg.data instanceof Uint8Array && msg.documentId) {
+        const decoded = decodeSyncMessage(msg.data)
+        if (decoded.changes && decoded.changes.length > 0) {
+          const ack = encodeSyncMessage({
+            heads: decoded.heads,
+            need: [],
+            have: decoded.have,
+            changes: [],
+          })
+          testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
+        }
+      }
     }
 
     const repo = new Repo({

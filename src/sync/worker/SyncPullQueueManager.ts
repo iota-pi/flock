@@ -335,20 +335,18 @@ export class SyncPullQueueManager {
   }
 
   processPushResults(results: Array<PushResultItem>): void {
-    if (!this.account) return
-    let cursorsUpdated = false
+    if (!this.account || !Array.isArray(results)) return
     for (const res of results) {
       if (res.itemId && typeof res.cursor === 'number' && Number.isFinite(res.cursor) && res.success !== false) {
-        const state = this.getOrCreateState(res.itemId)
-        if (res.cursor > state.cursor) {
-          state.cursor = res.cursor
-          cursorsUpdated = true
-        }
-        state.pending = false
+        // Mark as seen so that if/when the client later pulls this message (e.g. during overlap window),
+        // it is deduplicated without re-decrypting or re-parsing.
+        // NOTE: We do NOT advance state.cursor or clear state.pending here:
+        // 1. state.cursor tracks the PULL cursor. Advancing it from a push result would jump past
+        //    peer messages at earlier cursors that haven't been pulled yet.
+        // 2. state.pending tracks in-progress pulls (including multi-page pagination). Resetting it
+        //    here would kill active pagination.
+        this.markSeen(res.itemId, res.cursor)
       }
-    }
-    if (cursorsUpdated) {
-      this.saveCursorsDebounced()
     }
   }
 

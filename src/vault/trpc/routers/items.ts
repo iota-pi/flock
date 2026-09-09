@@ -63,6 +63,15 @@ export const itemsRouter = router({
         .filter((snapshot): snapshot is typeof input.snapshots[number] => !!snapshot)
       const persisted = persistedSnapshots.length
 
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(
+            `[itemsRouter.putSnapshots] Failed to persist snapshot for item ${input.snapshots[index].itemId}:`,
+            result.reason,
+          )
+        }
+      })
+
       if (persisted > 0) {
         const snapshotCursor = Math.max(...persistedSnapshots.map(snapshot => snapshot.snapshotCursor))
         await ctx.vault.updateAccountData({
@@ -72,6 +81,10 @@ export const itemsRouter = router({
         })
       }
 
-      return { success: true, persisted, total: input.snapshots.length }
+      return {
+        success: persisted === input.snapshots.length,
+        persisted,
+        total: input.snapshots.length,
+      }
     }),
 })

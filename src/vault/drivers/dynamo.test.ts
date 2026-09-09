@@ -26,6 +26,20 @@ describe('DynamoDriver', function () {
     expect(results[0]).toEqual({ item, cipher, metadata: { type, iv, modified }, version: 2 })
   })
 
+  it('set can create and update without version', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const modified = Date.now()
+
+    await driver.set({ account, item, cipher: 'initial', metadata: { type, iv: 'iv-1', modified } })
+    await driver.set({ account, item, cipher: 'second-write', metadata: { type, iv: 'iv-2', modified: modified + 100 } })
+    await driver.set({ account, item, cipher: 'third-write', metadata: { type, iv: 'iv-3', modified: modified + 200 } })
+
+    const results = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(results[0].cipher).toBe('third-write')
+  })
+
 
   it('set rejects oversized items', async () => {
     const account = generateAccountId()

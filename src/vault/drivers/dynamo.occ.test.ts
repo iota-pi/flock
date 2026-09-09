@@ -6,6 +6,10 @@ import { VersionConflictError } from '../../shared/syncErrors'
 
 const driver = new DynamoDriver()
 
+function uniqueAccountId() {
+  return `${generateAccountId()}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+}
+
 describe('DynamoDriver OCC & Conditional Cursors', () => {
   beforeAll(() => {
     driver.connect(getConnectionParams())
@@ -13,7 +17,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
 
   describe('Item Snapshot OCC Versioning', () => {
     it('succeeds on first write to new item and sets version to 1', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       const item = generateItemId()
       const type: ItemType = 'person'
       const cipher = 'first-write'
@@ -29,7 +33,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
 
     it('succeeds on second write when expected version matches and increments version to 2', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       const item = generateItemId()
       const type: ItemType = 'person'
       const modified = Date.now()
@@ -49,7 +53,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
 
     it('throws VersionConflictError when writing with a stale version', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       const item = generateItemId()
       const type: ItemType = 'person'
       const modified = Date.now()
@@ -72,24 +76,25 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       expect(current.cipher).toBe('v2')
     })
 
-    it('throws VersionConflictError when writing without version to an already existing item', async () => {
-      const account = generateAccountId()
+    it('allows updating an already existing item when writing without version', async () => {
+      const account = uniqueAccountId()
       const item = generateItemId()
       const type: ItemType = 'person'
       const modified = Date.now()
 
       await driver.set({ account, item, cipher: 'v1', metadata: { type, iv: 'iv-1', modified } })
 
-      // Writing without version should be treated as create-only (attribute_not_exists) and fail
-      await expect(
-        driver.set({ account, item, cipher: 'overwrite-no-ver', metadata: { type, iv: 'iv-2', modified: modified + 100 } })
-      ).rejects.toThrow(VersionConflictError)
+      // Writing without version should update the existing item unconditionally
+      await driver.set({ account, item, cipher: 'overwrite-no-ver', metadata: { type, iv: 'iv-2', modified: modified + 100 } })
+
+      const results = await driver.fetchByIds({ account, itemIds: [item] })
+      expect(results[0].cipher).toBe('overwrite-no-ver')
     })
   })
 
   describe('Monotonic latestSyncCursor Progression', () => {
     it('allows initial latestSyncCursor to be set', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       await driver.createAccount({
         account,
         authToken: 'token',
@@ -108,7 +113,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
 
     it('allows advancing latestSyncCursor to a higher value', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       await driver.createAccount({
         account,
         authToken: 'token',
@@ -125,7 +130,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
 
     it('rejects regressing latestSyncCursor to a lower value', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       await driver.createAccount({
         account,
         authToken: 'token',
@@ -148,7 +153,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
 
   describe('Concurrent Key Rotation & keyringVersion OCC', () => {
     it('allows updating keyringVersion and keyring when expectedKeyringVersion matches', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       await driver.createAccount({
         account,
         authToken: 'token',
@@ -171,7 +176,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
 
     it('rejects update when expectedKeyringVersion does not match current keyringVersion', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       await driver.createAccount({
         account,
         authToken: 'token',
@@ -196,7 +201,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
 
     it('prevents concurrent key rotation race condition between two devices', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       await driver.createAccount({
         account,
         authToken: 'token',
@@ -232,7 +237,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
 
     it('allows legacy accounts without keyringVersion using attribute_not_exists fallback', async () => {
-      const account = generateAccountId()
+      const account = uniqueAccountId()
       // Simulate a legacy account by creating without keyringVersion
       // We need to create the account and then remove keyringVersion
       await driver.createAccount({

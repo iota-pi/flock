@@ -4,7 +4,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { toVaultItemIdFromAutomergeId } from './utils/automerge'
+import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../../utils/storageQuota'
@@ -47,9 +47,23 @@ export class SyncMessageBroker {
       this.wal,
     )
 
+    this.syncPoller.onPushAcknowledged = (itemId, heads) => {
+      const documentId = toDocumentIdFromItemId(itemId)
+      this.adapter.setSyncedHeads(documentId, heads)
+    }
+
     this.adapter.onMessageToSend = (msg: Message) => {
       void this.handleOutgoingMessage(msg)
     }
+  }
+
+  setSyncedHeads(documentId: DocumentId, heads: string[]): void {
+    this.adapter.setSyncedHeads(documentId, heads)
+  }
+
+  setSyncedHeadsForItem(itemId: ItemId, heads: string[]): void {
+    const documentId = toDocumentIdFromItemId(itemId)
+    this.adapter.setSyncedHeads(documentId, heads)
   }
 
   setSendEnabled(sendEnabled: boolean): void {

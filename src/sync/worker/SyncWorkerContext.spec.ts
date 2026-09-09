@@ -39,6 +39,16 @@ vi.mock('./stores/LastModifiedStore', () => {
   }
 })
 
+vi.mock('./stores/SyncedHeadsStore', () => {
+  return {
+    SyncedHeadsStore: class MockSyncedHeadsStore {
+      loadSyncedHeads = vi.fn().mockResolvedValue([])
+      saveSyncedHeads = vi.fn().mockResolvedValue(undefined)
+      clear = vi.fn().mockResolvedValue(undefined)
+    },
+  }
+})
+
 vi.mock('./docStore', () => {
   return {
     AutomergeDocStore: class MockDocStore {
@@ -72,6 +82,9 @@ describe('SyncWorkerContext', () => {
     vi.clearAllMocks()
     mockAdapter = {
       onReNegotiationTriggered: null,
+      setSyncedHeadsStore: vi.fn(),
+      setSyncedHeads: vi.fn(),
+      loadSyncedHeads: vi.fn(),
     }
     mockBroker = {
       onItemMessageParsed: null,

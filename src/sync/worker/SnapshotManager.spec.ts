@@ -32,6 +32,7 @@ vi.mock('../../api/vault', () => ({
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+  getHeads: vi.fn().mockReturnValue(['mock-head']),
 }))
 
 vi.mock('./docStore', async importOriginal => {
@@ -252,6 +253,44 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager['retryTimeoutId']).toBeNull()
   })
 
+  it('retains dirty items and schedules retry when putSnapshots returns persisted: 0 even if success is true', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 0,
+      total: 1,
+    })
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+    expect(manager['retryAttempt']).toBe(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
+  })
+
+  it('retains dirty items and schedules retry when putSnapshots returns persisted less than batch length', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: false,
+      persisted: 1,
+      total: 2,
+    })
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.markItemDirty('item-2' as ItemId)
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+    expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(true)
+    expect(manager['retryAttempt']).toBe(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
+  })
+
   it('pauses and clears retry timers when going offline', async () => {
     mockPutSnapshotsWithToken.mockResolvedValue({
       success: false,
@@ -331,10 +370,10 @@ describe('SnapshotManager Retry Mechanism', () => {
 
   describe('Adaptive Size Batching', () => {
     it('splits batches when the count reaches 25', async () => {
-      mockPutSnapshotsWithToken.mockResolvedValue({
+      mockPutSnapshotsWithToken.mockImplementation(async (input: any) => ({
         success: true,
-        persisted: 25,
-      })
+        persisted: input.snapshots.length,
+      }))
 
       // Mark 30 documents dirty
       for (let i = 1; i <= 30; i++) {

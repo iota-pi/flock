@@ -19,6 +19,7 @@ vi.mock('../../api/vault', () => {
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: (...args: any[]) => mockSave(...args),
+  getHeads: vi.fn().mockReturnValue(['mock-head']),
 }))
 
 vi.mock('./docStore', () => ({
@@ -70,6 +71,7 @@ describe('buildSnapshot helper function', () => {
         modified: expect.any(Number),
         deleted: undefined,
       },
+      heads: ['mock-head'],
     })
 
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
@@ -124,6 +126,7 @@ describe('buildSnapshot helper function', () => {
       snapshot: expect.objectContaining({
         deleted: true,
       }),
+      heads: ['mock-head'],
     })
   })
 
