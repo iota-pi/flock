@@ -19,7 +19,6 @@ export class SyncOrchestrator {
   private syncBatchTimeout: number | null = null
   private readonly pollBackoffStepsMs = [30000, 60000, 120000, 300000]
   private pollBackoffIndex = 0
-  private nextPollAt = 0
 
   constructor(
     private accountId: string,
@@ -132,7 +131,6 @@ export class SyncOrchestrator {
         this.pendingFlush = true
       }
     }
-    this.nextPollAt = 0
   }
 
   private scheduleNextPoll(delayMs: number): void {
@@ -145,7 +143,6 @@ export class SyncOrchestrator {
     }
 
     const jitteredDelayMs = this.applyBackoffJitter(delayMs)
-    this.nextPollAt = jitteredDelayMs > 0 ? Date.now() + jitteredDelayMs : 0
     this.pollIntervalId = self.setTimeout(() => {
       this.pollIntervalId = null
       void this.executeWrappedPoll()
@@ -175,7 +172,6 @@ export class SyncOrchestrator {
 
   private async executeWrappedPoll(force = false): Promise<void> {
     if (this.isShutdown || this.isPolling || (!force && this.pollingPausedForAuth) || !this.isOnline || !this.isLeader) return
-    if (!force && this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
     const pollTask = async () => {

@@ -357,5 +357,28 @@ describe('SyncOrchestrator', () => {
     // Once poll completed, it should schedule the next poll
     expect((orchestrator as any).pollIntervalId).not.toBeNull()
   })
+
+  it('does not permanently freeze polling loop if timer fires slightly early due to timer resolution', async () => {
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    expect((orchestrator as any).pollIntervalId).not.toBeNull()
+
+    // Simulate browser timer resolution where setTimeout fires 1ms before target timestamp
+    const scheduledPollAt = (orchestrator as any).nextPollAt ?? (Date.now() + 30000)
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(scheduledPollAt - 1)
+
+    // Trigger timer
+    await vi.advanceTimersByTimeAsync(40000)
+
+    // The second poll must execute despite firing 1ms early
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+
+    dateNowSpy.mockRestore()
+    await vi.advanceTimersByTimeAsync(40000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
+  })
 })
 
