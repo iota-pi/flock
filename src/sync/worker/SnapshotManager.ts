@@ -665,9 +665,21 @@ export class SnapshotManager {
   }
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {
-    this.lastModifiedByItemId = new Map(data)
     for (const [itemId, mod] of data) {
-      this.lastSnapshotAtByItemId.set(itemId, mod)
+      const existingLocalMod = this.lastModifiedByItemId.get(itemId)
+      const existingLastSnap = this.lastSnapshotAtByItemId.get(itemId)
+
+      const isUnsavedLocalEdit =
+        existingLocalMod !== undefined &&
+        existingLocalMod > (existingLastSnap ?? 0) &&
+        mod <= existingLocalMod
+
+      if (isUnsavedLocalEdit) {
+        this.lastModifiedByItemId.set(itemId, Math.max(existingLocalMod, mod))
+      } else {
+        this.lastModifiedByItemId.set(itemId, mod)
+        this.lastSnapshotAtByItemId.set(itemId, mod)
+      }
     }
     await this.persistLastModified()
   }

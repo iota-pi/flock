@@ -724,6 +724,40 @@ describe('ManifestSyncManager', () => {
 
       expect(depsObj.snapshotManager.markItemDirty).not.toHaveBeenCalled()
     })
+
+    it('only passes updated items to importLastModified without including other existing items (B5 fix)', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-offline' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      // Existing item in snapshot manager with local edits
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-offline', 5000]])
+
+      mockFetchManifest.mockResolvedValue({
+        manifest: [
+          ['item-offline', 2000], // older on server, so it won't be fetched
+          ['item-server', 3000],  // missing locally, so it will be fetched
+        ],
+        serverTime: 3000,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-server',
+            snapshot: { iv: 'iv', cipher: 'c' },
+          },
+        ],
+        serverTime: 3000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      await manifestSyncManager.sync()
+
+      // importLastModified must only be called with item-server updates, never including item-offline
+      expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledTimes(1)
+      expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith([
+        ['item-server', 3000],
+      ])
+    })
   })
 })
 

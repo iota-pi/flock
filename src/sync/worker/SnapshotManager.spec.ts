@@ -1210,6 +1210,71 @@ describe('SnapshotManager Retry Mechanism', () => {
       await vi.advanceTimersByTimeAsync(600)
       expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
     })
+
+    describe('importLastModified preserves dirty state (B5 fix)', () => {
+      it('merges new items into lastModifiedByItemId without purging existing items', async () => {
+        await manager.importLastModified([['item-1' as ItemId, 1000]])
+        await manager.importLastModified([['item-2' as ItemId, 2000]])
+
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(1000)
+        expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(1000)
+        expect(manager.getLocalModifiedAt('item-2' as ItemId)).toBe(2000)
+        expect(manager.getLastSnapshotAt('item-2' as ItemId)).toBe(2000)
+      })
+
+      it('preserves lastSnapshotAt for unsaved dirty items when mod <= localModifiedAt', async () => {
+        // item-1 has local edits (localMod: 5000 > lastSnap: 2000)
+        manager['lastModifiedByItemId'].set('item-1' as ItemId, 5000)
+        manager['lastSnapshotAtByItemId'].set('item-1' as ItemId, 2000)
+
+        // importLastModified is called with local timestamp (e.g. 5000)
+        await manager.importLastModified([['item-1' as ItemId, 5000]])
+
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(5000)
+        expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(2000)
+      })
+
+      it('preserves undefined lastSnapshotAt for newly created unsaved offline items', async () => {
+        manager['lastModifiedByItemId'].set('item-new' as ItemId, 5000)
+
+        await manager.importLastModified([['item-new' as ItemId, 5000]])
+
+        expect(manager.getLocalModifiedAt('item-new' as ItemId)).toBe(5000)
+        expect(manager.getLastSnapshotAt('item-new' as ItemId)).toBeUndefined()
+      })
+
+      it('advances lastSnapshotAt when mod is strictly newer than localModifiedAt', async () => {
+        manager['lastModifiedByItemId'].set('item-1' as ItemId, 2000)
+        manager['lastSnapshotAtByItemId'].set('item-1' as ItemId, 1000)
+
+        await manager.importLastModified([['item-1' as ItemId, 3000]])
+
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(3000)
+        expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(3000)
+      })
+
+      it('ensures startup dirty audit re-enqueues unsaved offline edits after ManifestSync updates other items', async () => {
+        // 1. item-offline has local edits (localMod: 5000, lastSnap: 1000)
+        manager['lastModifiedByItemId'].set('item-offline' as ItemId, 5000)
+        manager['lastSnapshotAtByItemId'].set('item-offline' as ItemId, 1000)
+
+        // 2. ManifestSync imports updates for another item
+        await manager.importLastModified([['item-server' as ItemId, 2500]])
+
+        // Verify in-memory state before crash
+        expect(manager.getLastSnapshotAt('item-offline' as ItemId)).toBe(1000)
+
+        // 3. Worker crashes / restarts -> clear in-memory state and reload from storage
+        manager.clear()
+        expect(manager.getLocalModifiedAt('item-offline' as ItemId)).toBeUndefined()
+
+        await manager.loadLastModified()
+
+        // 4. Dirty audit must successfully re-enqueue item-offline because 5000 > 1000
+        expect(manager['dirtyItems'].has('item-offline' as ItemId)).toBe(true)
+        expect(manager['dirtyItems'].has('item-server' as ItemId)).toBe(false)
+      })
+    })
   })
 })
 

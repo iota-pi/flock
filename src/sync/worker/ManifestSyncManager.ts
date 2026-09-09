@@ -264,11 +264,7 @@ export class ManifestSyncManager {
     }
 
     if (lastModifiedUpdates.length > 0) {
-      const currentLastModified = new Map(this.deps.snapshotManager.exportLastModified())
-      for (const [id, time] of lastModifiedUpdates) {
-        currentLastModified.set(id, time)
-      }
-      await this.deps.snapshotManager.importLastModified(Array.from(currentLastModified.entries()))
+      await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
     }
 
     await this.hydrateMetadata()
