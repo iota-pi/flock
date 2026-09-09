@@ -30,6 +30,7 @@ interface SnapshotPushResult {
 const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
 export class SnapshotManager {
+  private isShutdown = false
   private dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private consecutiveFailures = new Map<ItemId, number>()
@@ -142,7 +143,7 @@ export class SnapshotManager {
   }
 
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number) {
-    if (!itemId) return
+    if (this.isShutdown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.flushDirtyDocumentsToIndexDebounced()
@@ -150,7 +151,7 @@ export class SnapshotManager {
   }
 
   recordInboundChange(itemId: ItemId, timestamp: number = Date.now()): void {
-    if (!itemId) return
+    if (this.isShutdown || !itemId) return
     this.lastModifiedByItemId.set(itemId, timestamp)
     this.saveLastModifiedDebounced()
   }
@@ -164,6 +165,7 @@ export class SnapshotManager {
   }
 
   scheduleDebouncedSnapshotPush(customDelayMs?: number) {
+    if (this.isShutdown) return
     const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer)
@@ -242,6 +244,7 @@ export class SnapshotManager {
   }
 
   scheduleSnapshotPush(cursor?: number) {
+    if (this.isShutdown) return
     if (typeof cursor === 'number') {
       this.snapshotRequestCursor = cursor
     }
@@ -249,6 +252,9 @@ export class SnapshotManager {
   }
 
   async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
+    if (this.isShutdown) {
+      return { persisted: 0, total: 0 }
+    }
     if (this.retryTimeoutId !== null) {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
@@ -614,7 +620,10 @@ export class SnapshotManager {
     }
   }
 
-  async shutdown(): Promise<void> {
+  async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
+    if (this.isShutdown) return
+    this.isShutdown = true
+
     if (this.activePushPromise) {
       try {
         await this.activePushPromise
@@ -628,11 +637,12 @@ export class SnapshotManager {
       this.retryTimeoutId = null
     }
 
-    if (this.dirtyItems.size > 0) {
-      this.updateLastModifiedForDirtyItems()
+    if (!options?.clearLocalData) {
+      if (this.dirtyItems.size > 0) {
+        this.updateLastModifiedForDirtyItems()
+      }
+      await this.persistLastModified()
     }
-
-    await this.persistLastModified()
 
     this.clear()
   }

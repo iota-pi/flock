@@ -131,4 +131,24 @@ describe('SyncWorkerContext', () => {
     mockBroker.onWalAppendFailed('test-item-id' as ItemId, new Error('WAL write failed'))
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
   })
+
+  it('forwards clearLocalData options to pullQueueManager and snapshotManager on shutdown', async () => {
+    await context.shutdown({ clearLocalData: true })
+
+    expect(context.pullQueueManager.shutdown).toHaveBeenCalledWith({ clearLocalData: true })
+    expect(context.snapshotManager.shutdown).toHaveBeenCalledWith({ clearLocalData: true })
+    expect(context.orchestrator.shutdown).toHaveBeenCalled()
+    expect(context.docStore.shutdown).toHaveBeenCalled()
+    expect(context.indexStore.clear).toHaveBeenCalled()
+    expect(context.cursorStore.clear).toHaveBeenCalled()
+  })
+
+  it('shuts down cleanly without clearLocalData', async () => {
+    await context.shutdown()
+
+    expect(context.pullQueueManager.shutdown).toHaveBeenCalledWith(undefined)
+    expect(context.snapshotManager.shutdown).toHaveBeenCalledWith(undefined)
+    expect(context.indexStore.clear).not.toHaveBeenCalled()
+    expect(context.cursorStore.clear).not.toHaveBeenCalled()
+  })
 })

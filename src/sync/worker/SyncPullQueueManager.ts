@@ -16,6 +16,7 @@ export interface ItemPullState {
 }
 
 export class SyncPullQueueManager {
+  private isShutdown = false
   private account: string | null = null
   private readonly itemStates = new Map<ItemId, ItemPullState>()
   public static readonly MAX_PULL_RETRIES = 5
@@ -102,6 +103,7 @@ export class SyncPullQueueManager {
   setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
     this.account = account
+    this.isShutdown = false
 
     this.itemStates.clear()
     this.seenMessageCursors.clear()
@@ -143,12 +145,18 @@ export class SyncPullQueueManager {
     }
   }
 
-  async shutdown(): Promise<void> {
+  async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
+    if (this.isShutdown) return
+    this.isShutdown = true
+
     this.saveCursorsDebounced.cancel()
-    await this.persistCursors()
+    if (!options?.clearLocalData) {
+      await this.persistCursors()
+    }
     this.itemStates.clear()
     this.seenMessageCursors.clear()
     this.batchProgress.clear()
+    this.account = null
   }
 
   addPendingItem(itemId: ItemId): void {
@@ -232,7 +240,7 @@ export class SyncPullQueueManager {
   }
 
   async processPullResults(results: PullSyncMessagesResponse[]): Promise<void> {
-    if (!this.account) return
+    if (!this.account || this.isShutdown) return
 
     const successfullyPulledItemIds = new Set<ItemId>()
     let cursorsUpdated = false
@@ -335,7 +343,7 @@ export class SyncPullQueueManager {
   }
 
   processPushResults(results: Array<PushResultItem>): void {
-    if (!this.account || !Array.isArray(results)) return
+    if (this.isShutdown || !this.account || !Array.isArray(results)) return
     for (const res of results) {
       if (res.itemId && typeof res.cursor === 'number' && Number.isFinite(res.cursor) && res.success !== false) {
         // Mark as seen so that if/when the client later pulls this message (e.g. during overlap window),

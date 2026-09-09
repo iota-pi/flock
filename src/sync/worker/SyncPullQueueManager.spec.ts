@@ -1385,6 +1385,39 @@ describe('SyncPullQueueManager', () => {
 
       expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', expect.any(Array))
     })
+
+    it('cancels debounced timer and skips persisting when clearLocalData is true', async () => {
+      await manager.importCursors([['item-z' as ItemId, 500]])
+      activeStore!.setItem.mockClear()
+
+      await manager.shutdown({ clearLocalData: true })
+
+      expect(activeStore?.setItem).not.toHaveBeenCalled()
+    })
+
+    it('is idempotent on multiple shutdown calls and does not wipe out data on second call', async () => {
+      await manager.importCursors([['item-z' as ItemId, 500]])
+      activeStore!.setItem.mockClear()
+
+      await manager.shutdown()
+      expect(activeStore?.setItem).toHaveBeenCalledTimes(1)
+      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', [['item-z', 500]])
+
+      activeStore!.setItem.mockClear()
+      await manager.shutdown()
+      expect(activeStore?.setItem).not.toHaveBeenCalled()
+    })
+
+    it('ignores pull and push results after shutdown', async () => {
+      await manager.shutdown()
+      activeStore!.setItem.mockClear()
+
+      manager.processPushResults([{ itemId: 'item-new' as ItemId, cursor: 100 }])
+      await manager.processPullResults([{ itemId: 'item-new' as ItemId, messages: [], hasMore: false }])
+
+      expect(activeStore?.setItem).not.toHaveBeenCalled()
+      expect(manager.exportCursors()).toEqual([])
+    })
   })
 
   describe('importCursors', () => {

@@ -1275,6 +1275,59 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(manager['dirtyItems'].has('item-server' as ItemId)).toBe(false)
       })
     })
+
+    describe('shutdown', () => {
+      it('cancels debounced timers and persists timestamps on shutdown', async () => {
+        const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
+        manager.recordInboundChange('item-inbound' as ItemId, 1234)
+        manager.markItemDirty('item-dirty' as ItemId)
+
+        await manager.shutdown()
+
+        expect(saveSpy).toHaveBeenCalled()
+        saveSpy.mockClear()
+
+        // Advance timers by 5 seconds; no further debounced writes should fire
+        vi.advanceTimersByTime(5000)
+        expect(saveSpy).not.toHaveBeenCalled()
+      })
+
+      it('cancels debounced timers and skips persisting when clearLocalData is true', async () => {
+        const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
+        manager.recordInboundChange('item-inbound' as ItemId, 1234)
+        manager.markItemDirty('item-dirty' as ItemId)
+
+        await manager.shutdown({ clearLocalData: true })
+
+        expect(saveSpy).not.toHaveBeenCalled()
+
+        // Advance timers by 5 seconds; no debounced writes should fire
+        vi.advanceTimersByTime(5000)
+        expect(saveSpy).not.toHaveBeenCalled()
+      })
+
+      it('is idempotent on multiple shutdown calls', async () => {
+        const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
+        manager.markItemDirty('item-dirty' as ItemId)
+
+        await manager.shutdown()
+        expect(saveSpy).toHaveBeenCalledTimes(1)
+
+        await manager.shutdown()
+        expect(saveSpy).toHaveBeenCalledTimes(1)
+      })
+
+      it('ignores markItemDirty and recordInboundChange after shutdown', async () => {
+        await manager.shutdown()
+        const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
+
+        manager.markItemDirty('item-after-shutdown' as ItemId)
+        manager.recordInboundChange('item-after-shutdown' as ItemId)
+        vi.advanceTimersByTime(5000)
+
+        expect(saveSpy).not.toHaveBeenCalled()
+      })
+    })
   })
 })
 

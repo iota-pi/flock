@@ -153,13 +153,13 @@ export class SyncWorkerContext {
     await this.orchestrator.shutdown()
 
     try {
-      await this.pullQueueManager.shutdown()
+      await this.pullQueueManager.shutdown(options)
     } catch (err) {
       console.error('[SyncWorkerContext] Error shutting down PullQueueManager', err)
     }
 
     try {
-      await this.snapshotManager.shutdown()
+      await this.snapshotManager.shutdown(options)
     } catch (err) {
       console.error('[SyncWorkerContext] Error shutting down SnapshotManager', err)
     }
