@@ -61,10 +61,11 @@ vi.mock('./utils/automerge', () => ({
 }))
 
 const mockAdapterDisconnect = vi.fn()
+const mockAdapterSetAccount = vi.fn()
 vi.mock('./VaultEncryptedNetworkAdapter', () => {
   return {
     VaultNetworkAdapter: class MockAdapter {
-      setAccount = vi.fn()
+      setAccount = mockAdapterSetAccount
       setSendEnabled = vi.fn()
       disconnect = mockAdapterDisconnect
     }
@@ -72,11 +73,12 @@ vi.mock('./VaultEncryptedNetworkAdapter', () => {
 })
 
 const mockBrokerShutdown = vi.fn().mockResolvedValue(undefined)
+const mockBrokerSetAccount = vi.fn().mockResolvedValue(undefined)
 vi.mock('./SyncMessageBroker', () => {
   return {
     SyncMessageBroker: class MockBroker {
       setOnlineState = vi.fn()
-      setAccount = vi.fn()
+      setAccount = mockBrokerSetAccount
       setSendEnabled = vi.fn()
       shutdown = mockBrokerShutdown
       flush = vi.fn()
@@ -107,5 +109,32 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
     await worker.initRepo('account-2', 'vault-key-2')
     expect(mockBrokerShutdown).toHaveBeenCalledTimes(1)
     expect(mockAdapterDisconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('awaits broker.setAccount before calling adapter.setAccount during initRepo', async () => {
+    const callOrder: string[] = []
+    let brokerFinished = false
+
+    mockBrokerSetAccount.mockImplementation(async () => {
+      callOrder.push('broker.setAccount:start')
+      await new Promise(resolve => setTimeout(resolve, 5))
+      brokerFinished = true
+      callOrder.push('broker.setAccount:end')
+    })
+
+    mockAdapterSetAccount.mockImplementation(() => {
+      callOrder.push(`adapter.setAccount:brokerFinished=${brokerFinished}`)
+    })
+
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    expect(mockBrokerSetAccount).toHaveBeenCalledWith('account-1')
+    expect(mockAdapterSetAccount).toHaveBeenCalledWith('account-1')
+    expect(callOrder).toEqual([
+      'broker.setAccount:start',
+      'broker.setAccount:end',
+      'adapter.setAccount:brokerFinished=true',
+    ])
   })
 })

@@ -204,8 +204,9 @@ export class SyncWorker implements SyncApi {
     this._context.orchestrator.setOnlineState(this.isOnline)
     this._context.snapshotManager.onOnlineStateChange(this.isOnline)
 
-    this.adapter.setAccount(accountId)
+    // Broker needs to be initialised before the adapter so that the adapter doesn't attempt sending messages before the broker is ready
     await this.broker.setAccount(accountId)
+    this.adapter.setAccount(accountId)
 
     const localItemIds = await this._context.indexManager.listAutomergeItemIds()
     this.updateItemSubscriptions(localItemIds)
