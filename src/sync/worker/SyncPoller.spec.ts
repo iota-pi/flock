@@ -400,6 +400,44 @@ describe('SyncPoller', () => {
 
       expect(await poller.executePoll()).toBe('success')
     })
+
+    it('abort() cancels in-flight poll cleanly without permanently disabling future polls', async () => {
+      let signalCaptured: AbortSignal | undefined
+      mockPollSyncBatchWithToken.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
+        signalCaptured = options?.signal
+        return new Promise((_, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('AbortError')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      })
+
+      const pollPromise = poller.executePoll()
+
+      await vi.waitFor(() => {
+        expect(signalCaptured).toBeDefined()
+      })
+
+      expect(signalCaptured?.aborted).toBe(false)
+
+      poller.abort()
+      expect(signalCaptured?.aborted).toBe(true)
+
+      const outcome = await pollPromise
+      expect(outcome).toBe('no-poll')
+
+      // Subsequent executePoll should succeed without calling setAccount
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+
+      const nextOutcome = await poller.executePoll()
+      expect(nextOutcome).toBe('success')
+    })
   })
 
   describe('pushResults inspection and selective WAL removal', () => {

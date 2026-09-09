@@ -123,8 +123,20 @@ describe('SyncMessageBroker', () => {
     expect(mockOnItemParsed).toHaveBeenCalledWith('item-1')
   })
 
-  it('shuts down pullQueueManager cleanly', async () => {
+  it('abortPoll calls poller.abort instead of poller.shutdown', () => {
+    const abortSpy = vi.spyOn((broker as any).syncPoller, 'abort')
+    const shutdownSpy = vi.spyOn((broker as any).syncPoller, 'shutdown')
+
+    broker.abortPoll()
+
+    expect(abortSpy).toHaveBeenCalledTimes(1)
+    expect(shutdownSpy).not.toHaveBeenCalled()
+  })
+
+  it('shuts down syncPoller and pullQueueManager cleanly', async () => {
+    const shutdownSpy = vi.spyOn((broker as any).syncPoller, 'shutdown')
     await broker.shutdown()
+    expect(shutdownSpy).toHaveBeenCalledTimes(1)
     expect(pullQueueManager.shutdown).toHaveBeenCalledTimes(1)
   })
 

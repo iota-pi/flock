@@ -166,7 +166,7 @@ export class SyncMessageBroker {
   }
 
   abortPoll(): void {
-    this.syncPoller.shutdown()
+    this.syncPoller.abort()
   }
 
   async shutdown(): Promise<void> {
