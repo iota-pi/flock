@@ -154,13 +154,18 @@ All data is end-to-end encrypted client-side before leaving the browser:
 - **SnapshotManager retry**: Failed snapshot pushes use exponential backoff (2s → 5s → 10s → 30s → 60s). After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5), the item is removed from the dirty queue.
 - **Worker crash recovery**: `syncWorkerHealth.ts` monitors the worker via heartbeat ping/pong (15s interval, 30s timeout). On crash, the worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3).
 
-#### Deletion Architecture (Soft-Delete Only)
+#### Deletion Architecture & Tombstone Lifecycle (No ID Recycling)
 
 Flock intentionally uses **soft-deletes (tombstones)** across both client and server; there is **no server-side hard-delete**:
 - Item deletions set `deleted: true` on the Automerge CRDT document and propagate this tombstone via incremental sync messages and snapshot uploads (`metadata.deleted = true`).
 - DynamoDB records in `FlockItems` are never hard-deleted and have no TTL.
 - In a local-first offline architecture, an item missing from the server manifest indicates it was created offline and needs an upstream push—not that it was deleted. If an item were hard-deleted on the server, `ManifestSyncManager`'s two-way upstream reconciliation would treat it as an offline item and resurrect/re-upload it.
 - UI selectors filter out tombstoned items (`!item.deleted`), and `AutomergeIndexManager` excludes them from the active item ID index.
+- **Deletions are terminal (no undelete / no ID recycling)**: Flock does not support undeleting items; deletions cannot be undone. Creating an item with the same name generates a brand-new random Nanoid (`generateItemId()`, 126 bits of entropy).
+- **Why "Delete + Recreate with the same ID" is impossible and intentional**:
+  - In a CRDT, reusing an existing document ID for a new logical entity is an anti-pattern because Automerge would merge the old entity's edit history and tombstones into the new entity.
+  - `AutomergeDocStore.findOrCreateHandle` explicitly refuses to create a blank document if data already exists in storage (`hasDataInStorage(itemId)`). This is a vital **data loss prevention safety guard** to ensure transient handle lookup timeouts never overwrite an existing local document.
+  - Accidental ID collisions between new items and soft-deleted items are statistically impossible ($< 10^{-18}$ probability).
 
 ## Server-Side Architecture
 
