@@ -996,5 +996,12 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     await repo.shutdown()
   })
+
+  it('calls onReNegotiationTriggered callback when triggerReNegotiation is invoked', () => {
+    const callback = vi.fn()
+    adapter.onReNegotiationTriggered = callback
+    adapter.triggerReNegotiation('test-doc' as DocumentId)
+    expect(callback).toHaveBeenCalledWith('test-doc')
+  })
 })
 

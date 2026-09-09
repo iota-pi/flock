@@ -127,4 +127,72 @@ describe('SyncMessageBroker', () => {
     await broker.shutdown()
     expect(pullQueueManager.shutdown).toHaveBeenCalledTimes(1)
   })
+
+  it('triggers renegotiation and notifies onWalAppendFailed when WAL append fails', async () => {
+    const flushSpy = vi.fn()
+    const failureSpy = vi.fn()
+    const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
+    broker.onFlushNeeded = flushSpy
+    broker.onWalAppendFailed = failureSpy
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+
+    const appendError = new Error('Disk full')
+    vi.mocked(mockWal.append).mockRejectedValueOnce(appendError)
+    broker.setWal(mockWal)
+
+    const msg = createSyncMessage('item123', [1, 2, 3])
+    adapter.onMessageToSend?.(msg)
+    await Promise.resolve()
+
+    expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
+    expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
+    expect(failureSpy).toHaveBeenCalledWith('item123', appendError)
+    expect(flushSpy).not.toHaveBeenCalled()
+  })
+
+  it('emits quotaExceeded event when WAL append fails with QuotaExceededError', async () => {
+    const failureSpy = vi.fn()
+    const emitSpy = vi.spyOn(clientEventHub, 'emit')
+    const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
+    broker.onWalAppendFailed = failureSpy
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+
+    const quotaError = new DOMException('Storage quota exceeded', 'QuotaExceededError')
+    vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
+    broker.setWal(mockWal)
+
+    const msg = createSyncMessage('item-quota', [4, 5, 6])
+    adapter.onMessageToSend?.(msg)
+    await Promise.resolve()
+
+    expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
+    expect(failureSpy).toHaveBeenCalledWith('item-quota', quotaError)
+    expect(emitSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'quotaExceeded',
+        message: expect.stringContaining('quota'),
+      })
+    )
+  })
+
+  it('triggers renegotiation and notifies onWalAppendFailed when WAL is null', async () => {
+    const flushSpy = vi.fn()
+    const failureSpy = vi.fn()
+    const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
+    broker.onFlushNeeded = flushSpy
+    broker.onWalAppendFailed = failureSpy
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+    broker.setWal(null)
+
+    const msg = createSyncMessage('item-no-wal', [7, 8, 9])
+    adapter.onMessageToSend?.(msg)
+    await Promise.resolve()
+
+    expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
+    expect(failureSpy).toHaveBeenCalledWith('item-no-wal', expect.any(Error))
+    expect(flushSpy).not.toHaveBeenCalled()
+  })
 })

@@ -5,8 +5,9 @@ import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { toVaultItemIdFromAutomergeId } from './utils/automerge'
-import { type Message } from '@automerge/automerge-repo/slim'
+import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { isQuotaError } from '../../utils/storageQuota'
 
 export class SyncMessageBroker {
   private account: string | null = null
@@ -18,6 +19,7 @@ export class SyncMessageBroker {
 
   public onFlushNeeded: (() => void) | null = null
   public onItemMessageParsed: ((itemId: ItemId) => void) | null = null
+  public onWalAppendFailed: ((itemId: ItemId, error: unknown) => void) | null = null
 
   constructor(
     private adapter: VaultNetworkAdapter,
@@ -102,11 +104,26 @@ export class SyncMessageBroker {
       if (this.wal) {
         try {
           await this.wal.append(itemId, message.data)
+          this.flush()
         } catch (err) {
-          console.error('[SyncMessageBroker] Failed to append to WAL', err)
+          console.error(`[SyncMessageBroker] Failed to append sync message to WAL for item ${itemId}:`, err)
+          this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
         }
+      } else {
+        console.warn(`[SyncMessageBroker] WAL unavailable for item ${itemId}, falling back to snapshot sync`)
+        this.handleWalAppendFailure(itemId, documentId as DocumentId, new Error('WAL not initialized'))
       }
-      this.flush()
+    }
+  }
+
+  private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId, err: unknown): void {
+    this.adapter.triggerReNegotiation(documentId)
+    this.onWalAppendFailed?.(itemId, err)
+    if (isQuotaError(err)) {
+      this.clientEventHub.emit({
+        type: 'quotaExceeded',
+        message: 'Storage quota exceeded while saving sync changes. Changes will synchronize via full snapshot when connected.',
+      })
     }
   }
 

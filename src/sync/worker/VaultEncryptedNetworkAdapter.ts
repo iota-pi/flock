@@ -24,6 +24,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private pendingReNegotiations = new Set<DocumentId>()
 
   public onMessageToSend: ((message: Message) => void) | null = null
+  public onReNegotiationTriggered: ((documentId: DocumentId) => void) | null = null
 
   constructor() {
     super()
@@ -171,6 +172,8 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     } else {
       this.pendingReNegotiations.add(documentId)
     }
+
+    this.onReNegotiationTriggered?.(documentId)
   }
 
   private flushPendingReNegotiations(): void {

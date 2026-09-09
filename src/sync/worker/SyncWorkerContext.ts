@@ -14,6 +14,7 @@ import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { toVaultItemIdFromAutomergeId } from './utils/automerge'
 
 export interface SyncWorkerContextDeps {
   accountId: string
@@ -99,6 +100,15 @@ export class SyncWorkerContext {
 
     this.broker.onItemMessageParsed = itemId => {
       void this.itemOperations.clearManualRecoveryForItems([itemId])
+    }
+
+    this.adapter.onReNegotiationTriggered = documentId => {
+      const itemId = toVaultItemIdFromAutomergeId(documentId)
+      this.snapshotManager.markItemDirty(itemId, 0)
+    }
+
+    this.broker.onWalAppendFailed = (itemId, _error) => {
+      this.snapshotManager.markItemDirty(itemId, 0)
     }
 
     this.manifestSyncManager = new ManifestSyncManager(
