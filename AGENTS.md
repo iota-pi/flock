@@ -154,6 +154,14 @@ All data is end-to-end encrypted client-side before leaving the browser:
 - **SnapshotManager retry**: Failed snapshot pushes use exponential backoff (2s → 5s → 10s → 30s → 60s). After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5), the item is removed from the dirty queue.
 - **Worker crash recovery**: `syncWorkerHealth.ts` monitors the worker via heartbeat ping/pong (15s interval, 30s timeout). On crash, the worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3).
 
+#### Deletion Architecture (Soft-Delete Only)
+
+Flock intentionally uses **soft-deletes (tombstones)** across both client and server; there is **no server-side hard-delete**:
+- Item deletions set `deleted: true` on the Automerge CRDT document and propagate this tombstone via incremental sync messages and snapshot uploads (`metadata.deleted = true`).
+- DynamoDB records in `FlockItems` are never hard-deleted and have no TTL.
+- In a local-first offline architecture, an item missing from the server manifest indicates it was created offline and needs an upstream push—not that it was deleted. If an item were hard-deleted on the server, `ManifestSyncManager`'s two-way upstream reconciliation would treat it as an offline item and resurrect/re-upload it.
+- UI selectors filter out tombstoned items (`!item.deleted`), and `AutomergeIndexManager` excludes them from the active item ID index.
+
 ## Server-Side Architecture
 
 The server is a Fastify app with tRPC routers, deployed as an AWS Lambda behind a Function URL:
