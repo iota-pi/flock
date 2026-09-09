@@ -114,6 +114,8 @@ export class SyncPoller {
       const pullCursors = this.pullQueueManager.getCursors()
 
       if (chunks.length === 0) {
+        // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
+        // and clientLatestCursor (for global updates across all other healthy items).
         const response = await pollSyncBatchWithToken(
           {
             account: this.account,

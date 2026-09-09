@@ -80,6 +80,50 @@ describe('SyncPoller', () => {
     expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
   })
 
+  it('sends both lagging pullCursors and global clientLatestCursor in empty poll', async () => {
+    vi.spyOn(pullQueueManager, 'getCursors').mockReturnValue([
+      { itemId: 'item-2' as ItemId, cursor: 50 },
+    ])
+    vi.spyOn(pullQueueManager, 'getGlobalLatestCursor').mockReturnValue(2000000)
+
+    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [
+        {
+          itemId: 'item-2',
+          messages: [],
+          hasMore: false,
+        },
+        {
+          itemId: 'item-1',
+          messages: [],
+          hasMore: false,
+        },
+      ],
+    })
+
+    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pullCursors: [{ itemId: 'item-2', cursor: 50 }],
+        clientLatestCursor: 2000000,
+      }),
+      expect.anything()
+    )
+
+    expect(processPullResultsSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: 'item-2' }),
+        expect.objectContaining({ itemId: 'item-1' }),
+      ])
+    )
+  })
+
   it('sends cursors and removes sent IDs from WAL with every chunk in multi-chunk batch', async () => {
     // 6 items will produce 2 chunks of size 5 and 1
     const walMap = new Map<ItemId, WalEntry[]>()

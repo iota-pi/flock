@@ -37,18 +37,37 @@ export const syncRouter = router({
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
 
-      if (typeof input.clientLatestCursor === 'number') {
-        const pullResult = await service.pullAutomergeSyncGlobal({
-          account: input.account,
-          cursor: input.clientLatestCursor,
-        })
-        pullResults = pullResult.results
-      } else if (input.pullCursors.length > 0) {
-        const pullResult = await service.pullAutomergeSyncBatch({
-          account: input.account,
-          cursors: input.pullCursors,
-        })
-        pullResults = pullResult.results
+      const shouldPullBatch = input.pullCursors.length > 0
+      const shouldPullGlobal = typeof input.clientLatestCursor === 'number'
+
+      if (shouldPullBatch || shouldPullGlobal) {
+        const [batchPullResult, globalPullResult] = await Promise.all([
+          shouldPullBatch
+            ? service.pullAutomergeSyncBatch({
+                account: input.account,
+                cursors: input.pullCursors,
+              })
+            : null,
+          shouldPullGlobal
+            ? service.pullAutomergeSyncGlobal({
+                account: input.account,
+                cursor: input.clientLatestCursor!,
+              })
+            : null,
+        ])
+
+        const batchResults = batchPullResult ? batchPullResult.results : []
+        const pullCursorItemIds = new Set(input.pullCursors.map(c => c.itemId))
+
+        // Filter out items in pullCursors from global results to prevent cursor jumps
+        // and missing message gaps while lagging items catch up sequentially.
+        const filteredGlobalResults = globalPullResult
+          ? (pullCursorItemIds.size > 0
+              ? globalPullResult.results.filter(r => !pullCursorItemIds.has(r.itemId))
+              : globalPullResult.results)
+          : []
+
+        pullResults = [...batchResults, ...filteredGlobalResults]
       }
 
       if (pushResults.length > 0) {
