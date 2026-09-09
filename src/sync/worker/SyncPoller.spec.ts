@@ -44,6 +44,8 @@ describe('SyncPoller', () => {
       readAll: vi.fn().mockResolvedValue(new Map()),
       remove: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn().mockResolvedValue(undefined),
+      markInFlight: vi.fn(),
+      unmarkInFlight: vi.fn(),
     } as unknown as SyncWriteAheadLog
 
     poller = new SyncPoller(

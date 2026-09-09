@@ -337,5 +337,25 @@ describe('SyncOrchestrator', () => {
 
     expect((orchestrator as any).pendingFlush).toBe(false)
   })
+
+  it('does not schedule a redundant polling timer when startPolling is called with immediate=true', async () => {
+    let resolvePoll: (val: any) => void = () => {}
+    const pollPromise = new Promise(resolve => {
+      resolvePoll = resolve
+    })
+    mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+    orchestrator.setLeader(true)
+    // At this point startPolling(true) was invoked by setLeader(true).
+    // An immediate poll was launched, and no redundant scheduled timer should be pending.
+    expect((orchestrator as any).pollIntervalId).toBeNull()
+
+    // Finish the poll
+    resolvePoll('success')
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Once poll completed, it should schedule the next poll
+    expect((orchestrator as any).pollIntervalId).not.toBeNull()
+  })
 })
 

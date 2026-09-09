@@ -543,5 +543,67 @@ describe('SyncWriteAheadLog', () => {
     expect(pruneSpy).toHaveBeenCalledTimes(1)
     expect(await store.length()).toBe(40)
   })
+
+  it('skips in-flight entries during compaction so they are not merged while actively pushing', async () => {
+    const id1 = await wal.append('item-push-race' as ItemId, new Uint8Array([1, 2]))
+    const id2 = await wal.append('item-push-race' as ItemId, new Uint8Array([3, 4]))
+
+    // Simulate poller marking id1 and id2 in flight for push
+    wal.markInFlight([id1, id2])
+    expect(wal.isInFlight(id1)).toBe(true)
+    expect(wal.isInFlight(id2)).toBe(true)
+
+    // Compaction is triggered (e.g. by quota or size limit)
+    const reduced = await wal.compact()
+    expect(reduced).toBe(0)
+
+    // Verify neither entry was merged or deleted
+    const entries = await wal.readAll()
+    const itemEntries = entries.get('item-push-race' as ItemId)!
+    expect(itemEntries).toHaveLength(2)
+    expect(itemEntries[0].id).toBe(id1)
+    expect(itemEntries[1].id).toBe(id2)
+
+    // When push succeeds, remove removes both cleanly
+    await wal.remove([id1, id2])
+    expect(wal.isInFlight(id1)).toBe(false)
+    expect(wal.isInFlight(id2)).toBe(false)
+
+    const remaining = await wal.readAll()
+    expect(remaining.has('item-push-race' as ItemId)).toBe(false)
+  })
+
+  it('compacts only non-in-flight entries if new entries arrive during active push', async () => {
+    const id1 = await wal.append('item-partial-push' as ItemId, new Uint8Array([1]))
+    const id2 = await wal.append('item-partial-push' as ItemId, new Uint8Array([2]))
+
+    // id1 and id2 are in flight
+    wal.markInFlight([id1, id2])
+
+    // id3 and id4 arrive while id1 and id2 are in flight
+    const id3 = await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
+    const id4 = await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
+
+    // Compaction runs
+    const reduced = await wal.compact()
+    // id3 and id4 compacted into 1 entry (reduced by 1)
+    expect(reduced).toBe(1)
+
+    const entries = await wal.readAll()
+    const itemEntries = entries.get('item-partial-push' as ItemId)!
+    // Expect 3 entries: id1 (in-flight), id2 (in-flight), and the compacted id3+id4 entry
+    expect(itemEntries).toHaveLength(3)
+    expect(itemEntries.map(e => e.id)).toContain(id1)
+    expect(itemEntries.map(e => e.id)).toContain(id2)
+
+    // Remove the acknowledged in-flight entries
+    await wal.remove([id1, id2])
+
+    // Only the compacted id3+id4 entry remains
+    const remaining = await wal.readAll()
+    const remainingEntries = remaining.get('item-partial-push' as ItemId)!
+    expect(remainingEntries).toHaveLength(1)
+    expect(remainingEntries[0].isBatched).toBe(true)
+  })
 })
 

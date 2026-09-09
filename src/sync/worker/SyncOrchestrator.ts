@@ -115,9 +115,9 @@ export class SyncOrchestrator {
       } else {
         this.pendingFlush = true
       }
+    } else {
+      this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
     }
-
-    this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
   }
 
   stopPolling(): void {
@@ -147,6 +147,7 @@ export class SyncOrchestrator {
     const jitteredDelayMs = this.applyBackoffJitter(delayMs)
     this.nextPollAt = jitteredDelayMs > 0 ? Date.now() + jitteredDelayMs : 0
     this.pollIntervalId = self.setTimeout(() => {
+      this.pollIntervalId = null
       void this.executeWrappedPoll()
     }, jitteredDelayMs)
   }

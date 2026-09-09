@@ -106,6 +106,32 @@ export class SyncWriteAheadLog {
     this.storage = SyncWriteAheadLog.getStorage(accountId)
   }
 
+  private readonly inFlightEntryIds = new Set<string>()
+
+  markInFlight(entryIds: string[]): void {
+    if (!entryIds || entryIds.length === 0) return
+    for (const id of entryIds) {
+      if (typeof id === 'string' && id.length > 0) {
+        this.inFlightEntryIds.add(id)
+      }
+    }
+  }
+
+  unmarkInFlight(entryIds: string[]): void {
+    if (!entryIds || entryIds.length === 0) return
+    for (const id of entryIds) {
+      this.inFlightEntryIds.delete(id)
+    }
+  }
+
+  clearInFlight(): void {
+    this.inFlightEntryIds.clear()
+  }
+
+  isInFlight(entryId: string): boolean {
+    return this.inFlightEntryIds.has(entryId)
+  }
+
   private compactionPromise: Promise<number> | null = null
 
   /**
@@ -128,16 +154,21 @@ export class SyncWriteAheadLog {
     let reducedCount = 0
 
     for (const [itemId, entries] of byItem.entries()) {
-      if (entries.length <= 1) continue
+      // Exclude entries that are currently in-flight from compaction to prevent race conditions with active push
+      const availableEntries = this.inFlightEntryIds.size > 0
+        ? entries.filter(e => !this.inFlightEntryIds.has(e.id))
+        : entries
 
-      const combinedData = packBatchedMessages(entries)
-      const latestCreatedAt = Math.max(...entries.map(e => e.createdAt || 0))
-      const latestSeq = Math.max(...entries.map(e => e.seq ?? 0))
+      if (availableEntries.length <= 1) continue
+
+      const combinedData = packBatchedMessages(availableEntries)
+      const latestCreatedAt = Math.max(...availableEntries.map(e => e.createdAt || 0))
+      const latestSeq = Math.max(...availableEntries.map(e => e.seq ?? 0))
       const newId = nanoid()
 
       // Track all old IDs being replaced (including transitive replacements)
       const oldIds = Array.from(
-        new Set(entries.flatMap(e => [e.id, ...(e.replaces || [])]))
+        new Set(availableEntries.flatMap(e => [e.id, ...(e.replaces || [])]))
       )
 
       const compactedEntry: WalEntry = {
@@ -156,7 +187,7 @@ export class SyncWriteAheadLog {
       // Remove the old individual entries
       await this.remove(oldIds)
 
-      reducedCount += entries.length - 1
+      reducedCount += availableEntries.length - 1
     }
 
     return reducedCount
@@ -355,6 +386,11 @@ export class SyncWriteAheadLog {
     if (!entryIds || entryIds.length === 0) return
     const uniqueIds = Array.from(new Set(entryIds.filter((id): id is string => typeof id === 'string' && id.length > 0)))
     if (uniqueIds.length === 0) return
+
+    for (const id of uniqueIds) {
+      this.inFlightEntryIds.delete(id)
+    }
+
     await Promise.all(uniqueIds.map(id => this.storage.removeItem(id)))
   }
 
@@ -362,6 +398,7 @@ export class SyncWriteAheadLog {
    * Clear all entries (used on account switch or data clear).
    */
   async clear(): Promise<void> {
+    this.inFlightEntryIds.clear()
     await this.storage.clear()
   }
 }

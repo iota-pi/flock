@@ -65,6 +65,7 @@ export class SyncPoller {
     const signal = this.abortController.signal
 
     this.clientEventHub.emit({ type: 'startRequest' })
+    const inFlightWalIds: string[] = []
     try {
       const authToken = await getActiveSessionToken()
       if (this.isShutdown || signal.aborted) return 'no-poll'
@@ -75,6 +76,16 @@ export class SyncPoller {
         if (this.wal) {
           const walMap = await this.wal.readAll()
           batchEntries = Array.from(walMap.entries())
+          for (const [, messages] of batchEntries) {
+            for (const m of messages) {
+              if (m && m.id) {
+                inFlightWalIds.push(m.id)
+              }
+            }
+          }
+          if (inFlightWalIds.length > 0) {
+            this.wal.markInFlight?.(inFlightWalIds)
+          }
         } else {
           batchEntries = []
         }
@@ -236,6 +247,9 @@ export class SyncPoller {
     } finally {
       this.isPolling = false
       this.abortController = null
+      if (this.wal && inFlightWalIds.length > 0) {
+        this.wal.unmarkInFlight?.(inFlightWalIds)
+      }
       this.clientEventHub.emit({ type: 'finishRequest' })
     }
   }
