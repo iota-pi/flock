@@ -61,21 +61,60 @@ async function runMigration(accountId: string): Promise<void> {
     }
 
     const keys = await storage.keys()
+    const entriesByItemId = new Map<ItemId, ManualRecoveryEntry[]>()
+    const keysToRemove = new Set<string>()
+
     for (const key of keys) {
       const value = await storage.getItem<ManualRecoveryEntry>(key)
       if (value && typeof value === 'object' && typeof value.itemId === 'string') {
-        const newItem: ManualRecoveryEntry = {
-          ...value,
-          id: value.itemId,
-        }
-        await storage.setItem(value.itemId, newItem)
+        const list = entriesByItemId.get(value.itemId) ?? []
+        list.push(value)
+        entriesByItemId.set(value.itemId, list)
         if (key !== value.itemId) {
-          await storage.removeItem(key)
+          keysToRemove.add(key)
         }
       } else {
-        await storage.removeItem(key)
+        keysToRemove.add(key)
       }
     }
+
+    for (const [itemId, entries] of entriesByItemId.entries()) {
+      if (entries.length === 1) {
+        const single = entries[0]
+        const newItem: ManualRecoveryEntry = {
+          ...single,
+          id: itemId,
+        }
+        await storage.setItem(itemId, newItem)
+      } else {
+        // Sort chronologically ascending to preserve order of reasons
+        entries.sort((a, b) => a.createdAt - b.createdAt)
+        const uniqueReasons: string[] = []
+        for (const entry of entries) {
+          if (entry.reason && typeof entry.reason === 'string') {
+            const trimmed = entry.reason.trim()
+            if (trimmed && !uniqueReasons.includes(trimmed)) {
+              uniqueReasons.push(trimmed)
+            }
+          }
+        }
+        const combinedReason = uniqueReasons.join('; ') || 'Manual recovery required'
+        const latestCreatedAt = Math.max(...entries.map(e => e.createdAt || 0))
+
+        const mergedEntry: ManualRecoveryEntry = {
+          id: itemId,
+          itemId,
+          reason: combinedReason,
+          createdAt: latestCreatedAt > 0 ? latestCreatedAt : Date.now(),
+        }
+        await storage.setItem(itemId, mergedEntry)
+      }
+    }
+
+    for (const key of keysToRemove) {
+      await storage.removeItem(key)
+    }
+
     await metaStorage.setItem('__migrated_v2', true)
   } catch (error) {
     console.error('[ManualRecoveryStore] Migration failed', error)

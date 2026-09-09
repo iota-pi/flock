@@ -35,6 +35,7 @@ export class SnapshotManager {
   private consecutiveFailures = new Map<ItemId, number>()
   private lastModifiedByItemId = new Map<ItemId, number>()
   private lastSnapshotAtByItemId = new Map<ItemId, number>()
+  private oversizedItems = new Set<ItemId>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
   private activePushPromise: Promise<SnapshotPushResult> | null = null
@@ -84,9 +85,30 @@ export class SnapshotManager {
         }
       }
 
-      // Startup Dirty Audit: Re-enqueue un-snapshotted items
+      let quarantinedIds = new Set<ItemId>()
+      if (this.deps.accountId) {
+        try {
+          const recoveryEntries = await readManualRecoveryEntries(this.deps.accountId)
+          for (const entry of recoveryEntries) {
+            quarantinedIds.add(entry.itemId)
+            if (
+              entry.reason?.toLowerCase().includes('limit') ||
+              entry.reason?.toLowerCase().includes('exceeds')
+            ) {
+              this.oversizedItems.add(entry.itemId)
+            }
+          }
+        } catch (recoveryErr) {
+          console.error('[SnapshotManager] Failed to read manual recovery entries during startup audit', recoveryErr)
+        }
+      }
+
+      // Startup Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
       let auditCount = 0
       for (const [itemId, localMod] of this.lastModifiedByItemId.entries()) {
+        if (quarantinedIds.has(itemId)) {
+          continue
+        }
         const lastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
         if (localMod > lastSnap) {
           this.dirtyItemsTick += 1
@@ -280,11 +302,11 @@ export class SnapshotManager {
   private async preparePushContext(): Promise<{
     accountId: string
     authToken: string
-    dirtyItems: { itemId: ItemId; tick: number }[]
+    dirtyItemIds: ItemId[]
     snapshotCursor: number
   } | null> {
-    const dirtyItems = Array.from(this.dirtyItems.entries()).map(([itemId, tick]) => ({ itemId, tick }))
-    if (dirtyItems.length === 0) {
+    const dirtyItemIds = Array.from(this.dirtyItems.keys())
+    if (dirtyItemIds.length === 0) {
       this.snapshotRequestCursor = null
       return null
     }
@@ -300,7 +322,7 @@ export class SnapshotManager {
     return {
       accountId: this.deps.accountId,
       authToken,
-      dirtyItems,
+      dirtyItemIds,
       snapshotCursor,
     }
   }
@@ -375,10 +397,10 @@ export class SnapshotManager {
   private async processSnapshotPush(context: {
     accountId: string
     authToken: string
-    dirtyItems: { itemId: ItemId; tick: number }[]
+    dirtyItemIds: ItemId[]
     snapshotCursor: number
   }): Promise<{ persisted: number; total: number; success: boolean }> {
-    const { accountId, authToken, dirtyItems, snapshotCursor } = context
+    const { accountId, authToken, dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
     let success = true
@@ -386,7 +408,12 @@ export class SnapshotManager {
     let currentBatch: { snapshot: VaultSnapshotInput; tick: number }[] = []
     let currentBatchBytes = 0
 
-    for (const { itemId, tick } of dirtyItems) {
+    for (const itemId of dirtyItemIds) {
+      const tick = this.dirtyItems.get(itemId)
+      if (tick === undefined) {
+        continue
+      }
+
       const buildResult = await this.buildSnapshot(itemId, snapshotCursor)
       if (buildResult.type === 'not-ready') {
         success = false
@@ -405,29 +432,39 @@ export class SnapshotManager {
       const snapshotSize = JSON.stringify(snapshot).length
 
       if (snapshotSize > this.maxPayloadBytes) {
-        console.error(
-          `[SnapshotManager] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`
-        )
-        success = false
-        this.deps.eventHub?.emit({
-          type: 'quotaExceeded',
-          message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
-        })
-        void upsertManualRecoveryEntry(accountId, {
-          itemId,
-          reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
-        })
-          .then(async () => {
-            const entries = await readManualRecoveryEntries(accountId)
-            this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
-          })
-          .catch(() => {})
+        const isAlreadyOversized = this.oversizedItems.has(itemId)
+        this.oversizedItems.add(itemId)
 
-        if (this.dirtyItems.get(itemId) === tick) {
-          this.dirtyItems.delete(itemId)
+        // Unconditionally remove from dirtyItems to avoid infinite retry loops
+        this.dirtyItems.delete(itemId)
+
+        // Advance lastSnapshotAt to localModifiedAt to prevent startup audit / sync loops while quarantined
+        const localMod = this.lastModifiedByItemId.get(itemId) ?? snapshot.modified
+        this.lastSnapshotAtByItemId.set(itemId, localMod)
+        this.saveLastModifiedDebounced()
+
+        if (!isAlreadyOversized) {
+          console.error(
+            `[SnapshotManager] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`
+          )
+          this.deps.eventHub?.emit({
+            type: 'quotaExceeded',
+            message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
+          })
+          void upsertManualRecoveryEntry(accountId, {
+            itemId,
+            reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
+          })
+            .then(async () => {
+              const entries = await readManualRecoveryEntries(accountId)
+              this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
+            })
+            .catch(() => {})
         }
         continue
       }
+
+      this.oversizedItems.delete(itemId)
 
       // Check if we should flush the current batch before adding this snapshot.
       const wouldExceedCount = currentBatch.length >= 25
@@ -605,6 +642,7 @@ export class SnapshotManager {
     this.consecutiveFailures.clear()
     this.lastModifiedByItemId.clear()
     this.lastSnapshotAtByItemId.clear()
+    this.oversizedItems.clear()
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
@@ -614,6 +652,10 @@ export class SnapshotManager {
       this.retryTimeoutId = null
     }
     this.retryAttempt = 0
+  }
+
+  clearOversized(itemId: ItemId): void {
+    this.oversizedItems.delete(itemId)
   }
 
   exportLastModified(): [ItemId, number][] {

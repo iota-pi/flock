@@ -476,6 +476,33 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
       expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
     })
+
+    it('clears dirty status when item is re-dirtied after push begins but before its snapshot is built', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 2,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.markItemDirty('item-2' as ItemId)
+
+      // When repo.find is called for item-1, simulate user modifying item-2 before item-2's snapshot is built
+      const originalFind = mockRepo.find
+      mockRepo.find = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('item-1')) {
+          manager.markItemDirty('item-2' as ItemId)
+        }
+        return originalFind(url)
+      })
+
+      manager.scheduleSnapshotPush(42)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      // Both item-1 and item-2 should be cleanly cleared because item-2 was built with the new tick
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(false)
+    })
   })
 
   describe('flushPendingSnapshots with In-Flight Pushes', () => {
@@ -878,6 +905,141 @@ describe('SnapshotManager Retry Mechanism', () => {
           reason: expect.stringContaining('exceeds 350 KB limit'),
         }),
       )
+    })
+
+    it('suppresses repeated error logs and repeated manual recovery upserts on subsequent pushes for the same oversized item', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const mockEventHub = { emit: vi.fn() }
+      const managerWithLimits = new SnapshotManager(
+        {
+          accountId: 'test-account',
+          repo: mockRepo,
+          broker: {} as any,
+          eventHub: mockEventHub as any,
+        },
+        lastModifiedStore,
+        { maxPayloadBytes: 10 },
+      )
+
+      managerWithLimits.markItemDirty('item-1' as ItemId)
+      await managerWithLimits.flushPendingSnapshots()
+
+      // First attempt logs error and upserts manual recovery
+      const firstErrorCallCount = consoleErrorSpy.mock.calls.filter(c => String(c[0]).includes('exceeds maxPayloadBytes')).length
+      expect(firstErrorCallCount).toBe(1)
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
+
+      // Re-mark dirty (e.g. from WAL re-negotiation or local change)
+      managerWithLimits.markItemDirty('item-1' as ItemId)
+      await managerWithLimits.flushPendingSnapshots()
+
+      // Should NOT log error again or re-upsert manual recovery
+      const secondErrorCallCount = consoleErrorSpy.mock.calls.filter(c => String(c[0]).includes('exceeds maxPayloadBytes')).length
+      expect(secondErrorCallCount).toBe(1)
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
+
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('excludes quarantined oversized items from being restored to dirty queue during startup audit', async () => {
+      mockReadManualRecoveryEntries.mockResolvedValueOnce([
+        { id: 'item-oversized', itemId: 'item-oversized', reason: 'Snapshot size exceeds 350 KB limit', createdAt: 1000 },
+      ])
+
+      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
+        ['item-oversized' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
+        ['item-normal' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
+      ])
+
+      await manager.loadLastModified()
+
+      // Normal un-snapshotted item restored
+      expect(manager['dirtyItems'].has('item-normal' as ItemId)).toBe(true)
+      // Quarantined oversized item skipped, preventing startup audit recovery loops
+      expect(manager['dirtyItems'].has('item-oversized' as ItemId)).toBe(false)
+    })
+
+    it('does not treat batch as failed or trigger retry loops when an oversized item is skipped alongside normal items', async () => {
+      const { encryptBytes } = await import('../../api/vault')
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      // item-1 oversized (> 200 bytes), item-2 normal (< 200 bytes)
+      vi.mocked(encryptBytes)
+        .mockResolvedValueOnce({
+          iv: 'mock-iv',
+          cipher: 'large-cipher-payload-'.repeat(20),
+          kver: '1',
+        })
+        .mockResolvedValueOnce({
+          iv: 'mock-iv',
+          cipher: 'small-cipher',
+          kver: '1',
+        })
+
+      const testManager = new SnapshotManager(
+        context as any,
+        lastModifiedStore,
+        { maxPayloadBytes: 200 },
+      )
+
+      testManager.markItemDirty('item-1' as ItemId)
+      testManager.markItemDirty('item-2' as ItemId)
+
+      await testManager.flushPendingSnapshots()
+
+      // Only item-2 pushed
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots[0].itemId).toBe('item-2')
+      expect(testManager['dirtyItems'].size).toBe(0)
+      expect(testManager['retryTimeoutId']).toBeNull()
+      expect(testManager['retryAttempt']).toBe(0)
+    })
+
+    it('allows previously oversized item to sync once compacted below maxPayloadBytes', async () => {
+      const { encryptBytes } = await import('../../api/vault')
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      const testManager = new SnapshotManager(
+        context as any,
+        lastModifiedStore,
+        { maxPayloadBytes: 200 },
+      )
+
+      // Step 1: Oversized item fails snapshot (> 200 bytes)
+      vi.mocked(encryptBytes).mockResolvedValueOnce({
+        iv: 'mock-iv',
+        cipher: 'large-cipher-payload-'.repeat(20),
+        kver: '1',
+      })
+
+      testManager.markItemDirty('item-1' as ItemId)
+      await testManager.flushPendingSnapshots()
+
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+      expect(testManager['oversizedItems'].has('item-1' as ItemId)).toBe(true)
+
+      // Step 2: Compaction occurs -> encrypted payload is now small (< 200 bytes)
+      vi.mocked(encryptBytes).mockResolvedValueOnce({
+        iv: 'mock-iv',
+        cipher: 'small-cipher',
+        kver: '1',
+      })
+
+      // Step 3: Marked dirty after compaction
+      testManager.markItemDirty('item-1' as ItemId)
+      await testManager.flushPendingSnapshots()
+
+      // Now successfully pushed and cleared from oversizedItems
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots[0].itemId).toBe('item-1')
+      expect(testManager['oversizedItems'].has('item-1' as ItemId)).toBe(false)
+      expect(testManager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
     })
   })
 
