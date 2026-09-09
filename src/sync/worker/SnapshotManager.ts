@@ -36,7 +36,6 @@ export class SnapshotManager {
   private lastModifiedByItemId = new Map<ItemId, number>()
   private lastSnapshotAtByItemId = new Map<ItemId, number>()
   private oversizedItems = new Set<ItemId>()
-  private snapshotPushInFlight = false
   private snapshotPushPending = false
   private activePushPromise: Promise<SnapshotPushResult> | null = null
   private snapshotRequestCursor: number | null = null
@@ -536,7 +535,6 @@ export class SnapshotManager {
       this.retryTimeoutId = null
     }
 
-    this.snapshotPushInFlight = true
     const pushPromise = this.executePush()
     this.activePushPromise = pushPromise
     return pushPromise
@@ -581,7 +579,6 @@ export class SnapshotManager {
       return { persisted, total, success }
     } finally {
       this.activePushPromise = null
-      this.snapshotPushInFlight = false
 
       const hasDirtyDocs = this.dirtyItems.size > 0
 
@@ -643,7 +640,6 @@ export class SnapshotManager {
     this.lastModifiedByItemId.clear()
     this.lastSnapshotAtByItemId.clear()
     this.oversizedItems.clear()
-    this.snapshotPushInFlight = false
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
     this.activePushPromise = null
