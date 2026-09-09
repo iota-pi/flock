@@ -207,4 +207,19 @@ describe('SyncMessageBroker', () => {
     expect(failureSpy).toHaveBeenCalledWith('item-no-wal', expect.any(Error))
     expect(flushSpy).not.toHaveBeenCalled()
   })
+
+  it('triggers renegotiation and forwards onWalEntriesPruned when WAL prunes entries', async () => {
+    const prunedSpy = vi.fn()
+    const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
+    broker.onWalEntriesPruned = prunedSpy
+
+    broker.setWal(mockWal)
+    expect(mockWal.onEntriesPruned).toBeDefined()
+
+    // Simulate WAL notifying of pruned items
+    mockWal.onEntriesPruned!(['item-1' as ItemId, 'item-2' as ItemId])
+
+    expect(renegSpy).toHaveBeenCalledTimes(2)
+    expect(prunedSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
+  })
 })

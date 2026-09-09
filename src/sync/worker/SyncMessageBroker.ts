@@ -20,6 +20,7 @@ export class SyncMessageBroker {
   public onFlushNeeded: (() => void) | null = null
   public onItemMessageParsed: ((itemId: ItemId) => void) | null = null
   public onWalAppendFailed: ((itemId: ItemId, error: unknown) => void) | null = null
+  public onWalEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
 
   constructor(
     private adapter: VaultNetworkAdapter,
@@ -29,7 +30,7 @@ export class SyncMessageBroker {
     private pullQueueManager: SyncPullQueueManager,
     wal?: SyncWriteAheadLog | null,
   ) {
-    this.wal = wal ?? null
+    this.setWal(wal ?? null)
 
     this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
       if (this.account) {
@@ -57,6 +58,10 @@ export class SyncMessageBroker {
     }
   }
 
+  getWal(): SyncWriteAheadLog | null {
+    return this.wal
+  }
+
   setSyncedHeads(documentId: DocumentId, heads: string[]): void {
     this.adapter.setSyncedHeads(documentId, heads)
   }
@@ -78,8 +83,10 @@ export class SyncMessageBroker {
     }
 
     this.account = nextAccount
-    this.wal = this.account ? new SyncWriteAheadLog(this.account) : null
-    this.syncPoller.setWal(this.wal)
+    if (!this.wal || this.wal.accountId !== this.account) {
+      const wal = this.account ? new SyncWriteAheadLog(this.account) : null
+      this.setWal(wal)
+    }
 
     await this.pullQueueManager.setAccount(this.account)
     this.syncPoller.setAccount(this.account)
@@ -87,7 +94,20 @@ export class SyncMessageBroker {
 
   setWal(wal: SyncWriteAheadLog | null): void {
     this.wal = wal
-    this.syncPoller.setWal(wal)
+    if (this.wal) {
+      this.wal.onEntriesPruned = itemIds => this.handleWalEntriesPruned(itemIds)
+    }
+    if (this.syncPoller) {
+      this.syncPoller.setWal(this.wal)
+    }
+  }
+
+  private handleWalEntriesPruned(itemIds: ItemId[]): void {
+    for (const itemId of itemIds) {
+      const documentId = toDocumentIdFromItemId(itemId)
+      this.adapter.triggerReNegotiation(documentId)
+    }
+    this.onWalEntriesPruned?.(itemIds)
   }
 
   setOnlineState(isOnline: boolean): void {

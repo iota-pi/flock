@@ -605,5 +605,137 @@ describe('SyncWriteAheadLog', () => {
     expect(remainingEntries).toHaveLength(1)
     expect(remainingEntries[0].isBatched).toBe(true)
   })
+
+  it('does not prune in-flight entries during pruneOldest', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+    store.store.set('entry-inflight-1', {
+      id: 'entry-inflight-1',
+      itemId: 'item-inflight' as ItemId,
+      data: new Uint8Array([1]),
+      createdAt: 10,
+      seq: 1,
+    })
+    store.store.set('entry-inflight-2', {
+      id: 'entry-inflight-2',
+      itemId: 'item-inflight' as ItemId,
+      data: new Uint8Array([2]),
+      createdAt: 20,
+      seq: 2,
+    })
+    store.store.set('entry-idle-1', {
+      id: 'entry-idle-1',
+      itemId: 'item-idle' as ItemId,
+      data: new Uint8Array([3]),
+      createdAt: 30,
+      seq: 3,
+    })
+
+    // Mark the two older entries in-flight
+    wal.markInFlight(['entry-inflight-1', 'entry-inflight-2'])
+
+    // Attempt to prune 2 oldest entries
+    await (wal as any).pruneOldest(2)
+
+    // In-flight entries must NOT be deleted despite being the oldest
+    expect(store.store.has('entry-inflight-1')).toBe(true)
+    expect(store.store.has('entry-inflight-2')).toBe(true)
+
+    // The idle entry should have been pruned
+    expect(store.store.has('entry-idle-1')).toBe(false)
+  })
+
+  it('skips pruning entirely if all available entries are in-flight', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+    store.store.set('e1', {
+      id: 'e1',
+      itemId: 'item-1' as ItemId,
+      data: new Uint8Array([1]),
+      createdAt: 10,
+      seq: 1,
+    })
+    store.store.set('e2', {
+      id: 'e2',
+      itemId: 'item-2' as ItemId,
+      data: new Uint8Array([2]),
+      createdAt: 20,
+      seq: 2,
+    })
+
+    wal.markInFlight(['e1', 'e2'])
+
+    await (wal as any).pruneOldest(5)
+
+    // Both entries must remain untouched
+    expect(store.store.has('e1')).toBe(true)
+    expect(store.store.has('e2')).toBe(true)
+  })
+
+  it('calls onEntriesPruned callback with unique affected itemIds when entries are pruned', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+    store.store.set('prune-1', {
+      id: 'prune-1',
+      itemId: 'item-A' as ItemId,
+      data: new Uint8Array([1]),
+      createdAt: 10,
+      seq: 1,
+    })
+    store.store.set('prune-2', {
+      id: 'prune-2',
+      itemId: 'item-A' as ItemId,
+      data: new Uint8Array([2]),
+      createdAt: 20,
+      seq: 2,
+    })
+    store.store.set('prune-3', {
+      id: 'prune-3',
+      itemId: 'item-B' as ItemId,
+      data: new Uint8Array([3]),
+      createdAt: 30,
+      seq: 3,
+    })
+
+    const onPruned = vi.fn()
+    wal.onEntriesPruned = onPruned
+
+    // Prune oldest 2 entries (both belong to item-A)
+    await (wal as any).pruneOldest(2)
+
+    expect(onPruned).toHaveBeenCalledTimes(1)
+    expect(onPruned).toHaveBeenCalledWith(['item-A'])
+    expect(store.store.has('prune-1')).toBe(false)
+    expect(store.store.has('prune-2')).toBe(false)
+    expect(store.store.has('prune-3')).toBe(true)
+  })
+
+  it('triggers onEntriesPruned when WAL hits MAX_ENTRIES and prunes oldest entries', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+    // Populate store with MAX_ENTRIES unique items so compact cannot reduce them
+    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+      store.store.set(`id-unique-${i}`, {
+        id: `id-unique-${i}`,
+        itemId: `item-unique-${i}` as ItemId,
+        data: new Uint8Array([1]),
+        createdAt: i,
+        seq: i,
+      })
+    }
+
+    const onPruned = vi.fn()
+    wal.onEntriesPruned = onPruned
+
+    // Append 1 new entry -> triggers size limit enforcement which prunes oldest
+    await wal.append('item-new' as ItemId, new Uint8Array([99]))
+
+    expect(onPruned).toHaveBeenCalled()
+    const prunedArg = onPruned.mock.calls[0][0]
+    expect(Array.isArray(prunedArg)).toBe(true)
+    expect(prunedArg.length).toBeGreaterThan(0)
+    // Oldest items like item-unique-0 should be in the pruned list
+    expect(prunedArg).toContain('item-unique-0')
+  })
 })
 

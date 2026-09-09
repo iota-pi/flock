@@ -102,9 +102,11 @@ export class SyncWriteAheadLog {
     await storage.clear()
   }
 
-  constructor(accountId: string) {
+  constructor(public readonly accountId: string) {
     this.storage = SyncWriteAheadLog.getStorage(accountId)
   }
+
+  public onEntriesPruned: ((prunedItemIds: ItemId[]) => void) | null = null
 
   private readonly inFlightEntryIds = new Set<string>()
 
@@ -211,13 +213,14 @@ export class SyncWriteAheadLog {
 
   private async performPruneOldest(count: number): Promise<void> {
     try {
-      const allEntries: { id: string; createdAt: number; seq: number }[] = []
+      const allEntries: { id: string; itemId: ItemId; createdAt: number; seq: number }[] = []
       const supersededIds = new Set<string>()
 
       await this.storage.iterate<WalEntry, void>(entry => {
         if (entry && entry.id) {
           allEntries.push({
             id: entry.id,
+            itemId: entry.itemId,
             createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
             seq: typeof entry.seq === 'number' ? entry.seq : 0,
           })
@@ -231,18 +234,42 @@ export class SyncWriteAheadLog {
         }
       })
 
-      // Clean up superseded entries first
+      // Clean up superseded entries first, excluding any in-flight entries
       const supersededInStorage = allEntries
-        .filter(e => supersededIds.has(e.id))
+        .filter(e => supersededIds.has(e.id) && !this.inFlightEntryIds.has(e.id))
         .map(e => e.id)
       if (supersededInStorage.length > 0) {
         await this.remove(supersededInStorage)
       }
 
-      const validEntries = allEntries.filter(e => !supersededIds.has(e.id))
+      // Valid entries exclude both superseded and currently in-flight entries
+      const validEntries = allEntries.filter(
+        e => !supersededIds.has(e.id) && !this.inFlightEntryIds.has(e.id)
+      )
       validEntries.sort((a, b) => (a.createdAt - b.createdAt) || (a.seq - b.seq))
-      const toRemove = validEntries.slice(0, count).map(e => e.id)
+      const entriesToPrune = validEntries.slice(0, count)
+      const toRemove = entriesToPrune.map(e => e.id)
+      if (toRemove.length === 0) {
+        return
+      }
+
       await this.remove(toRemove)
+
+      const prunedItemIds = Array.from(
+        new Set(
+          entriesToPrune
+            .map(e => e.itemId)
+            .filter((id): id is ItemId => typeof id === 'string' && id.length > 0)
+        )
+      )
+
+      if (prunedItemIds.length > 0 && this.onEntriesPruned) {
+        try {
+          this.onEntriesPruned(prunedItemIds)
+        } catch (cbErr) {
+          console.error('[SyncWriteAheadLog] Error in onEntriesPruned callback', cbErr)
+        }
+      }
     } catch (err) {
       console.error('[SyncWriteAheadLog] Failed to prune oldest entries', err)
     }

@@ -69,7 +69,7 @@ export class SyncWorkerContext {
     this.lastModifiedStore = new LastModifiedStore(deps.accountId)
     this.syncedHeadsStore = deps.syncedHeadsStore ?? new SyncedHeadsStore(deps.accountId)
     this.adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
-    this.wal = deps.wal ?? new SyncWriteAheadLog(deps.accountId)
+    this.wal = deps.wal ?? deps.broker.getWal?.() ?? new SyncWriteAheadLog(deps.accountId)
 
     this.docStore = new AutomergeDocStore(deps.repo)
 
@@ -114,6 +114,22 @@ export class SyncWorkerContext {
 
     this.broker.onWalAppendFailed = (itemId, _error) => {
       this.snapshotManager.markItemDirty(itemId, 0)
+    }
+
+    this.broker.onWalEntriesPruned = itemIds => {
+      for (const itemId of itemIds) {
+        this.snapshotManager.markItemDirty(itemId, 0)
+      }
+    }
+
+    if (this.wal && !this.wal.onEntriesPruned) {
+      this.wal.onEntriesPruned = itemIds => {
+        for (const itemId of itemIds) {
+          const documentId = toDocumentIdFromItemId(itemId)
+          this.adapter.triggerReNegotiation?.(documentId)
+          this.snapshotManager.markItemDirty(itemId, 0)
+        }
+      }
     }
 
     this.manifestSyncManager = new ManifestSyncManager(

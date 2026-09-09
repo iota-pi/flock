@@ -82,6 +82,7 @@ describe('SyncWorkerContext', () => {
     vi.clearAllMocks()
     mockAdapter = {
       onReNegotiationTriggered: null,
+      triggerReNegotiation: vi.fn(),
       setSyncedHeadsStore: vi.fn(),
       setSyncedHeads: vi.fn(),
       loadSyncedHeads: vi.fn(),
@@ -130,6 +131,19 @@ describe('SyncWorkerContext', () => {
     expect(mockBroker.onWalAppendFailed).toBeTypeOf('function')
     mockBroker.onWalAppendFailed('test-item-id' as ItemId, new Error('WAL write failed'))
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
+  })
+
+  it('marks items dirty in SnapshotManager when broker reports onWalEntriesPruned', () => {
+    expect(mockBroker.onWalEntriesPruned).toBeTypeOf('function')
+    mockBroker.onWalEntriesPruned(['pruned-item-1' as ItemId, 'pruned-item-2' as ItemId])
+    expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-item-1' as ItemId, 0)
+    expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-item-2' as ItemId, 0)
+  })
+
+  it('marks items dirty in SnapshotManager when WAL directly invokes onEntriesPruned', () => {
+    expect(context.wal.onEntriesPruned).toBeTypeOf('function')
+    context.wal.onEntriesPruned!(['pruned-wal-item' as ItemId])
+    expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-wal-item' as ItemId, 0)
   })
 
   it('forwards clearLocalData options to pullQueueManager and snapshotManager on shutdown', async () => {
