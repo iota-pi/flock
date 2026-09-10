@@ -37,7 +37,7 @@ export class SyncPoller {
     private pullQueueManager: SyncPullQueueManager,
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
-    private indexManager: AutomergeIndexManager,
+    private indexManager?: AutomergeIndexManager,
     private wal?: SyncWriteAheadLog | null,
   ) {}
 
@@ -149,7 +149,7 @@ export class SyncPoller {
 
         if (this.isShutdown || signal.aborted) return 'no-poll'
 
-        await this.indexManager.updateLastSyncTime(Date.now())
+        await this.indexManager?.updateLastSyncTime(Date.now())
         return 'success'
       }
 
@@ -261,7 +261,7 @@ export class SyncPoller {
 
       if (this.isShutdown || signal.aborted) return 'no-poll'
 
-      await this.indexManager.updateLastSyncTime(Date.now())
+      await this.indexManager?.updateLastSyncTime(Date.now())
       return 'success'
     } catch (error) {
       if (this.isShutdown || signal.aborted || (error instanceof Error && error.name === 'AbortError')) {

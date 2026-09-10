@@ -112,15 +112,31 @@ describe('SyncMessageBroker', () => {
     expect(mockWal.append).not.toHaveBeenCalled()
   })
 
-  it('notifies onItemMessageParsed when pullQueueManager parses a message', async () => {
+  it('notifies onItemMessageParsed and delivers message to adapter when pullQueueManager parses a message', async () => {
     const mockOnItemParsed = vi.fn()
+    const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
     broker.onItemMessageParsed = mockOnItemParsed
     await broker.setAccount('account-1')
 
     const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-1' as ItemId))
-    pullQueueManager.onMessageParsed('item-1' as ItemId, docId, new Uint8Array([1, 2, 3]))
+    const msgData = new Uint8Array([1, 2, 3])
+    pullQueueManager.onMessageParsed('item-1' as ItemId, docId, msgData)
 
     expect(mockOnItemParsed).toHaveBeenCalledWith('item-1')
+    expect(receiveSpy).toHaveBeenCalledWith(docId, msgData)
+  })
+
+  it('does NOT add itemId to indexManager when pullQueueManager parses a message (prevents index resurrection on overlap pulls)', async () => {
+    await broker.setAccount('account-1')
+
+    const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('deleted-item-1' as ItemId))
+    const msgData = new Uint8Array([4, 5, 6])
+
+    // Simulate parsing an incremental message (e.g. overlap window pull for a deleted item)
+    pullQueueManager.onMessageParsed('deleted-item-1' as ItemId, docId, msgData)
+    pullQueueManager.onMessageParsed('deleted-item-1' as ItemId, docId, msgData)
+
+    expect(indexManager.addAutomergeItemIdsToIndex).not.toHaveBeenCalled()
   })
 
   it('abortPoll calls poller.abort instead of poller.shutdown', () => {

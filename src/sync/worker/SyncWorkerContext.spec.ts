@@ -175,4 +175,29 @@ describe('SyncWorkerContext', () => {
     context.orchestrator.onLeaderChange!(false)
     expect(context.snapshotManager.setLeader).toHaveBeenCalledWith(false)
   })
+
+  it('forwards broker onItemMessageParsed to clearManualRecovery and deps.onItemMessageParsed', () => {
+    const onItemMessageParsedMock = vi.fn()
+    const ctx = new SyncWorkerContext({
+      accountId: 'test-account',
+      repo: {} as Repo,
+      adapter: mockAdapter as VaultNetworkAdapter,
+      broker: mockBroker as SyncMessageBroker,
+      clientEventHub: new ClientEventHub(),
+      internalEventHub: new WorkerInternalEventHub(),
+      indexStore: { clear: vi.fn() } as unknown as IndexStore,
+      indexManager: { ensureIndexDocument: vi.fn().mockResolvedValue(undefined) } as unknown as AutomergeIndexManager,
+      cursorStore: { clear: vi.fn() } as unknown as CursorStore,
+      pullQueueManager: { getGlobalLatestCursor: vi.fn().mockReturnValue(0) } as unknown as SyncPullQueueManager,
+      onItemMessageParsed: onItemMessageParsedMock,
+    })
+
+    const clearSpy = vi.spyOn(ctx.itemOperations, 'clearManualRecoveryForItems').mockResolvedValue(undefined)
+
+    expect(mockBroker.onItemMessageParsed).toBeTypeOf('function')
+    mockBroker.onItemMessageParsed!('item-parsed-1' as ItemId)
+
+    expect(clearSpy).toHaveBeenCalledWith(['item-parsed-1'])
+    expect(onItemMessageParsedMock).toHaveBeenCalledWith('item-parsed-1')
+  })
 })

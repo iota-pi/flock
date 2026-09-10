@@ -16,6 +16,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
+import type { ItemId } from 'src/shared/schemas/items'
 
 export interface SyncWorkerContextDeps {
   accountId: string
@@ -31,6 +32,7 @@ export interface SyncWorkerContextDeps {
   wal?: SyncWriteAheadLog
   syncedHeadsStore?: SyncedHeadsStore
   onDocHandleReplaced?: DocHandleReplacedListener
+  onItemMessageParsed?: (itemId: ItemId) => void
 }
 
 export class SyncWorkerContext {
@@ -115,6 +117,7 @@ export class SyncWorkerContext {
 
     this.broker.onItemMessageParsed = itemId => {
       void this.itemOperations.clearManualRecoveryForItems([itemId])
+      deps.onItemMessageParsed?.(itemId)
     }
 
     this.adapter.onReNegotiationTriggered = documentId => {

@@ -180,6 +180,11 @@ export class SyncWorker implements SyncApi {
       pullQueueManager,
       wal,
       onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
+      onItemMessageParsed: itemId => {
+        if ((itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+          this.subscribeToItems([itemId])
+        }
+      },
     })
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
@@ -263,6 +268,7 @@ export class SyncWorker implements SyncApi {
         const item = normalizeItemSnapshot(id, doc)
         if (item?.deleted) {
           this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+          this.unsubscribe(id)
         } else if (item) {
           this.context.indexManager.addAutomergeItemIdsToIndex([id]).catch(console.error)
         }

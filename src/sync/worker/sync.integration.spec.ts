@@ -331,4 +331,31 @@ describe('Sync System Integration Test Suite', () => {
     )
     expect(pullQueueManager.hasPendingPulls()).toBe(false)
   })
+
+  it('Scenario 6: Incremental message pull (e.g. overlap window) does not resurrect item in indexManager', async () => {
+    const deletedItemId = 'deleted-item-overlap' as ItemId
+    const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
+
+    // Simulate poll returning an incremental message for an already-deleted item
+    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [
+        {
+          itemId: deletedItemId,
+          hasMore: false,
+          nextCursor: 50,
+          messages: [{ cursor: 50, encryptedMessage: { iv: 'iv', cipher: 'good-cipher', version: 'legacy' } }],
+        },
+      ],
+    })
+
+    await broker.executePoll()
+
+    // Message is passed to adapter for CRDT processing
+    expect(receiveSpy).toHaveBeenCalled()
+    // CRITICAL: Must NOT unconditionally add to indexManager
+    expect(indexManager.addAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+  })
 })
+

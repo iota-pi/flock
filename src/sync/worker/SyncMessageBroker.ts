@@ -26,7 +26,7 @@ export class SyncMessageBroker {
     private adapter: VaultNetworkAdapter,
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
-    private indexManager: AutomergeIndexManager,
+    private indexManager: AutomergeIndexManager | undefined,
     private pullQueueManager: SyncPullQueueManager,
     wal?: SyncWriteAheadLog | null,
   ) {
@@ -37,7 +37,6 @@ export class SyncMessageBroker {
         this.onItemMessageParsed?.(itemId)
       }
       this.adapter.receiveMessage(documentId, message)
-      this.indexManager.addAutomergeItemIdsToIndex([itemId]).catch(console.error)
     }
 
     this.syncPoller = new SyncPoller(
