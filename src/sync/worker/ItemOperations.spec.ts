@@ -8,6 +8,7 @@ describe('ItemOperations', () => {
   let emitMock: any
   let changeDocumentMock: any
   let addAutomergeItemIdsToIndexMock: any
+  let removeAutomergeItemIdsFromIndexMock: any
   let markDocumentDirtyMock: any
   let getAutomergeItemMock: any
 
@@ -15,6 +16,7 @@ describe('ItemOperations', () => {
     emitMock = vi.fn()
     changeDocumentMock = vi.fn()
     addAutomergeItemIdsToIndexMock = vi.fn()
+    removeAutomergeItemIdsFromIndexMock = vi.fn().mockResolvedValue(undefined)
     markDocumentDirtyMock = vi.fn()
     getAutomergeItemMock = vi.fn()
 
@@ -28,7 +30,7 @@ describe('ItemOperations', () => {
       indexManager: {
         addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,
         listAutomergeItemIds: vi.fn().mockResolvedValue([]),
-        removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
+        removeAutomergeItemIdsFromIndex: removeAutomergeItemIdsFromIndexMock,
         updateAutomergeMetadata: vi.fn(),
         getAutomergeMetadata: vi.fn(),
       } as any,
@@ -166,6 +168,58 @@ describe('ItemOperations', () => {
         type: 'itemUpdated',
         id: 'item-2',
         item: { id: 'item-2', text: 'fallback' },
+      })
+    })
+
+    it('removes deleted items from index without marking them dirty or adding to index', async () => {
+      const items = [
+        { id: 'item-del-1' as ItemId, deleted: true } as unknown as Item,
+      ]
+
+      changeDocumentMock.mockResolvedValue(true)
+
+      await operations.storeItems(items)
+
+      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-del-1'])
+      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+    })
+
+    it('handles mixed batch of active and deleted items appropriately', async () => {
+      const items = [
+        { id: 'item-active' as ItemId, text: 'active note' } as unknown as Item,
+        { id: 'item-deleted' as ItemId, deleted: true } as unknown as Item,
+      ]
+
+      changeDocumentMock.mockResolvedValue(true)
+
+      await operations.storeItems(items)
+
+      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-deleted'])
+      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-active'])
+      expect(markDocumentDirtyMock).toHaveBeenCalledTimes(1)
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-active')
+      expect(markDocumentDirtyMock).not.toHaveBeenCalledWith('item-deleted')
+    })
+
+    it('handles failed deleted items gracefully without modifying index', async () => {
+      const items = [
+        { id: 'item-del-fail' as ItemId, deleted: true } as unknown as Item,
+      ]
+
+      changeDocumentMock.mockResolvedValue(false)
+      getAutomergeItemMock.mockResolvedValue({ id: 'item-del-fail' as ItemId, deleted: false })
+
+      await operations.storeItems(items)
+
+      expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+      expect(getAutomergeItemMock).toHaveBeenCalledWith('item-del-fail')
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'itemUpdated',
+        id: 'item-del-fail',
+        item: { id: 'item-del-fail', deleted: false },
       })
     })
   })

@@ -87,7 +87,8 @@ export class ItemOperations {
 
   async storeItems(items: Item[]): Promise<void> {
     const failedItems: Item[] = []
-    const succeededIds: ItemId[] = []
+    const succeededActiveIds: ItemId[] = []
+    const succeededDeletedIds: ItemId[] = []
     const existingIds = new Set(await this.deps.indexManager.listAutomergeItemIds())
 
     for (const item of items) {
@@ -103,8 +104,12 @@ export class ItemOperations {
           { createIfMissing: true, knownToExist: existingIds.has(item.id) },
         )
         if (updated) {
-          succeededIds.push(item.id)
-          this.deps.markDocumentDirty(item.id)
+          if (item.deleted) {
+            succeededDeletedIds.push(item.id)
+          } else {
+            succeededActiveIds.push(item.id)
+            this.deps.markDocumentDirty(item.id)
+          }
         } else {
           failedItems.push(item)
         }
@@ -113,8 +118,12 @@ export class ItemOperations {
       }
     }
 
-    if (succeededIds.length > 0) {
-      await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededIds)
+    if (succeededDeletedIds.length > 0) {
+      await this.deps.indexManager.removeAutomergeItemIdsFromIndex(succeededDeletedIds)
+    }
+
+    if (succeededActiveIds.length > 0) {
+      await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededActiveIds)
     }
 
     for (const item of failedItems) {
