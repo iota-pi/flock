@@ -27,6 +27,10 @@ export interface ItemOperationsDeps {
   markDocumentDirty: (itemId: ItemId) => void
 }
 
+export interface StoreItemsOptions {
+  markDirty?: boolean
+}
+
 export class ItemOperations {
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
@@ -43,6 +47,11 @@ export class ItemOperations {
         { knownToExist: true },
       )
       if (updated) {
+        if (changes.deleted === true) {
+          await this.deps.indexManager.removeAutomergeItemIdsFromIndex([id])
+        } else if (changes.deleted === false) {
+          await this.deps.indexManager.addAutomergeItemIdsToIndex([id])
+        }
         this.deps.markDocumentDirty(id)
       } else {
         this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'edit', error: `Failed to update document ${id}` })
@@ -83,7 +92,8 @@ export class ItemOperations {
     }
   }
 
-  async storeItems(items: Item[]): Promise<void> {
+  async storeItems(items: Item[], options: StoreItemsOptions = {}): Promise<void> {
+    const { markDirty = true } = options
     const failedItems: Item[] = []
     const succeededActiveIds: ItemId[] = []
     const succeededDeletedIds: ItemId[] = []
@@ -103,6 +113,8 @@ export class ItemOperations {
             succeededDeletedIds.push(item.id)
           } else {
             succeededActiveIds.push(item.id)
+          }
+          if (markDirty) {
             this.deps.markDocumentDirty(item.id)
           }
         } else {

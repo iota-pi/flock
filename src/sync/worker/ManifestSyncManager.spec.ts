@@ -213,10 +213,13 @@ describe('ManifestSyncManager', () => {
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-snap', new Uint8Array([1, 2, 3]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-snap'])
 
-      expect(storeItemsSpy).toHaveBeenCalledWith([
-        { id: 'item-deleted', deleted: true },
-        { id: 'item-legacy', type: 'person', name: 'Alice' },
-      ])
+      expect(storeItemsSpy).toHaveBeenCalledWith(
+        [
+          { id: 'item-deleted', deleted: true },
+          { id: 'item-legacy', type: 'person', name: 'Alice' },
+        ],
+        { markDirty: false },
+      )
 
       expect(mockUpdateLastManifestSyncTime).toHaveBeenCalled()
       expect(result).toEqual({ added: ['item-snap'] })
@@ -266,6 +269,30 @@ describe('ManifestSyncManager', () => {
         manifest: [
           ['item-1', 100],
           ['item-2', 100],
+        ],
+        serverTime: Date.now(),
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(mockUpdateLastManifestSyncTime).toHaveBeenCalled()
+      expect(result).toEqual({ added: [] })
+    })
+
+    it('is a no-op when manifest contains an already-synced deleted item not in knownSet', async () => {
+      // Deleted items are excluded from active index doc (listAutomergeItemIds)
+      mockListAutomergeItemIds.mockResolvedValue(['item-active' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      // Both active and deleted items have their last modified timestamp tracked in snapshotManager
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([
+        ['item-active', 100],
+        ['item-deleted', 100],
+      ])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [
+          ['item-active', 100],
+          ['item-deleted', 100],
         ],
         serverTime: Date.now(),
       })

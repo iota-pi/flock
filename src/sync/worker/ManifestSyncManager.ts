@@ -12,6 +12,7 @@ import { hasApiAuthToken } from '../../api/runtime'
 import type { ItemId } from 'src/shared/schemas/items'
 import { getTrpcClient } from 'src/api/trpcClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
+import type { StoreItemsOptions } from './ItemOperations'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
@@ -27,7 +28,7 @@ export class ManifestSyncManager {
       indexManager: AutomergeIndexManager
       snapshotManager: SnapshotManager
     },
-    private storeItems: (items: Item[]) => Promise<void>,
+    private storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
     private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>,
     private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
     private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
@@ -95,7 +96,6 @@ export class ManifestSyncManager {
       .filter(([itemId, serverTime]) => {
         const id = itemId as ItemId
         if (!id) return false
-        if (!knownSet.has(id)) return true
 
         const localTime = localLastModifiedMap.get(id) ?? 0
         if (localTime === 0) return true
@@ -260,7 +260,7 @@ export class ManifestSyncManager {
     }
 
     if (snapshots.length > 0) {
-      await this.storeItems(snapshots)
+      await this.storeItems(snapshots, { markDirty: false })
     }
 
     if (lastModifiedUpdates.length > 0) {

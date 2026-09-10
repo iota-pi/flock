@@ -149,7 +149,7 @@ export class SyncWorkerContext {
         indexManager: this.indexManager,
         snapshotManager: this.snapshotManager,
       },
-      items => this.itemOperations.storeItems(items),
+      (items, options) => this.itemOperations.storeItems(items, options),
       changes => this.itemOperations.mutateMetadata(changes),
       (itemId, error) => {
         void this.itemOperations.reportDecryptionFailure(itemId, error)

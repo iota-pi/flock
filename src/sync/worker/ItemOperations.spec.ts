@@ -212,7 +212,7 @@ describe('ItemOperations', () => {
       })
     })
 
-    it('removes deleted items from index without marking them dirty or adding to index', async () => {
+    it('removes deleted items from index and marks them dirty by default without adding to index', async () => {
       const items = [
         { id: 'item-del-1' as ItemId, deleted: true } as unknown as Item,
       ]
@@ -223,10 +223,25 @@ describe('ItemOperations', () => {
 
       expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-del-1'])
       expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-del-1')
+    })
+
+    it('does not mark items dirty when markDirty: false is passed', async () => {
+      const items = [
+        { id: 'item-active' as ItemId, text: 'active note' } as unknown as Item,
+        { id: 'item-del-1' as ItemId, deleted: true } as unknown as Item,
+      ]
+
+      changeDocumentMock.mockResolvedValue(true)
+
+      await operations.storeItems(items, { markDirty: false })
+
+      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-del-1'])
+      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-active'])
       expect(markDocumentDirtyMock).not.toHaveBeenCalled()
     })
 
-    it('handles mixed batch of active and deleted items appropriately', async () => {
+    it('handles mixed batch of active and deleted items appropriately by default', async () => {
       const items = [
         { id: 'item-active' as ItemId, text: 'active note' } as unknown as Item,
         { id: 'item-deleted' as ItemId, deleted: true } as unknown as Item,
@@ -239,9 +254,9 @@ describe('ItemOperations', () => {
       expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-deleted'])
       expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-active'])
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-active'])
-      expect(markDocumentDirtyMock).toHaveBeenCalledTimes(1)
+      expect(markDocumentDirtyMock).toHaveBeenCalledTimes(2)
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-active')
-      expect(markDocumentDirtyMock).not.toHaveBeenCalledWith('item-deleted')
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-deleted')
     })
 
     it('handles failed deleted items gracefully without modifying index', async () => {
