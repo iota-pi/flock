@@ -262,6 +262,7 @@ export class SyncPullQueueManager {
           const originalCursor = state.cursor
           let highestCursor = originalCursor
           let hasParseFailure = false
+          let failingCursor: number | undefined
           const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
           // Sort messages ascending by cursor to ensure causal processing order and prevent
@@ -289,20 +290,13 @@ export class SyncPullQueueManager {
               }
             } else {
               hasParseFailure = true
+              failingCursor = entry?.cursor
               break
             }
           }
 
           if (!hasParseFailure && typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor)) {
             highestCursor = Math.max(highestCursor, result.nextCursor)
-          }
-
-          if (highestCursor > originalCursor) {
-            state.cursor = highestCursor
-            cursorsUpdated = true
-          } else if (!hasExisting && highestCursor >= 0) {
-            state.cursor = highestCursor
-            cursorsUpdated = true
           }
 
           if (hasMore && !hasParseFailure) {
@@ -314,6 +308,18 @@ export class SyncPullQueueManager {
               state.pending = false
               state.retryCount = 0
               this.clearBatchProgressForItem(itemId)
+
+              // Advance cursor past the permanently failing message so it is not re-fetched,
+              // and mark it seen to dedup across overlap queries.
+              const advanceCursor = Number.isFinite(failingCursor)
+                ? (failingCursor as number)
+                : (typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor) ? result.nextCursor : undefined)
+
+              if (typeof advanceCursor === 'number') {
+                this.markSeen(itemId, advanceCursor)
+                highestCursor = Math.max(highestCursor, advanceCursor)
+              }
+
               this.onDecryptionFailure?.(
                 itemId,
                 new Error(
@@ -326,6 +332,14 @@ export class SyncPullQueueManager {
           } else {
             state.pending = false
             state.retryCount = 0
+          }
+
+          if (highestCursor > originalCursor) {
+            state.cursor = highestCursor
+            cursorsUpdated = true
+          } else if (!hasExisting && highestCursor >= 0) {
+            state.cursor = highestCursor
+            cursorsUpdated = true
           }
         } catch (innerError) {
           console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)

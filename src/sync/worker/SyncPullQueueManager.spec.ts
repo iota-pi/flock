@@ -359,6 +359,83 @@ describe('SyncPullQueueManager', () => {
         })
       )
       expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.exportCursors()).toContainEqual(['item-fail-5', 10])
+    })
+
+    it('advances cursor past corrupted message on 5th failure and prevents infinite retry loop on subsequent polls', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.onDecryptionFailure = mockOnDecryptionFailure
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-infinite-loop' as ItemId,
+          hasMore: false,
+          nextCursor: 10,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-fail',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      // Attempts 1 to 4: cursor remains 0, pending remains true
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await manager.processPullResults(pullResults)
+        expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 0])
+        expect(manager.hasPendingPulls()).toBe(true)
+        expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+      }
+
+      // Attempt 5: permanently fails, invokes onDecryptionFailure, advances cursor to 10
+      await manager.processPullResults(pullResults)
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
+      expect(manager.hasPendingPulls()).toBe(false)
+
+      // Subsequent poll (attempt 6) receives the same corrupted message (e.g. via overlap window query)
+      // The message is recognized as seen/skipped and does NOT re-trigger the 5-retry failure cycle
+      await manager.processPullResults(pullResults)
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
+    })
+
+    it('falls back to nextCursor when message cursor is omitted on 5th failure', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.onDecryptionFailure = mockOnDecryptionFailure
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-no-msg-cursor' as ItemId,
+          hasMore: false,
+          nextCursor: 25,
+          messages: [
+            {
+              encryptedMessage: {
+                iv: 'iv-fail',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await manager.processPullResults(pullResults)
+      }
+
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-no-msg-cursor', 25])
+      expect(manager.hasPendingPulls()).toBe(false)
     })
 
     it('resets retry counter on successful message parse', async () => {
