@@ -13,6 +13,7 @@ import {
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
+import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { normalizeSyncError } from 'src/shared/syncErrors'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 
@@ -37,10 +38,7 @@ export class ItemOperations {
       const updated = await this.deps.docStore.changeDocument(
         id,
         doc => {
-          for (const [key, value] of Object.entries(changes)) {
-            if (value === undefined) delete doc[key]
-            else doc[key] = value
-          }
+          applyItemUpdatesToDraft(doc, changes)
         },
         { knownToExist: true },
       )
@@ -67,9 +65,7 @@ export class ItemOperations {
       const updated = await this.deps.docStore.changeDocument(
         item.id,
         doc => {
-          for (const [key, value] of Object.entries(item)) {
-            doc[key] = value
-          }
+          applyItemUpdatesToDraft(doc, item)
         },
         { createIfMissing: true, knownToExist: false },
       )
@@ -98,10 +94,7 @@ export class ItemOperations {
         const updated = await this.deps.docStore.changeDocument(
           item.id,
           doc => {
-            for (const [key, value] of Object.entries(item)) {
-              if (value === undefined) delete doc[key]
-              else doc[key] = value
-            }
+            applyItemUpdatesToDraft(doc, item)
           },
           { createIfMissing: true, knownToExist: existingIds.has(item.id) },
         )

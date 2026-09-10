@@ -110,6 +110,40 @@ describe('ItemOperations', () => {
       expect(emitMock).not.toHaveBeenCalled()
     })
 
+    it('applies scalar changes and reconciles array changes in changeDocument callback', async () => {
+      let changeCallback: ((doc: any) => void) | undefined
+      changeDocumentMock.mockImplementation(async (_id: any, cb: any) => {
+        changeCallback = cb
+        return true
+      })
+
+      const testDoc: any = {
+        name: 'Old Name',
+        notes: [{ id: 'n1', text: 'Old note', archived: false, time: 100 }],
+        members: ['m1'],
+      }
+
+      await operations.mutateItem(itemId, {
+        name: 'New Name',
+        notes: [
+          { id: 'n2', text: 'New note', archived: false, time: 200 },
+          { id: 'n1', text: 'Edited note', archived: true, time: 100 },
+        ],
+        members: ['m1', 'm2'] as any,
+      })
+
+      expect(changeCallback).toBeDefined()
+      changeCallback!(testDoc)
+
+      expect(testDoc.name).toBe('New Name')
+      expect(testDoc.notes.length).toBe(2)
+      expect(testDoc.notes[0].id).toBe('n2')
+      expect(testDoc.notes[1].id).toBe('n1')
+      expect(testDoc.notes[1].text).toBe('Edited note')
+      expect(testDoc.notes[1].archived).toBe(true)
+      expect(testDoc.members).toEqual(['m1', 'm2'])
+    })
+
     it('emits mutationFailed and itemUpdated when changeDocument returns false', async () => {
       changeDocumentMock.mockResolvedValue(false)
       const trueState = { id: itemId, text: 'old text' }
