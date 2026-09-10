@@ -41,7 +41,13 @@ export class SyncOrchestrator {
       },
       onLeaderRevoked: () => {
         this.setLeader(false)
-      }
+      },
+      onMultipleLeadersDetected: () => {
+        this.internalEventHub.emit({ type: 'multipleLeadersDetected' })
+      },
+      onSoleLeaderRestored: () => {
+        this.internalEventHub.emit({ type: 'soleLeaderRestored' })
+      },
     })
     void this.leaderElection.acquire().catch(console.error)
   }

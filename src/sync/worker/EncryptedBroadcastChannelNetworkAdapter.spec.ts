@@ -799,5 +799,57 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         expect(onDocumentReceived).toHaveBeenCalledWith(docId)
       })
     })
+
+    it('pauses and resumes sending and receiving messages', async () => {
+      const mockMessageListener = vi.fn()
+      adapter.on('message', mockMessageListener)
+
+      let innerMessageCallback: any
+      for (const call of innerAdapterMock.on.mock.calls) {
+        if (call[0] === 'message') innerMessageCallback = call[1]
+      }
+
+      expect(adapter.isSyncPaused()).toBe(false)
+      adapter.pause()
+      expect(adapter.isSyncPaused()).toBe(true)
+
+      // Send while paused
+      const message: Message = {
+        type: 'sync',
+        senderId: 'peer1' as PeerId,
+        targetId: 'peer2' as PeerId,
+        documentId: 'doc1' as DocumentId,
+        data: new Uint8Array([1, 2]),
+      }
+      adapter.send(message)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(innerAdapterMock.send).not.toHaveBeenCalled()
+
+      // Receive while paused
+      const incomingMessage: Message = {
+        type: 'doc',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'doc1' as DocumentId,
+      }
+      innerMessageCallback(incomingMessage)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(mockMessageListener).not.toHaveBeenCalled()
+
+      // Resume
+      adapter.resume()
+      expect(adapter.isSyncPaused()).toBe(false)
+
+      adapter.send(message)
+      await vi.waitFor(() => {
+        expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
+      })
+
+      innerMessageCallback(incomingMessage)
+      await vi.waitFor(() => {
+        expect(mockMessageListener).toHaveBeenCalledWith(incomingMessage)
+      })
+    })
   })
 })
+

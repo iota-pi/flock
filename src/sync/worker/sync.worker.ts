@@ -202,6 +202,14 @@ export class SyncWorker implements SyncApi {
         case 'pollResult':
           this.handlePollResult(event.outcome)
           break
+        case 'multipleLeadersDetected':
+          console.warn('[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
+          this.repoManager?.pauseBroadcastSync()
+          break
+        case 'soleLeaderRestored':
+          console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
+          this.repoManager?.resumeBroadcastSync()
+          break
       }
     })
 

@@ -22,6 +22,8 @@ export type ClientEvent =
 
 export type WorkerInternalEvent =
   | { type: 'pollResult'; outcome: PollOutcome }
+  | { type: 'multipleLeadersDetected' }
+  | { type: 'soleLeaderRestored' }
 
 export type ClientEventListener = (event: ClientEvent) => void | Promise<void>
 export type WorkerInternalEventListener = (event: WorkerInternalEvent) => void | Promise<void>

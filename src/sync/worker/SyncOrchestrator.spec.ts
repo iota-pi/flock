@@ -380,5 +380,24 @@ describe('SyncOrchestrator', () => {
     await vi.advanceTimersByTimeAsync(40000)
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
   })
+
+  it('forwards multipleLeadersDetected and soleLeaderRestored events to internalEventHub', async () => {
+    const internalListener = vi.fn()
+    internalEventHub.subscribe(internalListener)
+
+    await orchestrator.start()
+    const leaderElection = (orchestrator as any).leaderElection
+
+    // Trigger onMultipleLeadersDetected callback
+    leaderElection.callbacks.onMultipleLeadersDetected?.()
+    expect(internalListener).toHaveBeenCalledWith({ type: 'multipleLeadersDetected' })
+
+    // Trigger onSoleLeaderRestored callback
+    leaderElection.callbacks.onSoleLeaderRestored?.()
+    expect(internalListener).toHaveBeenCalledWith({ type: 'soleLeaderRestored' })
+
+    await orchestrator.shutdown()
+  })
 })
+
 

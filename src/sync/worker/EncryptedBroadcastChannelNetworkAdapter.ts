@@ -39,6 +39,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private pendingKeyMessages = new Map<string, Message[]>()
   private activeKeyWaiters = new Set<string>()
   private isDisconnected = false
+  private isPaused = false
   private maxPendingMessagesPerKey: number
 
   constructor(options?: EncryptedBroadcastChannelOptions) {
@@ -83,7 +84,24 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.inner.disconnect()
   }
 
+  pause(): void {
+    this.isPaused = true
+    this.sendQueue = []
+    this.receiveQueue = []
+  }
+
+  resume(): void {
+    this.isPaused = false
+  }
+
+  isSyncPaused(): boolean {
+    return this.isPaused
+  }
+
   send(message: Message) {
+    if (this.isDisconnected || this.isPaused) {
+      return
+    }
     this.sendQueue.push(message)
     void this.processQueue()
   }
@@ -93,6 +111,10 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.isSending = true
     try {
       while (this.sendQueue.length > 0) {
+        if (this.isDisconnected || this.isPaused) {
+          this.sendQueue = []
+          break
+        }
         const message = this.sendQueue.shift()!
         try {
           if (message.type === 'sync' && message.data) {
@@ -119,6 +141,9 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   private handleIncomingMessage(message: Message) {
+    if (this.isDisconnected || this.isPaused) {
+      return
+    }
     this.receiveQueue.push(message)
     void this.processReceiveQueue()
   }

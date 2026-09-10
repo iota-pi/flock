@@ -40,6 +40,7 @@ export interface AutomergeRepoManagerOptions {
 export class AutomergeRepoManager {
   private repo: Repo | null = null
   private indexedDbAdapter: FlockIndexedDBStorageAdapter | null = null
+  private broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter | null = null
 
   constructor(private readonly accountId: string) {}
 
@@ -51,19 +52,37 @@ export class AutomergeRepoManager {
     const dbName = getAutomergeDBName(this.accountId)
     this.indexedDbAdapter = new FlockIndexedDBStorageAdapter(dbName)
 
+    this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+      channelName: `flock-automerge-broadcast-${this.accountId}`,
+      onKeyVersionMissing: options?.onKeyVersionMissing,
+      onDocumentReceived: options?.onDocumentReceived,
+    })
+
     this.repo = new Repo({
       storage: new QuotaHandlingStorageAdapter(this.indexedDbAdapter),
       network: [
-        new EncryptedBroadcastChannelNetworkAdapter({
-          channelName: `flock-automerge-broadcast-${this.accountId}`,
-          onKeyVersionMissing: options?.onKeyVersionMissing,
-          onDocumentReceived: options?.onDocumentReceived,
-        }),
+        this.broadcastAdapter,
         vaultNetworkAdapter,
       ],
     })
 
     return this.repo
+  }
+
+  pauseBroadcastSync(): void {
+    if (this.broadcastAdapter) {
+      this.broadcastAdapter.pause()
+    }
+  }
+
+  resumeBroadcastSync(): void {
+    if (this.broadcastAdapter) {
+      this.broadcastAdapter.resume()
+    }
+  }
+
+  isBroadcastSyncPaused(): boolean {
+    return this.broadcastAdapter?.isSyncPaused() ?? false
   }
 
   getRepo(): Repo {
@@ -80,6 +99,15 @@ export class AutomergeRepoManager {
   }
 
   async close(): Promise<void> {
+    if (this.broadcastAdapter) {
+      try {
+        this.broadcastAdapter.disconnect()
+      } catch (err) {
+        console.error(`[AutomergeRepoManager] Error disconnecting broadcast adapter for ${this.accountId}:`, err)
+      }
+      this.broadcastAdapter = null
+    }
+
     if (this.repo) {
       try {
         await this.repo.shutdown()
