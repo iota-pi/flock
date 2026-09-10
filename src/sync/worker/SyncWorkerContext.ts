@@ -194,6 +194,12 @@ export class SyncWorkerContext {
 
     this.itemOperations.resetRecoveryState()
 
+    try {
+      this.indexManager.close?.()
+    } catch (err) {
+      console.error('[SyncWorkerContext] Error closing indexManager', err)
+    }
+
     if (options?.clearLocalData) {
       try {
         await Promise.all([
