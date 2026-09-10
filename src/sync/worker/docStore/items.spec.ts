@@ -367,5 +367,47 @@ describe('items operations', () => {
 
     expect(importSpy).toHaveBeenCalledWith(remoteBinary, expect.objectContaining({ docId: expect.any(String) }))
   })
+
+  it('should notify onDocHandleReplaced when seedImportedDocument imports a document', async () => {
+    const handleReplacedListener = vi.fn()
+    docStore.onDocHandleReplaced = handleReplacedListener
+
+    const doc = Automerge.change(Automerge.init<Item>(), d => {
+      d.id = 'seeded-item' as ItemId
+      d.name = 'Seeded Item'
+    })
+    const binary = Automerge.save(doc)
+
+    const handle = await docStore.seedImportedDocument('seeded-item' as ItemId, binary)
+
+    expect(handle).toBeDefined()
+    expect(handleReplacedListener).toHaveBeenCalledTimes(1)
+    expect(handleReplacedListener).toHaveBeenCalledWith('seeded-item', handle)
+  })
+
+  it('should notify onDocHandleReplaced when compactDocument recreates and imports a document', async () => {
+    const handleReplacedListener = vi.fn()
+    docStore.onDocHandleReplaced = handleReplacedListener
+
+    const item: Item = {
+      id: 'compact-item' as ItemId,
+      type: 'person',
+      name: 'Compact Test',
+      description: 'Desc',
+      created: 1000,
+      archived: false,
+      prayerFrequency: 'none',
+      notes: [],
+      prayedFor: [],
+    }
+
+    const success = await docStore.compactDocument('compact-item' as ItemId, item)
+
+    expect(success).toBe(true)
+    expect(handleReplacedListener).toHaveBeenCalledTimes(1)
+    expect(handleReplacedListener).toHaveBeenCalledWith('compact-item', expect.objectContaining({
+      documentId: expect.any(String),
+    }))
+  })
 })
 

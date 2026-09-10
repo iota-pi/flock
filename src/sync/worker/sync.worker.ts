@@ -179,6 +179,7 @@ export class SyncWorker implements SyncApi {
       cursorStore,
       pullQueueManager,
       wal,
+      onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
     })
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
@@ -250,6 +251,41 @@ export class SyncWorker implements SyncApi {
     this.syncStatusManager.handlePollResult(outcome)
   }
 
+  private bindItemHandle(id: ItemId, handle: DocHandle<RepoDoc>) {
+    const existing = this.changeListenersByItemId.get(id)
+    if (existing) {
+      existing.handle.off('change', existing.listener)
+    }
+
+    const handleChange = (isDocChange = false) => {
+      try {
+        const doc = handle.doc() || null
+        const item = normalizeItemSnapshot(id, doc)
+        if (item?.deleted) {
+          this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+        } else if (item) {
+          this.context.indexManager.addAutomergeItemIdsToIndex([id]).catch(console.error)
+        }
+        if (isDocChange) {
+          this.context.snapshotManager.recordInboundChange(id)
+        }
+        this.clientEventHub.emit({ type: 'itemUpdated', id, item })
+      } catch (err) {
+        console.error(`[SyncWorker] Error handling Automerge doc change for item ${id}:`, err)
+      }
+    }
+    handle.on('change', () => handleChange(true))
+    this.changeListenersByItemId.set(id, { handle, listener: handleChange })
+    handleChange(false)
+  }
+
+  private handleDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>) {
+    if (this.subscribedIds.has(itemId) || this.changeListenersByItemId.has(itemId)) {
+      this.subscribedIds.add(itemId)
+      this.bindItemHandle(itemId, handle)
+    }
+  }
+
   subscribeToItems(itemIds: ItemId[]) {
     const repo = this.context.repo
     for (const id of itemIds) {
@@ -259,32 +295,8 @@ export class SyncWorker implements SyncApi {
       const url = toAutomergeUrlFromItemId(id)
       repo.find<RepoDoc>(url).then(handle => {
         if (!this.subscribedIds.has(id)) return
-
-        const existing = this.changeListenersByItemId.get(id)
-        if (existing) {
-          existing.handle.off('change', existing.listener)
-        }
-
-        const handleChange = (isDocChange = false) => {
-          try {
-            const doc = handle.doc() || null
-            const item = normalizeItemSnapshot(id, doc)
-            if (item?.deleted) {
-              this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
-            } else if (item) {
-              this.context.indexManager.addAutomergeItemIdsToIndex([id]).catch(console.error)
-            }
-            if (isDocChange) {
-              this.context.snapshotManager.recordInboundChange(id)
-            }
-            this.clientEventHub.emit({ type: 'itemUpdated', id, item })
-          } catch (err) {
-            console.error(`[SyncWorker] Error handling Automerge doc change for item ${id}:`, err)
-          }
-        }
-        handle.on('change', () => handleChange(true))
-        this.changeListenersByItemId.set(id, { handle, listener: handleChange })
-        handleChange(false)
+        const currentHandle = (repo.handles?.[handle.documentId] as DocHandle<RepoDoc> | undefined) ?? handle
+        this.bindItemHandle(id, currentHandle)
       }).catch(console.error)
     }
   }

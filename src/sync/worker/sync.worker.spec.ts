@@ -38,13 +38,19 @@ vi.mock('../../api/vault', () => ({
   initWorkerVault: vi.fn().mockResolvedValue(undefined),
 }))
 
+const { mockRepoFind } = vi.hoisted(() => ({
+  mockRepoFind: vi.fn().mockImplementation(() => Promise.resolve({
+    on: vi.fn(),
+    off: vi.fn(),
+    doc: vi.fn().mockReturnValue({ id: 'item-1', name: 'Original Item' }),
+    documentId: 'mock-doc-id',
+  }))
+}))
+
 vi.mock('./AutomergeRepoManager', () => {
   const mockRepo = {
-    find: vi.fn().mockResolvedValue({
-      on: vi.fn(),
-      off: vi.fn(),
-      doc: vi.fn().mockReturnValue({}),
-    }),
+    find: mockRepoFind,
+    handles: {},
   }
   return {
     AutomergeRepoManager: class MockRepoManager {
@@ -138,3 +144,95 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
     ])
   })
 })
+
+describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
+  it('rebinds change listener from old handle to new handle when onDocHandleReplaced is called', async () => {
+    const handleAChangeListeners: Array<() => void> = []
+    const handleA = {
+      documentId: 'doc-item-1',
+      on: vi.fn().mockImplementation((event: string, fn: () => void) => {
+        if (event === 'change') handleAChangeListeners.push(fn)
+      }),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ id: 'item-1', name: 'Original Item' }),
+    }
+
+    mockRepoFind.mockResolvedValue(handleA)
+
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    const clientEvents: any[] = []
+    ;(worker as any).clientEventHub.subscribe((evt: any) => {
+      clientEvents.push(evt)
+    })
+
+    // Subscribe to item-1
+    worker.subscribeToItems(['item-1' as any])
+    await Promise.resolve()
+
+    expect(handleA.on).toHaveBeenCalledWith('change', expect.any(Function))
+    expect(clientEvents).toContainEqual({
+      type: 'itemUpdated',
+      id: 'item-1',
+      item: expect.objectContaining({ id: 'item-1', name: 'Original Item' }),
+    })
+
+    // Now document handle is replaced (e.g. via seedImportedDocument or compactDocument)
+    const handleBChangeListeners: Array<() => void> = []
+    const handleB = {
+      documentId: 'doc-item-1',
+      on: vi.fn().mockImplementation((event: string, fn: () => void) => {
+        if (event === 'change') handleBChangeListeners.push(fn)
+      }),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ id: 'item-1', name: 'Compacted / Seeded Item' }),
+    }
+
+    clientEvents.length = 0
+
+    // Invoke docStore's onDocHandleReplaced callback
+    ;(worker as any).context.docStore.onDocHandleReplaced('item-1' as any, handleB)
+
+    // 1. Old handle listener must be unbound
+    expect(handleA.off).toHaveBeenCalledWith('change', expect.any(Function))
+
+    // 2. New handle listener must be bound
+    expect(handleB.on).toHaveBeenCalledWith('change', expect.any(Function))
+
+    // 3. Immediate snapshot must be emitted for the new handle
+    expect(clientEvents).toContainEqual({
+      type: 'itemUpdated',
+      id: 'item-1',
+      item: expect.objectContaining({ id: 'item-1', name: 'Compacted / Seeded Item' }),
+    })
+
+    // 4. Subsequent changes on handleB must trigger the listener and emit itemUpdated
+    clientEvents.length = 0
+    handleB.doc.mockReturnValue({ id: 'item-1', name: 'Subsequent Edit on New Handle' })
+    handleBChangeListeners[0]()
+
+    expect(clientEvents).toContainEqual({
+      type: 'itemUpdated',
+      id: 'item-1',
+      item: expect.objectContaining({ id: 'item-1', name: 'Subsequent Edit on New Handle' }),
+    })
+  })
+
+  it('does not bind listener when onDocHandleReplaced is called for an unsubscribed item', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    const handle = {
+      documentId: 'doc-item-unsub',
+      on: vi.fn(),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ id: 'item-unsub', name: 'Unsubscribed Item' }),
+    }
+
+    ;(worker as any).context.docStore.onDocHandleReplaced('item-unsub' as any, handle)
+
+    expect(handle.on).not.toHaveBeenCalled()
+  })
+})
+

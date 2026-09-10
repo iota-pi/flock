@@ -1,6 +1,6 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
 
-import { AutomergeDocStore } from './docStore'
+import { AutomergeDocStore, type DocHandleReplacedListener } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
@@ -30,6 +30,7 @@ export interface SyncWorkerContextDeps {
   pullQueueManager: SyncPullQueueManager
   wal?: SyncWriteAheadLog
   syncedHeadsStore?: SyncedHeadsStore
+  onDocHandleReplaced?: DocHandleReplacedListener
 }
 
 export class SyncWorkerContext {
@@ -72,6 +73,9 @@ export class SyncWorkerContext {
     this.wal = deps.wal ?? deps.broker.getWal?.() ?? new SyncWriteAheadLog(deps.accountId)
 
     this.docStore = new AutomergeDocStore(deps.repo)
+    if (deps.onDocHandleReplaced) {
+      this.docStore.onDocHandleReplaced = deps.onDocHandleReplaced
+    }
 
     this.snapshotManager = new SnapshotManager(
       {

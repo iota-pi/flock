@@ -72,8 +72,11 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
   } as Item
 }
 
+export type DocHandleReplacedListener = (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
+
 export class AutomergeDocStore {
   private pendingFindOrCreate = new Map<ItemId, Promise<RepoDocHandle>>()
+  public onDocHandleReplaced?: DocHandleReplacedListener
 
   constructor(
     private readonly repo: Repo,
@@ -216,6 +219,7 @@ export class AutomergeDocStore {
         )
       }
 
+      this.onDocHandleReplaced?.(itemId, handle)
       return handle
     })()
 
@@ -374,7 +378,7 @@ export class AutomergeDocStore {
     }
   }
 
-  async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<void> {
+  async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<DocHandle<RepoDoc>> {
     const { documentId } = this.resolveDocumentId(itemId)
 
     try {
@@ -383,9 +387,11 @@ export class AutomergeDocStore {
       // Ignore cache-eviction failures
     }
 
-    this.repo.import<RepoDoc>(binary, {
+    const handle = this.repo.import<RepoDoc>(binary, {
       docId: documentId,
     })
+    this.onDocHandleReplaced?.(itemId, handle)
+    return handle
   }
 
   async compactDocument(itemId: ItemId, item: Item): Promise<boolean> {
@@ -415,9 +421,10 @@ export class AutomergeDocStore {
       // Ignore
     }
 
-    this.repo.import<RepoDoc>(compactedBinary, {
+    const handle = this.repo.import<RepoDoc>(compactedBinary, {
       docId: documentId,
     })
+    this.onDocHandleReplaced?.(normalizedItemId, handle)
     return true
   }
 
