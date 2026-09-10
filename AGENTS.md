@@ -147,6 +147,20 @@ All data is end-to-end encrypted client-side before leaving the browser:
 - Cross-tab sync messages are also encrypted via `EncryptedBroadcastChannelNetworkAdapter`.
 - The server (lambda) cannot and does not decrypt the Automerge binaries. This means that no Automerge merging or reconcillition happens server-side. The server is a "dumb" relay.
 
+#### Cross-Tab Sync & Missing Key Queueing (Intentional Inline Wait)
+
+`EncryptedBroadcastChannelNetworkAdapter` handles cross-tab Automerge sync using encrypted messages tagged with the active key version (`kver`).
+
+When a tab receives a message encrypted with a key version not yet in its keyring (`!hasVaultKey(kver)`):
+- The receive queue pauses inline (`await waitForKeyVersion(kver, timeout)`) while firing `onKeyVersionMissing(kver)` to prompt the main thread to reload the keyring from storage or the server.
+- **Why this is intentional and NOT a head-of-line blocking bug**:
+  - **Rare trigger**: All tabs share the active key version during normal operation. A missing key version occurs *only* during key rotation or password change.
+  - **Typically resolves in milliseconds**: When key rotation occurs, the new key propagates across tabs via `localStorage` and `VAULT_EVENTS_CHANNEL` almost instantly. `waitForKeyVersion` resolves as soon as the key arrives (typically 10–50ms), allowing the normal fast path to decrypt in-place without queueing churn.
+  - **Preserves causal ordering**: Pausing briefly ensures incoming messages for the document are not interleaved or processed out-of-order during the key transition.
+  - **Subsequent messages need the same key anyway**: If Tab A rotated to a new key version, virtually all subsequent messages from Tab A are encrypted with that same new key. Jumping the queue would not help because subsequent messages would also be blocked waiting for that key.
+  - **Fallback unblocking prevents permanent stalls**: If the key cannot be acquired within `keyWaitTimeoutMs` (default 5s, e.g. offline during remote key rotation), the message is buffered into `pendingKeyMessages`, background resolution is handed off to `waitForKeyAndDrain`, and the main receive queue resumes processing. No messages are dropped.
+  - **Durable safety**: Cross-tab BroadcastChannel sync is an ephemeral peer-to-peer optimization. Local IndexedDB documents and server sync remain the durable source of truth.
+
 #### Error Recovery
 
 - **Manual Recovery Store**: Items that fail decryption are quarantined in `manualRecoveryStore` (IndexedDB) and surfaced to the user for manual intervention.
