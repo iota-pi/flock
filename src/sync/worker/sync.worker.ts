@@ -24,7 +24,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWorkerContext } from './SyncWorkerContext'
 import type { WalEntry } from './SyncWriteAheadLog'
 import { normalizeItemSnapshot, RepoDoc } from './docStore'
-import { toAutomergeUrlFromItemId } from './utils/automerge'
+import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
@@ -136,6 +136,12 @@ export class SyncWorker implements SyncApi {
     this.repoManager = new AutomergeRepoManager(accountId)
     const repo = this.repoManager.init(this.adapter, {
       onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onDocumentReceived: docId => {
+        const itemId = toVaultItemIdFromAutomergeId(docId)
+        if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+          this.subscribeToItems([itemId])
+        }
+      },
     })
 
     const cursorStore = new CursorStore(accountId)
@@ -215,6 +221,7 @@ export class SyncWorker implements SyncApi {
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
       this.subscribeToItems(itemIds)
       if (this._context) {
+        this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
         this._context.itemOperations.clearManualRecoveryForItems(itemIds).catch(console.error)
       }
     })
@@ -256,6 +263,8 @@ export class SyncWorker implements SyncApi {
             const item = normalizeItemSnapshot(id, doc)
             if (item?.deleted) {
               this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+            } else if (item) {
+              this.context.indexManager.addAutomergeItemIdsToIndex([id]).catch(console.error)
             }
             if (isDocChange) {
               this.context.snapshotManager.recordInboundChange(id)

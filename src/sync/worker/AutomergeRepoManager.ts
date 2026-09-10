@@ -1,4 +1,4 @@
-import { Repo, type StorageAdapterInterface, type Chunk } from '@automerge/automerge-repo/slim'
+import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from '@automerge/automerge-repo/slim'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { runStorageOperation } from '../../utils/storageManager'
@@ -34,6 +34,7 @@ export function getAutomergeDBName(accountId: string): string {
 
 export interface AutomergeRepoManagerOptions {
   onKeyVersionMissing?: (kver: string) => void
+  onDocumentReceived?: (documentId: DocumentId) => void
 }
 
 export class AutomergeRepoManager {
@@ -56,6 +57,7 @@ export class AutomergeRepoManager {
         new EncryptedBroadcastChannelNetworkAdapter({
           channelName: `flock-automerge-broadcast-${this.accountId}`,
           onKeyVersionMissing: options?.onKeyVersionMissing,
+          onDocumentReceived: options?.onDocumentReceived,
         }),
         vaultNetworkAdapter,
       ],

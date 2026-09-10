@@ -1,5 +1,6 @@
 import {
   NetworkAdapter,
+  type DocumentId,
   type Message,
   type PeerId,
   type PeerMetadata,
@@ -16,11 +17,14 @@ import {
   waitForKeyVersion,
   type CryptoResult,
 } from 'src/api/vault'
+import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
+import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 
-export interface EncryptedBroadcastChannelOptions extends BroadcastChannelNetworkAdapterOptions {
+export interface EncryptedBroadcastChannelOptions extends Partial<BroadcastChannelNetworkAdapterOptions> {
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
   maxPendingMessagesPerKey?: number
+  onDocumentReceived?: (documentId: DocumentId) => void
   /** @deprecated No longer used. Connection is no longer reset on crypto failures. */
   resetCooldownMs?: number
 }
@@ -45,7 +49,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   private setupInner() {
-    this.inner = new BroadcastChannelNetworkAdapter(this.options)
+    this.inner = new BroadcastChannelNetworkAdapter(this.options as BroadcastChannelNetworkAdapterOptions | undefined)
 
     // Forward events
     this.inner.on('peer-candidate', payload => this.emit('peer-candidate', payload))
@@ -96,6 +100,12 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
             const jsonString = JSON.stringify(cryptoResult)
             const encodedData = new TextEncoder().encode(jsonString)
             this.inner.send({ ...message, data: encodedData })
+            if (message.documentId) {
+              const itemId = toVaultItemIdFromAutomergeId(message.documentId)
+              if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+                publishRealtimeBusSyncPing([itemId])
+              }
+            }
           } else {
             this.inner.send(message)
           }
@@ -212,6 +222,9 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
 
             const decryptedData = await decryptBytes(cryptoResult)
             this.emit('message', { ...message, data: decryptedData })
+            if (message.documentId && this.options?.onDocumentReceived) {
+              this.options.onDocumentReceived(message.documentId)
+            }
           } else {
             this.emit('message', message)
           }

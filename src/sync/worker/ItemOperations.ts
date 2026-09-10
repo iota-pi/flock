@@ -14,6 +14,7 @@ import {
 } from '../shared/manualRecoveryStore'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { normalizeSyncError } from 'src/shared/syncErrors'
+import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 
 export const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 
@@ -75,6 +76,7 @@ export class ItemOperations {
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
+        publishRealtimeBusSyncPing([item.id])
       } else {
         this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: `Failed to create document ${item.id}` })
         const trueState = await this.deps.docStore.getAutomergeItem(item.id)
@@ -124,6 +126,7 @@ export class ItemOperations {
 
     if (succeededActiveIds.length > 0) {
       await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededActiveIds)
+      publishRealtimeBusSyncPing(succeededActiveIds)
     }
 
     for (const item of failedItems) {
@@ -289,6 +292,7 @@ export class ItemOperations {
     )
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
+    publishRealtimeBusSyncPing([itemId])
     await this.pushRecoveryItems()
   }
 

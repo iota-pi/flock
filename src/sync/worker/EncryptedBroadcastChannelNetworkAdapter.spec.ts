@@ -1,6 +1,13 @@
 import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
+import { toDocumentIdFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
+import type { ItemId } from 'src/shared/schemas/items'
+
+const mockPublishRealtimeBusSyncPing = vi.fn()
+vi.mock('../client/realtimeBus', () => ({
+  publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
+}))
 
 
 vi.mock('@automerge/automerge-repo-network-broadcastchannel', () => {
@@ -721,6 +728,75 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       expect(messageListener.mock.calls[1][0]).toEqual({
         ...msgB,
         data: new Uint8Array([12, 13]),
+      })
+    })
+  })
+
+  describe('cross-tab new item discovery', () => {
+    it('publishes realtime bus sync ping when sending a sync message for an item', async () => {
+      const docId = toDocumentIdFromItemId('item-abc' as ItemId)
+      const message: Message = {
+        type: 'sync',
+        senderId: 'peer1' as PeerId,
+        targetId: 'peer2' as PeerId,
+        documentId: docId,
+        data: new Uint8Array([1, 2, 3]),
+      }
+
+      mockPublishRealtimeBusSyncPing.mockClear()
+      adapter.send(message)
+
+      await vi.waitFor(() => {
+        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-abc'])
+      })
+    })
+
+    it('does not publish realtime bus sync ping for ACCOUNT_INDEX_DOCUMENT_ID', async () => {
+      const message: Message = {
+        type: 'sync',
+        senderId: 'peer1' as PeerId,
+        targetId: 'peer2' as PeerId,
+        documentId: ACCOUNT_INDEX_DOCUMENT_ID as unknown as DocumentId,
+        data: new Uint8Array([1, 2]),
+      }
+
+      mockPublishRealtimeBusSyncPing.mockClear()
+      adapter.send(message)
+
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(mockPublishRealtimeBusSyncPing).not.toHaveBeenCalled()
+    })
+
+    it('invokes onDocumentReceived callback when receiving a sync message', async () => {
+      const onDocumentReceived = vi.fn()
+      const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ onDocumentReceived })
+      const innerCustomAdapterMock = (customAdapter as any).inner
+
+      let innerMessageCallback: any
+      for (const call of innerCustomAdapterMock.on.mock.calls) {
+        if (call[0] === 'message') innerMessageCallback = call[1]
+      }
+
+      const docId = toDocumentIdFromItemId('item-xyz' as ItemId)
+      const cryptoResult = {
+        iv: 'mock-iv',
+        cipher: 'mock-cipher-1,2',
+        kver: '1',
+        version: '1.0',
+      }
+      const encryptedData = new TextEncoder().encode(JSON.stringify(cryptoResult))
+      const incomingMessage: Message = {
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: docId,
+        data: encryptedData,
+      }
+
+      innerMessageCallback(incomingMessage)
+
+      await vi.waitFor(() => {
+        expect(onDocumentReceived).toHaveBeenCalledWith(docId)
       })
     })
   })
