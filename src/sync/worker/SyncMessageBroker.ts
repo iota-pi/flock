@@ -173,6 +173,10 @@ export class SyncMessageBroker {
     await this.pullQueueManager.importCursors(cursors)
   }
 
+  async loadCursors(): Promise<void> {
+    await this.pullQueueManager.loadCursors()
+  }
+
   async resetCursors(): Promise<void> {
     await this.pullQueueManager.resetCursors()
   }

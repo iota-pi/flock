@@ -2,6 +2,7 @@ import { LeaderElection } from './utils/LeaderElection'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import type { SyncPullQueueManager } from './SyncPullQueueManager'
 
 
 export class SyncOrchestrator {
@@ -14,6 +15,7 @@ export class SyncOrchestrator {
 
   private pendingFlush = false
   private activePollPromise: Promise<void> | null = null
+  private cursorReloadPromise: Promise<void> | null = null
 
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
@@ -24,7 +26,8 @@ export class SyncOrchestrator {
     private accountId: string,
     private broker: SyncMessageBroker,
     private clientEventHub: ClientEventHub,
-    private internalEventHub: WorkerInternalEventHub
+    private internalEventHub: WorkerInternalEventHub,
+    private pullQueueManager?: SyncPullQueueManager
   ) {
     this.broker.onFlushNeeded = () => {
       this.flush()
@@ -52,16 +55,30 @@ export class SyncOrchestrator {
     void this.leaderElection.acquire().catch(console.error)
   }
 
+  public onLeaderChange?: (isLeader: boolean) => void
+
+  get leader(): boolean {
+    return this.isLeader
+  }
+
   setLeader(isLeader: boolean): void {
     if (this.isLeader === isLeader) {
       return
     }
     this.isLeader = isLeader
     this.broker.setSendEnabled(isLeader)
+    this.onLeaderChange?.(isLeader)
 
     if (isLeader) {
+      const reloadPromise = this.reloadCursors()
+      this.cursorReloadPromise = reloadPromise.finally(() => {
+        if (this.cursorReloadPromise === reloadPromise) {
+          this.cursorReloadPromise = null
+        }
+      })
       this.startPolling(true)
     } else {
+      this.cursorReloadPromise = null
       this.stopPolling()
     }
   }
@@ -183,6 +200,12 @@ export class SyncOrchestrator {
     const pollTask = async () => {
       let outcome: PollOutcome
       try {
+        if (this.cursorReloadPromise) {
+          await this.cursorReloadPromise
+        }
+        if (this.isShutdown || !this.isOnline || !this.isLeader) {
+          return
+        }
         outcome = await this.broker.executePoll()
       } catch (_) {
         outcome = 'failure'
@@ -230,9 +253,22 @@ export class SyncOrchestrator {
     }
   }
 
+  private async reloadCursors(): Promise<void> {
+    try {
+      if (this.pullQueueManager) {
+        await this.pullQueueManager.loadCursors()
+      } else if (typeof (this.broker as any).loadCursors === 'function') {
+        await (this.broker as any).loadCursors()
+      }
+    } catch (error) {
+      console.error('[SyncOrchestrator] Failed to reload cursors on leader promotion', error)
+    }
+  }
+
   async shutdown(): Promise<void> {
     this.isShutdown = true
     this.setLeader(false)
+    this.cursorReloadPromise = null
     if (this.leaderElection) {
       this.leaderElection.release()
       this.leaderElection = null

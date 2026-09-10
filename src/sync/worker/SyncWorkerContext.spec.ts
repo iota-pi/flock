@@ -17,6 +17,7 @@ vi.mock('./SnapshotManager', () => {
       loadLastModified = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
       flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
+      setLeader = vi.fn()
     },
   }
 })
@@ -164,5 +165,14 @@ describe('SyncWorkerContext', () => {
     expect(context.snapshotManager.shutdown).toHaveBeenCalledWith(undefined)
     expect(context.indexStore.clear).not.toHaveBeenCalled()
     expect(context.cursorStore.clear).not.toHaveBeenCalled()
+  })
+
+  it('forwards orchestrator onLeaderChange to snapshotManager.setLeader', () => {
+    expect(context.orchestrator.onLeaderChange).toBeTypeOf('function')
+    context.orchestrator.onLeaderChange!(true)
+    expect(context.snapshotManager.setLeader).toHaveBeenCalledWith(true)
+
+    context.orchestrator.onLeaderChange!(false)
+    expect(context.snapshotManager.setLeader).toHaveBeenCalledWith(false)
   })
 })

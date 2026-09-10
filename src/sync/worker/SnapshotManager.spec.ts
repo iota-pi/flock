@@ -89,7 +89,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     }
 
     lastModifiedStore = new LastModifiedStore('test-account')
-    manager = new SnapshotManager(context as any, lastModifiedStore)
+    manager = new SnapshotManager(context as any, lastModifiedStore, { isLeader: true })
   })
 
   afterEach(() => {
@@ -391,7 +391,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('splits batches when total estimated payload bytes exceed maxPayloadBytes', async () => {
       // Create a manager with small maxPayloadBytes, e.g. 200 bytes
-      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 200 })
+      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 200, isLeader: true })
 
       mockPutSnapshotsWithToken.mockResolvedValue({
         success: true,
@@ -413,7 +413,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('skips a single snapshot if it exceeds maxPayloadBytes', async () => {
       // Create a manager with extremely small maxPayloadBytes, e.g. 10 bytes
-      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 10 })
+      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 10, isLeader: true })
 
       mockPutSnapshotsWithToken.mockResolvedValue({
         success: true,
@@ -924,6 +924,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         {
           // Very small limit so snapshot exceeds it
           maxPayloadBytes: 10,
+          isLeader: true,
         },
       )
 
@@ -957,7 +958,7 @@ describe('SnapshotManager Retry Mechanism', () => {
           eventHub: mockEventHub as any,
         },
         lastModifiedStore,
-        { maxPayloadBytes: 10 },
+        { maxPayloadBytes: 10, isLeader: true },
       )
 
       managerWithLimits.markItemDirty('item-1' as ItemId)
@@ -1021,7 +1022,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const testManager = new SnapshotManager(
         context as any,
         lastModifiedStore,
-        { maxPayloadBytes: 200 },
+        { maxPayloadBytes: 200, isLeader: true },
       )
 
       testManager.markItemDirty('item-1' as ItemId)
@@ -1047,7 +1048,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const testManager = new SnapshotManager(
         context as any,
         lastModifiedStore,
-        { maxPayloadBytes: 200 },
+        { maxPayloadBytes: 200, isLeader: true },
       )
 
       // Step 1: Oversized item fails snapshot (> 200 bytes)
@@ -1294,7 +1295,6 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       it('cancels debounced timers and skips persisting when clearLocalData is true', async () => {
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
-        manager.recordInboundChange('item-inbound' as ItemId, 1234)
         manager.markItemDirty('item-dirty' as ItemId)
 
         await manager.shutdown({ clearLocalData: true })
@@ -1329,7 +1329,109 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
     })
   })
+
+  describe('Leadership Coordination and Follower Protection', () => {
+    let followerManager: SnapshotManager
+
+    beforeEach(() => {
+      // Default creation without options starts with isLeader: false
+      followerManager = new SnapshotManager(context as any, lastModifiedStore)
+    })
+
+    it('defaults isLeader to false and exposes leader getter', () => {
+      expect(followerManager.leader).toBe(false)
+    })
+
+    it('prevents flushPendingSnapshots from uploading when not leader', async () => {
+      followerManager.markItemDirty('follower-item-1' as ItemId)
+
+      const result = await followerManager.flushPendingSnapshots()
+
+      expect(result).toEqual({ persisted: 0, total: 0 })
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+
+    it('prevents pushSnapshots and triggerSnapshotPush from uploading when not leader', async () => {
+      followerManager.markItemDirty('follower-item-1' as ItemId)
+
+      const pushResult = await followerManager.pushSnapshots()
+      expect(pushResult).toEqual({ persisted: 0, total: 0 })
+
+      const triggerResult = await followerManager.triggerSnapshotPush()
+      expect(triggerResult).toEqual({ persisted: 0, total: 0 })
+
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+
+    it('does not schedule debounced push timers when marked dirty as follower', async () => {
+      followerManager.markItemDirty('follower-item-1' as ItemId)
+
+      // Advance timers beyond debounce and max wait
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
+
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+
+    it('does not push on scheduleSnapshotPush when not leader', async () => {
+      followerManager.markItemDirty('follower-item-1' as ItemId)
+      followerManager.scheduleSnapshotPush(100)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+
+    it('does not trigger push on online state change when not leader', async () => {
+      followerManager.markItemDirty('follower-item-1' as ItemId)
+      followerManager.onOnlineStateChange(true)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+
+    it('schedules debounced snapshot push when promoted to leader with dirty items', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      followerManager.markItemDirty('follower-item-1' as ItemId)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+      // Promoted to leader
+      followerManager.setLeader(true)
+      expect(followerManager.leader).toBe(true)
+
+      // Debounced push runs
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots[0].itemId).toBe('follower-item-1')
+    })
+
+    it('clears active debounce and retry timers when leadership is revoked', async () => {
+      manager.markItemDirty('leader-item-1' as ItemId)
+
+      // Leadership revoked before debounce timer fires
+      manager.setLeader(false)
+      expect(manager.leader).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+
+    it('safely no-ops during simulated visibilitychange pushSnapshots on follower tab', async () => {
+      // Simulate user editing in follower tab
+      followerManager.markItemDirty('doc-edit-1' as ItemId)
+
+      // Simulate tab visibility changing to hidden -> flushPendingSnapshots called
+      const flushResult = await followerManager.flushPendingSnapshots()
+
+      expect(flushResult).toEqual({ persisted: 0, total: 0 })
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+  })
 })
+
 
 
 

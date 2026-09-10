@@ -88,8 +88,14 @@ export class SyncWorkerContext {
       deps.accountId,
       deps.broker,
       deps.clientEventHub,
-      deps.internalEventHub
+      deps.internalEventHub,
+      deps.pullQueueManager
     )
+
+    this.orchestrator.onLeaderChange = isLeader => {
+      this.snapshotManager.setLeader(isLeader)
+    }
+    this.snapshotManager.setLeader(this.orchestrator.leader)
 
     this.itemOperations = new ItemOperations({
       accountId: deps.accountId,

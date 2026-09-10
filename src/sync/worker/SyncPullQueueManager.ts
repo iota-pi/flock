@@ -116,18 +116,25 @@ export class SyncPullQueueManager {
     return Promise.resolve()
   }
 
-  private async loadCursors(): Promise<void> {
+  async loadCursors(): Promise<void> {
+    if (this.isShutdown || !this.account) return
     try {
       const stored = await this.cursorStore.loadCursors()
       if (stored && Array.isArray(stored)) {
         for (const [itemId, cursor] of stored) {
-          const state = this.getOrCreateState(itemId)
-          state.cursor = cursor
+          if (Number.isFinite(cursor) && cursor >= 0) {
+            const state = this.getOrCreateState(itemId)
+            state.cursor = Math.max(state.cursor, cursor)
+          }
         }
       }
     } catch (error) {
       console.error('[SyncPullQueueManager] Failed to load cursors', error)
     }
+  }
+
+  async reloadCursors(): Promise<void> {
+    await this.loadCursors()
   }
 
   async persistCursors(): Promise<void> {

@@ -398,6 +398,113 @@ describe('SyncOrchestrator', () => {
 
     await orchestrator.shutdown()
   })
+
+  describe('promoted leader cursor reloading', () => {
+    it('reloads cursors via pullQueueManager and awaits reload before polling on promotion', async () => {
+      let resolveReload: () => void = () => {}
+      const reloadPromise = new Promise<void>(resolve => {
+        resolveReload = resolve
+      })
+      const mockPullQueueManager = {
+        loadCursors: vi.fn().mockImplementation(() => reloadPromise),
+      }
+
+      const orchestratorWithPQM = new SyncOrchestrator(
+        'account-1',
+        mockBroker,
+        clientEventHub,
+        internalEventHub,
+        mockPullQueueManager as any
+      )
+
+      // Promote to leader
+      orchestratorWithPQM.setLeader(true)
+
+      // loadCursors should have been called
+      expect(mockPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
+
+      // Poll must NOT have executed yet because reload is still in-flight
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockBroker.executePoll).not.toHaveBeenCalled()
+
+      // Resolve cursor reload
+      resolveReload()
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Now poll should execute with reloaded cursors
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      await orchestratorWithPQM.shutdown()
+    })
+
+    it('falls back to broker.loadCursors if pullQueueManager is not directly provided', async () => {
+      let resolveReload: () => void = () => {}
+      const reloadPromise = new Promise<void>(resolve => {
+        resolveReload = resolve
+      })
+      mockBroker.loadCursors = vi.fn().mockImplementation(() => reloadPromise)
+
+      orchestrator.setLeader(true)
+
+      expect(mockBroker.loadCursors).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockBroker.executePoll).not.toHaveBeenCalled()
+
+      resolveReload()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('cancels poll if leadership is revoked while cursor reload is in-flight', async () => {
+      let resolveReload: () => void = () => {}
+      const reloadPromise = new Promise<void>(resolve => {
+        resolveReload = resolve
+      })
+      const mockPullQueueManager = {
+        loadCursors: vi.fn().mockImplementation(() => reloadPromise),
+      }
+
+      const orchestratorWithPQM = new SyncOrchestrator(
+        'account-1',
+        mockBroker,
+        clientEventHub,
+        internalEventHub,
+        mockPullQueueManager as any
+      )
+
+      orchestratorWithPQM.setLeader(true)
+      expect(mockPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
+
+      // Leadership revoked while reloading
+      orchestratorWithPQM.setLeader(false)
+
+      // Resolve reload after revoked
+      resolveReload()
+      await vi.advanceTimersByTimeAsync(0)
+
+      // executePoll must NOT be called
+      expect(mockBroker.executePoll).not.toHaveBeenCalled()
+
+      await orchestratorWithPQM.shutdown()
+    })
+  })
+
+  it('notifies onLeaderChange callback when leadership is granted and revoked', async () => {
+    const leaderChangeListener = vi.fn()
+    orchestrator.onLeaderChange = leaderChangeListener
+
+    expect(orchestrator.leader).toBe(false)
+
+    orchestrator.setLeader(true)
+    expect(orchestrator.leader).toBe(true)
+    expect(leaderChangeListener).toHaveBeenCalledWith(true)
+
+    orchestrator.setLeader(false)
+    expect(orchestrator.leader).toBe(false)
+    expect(leaderChangeListener).toHaveBeenCalledWith(false)
+  })
 })
 
 

@@ -1252,6 +1252,7 @@ describe('SyncPullQueueManager', () => {
       // Step 1: Simulate a multi-page pull result where hasMore: true sets pending: true
       await manager.processPullResults([
         {
+          success: true,
           itemId: 'item-page' as ItemId,
           messages: [
             {
@@ -1277,6 +1278,7 @@ describe('SyncPullQueueManager', () => {
       // Step 4: Next page can be pulled successfully
       await manager.processPullResults([
         {
+          success: true,
           itemId: 'item-page' as ItemId,
           messages: [
             {
@@ -1303,6 +1305,7 @@ describe('SyncPullQueueManager', () => {
       // Subsequent pull returns peer message at 450 and echoed push message at 500
       await manager.processPullResults([
         {
+          success: true,
           itemId: 'item-sync' as ItemId,
           messages: [
             {
@@ -1336,6 +1339,7 @@ describe('SyncPullQueueManager', () => {
       // Pull both messages
       await manager.processPullResults([
         {
+          success: true,
           itemId: 'item-fail' as ItemId,
           messages: [
             {
@@ -1346,6 +1350,7 @@ describe('SyncPullQueueManager', () => {
           hasMore: false,
         },
         {
+          success: true,
           itemId: 'item-ok' as ItemId,
           messages: [
             {
@@ -1413,7 +1418,7 @@ describe('SyncPullQueueManager', () => {
       activeStore!.setItem.mockClear()
 
       manager.processPushResults([{ itemId: 'item-new' as ItemId, cursor: 100 }])
-      await manager.processPullResults([{ itemId: 'item-new' as ItemId, messages: [], hasMore: false }])
+      await manager.processPullResults([{ success: true, itemId: 'item-new' as ItemId, messages: [], hasMore: false }])
 
       expect(activeStore?.setItem).not.toHaveBeenCalled()
       expect(manager.exportCursors()).toEqual([])
@@ -1428,6 +1433,78 @@ describe('SyncPullQueueManager', () => {
       await manager.importCursors(imported)
       expect(manager.exportCursors()).toEqual(imported)
       expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', imported)
+    })
+  })
+
+  describe('loadCursors and reloadCursors', () => {
+    it('loads updated cursors from CursorStore when in-memory cursors are stale', async () => {
+      await manager.setAccount('account-reload')
+
+      // Initial in-memory state: item-1 at cursor 10
+      await manager.importCursors([['item-1' as ItemId, 10]])
+      expect(manager.getGlobalLatestCursor()).toBe(10)
+
+      // Another tab (previous leader) advanced cursors in CursorStore
+      activeStore?.getItem.mockResolvedValueOnce([
+        ['item-1', 100],
+        ['item-2', 250],
+      ])
+
+      // Promoted leader reloads cursors
+      await manager.loadCursors()
+
+      // Stored higher cursors must now be reflected in-memory
+      expect(manager.exportCursors()).toEqual(
+        expect.arrayContaining([
+          ['item-1', 100],
+          ['item-2', 250],
+        ])
+      )
+      expect(manager.getGlobalLatestCursor()).toBe(250)
+    })
+
+    it('does not regress in-memory cursors if in-memory is higher than stored', async () => {
+      await manager.setAccount('account-reload-monotonic')
+
+      await manager.importCursors([['item-1' as ItemId, 50]])
+
+      // CursorStore has a lower cursor (e.g. lagging read)
+      activeStore?.getItem.mockResolvedValueOnce([
+        ['item-1', 20],
+      ])
+
+      await manager.reloadCursors()
+
+      // In-memory cursor must not regress
+      expect(manager.exportCursors()).toEqual([['item-1', 50]])
+      expect(manager.getGlobalLatestCursor()).toBe(50)
+    })
+
+    it('preserves pending status when reloading cursors', async () => {
+      await manager.setAccount('account-reload-pending')
+
+      manager.addPendingItem('item-pending' as ItemId)
+      expect(manager.hasPendingPulls()).toBe(true)
+
+      // CursorStore has cursor 42 for item-pending
+      activeStore?.getItem.mockResolvedValueOnce([
+        ['item-pending', 42],
+      ])
+
+      await manager.loadCursors()
+
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-pending', cursor: 42 }])
+    })
+
+    it('ignores reload if manager is shutdown or account is null', async () => {
+      await manager.setAccount('account-reload-shutdown')
+      await manager.shutdown()
+
+      activeStore?.getItem.mockResolvedValueOnce([['item-1', 999]])
+      await manager.loadCursors()
+
+      expect(manager.exportCursors()).toEqual([])
     })
   })
 })

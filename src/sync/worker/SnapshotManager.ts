@@ -19,6 +19,7 @@ export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
   debounceDelayMs?: number
   maxWaitMs?: number
+  isLeader?: boolean
 }
 
 interface SnapshotPushResult {
@@ -31,6 +32,7 @@ const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
 export class SnapshotManager {
   private isShutdown = false
+  private isLeader = false
   private dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private consecutiveFailures = new Map<ItemId, number>()
@@ -68,9 +70,33 @@ export class SnapshotManager {
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
+    this.isLeader = options?.isLeader ?? false
     this.maxPayloadBytes = options?.maxPayloadBytes ?? 350 * 1024
     this.debounceDelayMs = options?.debounceDelayMs ?? 30_000
     this.maxWaitMs = options?.maxWaitMs ?? 5 * 60 * 1000
+  }
+
+  setLeader(isLeader: boolean): void {
+    if (this.isLeader === isLeader) {
+      return
+    }
+    this.isLeader = isLeader
+
+    if (isLeader) {
+      if (this.dirtyItems.size > 0) {
+        this.scheduleDebouncedSnapshotPush()
+      }
+    } else {
+      this.clearDebounceTimers()
+      if (this.retryTimeoutId !== null) {
+        clearTimeout(this.retryTimeoutId)
+        this.retryTimeoutId = null
+      }
+    }
+  }
+
+  get leader(): boolean {
+    return this.isLeader
   }
 
   async loadLastModified(): Promise<void> {
@@ -165,7 +191,7 @@ export class SnapshotManager {
   }
 
   scheduleDebouncedSnapshotPush(customDelayMs?: number) {
-    if (this.isShutdown) return
+    if (this.isShutdown || !this.isLeader) return
     const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer)
@@ -197,6 +223,9 @@ export class SnapshotManager {
 
   async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
     this.clearDebounceTimers()
+    if (this.isShutdown || !this.isLeader) {
+      return { persisted: 0, total: 0 }
+    }
     if (this.dirtyItems.size === 0 && !this.activePushPromise) {
       return { persisted: 0, total: 0 }
     }
@@ -244,7 +273,7 @@ export class SnapshotManager {
   }
 
   scheduleSnapshotPush(cursor?: number) {
-    if (this.isShutdown) return
+    if (this.isShutdown || !this.isLeader) return
     if (typeof cursor === 'number') {
       this.snapshotRequestCursor = cursor
     }
@@ -252,7 +281,7 @@ export class SnapshotManager {
   }
 
   async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
-    if (this.isShutdown) {
+    if (this.isShutdown || !this.isLeader) {
       return { persisted: 0, total: 0 }
     }
     if (this.retryTimeoutId !== null) {
@@ -269,7 +298,7 @@ export class SnapshotManager {
   }
 
   private scheduleRetry() {
-    if (this.retryTimeoutId !== null) {
+    if (this.isShutdown || !this.isLeader || this.retryTimeoutId !== null) {
       return
     }
 
@@ -288,7 +317,7 @@ export class SnapshotManager {
 
   onOnlineStateChange(isOnline: boolean) {
     if (isOnline) {
-      if (this.dirtyItems.size > 0) {
+      if (this.isLeader && this.dirtyItems.size > 0) {
         this.retryAttempt = 0
         if (this.retryTimeoutId !== null) {
           clearTimeout(this.retryTimeoutId)
@@ -310,6 +339,9 @@ export class SnapshotManager {
     dirtyItemIds: ItemId[]
     snapshotCursor: number
   } | null> {
+    if (this.isShutdown || !this.isLeader) {
+      return null
+    }
     const dirtyItemIds = Array.from(this.dirtyItems.keys())
     if (dirtyItemIds.length === 0) {
       this.snapshotRequestCursor = null
@@ -537,6 +569,10 @@ export class SnapshotManager {
   }
 
   private startPush(): Promise<SnapshotPushResult> {
+    if (this.isShutdown || !this.isLeader) {
+      return Promise.resolve({ persisted: 0, total: 0, success: true })
+    }
+
     if (this.activePushPromise) {
       this.snapshotPushPending = true
       return this.activePushPromise
@@ -553,6 +589,9 @@ export class SnapshotManager {
   }
 
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
+    if (this.isShutdown || !this.isLeader) {
+      return { persisted: 0, total: 0 }
+    }
     const res = await this.startPush()
     return { persisted: res.persisted, total: res.total }
   }
@@ -594,11 +633,11 @@ export class SnapshotManager {
 
       const hasDirtyDocs = this.dirtyItems.size > 0
 
-      if (!success && hasDirtyDocs) {
+      if (!success && hasDirtyDocs && this.isLeader) {
         this.scheduleRetry()
       }
 
-      if (this.snapshotPushPending && hasDirtyDocs) {
+      if (this.snapshotPushPending && hasDirtyDocs && this.isLeader) {
         this.snapshotPushPending = false
         void this.triggerSnapshotPush()
       } else {
@@ -623,6 +662,7 @@ export class SnapshotManager {
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     if (this.isShutdown) return
     this.isShutdown = true
+    this.isLeader = false
 
     if (this.activePushPromise) {
       try {
