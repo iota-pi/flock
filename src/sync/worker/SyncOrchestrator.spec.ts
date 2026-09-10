@@ -505,6 +505,111 @@ describe('SyncOrchestrator', () => {
     expect(orchestrator.leader).toBe(false)
     expect(leaderChangeListener).toHaveBeenCalledWith(false)
   })
+
+  describe('server outage and failure backoff (H9)', () => {
+    it('does not bypass exponential backoff with 0ms delay when poll fails with pending flush', async () => {
+      let resolvePoll: (val: any) => void = () => {}
+      const pollPromise = new Promise(resolve => {
+        resolvePoll = resolve
+      })
+
+      mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Call flush while poll is in-flight
+      orchestrator.flush()
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Should not have started a second poll yet because isPolling is true
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Resolve poll with failure (server outage / error)
+      mockBroker.executePoll.mockResolvedValueOnce('success')
+      resolvePoll('failure')
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Must NOT schedule with 0ms delay; advancing by short periods should NOT execute a second poll
+      await vi.advanceTimersByTimeAsync(10)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Advance past backoff window (step 1 = 60000ms ± 15000ms jitter, max 75000ms)
+      await vi.advanceTimersByTimeAsync(50000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not trigger immediate poll when flush is called during backoff', async () => {
+      mockBroker.executePoll.mockResolvedValueOnce('failure')
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Advance partially into backoff window
+      await vi.advanceTimersByTimeAsync(5000)
+
+      // Document edits trigger flush while in backoff
+      orchestrator.flush()
+      await vi.advanceTimersByTimeAsync(10)
+
+      // Flush must NOT immediately execute poll or bypass backoff
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not reset or starve backoff timer when multiple flushes occur during backoff', async () => {
+      mockBroker.executePoll.mockResolvedValueOnce('failure')
+      mockBroker.executePoll.mockResolvedValueOnce('success')
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Multiple flushes occur during backoff (e.g. at 10s, 20s, 30s)
+      await vi.advanceTimersByTimeAsync(10000)
+      orchestrator.flush()
+      await vi.advanceTimersByTimeAsync(10000)
+      orchestrator.flush()
+      await vi.advanceTimersByTimeAsync(10000)
+      orchestrator.flush()
+
+      // Backoff should not have restarted or starved; advancing to the scheduled window executes poll
+      await vi.advanceTimersByTimeAsync(50000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('resets backoff and allows immediate flush once a poll succeeds after earlier failures', async () => {
+      mockBroker.executePoll.mockResolvedValueOnce('failure')
+      mockBroker.executePoll.mockResolvedValueOnce('success')
+      mockBroker.executePoll.mockResolvedValueOnce('success')
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Advance through backoff to second poll (which succeeds)
+      await vi.advanceTimersByTimeAsync(80000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+
+      // Now that system is healthy (outcome === 'success'), flush should trigger immediate poll
+      orchestrator.flush()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
+    })
+  })
 })
 
 

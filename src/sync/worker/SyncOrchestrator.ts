@@ -114,11 +114,19 @@ export class SyncOrchestrator {
 
   private async flushSyncBatch(): Promise<void> {
     this.syncBatchTimeout = null
-    if (!this.isPolling) {
-      void this.executeWrappedPoll(true)
-    } else {
+    if (this.isPolling) {
       this.pendingFlush = true
+      return
     }
+
+    if (this.pollBackoffIndex > 0) {
+      if (this.pollIntervalId === null) {
+        this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+      }
+      return
+    }
+
+    void this.executeWrappedPoll(true)
   }
 
   startPolling(immediate?: boolean): void {
@@ -235,7 +243,9 @@ export class SyncOrchestrator {
 
       this.internalEventHub.emit({ type: 'pollResult', outcome })
 
-      if (wasFlushPending || (outcome === 'success' && this.broker.hasPendingPulls())) {
+      if (outcome === 'failure') {
+        this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+      } else if (wasFlushPending || (outcome === 'success' && this.broker.hasPendingPulls())) {
         this.scheduleNextPoll(0)
       } else {
         this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
