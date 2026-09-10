@@ -275,7 +275,11 @@ describe('SyncBridge', () => {
     const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
     await SyncBridge.initialize('test-account')
 
-    // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s)
+    // Move time forward by first timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s
+    await vi.advanceTimersByTimeAsync(45000)
+    expect(useAppStore.getState().syncWarning).toBe('Sync connection is slow. Checking...')
+
+    // Move time forward by second timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s -> total 90s
     await vi.advanceTimersByTimeAsync(45000)
 
     expect(useAppStore.getState().syncStatus).toBe('connecting')

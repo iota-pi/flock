@@ -18,7 +18,7 @@ import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
 import type { BackupSyncState } from 'src/types/backup'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
-import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
+import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics, recordWorkerActivity } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
 import { getAutomergeDBName } from '../worker/AutomergeRepoManager'
 import { IndexStore } from '../worker/stores/IndexStore'
@@ -159,6 +159,7 @@ class SyncBridgeService {
   }
 
   private handleSyncEvent = (event: ClientEvent) => {
+    recordWorkerActivity()
     switch (event.type) {
       case 'ready':
         break
@@ -363,6 +364,7 @@ class SyncBridgeService {
         }
 
         await wrappedApi.bootstrapItems()
+        recordWorkerActivity()
 
         if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
