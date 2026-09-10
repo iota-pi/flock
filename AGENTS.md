@@ -181,6 +181,14 @@ Flock intentionally uses **soft-deletes (tombstones)** across both client and se
   - `AutomergeDocStore.findOrCreateHandle` explicitly refuses to create a blank document if data already exists in storage (`hasDataInStorage(itemId)`). This is a vital **data loss prevention safety guard** to ensure transient handle lookup timeouts never overwrite an existing local document.
   - Accidental ID collisions between new items and soft-deleted items are statistically impossible ($< 10^{-18}$ probability).
 
+#### DynamoDB Cursor Generation & Collision Safety
+
+Incremental sync cursors in `automergeSyncService` are generated as `relativeTimestampSeconds * 10_000_000 + random(0, 9_999_000)`:
+- **Partition isolation**: The `FlockSyncMessages` primary key is `syncId` (`${account}#${itemId}`) + `cursor`. Pushes for different items or accounts never collide, even if they share the exact same cursor value.
+- **Negligible collision probability**: A collision requires two devices on the *same* account editing the *exact same item* within the *exact same 1-second window* and choosing the exact same random offset ($P \approx 10^{-7}$, $\sim 1\text{ in }10,000,000$).
+- **Non-monotonic pull safety**: Random offsets mean cursors within a 1-second bucket are not strictly chronological. Pull queries apply an intentional lookback buffer (`OVERLAP_WINDOW_SECONDS = 10` / `OVERLAP_CURSOR_DELTA = 100_000_000`) so clients never skip out-of-order cursors.
+- **Snapshot recovery safety**: In the negligible event of an overwrite during `BatchWriteCommand`, permanent data loss is prevented because local Automerge documents in IndexedDB are authoritative and `SnapshotManager` periodically syncs full document snapshots to `FlockItems`.
+
 ## Server-Side Architecture
 
 The server is a Fastify app with tRPC routers, deployed as an AWS Lambda behind a Function URL:
