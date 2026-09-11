@@ -239,16 +239,19 @@ export class ManifestSyncManager {
         if (item.snapshot) {
           const binary = await this.decryptSnapshotBinary(item.snapshot)
           if (binary) {
-            await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
+            const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
               knownToExist: knownSet.has(itemId),
             })
             try {
-              const doc = Automerge.load(binary)
-              const heads = Automerge.getHeads(doc)
+              const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
               this.onItemSnapshotHydrated?.(itemId, heads)
             } catch {}
             hydratedIds.push(itemId)
-            lastModifiedUpdates.push([itemId, serverTime])
+            if (hydrationResult?.hasLocalChanges) {
+              this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+            } else {
+              lastModifiedUpdates.push([itemId, serverTime])
+            }
             decryptedSuccessfully = true
             return
           }

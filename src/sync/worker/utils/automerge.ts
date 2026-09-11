@@ -54,3 +54,16 @@ export function toVaultItemIdFromAutomergeId(documentId: DocumentId): ItemId {
     return documentId as unknown as ItemId
   }
 }
+
+export function areHeadsEqual(a?: string[], b?: string[]): boolean {
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  if (a.length === 0) return true
+  if (a.length === 1) return a[0] === b[0]
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  for (let i = 0; i < sortedA.length; i++) {
+    if (sortedA[i] !== sortedB[i]) return false
+  }
+  return true
+}

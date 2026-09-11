@@ -270,7 +270,11 @@ describe('items operations', () => {
     })
     const remoteBinary = Automerge.save(remoteDoc)
 
-    await docStore.hydrateAutomergeDocumentBinary('imported-item-1', remoteBinary)
+    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('imported-item-1', remoteBinary)
+    expect(hydrationResult).toEqual({
+      hasLocalChanges: false,
+      incomingHeads: Automerge.getHeads(remoteDoc),
+    })
 
     const retrieved = await docStore.getAutomergeItem('imported-item-1' as ItemId)
     expect(retrieved).not.toBeNull()
@@ -315,7 +319,11 @@ describe('items operations', () => {
     const remoteSnapshotBinary = Automerge.save(remoteUpdatedDoc)
 
     // 4. Hydrate the incoming snapshot into docStore
-    await docStore.hydrateAutomergeDocumentBinary('merged-item-1', remoteSnapshotBinary)
+    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('merged-item-1', remoteSnapshotBinary)
+    expect(hydrationResult).toEqual({
+      hasLocalChanges: true,
+      incomingHeads: Automerge.getHeads(remoteUpdatedDoc),
+    })
 
     // 5. Verify that local and remote changes are both merged seamlessly
     const mergedResult = await docStore.getAutomergeItem('merged-item-1' as ItemId)
@@ -328,6 +336,41 @@ describe('items operations', () => {
     const noteTexts = mergedResult?.notes?.map(n => n.text)
     expect(noteTexts).toContain('Local Note')
     expect(noteTexts).toContain('Remote Note')
+  })
+
+  it('should report hasLocalChanges: false when incoming snapshot is a fast-forward of existing local document without local edits', async () => {
+    // 1. Initial base document
+    const baseDoc = Automerge.change(Automerge.init<Item>(), doc => {
+      doc.id = 'ff-item-1' as ItemId
+      doc.type = 'person'
+      doc.name = 'Base Name'
+      doc.description = 'Base Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = []
+      doc.prayedFor = []
+    })
+    const baseBinary = Automerge.save(baseDoc)
+
+    // Load base doc into local docStore
+    await docStore.hydrateAutomergeDocumentBinary('ff-item-1', baseBinary)
+
+    // 2. Remote makes an update on top of baseDoc (no local edits made)
+    const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), doc => {
+      doc.name = 'Remote Name Update'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    // 3. Hydrate remote snapshot into docStore
+    const result = await docStore.hydrateAutomergeDocumentBinary('ff-item-1', remoteBinary)
+
+    // 4. Since local had no unique edits, hasLocalChanges must be false
+    expect(result.hasLocalChanges).toBe(false)
+    expect(result.incomingHeads).toEqual(Automerge.getHeads(remoteDoc))
+
+    const retrieved = await docStore.getAutomergeItem('ff-item-1' as ItemId)
+    expect(retrieved?.name).toBe('Remote Name Update')
   })
 
   it('should non-destructively merge local storage edits with incoming snapshot when findHandle times out and doc exists in storage', async () => {
@@ -373,7 +416,9 @@ describe('items operations', () => {
     const customDocStore = new AutomergeDocStore(customRepo)
 
     // Hydrate should NOT clobber unsynced local edits; it should perform non-destructive CRDT merge
-    await customDocStore.hydrateAutomergeDocumentBinary('timeout-item', remoteBinary)
+    const fallbackResult = await customDocStore.hydrateAutomergeDocumentBinary('timeout-item', remoteBinary)
+    expect(fallbackResult.hasLocalChanges).toBe(true)
+    expect(fallbackResult.incomingHeads).toEqual(Automerge.getHeads(remoteDoc))
 
     // Verify import was called with the merged binary
     expect(importSpy).toHaveBeenCalled()

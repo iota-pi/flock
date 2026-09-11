@@ -10,23 +10,11 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { debounce } from 'lodash-es'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
+import { areHeadsEqual } from './utils/automerge'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
 export const MAX_OUTBOUND_QUEUE_SIZE = 1000
-
-export function areHeadsEqual(a?: string[], b?: string[]): boolean {
-  if (!a || !b) return false
-  if (a.length !== b.length) return false
-  if (a.length === 0) return true
-  if (a.length === 1) return a[0] === b[0]
-  const sortedA = [...a].sort()
-  const sortedB = [...b].sort()
-  for (let i = 0; i < sortedA.length; i++) {
-    if (sortedA[i] !== sortedB[i]) return false
-  }
-  return true
-}
 
 export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null

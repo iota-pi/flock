@@ -3,12 +3,23 @@ import * as Automerge from '@automerge/automerge/slim'
 import { ItemId, ItemIdSchema, standardItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
 import type { Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
-import { readObjectSnapshot, toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
+import {
+  readObjectSnapshot,
+  toAutomergeUrlFromItemId,
+  ACCOUNT_INDEX_DOCUMENT_ID,
+  areHeadsEqual,
+  type BackupDocId,
+} from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
+
+export interface HydrateDocumentResult {
+  hasLocalChanges: boolean
+  incomingHeads: string[]
+}
 
 export type ChangeDocumentOptions = {
   createIfMissing?: boolean
@@ -345,10 +356,18 @@ export class AutomergeDocStore {
     itemId: string,
     binary: Uint8Array,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
-  ): Promise<void> {
+  ): Promise<HydrateDocumentResult> {
     const normalizedItemId = normalizeItemId(itemId)
     if (!normalizedItemId || !(binary instanceof Uint8Array) || binary.byteLength === 0) {
-      return
+      return { hasLocalChanges: false, incomingHeads: [] }
+    }
+
+    let incomingHeads: string[] = []
+    try {
+      const incomingDoc = Automerge.load<RepoDoc>(binary)
+      incomingHeads = Automerge.getHeads(incomingDoc)
+    } catch {
+      // Ignore initial parse failure here; it will throw when importing/loading below if corrupt
     }
 
     try {
@@ -365,6 +384,10 @@ export class AutomergeDocStore {
             // Ignore temp handle cleanup failure
           }
         }
+        const doc = existingHandle.doc()
+        const postMergeHeads = doc ? Automerge.getHeads(doc) : []
+        const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
+        return { hasLocalChanges, incomingHeads }
       } else {
         // Document handle was not available or not ready within timeout.
         // Check whether document exists in storage to avoid clobbering local edits.
@@ -387,7 +410,9 @@ export class AutomergeDocStore {
               const mergedDoc = Automerge.merge(localDoc, incomingDoc)
               const mergedBinary = Automerge.save(mergedDoc)
               await this.seedImportedDocument(normalizedItemId, mergedBinary)
-              return
+              const postMergeHeads = Automerge.getHeads(mergedDoc)
+              const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
+              return { hasLocalChanges, incomingHeads }
             } catch (mergeError) {
               console.error('[AutomergeDocStore] Non-destructive direct merge failed', {
                 itemId: normalizedItemId,
@@ -407,6 +432,7 @@ export class AutomergeDocStore {
 
         // Genuinely new document - safe to seed
         await this.seedImportedDocument(normalizedItemId, binary)
+        return { hasLocalChanges: false, incomingHeads }
       }
     } catch (error) {
       console.error('[automerge] failed to hydrate document', {

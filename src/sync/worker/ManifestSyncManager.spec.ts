@@ -927,6 +927,68 @@ describe('ManifestSyncManager', () => {
         ['item-server', 3000],
       ])
     })
+
+    it('marks item dirty upstream and omits from lastModifiedUpdates when hydration merges local edits (hasLocalChanges is true)', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-merged' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-merged', 1000]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-merged', 2000]],
+        serverTime: 2000,
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-merged',
+            snapshot: { iv: 'iv', cipher: 'c' },
+          },
+        ],
+        serverTime: 2000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockHydrateAutomergeDocumentBinary.mockResolvedValue({
+        hasLocalChanges: true,
+        incomingHeads: ['remote-head-1'],
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-merged', 2000)
+      expect(depsObj.snapshotManager.importLastModified).not.toHaveBeenCalled()
+      expect(result).toEqual({ added: ['item-merged'] })
+    })
+
+    it('does not mark item dirty and includes in lastModifiedUpdates when hydration has no local edits (hasLocalChanges is false)', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-clean' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-clean', 1000]])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-clean', 2000]],
+        serverTime: 2000,
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-clean',
+            snapshot: { iv: 'iv', cipher: 'c' },
+          },
+        ],
+        serverTime: 2000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockHydrateAutomergeDocumentBinary.mockResolvedValue({
+        hasLocalChanges: false,
+        incomingHeads: ['remote-head-1'],
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(depsObj.snapshotManager.markItemDirty).not.toHaveBeenCalled()
+      expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith([
+        ['item-clean', 2000],
+      ])
+      expect(result).toEqual({ added: ['item-clean'] })
+    })
   })
 })
 
