@@ -668,6 +668,7 @@ describe('SyncOrchestrator', () => {
     it('triggers manifest sync on reconnection when leader', async () => {
       orchestrator.setManifestSyncManager(mockManifestSyncManager)
       orchestrator.setLeader(true)
+      await vi.advanceTimersByTimeAsync(0)
       // Initial state is online, reset to offline
       orchestrator.setOnlineState(false)
       mockManifestSyncManager.sync.mockClear()
@@ -819,6 +820,72 @@ describe('SyncOrchestrator', () => {
       resolveSync({ added: [] })
       await shutdownPromise
       expect(shutdownFinished).toBe(true)
+    })
+
+    it('prevents concurrent manifest syncs on rapid online/offline toggles', async () => {
+      let resolveSync: (val: any) => void = () => {}
+      mockManifestSyncManager.sync.mockImplementation(
+        () => new Promise(resolve => { resolveSync = resolve })
+      )
+
+      orchestrator.setManifestSyncManager(mockManifestSyncManager)
+      orchestrator.setLeader(true)
+      // First sync is now initiated and in-flight
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      // Rapidly toggle online/offline multiple times while sync is in flight
+      orchestrator.setOnlineState(false)
+      orchestrator.setOnlineState(true)
+      orchestrator.setOnlineState(false)
+      orchestrator.setOnlineState(true)
+      orchestrator.setOnlineState(false)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Must NOT have spawned additional concurrent manifest syncs
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      // Finish the active sync
+      resolveSync({ added: [] })
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Now that the active sync has resolved, a subsequent reconnection can trigger a new sync
+      orchestrator.setOnlineState(false)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(2)
+    })
+
+    it('returns existing in-flight promise when triggerManifestSync is called concurrently', async () => {
+      let resolveSync: (val: any) => void = () => {}
+      mockManifestSyncManager.sync.mockImplementation(
+        () => new Promise(resolve => { resolveSync = resolve })
+      )
+
+      orchestrator.setManifestSyncManager(mockManifestSyncManager)
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+
+      const p1 = orchestrator.triggerManifestSync()
+      const p2 = orchestrator.triggerManifestSync()
+
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      let p1Resolved = false
+      let p2Resolved = false
+      p1.then(() => { p1Resolved = true })
+      p2.then(() => { p2Resolved = true })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(p1Resolved).toBe(false)
+      expect(p2Resolved).toBe(false)
+
+      resolveSync({ added: [] })
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(p1Resolved).toBe(true)
+      expect(p2Resolved).toBe(true)
     })
   })
 })

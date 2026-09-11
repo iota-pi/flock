@@ -361,6 +361,9 @@ export class SyncOrchestrator {
     if (this.isShutdown || !this.isOnline || !this.isLeader || !this.manifestSyncManager) {
       return
     }
+    if (this.activeManifestSyncPromise) {
+      return this.activeManifestSyncPromise
+    }
     const syncPromise = (async () => {
       try {
         await this.manifestSyncManager!.sync(force)
