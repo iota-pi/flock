@@ -645,8 +645,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
   async fetchManifest(
     { account }: { account: string },
-  ): Promise<Array<{ itemId: string; modifiedAt: number }>> {
-    const manifest: Array<{ itemId: string; modifiedAt: number }> = []
+  ): Promise<Array<{ itemId: string; modifiedAt: number; deleted?: boolean }>> {
+    const manifest: Array<{ itemId: string; modifiedAt: number; deleted?: boolean }> = []
     let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
 
     while (true) {
@@ -657,11 +657,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           '#itemKey': 'item',
           '#modifiedAt': 'modifiedAt',
           '#metadata': 'metadata',
+          '#deleted': 'deleted',
         },
         ExpressionAttributeValues: {
           ':accountid': account,
         },
-        ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified',
+        ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
         ExclusiveStartKey: lastEvaluatedKey,
       }
 
@@ -671,10 +672,15 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         for (const record of response.Items) {
           const itemId = record.item as string
           if (!itemId) continue
+          const isDeleted = record.metadata?.deleted === true || (record as Record<string, unknown>).deleted === true
           const modifiedAt = typeof record.modifiedAt === 'number'
             ? record.modifiedAt
             : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
-          manifest.push({ itemId, modifiedAt })
+          manifest.push({
+            itemId,
+            modifiedAt,
+            ...(isDeleted ? { deleted: true } : {}),
+          })
         }
       }
       lastEvaluatedKey = response?.LastEvaluatedKey

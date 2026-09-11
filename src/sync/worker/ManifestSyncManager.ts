@@ -109,7 +109,7 @@ export class ManifestSyncManager {
 
     const knownSet = new Set(knownItemIds)
     const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
-    const serverManifestMap = new Map<string, number>(manifestResponse.manifest)
+    const serverManifestMap = new Map<string, number>(manifestResponse.manifest.map(([itemId, serverTime]) => [itemId, serverTime]))
 
     let quarantinedMap = new Map<ItemId, number>()
     if (this.deps.accountId) {
@@ -123,40 +123,78 @@ export class ManifestSyncManager {
       }
     }
 
-    const missingIds = manifestResponse.manifest
-      .filter(([itemId, serverTime]) => {
-        const id = itemId as ItemId
-        if (!id) return false
+    const locallyTombstonedSnapshots: Item[] = []
+    const deletedLastModifiedUpdates: [ItemId, number][] = []
+    const missingIds: ItemId[] = []
 
-        // If not forced and item is currently quarantined in manual recovery:
-        // skip unless the server has a newer snapshot timestamp than when it was quarantined
-        if (!force && quarantinedMap.has(id)) {
-          const quarantinedAt = quarantinedMap.get(id) ?? 0
-          if (serverTime <= quarantinedAt) {
-            return false
-          }
+    for (const [itemId, serverTime, isDeleted] of manifestResponse.manifest) {
+      const id = itemId as ItemId
+      if (!id) continue
+
+      // If not forced and item is currently quarantined in manual recovery:
+      // skip unless the server has a newer snapshot timestamp than when it was quarantined
+      if (!force && quarantinedMap.has(id)) {
+        const quarantinedAt = quarantinedMap.get(id) ?? 0
+        if (serverTime <= quarantinedAt) {
+          continue
         }
+      }
 
-        const localTime = localLastModifiedMap.get(id) ?? 0
-        if (localTime === 0) return true
-        if (force && !knownSet.has(id)) return true
-        if (serverTime === localTime) return false
-        if (serverTime > localTime) return true
+      const localTime = localLastModifiedMap.get(id) ?? 0
 
-        // Clock skew + buffer compensation for cases where client clock was ahead
-        const adjustedLocalTime = localTime - Math.max(0, clockSkew) - SKEW_BUFFER_MS
-        if (serverTime > adjustedLocalTime) return true
+      if (isDeleted) {
+        if (knownSet.has(id)) {
+          // Item exists locally and is active, but the server manifest indicates it is deleted.
+          // Apply tombstone locally and record timestamp to prevent resurrection.
+          locallyTombstonedSnapshots.push({ id, deleted: true } as unknown as Item)
+          deletedLastModifiedUpdates.push([id, serverTime])
+        } else if (serverTime > localTime) {
+          // Item is deleted on server and client does not have it active (e.g. fresh login or already deleted).
+          // Track that this item exists and is deleted at serverTime without fetching snapshot.
+          deletedLastModifiedUpdates.push([id, serverTime])
+        }
+        continue
+      }
 
-        return false
-      })
-      .map(([itemId]) => itemId as ItemId)
+      if (localTime === 0) {
+        missingIds.push(id)
+        continue
+      }
+      if (force && !knownSet.has(id)) {
+        missingIds.push(id)
+        continue
+      }
+      if (serverTime === localTime) continue
+      if (serverTime > localTime) {
+        missingIds.push(id)
+        continue
+      }
+
+      // Clock skew + buffer compensation for cases where client clock was ahead
+      const adjustedLocalTime = localTime - Math.max(0, clockSkew) - SKEW_BUFFER_MS
+      if (serverTime > adjustedLocalTime) {
+        missingIds.push(id)
+        continue
+      }
+    }
+
+    // Apply any local tombstones discovered from server manifest
+    if (locallyTombstonedSnapshots.length > 0) {
+      await this.storeItems(locallyTombstonedSnapshots, { markDirty: false })
+    }
+
+    if (deletedLastModifiedUpdates.length > 0) {
+      await this.deps.snapshotManager.importLastModified(deletedLastModifiedUpdates)
+    }
 
     // Two-Way Manifest Reconciliation (Upstream):
-    // Identify local items that need to be pushed as snapshots to the server
+    // Identify local items that need to be pushed as snapshots to the server.
+    // Exclude items that were just locally tombstoned.
     const missingSet = new Set(missingIds)
+    const locallyTombstonedSet = new Set(locallyTombstonedSnapshots.map(s => s.id as ItemId))
     const upstreamIds: ItemId[] = []
     for (const localId of knownItemIds) {
-      if (missingSet.has(localId)) continue
+      if (missingSet.has(localId) || locallyTombstonedSet.has(localId)) continue
       const serverTime = serverManifestMap.get(localId)
       const localTime = localLastModifiedMap.get(localId) ?? 0
 

@@ -989,6 +989,91 @@ describe('ManifestSyncManager', () => {
       ])
       expect(result).toEqual({ added: ['item-clean'] })
     })
+
+    it('on initial login, skips snapshot downloads for tombstoned items and imports their timestamps', async () => {
+      // Fresh client: no local items, no timestamps
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([])
+
+      mockFetchManifest.mockResolvedValue({
+        manifest: [
+          ['item-active-1', 1000],
+          ['item-tombstone-1', 2000, true],
+          ['item-tombstone-2', 3000, true],
+        ],
+        serverTime: 3000,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-active-1',
+            snapshot: { iv: 'iv-act', cipher: 'c-act' },
+          },
+        ],
+        serverTime: 3000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockHydrateAutomergeDocumentBinary.mockResolvedValue({
+        hasLocalChanges: false,
+        incomingHeads: ['head-1'],
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      // CRITICAL: fetchSnapshotsByIds must ONLY be called for active items, NEVER for tombstoned items
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
+        account: 'acc-123',
+        itemIds: ['item-active-1'],
+      })
+
+      // Timestamps for tombstones must be imported so future syncs recognize them
+      expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          ['item-tombstone-1', 2000],
+          ['item-tombstone-2', 3000],
+        ])
+      )
+
+      expect(storeItemsSpy).not.toHaveBeenCalled()
+      expect(result).toEqual({ added: ['item-active-1'] })
+    })
+
+    it('tombstones local active item when server manifest marks it deleted, without snapshot download or upstream resurrection', async () => {
+      // Client has item-local active locally
+      mockListAutomergeItemIds.mockResolvedValue(['item-local' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-local', 1000]])
+
+      mockFetchManifest.mockResolvedValue({
+        manifest: [
+          ['item-local', 2000, true],
+        ],
+        serverTime: 2000,
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      // Must NOT fetch snapshot payload for deleted item
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+
+      // Must store tombstone locally with markDirty: false
+      expect(storeItemsSpy).toHaveBeenCalledWith(
+        [{ id: 'item-local', deleted: true }],
+        { markDirty: false }
+      )
+
+      // Must NOT push item-local upstream
+      expect(depsObj.snapshotManager.markItemDirty).not.toHaveBeenCalled()
+
+      // Must import timestamp
+      expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith([
+        ['item-local', 2000],
+      ])
+
+      expect(result).toEqual({ added: [] })
+    })
   })
 })
 

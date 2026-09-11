@@ -5,14 +5,16 @@ import type { ItemId } from '../../shared/schemas/items'
 import { getTrpcClient } from '../trpcClient'
 
 
-export async function fetchManifest({ account }: { account: string }): Promise<{ manifest: Array<[string, number]>; serverTime: number }> {
+export type ManifestEntry = [string, number, boolean?]
+
+export async function fetchManifest({ account }: { account: string }): Promise<{ manifest: Array<ManifestEntry>; serverTime: number }> {
   const input = FetchItemsInputSchema.parse({ account })
   const data = await getTrpcClient().items.fetchManifest.query(input)
   assertSuccess(data, 'fetchManifest')
 
   const serverTime = typeof data.serverTime === 'number' ? data.serverTime : Date.now()
   return {
-    manifest: data.manifest as Array<[string, number]>,
+    manifest: data.manifest as Array<ManifestEntry>,
     serverTime,
   }
 }
