@@ -7,6 +7,23 @@ vi.mock('../client/realtimeBus', () => ({
   publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
 }))
 
+const mockUpdateMetadataMutate = vi.fn().mockResolvedValue({ success: true })
+const mockHasApiAuthToken = vi.fn().mockReturnValue(true)
+
+vi.mock('../../api/runtime', () => ({
+  hasApiAuthToken: () => mockHasApiAuthToken(),
+}))
+
+vi.mock('../../api/trpcClient', () => ({
+  getTrpcClient: () => ({
+    accounts: {
+      updateMetadata: {
+        mutate: mockUpdateMetadataMutate,
+      },
+    },
+  }),
+}))
+
 describe('ItemOperations', () => {
   let deps: ItemOperationsDeps
   let operations: ItemOperations
@@ -19,6 +36,8 @@ describe('ItemOperations', () => {
 
   beforeEach(() => {
     mockPublishRealtimeBusSyncPing.mockClear()
+    mockUpdateMetadataMutate.mockClear()
+    mockHasApiAuthToken.mockReturnValue(true)
     emitMock = vi.fn()
     changeDocumentMock = vi.fn()
     addAutomergeItemIdsToIndexMock = vi.fn()
@@ -306,5 +325,90 @@ describe('ItemOperations', () => {
       await expect(operations.compactItem('missing-item' as ItemId)).rejects.toThrow('No local item found')
     })
   })
+
+  describe('mutateMetadata', () => {
+    it('updates index manager and pushes syncable metadata to server when authenticated', async () => {
+      const updatedMetadata = {
+        prayerGoal: 10,
+        defaultPrayerFrequency: { person: 'daily' as const },
+        updatedAt: 12345,
+      }
+      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
+
+      await operations.mutateMetadata({ prayerGoal: 10, defaultPrayerFrequency: { person: 'daily' } })
+
+      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prayerGoal: 10,
+          defaultPrayerFrequency: { person: 'daily' },
+          updatedAt: expect.any(Number),
+        }),
+      )
+      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
+        account: 'account-1',
+        metadata: {
+          prayerGoal: 10,
+          defaultPrayerFrequency: { person: 'daily' },
+          updatedAt: 12345,
+        },
+      })
+    })
+
+    it('does not push to server when only device-local sortCriteria is changed', async () => {
+      const updatedMetadata = {
+        sortCriteria: [{ type: 'name' as const, reverse: false }],
+      }
+      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
+
+      await operations.mutateMetadata({ sortCriteria: [{ type: 'name', reverse: false }] })
+
+      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalledWith({
+        sortCriteria: [{ type: 'name', reverse: false }],
+      })
+      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+    })
+
+    it('does not push to server when pushRemote is false', async () => {
+      const updatedMetadata = { prayerGoal: 20, updatedAt: 555 }
+      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
+
+      await operations.mutateMetadata({ prayerGoal: 20 }, { pushRemote: false })
+
+      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalled()
+      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+    })
+
+    it('catches and warns on server push error without throwing', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockUpdateMetadataMutate.mockRejectedValueOnce(new Error('Network error'))
+      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue({ prayerGoal: 5 })
+
+      await expect(operations.mutateMetadata({ prayerGoal: 5 })).resolves.not.toThrow()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to push metadata to server'),
+        expect.any(Error),
+      )
+      warnSpy.mockRestore()
+    })
+
+    it('emits mutationFailed and rolls back metadata if updateAutomergeMetadata throws', async () => {
+      deps.indexManager.updateAutomergeMetadata = vi.fn().mockRejectedValue(new Error('Storage failure'))
+      deps.indexManager.getAutomergeMetadata = vi.fn().mockResolvedValue({ prayerGoal: 3 })
+
+      await operations.mutateMetadata({ prayerGoal: 10 })
+
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'mutationFailed',
+        mutationType: 'metadata',
+        error: 'Storage failure',
+      })
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'metadataUpdated',
+        metadata: { prayerGoal: 3 },
+      })
+      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+    })
+  })
 })
+
 

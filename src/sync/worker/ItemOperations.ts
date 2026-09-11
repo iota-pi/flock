@@ -16,6 +16,9 @@ import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { normalizeSyncError } from 'src/shared/syncErrors'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
+import { hasApiAuthToken } from '../../api/runtime'
+import { getTrpcClient } from '../../api/trpcClient'
+import { extractSyncableMetadata, hasSyncableChanges } from './utils/metadataSync'
 
 export const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 
@@ -140,9 +143,30 @@ export class ItemOperations {
     }
   }
 
-  async mutateMetadata(changes: Partial<AccountMetadata>): Promise<void> {
+  async mutateMetadata(
+    changes: Partial<AccountMetadata>,
+    options?: { pushRemote?: boolean },
+  ): Promise<void> {
     try {
-      await this.deps.indexManager.updateAutomergeMetadata(changes)
+      const isSyncable = hasSyncableChanges(changes)
+      const nextChanges: Partial<AccountMetadata> = isSyncable
+        ? { ...changes, updatedAt: changes.updatedAt ?? Date.now() }
+        : changes
+
+      const updated = await this.deps.indexManager.updateAutomergeMetadata(nextChanges)
+
+      const shouldPush = (options?.pushRemote ?? true) && isSyncable
+      if (shouldPush && hasApiAuthToken() && this.deps.accountId) {
+        const syncablePayload = extractSyncableMetadata(updated)
+        try {
+          await getTrpcClient().accounts.updateMetadata.mutate({
+            account: this.deps.accountId,
+            metadata: syncablePayload,
+          })
+        } catch (pushErr) {
+          console.warn('[ItemOperations] Failed to push metadata to server (will retry on next sync):', pushErr)
+        }
+      }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'metadata', error: (err as Error).message })
       const metadata = await this.deps.indexManager.getAutomergeMetadata()

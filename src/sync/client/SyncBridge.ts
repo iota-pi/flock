@@ -717,9 +717,9 @@ class SyncBridgeService {
     return this.syncApi!.storeItems(items)
   }
 
-  async mutateMetadata(changes: Partial<AccountMetadata>): Promise<void> {
+  async mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }): Promise<void> {
     await this.ensureReady()
-    return this.syncApi!.mutateMetadata(changes)
+    return this.syncApi!.mutateMetadata(changes, options)
   }
 
   async exportAllBinaries(): Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }> {

@@ -11,7 +11,7 @@ export interface SyncApi {
   mutateItem: (id: ItemId, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>
   storeItems: (items: Item[]) => Promise<void>
-  mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
+  mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>
   exportAllBinaries: () => Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   flushSync: () => void,

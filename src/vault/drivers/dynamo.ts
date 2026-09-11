@@ -463,7 +463,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       expressionAttributeValues[':sessions'] = normalizeSessionRecords(sessions)
     }
 
-    if (metadata && Object.keys(metadata).length > 0) {
+    if (metadata !== undefined && metadata !== null) {
       updateExpressions.push('metadata=:metadata')
       expressionAttributeValues[':metadata'] = metadata
     }

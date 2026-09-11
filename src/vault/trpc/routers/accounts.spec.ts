@@ -43,6 +43,24 @@ describe('accountsRouter security contracts', () => {
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })
 
+  it('updates account metadata when authorized', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const metadata = { prayerGoal: 10, defaultPrayerFrequency: { person: 'daily' } }
+    const result = await caller.updateMetadata({
+      account: 'acct-1',
+      metadata,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+      account: 'acct-1',
+      metadata,
+    })
+  })
+
+
   it('blocks unauthorized metadata access when auth token is missing', async () => {
     const ctx = createContext({ authToken: '' })
     const caller = accountsRouter.createCaller(ctx as any)

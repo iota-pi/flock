@@ -14,6 +14,7 @@ import { getTrpcClient } from 'src/api/trpcClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { readManualRecoveryEntries } from '../shared/manualRecoveryStore'
+import { reconcileAccountMetadata, extractSyncableMetadata } from './utils/metadataSync'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
@@ -30,7 +31,7 @@ export class ManifestSyncManager {
       snapshotManager: SnapshotManager
     },
     private storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
-    private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>,
+    private mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
     private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
     private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {}
@@ -217,7 +218,7 @@ export class ManifestSyncManager {
     }
 
     if (missingIds.length === 0) {
-      await this.hydrateMetadata()
+      await this.syncMetadata()
       await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
       return { added: [] }
     }
@@ -354,7 +355,7 @@ export class ManifestSyncManager {
       await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
     }
 
-    await this.hydrateMetadata()
+    await this.syncMetadata()
 
     if (!hasBatchFailures && !hasHydrationFailures) {
       await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
@@ -380,26 +381,47 @@ export class ManifestSyncManager {
     }
   }
 
-  private async hydrateMetadata() {
-    if (!hasApiAuthToken()) return
+  private async syncMetadata() {
+    if (!hasApiAuthToken() || !this.deps.accountId) return
 
-    const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
-    if (Object.keys(localMetadata || {}).length > 0) return
-
-    const response = await Promise.resolve(
-      getTrpcClient().accounts.getMetadata.query({ account: this.deps.accountId })
-    ).catch(() => null)
-    if (
-      response?.success &&
-      !!response.metadata &&
-      typeof response.metadata === 'object' &&
-      !Array.isArray(response.metadata)
-    ) {
-      try {
-        await this.mutateMetadata(response.metadata as AccountMetadata)
-      } catch (error) {
-        console.error('[ManifestSyncManager] Metadata hydration skipped', error)
+    let remoteMetadata: AccountMetadata | null = null
+    try {
+      const response = await getTrpcClient().accounts.getMetadata.query({
+        account: this.deps.accountId,
+      })
+      if (
+        response?.success &&
+        response.metadata &&
+        typeof response.metadata === 'object' &&
+        !Array.isArray(response.metadata)
+      ) {
+        remoteMetadata = response.metadata as AccountMetadata
       }
+    } catch (error) {
+      console.warn('[ManifestSyncManager] Metadata sync skipped (failed to query remote metadata):', error)
+      return
+    }
+
+    try {
+      const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
+      const { merged, needsRemotePush, hasLocalChanges } = reconcileAccountMetadata(
+        localMetadata,
+        remoteMetadata || undefined,
+      )
+
+      if (hasLocalChanges) {
+        await this.mutateMetadata(merged, { pushRemote: false })
+      }
+
+      if (needsRemotePush) {
+        const syncablePayload = extractSyncableMetadata(merged)
+        await getTrpcClient().accounts.updateMetadata.mutate({
+          account: this.deps.accountId,
+          metadata: syncablePayload,
+        })
+      }
+    } catch (error) {
+      console.error('[ManifestSyncManager] Metadata reconciliation skipped', error)
     }
   }
 }

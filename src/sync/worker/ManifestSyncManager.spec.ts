@@ -54,11 +54,15 @@ vi.mock('../../api/runtime', () => ({
 }))
 
 const mockGetMetadataQuery = vi.fn()
+const mockUpdateMetadataMutate = vi.fn().mockResolvedValue({ success: true })
 vi.mock('../../api/trpcClient', () => ({
   getTrpcClient: () => ({
     accounts: {
       getMetadata: {
         query: (...args: any[]) => mockGetMetadataQuery(...args),
+      },
+      updateMetadata: {
+        mutate: (...args: any[]) => mockUpdateMetadataMutate(...args),
       },
     },
   }),
@@ -392,42 +396,109 @@ describe('ManifestSyncManager', () => {
     })
   })
 
-  describe('hydrateMetadata', () => {
-    it('skips metadata hydration if local metadata is not empty', async () => {
+  describe('syncMetadata', () => {
+    it('pushes local metadata to server when remote is empty', async () => {
       mockFetchManifest.mockResolvedValue({
         manifest: [['item-1', 100]],
         serverTime: Date.now(),
       })
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      mockGetAutomergeMetadata.mockResolvedValue({ accountName: 'Existing' })
-
-      await manifestSyncManager.sync()
-
-      expect(mockGetMetadataQuery).not.toHaveBeenCalled()
-    })
-
-    it('hydrates metadata from trpc client if empty locally', async () => {
-      mockFetchManifest.mockResolvedValue({
-        manifest: [['item-1', 100]],
-        serverTime: Date.now(),
+      mockGetAutomergeMetadata.mockResolvedValue({
+        defaultPrayerFrequency: { person: 'daily' as const },
+        prayerGoal: 5,
       })
-      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-      mockGetLastManifestSyncTime.mockResolvedValue(0)
-      mockGetAutomergeMetadata.mockResolvedValue({})
       mockGetMetadataQuery.mockResolvedValue({
         success: true,
-        metadata: { accountName: 'Fresh Account' },
+        metadata: {},
       })
 
       await manifestSyncManager.sync()
 
       expect(mockGetMetadataQuery).toHaveBeenCalledWith({ account: 'acc-123' })
-      expect(mutateMetadataSpy).toHaveBeenCalledWith({ accountName: 'Fresh Account' })
+      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
+        account: 'acc-123',
+        metadata: expect.objectContaining({
+          defaultPrayerFrequency: { person: 'daily' },
+          prayerGoal: 5,
+        }),
+      })
     })
 
-    it('swallows errors if metadata hydration fails', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    it('hydrates metadata from trpc client into local store and preserves local sortCriteria', async () => {
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 100]],
+        serverTime: Date.now(),
+      })
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      mockGetAutomergeMetadata.mockResolvedValue({
+        sortCriteria: [{ type: 'name' as const, reverse: false }],
+      })
+      mockGetMetadataQuery.mockResolvedValue({
+        success: true,
+        metadata: {
+          defaultPrayerFrequency: { person: 'weekly' as const },
+          prayerGoal: 10,
+          updatedAt: 1000,
+        },
+      })
+
+      await manifestSyncManager.sync()
+
+      expect(mockGetMetadataQuery).toHaveBeenCalledWith({ account: 'acc-123' })
+      expect(mutateMetadataSpy).toHaveBeenCalledWith(
+        {
+          defaultPrayerFrequency: { person: 'weekly' },
+          prayerGoal: 10,
+          sortCriteria: [{ type: 'name', reverse: false }],
+          updatedAt: 1000,
+        },
+        { pushRemote: false },
+      )
+    })
+
+    it('reconciles bidirectional changes when both local and remote have updates', async () => {
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-1', 100]],
+        serverTime: Date.now(),
+      })
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      mockGetAutomergeMetadata.mockResolvedValue({
+        prayerGoal: 15,
+        updatedAt: 2000,
+      })
+      mockGetMetadataQuery.mockResolvedValue({
+        success: true,
+        metadata: {
+          defaultPrayerFrequency: { topic: 'daily' as const },
+          updatedAt: 1000,
+        },
+      })
+
+      await manifestSyncManager.sync()
+
+      expect(mutateMetadataSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prayerGoal: 15,
+          defaultPrayerFrequency: { topic: 'daily' },
+          updatedAt: 2000,
+        }),
+        { pushRemote: false },
+      )
+      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
+        account: 'acc-123',
+        metadata: expect.objectContaining({
+          prayerGoal: 15,
+          defaultPrayerFrequency: { topic: 'daily' },
+          updatedAt: 2000,
+        }),
+      })
+    })
+
+    it('swallows errors if remote metadata query fails', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       mockFetchManifest.mockResolvedValue({
         manifest: [['item-1', 100]],
         serverTime: Date.now(),
@@ -439,7 +510,7 @@ describe('ManifestSyncManager', () => {
 
       await expect(manifestSyncManager.sync()).resolves.toEqual({ added: [] })
       expect(mutateMetadataSpy).not.toHaveBeenCalled()
-      consoleSpy.mockRestore()
+      warnSpy.mockRestore()
     })
   })
 

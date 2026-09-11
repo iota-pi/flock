@@ -346,7 +346,7 @@ export class SyncWorker implements SyncApi {
   async mutateItem(id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(id, changes) }
   async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
   async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }
-  async mutateMetadata(changes: Partial<AccountMetadata>) { await this.context.itemOperations.mutateMetadata(changes) }
+  async mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) { await this.context.itemOperations.mutateMetadata(changes, options) }
   async exportAllBinaries() { return this.context.docStore.exportAllBinaries(this.context.indexManager) }
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
     const restored = await this.context.docStore.restoreFromBinaries(documents, this.context.indexManager)
