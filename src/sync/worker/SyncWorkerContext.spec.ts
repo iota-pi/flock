@@ -30,6 +30,7 @@ vi.mock('./SyncOrchestrator', () => {
       start = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
       setOnlineState = vi.fn()
+      setManifestSyncManager = vi.fn()
       online = true
       flush = vi.fn()
     },
@@ -232,5 +233,9 @@ describe('SyncWorkerContext', () => {
       expect(persistTimestampsSpy).toHaveBeenCalled()
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
+  })
+
+  it('wires manifestSyncManager into orchestrator on construction', () => {
+    expect(context.orchestrator.setManifestSyncManager).toHaveBeenCalledWith(context.manifestSyncManager)
   })
 })

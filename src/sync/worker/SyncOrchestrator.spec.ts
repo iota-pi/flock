@@ -655,6 +655,172 @@ describe('SyncOrchestrator', () => {
       expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
     })
   })
+
+  describe('manifest sync scheduling & reconnection', () => {
+    let mockManifestSyncManager: any
+
+    beforeEach(() => {
+      mockManifestSyncManager = {
+        sync: vi.fn().mockResolvedValue({ added: [] }),
+      }
+    })
+
+    it('triggers manifest sync on reconnection when leader', async () => {
+      orchestrator.setManifestSyncManager(mockManifestSyncManager)
+      orchestrator.setLeader(true)
+      // Initial state is online, reset to offline
+      orchestrator.setOnlineState(false)
+      mockManifestSyncManager.sync.mockClear()
+
+      // Reconnect
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false)
+    })
+
+    it('does not trigger manifest sync on reconnection when not leader', async () => {
+      orchestrator.setManifestSyncManager(mockManifestSyncManager)
+      orchestrator.setLeader(false)
+      orchestrator.setOnlineState(false)
+      mockManifestSyncManager.sync.mockClear()
+
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
+    })
+
+    it('triggers manifest sync and starts periodic schedule on leader promotion when online', async () => {
+      const customOrchestrator = new SyncOrchestrator(
+        'account-1',
+        mockBroker,
+        clientEventHub,
+        internalEventHub,
+        undefined,
+        mockManifestSyncManager,
+        { manifestSyncIntervalMs: 5000 }
+      )
+      customOrchestrator.setOnlineState(true)
+      expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
+
+      customOrchestrator.setLeader(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false)
+
+      // Periodic check after 5000ms
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(2)
+
+      await customOrchestrator.shutdown()
+    })
+
+    it('periodically runs manifest sync at configured interval', async () => {
+      const customOrchestrator = new SyncOrchestrator(
+        'account-1',
+        mockBroker,
+        clientEventHub,
+        internalEventHub,
+        undefined,
+        mockManifestSyncManager,
+        { manifestSyncIntervalMs: 10000 }
+      )
+
+      customOrchestrator.setLeader(true)
+      customOrchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(3)
+
+      await customOrchestrator.shutdown()
+    })
+
+    it('stops periodic manifest sync when going offline', async () => {
+      const customOrchestrator = new SyncOrchestrator(
+        'account-1',
+        mockBroker,
+        clientEventHub,
+        internalEventHub,
+        undefined,
+        mockManifestSyncManager,
+        { manifestSyncIntervalMs: 5000 }
+      )
+
+      customOrchestrator.setLeader(true)
+      customOrchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      // Go offline
+      customOrchestrator.setOnlineState(false)
+
+      // Advance time while offline - should NOT trigger manifest sync
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      await customOrchestrator.shutdown()
+    })
+
+    it('stops periodic manifest sync when losing leadership', async () => {
+      const customOrchestrator = new SyncOrchestrator(
+        'account-1',
+        mockBroker,
+        clientEventHub,
+        internalEventHub,
+        undefined,
+        mockManifestSyncManager,
+        { manifestSyncIntervalMs: 5000 }
+      )
+
+      customOrchestrator.setLeader(true)
+      customOrchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      // Lose leadership
+      customOrchestrator.setLeader(false)
+
+      // Advance time - should NOT trigger manifest sync
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      await customOrchestrator.shutdown()
+    })
+
+    it('shutdown stops periodic schedule and awaits in-flight manifest sync', async () => {
+      let resolveSync: (val: any) => void = () => {}
+      mockManifestSyncManager.sync.mockImplementation(
+        () => new Promise(resolve => { resolveSync = resolve })
+      )
+
+      orchestrator.setManifestSyncManager(mockManifestSyncManager)
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
+
+      let shutdownFinished = false
+      const shutdownPromise = orchestrator.shutdown().then(() => {
+        shutdownFinished = true
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(shutdownFinished).toBe(false)
+
+      resolveSync({ added: [] })
+      await shutdownPromise
+      expect(shutdownFinished).toBe(true)
+    })
+  })
 })
 
 

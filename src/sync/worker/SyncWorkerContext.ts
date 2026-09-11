@@ -168,6 +168,8 @@ export class SyncWorkerContext {
         this.adapter.setSyncedHeads(docId, heads)
       },
     )
+
+    this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
   }
 
   async initialize() {

@@ -156,6 +156,29 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
     })
 
+    it('shares in-flight sync promise across concurrent sync calls', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      let resolveManifest: (val: any) => void = () => {}
+      mockFetchManifest.mockImplementation(
+        () => new Promise(resolve => { resolveManifest = resolve })
+      )
+
+      const syncPromise1 = manifestSyncManager.sync(true)
+      const syncPromise2 = manifestSyncManager.sync(false)
+
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockFetchManifest).toHaveBeenCalledTimes(1)
+
+      resolveManifest({ manifest: [], serverTime: Date.now() })
+
+      const [res1, res2] = await Promise.all([syncPromise1, syncPromise2])
+      expect(res1).toEqual({ added: [] })
+      expect(res2).toEqual({ added: [] })
+      expect(mockFetchManifest).toHaveBeenCalledTimes(1)
+    })
+
     it('returns early without throwing if hasApiAuthToken() is false and local items exist', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)

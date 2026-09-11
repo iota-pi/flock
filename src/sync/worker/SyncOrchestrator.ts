@@ -5,6 +5,16 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 
 
+export interface ManifestSyncManagerLike {
+  sync: (force?: boolean) => Promise<{ added: any[] }>
+}
+
+export interface SyncOrchestratorOptions {
+  manifestSyncIntervalMs?: number
+}
+
+const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = 60 * 60 * 1000
+
 export class SyncOrchestrator {
   private leaderElection: LeaderElection | null = null
   private isOnline = true
@@ -22,19 +32,36 @@ export class SyncOrchestrator {
   private readonly pollBackoffStepsMs = [30000, 60000, 120000, 300000]
   private pollBackoffIndex = 0
 
+  private manifestSyncIntervalId: number | null = null
+  private readonly manifestSyncIntervalMs: number
+  private activeManifestSyncPromise: Promise<void> | null = null
+  private manifestSyncManager: ManifestSyncManagerLike | null = null
+
   constructor(
     private accountId: string,
     private broker: SyncMessageBroker,
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
-    private pullQueueManager?: SyncPullQueueManager
+    private pullQueueManager?: SyncPullQueueManager,
+    manifestSyncManager?: ManifestSyncManagerLike,
+    options?: SyncOrchestratorOptions
   ) {
+    this.manifestSyncManager = manifestSyncManager ?? null
+    this.manifestSyncIntervalMs = options?.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
     this.broker.onFlushNeeded = () => {
       this.flush()
     }
     // Sync initial states with the broker
     this.broker.setOnlineState(this.isOnline)
     this.broker.setSendEnabled(this.isLeader)
+  }
+
+  setManifestSyncManager(manifestSyncManager: ManifestSyncManagerLike): void {
+    this.manifestSyncManager = manifestSyncManager
+    if (this.isLeader && this.isOnline && !this.isShutdown) {
+      this.startPeriodicManifestSync()
+      void this.triggerManifestSync()
+    }
   }
 
   async start(): Promise<void> {
@@ -81,9 +108,14 @@ export class SyncOrchestrator {
         }
       })
       this.startPolling(true)
+      if (this.isOnline) {
+        this.startPeriodicManifestSync()
+        void this.triggerManifestSync()
+      }
     } else {
       this.cursorReloadPromise = null
       this.stopPolling()
+      this.stopPeriodicManifestSync()
     }
   }
 
@@ -96,12 +128,15 @@ export class SyncOrchestrator {
 
     if (!isOnline) {
       this.stopPolling()
+      this.stopPeriodicManifestSync()
       return
     }
 
     if (this.isLeader) {
       this.resetPollBackoff()
       this.startPolling(true)
+      this.startPeriodicManifestSync()
+      void this.triggerManifestSync()
     }
   }
 
@@ -294,10 +329,53 @@ export class SyncOrchestrator {
       this.leaderElection = null
     }
     this.stopPolling()
+    this.stopPeriodicManifestSync()
 
     this.broker.abortPoll?.()
     if (this.activePollPromise) {
       await this.activePollPromise
+    }
+    if (this.activeManifestSyncPromise) {
+      await this.activeManifestSyncPromise
+    }
+  }
+
+  startPeriodicManifestSync(): void {
+    if (this.isShutdown || !this.isOnline || !this.isLeader) {
+      return
+    }
+    this.stopPeriodicManifestSync()
+    this.manifestSyncIntervalId = self.setInterval(() => {
+      void this.triggerManifestSync()
+    }, this.manifestSyncIntervalMs) as unknown as number
+  }
+
+  stopPeriodicManifestSync(): void {
+    if (this.manifestSyncIntervalId !== null) {
+      self.clearInterval(this.manifestSyncIntervalId)
+      this.manifestSyncIntervalId = null
+    }
+  }
+
+  async triggerManifestSync(force = false): Promise<void> {
+    if (this.isShutdown || !this.isOnline || !this.isLeader || !this.manifestSyncManager) {
+      return
+    }
+    const syncPromise = (async () => {
+      try {
+        await this.manifestSyncManager!.sync(force)
+      } catch (error) {
+        console.warn('[SyncOrchestrator] Manifest sync failed', error)
+      }
+    })()
+
+    this.activeManifestSyncPromise = syncPromise
+    try {
+      await syncPromise
+    } finally {
+      if (this.activeManifestSyncPromise === syncPromise) {
+        this.activeManifestSyncPromise = null
+      }
     }
   }
 }

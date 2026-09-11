@@ -35,9 +35,27 @@ export class ManifestSyncManager {
     private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {}
 
+  private activeSyncPromise: Promise<{ added: ItemId[] }> | null = null
+
   async sync(force = false): Promise<{ added: ItemId[] }> {
     if (!this.deps.accountId) return { added: [] }
 
+    if (this.activeSyncPromise) {
+      return this.activeSyncPromise
+    }
+
+    const syncTask = this.executeSync(force)
+    this.activeSyncPromise = syncTask
+    try {
+      return await syncTask
+    } finally {
+      if (this.activeSyncPromise === syncTask) {
+        this.activeSyncPromise = null
+      }
+    }
+  }
+
+  private async executeSync(force = false): Promise<{ added: ItemId[] }> {
     const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
     const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
 
