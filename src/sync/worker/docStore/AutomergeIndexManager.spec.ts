@@ -127,6 +127,22 @@ describe('AutomergeIndexManager', () => {
     expect(onIndexUpdated).toHaveBeenLastCalledWith(['item-2'])
     const snapshot = await manager.getIndexSnapshot()
     expect(snapshot.itemIds).toEqual(['item-2'])
+    expect(snapshot.tombstoneIds).toEqual(['item-1'])
+  })
+
+  it('should track tombstone IDs when items are removed and clear them if re-added', async () => {
+    const manager = new AutomergeIndexManager(accountId, indexStore)
+
+    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId, 'item-b' as ItemId])
+    await manager.removeAutomergeItemIdsFromIndex(['item-a' as ItemId])
+
+    expect(await manager.listAutomergeTombstoneIds()).toEqual(['item-a'])
+    expect(await manager.listAutomergeItemIds()).toEqual(['item-b'])
+
+    // Re-adding item-a should remove it from tombstoneIds
+    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId])
+    expect(await manager.listAutomergeTombstoneIds()).toEqual([])
+    expect(await manager.listAutomergeItemIds()).toEqual(['item-b', 'item-a'])
   })
 
   it('should update metadata and notify listener', async () => {

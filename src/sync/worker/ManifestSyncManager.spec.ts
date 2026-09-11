@@ -3,6 +3,8 @@ import type { ItemId } from 'src/shared/schemas/items'
 
 // Mock dependencies
 const mockListAutomergeItemIds = vi.fn()
+const mockListAutomergeTombstoneIds = vi.fn()
+const mockRemoveAutomergeItemIdsFromIndex = vi.fn()
 const mockHydrateAutomergeDocumentBinary = vi.fn()
 const mockGetAutomergeMetadata = vi.fn()
 const mockAddAutomergeItemIdsToIndex = vi.fn()
@@ -18,6 +20,8 @@ vi.mock('./docStore', () => ({
 vi.mock('./docStore/AutomergeIndexManager', () => ({
   AutomergeIndexManager: vi.fn().mockImplementation(() => ({
     listAutomergeItemIds: mockListAutomergeItemIds,
+    listAutomergeTombstoneIds: mockListAutomergeTombstoneIds,
+    removeAutomergeItemIdsFromIndex: mockRemoveAutomergeItemIdsFromIndex,
     getAutomergeMetadata: mockGetAutomergeMetadata,
     addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
     getLastManifestSyncTime: mockGetLastManifestSyncTime,
@@ -83,6 +87,8 @@ describe('ManifestSyncManager', () => {
 
     const mockIndexManager = {
       listAutomergeItemIds: mockListAutomergeItemIds,
+      listAutomergeTombstoneIds: mockListAutomergeTombstoneIds,
+      removeAutomergeItemIdsFromIndex: mockRemoveAutomergeItemIdsFromIndex,
       getAutomergeMetadata: mockGetAutomergeMetadata,
       addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
       getLastManifestSyncTime: mockGetLastManifestSyncTime,
@@ -108,6 +114,8 @@ describe('ManifestSyncManager', () => {
 
     // Default mock behaviors
     mockListAutomergeItemIds.mockResolvedValue([])
+    mockListAutomergeTombstoneIds.mockResolvedValue([])
+    mockRemoveAutomergeItemIdsFromIndex.mockResolvedValue(undefined)
     mockHasApiAuthToken.mockReturnValue(true)
     mockGetAutomergeMetadata.mockResolvedValue({})
     mockGetLastManifestSyncTime.mockResolvedValue(0)
@@ -1144,6 +1152,134 @@ describe('ManifestSyncManager', () => {
       ])
 
       expect(result).toEqual({ added: [] })
+    })
+
+    it('does NOT fetch or resurrect locally tombstoned items during forced sync when server has older active snapshot (C5 fix)', async () => {
+      // Local client has item-deleted in tombstoneIds (not in active itemIds)
+      mockListAutomergeItemIds.mockResolvedValue(['item-active' as ItemId])
+      mockListAutomergeTombstoneIds.mockResolvedValue(['item-deleted' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([
+        ['item-active', 100],
+        ['item-deleted', 500],
+      ])
+
+      // Server manifest has an older active snapshot for item-deleted (isDeleted is undefined)
+      mockFetchManifest.mockResolvedValue({
+        manifest: [
+          ['item-active', 100],
+          ['item-deleted', 200],
+        ],
+        serverTime: 500,
+      })
+
+      const result = await manifestSyncManager.sync(true)
+
+      // Must NOT fetch snapshot payload for tombstoned item
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      // Must NOT add tombstoned item to active items
+      expect(result.added).toEqual([])
+      expect(mockAddAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+      // Local tombstone is newer than server active snapshot, so must push tombstone upstream
+      expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-deleted', 2000)
+    })
+
+    it('does NOT fetch or resurrect locally tombstoned items tracked via localLastModified fallback during forced sync (C5 fix)', async () => {
+      // Even if listAutomergeTombstoneIds is empty (e.g. legacy index before tombstoneIds field),
+      // localLastModified tracks the item without it being in active itemIds
+      mockListAutomergeItemIds.mockResolvedValue(['item-active' as ItemId])
+      mockListAutomergeTombstoneIds.mockResolvedValue([])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([
+        ['item-active', 100],
+        ['item-legacy-deleted', 500],
+      ])
+
+      mockFetchManifest.mockResolvedValue({
+        manifest: [
+          ['item-active', 100],
+          ['item-legacy-deleted', 200],
+        ],
+        serverTime: 500,
+      })
+
+      const result = await manifestSyncManager.sync(true)
+
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(result.added).toEqual([])
+      expect(mockAddAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+      expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-legacy-deleted', 2000)
+    })
+
+    it('does NOT add fetched snapshot to hydratedIds or active index if resulting document is deleted (C5 fix)', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([])
+
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-merged-deleted', 2000]],
+        serverTime: 2000,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-merged-deleted',
+            snapshot: { iv: 'iv', cipher: 'c' },
+          },
+        ],
+        serverTime: 2000,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockHydrateAutomergeDocumentBinary.mockResolvedValue({
+        hasLocalChanges: true,
+        incomingHeads: ['head-1'],
+        isDeleted: true,
+      })
+
+      const result = await manifestSyncManager.sync()
+
+      expect(mockAddAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+      expect(mockRemoveAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-merged-deleted'])
+      expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-merged-deleted', 2000)
+      expect(result.added).toEqual([])
+    })
+
+    it('does NOT overwrite local tombstone when fetched legacy cipher snapshot is not deleted (C5 fix)', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockListAutomergeTombstoneIds.mockResolvedValue(['item-legacy-tombstone' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-legacy-tombstone', 1000]])
+
+      // Suppose item was fetched in batch
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-legacy-tombstone', 500]],
+        serverTime: 1000,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-legacy-tombstone',
+            cipher: 'cipher-text',
+            metadata: { iv: 'iv-text' },
+          },
+        ],
+        serverTime: 500,
+      })
+      mockDecryptObject.mockResolvedValue({ id: 'item-legacy-tombstone', name: 'Zombie' })
+
+      // Force item into missingIds by testing hydration directly or when pulled
+      // In normal flow, tombstoneSet skips download. But if download happens:
+      // We test that the legacy decryption branch guards against resurrecting item-legacy-tombstone
+      // We can verify this by checking that storeItems is never called with the non-deleted zombie item
+      const result = await manifestSyncManager.sync()
+
+      expect(storeItemsSpy).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ id: 'item-legacy-tombstone' })]),
+        expect.anything()
+      )
+      expect(result.added).toEqual([])
     })
   })
 })

@@ -108,9 +108,23 @@ export class ManifestSyncManager {
       console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
     }
 
-    const knownSet = new Set(knownItemIds)
+    const tombstoneItemIds = (await this.deps.indexManager.listAutomergeTombstoneIds?.()) ?? []
+    const activeSet = new Set(knownItemIds)
     const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
     const serverManifestMap = new Map<string, number>(manifestResponse.manifest.map(([itemId, serverTime]) => [itemId, serverTime]))
+    const serverDeletedSet = new Set<string>(
+      manifestResponse.manifest
+        .filter(([, , isDeleted]) => isDeleted === true)
+        .map(([itemId]) => itemId),
+    )
+
+    const tombstoneSet = new Set(tombstoneItemIds)
+    for (const [id] of localLastModifiedMap) {
+      if (!activeSet.has(id)) {
+        tombstoneSet.add(id)
+      }
+    }
+    const knownSet = new Set([...activeSet, ...tombstoneSet])
 
     let quarantinedMap = new Map<ItemId, number>()
     if (this.deps.accountId) {
@@ -144,7 +158,7 @@ export class ManifestSyncManager {
       const localTime = localLastModifiedMap.get(id) ?? 0
 
       if (isDeleted) {
-        if (knownSet.has(id)) {
+        if (activeSet.has(id)) {
           // Item exists locally and is active, but the server manifest indicates it is deleted.
           // Apply tombstone locally and record timestamp to prevent resurrection.
           locallyTombstonedSnapshots.push({ id, deleted: true } as unknown as Item)
@@ -154,6 +168,12 @@ export class ManifestSyncManager {
           // Track that this item exists and is deleted at serverTime without fetching snapshot.
           deletedLastModifiedUpdates.push([id, serverTime])
         }
+        continue
+      }
+
+      // If the item is already tombstoned locally, the local tombstone is terminal and authoritative.
+      // Do NOT fetch older or concurrent active snapshot from server, which would cause resurrection.
+      if (tombstoneSet.has(id)) {
         continue
       }
 
@@ -194,13 +214,17 @@ export class ManifestSyncManager {
     const missingSet = new Set(missingIds)
     const locallyTombstonedSet = new Set(locallyTombstonedSnapshots.map(s => s.id as ItemId))
     const upstreamIds: ItemId[] = []
-    for (const localId of knownItemIds) {
+    const allLocalIds = new Set([...knownItemIds, ...tombstoneSet])
+    for (const localId of allLocalIds) {
       if (missingSet.has(localId) || locallyTombstonedSet.has(localId)) continue
       const serverTime = serverManifestMap.get(localId)
       const localTime = localLastModifiedMap.get(localId) ?? 0
 
       if (serverTime === undefined) {
         // Item exists locally but is completely missing from server manifest
+        upstreamIds.push(localId)
+      } else if (tombstoneSet.has(localId) && !serverDeletedSet.has(localId)) {
+        // Item is tombstoned locally, but server still has an active snapshot: push tombstone upstream
         upstreamIds.push(localId)
       } else {
         // Clock skew + buffer compensation: if local time exceeds server time
@@ -285,6 +309,18 @@ export class ManifestSyncManager {
               const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
               this.onItemSnapshotHydrated?.(itemId, heads)
             } catch {}
+
+            if (hydrationResult?.isDeleted || tombstoneSet.has(itemId)) {
+              await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
+              if (hydrationResult?.hasLocalChanges) {
+                this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+              } else {
+                lastModifiedUpdates.push([itemId, serverTime])
+              }
+              decryptedSuccessfully = true
+              return
+            }
+
             hydratedIds.push(itemId)
             if (hydrationResult?.hasLocalChanges) {
               this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
@@ -317,6 +353,12 @@ export class ManifestSyncManager {
             const snapshot = { ...(decrypted as Record<string, unknown>) }
             if (!snapshot.id || typeof snapshot.id !== 'string') {
               snapshot.id = item.item
+            }
+            if (tombstoneSet.has(snapshot.id as ItemId) && snapshot.deleted !== true) {
+              await this.deps.indexManager.removeAutomergeItemIdsFromIndex([snapshot.id as ItemId])
+              this.deps.snapshotManager.markItemDirty(snapshot.id as ItemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+              decryptedSuccessfully = true
+              return
             }
             snapshots.push(snapshot as Item)
             lastModifiedUpdates.push([snapshot.id as ItemId, serverTime])

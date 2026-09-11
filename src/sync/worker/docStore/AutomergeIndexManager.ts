@@ -156,6 +156,7 @@ export class AutomergeIndexManager {
     return {
       accountId: doc?.accountId || this.accountId,
       itemIds: doc?.itemIds ? [...doc.itemIds] : [],
+      ...(doc?.tombstoneIds ? { tombstoneIds: [...doc.tombstoneIds] } : {}),
       metadata: doc?.metadata ? { ...doc.metadata } : {},
       lastSyncTime: doc?.lastSyncTime || 0,
       lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
@@ -182,6 +183,7 @@ export class AutomergeIndexManager {
         const newDoc: AutomergeIndexDocument = {
           accountId: this.accountId,
           itemIds: doc?.itemIds || [],
+          ...(doc?.tombstoneIds ? { tombstoneIds: [...doc.tombstoneIds] } : {}),
           metadata: doc?.metadata || {},
           lastSyncTime: doc?.lastSyncTime || 0,
           lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
@@ -202,10 +204,21 @@ export class AutomergeIndexManager {
           updated = true
         }
       }
-      if (updated) {
+      const tombstoneSet = new Set(doc.tombstoneIds || [])
+      let tombstoneUpdated = false
+      for (const id of itemIds) {
+        if (tombstoneSet.has(id)) {
+          tombstoneSet.delete(id)
+          tombstoneUpdated = true
+        }
+      }
+      if (updated || tombstoneUpdated) {
         doc.itemIds = Array.from(current)
+        doc.tombstoneIds = Array.from(tombstoneSet)
         await this.indexStore.saveIndex(doc)
-        this.broadcastIndexUpdated(doc.itemIds)
+        if (updated) {
+          this.broadcastIndexUpdated(doc.itemIds)
+        }
       }
       this.notifyLocalIndexUpdated(doc.itemIds || [])
     })
@@ -217,11 +230,22 @@ export class AutomergeIndexManager {
       const removeSet = new Set(itemIds)
       const current = doc.itemIds || []
       const newItemIds = current.filter(id => !removeSet.has(id))
+      const tombstoneSet = new Set(doc.tombstoneIds || [])
+      let tombstoneUpdated = false
+      for (const id of itemIds) {
+        if (!tombstoneSet.has(id)) {
+          tombstoneSet.add(id)
+          tombstoneUpdated = true
+        }
+      }
 
-      if (newItemIds.length !== current.length) {
+      if (newItemIds.length !== current.length || tombstoneUpdated) {
         doc.itemIds = newItemIds
+        doc.tombstoneIds = Array.from(tombstoneSet)
         await this.indexStore.saveIndex(doc)
-        this.broadcastIndexUpdated(newItemIds)
+        if (newItemIds.length !== current.length) {
+          this.broadcastIndexUpdated(newItemIds)
+        }
       }
       this.notifyLocalIndexUpdated(newItemIds)
     })
@@ -230,6 +254,11 @@ export class AutomergeIndexManager {
   async listAutomergeItemIds(): Promise<ItemId[]> {
     const index = await this.getIndexSnapshot()
     return index.itemIds || []
+  }
+
+  async listAutomergeTombstoneIds(): Promise<ItemId[]> {
+    const index = await this.getIndexSnapshot()
+    return index.tombstoneIds || []
   }
 
   async getAutomergeMetadata(): Promise<AccountMetadata> {
