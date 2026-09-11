@@ -80,14 +80,14 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    this.seededDocuments.clear()
-    this.clearSyncedHeads()
+    if (this.account) {
+      this.seededDocuments.clear()
+      this.clearSyncedHeads()
 
-    if (this.account && !nextAccount) {
-      this.disconnectPeer()
-    }
+      if (!nextAccount) {
+        this.disconnectPeer()
+      }
 
-    if (this.account && this.account !== nextAccount) {
       this.clearOutboundQueue()
     }
 
