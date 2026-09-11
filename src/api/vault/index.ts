@@ -467,13 +467,14 @@ export async function storeVault(account: string) {
   const encryptionKey = masterKey || getVaultKey('1')
   const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
   const encryptedStr = JSON.stringify(encrypted)
-  writeCachedKeyring(encryptedStr)
 
   if (session) {
     const currentVer = parseInt(activeKeyVersion, 10)
     const expectedVer = Math.max(currentVer - 1, 1)
     await updateKeyring(account, encryptedStr, expectedVer, currentVer)
   }
+
+  writeCachedKeyring(encryptedStr)
 }
 
 function clearKeyData() {

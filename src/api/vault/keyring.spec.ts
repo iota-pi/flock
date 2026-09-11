@@ -193,6 +193,9 @@ describe('Vault Keyring Integration', () => {
     expect(getVaultKey('1')).toBeDefined()
     expect(() => getVaultKey('2')).toThrow()
 
+    const cachedBefore = readCachedKeyring()
+    expect(cachedBefore).not.toBeNull()
+
     vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network offline'))
 
     await expect(rotateVaultKey('test-account')).rejects.toThrow(
@@ -212,6 +215,9 @@ describe('Vault Keyring Integration', () => {
     // Subsequent encryption should still use key version 1
     const enc = await encrypt('still on version 1')
     expect(enc.kver).toBe('1')
+
+    // LocalStorage cached keyring must NOT have been updated with the uncommitted key
+    expect(readCachedKeyring()).toBe(cachedBefore)
   })
 
   it('locks vault without clearing stored metadata and clears active session token', async () => {
