@@ -189,6 +189,16 @@ Incremental sync cursors in `automergeSyncService` are generated as `relativeTim
 - **Non-monotonic pull safety**: Random offsets mean cursors within a 1-second bucket are not strictly chronological. Pull queries apply an intentional lookback buffer (`OVERLAP_WINDOW_SECONDS = 10` / `OVERLAP_CURSOR_DELTA = 100_000_000`) so clients never skip out-of-order cursors.
 - **Snapshot recovery safety**: In the negligible event of an overwrite during `BatchWriteCommand`, permanent data loss is prevented because local Automerge documents in IndexedDB are authoritative and `SnapshotManager` periodically syncs full document snapshots to `FlockItems`.
 
+#### Snapshot Uploads: Intentional LWW and Absence of OCC
+
+In `itemsRouter.putSnapshots`, snapshot writes to `FlockItems` omit `item.version`, making them unconditional Last-Write-Wins (LWW) overwrites in DynamoDB without Optimistic Concurrency Control (OCC):
+- **Why this is intentional and NOT a data-loss vulnerability**:
+  - **Local CRDT authority**: Automerge documents in local IndexedDB are the durable source of truth. DynamoDB snapshots are recovery baselines and fallbacks, not authoritative documents. Overwriting a snapshot in DynamoDB never modifies or reverts a client's local document.
+  - **Incremental sync safety**: All edits are independently captured and retained for 90 days as granular sync messages in `FlockSyncMessages`. Clients catch up through incremental sync regardless of snapshot arrival order.
+  - **Non-destructive CRDT hydration**: When any client pulls a snapshot (`AutomergeDocStore.hydrateAutomergeDocumentBinary`), it performs a CRDT merge (`existingHandle.merge(incomingHandle)` or `Automerge.merge(localDoc, incomingDoc)`), not a raw overwrite. Because CRDT merges are monotonic semilattices ($\text{merge}(A+B, A) = A+B$), an older snapshot cannot clobber newer edits.
+  - **Automatic baseline self-healing**: If a client receives an older snapshot during `ManifestSyncManager` reconciliation, `hydrationResult.hasLocalChanges` evaluates to `true`. This immediately triggers `markItemDirty`, causing the client to upload a fresh snapshot with the merged state back to DynamoDB.
+  - **Why OCC on snapshots would be harmful**: The server is a zero-knowledge relay and cannot decrypt or merge CRDTs. If OCC (`ConditionalCheckFailedException`) were enforced on snapshot writes, concurrent/offline snapshot flushes would conflict, causing retry churn and eventually false-quarantining healthy items into `manualRecoveryStore`. (Flock reserves OCC strictly for centralized, non-CRDT operations like `keyringVersion` during key rotation.)
+
 ## Server-Side Architecture
 
 The server is a Fastify app with tRPC routers, deployed as an AWS Lambda behind a Function URL:
