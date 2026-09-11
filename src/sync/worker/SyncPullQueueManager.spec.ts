@@ -297,6 +297,41 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(true) // because hasMore was true
     })
 
+    it('sets hasImmediatePendingPulls to true when hasMoreGlobal is true without adding healthy items to getCursors', async () => {
+      const msg = new Uint8Array([1, 2, 3])
+      mockDecryptBytes.mockResolvedValue(msg)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-global' as ItemId,
+          hasMore: false,
+          nextCursor: 100,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: {
+                iv: 'iv',
+                cipher: 'cipher',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults, true)
+
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.hasImmediatePendingPulls()).toBe(true)
+      // Healthy item has pending: false, so it is NOT added to getCursors()
+      expect(manager.getCursors()).toHaveLength(0)
+
+      // Next poll completes global backlog with hasMoreGlobal: false
+      await manager.processPullResults([], false)
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+    })
+
     it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {
       const mockOnDecryptionFailure = vi.fn()
       manager.onDecryptionFailure = mockOnDecryptionFailure

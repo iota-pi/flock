@@ -36,6 +36,7 @@ export const syncRouter = router({
       }
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
+      let globalHasMore = false
 
       const shouldPullBatch = input.pullCursors.length > 0
       const shouldPullGlobal = typeof input.clientLatestCursor === 'number'
@@ -68,8 +69,11 @@ export const syncRouter = router({
           : []
 
         pullResults = [...batchResults, ...filteredGlobalResults]
+        globalHasMore = globalPullResult?.hasMore ?? false
       }
 
-      return { success: true, pushResults, pullResults }
+      const hasMore = globalHasMore || pullResults.some(r => r.hasMore)
+
+      return { success: true, pushResults, pullResults, hasMore }
     }),
 })

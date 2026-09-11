@@ -327,6 +327,38 @@ describe('pollSync behavior and account isolation', () => {
       expect(result.pullResults).toHaveLength(1)
       expect(result.pullResults[0].itemId).toBe('item-a')
     })
+
+    it('returns top-level hasMore: true when global pull indicates more messages exist', async () => {
+      const ctx = createContext()
+      ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
+        items: [
+          {
+            itemId: 'item-a' as ItemId,
+            messages: [
+              {
+                cursor: 120,
+                encryptedMessage: { iv: 'iv', cipher: 'cipher' },
+                createdAt: 1000,
+              },
+            ],
+          },
+        ],
+        hasMore: true,
+      })
+
+      const caller = syncRouter.createCaller(ctx as any)
+      const result = await caller.pollSync({
+        account: 'target-account',
+        pushMessages: [],
+        pullCursors: [],
+        clientLatestCursor: 100,
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.hasMore).toBe(true)
+      expect(result.pullResults).toHaveLength(1)
+      expect(result.pullResults[0].hasMore).toBe(false)
+    })
   })
 })
 

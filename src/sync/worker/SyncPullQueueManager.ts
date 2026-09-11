@@ -20,6 +20,7 @@ export class SyncPullQueueManager {
   private isShutdown = false
   private account: string | null = null
   private readonly itemStates = new Map<ItemId, ItemPullState>()
+  private hasMoreGlobal = false
   public static readonly MAX_PULL_RETRIES = 5
 
   private readonly seenMessageCursors = new Set<string>() // "itemId:cursor" compound keys
@@ -112,6 +113,7 @@ export class SyncPullQueueManager {
     this.itemStates.clear()
     this.seenMessageCursors.clear()
     this.batchProgress.clear()
+    this.hasMoreGlobal = false
     this.onRetryingStateChange?.(false)
 
     if (account) {
@@ -167,6 +169,7 @@ export class SyncPullQueueManager {
     this.itemStates.clear()
     this.seenMessageCursors.clear()
     this.batchProgress.clear()
+    this.hasMoreGlobal = false
     this.account = null
   }
 
@@ -266,6 +269,9 @@ export class SyncPullQueueManager {
   }
 
   hasImmediatePendingPulls(): boolean {
+    if (this.hasMoreGlobal) {
+      return true
+    }
     for (const state of this.itemStates.values()) {
       if (state.pending && state.retryCount === 0 && (!state.blockedOnKey || hasVaultKey(state.blockedOnKey))) {
         return true
@@ -298,8 +304,11 @@ export class SyncPullQueueManager {
     return max
   }
 
-  async processPullResults(results: PullSyncMessagesResponse[]): Promise<void> {
+  async processPullResults(results: PullSyncMessagesResponse[], hasMoreGlobal?: boolean): Promise<void> {
     if (!this.account || this.isShutdown) return
+    if (typeof hasMoreGlobal === 'boolean') {
+      this.hasMoreGlobal = hasMoreGlobal
+    }
 
     const successfullyPulledItemIds = new Set<ItemId>()
     let cursorsUpdated = false
@@ -442,6 +451,9 @@ export class SyncPullQueueManager {
   }
 
   hasPendingPulls(): boolean {
+    if (this.hasMoreGlobal) {
+      return true
+    }
     for (const state of this.itemStates.values()) {
       if (state.pending) return true
     }

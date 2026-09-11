@@ -200,4 +200,36 @@ describe('AutomergeSyncService', () => {
       cursor: 100_000_000,
     })
   })
+
+  it('returns response-level hasMore and sets item-level hasMore to false for all items in pullAutomergeSyncGlobal', async () => {
+    const repository = {
+      ...createMockRepository(),
+      getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({
+        items: [
+          {
+            itemId: 'item-1' as ItemId,
+            messages: [{ cursor: 10, encryptedMessage: { iv: 'iv1', cipher: 'c1' }, createdAt: 100 }],
+          },
+          {
+            itemId: 'item-2' as ItemId,
+            messages: [{ cursor: 20, encryptedMessage: { iv: 'iv2', cipher: 'c2' }, createdAt: 200 }],
+          },
+        ],
+        hasMore: true,
+      }),
+    } as unknown as Mocked<AutomergeSyncRepository>
+    const service = createAutomergeSyncService({ repository })
+
+    const result = await service.pullAutomergeSyncGlobal({
+      account: 'test-account',
+      cursor: 5,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.hasMore).toBe(true)
+    expect(result.results).toHaveLength(2)
+    // Both items must have hasMore: false so they are not hijacked into pullCursors
+    expect(result.results[0].hasMore).toBe(false)
+    expect(result.results[1].hasMore).toBe(false)
+  })
 })

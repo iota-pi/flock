@@ -65,6 +65,7 @@ export type PollSyncBatchResponse = {
     }>
     hasMore: boolean
   }>
+  hasMore?: boolean
 }
 
 

@@ -124,6 +124,34 @@ describe('SyncPoller', () => {
     )
   })
 
+  it('forwards response.hasMore to processPullResults when present', async () => {
+    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [
+        {
+          success: true,
+          itemId: 'item-1' as ItemId,
+          hasMore: false,
+          messages: [],
+        },
+      ],
+      hasMore: true,
+    })
+
+    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+
+    expect(processPullResultsSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: 'item-1' }),
+      ]),
+      true
+    )
+  })
+
   it('sends cursors and removes sent IDs from WAL with every chunk in multi-chunk batch', async () => {
     // 6 items will produce 2 chunks of size 5 and 1
     const walMap = new Map<ItemId, WalEntry[]>()

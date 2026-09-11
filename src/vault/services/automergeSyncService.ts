@@ -161,6 +161,7 @@ export function createAutomergeSyncService({
       messages: StoredSyncMessage[]
       hasMore: boolean
     }>
+    hasMore: boolean
   }> {
     const overlapCursor = Math.max(0, input.cursor - OVERLAP_CURSOR_DELTA)
     const { items, hasMore } = await repository.getGlobalSyncMessagesAfterCursor({
@@ -168,18 +169,18 @@ export function createAutomergeSyncService({
       cursor: overlapCursor,
     })
 
-    const results = items.map((item, index) => {
+    const results = items.map((item) => {
       const messages = item.messages
       return {
         success: true as const,
         itemId: item.itemId,
         nextCursor: messages.length > 0 ? messages[messages.length - 1].cursor : input.cursor,
         messages,
-        hasMore: index === items.length - 1 ? hasMore : false,
+        hasMore: false,
       }
     })
 
-    return { success: true, results }
+    return { success: true, results, hasMore }
   }
 
   return {

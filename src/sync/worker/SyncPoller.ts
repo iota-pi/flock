@@ -139,9 +139,13 @@ export class SyncPoller {
 
         if (this.isShutdown || signal.aborted) return 'no-poll'
 
-        if (response && response.pullResults) {
+        if (response) {
           try {
-            await this.pullQueueManager.processPullResults(response.pullResults)
+            if (typeof response.hasMore === 'boolean') {
+              await this.pullQueueManager.processPullResults(response.pullResults ?? [], response.hasMore)
+            } else if (response.pullResults) {
+              await this.pullQueueManager.processPullResults(response.pullResults)
+            }
           } catch (pullErr) {
             console.error('[SyncPoller] Error processing pull results', pullErr)
           }
@@ -250,9 +254,13 @@ export class SyncPoller {
 
         if (this.isShutdown || signal.aborted) return 'no-poll'
 
-        if (response && response.pullResults) {
+        if (response) {
           try {
-            await this.pullQueueManager.processPullResults(response.pullResults)
+            if (typeof response.hasMore === 'boolean') {
+              await this.pullQueueManager.processPullResults(response.pullResults ?? [], response.hasMore)
+            } else if (response.pullResults) {
+              await this.pullQueueManager.processPullResults(response.pullResults)
+            }
           } catch (pullErr) {
             console.error('[SyncPoller] Error processing pull results', pullErr)
           }
