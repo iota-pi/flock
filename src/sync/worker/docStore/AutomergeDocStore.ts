@@ -93,8 +93,9 @@ export class AutomergeDocStore {
     try {
       const data = await this.repo.storageSubsystem.loadDocData(documentId)
       return (data && data.length > 0) ? data : undefined
-    } catch {
-      return undefined
+    } catch (error) {
+      console.error(`[AutomergeDocStore] Storage error loading document data for ${itemId}:`, error)
+      throw error
     }
   }
 
@@ -161,7 +162,12 @@ export class AutomergeDocStore {
       if (options.knownToExist !== undefined) {
         existsInStorage = options.knownToExist
       } else {
-        existsInStorage = await this.hasDataInStorage(itemId)
+        try {
+          existsInStorage = await this.hasDataInStorage(itemId)
+        } catch (error) {
+          console.warn(`[AutomergeDocStore] Failed to check storage for ${itemId}:`, error)
+          existsInStorage = false
+        }
       }
     }
 
@@ -199,10 +205,29 @@ export class AutomergeDocStore {
       let handle = await this.findHandleInternal(itemId, options)
       if (handle) return handle
 
+      if (options.knownToExist) {
+        console.error(
+          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
+          `Document is known to exist but handle could not be loaded within the timeout.`
+        )
+        return undefined
+      }
+
       // SAFETY: Before creating a blank document, independently verify that
-      // the item genuinely doesn't exist in storage. If it does, we must NOT
-      // delete it — the load just timed out or hit a transient error.
-      const dataExists = await this.hasDataInStorage(itemId)
+      // the item genuinely doesn't exist in storage. If it does, or if storage
+      // check fails due to transient/quota/lock error, we must NOT delete it.
+      let dataExists = false
+      try {
+        dataExists = await this.hasDataInStorage(itemId)
+      } catch (storageError) {
+        console.error(
+          `[AutomergeDocStore] Refusing to overwrite storage data for ${itemId}. ` +
+          `Storage check failed with an error, cannot confirm document does not exist:`,
+          storageError
+        )
+        return undefined
+      }
+
       if (dataExists) {
         console.error(
           `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +

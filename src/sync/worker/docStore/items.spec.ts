@@ -127,6 +127,79 @@ describe('items operations', () => {
     expect(importSpy).not.toHaveBeenCalled()
   })
 
+  it('should not delete existing storage document or overwrite with blank doc when loadDocData throws a storage error (e.g. quota or lock contention)', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem to throw an error (e.g. QuotaExceededError or Lock contention)
+    const mockStorage = {
+      loadDocData: vi.fn().mockRejectedValue(new Error('QuotaExceededError: Storage quota exceeded')),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    // Mock repo.find to fail as well
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Storage failure'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const result = await customDocStore.changeDocument(
+      'quota-error-item' as ItemId,
+      draft => {
+        draft.name = 'New Name'
+      },
+      { createIfMissing: true }
+    )
+
+    // Must refuse to create/overwrite and return false rather than deleting or wiping with blank doc
+    expect(result).toBe(false)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should rethrow storage errors in loadDocDataFromStorage and hasDataInStorage', async () => {
+    const customRepo = new Repo()
+    const mockStorage = {
+      loadDocData: vi.fn().mockRejectedValue(new Error('IDBDatabase transaction aborted')),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await expect(
+      customDocStore.loadDocDataFromStorage('error-item' as ItemId)
+    ).rejects.toThrow('IDBDatabase transaction aborted')
+
+    await expect(
+      customDocStore.hasDataInStorage('error-item' as ItemId)
+    ).rejects.toThrow('IDBDatabase transaction aborted')
+  })
+
+  it('should not overwrite document in findOrCreateHandle when knownToExist is true even if findHandle times out', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem returning undefined, but options specify knownToExist: true
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(undefined),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const handle = await customDocStore.findOrCreateHandle('known-item' as ItemId, { knownToExist: true })
+
+    expect(handle).toBeUndefined()
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
   it('should create document if it genuinely does not exist in storage', async () => {
     const customRepo = new Repo()
     const importSpy = vi.spyOn(customRepo, 'import')
@@ -339,6 +412,35 @@ describe('items operations', () => {
     ).rejects.toThrow('Refusing to overwrite existing storage data')
 
     // Must NOT import the remote binary over existing storage
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should not overwrite local document when loadDocData throws storage error during hydration', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+      doc.id = 'error-hydrate-item' as ItemId
+      doc.type = 'person'
+      doc.name = 'Remote Name'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockRejectedValue(new Error('IndexedDB lock contention')),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await expect(
+      customDocStore.hydrateAutomergeDocumentBinary('error-hydrate-item', remoteBinary)
+    ).rejects.toThrow('IndexedDB lock contention')
+
+    // Must NOT import the remote binary over local storage when storage fails
     expect(importSpy).not.toHaveBeenCalled()
   })
 
