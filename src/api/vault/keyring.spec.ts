@@ -534,4 +534,60 @@ describe('Vault Keyring Integration', () => {
       expect(result.passwordChanged).toBe(true)
     })
   })
+
+  describe('initWorkerVault async tick safety', () => {
+    it('does not leave keyring empty during async ticks in initWorkerVault when updating keys', async () => {
+      await initialiseVault({
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+      const exported1 = await exportKeyringData()
+      await initWorkerVault(exported1)
+      expect(hasVaultKey('1')).toBe(true)
+
+      // Rotate to version 2
+      await rotateVaultKey('test-account')
+      const exported2 = await exportKeyringData()
+
+      // Reset to only have version 1 loaded
+      await removeVaultFromDevice()
+      await initWorkerVault(exported1)
+      expect(hasVaultKey('1')).toBe(true)
+      expect(hasVaultKey('2')).toBe(false)
+
+      // Trigger initWorkerVault with exported2 without awaiting immediately
+      const initPromise = initWorkerVault(exported2)
+
+      // In the synchronous turn and subsequent microtasks before init completes,
+      // version 1 MUST remain available (no empty keyring window)
+      expect(hasVaultKey('1')).toBe(true)
+      expect(() => getVaultKey('1')).not.toThrow()
+
+      await Promise.resolve()
+      expect(hasVaultKey('1')).toBe(true)
+      expect(() => getVaultKey('1')).not.toThrow()
+
+      await initPromise
+      expect(hasVaultKey('1')).toBe(true)
+      expect(hasVaultKey('2')).toBe(true)
+      expect(getVaultKey('2')).toBeDefined()
+    })
+
+    it('preserves existing keyring when initWorkerVault fails with invalid key', async () => {
+      await initialiseVault({
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+      expect(hasVaultKey('1')).toBe(true)
+
+      // Calling initWorkerVault with corrupt/invalid key should throw
+      await expect(initWorkerVault('not-a-valid-key')).rejects.toThrow()
+
+      // The pre-existing keyring should remain intact
+      expect(hasVaultKey('1')).toBe(true)
+      expect(() => getVaultKey('1')).not.toThrow()
+    })
+  })
 })

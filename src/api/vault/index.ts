@@ -292,12 +292,15 @@ export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Pro
   const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
   const keyringData = JSON.parse(plaintext)
   if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
-    activeKeyVersion = keyringData.activeVersion as string
-    for (const [ver, expKey] of Object.entries(keyringData)) {
-      if (ver !== 'activeVersion') {
-        keyring.set(ver, await importVaultKey(expKey as string))
-      }
+    const entries = await Promise.all(
+      Object.entries(keyringData)
+        .filter(([ver]) => ver !== 'activeVersion')
+        .map(async ([ver, expKey]) => [ver, await importVaultKey(expKey as string)] as const)
+    )
+    for (const [ver, key] of entries) {
+      keyring.set(ver, key)
     }
+    activeKeyVersion = keyringData.activeVersion as string
   }
 }
 
@@ -332,25 +335,40 @@ export async function syncKeyringFromServer(account: string): Promise<void> {
 }
 
 export async function initWorkerVault(vaultKeyOrKeyring: string) {
-  keyring.clear()
+  const nextKeys = new Map<string, CryptoKey>()
+  let nextActiveVersion = '1'
+
   try {
     const keyringData = JSON.parse(vaultKeyOrKeyring)
     if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
-      activeKeyVersion = keyringData.activeVersion as string
-      for (const [ver, expKey] of Object.entries(keyringData)) {
-        if (ver !== 'activeVersion') {
-          keyring.set(ver, await importVaultKey(expKey as string))
-        }
+      const entries = await Promise.all(
+        Object.entries(keyringData)
+          .filter(([ver]) => ver !== 'activeVersion')
+          .map(async ([ver, expKey]) => [ver, await importVaultKey(expKey as string)] as const)
+      )
+      if (entries.length === 0) {
+        throw new Error('Keyring contains no key entries')
       }
+      for (const [ver, key] of entries) {
+        nextKeys.set(ver, key)
+      }
+      nextActiveVersion = keyringData.activeVersion as string
     } else {
       throw new Error('Not a structured keyring')
     }
   } catch (_) {
     // Legacy single key
     const imported = await importVaultKey(vaultKeyOrKeyring)
-    keyring.set('1', imported)
-    activeKeyVersion = '1'
+    nextKeys.set('1', imported)
+    nextActiveVersion = '1'
   }
+
+  // Atomically swap in the new keys and active version without an empty window across async ticks
+  keyring.clear()
+  for (const [ver, key] of nextKeys) {
+    keyring.set(ver, key)
+  }
+  activeKeyVersion = nextActiveVersion
 
   notifyKeyWaiters()
 
