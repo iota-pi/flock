@@ -4,7 +4,7 @@ import { debounce } from 'lodash-es'
 import type { PullSyncMessagesResponse, PushResultItem } from '../../api/vault/SyncWorkerClient'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
-import { decryptBytes } from 'src/api/vault'
+import { decryptBytes, hasVaultKey, waitForKeyVersion } from 'src/api/vault'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
@@ -13,6 +13,7 @@ export interface ItemPullState {
   cursor: number
   pending: boolean
   retryCount: number
+  blockedOnKey?: string
 }
 
 export class SyncPullQueueManager {
@@ -32,6 +33,9 @@ export class SyncPullQueueManager {
   public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
   public onDecryptionFailure: ((itemId: ItemId, error: unknown) => void) | null = null
   public onRetryingStateChange: ((isRetrying: boolean) => void) | null = null
+  public onKeyVersionMissing: ((kver: string) => void) | null = null
+  public onPendingPullsAvailable: (() => void) | null = null
+  public keyWaitTimeoutMs = 5000
 
   constructor(private readonly cursorStore: CursorStore) {}
 
@@ -50,7 +54,7 @@ export class SyncPullQueueManager {
 
   private isAnyRetrying(): boolean {
     for (const state of this.itemStates.values()) {
-      if (state.retryCount > 0) return true
+      if (state.retryCount > 0 || (state.blockedOnKey && !hasVaultKey(state.blockedOnKey))) return true
     }
     return false
   }
@@ -170,15 +174,32 @@ export class SyncPullQueueManager {
     if (!itemId) return
     const state = this.getOrCreateState(itemId)
     state.pending = true
+    if (state.blockedOnKey && hasVaultKey(state.blockedOnKey)) {
+      state.blockedOnKey = undefined
+    }
   }
 
   private async handleMessageEntry(
     itemId: ItemId,
     documentId: DocumentId,
     entry: PullSyncMessagesResponse['messages'][number],
-  ): Promise<{ parsed: boolean; cursor?: number }> {
+    timedOutKeys?: Set<string>,
+  ): Promise<{ parsed: boolean; cursor?: number; missingKey?: boolean; kver?: string }> {
     if (!entry?.encryptedMessage?.iv || !entry?.encryptedMessage?.cipher) {
       return { parsed: false }
+    }
+
+    const kver = entry.encryptedMessage.kver || '1'
+    if (!hasVaultKey(kver)) {
+      if (timedOutKeys?.has(kver)) {
+        return { parsed: false, missingKey: true, kver }
+      }
+      this.onKeyVersionMissing?.(kver)
+      const keyAcquired = await waitForKeyVersion(kver, this.keyWaitTimeoutMs)
+      if (!keyAcquired && !hasVaultKey(kver)) {
+        timedOutKeys?.add(kver)
+        return { parsed: false, missingKey: true, kver }
+      }
     }
 
     try {
@@ -221,7 +242,10 @@ export class SyncPullQueueManager {
       }
 
       return { parsed: true, cursor: entry.cursor }
-    } catch {
+    } catch (error: any) {
+      if (!hasVaultKey(kver) || (typeof error?.message === 'string' && error.message.includes('not found in keyring'))) {
+        return { parsed: false, missingKey: true, kver }
+      }
       return { parsed: false }
     }
   }
@@ -230,12 +254,40 @@ export class SyncPullQueueManager {
     const cursors: Array<{ itemId: ItemId; cursor: number }> = []
 
     for (const [itemId, state] of this.itemStates.entries()) {
+      if (state.blockedOnKey && !hasVaultKey(state.blockedOnKey)) {
+        continue
+      }
       if (state.pending) {
         cursors.push({ itemId, cursor: state.cursor })
       }
     }
 
     return cursors
+  }
+
+  hasImmediatePendingPulls(): boolean {
+    for (const state of this.itemStates.values()) {
+      if (state.pending && state.retryCount === 0 && (!state.blockedOnKey || hasVaultKey(state.blockedOnKey))) {
+        return true
+      }
+    }
+    return false
+  }
+
+  onKeyringUpdated(): void {
+    let unblockedAny = false
+    for (const state of this.itemStates.values()) {
+      if (state.blockedOnKey && hasVaultKey(state.blockedOnKey)) {
+        state.blockedOnKey = undefined
+        state.pending = true
+        state.retryCount = 0
+        unblockedAny = true
+      }
+    }
+    if (unblockedAny) {
+      this.onRetryingStateChange?.(this.isAnyRetrying())
+      this.onPendingPullsAvailable?.()
+    }
   }
 
   getGlobalLatestCursor(): number {
@@ -251,6 +303,7 @@ export class SyncPullQueueManager {
 
     const successfullyPulledItemIds = new Set<ItemId>()
     let cursorsUpdated = false
+    const timedOutKeys = new Set<string>()
 
     try {
       for (const result of results || []) {
@@ -262,6 +315,7 @@ export class SyncPullQueueManager {
           const originalCursor = state.cursor
           let highestCursor = originalCursor
           let hasParseFailure = false
+          let hasKeyFailure = false
           let failingCursor: number | undefined
           const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
@@ -280,7 +334,7 @@ export class SyncPullQueueManager {
               highestCursor = Math.max(highestCursor, entry.cursor!)
               continue // overlap window dedup
             }
-            const handled = await this.handleMessageEntry(itemId, documentId, entry)
+            const handled = await this.handleMessageEntry(itemId, documentId, entry, timedOutKeys)
             if (handled.parsed) {
               successfullyPulledItemIds.add(itemId)
               if (Number.isFinite(handled.cursor)) {
@@ -288,6 +342,10 @@ export class SyncPullQueueManager {
                 this.clearBatchProgress(itemId, handled.cursor!)
                 highestCursor = Math.max(highestCursor, handled.cursor!)
               }
+            } else if (handled.missingKey) {
+              hasKeyFailure = true
+              state.blockedOnKey = handled.kver
+              break
             } else {
               hasParseFailure = true
               failingCursor = entry?.cursor
@@ -295,13 +353,16 @@ export class SyncPullQueueManager {
             }
           }
 
-          if (!hasParseFailure && typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor)) {
+          if (!hasParseFailure && !hasKeyFailure && typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor)) {
             highestCursor = Math.max(highestCursor, result.nextCursor)
           }
 
-          if (hasMore && !hasParseFailure) {
+          if (hasKeyFailure) {
+            state.pending = true
+          } else if (hasMore && !hasParseFailure) {
             state.pending = true
             state.retryCount = 0 // success resets counter
+            state.blockedOnKey = undefined
           } else if (hasParseFailure) {
             state.retryCount += 1
             if (state.retryCount >= SyncPullQueueManager.MAX_PULL_RETRIES) {
@@ -332,6 +393,7 @@ export class SyncPullQueueManager {
           } else {
             state.pending = false
             state.retryCount = 0
+            state.blockedOnKey = undefined
           }
 
           if (highestCursor > originalCursor) {

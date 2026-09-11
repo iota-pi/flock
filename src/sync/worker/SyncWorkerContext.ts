@@ -115,6 +115,10 @@ export class SyncWorkerContext {
       void this.itemOperations.reportDecryptionFailure(itemId, error)
     }
 
+    this.pullQueueManager.onPendingPullsAvailable = () => {
+      this.broker.onFlushNeeded?.()
+    }
+
     this.broker.onItemMessageParsed = itemId => {
       void this.itemOperations.clearManualRecoveryForItems([itemId])
       deps.onItemMessageParsed?.(itemId)

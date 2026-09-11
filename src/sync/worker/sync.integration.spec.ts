@@ -70,6 +70,8 @@ vi.mock('../../api/vault', () => ({
     }
     return new Uint8Array([1, 2, 3])
   }),
+  hasVaultKey: vi.fn().mockReturnValue(true),
+  waitForKeyVersion: vi.fn().mockResolvedValue(true),
 }))
 
 function createTestSyncMessageData(): Uint8Array {
@@ -356,6 +358,57 @@ describe('Sync System Integration Test Suite', () => {
     expect(receiveSpy).toHaveBeenCalled()
     // CRITICAL: Must NOT unconditionally add to indexManager
     expect(indexManager.addAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+  })
+
+  it('Scenario 7: Pulling message with missing key version does not burn retries or advance cursor, and cleanly decrypts when keyring updates', async () => {
+    const itemId = 'item-rotated-key' as ItemId
+    const failureSpy = vi.fn()
+    pullQueueManager.onDecryptionFailure = failureSpy
+
+    const { hasVaultKey, waitForKeyVersion } = await import('../../api/vault')
+    // Key '2' is not yet in keyring and times out
+    vi.mocked(hasVaultKey).mockImplementation((kver?: string) => kver !== '2')
+    vi.mocked(waitForKeyVersion).mockResolvedValue(false)
+
+    const keyMissingResponse = {
+      success: true,
+      pushResults: [],
+      pullResults: [
+        {
+          itemId,
+          hasMore: false,
+          nextCursor: 50,
+          messages: [{ cursor: 40, encryptedMessage: { iv: 'iv', cipher: 'rotated-key-cipher', version: 'legacy', kver: '2' } }],
+        },
+      ],
+    }
+
+    // Repeated polls do NOT increment retryCount or quarantine
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      mockPollSyncBatchWithToken.mockResolvedValueOnce(keyMissingResponse)
+      await broker.executePoll()
+      expect(failureSpy).not.toHaveBeenCalled()
+    }
+
+    // Cursor must NOT have advanced past the un-decrypted message
+    expect(pullQueueManager.exportCursors()).not.toContainEqual([itemId, 40])
+    expect(pullQueueManager.exportCursors()).not.toContainEqual([itemId, 50])
+    expect(pullQueueManager.hasImmediatePendingPulls()).toBe(false)
+
+    // Key arrives via keyring update
+    vi.mocked(hasVaultKey).mockImplementation(() => true)
+    pullQueueManager.onKeyringUpdated()
+
+    expect(pullQueueManager.hasImmediatePendingPulls()).toBe(true)
+
+    const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
+    // Next poll with key now available successfully parses and decrypts
+    mockPollSyncBatchWithToken.mockResolvedValueOnce(keyMissingResponse)
+    await broker.executePoll()
+
+    expect(receiveSpy).toHaveBeenCalled()
+    expect(pullQueueManager.exportCursors()).toContainEqual([itemId, 50])
+    expect(failureSpy).not.toHaveBeenCalled()
   })
 })
 

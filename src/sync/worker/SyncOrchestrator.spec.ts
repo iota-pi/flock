@@ -609,6 +609,51 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(10)
       expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
     })
+
+    it('schedules next poll with normal interval rather than 0ms when hasImmediatePendingPulls is false', async () => {
+      mockBroker.executePoll.mockResolvedValue('success')
+      // Simulate retrying or key-blocked items: hasPendingPulls is true, but hasImmediatePendingPulls is false
+      mockBroker.hasPendingPulls.mockReturnValue(true)
+      mockBroker.hasImmediatePendingPulls = vi.fn().mockReturnValue(false)
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Advancing 100ms: should NOT have executed another poll (no 0ms burnout loop)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Advancing to the scheduled poll interval (~30s base backoff + jitter) executes next poll
+      await vi.advanceTimersByTimeAsync(40000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('schedules next poll at 0ms delay when hasImmediatePendingPulls is true', async () => {
+      let resolvePoll: (val: any) => void = () => {}
+      const firstPollPromise = new Promise(resolve => {
+        resolvePoll = resolve
+      })
+
+      mockBroker.executePoll.mockImplementationOnce(() => firstPollPromise)
+      mockBroker.hasPendingPulls.mockReturnValue(true)
+      mockBroker.hasImmediatePendingPulls = vi.fn().mockReturnValue(true)
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      // Resolve the first poll
+      resolvePoll('success')
+      await vi.advanceTimersByTimeAsync(0)
+
+      // When immediate pulls exist, next poll runs immediately (0ms delay)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+    })
   })
 })
 

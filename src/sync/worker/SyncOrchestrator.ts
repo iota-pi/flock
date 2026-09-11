@@ -245,7 +245,13 @@ export class SyncOrchestrator {
 
       if (outcome === 'failure') {
         this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
-      } else if (wasFlushPending || (outcome === 'success' && this.broker.hasPendingPulls())) {
+      } else if (
+        wasFlushPending ||
+        (outcome === 'success' &&
+          (typeof this.broker.hasImmediatePendingPulls === 'function'
+            ? this.broker.hasImmediatePendingPulls()
+            : this.broker.hasPendingPulls()))
+      ) {
         this.scheduleNextPoll(0)
       } else {
         this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])

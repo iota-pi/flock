@@ -188,6 +188,10 @@ export class SyncMessageBroker {
     return this.pullQueueManager.hasPendingPulls()
   }
 
+  hasImmediatePendingPulls(): boolean {
+    return this.pullQueueManager.hasImmediatePendingPulls()
+  }
+
   abortPoll(): void {
     this.syncPoller.abort()
   }

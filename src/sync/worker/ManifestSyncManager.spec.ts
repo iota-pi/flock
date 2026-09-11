@@ -34,9 +34,18 @@ vi.mock('../../api/vault/ItemClient', () => ({
 
 const mockDecryptObject = vi.fn()
 const mockDecryptBytes = vi.fn()
+const mockHasVaultKey = vi.fn().mockReturnValue(true)
+const mockWaitForKeyVersion = vi.fn().mockResolvedValue(true)
 vi.mock('../../api/vault', () => ({
   decryptObject: (...args: any[]) => mockDecryptObject(...args),
   decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
+  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
+  waitForKeyVersion: (...args: any[]) => mockWaitForKeyVersion(...args),
+}))
+
+const mockReadManualRecoveryEntries = vi.fn().mockResolvedValue([])
+vi.mock('../shared/manualRecoveryStore', () => ({
+  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
 }))
 
 const mockHasApiAuthToken = vi.fn()
@@ -101,6 +110,9 @@ describe('ManifestSyncManager', () => {
     mockUpdateLastManifestSyncTime.mockResolvedValue(undefined)
     mockGetMetadataQuery.mockResolvedValue({ success: false })
     mockHydrateAutomergeDocumentBinary.mockResolvedValue(undefined)
+    mockHasVaultKey.mockReturnValue(true)
+    mockWaitForKeyVersion.mockResolvedValue(true)
+    mockReadManualRecoveryEntries.mockResolvedValue([])
   })
 
   describe('gating & lifecycle', () => {
@@ -473,7 +485,7 @@ describe('ManifestSyncManager', () => {
       warnSpy.mockRestore()
     })
 
-    it('quarantines un-decryptable items to onDecryptionFailure and records timestamp to prevent endless retry loop', async () => {
+    it('quarantines un-decryptable items to onDecryptionFailure without recording timestamp in lastModifiedStore', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const onDecryptionFailure = vi.fn()
 
@@ -509,13 +521,120 @@ describe('ManifestSyncManager', () => {
         'item-undecryptable',
         expect.any(Error)
       )
-      // Timestamp recorded in SnapshotManager to prevent re-pulling this exact revision
-      expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith([
-        ['item-undecryptable', 500],
-      ])
+      // Timestamp MUST NOT be recorded in SnapshotManager to prevent permanent lockout
+      expect(depsObj.snapshotManager.importLastModified).not.toHaveBeenCalled()
+      // Hydration failure prevents updating lastManifestSyncTime
+      expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
       expect(result).toEqual({ added: [] })
 
       warnSpy.mockRestore()
+    })
+
+    it('skips quarantined items without newer server timestamps during routine sync to prevent endless retry loops', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockReadManualRecoveryEntries.mockResolvedValue([
+        { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500 },
+      ])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-quarantined', 500]],
+        serverTime: 500,
+      })
+
+      const result = await manifestSyncManager.sync(false)
+
+      expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      expect(result).toEqual({ added: [] })
+    })
+
+    it('retries quarantined items when force=true even without newer server timestamps', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockReadManualRecoveryEntries.mockResolvedValue([
+        { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500 },
+      ])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-quarantined', 500]],
+        serverTime: 500,
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-quarantined',
+            snapshot: { iv: 'iv-ok', cipher: 'cipher-ok', kver: '1' },
+          },
+        ],
+        serverTime: 500,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      const result = await manifestSyncManager.sync(true)
+
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
+        account: 'acc-123',
+        itemIds: ['item-quarantined'],
+      })
+      expect(result).toEqual({ added: ['item-quarantined'] })
+    })
+
+    it('retries quarantined items when server has a newer timestamp than quarantine time', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockReadManualRecoveryEntries.mockResolvedValue([
+        { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500 },
+      ])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-quarantined', 600]],
+        serverTime: 600,
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-quarantined',
+            snapshot: { iv: 'iv-ok', cipher: 'cipher-ok', kver: '1' },
+          },
+        ],
+        serverTime: 600,
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      const result = await manifestSyncManager.sync(false)
+
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
+        account: 'acc-123',
+        itemIds: ['item-quarantined'],
+      })
+      expect(result).toEqual({ added: ['item-quarantined'] })
+    })
+
+    it('waits for missing key version before attempting snapshot decryption', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-kver', 500]],
+        serverTime: 500,
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-kver',
+            snapshot: { iv: 'iv-1', cipher: 'cipher-1', kver: '2' },
+          },
+        ],
+        serverTime: 500,
+      })
+
+      mockHasVaultKey.mockImplementation(kver => kver !== '2')
+      mockWaitForKeyVersion.mockImplementation(async kver => {
+        if (kver === '2') {
+          mockHasVaultKey.mockReturnValue(true)
+          return true
+        }
+        return false
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([9, 8, 7]))
+
+      const result = await manifestSyncManager.sync(false)
+
+      expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 3000)
+      expect(mockDecryptBytes).toHaveBeenCalled()
+      expect(result).toEqual({ added: ['item-kver'] })
     })
   })
 

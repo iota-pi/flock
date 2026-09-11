@@ -157,6 +157,9 @@ export class SyncWorker implements SyncApi {
     pullQueueManager.onRetryingStateChange = isRetrying => {
       this.syncStatusManager.setDegradedPull(isRetrying)
     }
+    pullQueueManager.onKeyVersionMissing = kver => {
+      this.clientEventHub.emit({ type: 'keyVersionMissing', kver })
+    }
 
     this.broker = new SyncMessageBroker(
       this.adapter,
@@ -370,7 +373,10 @@ export class SyncWorker implements SyncApi {
   }
   async dismissRecoveryItem(entryId: string) { await this.context.itemOperations.dismissRecoveryItem(entryId) }
   async listRecoveryItems() { return this.context.itemOperations.listRecoveryItems() }
-  async updateVaultKey(vaultKey: string) { await initWorkerVault(vaultKey) }
+  async updateVaultKey(vaultKey: string) {
+    await initWorkerVault(vaultKey)
+    this.context?.pullQueueManager?.onKeyringUpdated()
+  }
   async reencryptAllItems(
     onProgress: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>

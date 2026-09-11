@@ -30,6 +30,8 @@ vi.mock('src/api/vault', () => ({
   decryptBytes: vi.fn().mockImplementation(async () => {
     return new Uint8Array([1, 2, 3])
   }),
+  hasVaultKey: vi.fn().mockReturnValue(true),
+  waitForKeyVersion: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock('../../api/vault/SyncWorkerClient', () => ({

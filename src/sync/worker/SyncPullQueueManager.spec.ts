@@ -46,8 +46,12 @@ vi.mock('localforage', () => ({
 
 // Mock other dependencies
 const mockDecryptBytes = vi.fn()
+const mockHasVaultKey = vi.fn().mockReturnValue(true)
+const mockWaitForKeyVersion = vi.fn().mockResolvedValue(true)
 vi.mock('src/api/vault', () => ({
   decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
+  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
+  waitForKeyVersion: (...args: any[]) => mockWaitForKeyVersion(...args),
 }))
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
@@ -104,6 +108,8 @@ describe('SyncPullQueueManager', () => {
 
     // Default mock behavior
     mockDecryptBytes.mockImplementation(async (encrypted: any) => encrypted.cipher)
+    mockHasVaultKey.mockReturnValue(true)
+    mockWaitForKeyVersion.mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -424,7 +430,7 @@ describe('SyncPullQueueManager', () => {
                 iv: 'iv-fail',
                 cipher: 'abc',
               },
-            },
+            } as any,
           ],
         },
       ]
@@ -1582,6 +1588,185 @@ describe('SyncPullQueueManager', () => {
       await manager.loadCursors()
 
       expect(manager.exportCursors()).toEqual([])
+    })
+  })
+
+  describe('Missing Key Version Handling', () => {
+    it('pauses inline and decrypts when missing key version arrives within timeout', async () => {
+      await manager.setAccount('account-key-test')
+      const onKeyVersionMissingSpy = vi.fn()
+      manager.onKeyVersionMissing = onKeyVersionMissingSpy
+
+      // Initially key '2' is not in keyring
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockImplementation(async (kver: string) => {
+        if (kver === '2') {
+          // Key arrives during wait
+          mockHasVaultKey.mockImplementation(() => true)
+          return true
+        }
+        return false
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-key-rotate' as ItemId,
+          hasMore: false,
+          nextCursor: 100,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'cipher-100',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      expect(onKeyVersionMissingSpy).toHaveBeenCalledWith('2')
+      expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 5000)
+      expect(mockDecryptBytes).toHaveBeenCalled()
+      expect(manager.exportCursors()).toContainEqual(['item-key-rotate', 100])
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+    })
+
+    it('does not advance cursor, mark seen, or burn retries when key version times out', async () => {
+      await manager.setAccount('account-key-timeout')
+      const onKeyVersionMissingSpy = vi.fn()
+      const onDecryptionFailureSpy = vi.fn()
+      manager.onKeyVersionMissing = onKeyVersionMissingSpy
+      manager.onDecryptionFailure = onDecryptionFailureSpy
+
+      // Key '2' is missing and times out
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockResolvedValue(false)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-timeout' as ItemId,
+          hasMore: false,
+          nextCursor: 120,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: {
+                iv: 'iv-timeout',
+                cipher: 'cipher-timeout',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      // Even if processed 5 times (normally burning out 5 retries):
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await manager.processPullResults(pullResults)
+      }
+
+      // Cursor must NOT be advanced past the failing message or by nextCursor
+      expect(manager.exportCursors()).not.toContainEqual(['item-timeout', 100])
+      expect(manager.exportCursors()).not.toContainEqual(['item-timeout', 120])
+      // onDecryptionFailure must NEVER be called for missing key
+      expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
+      // hasImmediatePendingPulls must be false so orchestrator does not burn 0ms polls
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+      // getCursors must skip this item so it does not hammer the server without the key
+      expect(manager.getCursors()).toEqual([])
+    })
+
+    it('unblocks items and triggers onPendingPullsAvailable when onKeyringUpdated is called after key arrives', async () => {
+      await manager.setAccount('account-key-unblock')
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockResolvedValue(false)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-blocked' as ItemId,
+          hasMore: false,
+          nextCursor: 50,
+          messages: [
+            {
+              cursor: 50,
+              encryptedMessage: {
+                iv: 'iv-50',
+                cipher: 'cipher-50',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+      expect(manager.getCursors()).toEqual([])
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+
+      // Key arrives in keyring
+      mockHasVaultKey.mockImplementation(() => true)
+      const onPendingPullsAvailableSpy = vi.fn()
+      manager.onPendingPullsAvailable = onPendingPullsAvailableSpy
+
+      manager.onKeyringUpdated()
+
+      expect(onPendingPullsAvailableSpy).toHaveBeenCalled()
+      expect(manager.hasImmediatePendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-blocked', cursor: 0 }])
+    })
+
+    it('deduplicates waitForKeyVersion timeouts across items in the same batch', async () => {
+      await manager.setAccount('account-batch-dedup')
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockResolvedValue(false)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-batch-1' as ItemId,
+          hasMore: false,
+          nextCursor: 10,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'c-1',
+                kver: '2',
+              },
+            },
+          ],
+        },
+        {
+          success: true,
+          itemId: 'item-batch-2' as ItemId,
+          hasMore: false,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 20,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'c-2',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      // waitForKeyVersion should be called only ONCE for key '2', not twice
+      expect(mockWaitForKeyVersion).toHaveBeenCalledTimes(1)
+      expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 5000)
     })
   })
 })

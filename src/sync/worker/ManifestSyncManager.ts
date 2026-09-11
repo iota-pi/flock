@@ -7,12 +7,13 @@ import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { SnapshotManager } from './SnapshotManager'
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
-import { decryptObject, decryptBytes, type CryptoResult } from '../../api/vault'
+import { decryptObject, decryptBytes, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
 import { hasApiAuthToken } from '../../api/runtime'
 import type { ItemId } from 'src/shared/schemas/items'
 import { getTrpcClient } from 'src/api/trpcClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
+import { readManualRecoveryEntries } from '../shared/manualRecoveryStore'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
@@ -92,13 +93,35 @@ export class ManifestSyncManager {
     const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
     const serverManifestMap = new Map<string, number>(manifestResponse.manifest)
 
+    let quarantinedMap = new Map<ItemId, number>()
+    if (this.deps.accountId) {
+      try {
+        const recoveryEntries = await readManualRecoveryEntries(this.deps.accountId)
+        for (const entry of recoveryEntries) {
+          quarantinedMap.set(entry.itemId, entry.createdAt)
+        }
+      } catch (err) {
+        console.warn('[ManifestSyncManager] Failed to read manual recovery entries', err)
+      }
+    }
+
     const missingIds = manifestResponse.manifest
       .filter(([itemId, serverTime]) => {
         const id = itemId as ItemId
         if (!id) return false
 
+        // If not forced and item is currently quarantined in manual recovery:
+        // skip unless the server has a newer snapshot timestamp than when it was quarantined
+        if (!force && quarantinedMap.has(id)) {
+          const quarantinedAt = quarantinedMap.get(id) ?? 0
+          if (serverTime <= quarantinedAt) {
+            return false
+          }
+        }
+
         const localTime = localLastModifiedMap.get(id) ?? 0
         if (localTime === 0) return true
+        if (force && !knownSet.has(id)) return true
         if (serverTime === localTime) return false
         if (serverTime > localTime) return true
 
@@ -220,9 +243,14 @@ export class ManifestSyncManager {
           typeof item.metadata?.iv === 'string' &&
           item.metadata.iv.length > 0
         ) {
+          const kver = (item.metadata as Record<string, unknown> | undefined)?.kver as string | undefined
+          if (kver && !hasVaultKey(kver)) {
+            await waitForKeyVersion(kver, 3000)
+          }
           const decrypted = await decryptObject({
             iv: item.metadata.iv,
             cipher: item.cipher,
+            kver,
           }).catch(() => null)
 
           if (decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)) {
@@ -238,11 +266,11 @@ export class ManifestSyncManager {
         }
 
         if (!decryptedSuccessfully) {
+          hasHydrationFailures = true
           console.warn(
             `[ManifestSyncManager] Item ${itemId} could not be decrypted; quarantining to manual recovery`
           )
           this.onDecryptionFailure?.(itemId, new Error('Failed to decrypt snapshot binary or legacy cipher'))
-          lastModifiedUpdates.push([itemId, serverTime])
         }
       } catch (error) {
         hasHydrationFailures = true
@@ -284,7 +312,10 @@ export class ManifestSyncManager {
     encryptedAutomergeDoc: CryptoResult,
   ): Promise<Uint8Array | null> {
     try {
-      return decryptBytes(encryptedAutomergeDoc)
+      if (encryptedAutomergeDoc.kver && !hasVaultKey(encryptedAutomergeDoc.kver)) {
+        await waitForKeyVersion(encryptedAutomergeDoc.kver, 3000)
+      }
+      return await decryptBytes(encryptedAutomergeDoc)
     } catch {
       return null
     }
