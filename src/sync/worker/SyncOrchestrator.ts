@@ -61,6 +61,10 @@ export class SyncOrchestrator {
     return this.isLeader
   }
 
+  get online(): boolean {
+    return this.isOnline
+  }
+
   setLeader(isLeader: boolean): void {
     if (this.isLeader === isLeader) {
       return

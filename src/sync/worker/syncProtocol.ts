@@ -17,6 +17,7 @@ export interface SyncApi {
   flushSync: () => void,
   fullResync: () => Promise<void>,
   pushSnapshots: () => Promise<{ persisted: number; total: number }>
+  retrySave: () => Promise<{ success: boolean; error?: string }>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
   forceOverwriteRecoveryItem: (itemId: ItemId) => Promise<void>
   forceDeleteRecoveryItem: (itemId: ItemId) => Promise<void>

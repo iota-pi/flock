@@ -42,6 +42,7 @@ const mockSyncApi = {
   reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
   flushSync: vi.fn().mockReturnValue(undefined),
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+  retrySave: vi.fn().mockResolvedValue({ success: true }),
 }
 
 vi.mock('comlink', () => {
@@ -466,6 +467,38 @@ describe('SyncBridge', () => {
         'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
       )
     })
+  })
+
+  it('updates isQuotaExceeded on quotaExceeded event and clears on quotaResolved event', async () => {
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({
+      type: 'quotaExceeded',
+      message: 'Storage quota exceeded. Changes cannot be saved.',
+    })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().syncStatus).toBe('degraded')
+      expect(useAppStore.getState().isQuotaExceeded).toBe(true)
+    })
+
+    lastEventPort!.postMessage({
+      type: 'quotaResolved',
+    })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().isQuotaExceeded).toBe(false)
+    })
+  })
+
+  it('delegates retrySave to syncApi', async () => {
+    await SyncBridge.initialize('test-account')
+    mockSyncApi.retrySave.mockResolvedValueOnce({ success: true })
+
+    const res = await SyncBridge.retrySave()
+    expect(mockSyncApi.retrySave).toHaveBeenCalled()
+    expect(res).toEqual({ success: true })
   })
 
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {

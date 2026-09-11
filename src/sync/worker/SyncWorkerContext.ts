@@ -17,6 +17,8 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
+import { resetQuotaExceededStatus } from '../../utils/storageManager'
+import { isQuotaError } from '../../utils/storageQuota'
 
 export interface SyncWorkerContextDeps {
   accountId: string
@@ -223,6 +225,62 @@ export class SyncWorkerContext {
       } catch (err) {
         console.error('[SyncWorkerContext] Error clearing metadata stores on logout', err)
       }
+    }
+  }
+
+  async retrySave(): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 1. Pre-flight probe to check if IndexedDB writes work
+      try {
+        await this.lastModifiedStore.testStorageAvailable()
+      } catch (probeErr) {
+        if (isQuotaError(probeErr)) {
+          return { success: false, error: 'Storage quota is still exceeded. Please free up more space on your device.' }
+        }
+      }
+
+      // 2. Persist dirty Automerge documents to IndexedDB
+      const dirtyIds = this.snapshotManager.getDirtyItemIds()
+      for (const itemId of dirtyIds) {
+        try {
+          await this.docStore.saveDocToStorage(itemId)
+        } catch (saveErr) {
+          if (isQuotaError(saveErr)) {
+            return { success: false, error: 'Storage quota is still exceeded while saving documents.' }
+          }
+          console.warn(`[SyncWorkerContext] Failed to save doc for item ${itemId} during retrySave`, saveErr)
+        }
+      }
+
+      // 3. Trigger renegotiation so Automerge re-generates sync messages for WAL
+      for (const itemId of dirtyIds) {
+        const documentId = toDocumentIdFromItemId(itemId)
+        this.adapter.triggerReNegotiation?.(documentId)
+      }
+
+      // 4. Persist timestamps
+      try {
+        await this.snapshotManager.persistLastModified()
+      } catch (tsErr) {
+        if (isQuotaError(tsErr)) {
+          return { success: false, error: 'Storage quota is still exceeded while saving timestamps.' }
+        }
+      }
+
+      // 5. If online, trigger snapshot push & orchestrator flush
+      if (this.orchestrator.online) {
+        void this.snapshotManager.flushPendingSnapshots().catch(console.error)
+        this.orchestrator.flush()
+      }
+
+      // 6. Reset quota status and notify client
+      resetQuotaExceededStatus()
+      this.clientEventHub.emit({ type: 'quotaResolved' })
+
+      return { success: true }
+    } catch (err) {
+      console.error('[SyncWorkerContext] Unexpected error during retrySave', err)
+      return { success: false, error: (err as Error).message || 'Failed to retry save' }
     }
   }
 }

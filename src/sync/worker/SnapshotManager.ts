@@ -710,6 +710,10 @@ export class SnapshotManager {
     this.oversizedItems.delete(itemId)
   }
 
+  getDirtyItemIds(): ItemId[] {
+    return Array.from(this.dirtyItems.keys())
+  }
+
   exportLastModified(): [ItemId, number][] {
     return Array.from(this.lastModifiedByItemId.entries())
   }

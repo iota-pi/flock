@@ -44,6 +44,7 @@ export const VaultAccountSchema = z.object({
   salt: z.string(),
   iterations: z.number(),
   keyring: z.string().optional(),
+  keyringVersion: z.number().optional(),
   saltVersion: z.number().optional(),
 })
 

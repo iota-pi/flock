@@ -18,6 +18,8 @@ vi.mock('./SnapshotManager', () => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
       setLeader = vi.fn()
+      getDirtyItemIds = vi.fn().mockReturnValue([])
+      persistLastModified = vi.fn().mockResolvedValue(undefined)
     },
   }
 })
@@ -28,6 +30,8 @@ vi.mock('./SyncOrchestrator', () => {
       start = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
       setOnlineState = vi.fn()
+      online = true
+      flush = vi.fn()
     },
   }
 })
@@ -36,6 +40,7 @@ vi.mock('./stores/LastModifiedStore', () => {
   return {
     LastModifiedStore: class MockLastModifiedStore {
       clear = vi.fn().mockResolvedValue(undefined)
+      testStorageAvailable = vi.fn().mockResolvedValue(true)
     },
   }
 })
@@ -54,6 +59,7 @@ vi.mock('./docStore', () => {
   return {
     AutomergeDocStore: class MockDocStore {
       shutdown = vi.fn().mockResolvedValue(undefined)
+      saveDocToStorage = vi.fn().mockResolvedValue(true)
     },
   }
 })
@@ -199,5 +205,32 @@ describe('SyncWorkerContext', () => {
 
     expect(clearSpy).toHaveBeenCalledWith(['item-parsed-1'])
     expect(onItemMessageParsedMock).toHaveBeenCalledWith('item-parsed-1')
+  })
+
+  describe('retrySave', () => {
+    it('returns failure if probe testStorageAvailable throws QuotaExceededError', async () => {
+      const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
+      vi.spyOn(context.lastModifiedStore, 'testStorageAvailable').mockRejectedValueOnce(quotaErr)
+
+      const result = await context.retrySave()
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('still exceeded')
+    })
+
+    it('saves dirty documents, triggers renegotiation, persists timestamps, and emits quotaResolved on success', async () => {
+      vi.spyOn(context.snapshotManager, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      const saveDocSpy = vi.spyOn(context.docStore, 'saveDocToStorage').mockResolvedValue(true)
+      const persistTimestampsSpy = vi.spyOn(context.snapshotManager, 'persistLastModified').mockResolvedValue(undefined)
+      const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
+
+      const result = await context.retrySave()
+
+      expect(result.success).toBe(true)
+      expect(saveDocSpy).toHaveBeenCalledWith('item-1' as ItemId)
+      expect(saveDocSpy).toHaveBeenCalledWith('item-2' as ItemId)
+      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalled()
+      expect(persistTimestampsSpy).toHaveBeenCalled()
+      expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
+    })
   })
 })

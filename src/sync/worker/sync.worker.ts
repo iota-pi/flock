@@ -360,6 +360,12 @@ export class SyncWorker implements SyncApi {
   }
 
   async pushSnapshots() { return this.context.snapshotManager.flushPendingSnapshots() }
+  async retrySave() {
+    if (!this._context) {
+      return { success: false, error: 'Sync worker not initialized' }
+    }
+    return this._context.retrySave()
+  }
   async retryRecoveryItem(itemId: ItemId) {
     await this.context.itemOperations.retryRecoveryItem(itemId)
     this.context.snapshotManager.markItemDirty(itemId)

@@ -103,6 +103,20 @@ export class AutomergeDocStore {
     return !!data
   }
 
+  async saveDocToStorage(itemId: ItemId): Promise<boolean> {
+    if (!this.repo.storageSubsystem) return false
+    const { documentId } = this.resolveDocumentId(itemId)
+    let handle: RepoDocHandle = this.repo.handles[documentId]
+    if (!handle || !handle.isReady()) {
+      handle = await this.findHandle(itemId, { knownToExist: true })
+    }
+    if (!handle || !handle.isReady()) return false
+    const doc = handle.doc()
+    if (!doc) return false
+    await this.repo.storageSubsystem.saveDoc(documentId, doc)
+    return true
+  }
+
   private async timedFind(
     url: AutomergeUrl,
     timeoutMs: number,

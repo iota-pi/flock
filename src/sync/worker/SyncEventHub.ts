@@ -17,6 +17,7 @@ export type ClientEvent =
   | { type: 'authFailure'; message: string }
   | { type: 'recoveryItemsChanged'; entries: ManualRecoveryEntry[] }
   | { type: 'quotaExceeded'; message: string }
+  | { type: 'quotaResolved' }
   | { type: 'keyVersionMissing'; kver: string }
   | { type: 'snapshotFailed'; itemId: ItemId; message: string }
 

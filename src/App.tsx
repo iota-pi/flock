@@ -20,6 +20,8 @@ import AppProviders from './app/AppProviders'
 import AppInitializer from './app/AppInitializer'
 import BiometricPrompt from './components/BiometricPrompt'
 import useAutoLock from './hooks/useAutoLock'
+import QuotaWarningSnackbar from './components/QuotaWarningSnackbar'
+import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
 
 
 const Root = styled('div')({
@@ -69,6 +71,9 @@ function RootLayout() {
     [floatingMenu],
   )
 
+  const [isQuotaDialogOpen, setIsQuotaDialogOpen] = useState(false)
+  const isQuotaExceeded = useAppStore(state => state.isQuotaExceeded)
+
   return (
     <Root>
       <AppInitializer />
@@ -95,7 +100,7 @@ function RootLayout() {
           <Toolbar />
         )}
 
-        {syncWarning && (
+        {syncWarning && !isQuotaExceeded && (
           <Alert
             severity="warning"
             onClose={clearSyncWarning}
@@ -109,6 +114,12 @@ function RootLayout() {
           <Outlet />
         </MainLayout>
       </Content>
+
+      <QuotaWarningSnackbar onOpenDetails={() => setIsQuotaDialogOpen(true)} />
+      <QuotaExceededDialog
+        open={isQuotaDialogOpen}
+        onClose={() => setIsQuotaDialogOpen(false)}
+      />
     </Root>
   )
 }

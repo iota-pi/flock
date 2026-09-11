@@ -213,6 +213,18 @@ class SyncBridgeService {
         const syncStore = useAppStore.getState()
         syncStore.setSyncStatus('degraded')
         syncStore.setSyncWarning(event.message)
+        syncStore.setQuotaExceeded(true)
+        break
+      }
+      case 'quotaResolved': {
+        const syncStore = useAppStore.getState()
+        syncStore.clearQuotaExceeded()
+        if (syncStore.syncStatus === 'degraded') {
+          syncStore.setSyncStatus('idle')
+        }
+        if (syncStore.syncWarning?.includes('quota') || syncStore.syncWarning?.includes('Storage')) {
+          syncStore.clearSyncWarning()
+        }
         break
       }
       case 'snapshotFailed': {
@@ -728,6 +740,11 @@ class SyncBridgeService {
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
     await this.ensureReady()
     return this.syncApi!.pushSnapshots()
+  }
+
+  async retrySave(): Promise<{ success: boolean; error?: string }> {
+    await this.ensureReady()
+    return this.syncApi!.retrySave()
   }
 
   async retryRecoveryItem(itemId: ItemId): Promise<void> {

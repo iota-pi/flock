@@ -155,7 +155,7 @@ export class SyncMessageBroker {
     if (isQuotaError(err)) {
       this.clientEventHub.emit({
         type: 'quotaExceeded',
-        message: 'Storage quota exceeded while saving sync changes. Changes will synchronize via full snapshot when connected.',
+        message: 'Storage quota exceeded. Some changes could not be saved.',
       })
     }
   }

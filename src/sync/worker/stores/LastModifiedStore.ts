@@ -61,5 +61,14 @@ export class LastModifiedStore {
   async clear(): Promise<void> {
     await this.store.clear()
   }
+
+  async testStorageAvailable(): Promise<boolean> {
+    const probeKey = '__quota_probe__'
+    await runStorageOperation(async () => {
+      await this.store.setItem(probeKey, Date.now())
+      await this.store.removeItem(probeKey)
+    })
+    return true
+  }
 }
 
