@@ -224,7 +224,7 @@ describe('SyncMessageBroker', () => {
     expect(flushSpy).not.toHaveBeenCalled()
   })
 
-  it('triggers renegotiation and forwards onWalEntriesPruned when WAL prunes entries', async () => {
+  it('flags items for snapshot-only sync without triggering renegotiation when WAL prunes entries', async () => {
     const prunedSpy = vi.fn()
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
     broker.onWalEntriesPruned = prunedSpy
@@ -235,7 +235,148 @@ describe('SyncMessageBroker', () => {
     // Simulate WAL notifying of pruned items
     mockWal.onEntriesPruned!(['item-1' as ItemId, 'item-2' as ItemId])
 
-    expect(renegSpy).toHaveBeenCalledTimes(2)
+    expect(renegSpy).not.toHaveBeenCalled()
+    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
+    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
+    expect(broker.getSnapshotOnlyItemCount()).toBe(2)
     expect(prunedSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
+  })
+
+  it('drops outgoing sync messages for snapshot-only items and forwards to onWalEntriesPruned', async () => {
+    const prunedSpy = vi.fn()
+    broker.onWalEntriesPruned = prunedSpy
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+    broker.setWal(mockWal)
+
+    // Mark item-1 as snapshot-only (via pruned callback)
+    mockWal.onEntriesPruned!(['item-1' as ItemId])
+    prunedSpy.mockClear()
+    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
+
+    // Outgoing sync message for item-1
+    const msg = createSyncMessage('item-1', [1, 2, 3])
+    adapter.onMessageToSend?.(msg)
+    await Promise.resolve()
+
+    // WAL append should NOT be called for snapshot-only item
+    expect(mockWal.append).not.toHaveBeenCalled()
+    // It should re-notify onWalEntriesPruned so snapshotManager dirty queue stays fresh
+    expect(prunedSpy).toHaveBeenCalledWith(['item-1'])
+  })
+
+  it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeadsForItem or clearSnapshotOnlyItem', async () => {
+    broker.setWal(mockWal)
+    mockWal.onEntriesPruned!(['item-1' as ItemId, 'item-2' as ItemId])
+    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
+    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
+
+    broker.setSyncedHeadsForItem('item-1' as ItemId, ['head-1'])
+    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(false)
+    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
+
+    broker.clearSnapshotOnlyItem('item-2' as ItemId)
+    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(false)
+    expect(broker.getSnapshotOnlyItemCount()).toBe(0)
+  })
+
+  it('clears snapshot-only items on account change and shutdown', async () => {
+    broker.setWal(mockWal)
+    mockWal.onEntriesPruned!(['item-1' as ItemId])
+    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
+
+    await broker.setAccount('account-2')
+    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(false)
+
+    mockWal.onEntriesPruned!(['item-2' as ItemId])
+    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
+
+    await broker.shutdown()
+    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(false)
+  })
+
+  describe('blocked items and infinite loop prevention on storage quota exceeded', () => {
+    it('marks item as blocked when WAL append fails, preventing infinite loops on renegotiation', async () => {
+      broker.setSendEnabled(true)
+      await broker.setAccount('account-1')
+      broker.setWal(mockWal)
+
+      const quotaError = new DOMException('Storage quota exceeded', 'QuotaExceededError')
+      vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
+
+      // When triggerReNegotiation is called, simulate Automerge immediately emitting a full sync message
+      vi.spyOn(adapter, 'triggerReNegotiation').mockImplementation((_docId) => {
+        const renegResponseMsg = createSyncMessage('item-loop', [99, 99])
+        adapter.onMessageToSend?.(renegResponseMsg)
+        return true
+      })
+
+      const initialMsg = createSyncMessage('item-loop', [1, 2, 3])
+      adapter.onMessageToSend?.(initialMsg)
+      await Promise.resolve()
+
+      // The item should now be blocked
+      expect(broker.isItemBlocked('item-loop' as ItemId)).toBe(true)
+      expect(broker.getBlockedItemCount()).toBe(1)
+
+      // Only the first append was attempted; the renegotiation message was dropped because the item was blocked!
+      expect(mockWal.append).toHaveBeenCalledTimes(1)
+      expect(mockWal.append).toHaveBeenCalledWith('item-loop', new Uint8Array([1, 2, 3]))
+
+      // Further messages while blocked are also dropped
+      adapter.onMessageToSend?.(createSyncMessage('item-loop', [4, 5, 6]))
+      await Promise.resolve()
+      expect(mockWal.append).toHaveBeenCalledTimes(1)
+    })
+
+    it('unblocks item when setSyncedHeadsForItem is called after successful snapshot upload', async () => {
+      broker.setSendEnabled(true)
+      await broker.setAccount('account-1')
+      broker.setWal(mockWal)
+
+      // Block the item
+      broker.blockItem('item-snap' as ItemId)
+      expect(broker.isItemBlocked('item-snap' as ItemId)).toBe(true)
+
+      // SnapshotManager succeeds and updates synced heads
+      broker.setSyncedHeadsForItem('item-snap' as ItemId, ['head-123'])
+
+      expect(broker.isItemBlocked('item-snap' as ItemId)).toBe(false)
+      expect(broker.getBlockedItemCount()).toBe(0)
+
+      // Now outgoing messages can append to WAL again
+      const msg = createSyncMessage('item-snap', [10, 11])
+      adapter.onMessageToSend?.(msg)
+      await Promise.resolve()
+
+      expect(mockWal.append).toHaveBeenCalledWith('item-snap', new Uint8Array([10, 11]))
+    })
+
+    it('unblocks all items when quotaResolved is emitted on clientEventHub', async () => {
+      broker.setSendEnabled(true)
+      await broker.setAccount('account-1')
+      broker.setWal(mockWal)
+
+      broker.blockItem('item-1' as ItemId)
+      broker.blockItem('item-2' as ItemId)
+      expect(broker.getBlockedItemCount()).toBe(2)
+
+      // Storage is freed and quotaResolved event is emitted
+      clientEventHub.emit({ type: 'quotaResolved' })
+
+      expect(broker.isItemBlocked('item-1' as ItemId)).toBe(false)
+      expect(broker.isItemBlocked('item-2' as ItemId)).toBe(false)
+      expect(broker.getBlockedItemCount()).toBe(0)
+    })
+
+    it('explicit unblockItem unblocks single item', () => {
+      broker.blockItem('item-x' as ItemId)
+      broker.blockItem('item-y' as ItemId)
+      expect(broker.isItemBlocked('item-x' as ItemId)).toBe(true)
+
+      broker.unblockItem('item-x' as ItemId)
+      expect(broker.isItemBlocked('item-x' as ItemId)).toBe(false)
+      expect(broker.isItemBlocked('item-y' as ItemId)).toBe(true)
+    })
   })
 })

@@ -19,6 +19,7 @@ export type RepoDocHandle = DocHandle<RepoDoc> | undefined
 export interface HydrateDocumentResult {
   hasLocalChanges: boolean
   incomingHeads: string[]
+  isDeleted?: boolean
 }
 
 export type ChangeDocumentOptions = {
@@ -29,6 +30,7 @@ export type ChangeDocumentOptions = {
 export type AutomergeIndexDocument = {
   accountId?: string
   itemIds?: ItemId[]
+  tombstoneIds?: ItemId[]
   metadata?: AccountMetadata
   lastSyncTime?: number
   lastManifestSyncTime?: number
@@ -85,13 +87,45 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
 
 export type DocHandleReplacedListener = (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
 
-export class AutomergeDocStore {
+export interface ItemLockCoordinator {
+  withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T>
+}
+
+export class AutomergeDocStore implements ItemLockCoordinator {
   private pendingFindOrCreate = new Map<ItemId, Promise<RepoDocHandle>>()
+  private itemLocks = new Map<ItemId, Promise<unknown>>()
   public onDocHandleReplaced?: DocHandleReplacedListener
 
   constructor(
     private readonly repo: Repo,
   ) {}
+
+  async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
+    const prevLock = this.itemLocks.get(itemId) ?? Promise.resolve()
+    let release: () => void
+    const lockPromise = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const nextLock = prevLock.catch(() => {}).then(() => lockPromise)
+    this.itemLocks.set(itemId, nextLock)
+
+    try {
+      await prevLock.catch(() => {})
+      return await fn()
+    } finally {
+      release!()
+      if (this.itemLocks.get(itemId) === nextLock) {
+        this.itemLocks.delete(itemId)
+      }
+    }
+  }
+
+  async waitForItemLock(itemId: ItemId): Promise<void> {
+    const lock = this.itemLocks.get(itemId)
+    if (lock) {
+      await lock.catch(() => {})
+    }
+  }
 
   private resolveDocumentId(itemId: ItemId) {
     const url = toAutomergeUrlFromItemId(itemId)
@@ -152,6 +186,7 @@ export class AutomergeDocStore {
     if (pending) {
       return pending
     }
+    await this.waitForItemLock(itemId)
     return this.findHandleInternal(itemId, options)
   }
 
@@ -212,7 +247,7 @@ export class AutomergeDocStore {
       return pending
     }
 
-    const promise = (async () => {
+    const promise = this.withItemLock(itemId, async () => {
       let handle = await this.findHandleInternal(itemId, options)
       if (handle) return handle
 
@@ -271,7 +306,7 @@ export class AutomergeDocStore {
 
       this.onDocHandleReplaced?.(itemId, handle)
       return handle
-    })()
+    })
 
     this.pendingFindOrCreate.set(itemId, promise)
 
@@ -337,19 +372,21 @@ export class AutomergeDocStore {
     if (!normalizedItemId) {
       return
     }
-    const { documentId } = this.resolveDocumentId(normalizedItemId)
+    return this.withItemLock(normalizedItemId, async () => {
+      const { documentId } = this.resolveDocumentId(normalizedItemId)
 
-    try {
-      this.repo.delete(documentId)
-    } catch {
-      // Ignore missing local handles.
-    }
+      try {
+        this.repo.delete(documentId)
+      } catch {
+        // Ignore missing local handles.
+      }
 
-    try {
-      await this.repo.removeFromCache(documentId)
-    } catch {
-      // Ignore cache-eviction failures for handles that were never loaded.
-    }
+      try {
+        await this.repo.removeFromCache(documentId)
+      } catch {
+        // Ignore cache-eviction failures for handles that were never loaded.
+      }
+    })
   }
 
   async hydrateAutomergeDocumentBinary(
@@ -362,89 +399,133 @@ export class AutomergeDocStore {
       return { hasLocalChanges: false, incomingHeads: [] }
     }
 
-    let incomingHeads: string[] = []
-    try {
-      const incomingDoc = Automerge.load<RepoDoc>(binary)
-      incomingHeads = Automerge.getHeads(incomingDoc)
-    } catch {
-      // Ignore initial parse failure here; it will throw when importing/loading below if corrupt
-    }
+    return this.withItemLock(normalizedItemId, async () => {
+      let incomingHeads: string[] = []
+      try {
+        const incomingDoc = Automerge.load<RepoDoc>(binary)
+        incomingHeads = Automerge.getHeads(incomingDoc)
+      } catch {
+        // Ignore initial parse failure here; it will throw when importing/loading below if corrupt
+      }
 
-    try {
-      const existingHandle = await this.findHandle(normalizedItemId, options)
+      try {
+        const existingHandle = await this.findHandleInternal(normalizedItemId, options)
 
-      if (existingHandle && existingHandle.isReady()) {
-        const incomingHandle = this.repo.import<RepoDoc>(binary)
-        try {
-          existingHandle.merge(incomingHandle)
-        } finally {
+        if (existingHandle && existingHandle.isReady()) {
+          const incomingHandle = this.repo.import<RepoDoc>(binary)
           try {
-            this.repo.delete(incomingHandle.documentId)
-          } catch {
-            // Ignore temp handle cleanup failure
-          }
-        }
-        const doc = existingHandle.doc()
-        const postMergeHeads = doc ? Automerge.getHeads(doc) : []
-        const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-        return { hasLocalChanges, incomingHeads }
-      } else {
-        // Document handle was not available or not ready within timeout.
-        // Check whether document exists in storage to avoid clobbering local edits.
-        let existsInStorage = options.knownToExist
-        let localBinary: Uint8Array | undefined
-
-        if (existsInStorage) {
-          localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-        } else {
-          localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-          existsInStorage = !!localBinary
-        }
-
-        if (existsInStorage) {
-          // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
-          if (localBinary && localBinary.byteLength > 0) {
+            existingHandle.merge(incomingHandle)
+          } finally {
             try {
-              const localDoc = Automerge.load<RepoDoc>(localBinary)
-              const incomingDoc = Automerge.load<RepoDoc>(binary)
-              const mergedDoc = Automerge.merge(localDoc, incomingDoc)
-              const mergedBinary = Automerge.save(mergedDoc)
-              await this.seedImportedDocument(normalizedItemId, mergedBinary)
-              const postMergeHeads = Automerge.getHeads(mergedDoc)
-              const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-              return { hasLocalChanges, incomingHeads }
-            } catch (mergeError) {
-              console.error('[AutomergeDocStore] Non-destructive direct merge failed', {
-                itemId: normalizedItemId,
-                error: mergeError,
-              })
+              this.repo.delete(incomingHandle.documentId)
+            } catch {
+              // Ignore temp handle cleanup failure
             }
           }
+          const doc = existingHandle.doc()
+          const postMergeHeads = doc ? Automerge.getHeads(doc) : []
+          const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
+          const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
+          return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+        } else {
+          // Document handle was not available or not ready within timeout.
+          // Check whether document exists in storage to avoid clobbering local edits.
+          let existsInStorage = options.knownToExist
+          let localBinary: Uint8Array | undefined
 
-          console.error(
-            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}. ` +
-            `Document exists in storage but handle could not be loaded within timeout and fallback merge failed.`
-          )
-          throw new Error(
-            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}`
-          )
+          if (existsInStorage) {
+            localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+          } else {
+            localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+            existsInStorage = !!localBinary
+          }
+
+          // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
+          const { documentId } = this.resolveDocumentId(normalizedItemId)
+          const inMemoryHandle = this.repo.handles[documentId]
+          if (inMemoryHandle && inMemoryHandle.isReady()) {
+            const incomingHandle = this.repo.import<RepoDoc>(binary)
+            try {
+              inMemoryHandle.merge(incomingHandle)
+            } finally {
+              try {
+                this.repo.delete(incomingHandle.documentId)
+              } catch {
+                // Ignore temp handle cleanup failure
+              }
+            }
+            const doc = inMemoryHandle.doc()
+            const postMergeHeads = doc ? Automerge.getHeads(doc) : []
+            const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
+            const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
+            return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+          }
+
+          if (existsInStorage) {
+            // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
+            if (localBinary && localBinary.byteLength > 0) {
+              try {
+                const localDoc = Automerge.load<RepoDoc>(localBinary)
+                const incomingDoc = Automerge.load<RepoDoc>(binary)
+                const mergedDoc = Automerge.merge(localDoc, incomingDoc)
+                const mergedBinary = Automerge.save(mergedDoc)
+                await this.seedImportedDocument(normalizedItemId, mergedBinary)
+                const postMergeHeads = Automerge.getHeads(mergedDoc)
+                const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
+                const isDeleted = (mergedDoc as Record<string, unknown> | undefined)?.deleted === true
+                return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+              } catch (mergeError) {
+                console.error('[AutomergeDocStore] Non-destructive direct merge failed', {
+                  itemId: normalizedItemId,
+                  error: mergeError,
+                })
+              }
+            }
+
+            console.error(
+              `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}. ` +
+              `Document exists in storage but handle could not be loaded within timeout and fallback merge failed.`
+            )
+            throw new Error(
+              `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}`
+            )
+          }
+
+          // Genuinely new document - safe to seed
+          const handle = await this.seedImportedDocument(normalizedItemId, binary)
+          const doc = handle.doc()
+          const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
+          return { hasLocalChanges: false, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
         }
-
-        // Genuinely new document - safe to seed
-        await this.seedImportedDocument(normalizedItemId, binary)
-        return { hasLocalChanges: false, incomingHeads }
+      } catch (error) {
+        console.error('[automerge] failed to hydrate document', {
+          itemId,
+          error,
+        })
+        throw error
       }
-    } catch (error) {
-      console.error('[automerge] failed to hydrate document', {
-        itemId,
-        error,
-      })
-      throw error
-    }
+    })
   }
 
   async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<DocHandle<RepoDoc>> {
     const { documentId } = this.resolveDocumentId(itemId)
+
+    // Concurrency defense: If a ready handle already exists in the repo, merge rather than evicting it!
+    const existing = this.repo.handles[documentId]
+    if (existing && existing.isReady()) {
+      const incomingHandle = this.repo.import<RepoDoc>(binary)
+      try {
+        existing.merge(incomingHandle)
+      } finally {
+        try {
+          this.repo.delete(incomingHandle.documentId)
+        } catch {
+          // Ignore temp handle cleanup failure
+        }
+      }
+      this.onDocHandleReplaced?.(itemId, existing)
+      return existing
+    }
 
     try {
       await this.repo.removeFromCache(documentId)
@@ -464,33 +545,35 @@ export class AutomergeDocStore {
     if (!normalizedItemId) {
       return false
     }
-    const { documentId } = this.resolveDocumentId(normalizedItemId)
+    return this.withItemLock(normalizedItemId, async () => {
+      const { documentId } = this.resolveDocumentId(normalizedItemId)
 
-    // Create fresh new doc with only current state (0 historical tombstones)
-    let newDoc = Automerge.init<RepoDoc>()
-    newDoc = Automerge.change(newDoc, doc => {
-      for (const [key, value] of Object.entries(item)) {
-        doc[key] = value
+      // Create fresh new doc with only current state (0 historical tombstones)
+      let newDoc = Automerge.init<RepoDoc>()
+      newDoc = Automerge.change(newDoc, doc => {
+        for (const [key, value] of Object.entries(item)) {
+          doc[key] = value
+        }
+      })
+      const compactedBinary = Automerge.save(newDoc)
+
+      try {
+        this.repo.delete(documentId)
+      } catch {
+        // Ignore
       }
-    })
-    const compactedBinary = Automerge.save(newDoc)
+      try {
+        await this.repo.removeFromCache(documentId)
+      } catch {
+        // Ignore
+      }
 
-    try {
-      this.repo.delete(documentId)
-    } catch {
-      // Ignore
-    }
-    try {
-      await this.repo.removeFromCache(documentId)
-    } catch {
-      // Ignore
-    }
-
-    const handle = this.repo.import<RepoDoc>(compactedBinary, {
-      docId: documentId,
+      const handle = this.repo.import<RepoDoc>(compactedBinary, {
+        docId: documentId,
+      })
+      this.onDocHandleReplaced?.(normalizedItemId, handle)
+      return true
     })
-    this.onDocHandleReplaced?.(normalizedItemId, handle)
-    return true
   }
 
   async exportAllBinaries(indexManager: AutomergeIndexManager): Promise<{

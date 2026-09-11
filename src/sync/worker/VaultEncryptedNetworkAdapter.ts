@@ -15,6 +15,14 @@ import { areHeadsEqual } from './utils/automerge'
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
 export const MAX_OUTBOUND_QUEUE_SIZE = 1000
+export const MAX_RENEGOTIATION_ATTEMPTS = 3
+export const RENEGOTIATION_WINDOW_MS = 5000
+export const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
+
+interface RenegotiationCircuitState {
+  timestamps: number[]
+  circuitOpenUntil?: number
+}
 
 export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
@@ -26,6 +34,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private seededDocuments = new Set<DocumentId>()
   private outboundQueue: Message[] = []
   private pendingReNegotiations = new Set<DocumentId>()
+  private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
   private syncedHeads = new Map<DocumentId, string[]>()
   private syncedHeadsStore: SyncedHeadsStore | null = null
 
@@ -167,7 +176,33 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.outboundQueue.push(message)
   }
 
-  triggerReNegotiation(documentId: DocumentId): void {
+  triggerReNegotiation(documentId: DocumentId): boolean {
+    const now = Date.now()
+    let circuit = this.renegotiationCircuits.get(documentId)
+    if (!circuit) {
+      circuit = { timestamps: [] }
+      this.renegotiationCircuits.set(documentId, circuit)
+    }
+
+    if (circuit.circuitOpenUntil && now < circuit.circuitOpenUntil) {
+      console.warn(
+        `[VaultNetworkAdapter] Renegotiation circuit breaker is OPEN for document ${documentId}. Skipping renegotiation.`
+      )
+      return false
+    }
+
+    circuit.timestamps = circuit.timestamps.filter(ts => now - ts < RENEGOTIATION_WINDOW_MS)
+
+    if (circuit.timestamps.length >= MAX_RENEGOTIATION_ATTEMPTS) {
+      circuit.circuitOpenUntil = now + CIRCUIT_BREAKER_COOLDOWN_MS
+      console.warn(
+        `[VaultNetworkAdapter] Renegotiation limit reached for document ${documentId} (${circuit.timestamps.length} attempts in ${RENEGOTIATION_WINDOW_MS}ms). Tripping circuit breaker for ${CIRCUIT_BREAKER_COOLDOWN_MS}ms.`
+      )
+      return false
+    }
+
+    circuit.timestamps.push(now)
+
     this.removeSeededDocument(documentId)
     this.outboundQueue = this.outboundQueue.filter(m => m.documentId !== documentId)
 
@@ -184,6 +219,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     }
 
     this.onReNegotiationTriggered?.(documentId)
+    return true
   }
 
   private flushPendingReNegotiations(): void {
@@ -279,8 +315,23 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.seededDocuments.clear()
     this.pendingReNegotiations.clear()
     this.clearSyncedHeads()
+    this.resetReNegotiationCircuit()
     this.disconnectPeer()
     this.emit('close')
+  }
+
+  isReNegotiationCircuitOpen(documentId: DocumentId): boolean {
+    const circuit = this.renegotiationCircuits.get(documentId)
+    if (!circuit?.circuitOpenUntil) return false
+    return Date.now() < circuit.circuitOpenUntil
+  }
+
+  resetReNegotiationCircuit(documentId?: DocumentId): void {
+    if (documentId) {
+      this.renegotiationCircuits.delete(documentId)
+    } else {
+      this.renegotiationCircuits.clear()
+    }
   }
 
   setSyncedHeadsStore(store: SyncedHeadsStore | null): void {
@@ -336,6 +387,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   clearOutboundQueue(): void {
     this.outboundQueue = []
     this.pendingReNegotiations.clear()
+    this.resetReNegotiationCircuit()
   }
 
   getPendingOutboundCount(): number {

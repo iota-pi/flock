@@ -80,6 +80,7 @@ export class SyncWorkerContext {
     if (deps.onDocHandleReplaced) {
       this.docStore.onDocHandleReplaced = deps.onDocHandleReplaced
     }
+    this.pullQueueManager.setLockCoordinator?.(this.docStore)
 
     this.snapshotManager = new SnapshotManager(
       {
@@ -144,8 +145,7 @@ export class SyncWorkerContext {
     if (this.wal && !this.wal.onEntriesPruned) {
       this.wal.onEntriesPruned = itemIds => {
         for (const itemId of itemIds) {
-          const documentId = toDocumentIdFromItemId(itemId)
-          this.adapter.triggerReNegotiation?.(documentId)
+          this.broker.markSnapshotOnly?.(itemId)
           this.snapshotManager.markItemDirty(itemId, 0)
         }
       }
@@ -240,6 +240,10 @@ export class SyncWorkerContext {
           return { success: false, error: 'Storage quota is still exceeded. Please free up more space on your device.' }
         }
       }
+
+      // Storage is available: unblock items and reset renegotiation circuits
+      this.broker.unblockAllItems?.()
+      this.adapter.resetReNegotiationCircuit?.()
 
       // 2. Persist dirty Automerge documents to IndexedDB
       const dirtyIds = this.snapshotManager.getDirtyItemIds()

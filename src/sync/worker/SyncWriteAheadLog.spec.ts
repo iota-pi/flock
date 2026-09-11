@@ -737,5 +737,52 @@ describe('SyncWriteAheadLog', () => {
     // Oldest items like item-unique-0 should be in the pruned list
     expect(prunedArg).toContain('item-unique-0')
   })
+
+  it('purges all entries for pruned items even if only some were in the initial slice', async () => {
+    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+    store.store.set('prune-1', {
+      id: 'prune-1',
+      itemId: 'item-A' as ItemId,
+      data: new Uint8Array([1]),
+      createdAt: 10,
+      seq: 1,
+    })
+    store.store.set('prune-2', {
+      id: 'prune-2',
+      itemId: 'item-B' as ItemId,
+      data: new Uint8Array([2]),
+      createdAt: 20,
+      seq: 2,
+    })
+    store.store.set('prune-3', {
+      id: 'prune-3',
+      itemId: 'item-A' as ItemId,
+      data: new Uint8Array([3]),
+      createdAt: 30,
+      seq: 3,
+    })
+    store.store.set('prune-4', {
+      id: 'prune-4',
+      itemId: 'item-C' as ItemId,
+      data: new Uint8Array([4]),
+      createdAt: 40,
+      seq: 4,
+    })
+
+    const onPruned = vi.fn()
+    wal.onEntriesPruned = onPruned
+
+    // Prune oldest 1 entry: this is prune-1 (item-A)
+    await (wal as any).pruneOldest(1)
+
+    expect(onPruned).toHaveBeenCalledWith(['item-A'])
+    // Both prune-1 and prune-3 (belonging to item-A) should be removed
+    expect(store.store.has('prune-1')).toBe(false)
+    expect(store.store.has('prune-3')).toBe(false)
+    // Other items remain untouched
+    expect(store.store.has('prune-2')).toBe(true)
+    expect(store.store.has('prune-4')).toBe(true)
+  })
 })
 

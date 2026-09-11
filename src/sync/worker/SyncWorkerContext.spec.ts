@@ -94,10 +94,12 @@ describe('SyncWorkerContext', () => {
       setSyncedHeadsStore: vi.fn(),
       setSyncedHeads: vi.fn(),
       loadSyncedHeads: vi.fn(),
+      resetReNegotiationCircuit: vi.fn(),
     }
     mockBroker = {
       onItemMessageParsed: null,
       onWalAppendFailed: null,
+      unblockAllItems: vi.fn(),
     }
 
     const mockRepo = {} as Repo
@@ -227,6 +229,8 @@ describe('SyncWorkerContext', () => {
       const result = await context.retrySave()
 
       expect(result.success).toBe(true)
+      expect(mockBroker.unblockAllItems).toHaveBeenCalled()
+      expect(mockAdapter.resetReNegotiationCircuit).toHaveBeenCalled()
       expect(saveDocSpy).toHaveBeenCalledWith('item-1' as ItemId)
       expect(saveDocSpy).toHaveBeenCalledWith('item-2' as ItemId)
       expect(mockAdapter.triggerReNegotiation).toHaveBeenCalled()

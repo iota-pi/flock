@@ -8,6 +8,7 @@ import { decryptBytes, hasVaultKey, waitForKeyVersion } from 'src/api/vault'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
+import type { ItemLockCoordinator } from './docStore'
 
 export interface ItemPullState {
   cursor: number
@@ -31,6 +32,8 @@ export class SyncPullQueueManager {
 
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
+  private lockCoordinator?: ItemLockCoordinator
+
   public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
   public onDecryptionFailure: ((itemId: ItemId, error: unknown) => void) | null = null
   public onRetryingStateChange: ((isRetrying: boolean) => void) | null = null
@@ -38,7 +41,16 @@ export class SyncPullQueueManager {
   public onPendingPullsAvailable: (() => void) | null = null
   public keyWaitTimeoutMs = 5000
 
-  constructor(private readonly cursorStore: CursorStore) {}
+  constructor(
+    private readonly cursorStore: CursorStore,
+    lockCoordinator?: ItemLockCoordinator,
+  ) {
+    this.lockCoordinator = lockCoordinator
+  }
+
+  public setLockCoordinator(coordinator?: ItemLockCoordinator): void {
+    this.lockCoordinator = coordinator
+  }
 
   private getOrCreateState(itemId: ItemId): ItemPullState {
     let state = this.itemStates.get(itemId)
@@ -338,28 +350,36 @@ export class SyncPullQueueManager {
             return 0
           })
 
-          for (const entry of sortedMessages) {
-            if (Number.isFinite(entry.cursor) && this.hasSeen(itemId, entry.cursor)) {
-              highestCursor = Math.max(highestCursor, entry.cursor!)
-              continue // overlap window dedup
-            }
-            const handled = await this.handleMessageEntry(itemId, documentId, entry, timedOutKeys)
-            if (handled.parsed) {
-              successfullyPulledItemIds.add(itemId)
-              if (Number.isFinite(handled.cursor)) {
-                this.markSeen(itemId, handled.cursor!)
-                this.clearBatchProgress(itemId, handled.cursor!)
-                highestCursor = Math.max(highestCursor, handled.cursor!)
+          const processMessages = async () => {
+            for (const entry of sortedMessages) {
+              if (Number.isFinite(entry.cursor) && this.hasSeen(itemId, entry.cursor)) {
+                highestCursor = Math.max(highestCursor, entry.cursor!)
+                continue // overlap window dedup
               }
-            } else if (handled.missingKey) {
-              hasKeyFailure = true
-              state.blockedOnKey = handled.kver
-              break
-            } else {
-              hasParseFailure = true
-              failingCursor = entry?.cursor
-              break
+              const handled = await this.handleMessageEntry(itemId, documentId, entry, timedOutKeys)
+              if (handled.parsed) {
+                successfullyPulledItemIds.add(itemId)
+                if (Number.isFinite(handled.cursor)) {
+                  this.markSeen(itemId, handled.cursor!)
+                  this.clearBatchProgress(itemId, handled.cursor!)
+                  highestCursor = Math.max(highestCursor, handled.cursor!)
+                }
+              } else if (handled.missingKey) {
+                hasKeyFailure = true
+                state.blockedOnKey = handled.kver
+                break
+              } else {
+                hasParseFailure = true
+                failingCursor = entry?.cursor
+                break
+              }
             }
+          }
+
+          if (this.lockCoordinator && sortedMessages.length > 0) {
+            await this.lockCoordinator.withItemLock(itemId, processMessages)
+          } else {
+            await processMessages()
           }
 
           if (!hasParseFailure && !hasKeyFailure && typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor)) {

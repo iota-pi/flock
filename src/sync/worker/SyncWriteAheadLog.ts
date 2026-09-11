@@ -248,12 +248,9 @@ export class SyncWriteAheadLog {
       )
       validEntries.sort((a, b) => (a.createdAt - b.createdAt) || (a.seq - b.seq))
       const entriesToPrune = validEntries.slice(0, count)
-      const toRemove = entriesToPrune.map(e => e.id)
-      if (toRemove.length === 0) {
+      if (entriesToPrune.length === 0) {
         return
       }
-
-      await this.remove(toRemove)
 
       const prunedItemIds = Array.from(
         new Set(
@@ -262,6 +259,16 @@ export class SyncWriteAheadLog {
             .filter((id): id is ItemId => typeof id === 'string' && id.length > 0)
         )
       )
+
+      const prunedItemSet = new Set(prunedItemIds)
+      // Remove all entries belonging to the pruned items to avoid partial change history in WAL
+      const toRemove = validEntries
+        .filter(e => prunedItemSet.has(e.itemId))
+        .map(e => e.id)
+
+      if (toRemove.length > 0) {
+        await this.remove(toRemove)
+      }
 
       if (prunedItemIds.length > 0 && this.onEntriesPruned) {
         try {

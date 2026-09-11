@@ -554,6 +554,8 @@ export class SnapshotManager {
           if (item.heads && item.heads.length > 0) {
             this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
           }
+          this.deps.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
+          this.deps.broker.unblockItem?.(item.snapshot.itemId)
           void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
         this.saveLastModifiedDebounced()
@@ -585,6 +587,8 @@ export class SnapshotManager {
           if (item.heads && item.heads.length > 0) {
             this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
           }
+          this.deps.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
+          this.deps.broker.unblockItem?.(item.snapshot.itemId)
           void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
         }
         this.saveLastModifiedDebounced()

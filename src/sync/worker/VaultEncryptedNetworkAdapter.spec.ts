@@ -1222,5 +1222,60 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     adapter.triggerReNegotiation('test-doc' as DocumentId)
     expect(callback).toHaveBeenCalledWith('test-doc')
   })
+
+  describe('triggerReNegotiation circuit breaker', () => {
+    it('allows renegotiations within rate limit and trips circuit breaker when exceeded', () => {
+      const docId = 'doc-burst' as DocumentId
+      const callback = vi.fn()
+      adapter.onReNegotiationTriggered = callback
+
+      // First 3 calls within window should succeed
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+      expect(callback).toHaveBeenCalledTimes(3)
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
+
+      // 4th call should trip the circuit breaker
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(callback).toHaveBeenCalledTimes(3)
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
+
+      // 5th call while circuit is open is dropped
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(callback).toHaveBeenCalledTimes(3)
+    })
+
+    it('recovers after circuit breaker cooldown expires', () => {
+      const docId = 'doc-cooldown' as DocumentId
+
+      // Trip circuit
+      adapter.triggerReNegotiation(docId)
+      adapter.triggerReNegotiation(docId)
+      adapter.triggerReNegotiation(docId)
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
+
+      // Advance timers past cooldown (30s)
+      vi.advanceTimersByTime(31000)
+
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+    })
+
+    it('resets circuit immediately via resetReNegotiationCircuit', () => {
+      const docId = 'doc-reset' as DocumentId
+
+      adapter.triggerReNegotiation(docId)
+      adapter.triggerReNegotiation(docId)
+      adapter.triggerReNegotiation(docId)
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
+
+      adapter.resetReNegotiationCircuit(docId)
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+    })
+  })
 })
 
