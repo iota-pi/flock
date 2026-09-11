@@ -20,6 +20,9 @@ import {
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 
+export const DEFAULT_MAX_CRYPTO_RETRIES = 3
+export const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
+
 export interface EncryptedBroadcastChannelOptions extends Partial<BroadcastChannelNetworkAdapterOptions> {
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
@@ -27,25 +30,37 @@ export interface EncryptedBroadcastChannelOptions extends Partial<BroadcastChann
   onDocumentReceived?: (documentId: DocumentId) => void
   /** @deprecated No longer used. Connection is no longer reset on crypto failures. */
   resetCooldownMs?: number
+  maxCryptoRetries?: number
+  cryptoRetryDelayMs?: number
+}
+
+interface QueuedMessage {
+  message: Message
+  retries: number
 }
 
 export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private options?: EncryptedBroadcastChannelOptions
   private inner!: BroadcastChannelNetworkAdapter
-  private sendQueue: Message[] = []
+  private sendQueue: QueuedMessage[] = []
   private isSending = false
-  private receiveQueue: Message[] = []
+  private receiveQueue: QueuedMessage[] = []
   private isReceiving = false
   private pendingKeyMessages = new Map<string, Message[]>()
   private activeKeyWaiters = new Set<string>()
   private isDisconnected = false
   private isPaused = false
   private maxPendingMessagesPerKey: number
+  private maxCryptoRetries: number
+  private cryptoRetryDelayMs: number
 
   constructor(options?: EncryptedBroadcastChannelOptions) {
     super()
     this.options = options
     this.maxPendingMessagesPerKey = options?.maxPendingMessagesPerKey ?? 1000
+    this.maxCryptoRetries = options?.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
+    const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'
+    this.cryptoRetryDelayMs = options?.cryptoRetryDelayMs ?? (isTestEnv ? 0 : DEFAULT_CRYPTO_RETRY_DELAY_MS)
     this.setupInner()
   }
 
@@ -102,7 +117,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     if (this.isDisconnected || this.isPaused) {
       return
     }
-    this.sendQueue.push(message)
+    this.sendQueue.push({ message, retries: 0 })
     void this.processQueue()
   }
 
@@ -115,24 +130,37 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           this.sendQueue = []
           break
         }
-        const message = this.sendQueue.shift()!
+        const item = this.sendQueue[0]
         try {
-          if (message.type === 'sync' && message.data) {
-            const cryptoResult = await encryptBytes(message.data)
+          if (item.message.type === 'sync' && item.message.data) {
+            const cryptoResult = await encryptBytes(item.message.data)
             const jsonString = JSON.stringify(cryptoResult)
             const encodedData = new TextEncoder().encode(jsonString)
-            this.inner.send({ ...message, data: encodedData })
-            if (message.documentId) {
-              const itemId = toVaultItemIdFromAutomergeId(message.documentId)
+            this.inner.send({ ...item.message, data: encodedData })
+            if (item.message.documentId) {
+              const itemId = toVaultItemIdFromAutomergeId(item.message.documentId)
               if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
                 publishRealtimeBusSyncPing([itemId])
               }
             }
           } else {
-            this.inner.send(message)
+            this.inner.send(item.message)
           }
+          this.sendQueue.shift()
         } catch (err) {
-          console.error('[EncryptedBroadcastChannel] Error sending message:', err)
+          item.retries += 1
+          if (item.retries >= this.maxCryptoRetries) {
+            console.error('[EncryptedBroadcastChannel] Error sending message:', err)
+            this.sendQueue.shift()
+          } else {
+            console.warn(
+              `[EncryptedBroadcastChannel] Error sending message (attempt ${item.retries}/${this.maxCryptoRetries}), retrying:`,
+              err
+            )
+            if (this.cryptoRetryDelayMs > 0) {
+              await new Promise(resolve => setTimeout(resolve, this.cryptoRetryDelayMs))
+            }
+          }
         }
       }
     } finally {
@@ -144,7 +172,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     if (this.isDisconnected || this.isPaused) {
       return
     }
-    this.receiveQueue.push(message)
+    this.receiveQueue.push({ message, retries: 0 })
     void this.processReceiveQueue()
   }
 
@@ -207,7 +235,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
       return
     }
     this.pendingKeyMessages.delete(kver)
-    this.receiveQueue.unshift(...pending)
+    this.receiveQueue.unshift(...pending.map(message => ({ message, retries: 0 })))
     void this.processReceiveQueue()
   }
 
@@ -216,7 +244,12 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.isReceiving = true
     try {
       while (this.receiveQueue.length > 0) {
-        const message = this.receiveQueue.shift()!
+        if (this.isDisconnected || this.isPaused) {
+          this.receiveQueue = []
+          break
+        }
+        const item = this.receiveQueue[0]
+        const message = item.message
         let kver: string | undefined
         try {
           if (message.type === 'sync' && message.data) {
@@ -226,6 +259,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
 
             if (!hasVaultKey(kver)) {
               if (this.hasPendingMessages(kver)) {
+                this.receiveQueue.shift()
                 this.bufferPendingMessage(kver, message)
                 continue
               }
@@ -239,6 +273,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
                 console.warn(
                   `[EncryptedBroadcastChannel] Timed out waiting for key version ${kver}. Buffering message until key arrives.`
                 )
+                this.receiveQueue.shift()
                 this.bufferPendingMessage(kver, message)
                 this.ensureKeyWaiter(kver)
                 continue
@@ -253,10 +288,26 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           } else {
             this.emit('message', message)
           }
+          this.receiveQueue.shift()
         } catch (err) {
-          console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
-          if (kver && this.options?.onKeyVersionMissing) {
-            this.options.onKeyVersionMissing(kver)
+          item.retries += 1
+          if (item.retries >= this.maxCryptoRetries) {
+            console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
+            if (kver && this.options?.onKeyVersionMissing) {
+              this.options.onKeyVersionMissing(kver)
+            }
+            this.receiveQueue.shift()
+          } else {
+            console.warn(
+              `[EncryptedBroadcastChannel] Error decrypting message (attempt ${item.retries}/${this.maxCryptoRetries}), retrying:`,
+              err
+            )
+            if (kver && this.options?.onKeyVersionMissing) {
+              this.options.onKeyVersionMissing(kver)
+            }
+            if (this.cryptoRetryDelayMs > 0) {
+              await new Promise(resolve => setTimeout(resolve, this.cryptoRetryDelayMs))
+            }
           }
         }
       }

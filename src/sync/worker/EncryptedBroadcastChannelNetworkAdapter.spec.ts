@@ -57,7 +57,15 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    const { decryptBytes, hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+    const { encryptBytes, decryptBytes, hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+    vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
+      return {
+        iv: 'mock-iv',
+        cipher: 'mock-cipher-' + Array.from(bytes).join(','),
+        kver: '1',
+        version: '1.0',
+      }
+    })
     vi.mocked(decryptBytes).mockImplementation(async (payload: any) => {
       const suffix = payload.cipher.replace('mock-cipher-', '')
       if (suffix === '') return new Uint8Array([])
@@ -202,11 +210,21 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     expect(emittedMessage).toEqual(incomingMessage)
   })
 
-  it('continues processing send queue and does not reset connection when encryption throws an error', async () => {
+  it('continues processing send queue and does not reset connection when encryption throws permanent errors', async () => {
     const { encryptBytes } = await import('src/api/vault')
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Encryption failed'))
+    vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
+      if (bytes[0] === 9) {
+        throw new Error('Encryption failed')
+      }
+      return {
+        iv: 'mock-iv',
+        cipher: 'mock-cipher-' + Array.from(bytes).join(','),
+        kver: '1',
+        version: '1.0',
+      }
+    })
 
     const badMessage: Message = {
       type: 'sync',
@@ -227,18 +245,53 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     adapter.send(badMessage)
     adapter.send(goodMessage)
 
-    await new Promise(resolve => setTimeout(resolve, 20))
+    await vi.waitFor(() => {
+      expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
+    })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       '[EncryptedBroadcastChannel] Error sending message:',
       expect.any(Error)
     )
     expect(innerAdapterMock.disconnect).not.toHaveBeenCalled()
-    expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
     expect(innerAdapterMock.send).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: 'goodDoc' })
     )
 
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('retries sending a message on transient encryption error and delivers without dropping', async () => {
+    const { encryptBytes } = await import('src/api/vault')
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Transient encryption error'))
+
+    const message: Message = {
+      type: 'sync',
+      senderId: 'peer1' as PeerId,
+      targetId: 'peer2' as PeerId,
+      documentId: 'retryDoc' as DocumentId,
+      data: new Uint8Array([7, 7]),
+    }
+
+    adapter.send(message)
+
+    await vi.waitFor(() => {
+      expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
+    })
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error sending message (attempt 1/3), retrying:'),
+      expect.any(Error)
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    expect(innerAdapterMock.send).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: 'retryDoc' })
+    )
+
+    consoleWarnSpy.mockRestore()
     consoleErrorSpy.mockRestore()
   })
 
@@ -294,7 +347,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     expect(Array.from(mockMessageListener.mock.calls[1][0].data)).toEqual([2, 2, 2])
   })
 
-  it('continues processing receive queue and notifies onKeyVersionMissing without resetting connection when decryption throws an error', async () => {
+  it('continues processing receive queue and notifies onKeyVersionMissing without resetting connection when decryption throws permanent errors', async () => {
     const onKeyVersionMissing = vi.fn()
     const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ onKeyVersionMissing })
     const customInnerMock = (customAdapter as any).inner
@@ -308,7 +361,12 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       if (call[0] === 'message') innerMessageCallback = call[1]
     }
 
-    vi.mocked(decryptBytes).mockRejectedValueOnce(new Error('Decryption failed'))
+    vi.mocked(decryptBytes).mockImplementation(async (payload: any) => {
+      if (payload.cipher === 'mock-cipher-bad') {
+        throw new Error('Decryption failed')
+      }
+      return new Uint8Array([1, 2])
+    })
 
     const badPayload = { iv: 'iv1', cipher: 'mock-cipher-bad', kver: '2', version: '1.0' }
     const goodPayload = { iv: 'iv2', cipher: 'mock-cipher-good', kver: '1', version: '1.0' }
@@ -332,7 +390,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     innerMessageCallback(badMessage)
     innerMessageCallback(goodMessage)
 
-    await new Promise(resolve => setTimeout(resolve, 30))
+    await vi.waitFor(() => {
+      expect(mockMessageListener).toHaveBeenCalledTimes(1)
+    })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       '[EncryptedBroadcastChannel] Error decrypting message:',
@@ -340,7 +400,6 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     )
     expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
     expect(customInnerMock.disconnect).not.toHaveBeenCalled()
-    expect(mockMessageListener).toHaveBeenCalledTimes(1)
     expect(mockMessageListener).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: 'goodDoc' })
     )
@@ -348,20 +407,73 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     consoleErrorSpy.mockRestore()
   })
 
+  it('retries decrypting an incoming message on transient decryption error and emits without dropping', async () => {
+    const onKeyVersionMissing = vi.fn()
+    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ onKeyVersionMissing })
+    const customInnerMock = (customAdapter as any).inner
+    const { decryptBytes } = await import('src/api/vault')
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mockMessageListener = vi.fn()
+    customAdapter.on('message', mockMessageListener)
+
+    let innerMessageCallback: any
+    for (const call of customInnerMock.on.mock.calls) {
+      if (call[0] === 'message') innerMessageCallback = call[1]
+    }
+
+    vi.mocked(decryptBytes).mockRejectedValueOnce(new Error('Transient decryption failure'))
+
+    const payload = { iv: 'iv1', cipher: 'mock-cipher-5,6', kver: '1', version: '1.0' }
+    const message: Message = {
+      type: 'sync',
+      senderId: 'peer2' as PeerId,
+      targetId: 'peer1' as PeerId,
+      documentId: 'docRetry' as DocumentId,
+      data: new TextEncoder().encode(JSON.stringify(payload)),
+    }
+
+    innerMessageCallback(message)
+
+    await vi.waitFor(() => {
+      expect(mockMessageListener).toHaveBeenCalledTimes(1)
+    })
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error decrypting message (attempt 1/3), retrying:'),
+      expect.any(Error)
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    expect(mockMessageListener).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: 'docRetry', data: new Uint8Array([5, 6]) })
+    )
+
+    consoleWarnSpy.mockRestore()
+    consoleErrorSpy.mockRestore()
+  })
+
   it('does not disconnect on multiple consecutive crypto errors and continues sending valid messages', async () => {
     const { encryptBytes } = await import('src/api/vault')
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    vi.mocked(encryptBytes)
-      .mockRejectedValueOnce(new Error('Encryption failed 1'))
-      .mockRejectedValueOnce(new Error('Encryption failed 2'))
+    vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
+      if (bytes[0] === 91 || bytes[0] === 92) {
+        throw new Error('Encryption failed')
+      }
+      return {
+        iv: 'mock-iv',
+        cipher: 'mock-cipher-' + Array.from(bytes).join(','),
+        kver: '1',
+        version: '1.0',
+      }
+    })
 
     const badMessage1: Message = {
       type: 'sync',
       senderId: 'peer1' as PeerId,
       targetId: 'peer2' as PeerId,
       documentId: 'badDoc1' as DocumentId,
-      data: new Uint8Array([1]),
+      data: new Uint8Array([91]),
     }
 
     const badMessage2: Message = {
@@ -369,7 +481,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       senderId: 'peer1' as PeerId,
       targetId: 'peer2' as PeerId,
       documentId: 'badDoc2' as DocumentId,
-      data: new Uint8Array([2]),
+      data: new Uint8Array([92]),
     }
 
     const goodMessage: Message = {
@@ -384,11 +496,12 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     adapter.send(badMessage2)
     adapter.send(goodMessage)
 
-    await new Promise(resolve => setTimeout(resolve, 30))
+    await vi.waitFor(() => {
+      expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
+    })
 
     expect(consoleErrorSpy).toHaveBeenCalledTimes(2)
     expect(innerAdapterMock.disconnect).not.toHaveBeenCalled()
-    expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
     expect(innerAdapterMock.send).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: 'goodDoc' })
     )
@@ -459,14 +572,20 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     initialResolver?.(false)
 
     // Now send msgBad which throws during decryptBytes
-    vi.mocked(decryptBytes).mockRejectedValueOnce(new Error('Corrupt ciphertext'))
+    vi.mocked(decryptBytes).mockImplementation(async (payload: any) => {
+      if (payload.cipher === 'mock-cipher-bad') {
+        throw new Error('Corrupt ciphertext')
+      }
+      return new Uint8Array([8, 8])
+    })
     innerCallback(msgBad)
 
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[EncryptedBroadcastChannel] Error decrypting message:',
-      expect.any(Error)
-    )
+    await vi.waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[EncryptedBroadcastChannel] Error decrypting message:',
+        expect.any(Error)
+      )
+    })
 
     // Now key 99 becomes available
     key99Available = true
@@ -849,6 +968,202 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       await vi.waitFor(() => {
         expect(mockMessageListener).toHaveBeenCalledWith(incomingMessage)
       })
+    })
+  })
+
+  describe('Crypto retry behavior and queue retention', () => {
+    it('does not shift message from sendQueue while retrying encryption, retaining it until success', async () => {
+      const { encryptBytes } = await import('src/api/vault')
+      const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        cryptoRetryDelayMs: 0,
+      })
+      const innerMock = (retryAdapter as any).inner
+
+      let resolveRetryWait!: () => void
+      const retryWaitPromise = new Promise<void>(res => {
+        resolveRetryWait = res
+      })
+
+      let attempts = 0
+      vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
+        attempts++
+        if (attempts === 1) {
+          throw new Error('Transient encrypt error')
+        }
+        await retryWaitPromise
+        return {
+          iv: 'mock-iv',
+          cipher: 'mock-cipher-' + Array.from(bytes).join(','),
+          kver: '1',
+          version: '1.0',
+        }
+      })
+
+      const message: Message = {
+        type: 'sync',
+        senderId: 'peer1' as PeerId,
+        targetId: 'peer2' as PeerId,
+        documentId: 'docRetrySend' as DocumentId,
+        data: new Uint8Array([50, 51]),
+      }
+
+      retryAdapter.send(message)
+
+      // During second attempt (awaiting retryWaitPromise), the message must still be at the head of sendQueue with retries: 1
+      await vi.waitFor(() => {
+        expect(attempts).toBe(2)
+        expect((retryAdapter as any).sendQueue.length).toBe(1)
+        expect((retryAdapter as any).sendQueue[0].retries).toBe(1)
+      })
+
+      // Resolve retry wait promise to let attempt 2 complete
+      resolveRetryWait()
+
+      // The retry succeeds and shifts the message from sendQueue
+      await vi.waitFor(() => {
+        expect((retryAdapter as any).sendQueue.length).toBe(0)
+        expect(innerMock.send).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    it('does not shift message from receiveQueue while retrying decryption, retaining it until success', async () => {
+      const { decryptBytes } = await import('src/api/vault')
+      const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        cryptoRetryDelayMs: 0,
+      })
+      const innerMock = (retryAdapter as any).inner
+      const messageListener = vi.fn()
+      retryAdapter.on('message', messageListener)
+
+      let innerCallback: any
+      for (const call of innerMock.on.mock.calls) {
+        if (call[0] === 'message') innerCallback = call[1]
+      }
+
+      let resolveRetryWait!: () => void
+      const retryWaitPromise = new Promise<void>(res => {
+        resolveRetryWait = res
+      })
+
+      let attempts = 0
+      vi.mocked(decryptBytes).mockImplementation(async () => {
+        attempts++
+        if (attempts === 1) {
+          throw new Error('Transient decrypt error')
+        }
+        await retryWaitPromise
+        return new Uint8Array([70, 71])
+      })
+
+      const payload = { iv: 'iv', cipher: 'mock-cipher-70,71', kver: '1', version: '1.0' }
+      const incomingMessage: Message = {
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'docRetryRecv' as DocumentId,
+        data: new TextEncoder().encode(JSON.stringify(payload)),
+      }
+
+      innerCallback(incomingMessage)
+
+      // During second attempt (awaiting retryWaitPromise), message must still be retained at head of receiveQueue with retries: 1
+      await vi.waitFor(() => {
+        expect(attempts).toBe(2)
+        expect((retryAdapter as any).receiveQueue.length).toBe(1)
+        expect((retryAdapter as any).receiveQueue[0].retries).toBe(1)
+      })
+
+      // Resolve retry wait promise to let attempt 2 complete
+      resolveRetryWait()
+
+      // The retry succeeds and shifts from receiveQueue, emitting message
+      await vi.waitFor(() => {
+        expect((retryAdapter as any).receiveQueue.length).toBe(0)
+        expect(messageListener).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    it('shifts message from sendQueue only after maxCryptoRetries attempts are exhausted', async () => {
+      const { encryptBytes } = await import('src/api/vault')
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        maxCryptoRetries: 2,
+        cryptoRetryDelayMs: 0,
+      })
+
+      let calls = 0
+      vi.mocked(encryptBytes).mockImplementation(async () => {
+        calls++
+        throw new Error('Permanent failure')
+      })
+
+      const message: Message = {
+        type: 'sync',
+        senderId: 'peer1' as PeerId,
+        targetId: 'peer2' as PeerId,
+        documentId: 'docExhaustSend' as DocumentId,
+        data: new Uint8Array([80]),
+      }
+
+      retryAdapter.send(message)
+
+      await vi.waitFor(() => {
+        expect(calls).toBe(2)
+        expect((retryAdapter as any).sendQueue.length).toBe(0)
+      })
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[EncryptedBroadcastChannel] Error sending message:',
+        expect.any(Error)
+      )
+
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('shifts message from receiveQueue only after maxCryptoRetries attempts are exhausted', async () => {
+      const { decryptBytes } = await import('src/api/vault')
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        maxCryptoRetries: 2,
+        cryptoRetryDelayMs: 0,
+      })
+      const innerMock = (retryAdapter as any).inner
+
+      let innerCallback: any
+      for (const call of innerMock.on.mock.calls) {
+        if (call[0] === 'message') innerCallback = call[1]
+      }
+
+      let calls = 0
+      vi.mocked(decryptBytes).mockImplementation(async () => {
+        calls++
+        throw new Error('Permanent decrypt failure')
+      })
+
+      const payload = { iv: 'iv', cipher: 'mock-cipher-80', kver: '1', version: '1.0' }
+      const incomingMessage: Message = {
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'docExhaustRecv' as DocumentId,
+        data: new TextEncoder().encode(JSON.stringify(payload)),
+      }
+
+      innerCallback(incomingMessage)
+
+      await vi.waitFor(() => {
+        expect(calls).toBe(2)
+        expect((retryAdapter as any).receiveQueue.length).toBe(0)
+      })
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[EncryptedBroadcastChannel] Error decrypting message:',
+        expect.any(Error)
+      )
+
+      consoleErrorSpy.mockRestore()
     })
   })
 })
