@@ -8,6 +8,7 @@ import { buildSnapshot } from './snapshotBuilder'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { isAuthError } from './utils/auth'
 import { isNetworkError } from './utils/network'
+import { isServerError } from './utils/server'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
@@ -229,7 +230,7 @@ export async function reencryptAllItems(
             )
           }
 
-          if (isNetworkError(err)) {
+          if (isNetworkError(err) || isServerError(err)) {
             if (typeof navigator !== 'undefined' && !navigator.onLine) {
               break
             }
@@ -251,14 +252,15 @@ export async function reencryptAllItems(
           )
         }
 
-        if (isNetworkError(lastError)) {
+        if (isNetworkError(lastError) || isServerError(lastError)) {
           const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
+          const errorType = isServerError(lastError) ? 'server error' : 'network error'
           console.warn(
-            `[reencryptAllItems] Transient network error during upload: ${errMsg}. Aborting operation and scheduling retry.`
+            `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
           )
           scheduleReencryptRetry(deps, onProgress)
           throw new Error(
-            `Re-encryption aborted: network error (${errMsg})`,
+            `Re-encryption aborted: ${errorType} (${errMsg})`,
             { cause: lastError }
           )
         }

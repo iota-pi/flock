@@ -421,4 +421,99 @@ describe('reencryptAllItems', () => {
       })
     })
   })
+
+  describe('server outages during key rotation', () => {
+    afterEach(() => {
+      cancelScheduledReencryption()
+    })
+
+    it('aborts immediately and DOES NOT quarantine items when upload fails with HTTP 500 Internal Server Error', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      // 20 items -> 2 batches of 10
+      const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
+      mockListAutomergeItemIds.mockResolvedValue(items)
+
+      mockPutSnapshotsWithToken.mockRejectedValue({
+        data: { httpStatus: 500, code: 'INTERNAL_SERVER_ERROR' },
+        message: 'Internal server error',
+      })
+
+      await expect(reencryptAllItems(context as any)).rejects.toThrow(
+        /Re-encryption aborted: server error/
+      )
+
+      // CRITICAL: Items must NOT be quarantined into manualRecoveryStore due to a transient server outage
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+      // CRITICAL: Subsequent batches must NOT be processed (only batch 1 retried 3 times)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+
+      consoleWarnSpy.mockRestore()
+    })
+
+    it('aborts and DOES NOT quarantine items on tRPC INTERNAL_SERVER_ERROR error code', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+
+      mockPutSnapshotsWithToken.mockRejectedValue({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Server error occurred while persisting snapshot',
+      })
+
+      await expect(reencryptAllItems(context as any)).rejects.toThrow(
+        /Re-encryption aborted: server error/
+      )
+
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+
+      consoleWarnSpy.mockRestore()
+    })
+
+    it('aborts and DOES NOT quarantine items on 503 Service Unavailable', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+
+      mockPutSnapshotsWithToken.mockRejectedValue({
+        status: 503,
+        message: 'Service Unavailable',
+      })
+
+      await expect(reencryptAllItems(context as any)).rejects.toThrow(
+        /Re-encryption aborted: server error/
+      )
+
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+
+      consoleWarnSpy.mockRestore()
+    })
+
+    it('invokes scheduleRetry callback when provided upon encountering a server error', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockPutSnapshotsWithToken.mockRejectedValue({
+        httpStatus: 500,
+        message: 'Internal server error',
+      })
+
+      const scheduleRetry = vi.fn()
+      const deps = {
+        ...context,
+        scheduleRetry,
+      }
+
+      await expect(reencryptAllItems(deps as any)).rejects.toThrow(
+        /Re-encryption aborted: server error/
+      )
+
+      expect(scheduleRetry).toHaveBeenCalledTimes(1)
+      expect(scheduleRetry).toHaveBeenCalledWith(expect.any(Number))
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+
+      consoleWarnSpy.mockRestore()
+    })
+  })
 })
