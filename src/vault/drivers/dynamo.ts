@@ -426,7 +426,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor,
       lastSnapshotAt,
       lastSnapshotRequestedAt,
-      latestSyncCursor,
       keyring,
       authToken,
       salt,
@@ -445,7 +444,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor?: number,
       lastSnapshotAt?: number,
       lastSnapshotRequestedAt?: number,
-      latestSyncCursor?: number,
       keyring?: string,
       authToken?: string,
       salt?: string,
@@ -501,13 +499,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof lastSnapshotRequestedAt === 'number') {
       updateExpressions.push('lastSnapshotRequestedAt = :lastSnapshotRequestedAt')
       expressionAttributeValues[':lastSnapshotRequestedAt'] = lastSnapshotRequestedAt
-    }
-    if (typeof latestSyncCursor === 'number') {
-      updateExpressions.push('latestSyncCursor = :latestSyncCursor')
-      expressionAttributeValues[':latestSyncCursor'] = latestSyncCursor
-      conditionExpressions.push(
-        '(attribute_not_exists(latestSyncCursor) OR latestSyncCursor <= :latestSyncCursor)',
-      )
     }
     if (typeof keyring === 'string') {
       updateExpressions.push('keyring = :keyring')

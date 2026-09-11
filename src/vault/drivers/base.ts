@@ -64,7 +64,6 @@ export default abstract class BaseDriver<T = unknown> {
     lastSnapshotCursor?: number,
     lastSnapshotAt?: number,
     lastSnapshotRequestedAt?: number,
-    latestSyncCursor?: number,
     keyring?: string,
     authToken?: string,
     salt?: string,

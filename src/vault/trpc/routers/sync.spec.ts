@@ -6,11 +6,10 @@ import { ItemId } from 'src/shared/schemas/items'
 function createContext(overrides?: {
   authToken?: string
   checkSessionSuccess?: boolean
-  latestSyncCursor?: number
 }) {
   const checkSessionSuccess = overrides?.checkSessionSuccess ?? true
   const vault = {
-    checkSession: vi.fn(async ({ account, session }: { account: string; session: string }) => {
+    checkSession: vi.fn(async (_: { account: string; session: string }) => {
       if (!checkSessionSuccess) {
         return { success: false, reason: 'Invalid session' }
       }
@@ -23,7 +22,6 @@ function createContext(overrides?: {
       }
       return {
         account,
-        latestSyncCursor: overrides?.latestSyncCursor ?? 100,
         sessions: [{ token: session, expires: Date.now() + 10000 }],
       }
     }),
@@ -118,13 +116,13 @@ describe('syncRouter authorization & IDOR protection', () => {
   })
 })
 
-describe('pollSync behavior (C1 resolution: fast path removal & deferred getAccount)', () => {
+describe('pollSync behavior and account isolation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('does NOT call getAccount on idle poll with clientLatestCursor and always queries GSI', async () => {
-    const ctx = createContext({ latestSyncCursor: 100 })
+  it('queries GSI and formats pull results on idle poll without touching account data', async () => {
+    const ctx = createContext()
     ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
       items: [
         {
@@ -161,26 +159,8 @@ describe('pollSync behavior (C1 resolution: fast path removal & deferred getAcco
     expect(ctx.vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledTimes(1)
   })
 
-  it('queries GSI even when clientLatestCursor >= account.latestSyncCursor (proves fast path is eliminated)', async () => {
-    const ctx = createContext({ latestSyncCursor: 100 })
-    const caller = syncRouter.createCaller(ctx as any)
-
-    // In the old buggy code, clientLatestCursor = 500 >= 100 would trigger the fast path
-    // and skip getGlobalSyncMessagesAfterCursor entirely.
-    const result = await caller.pollSync({
-      account: 'target-account',
-      pushMessages: [],
-      pullCursors: [],
-      clientLatestCursor: 500,
-    })
-
-    expect(result.success).toBe(true)
-    expect(ctx.vault.getAccount).not.toHaveBeenCalled()
-    expect(ctx.vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledTimes(1)
-  })
-
-  it('fetches getAccount and advances latestSyncCursor when push messages are provided', async () => {
-    const ctx = createContext({ latestSyncCursor: 100 })
+  it('pushes messages and returns pushResults without touching account data (zero OCC contention)', async () => {
+    const ctx = createContext()
     const caller = syncRouter.createCaller(ctx as any)
 
     const result = await caller.pollSync({
@@ -200,71 +180,9 @@ describe('pollSync behavior (C1 resolution: fast path removal & deferred getAcco
     const pushedCursor = result.pushResults[0].cursor
     expect(pushedCursor).toBeGreaterThan(0)
 
-    // getAccount should be called because pushMessages is non-empty
-    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
-      account: 'target-account',
-      session: 'valid-session-token',
-    })
-
-    // updateAccountData should be called with the pushed cursor
-    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
-      account: 'target-account',
-      latestSyncCursor: pushedCursor,
-    })
-  })
-
-  it('skips updateAccountData if currentAccount.latestSyncCursor is already >= maxPushCursor', async () => {
-    // Account already has a massive latestSyncCursor
-    const ctx = createContext({ latestSyncCursor: Number.MAX_SAFE_INTEGER })
-    const caller = syncRouter.createCaller(ctx as any)
-
-    const result = await caller.pollSync({
-      account: 'target-account',
-      pushMessages: [
-        {
-          itemId: 'item-1' as ItemId,
-          encryptedMessage: { iv: 'iv', cipher: 'c' },
-        },
-      ],
-      pullCursors: [],
-    })
-
-    expect(result.success).toBe(true)
-    expect(result.pushResults.length).toBe(1)
-    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
-    // Should NOT call updateAccountData since currentAccount.latestSyncCursor is already higher
+    // Critical assertion: getAccount and updateAccountData are NOT called on push (no OCC contention)
+    expect(ctx.vault.getAccount).not.toHaveBeenCalled()
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
-  })
-
-  it('retries and handles ConditionalCheckFailedException during cursor advance', async () => {
-    const ctx = createContext({ latestSyncCursor: 10 })
-    let callCount = 0
-    ctx.vault.updateAccountData.mockImplementation(async () => {
-      callCount++
-      if (callCount === 1) {
-        const error = new Error('ConditionalCheckFailedException')
-        error.name = 'ConditionalCheckFailedException'
-        throw error
-      }
-      return undefined
-    })
-
-    const caller = syncRouter.createCaller(ctx as any)
-    const result = await caller.pollSync({
-      account: 'target-account',
-      pushMessages: [
-        {
-          itemId: 'item-1' as ItemId,
-          encryptedMessage: { iv: 'iv', cipher: 'c' },
-        },
-      ],
-      pullCursors: [],
-    })
-
-    expect(result.success).toBe(true)
-    // First attempt failed with ConditionalCheckFailed, re-read account, second attempt succeeded
-    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(2)
-    expect(ctx.vault.updateAccountData).toHaveBeenCalledTimes(2)
   })
 
   describe('concurrent pullCursors and clientLatestCursor (B3 resolution)', () => {

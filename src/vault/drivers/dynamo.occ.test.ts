@@ -92,65 +92,6 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     })
   })
 
-  describe('Monotonic latestSyncCursor Progression', () => {
-    it('allows initial latestSyncCursor to be set', async () => {
-      const account = uniqueAccountId()
-      await driver.createAccount({
-        account,
-        authToken: 'token',
-        salt: 'salt',
-        iterations: 1000,
-        metadata: {},
-      })
-
-      await driver.updateAccountData({
-        account,
-        latestSyncCursor: 100,
-      })
-
-      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
-      expect(acct.latestSyncCursor).toBe(100)
-    })
-
-    it('allows advancing latestSyncCursor to a higher value', async () => {
-      const account = uniqueAccountId()
-      await driver.createAccount({
-        account,
-        authToken: 'token',
-        salt: 'salt',
-        iterations: 1000,
-        metadata: {},
-      })
-
-      await driver.updateAccountData({ account, latestSyncCursor: 100 })
-      await driver.updateAccountData({ account, latestSyncCursor: 150 })
-
-      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
-      expect(acct.latestSyncCursor).toBe(150)
-    })
-
-    it('rejects regressing latestSyncCursor to a lower value', async () => {
-      const account = uniqueAccountId()
-      await driver.createAccount({
-        account,
-        authToken: 'token',
-        salt: 'salt',
-        iterations: 1000,
-        metadata: {},
-      })
-
-      await driver.updateAccountData({ account, latestSyncCursor: 200 })
-
-      // Attempting to set latestSyncCursor to 150 should fail conditional check
-      await expect(
-        driver.updateAccountData({ account, latestSyncCursor: 150 })
-      ).rejects.toThrow()
-
-      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
-      expect(acct.latestSyncCursor).toBe(200)
-    })
-  })
-
   describe('Concurrent Key Rotation & keyringVersion OCC', () => {
     it('allows updating keyringVersion and keyring when expectedKeyringVersion matches', async () => {
       const account = uniqueAccountId()

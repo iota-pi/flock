@@ -39,7 +39,6 @@ export const VaultAccountSchema = z.object({
   lastSnapshotCursor: z.number().optional(),
   lastSnapshotAt: z.number().optional(),
   lastSnapshotRequestedAt: z.number().optional(),
-  latestSyncCursor: z.number().optional(),
   authToken: z.string(),
   salt: z.string(),
   iterations: z.number(),

@@ -70,40 +70,6 @@ export const syncRouter = router({
         pullResults = [...batchResults, ...filteredGlobalResults]
       }
 
-      if (pushResults.length > 0) {
-        const maxPushCursor = Math.max(...pushResults.map(result => result.cursor))
-        const maxRetries = 3
-        let currentAccount = await ctx.vault.getAccount({
-          account: ctx.account,
-          session: ctx.authToken,
-        })
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-          if ((currentAccount.latestSyncCursor ?? 0) >= maxPushCursor) {
-            break
-          }
-          try {
-            await ctx.vault.updateAccountData({
-              account: input.account,
-              latestSyncCursor: maxPushCursor,
-            })
-            break
-          } catch (err) {
-            const isConditionalFailure =
-              err instanceof Error && (
-                err.name === 'ConditionalCheckFailedException'
-                || err.message.includes('ConditionalCheckFailed')
-                || err.message.includes('conditional request failed')
-              )
-            if (isConditionalFailure && attempt < maxRetries) {
-              // Re-read account for latest cursor
-              currentAccount = await ctx.vault.getAccount({ account: input.account, session: ctx.authToken })
-              continue
-            }
-            throw err
-          }
-        }
-      }
-
       return { success: true, pushResults, pullResults }
     }),
 })
