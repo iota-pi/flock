@@ -127,7 +127,8 @@ export class SnapshotManager {
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
           const existingLocalMod = this.lastModifiedByItemId.get(itemId) ?? 0
-          this.lastModifiedByItemId.set(itemId, Math.max(existingLocalMod, ts.localModifiedAt))
+          const lastSnap = typeof ts.lastSnapshotAt === 'number' ? ts.lastSnapshotAt : 0
+          this.lastModifiedByItemId.set(itemId, Math.max(existingLocalMod, ts.localModifiedAt, lastSnap))
           if (typeof ts.lastSnapshotAt === 'number') {
             const existingLastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
             this.lastSnapshotAtByItemId.set(itemId, Math.max(existingLastSnap, ts.lastSnapshotAt))
@@ -551,6 +552,11 @@ export class SnapshotManager {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
           this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
+          const currentLocalMod = this.lastModifiedByItemId.get(item.snapshot.itemId) ?? 0
+          this.lastModifiedByItemId.set(
+            item.snapshot.itemId,
+            Math.max(currentLocalMod, item.snapshot.modified),
+          )
           if (item.heads && item.heads.length > 0) {
             this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
           }
@@ -584,6 +590,11 @@ export class SnapshotManager {
             this.dirtyItems.delete(item.snapshot.itemId)
           }
           this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
+          const currentLocalMod = this.lastModifiedByItemId.get(item.snapshot.itemId) ?? 0
+          this.lastModifiedByItemId.set(
+            item.snapshot.itemId,
+            Math.max(currentLocalMod, item.snapshot.modified),
+          )
           if (item.heads && item.heads.length > 0) {
             this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
           }
@@ -755,7 +766,14 @@ export class SnapshotManager {
   }
 
   exportLastModified(): [ItemId, number][] {
-    return Array.from(this.lastModifiedByItemId.entries())
+    const result: [ItemId, number][] = []
+    const allIds = new Set([...this.lastModifiedByItemId.keys(), ...this.lastSnapshotAtByItemId.keys()])
+    for (const id of allIds) {
+      const localMod = this.lastModifiedByItemId.get(id) ?? 0
+      const lastSnap = this.lastSnapshotAtByItemId.get(id) ?? 0
+      result.push([id, Math.max(localMod, lastSnap)])
+    }
+    return result
   }
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {

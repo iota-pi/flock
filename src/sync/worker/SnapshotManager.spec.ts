@@ -1277,6 +1277,94 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
     })
 
+    describe('Snapshot Push Timestamp Parity (H4 fix)', () => {
+      it('advances localModifiedAt to match snapshot.modified on successful push', async () => {
+        vi.setSystemTime(1000)
+        manager.markItemDirty('item-1' as ItemId)
+        await vi.advanceTimersByTimeAsync(1000)
+
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(2000)
+        expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBeUndefined()
+
+        // Advance time before snapshot push executes (e.g. debounced push at 30s)
+        vi.setSystemTime(31000)
+
+        mockPutSnapshotsWithToken.mockResolvedValue({
+          success: true,
+          persisted: 1,
+        })
+
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+
+        expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+        const pushedSnapshot = mockPutSnapshotsWithToken.mock.calls[0][0].snapshots[0]
+        expect(pushedSnapshot.modified).toBe(31000)
+
+        // Both timestamps must be in parity with the pushed snapshot
+        expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(31000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(31000)
+
+        // exportLastModified must export 31000 so ManifestSyncManager matches serverTime
+        expect(manager.exportLastModified()).toEqual([['item-1', 31000]])
+      })
+
+      it('preserves newer localModifiedAt if modified again while upload is in flight', async () => {
+        vi.setSystemTime(1000)
+        manager.markItemDirty('item-1' as ItemId)
+        await vi.advanceTimersByTimeAsync(1000)
+
+        vi.setSystemTime(31000)
+
+        let resolveUpload: (val: any) => void
+        const uploadPromise = new Promise(resolve => {
+          resolveUpload = resolve
+        })
+        mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+
+        expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+        // While upload is in flight, user modifies item-1 again at 32000
+        vi.setSystemTime(32000)
+        manager.markItemDirty('item-1' as ItemId)
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(33000)
+
+        // Upload completes for the snapshot built at 31000
+        resolveUpload!({
+          success: true,
+          persisted: 1,
+        })
+        await vi.advanceTimersByTimeAsync(0)
+
+        // lastSnapshotAt is 31000, but localModifiedAt must retain 33000
+        expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(31000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(33000)
+        expect(manager.getDirtyItemIds()).toContain('item-1')
+        expect(manager.exportLastModified()).toEqual([['item-1', 33000]])
+      })
+
+      it('heals legacy stored data on load where localModifiedAt < lastSnapshotAt', async () => {
+        await lastModifiedStore.saveTimestamps([
+          ['item-legacy' as ItemId, { localModifiedAt: 1000, lastSnapshotAt: 5000 }],
+        ])
+
+        manager.clear()
+        expect(manager.getLocalModifiedAt('item-legacy' as ItemId)).toBeUndefined()
+
+        await manager.loadLastModified()
+
+        // localModifiedAt must be healed to at least lastSnapshotAt
+        expect(manager.getLocalModifiedAt('item-legacy' as ItemId)).toBe(5000)
+        expect(manager.getLastSnapshotAt('item-legacy' as ItemId)).toBe(5000)
+        expect(manager.getDirtyItemIds()).not.toContain('item-legacy')
+        expect(manager.exportLastModified()).toEqual([['item-legacy', 5000]])
+      })
+    })
+
     describe('shutdown', () => {
       it('cancels debounced timers and persists timestamps on shutdown', async () => {
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
