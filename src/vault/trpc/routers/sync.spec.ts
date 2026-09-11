@@ -26,8 +26,8 @@ function createContext(overrides?: {
       }
     }),
     updateAccountData: vi.fn(async () => undefined),
-    getGlobalSyncMessagesAfterCursor: vi.fn(async () => ({ items: [] as Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>, hasMore: false })),
-    getSyncMessages: vi.fn(async () => ({ messages: [] as StoredSyncMessage[], hasMore: false })),
+    getGlobalSyncMessagesAfterCursor: vi.fn(async (): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> => ({ items: [], hasMore: false })),
+    getSyncMessages: vi.fn(async (): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> => ({ messages: [], hasMore: false })),
     pushSyncMessagesBatch: vi.fn(async () => undefined),
   }
 
@@ -358,6 +358,82 @@ describe('pollSync behavior and account isolation', () => {
       expect(result.hasMore).toBe(true)
       expect(result.pullResults).toHaveLength(1)
       expect(result.pullResults[0].hasMore).toBe(false)
+    })
+
+    it('forwards lastEvaluatedKey in pullCursors and returns it in item pull results', async () => {
+      const ctx = createContext()
+      const sampleItemKey = { syncId: 'target-account#item-1', cursor: 200 }
+      ctx.vault.getSyncMessages.mockResolvedValueOnce({
+        messages: [
+          {
+            cursor: 250,
+            encryptedMessage: { iv: 'iv', cipher: 'cipher' },
+            createdAt: 1000,
+          },
+        ],
+        hasMore: false,
+        lastEvaluatedKey: undefined,
+      })
+
+      const caller = syncRouter.createCaller(ctx as any)
+      const result = await caller.pollSync({
+        account: 'target-account',
+        pushMessages: [],
+        pullCursors: [{ itemId: 'item-1' as ItemId, cursor: 200, lastEvaluatedKey: sampleItemKey }],
+      })
+
+      expect(result.success).toBe(true)
+      expect(ctx.vault.getSyncMessages).toHaveBeenCalledWith({
+        account: 'target-account',
+        itemId: 'item-1',
+        fromCursor: undefined,
+        limit: 200,
+        exclusiveStartKey: sampleItemKey,
+      })
+      expect(result.pullResults).toHaveLength(1)
+      expect(result.pullResults[0].itemId).toBe('item-1')
+      expect(result.pullResults[0].nextCursor).toBe(250)
+    })
+
+    it('forwards globalLastEvaluatedKey and returns top-level globalLastEvaluatedKey in response', async () => {
+      const ctx = createContext()
+      const inputGlobalKey = { account: 'target-account', cursor: 500, syncId: 'target-account#item-x' }
+      const outputGlobalKey = { account: 'target-account', cursor: 700, syncId: 'target-account#item-y' }
+
+      ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
+        items: [
+          {
+            itemId: 'item-y' as ItemId,
+            messages: [
+              {
+                cursor: 700,
+                encryptedMessage: { iv: 'iv', cipher: 'cipher' },
+                createdAt: 2000,
+              },
+            ],
+          },
+        ],
+        hasMore: true,
+        lastEvaluatedKey: outputGlobalKey,
+      })
+
+      const caller = syncRouter.createCaller(ctx as any)
+      const result = await caller.pollSync({
+        account: 'target-account',
+        pushMessages: [],
+        pullCursors: [],
+        globalLastEvaluatedKey: inputGlobalKey,
+      })
+
+      expect(result.success).toBe(true)
+      expect(ctx.vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith({
+        account: 'target-account',
+        cursor: undefined,
+        exclusiveStartKey: inputGlobalKey,
+      })
+      expect(result.hasMore).toBe(true)
+      expect(result.globalLastEvaluatedKey).toEqual(outputGlobalKey)
+      expect(result.pullResults).toHaveLength(1)
     })
   })
 })

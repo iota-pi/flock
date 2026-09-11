@@ -14,6 +14,7 @@ type PullSyncMessageInput = {
   account: string
   itemId: ItemId
   cursor?: number
+  lastEvaluatedKey?: Record<string, unknown>
 }
 
 type PullSyncBatchInput = {
@@ -21,6 +22,7 @@ type PullSyncBatchInput = {
   cursors: Array<{
     itemId: ItemId
     cursor?: number
+    lastEvaluatedKey?: Record<string, unknown>
   }>
 }
 
@@ -96,14 +98,17 @@ export function createAutomergeSyncService({
     nextCursor: number
     messages: StoredSyncMessage[]
     hasMore: boolean
+    lastEvaluatedKey?: Record<string, unknown>
   }> {
+    const isContinuation = !!input.lastEvaluatedKey
     const fromCursor = typeof input.cursor === 'number' ? input.cursor : 0
     const overlapCursor = Math.max(0, fromCursor - OVERLAP_CURSOR_DELTA)
-    const { messages: storedMessages, hasMore } = await repository.getSyncMessages({
+    const { messages: storedMessages, hasMore, lastEvaluatedKey } = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
-      fromCursor: overlapCursor,
+      fromCursor: isContinuation ? undefined : overlapCursor,
       limit: SYNC_MESSAGE_PAGE_LIMIT,
+      exclusiveStartKey: input.lastEvaluatedKey,
     })
     const messages = sortMessagesAscendingByCursor(storedMessages)
     const nextCursor = messages.length > 0
@@ -116,6 +121,7 @@ export function createAutomergeSyncService({
       nextCursor,
       messages,
       hasMore,
+      lastEvaluatedKey,
     }
   }
 
@@ -127,22 +133,29 @@ export function createAutomergeSyncService({
       nextCursor: number
       messages: StoredSyncMessage[]
       hasMore: boolean
+      lastEvaluatedKey?: Record<string, unknown>
     }>
   }> {
-    const dedupedCursorsByItemId = new Map<ItemId, number>()
+    const dedupedCursorsByItemId = new Map<ItemId, { cursor: number; lastEvaluatedKey?: Record<string, unknown> }>()
     for (const cursorInput of input.cursors) {
-      const existing = dedupedCursorsByItemId.get(cursorInput.itemId) || 0
-      const next = typeof cursorInput.cursor === 'number' ? cursorInput.cursor : 0
-      dedupedCursorsByItemId.set(cursorInput.itemId, Math.max(existing, next))
+      const nextCursor = typeof cursorInput.cursor === 'number' ? cursorInput.cursor : 0
+      const existing = dedupedCursorsByItemId.get(cursorInput.itemId)
+      if (!existing || nextCursor >= existing.cursor) {
+        dedupedCursorsByItemId.set(cursorInput.itemId, {
+          cursor: nextCursor,
+          lastEvaluatedKey: cursorInput.lastEvaluatedKey,
+        })
+      }
     }
 
     const results = await Promise.all(
       Array
         .from(dedupedCursorsByItemId.entries())
-        .map(([itemId, cursor]) => pullAutomergeSyncMessages({
+        .map(([itemId, { cursor, lastEvaluatedKey }]) => pullAutomergeSyncMessages({
           account: input.account,
           itemId,
           cursor,
+          lastEvaluatedKey,
         })),
     )
 
@@ -152,7 +165,11 @@ export function createAutomergeSyncService({
     }
   }
 
-  async function pullAutomergeSyncGlobal(input: { account: string; cursor: number }): Promise<{
+  async function pullAutomergeSyncGlobal(input: {
+    account: string
+    cursor: number
+    lastEvaluatedKey?: Record<string, unknown>
+  }): Promise<{
     success: true
     results: Array<{
       success: true
@@ -162,11 +179,14 @@ export function createAutomergeSyncService({
       hasMore: boolean
     }>
     hasMore: boolean
+    lastEvaluatedKey?: Record<string, unknown>
   }> {
+    const isContinuation = !!input.lastEvaluatedKey
     const overlapCursor = Math.max(0, input.cursor - OVERLAP_CURSOR_DELTA)
-    const { items, hasMore } = await repository.getGlobalSyncMessagesAfterCursor({
+    const { items, hasMore, lastEvaluatedKey } = await repository.getGlobalSyncMessagesAfterCursor({
       account: input.account,
-      cursor: overlapCursor,
+      cursor: isContinuation ? undefined : overlapCursor,
+      exclusiveStartKey: input.lastEvaluatedKey,
     })
 
     const results = items.map((item) => {
@@ -180,7 +200,7 @@ export function createAutomergeSyncService({
       }
     })
 
-    return { success: true, results, hasMore }
+    return { success: true, results, hasMore, lastEvaluatedKey }
   }
 
   return {

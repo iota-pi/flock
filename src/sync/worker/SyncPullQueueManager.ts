@@ -15,6 +15,7 @@ export interface ItemPullState {
   pending: boolean
   retryCount: number
   blockedOnKey?: string
+  lastEvaluatedKey?: Record<string, unknown>
 }
 
 export class SyncPullQueueManager {
@@ -22,6 +23,7 @@ export class SyncPullQueueManager {
   private account: string | null = null
   private readonly itemStates = new Map<ItemId, ItemPullState>()
   private hasMoreGlobal = false
+  private globalLastEvaluatedKey?: Record<string, unknown>
   public static readonly MAX_PULL_RETRIES = 5
 
   private readonly seenMessageCursors = new Set<string>() // "itemId:cursor" compound keys
@@ -126,6 +128,7 @@ export class SyncPullQueueManager {
     this.seenMessageCursors.clear()
     this.batchProgress.clear()
     this.hasMoreGlobal = false
+    this.globalLastEvaluatedKey = undefined
     this.onRetryingStateChange?.(false)
 
     if (account) {
@@ -265,15 +268,15 @@ export class SyncPullQueueManager {
     }
   }
 
-  getCursors(): Array<{ itemId: ItemId; cursor: number }> {
-    const cursors: Array<{ itemId: ItemId; cursor: number }> = []
+  getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> {
+    const cursors: Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> = []
 
     for (const [itemId, state] of this.itemStates.entries()) {
       if (state.blockedOnKey && !hasVaultKey(state.blockedOnKey)) {
         continue
       }
       if (state.pending) {
-        cursors.push({ itemId, cursor: state.cursor })
+        cursors.push({ itemId, cursor: state.cursor, lastEvaluatedKey: state.lastEvaluatedKey })
       }
     }
 
@@ -316,10 +319,19 @@ export class SyncPullQueueManager {
     return max
   }
 
-  async processPullResults(results: PullSyncMessagesResponse[], hasMoreGlobal?: boolean): Promise<void> {
+  getGlobalLastEvaluatedKey(): Record<string, unknown> | undefined {
+    return this.hasMoreGlobal ? this.globalLastEvaluatedKey : undefined
+  }
+
+  async processPullResults(
+    results: PullSyncMessagesResponse[],
+    hasMoreGlobal?: boolean,
+    globalLastEvaluatedKey?: Record<string, unknown>
+  ): Promise<void> {
     if (!this.account || this.isShutdown) return
     if (typeof hasMoreGlobal === 'boolean') {
       this.hasMoreGlobal = hasMoreGlobal
+      this.globalLastEvaluatedKey = hasMoreGlobal ? globalLastEvaluatedKey : undefined
     }
 
     const successfullyPulledItemIds = new Set<ItemId>()
@@ -388,11 +400,14 @@ export class SyncPullQueueManager {
 
           if (hasKeyFailure) {
             state.pending = true
+            state.lastEvaluatedKey = undefined
           } else if (hasMore && !hasParseFailure) {
             state.pending = true
             state.retryCount = 0 // success resets counter
             state.blockedOnKey = undefined
+            state.lastEvaluatedKey = result.lastEvaluatedKey
           } else if (hasParseFailure) {
+            state.lastEvaluatedKey = undefined
             state.retryCount += 1
             if (state.retryCount >= SyncPullQueueManager.MAX_PULL_RETRIES) {
               state.pending = false
@@ -423,6 +438,7 @@ export class SyncPullQueueManager {
             state.pending = false
             state.retryCount = 0
             state.blockedOnKey = undefined
+            state.lastEvaluatedKey = undefined
           }
 
           if (highestCursor > originalCursor) {

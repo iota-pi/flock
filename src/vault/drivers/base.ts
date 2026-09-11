@@ -102,12 +102,14 @@ export default abstract class BaseDriver<T = unknown> {
     itemId: ItemId
     fromCursor?: number
     limit?: number
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
 
   abstract getGlobalSyncMessagesAfterCursor(input: {
     account: string
-    cursor: number
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }>
+    cursor?: number
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
 
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account

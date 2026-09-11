@@ -332,6 +332,81 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasImmediatePendingPulls()).toBe(false)
     })
 
+    it('attaches lastEvaluatedKey to getCursors when hasMore is true, and clears it on completion', async () => {
+      const msg = new Uint8Array([1, 2, 3])
+      mockDecryptBytes.mockResolvedValue(msg)
+
+      const itemKey = { syncId: 'account#item-pagination', cursor: 200 }
+      const pullResultsWithKey: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-pagination' as ItemId,
+          hasMore: true,
+          lastEvaluatedKey: itemKey,
+          nextCursor: 200,
+          messages: [
+            {
+              cursor: 200,
+              encryptedMessage: {
+                iv: 'iv',
+                cipher: 'cipher',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResultsWithKey)
+
+      expect(manager.hasPendingPulls()).toBe(true)
+      const cursors = manager.getCursors()
+      expect(cursors).toHaveLength(1)
+      expect(cursors[0]).toEqual({
+        itemId: 'item-pagination',
+        cursor: 200,
+        lastEvaluatedKey: itemKey,
+      })
+
+      // Next page finishes with hasMore: false
+      const completionResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-pagination' as ItemId,
+          hasMore: false,
+          nextCursor: 250,
+          messages: [
+            {
+              cursor: 250,
+              encryptedMessage: {
+                iv: 'iv2',
+                cipher: 'cipher2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(completionResults)
+
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.getCursors()).toHaveLength(0)
+    })
+
+    it('stores globalLastEvaluatedKey when hasMoreGlobal is true, and clears it when false', async () => {
+      const sampleGlobalKey = { account: 'test-account', cursor: 500, syncId: 'test-account#item-1' }
+
+      await manager.processPullResults([], true, sampleGlobalKey)
+
+      expect(manager.hasImmediatePendingPulls()).toBe(true)
+      expect(manager.getGlobalLastEvaluatedKey()).toEqual(sampleGlobalKey)
+
+      // Completing global backlog clears globalLastEvaluatedKey
+      await manager.processPullResults([], false)
+
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+      expect(manager.getGlobalLastEvaluatedKey()).toBeUndefined()
+    })
+
     it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {
       const mockOnDecryptionFailure = vi.fn()
       manager.onDecryptionFailure = mockOnDecryptionFailure

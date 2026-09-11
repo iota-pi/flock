@@ -37,9 +37,10 @@ export const syncRouter = router({
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
       let globalHasMore = false
+      let globalLastEvaluatedKey: Record<string, unknown> | undefined = undefined
 
       const shouldPullBatch = input.pullCursors.length > 0
-      const shouldPullGlobal = typeof input.clientLatestCursor === 'number'
+      const shouldPullGlobal = typeof input.clientLatestCursor === 'number' || !!input.globalLastEvaluatedKey
 
       if (shouldPullBatch || shouldPullGlobal) {
         const [batchPullResult, globalPullResult] = await Promise.all([
@@ -52,7 +53,8 @@ export const syncRouter = router({
           shouldPullGlobal
             ? service.pullAutomergeSyncGlobal({
                 account: input.account,
-                cursor: input.clientLatestCursor!,
+                cursor: input.clientLatestCursor ?? 0,
+                lastEvaluatedKey: input.globalLastEvaluatedKey,
               })
             : null,
         ])
@@ -70,10 +72,11 @@ export const syncRouter = router({
 
         pullResults = [...batchResults, ...filteredGlobalResults]
         globalHasMore = globalPullResult?.hasMore ?? false
+        globalLastEvaluatedKey = globalPullResult?.lastEvaluatedKey
       }
 
       const hasMore = globalHasMore || pullResults.some(r => r.hasMore)
 
-      return { success: true, pushResults, pullResults, hasMore }
+      return { success: true, pushResults, pullResults, hasMore, globalLastEvaluatedKey }
     }),
 })

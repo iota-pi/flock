@@ -123,6 +123,7 @@ export class SyncPoller {
             pushMessages: [],
             pullCursors,
             clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
+            globalLastEvaluatedKey: this.pullQueueManager.getGlobalLastEvaluatedKey(),
           },
           { signal }
         )
@@ -142,7 +143,11 @@ export class SyncPoller {
         if (response) {
           try {
             if (typeof response.hasMore === 'boolean') {
-              await this.pullQueueManager.processPullResults(response.pullResults ?? [], response.hasMore)
+              await this.pullQueueManager.processPullResults(
+                response.pullResults ?? [],
+                response.hasMore,
+                response.globalLastEvaluatedKey
+              )
             } else if (response.pullResults) {
               await this.pullQueueManager.processPullResults(response.pullResults)
             }
@@ -190,6 +195,7 @@ export class SyncPoller {
             pushMessages,
             pullCursors: this.pullQueueManager.getCursors(),
             clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
+            globalLastEvaluatedKey: this.pullQueueManager.getGlobalLastEvaluatedKey(),
           },
           { signal }
         )
@@ -257,7 +263,11 @@ export class SyncPoller {
         if (response) {
           try {
             if (typeof response.hasMore === 'boolean') {
-              await this.pullQueueManager.processPullResults(response.pullResults ?? [], response.hasMore)
+              await this.pullQueueManager.processPullResults(
+                response.pullResults ?? [],
+                response.hasMore,
+                response.globalLastEvaluatedKey
+              )
             } else if (response.pullResults) {
               await this.pullQueueManager.processPullResults(response.pullResults)
             }

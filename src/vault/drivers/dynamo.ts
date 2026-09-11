@@ -872,7 +872,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     itemId: ItemId
     fromCursor?: number
     limit?: number
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }> {
+    exclusiveStartKey?: Record<string, any>
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, any> }> {
     const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
     const hasCursor = typeof fromCursor === 'number'
     const response = await this.client.send(new QueryCommand({
@@ -888,32 +889,39 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ...(hasCursor ? { ':fromCursor': fromCursor } : undefined),
       },
       Limit: input.limit ?? DEFAULT_SYNC_MESSAGE_LIMIT,
+      ExclusiveStartKey: input.exclusiveStartKey,
     }))
 
     return {
       messages: (response.Items as StoredSyncMessage[]) || [],
       hasMore: !!response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey,
     }
   }
 
   async getGlobalSyncMessagesAfterCursor(input: {
     account: string
-    cursor: number
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }> {
+    cursor?: number
+    exclusiveStartKey?: Record<string, any>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, any> }> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
+    const hasCursor = typeof input.cursor === 'number'
 
     const response = await this.client.send(new QueryCommand({
       TableName: SYNC_MESSAGES_TABLE_NAME,
       IndexName: 'AccountCursorIndex',
-      KeyConditionExpression: 'account = :account AND #c > :cursor',
-      ExpressionAttributeNames: {
-        '#c': 'cursor',
-      },
+      KeyConditionExpression: hasCursor
+        ? 'account = :account AND #c > :cursor'
+        : 'account = :account',
+      ExpressionAttributeNames: hasCursor
+        ? { '#c': 'cursor' }
+        : undefined,
       ExpressionAttributeValues: {
         ':account': input.account,
-        ':cursor': input.cursor,
+        ...(hasCursor ? { ':cursor': input.cursor } : undefined),
       },
       Limit: 1000,
+      ExclusiveStartKey: input.exclusiveStartKey,
     }))
 
     for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
@@ -938,6 +946,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         messages: messages.sort((a, b) => a.cursor - b.cursor),
       })),
       hasMore: !!response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey,
     }
   }
 }

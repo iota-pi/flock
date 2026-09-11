@@ -148,7 +148,39 @@ describe('SyncPoller', () => {
       expect.arrayContaining([
         expect.objectContaining({ itemId: 'item-1' }),
       ]),
-      true
+      true,
+      undefined
+    )
+  })
+
+  it('forwards response.globalLastEvaluatedKey to processPullResults when present', async () => {
+    const sampleKey = { account: 'test-account', cursor: 12345, syncId: 'test-account#item-1' }
+    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [
+        {
+          success: true,
+          itemId: 'item-1' as ItemId,
+          hasMore: false,
+          messages: [],
+        },
+      ],
+      hasMore: true,
+      globalLastEvaluatedKey: sampleKey,
+    })
+
+    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+
+    expect(processPullResultsSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: 'item-1' }),
+      ]),
+      true,
+      sampleKey
     )
   })
 

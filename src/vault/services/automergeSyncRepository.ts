@@ -24,11 +24,13 @@ export interface AutomergeSyncRepository {
     itemId: ItemId
     fromCursor?: number
     limit?: number
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
   getGlobalSyncMessagesAfterCursor(input: {
     account: string
-    cursor: number
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }>
+    cursor?: number
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
 }
 
 export function createDynamoAutomergeSyncRepository(driver: BaseDriver): AutomergeSyncRepository {
@@ -53,14 +55,16 @@ export function createDynamoAutomergeSyncRepository(driver: BaseDriver): Automer
       itemId: ItemId
       fromCursor?: number
       limit?: number
-    }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }> {
+      exclusiveStartKey?: Record<string, unknown>
+    }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
       return driver.getSyncMessages(input)
     },
 
     async getGlobalSyncMessagesAfterCursor(input: {
       account: string
-      cursor: number
-    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }> {
+      cursor?: number
+      exclusiveStartKey?: Record<string, unknown>
+    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
       return driver.getGlobalSyncMessagesAfterCursor(input)
     },
   }

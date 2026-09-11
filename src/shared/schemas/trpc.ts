@@ -109,6 +109,7 @@ export const SyncPushBatchSchema = z.object({
 export const SyncPollBatchSchema = z.object({
   account: z.string().min(1),
   clientLatestCursor: z.number().int().min(0).optional(),
+  globalLastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
   pushMessages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
@@ -116,6 +117,7 @@ export const SyncPollBatchSchema = z.object({
   pullCursors: z.array(z.object({
     itemId: ItemIdSchema,
     cursor: z.number().int().min(0).optional(),
+    lastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
   })).default([]),
 })
 
