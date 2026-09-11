@@ -75,6 +75,10 @@ export class SyncMessageBroker {
     this.adapter.setSendEnabled(sendEnabled)
   }
 
+  clearSeededDocuments(): void {
+    this.adapter.clearSeededDocuments()
+  }
+
   async setAccount(account: string | null): Promise<void> {
     const nextAccount = account && account.length > 0 ? account : null
     if (this.account === nextAccount) {

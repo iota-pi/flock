@@ -62,6 +62,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.sendEnabled = sendEnabled
 
     if (sendEnabled) {
+      this.clearSeededDocuments()
       if (this.canSend()) {
         this.flushOutboundQueue()
       }
@@ -70,6 +71,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
         this.flushPendingReNegotiations()
       }
     } else {
+      this.clearSeededDocuments()
       this.disconnectPeer()
     }
   }
@@ -118,6 +120,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
     this.connected = true
+    this.clearSeededDocuments()
 
     if (!this.ready) {
       this.ready = true
@@ -368,6 +371,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   }
 
   private disconnectPeer(): void {
+    this.clearSeededDocuments()
     if (this.peerId) {
       this.emit('peer-disconnected', { peerId: VAULT_PEER_ID })
     }

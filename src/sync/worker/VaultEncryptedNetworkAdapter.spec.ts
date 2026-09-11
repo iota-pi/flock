@@ -661,6 +661,61 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(receiveSpy).toHaveBeenCalledTimes(3)
   })
 
+  it('cleans up seededDocuments on setSendEnabled(false) and setSendEnabled(true)', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+    testAdapter.connect('vault' as PeerId)
+
+    const syncMsg = encodeSyncMessage({
+      heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
+
+    // First send adds to seededDocuments and reflects ACK
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(1)
+
+    // Second send for same doc while still connected does not re-reflect ACK
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(1)
+
+    // Demote to follower: setSendEnabled(false) clears seededDocuments
+    testAdapter.setSendEnabled(false)
+
+    // Promote to leader: setSendEnabled(true)
+    testAdapter.setSendEnabled(true)
+
+    // Sending handshake again reflects ACK because seededDocuments was cleared
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('buffers outbound sync messages with changes when disconnected and flushes on connect()', async () => {
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
@@ -1089,6 +1144,74 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(handleMsgs.length).toBeGreaterThanOrEqual(1)
     const decoded = decodeSyncMessage(handleMsgs[0].data as Uint8Array)
     expect(decoded.changes.length).toBeGreaterThan(0)
+
+    await repo.shutdown()
+  })
+
+  it('converts offline changes on follower tab to sync messages upon promotion to leader without requiring subsequent mutation', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const outgoingMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      outgoingMessages.push(msg)
+    }
+
+    const repo = new Repo({
+      network: [testAdapter],
+    })
+
+    // 1. Initial doc creation and sync handshake while leader
+    const handle = repo.create<{ count: number }>()
+    handle.change(doc => {
+      doc.count = 1
+    })
+
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve()
+
+    // Capture initial sync changes and mark doc as synced
+    const initialChanges = outgoingMessages.filter(m => m.documentId === handle.documentId)
+    expect(initialChanges.length).toBeGreaterThanOrEqual(1)
+    const initialDecoded = decodeSyncMessage(initialChanges[0].data as Uint8Array)
+    expect(initialDecoded.changes.length).toBeGreaterThan(0)
+
+    // Confirm synced heads on the adapter (mimicking successful server push acknowledgment)
+    const headsAfterCount1 = Automerge.getHeads(handle.doc()!)
+    testAdapter.setSyncedHeads(handle.documentId, headsAfterCount1)
+    outgoingMessages.length = 0
+
+    // 2. Tab is demoted to follower
+    testAdapter.setSendEnabled(false)
+    await vi.advanceTimersByTimeAsync(100)
+    await Promise.resolve()
+
+    // 3. Mutation occurs while running as a follower tab (offline / demoted)
+    handle.change(doc => {
+      doc.count = 2
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    await Promise.resolve()
+
+    // Outbound messages should NOT have been sent to broker while sendEnabled was false
+    expect(outgoingMessages).toHaveLength(0)
+
+    // 4. Follower tab is promoted to leader
+    testAdapter.setSendEnabled(true)
+
+    // Wait for the reconnection handshake and microtasks to complete
+    for (let i = 0; i < 10; i++) {
+      await vi.advanceTimersByTimeAsync(50)
+      await Promise.resolve()
+      if (outgoingMessages.some(m => m.documentId === handle.documentId)) break
+    }
+
+    // 5. Automerge Repo must have emitted the sync message with the offline changes
+    const promotedMessages = outgoingMessages.filter(m => m.documentId === handle.documentId)
+    expect(promotedMessages.length).toBeGreaterThanOrEqual(1)
+    const promotedDecoded = decodeSyncMessage(promotedMessages[0].data as Uint8Array)
+    expect(promotedDecoded.changes.length).toBeGreaterThan(0)
 
     await repo.shutdown()
   })
