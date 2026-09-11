@@ -1429,9 +1429,101 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(flushResult).toEqual({ persisted: 0, total: 0 })
       expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
     })
+
+    it('re-reads lastModifiedStore and restores un-snapshotted items to dirty queue upon promotion to leader', async () => {
+      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
+        ['item-unpushed' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
+        ['item-clean' as ItemId, { localModifiedAt: 3000, lastSnapshotAt: 3000 }],
+      ])
+
+      expect(followerManager.getDirtyItemIds()).toEqual([])
+
+      await followerManager.setLeader(true)
+
+      expect(followerManager.getDirtyItemIds()).toContain('item-unpushed')
+      expect(followerManager.getDirtyItemIds()).not.toContain('item-clean')
+      expect(followerManager['debounceTimer']).not.toBeNull()
+    })
+
+    it('pushes un-snapshotted items from previous leader after follower promotion', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+        total: 1,
+      })
+
+      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
+        ['item-from-previous-leader' as ItemId, { localModifiedAt: 6000, lastSnapshotAt: 1000 }],
+      ])
+
+      await followerManager.setLeader(true)
+
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots[0].itemId).toBe('item-from-previous-leader')
+    })
+
+    it('merges follower local dirty items with un-snapshotted items from previous leader on promotion', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 2,
+        total: 2,
+      })
+
+      followerManager.markItemDirty('follower-local-item' as ItemId)
+
+      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
+        ['item-from-previous-leader' as ItemId, { localModifiedAt: 8000, lastSnapshotAt: 2000 }],
+      ])
+
+      await followerManager.setLeader(true)
+
+      expect(followerManager.getDirtyItemIds()).toContain('follower-local-item')
+      expect(followerManager.getDirtyItemIds()).toContain('item-from-previous-leader')
+
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      const sentIds = mockPutSnapshotsWithToken.mock.calls[0][0].snapshots.map((s: any) => s.itemId)
+      expect(sentIds).toContain('follower-local-item')
+      expect(sentIds).toContain('item-from-previous-leader')
+    })
+
+    it('does not schedule snapshot push upon promotion if all stored items are clean', async () => {
+      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
+        ['item-clean' as ItemId, { localModifiedAt: 4000, lastSnapshotAt: 4000 }],
+      ])
+
+      await followerManager.setLeader(true)
+
+      expect(followerManager.getDirtyItemIds()).toHaveLength(0)
+      expect(followerManager['debounceTimer']).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+
+    it('does not schedule snapshot push if leadership is revoked while promotion audit is in flight', async () => {
+      let resolveTimestamps: (val: any) => void
+      const pendingLoad = new Promise(resolve => {
+        resolveTimestamps = resolve
+      })
+      vi.spyOn(lastModifiedStore, 'loadTimestamps').mockReturnValue(pendingLoad as any)
+
+      const promotionPromise = followerManager.setLeader(true)
+
+      // Leadership revoked before load completes
+      await followerManager.setLeader(false)
+      expect(followerManager.leader).toBe(false)
+
+      resolveTimestamps!([
+        ['item-unpushed' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
+      ])
+      await promotionPromise
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
   })
 })
-
-
-
-

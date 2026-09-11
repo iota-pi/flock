@@ -82,7 +82,7 @@ export class SyncOrchestrator {
     void this.leaderElection.acquire().catch(console.error)
   }
 
-  public onLeaderChange?: (isLeader: boolean) => void
+  public onLeaderChange?: (isLeader: boolean) => void | Promise<void>
 
   get leader(): boolean {
     return this.isLeader

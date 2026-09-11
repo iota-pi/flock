@@ -42,6 +42,7 @@ export class SnapshotManager {
   private snapshotPushPending = false
   private activePushPromise: Promise<SnapshotPushResult> | null = null
   private snapshotRequestCursor: number | null = null
+  private loadPromise: Promise<void> | null = null
   private retryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private retryAttempt = 0
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
@@ -76,8 +77,8 @@ export class SnapshotManager {
     this.maxWaitMs = options?.maxWaitMs ?? 5 * 60 * 1000
   }
 
-  setLeader(isLeader: boolean): void {
-    if (this.isLeader === isLeader) {
+  async setLeader(isLeader: boolean): Promise<void> {
+    if (this.isShutdown || this.isLeader === isLeader) {
       return
     }
     this.isLeader = isLeader
@@ -86,6 +87,7 @@ export class SnapshotManager {
       if (this.dirtyItems.size > 0) {
         this.scheduleDebouncedSnapshotPush()
       }
+      await this.loadLastModified()
     } else {
       this.clearDebounceTimers()
       if (this.retryTimeoutId !== null) {
@@ -100,21 +102,44 @@ export class SnapshotManager {
   }
 
   async loadLastModified(): Promise<void> {
+    if (this.isShutdown) return
+    while (this.loadPromise) {
+      await this.loadPromise
+      if (this.isShutdown) return
+    }
+
+    const promise = this.executeLoadLastModified()
+    this.loadPromise = promise
+    try {
+      await promise
+    } finally {
+      if (this.loadPromise === promise) {
+        this.loadPromise = null
+      }
+    }
+  }
+
+  private async executeLoadLastModified(): Promise<void> {
     try {
       const stored = await this.lastModifiedStore.loadTimestamps()
+      if (this.isShutdown) return
+
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
-          this.lastModifiedByItemId.set(itemId, ts.localModifiedAt)
+          const existingLocalMod = this.lastModifiedByItemId.get(itemId) ?? 0
+          this.lastModifiedByItemId.set(itemId, Math.max(existingLocalMod, ts.localModifiedAt))
           if (typeof ts.lastSnapshotAt === 'number') {
-            this.lastSnapshotAtByItemId.set(itemId, ts.lastSnapshotAt)
+            const existingLastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
+            this.lastSnapshotAtByItemId.set(itemId, Math.max(existingLastSnap, ts.lastSnapshotAt))
           }
         }
       }
 
-      let quarantinedIds = new Set<ItemId>()
+      const quarantinedIds = new Set<ItemId>()
       if (this.deps.accountId) {
         try {
           const recoveryEntries = await readManualRecoveryEntries(this.deps.accountId)
+          if (this.isShutdown) return
           for (const entry of recoveryEntries) {
             quarantinedIds.add(entry.itemId)
             if (
@@ -129,7 +154,7 @@ export class SnapshotManager {
         }
       }
 
-      // Startup Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
+      // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
       let auditCount = 0
       for (const [itemId, localMod] of this.lastModifiedByItemId.entries()) {
         if (quarantinedIds.has(itemId)) {
@@ -137,9 +162,11 @@ export class SnapshotManager {
         }
         const lastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
         if (localMod > lastSnap) {
-          this.dirtyItemsTick += 1
-          this.dirtyItems.set(itemId, this.dirtyItemsTick)
-          auditCount++
+          if (!this.dirtyItems.has(itemId)) {
+            this.dirtyItemsTick += 1
+            this.dirtyItems.set(itemId, this.dirtyItemsTick)
+            auditCount += 1
+          }
         }
       }
       if (auditCount > 0) {
@@ -667,7 +694,16 @@ export class SnapshotManager {
     if (this.activePushPromise) {
       try {
         await this.activePushPromise
-      } catch {}
+      } catch {
+        // ignore errors on shutdown
+      }
+    }
+    if (this.loadPromise) {
+      try {
+        await this.loadPromise
+      } catch {
+        // ignore errors on shutdown
+      }
     }
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
