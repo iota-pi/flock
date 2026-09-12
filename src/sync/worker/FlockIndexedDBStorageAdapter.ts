@@ -60,11 +60,11 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readwrite')
       const store = transaction.objectStore(this.storeName)
-      const request = store.clear()
+      store.clear()
 
       transaction.onerror = () => reject(transaction.error)
       transaction.onabort = () => reject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
-      request.onsuccess = () => resolve()
+      transaction.oncomplete = () => resolve()
     })
   }
 
