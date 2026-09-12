@@ -1,26 +1,21 @@
-import localforage from 'localforage'
 import type { ItemId } from 'src/shared/schemas/items'
-import { runStorageOperation } from '../../../utils/storageManager'
+import { BaseLocalForageStore } from './BaseLocalForageStore'
 
 export interface ItemSyncTimestamps {
   localModifiedAt: number
   lastSnapshotAt?: number
 }
 
-export class LastModifiedStore {
-  private readonly store: LocalForage
-  private readonly storeName: string
-
+export class LastModifiedStore extends BaseLocalForageStore {
   constructor(accountId: string) {
-    this.storeName = `last-modified-${accountId}`
-    this.store = localforage.createInstance({
+    super({
       name: 'flock-sync-last-modified',
-      storeName: this.storeName,
+      storeName: `last-modified-${accountId}`,
     })
   }
 
   async loadTimestamps(): Promise<[ItemId, ItemSyncTimestamps][] | null> {
-    const raw = await this.store.getItem<[ItemId, number | ItemSyncTimestamps][]>('lastModifiedByItemId')
+    const raw = await this.getItem<[ItemId, number | ItemSyncTimestamps][]>('lastModifiedByItemId')
     if (!raw || !Array.isArray(raw)) return null
 
     return raw.map(([itemId, val]) => {
@@ -41,7 +36,7 @@ export class LastModifiedStore {
   }
 
   async saveTimestamps(timestamps: [ItemId, ItemSyncTimestamps][]): Promise<void> {
-    await runStorageOperation(() => this.store.setItem('lastModifiedByItemId', timestamps))
+    await this.setItem('lastModifiedByItemId', timestamps)
   }
 
   async loadLastModified(): Promise<[ItemId, number][] | null> {
@@ -56,19 +51,6 @@ export class LastModifiedStore {
       { localModifiedAt: mod, lastSnapshotAt: mod },
     ])
     await this.saveTimestamps(timestamps)
-  }
-
-  async clear(): Promise<void> {
-    await this.store.clear()
-  }
-
-  async testStorageAvailable(): Promise<boolean> {
-    const probeKey = '__quota_probe__'
-    await runStorageOperation(async () => {
-      await this.store.setItem(probeKey, Date.now())
-      await this.store.removeItem(probeKey)
-    })
-    return true
   }
 }
 

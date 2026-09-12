@@ -1,21 +1,16 @@
-import localforage from 'localforage'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
-import { runStorageOperation } from '../../../utils/storageManager'
+import { BaseLocalForageStore } from './BaseLocalForageStore'
 
-export class SyncedHeadsStore {
-  private readonly store: LocalForage
-  private readonly storeName: string
-
+export class SyncedHeadsStore extends BaseLocalForageStore {
   constructor(accountId: string) {
-    this.storeName = `synced-heads-${accountId}`
-    this.store = localforage.createInstance({
+    super({
       name: 'flock-sync-synced-heads',
-      storeName: this.storeName,
+      storeName: `synced-heads-${accountId}`,
     })
   }
 
   async loadSyncedHeads(): Promise<[DocumentId, string[]][] | null> {
-    const data = await this.store.getItem<unknown>('syncedHeadsByDocId')
+    const data = await this.getItem<unknown>('syncedHeadsByDocId')
     if (!Array.isArray(data)) {
       return null
     }
@@ -23,10 +18,6 @@ export class SyncedHeadsStore {
   }
 
   async saveSyncedHeads(syncedHeads: [DocumentId, string[]][]): Promise<void> {
-    await runStorageOperation(() => this.store.setItem('syncedHeadsByDocId', syncedHeads))
-  }
-
-  async clear(): Promise<void> {
-    await this.store.clear()
+    await this.setItem('syncedHeadsByDocId', syncedHeads)
   }
 }

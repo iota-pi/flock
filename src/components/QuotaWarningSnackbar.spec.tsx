@@ -28,8 +28,8 @@ describe('QuotaWarningSnackbar', () => {
     })
 
     render(<QuotaWarningSnackbar onOpenDetails={onOpenDetails} />)
-    expect(screen.getByText(/Storage full: Changes are stored in memory only/i)).toBeDefined()
-    expect(screen.getByRole('button', { name: /more info/i })).toBeDefined()
+    expect(screen.getByText(/Storage full: Changes cannot be saved to this device/i)).toBeDefined()
+    expect(screen.getByRole('button', { name: /view options/i })).toBeDefined()
   })
 
   it('triggers onOpenDetails when More Info is clicked', () => {
@@ -40,7 +40,7 @@ describe('QuotaWarningSnackbar', () => {
     })
 
     render(<QuotaWarningSnackbar onOpenDetails={onOpenDetails} />)
-    fireEvent.click(screen.getByRole('button', { name: /more info/i }))
+    fireEvent.click(screen.getByRole('button', { name: /view options/i }))
     expect(onOpenDetails).toHaveBeenCalledTimes(1)
   })
 })

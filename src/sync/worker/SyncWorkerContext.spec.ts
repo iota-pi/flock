@@ -248,4 +248,28 @@ describe('SyncWorkerContext', () => {
     context.claimLeader()
     expect(context.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
   })
+
+  it('triggers wal.handleQuotaExceeded and emits quotaExceeded event in handleQuotaExceeded', async () => {
+    const walSpy = vi.spyOn(context.wal, 'handleQuotaExceeded').mockResolvedValue(1)
+    const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
+
+    await context.handleQuotaExceeded(new DOMException('Quota exceeded', 'QuotaExceededError'))
+
+    expect(walSpy).toHaveBeenCalledTimes(1)
+    expect(emitSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'quotaExceeded',
+        message: expect.stringContaining('Storage quota exceeded'),
+      })
+    )
+  })
+
+  it('cleans up quota recovery handler on shutdown', async () => {
+    const unregisterSpy = vi.fn()
+    // @ts-expect-error accessing private field for test
+    context.unregisterQuotaRecovery = unregisterSpy
+
+    await context.shutdown()
+    expect(unregisterSpy).toHaveBeenCalledTimes(1)
+  })
 })

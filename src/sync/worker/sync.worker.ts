@@ -142,6 +142,12 @@ export class SyncWorker implements SyncApi {
           this.subscribeToItems([itemId])
         }
       },
+      onQuotaError: () => {
+        this.clientEventHub.emit({
+          type: 'quotaExceeded',
+          message: 'Storage quota exceeded. Some changes could not be saved to this device.',
+        })
+      },
     })
 
     const cursorStore = new CursorStore(accountId)

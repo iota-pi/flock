@@ -85,7 +85,7 @@ async function runMigration(accountId: string): Promise<void> {
           ...single,
           id: itemId,
         }
-        await storage.setItem(itemId, newItem)
+        await runStorageOperation(() => storage.setItem(itemId, newItem))
       } else {
         // Sort chronologically ascending to preserve order of reasons
         entries.sort((a, b) => a.createdAt - b.createdAt)
@@ -107,15 +107,15 @@ async function runMigration(accountId: string): Promise<void> {
           reason: combinedReason,
           createdAt: latestCreatedAt > 0 ? latestCreatedAt : Date.now(),
         }
-        await storage.setItem(itemId, mergedEntry)
+        await runStorageOperation(() => storage.setItem(itemId, mergedEntry))
       }
     }
 
     for (const key of keysToRemove) {
-      await storage.removeItem(key)
+      await runStorageOperation(() => storage.removeItem(key))
     }
 
-    await metaStorage.setItem('__migrated_v2', true)
+    await runStorageOperation(() => metaStorage.setItem('__migrated_v2', true))
   } catch (error) {
     console.error('[ManualRecoveryStore] Migration failed', error)
     throw error
@@ -203,19 +203,19 @@ export async function removeManualRecoveryEntryByItemId(accountId: string, itemI
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await storage.removeItem(itemId)
+  await runStorageOperation(() => storage.removeItem(itemId))
 }
 
 export async function removeManualRecoveryEntryById(accountId: string, id: string): Promise<void> {
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await storage.removeItem(id)
+  await runStorageOperation(() => storage.removeItem(id))
 }
 
 export async function clearManualRecoveryEntries(accountId: string): Promise<void> {
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await storage.clear()
+  await runStorageOperation(() => storage.clear())
 }

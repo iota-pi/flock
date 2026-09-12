@@ -17,7 +17,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
-import { resetQuotaExceededStatus } from '../../utils/storageManager'
+import { resetQuotaExceededStatus, registerQuotaRecoveryHandler } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
 
 export interface SyncWorkerContextDeps {
@@ -58,6 +58,8 @@ export class SyncWorkerContext {
   public readonly orchestrator: SyncOrchestrator
   public readonly manifestSyncManager: ManifestSyncManager
   public readonly itemOperations: ItemOperations
+
+  private unregisterQuotaRecovery: (() => void) | null = null
 
   constructor(deps: SyncWorkerContextDeps) {
     this.accountId = deps.accountId
@@ -170,6 +172,10 @@ export class SyncWorkerContext {
     )
 
     this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
+
+    this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
+      return this.wal.handleQuotaExceeded()
+    })
   }
 
   async initialize() {
@@ -215,6 +221,11 @@ export class SyncWorkerContext {
       console.error('[SyncWorkerContext] Error closing indexManager', err)
     }
 
+    if (this.unregisterQuotaRecovery) {
+      this.unregisterQuotaRecovery()
+      this.unregisterQuotaRecovery = null
+    }
+
     if (options?.clearLocalData) {
       try {
         await Promise.all([
@@ -228,6 +239,22 @@ export class SyncWorkerContext {
         console.error('[SyncWorkerContext] Error clearing metadata stores on logout', err)
       }
     }
+  }
+
+  /**
+   * Reacts to quota exceeded: triggers emergency compaction and notifies client.
+   */
+  async handleQuotaExceeded(error?: unknown): Promise<void> {
+    console.warn('[SyncWorkerContext] Storage quota exceeded. Running emergency WAL compaction...', error)
+    try {
+      await this.wal.handleQuotaExceeded()
+    } catch (compactionErr) {
+      console.error('[SyncWorkerContext] Failed emergency compaction during quota handling:', compactionErr)
+    }
+    this.clientEventHub.emit({
+      type: 'quotaExceeded',
+      message: 'Storage quota exceeded. Flock cannot save changes or synchronize, risking data loss. Please free up space and check your connection to sync.',
+    })
   }
 
   async retrySave(): Promise<{ success: boolean; error?: string }> {

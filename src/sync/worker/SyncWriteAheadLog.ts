@@ -74,7 +74,7 @@ export class SyncWriteAheadLog {
   public static async clear(accountId: string): Promise<void> {
     if (!accountId) return
     const storage = SyncWriteAheadLog.getStorage(accountId)
-    await storage.clear()
+    await runStorageOperation(() => storage.clear())
   }
 
   constructor(public readonly accountId: string) {
@@ -158,7 +158,7 @@ export class SyncWriteAheadLog {
       }
 
       // Save new compacted entry first
-      await runStorageOperation(() => this.storage.setItem(newId, compactedEntry))
+      await runStorageOperation(() => this.storage.setItem(newId, compactedEntry), { retryOnQuotaError: false })
 
       // Remove the old individual entries
       await this.remove(oldIds)
@@ -279,6 +279,26 @@ export class SyncWriteAheadLog {
   }
 
   /**
+   * Emergency compaction and pruning to recover storage space on QuotaExceededError.
+   * Returns the number of entries reduced.
+   */
+  async handleQuotaExceeded(): Promise<number> {
+    console.warn('[SyncWriteAheadLog] Handling QuotaExceededError: compacting entries...')
+    let reduced = 0
+    try {
+      reduced = await this.compact()
+      if (reduced === 0) {
+        console.warn(`[SyncWriteAheadLog] Compaction freed 0 entries. Emergency pruning oldest ${SyncWriteAheadLog.PRUNE_BATCH_SIZE} entries...`)
+        await this.pruneOldest(SyncWriteAheadLog.PRUNE_BATCH_SIZE)
+      }
+    } catch (err) {
+      console.error('[SyncWriteAheadLog] Error during emergency compaction/prune:', err)
+      throw err
+    }
+    return reduced
+  }
+
+  /**
    * Write a sync message to the WAL. Returns only after IndexedDB write completes.
    */
   async append(itemId: ItemId, data: Uint8Array): Promise<string> {
@@ -299,12 +319,9 @@ export class SyncWriteAheadLog {
     } catch (err) {
       if (isQuotaError(err)) {
         console.warn('[SyncWriteAheadLog] Quota exceeded on append. Attempting compaction...')
-        const reduced = await this.compact()
-        if (reduced === 0) {
-          await this.pruneOldest(SyncWriteAheadLog.PRUNE_BATCH_SIZE)
-        }
+        await this.handleQuotaExceeded()
         // Retry once after emergency compaction/prune
-        await runStorageOperation(() => this.storage.setItem(id, entry))
+        await runStorageOperation(() => this.storage.setItem(id, entry), { retryOnQuotaError: false })
       } else {
         throw err
       }
@@ -384,7 +401,7 @@ export class SyncWriteAheadLog {
       this.inFlightEntryIds.delete(id)
     }
 
-    await Promise.all(uniqueIds.map(id => this.storage.removeItem(id)))
+    await Promise.all(uniqueIds.map(id => runStorageOperation(() => this.storage.removeItem(id))))
   }
 
   /**
@@ -392,6 +409,6 @@ export class SyncWriteAheadLog {
    */
   async clear(): Promise<void> {
     this.inFlightEntryIds.clear()
-    await this.storage.clear()
+    await runStorageOperation(() => this.storage.clear())
   }
 }

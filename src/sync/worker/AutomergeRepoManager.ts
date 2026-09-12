@@ -2,17 +2,28 @@ import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { runStorageOperation } from '../../utils/storageManager'
+import { isQuotaError } from '../../utils/storageQuota'
 import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
 
 class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
-  constructor(private delegate: StorageAdapterInterface) {}
+  constructor(
+    private delegate: StorageAdapterInterface,
+    private onQuotaError?: (error: unknown) => void
+  ) {}
 
   async load(key: string[]): Promise<Uint8Array | undefined> {
     return runStorageOperation(() => this.delegate.load(key))
   }
 
   async save(key: string[], data: Uint8Array): Promise<void> {
-    return runStorageOperation(() => this.delegate.save(key, data))
+    try {
+      return await runStorageOperation(() => this.delegate.save(key, data))
+    } catch (error) {
+      if (isQuotaError(error)) {
+        this.onQuotaError?.(error)
+      }
+      throw error
+    }
   }
 
   async remove(key: string[]): Promise<void> {
@@ -35,6 +46,7 @@ export function getAutomergeDBName(accountId: string): string {
 export interface AutomergeRepoManagerOptions {
   onKeyVersionMissing?: (kver: string) => void
   onDocumentReceived?: (documentId: DocumentId) => void
+  onQuotaError?: (error: unknown) => void
 }
 
 export class AutomergeRepoManager {
@@ -59,7 +71,7 @@ export class AutomergeRepoManager {
     })
 
     this.repo = new Repo({
-      storage: new QuotaHandlingStorageAdapter(this.indexedDbAdapter),
+      storage: new QuotaHandlingStorageAdapter(this.indexedDbAdapter, options?.onQuotaError),
       network: [
         this.broadcastAdapter,
         vaultNetworkAdapter,
@@ -94,7 +106,7 @@ export class AutomergeRepoManager {
 
   async clearLocalData(): Promise<void> {
     if (this.indexedDbAdapter) {
-      await this.indexedDbAdapter.clear()
+      await runStorageOperation(() => this.indexedDbAdapter!.clear())
     }
   }
 

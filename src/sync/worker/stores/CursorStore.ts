@@ -1,28 +1,19 @@
-import localforage from 'localforage'
 import type { ItemId } from 'src/shared/schemas/items'
-import { runStorageOperation } from '../../../utils/storageManager'
+import { BaseLocalForageStore } from './BaseLocalForageStore'
 
-export class CursorStore {
-  private readonly store: LocalForage
-  private readonly storeName: string
-
+export class CursorStore extends BaseLocalForageStore {
   constructor(accountId: string) {
-    this.storeName = `cursors-${accountId}`
-    this.store = localforage.createInstance({
+    super({
       name: 'flock-sync-cursors',
-      storeName: this.storeName,
+      storeName: `cursors-${accountId}`,
     })
   }
 
   async loadCursors(): Promise<[ItemId, number][] | null> {
-    return this.store.getItem<[ItemId, number][]>('cursorByItemId')
+    return this.getItem<[ItemId, number][]>('cursorByItemId')
   }
 
   async saveCursors(cursors: [ItemId, number][]): Promise<void> {
-    await runStorageOperation(() => this.store.setItem('cursorByItemId', cursors))
-  }
-
-  async clear(): Promise<void> {
-    await this.store.clear()
+    await this.setItem('cursorByItemId', cursors)
   }
 }
