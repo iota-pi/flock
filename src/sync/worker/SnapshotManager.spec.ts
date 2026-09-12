@@ -368,6 +368,91 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(Array.from(manager['dirtyItems'])).toHaveLength(0)
   })
 
+  it('does not bypass retry backoff when debounce timer sets snapshotPushPending during an in-flight failing push', async () => {
+    let rejectPush: (err: any) => void
+    mockPutSnapshotsWithToken.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectPush = reject
+        }),
+    )
+
+    manager.markItemDirty('item-1' as ItemId, 5000)
+
+    // Advance 5000ms so the first push starts
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+    // While push 1 is in-flight, mark item-2 dirty with a 1000ms debounce
+    manager.markItemDirty('item-2' as ItemId, 1000)
+
+    // Advance 1000ms so the debounce timer fires while push 1 is still in-flight
+    // This calls triggerSnapshotPush while activePushPromise is present, setting snapshotPushPending = true
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(manager['snapshotPushPending']).toBe(true)
+
+    // Push 1 fails
+    rejectPush!(new Error('Network disconnected'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    // On failure, retry is scheduled with backoff (2000ms). Immediate push must NOT be triggered.
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
+    expect(manager['retryAttempt']).toBe(1)
+    expect(manager['snapshotPushPending']).toBe(false)
+
+    // Advance 1999ms: retry should not have fired yet
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+    // Now make retry push succeed
+    mockPutSnapshotsWithToken.mockResolvedValueOnce({
+      success: true,
+      persisted: 2,
+    })
+
+    // Advance 1ms to 2000ms: retry fires and pushes both dirty items
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect(manager['dirtyItems'].size).toBe(0)
+    expect(manager['retryAttempt']).toBe(0)
+    expect(manager['retryTimeoutId']).toBeNull()
+  })
+
+  it('does not schedule debounced push while in retry backoff', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValueOnce({
+      success: false,
+      persisted: 0,
+    })
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
+    expect(manager['retryAttempt']).toBe(1)
+
+    // While waiting for retry, an item is marked dirty with 500ms debounce
+    manager.markItemDirty('item-2' as ItemId, 500)
+    expect(manager['debounceTimer']).toBeNull()
+
+    // Advance 500ms: no push should have occurred
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+    // Advance to 2000ms: retry runs and pushes both items
+    mockPutSnapshotsWithToken.mockResolvedValueOnce({
+      success: true,
+      persisted: 2,
+    })
+
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect(manager['dirtyItems'].size).toBe(0)
+    expect(manager['retryTimeoutId']).toBeNull()
+  })
+
   describe('Adaptive Size Batching', () => {
     it('splits batches when the count reaches 25', async () => {
       mockPutSnapshotsWithToken.mockImplementation(async (input: any) => ({

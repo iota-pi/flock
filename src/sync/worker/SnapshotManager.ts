@@ -220,6 +220,7 @@ export class SnapshotManager {
 
   scheduleDebouncedSnapshotPush(customDelayMs?: number) {
     if (this.isShutdown || !this.isLeader) return
+    if (this.retryTimeoutId !== null) return
     const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer)
@@ -329,6 +330,8 @@ export class SnapshotManager {
     if (this.isShutdown || !this.isLeader || this.retryTimeoutId !== null) {
       return
     }
+
+    this.clearDebounceTimers()
 
     const delayMs = this.retryDelays[Math.min(this.retryAttempt, this.retryDelays.length - 1)]
     this.retryAttempt += 1
@@ -677,14 +680,11 @@ export class SnapshotManager {
 
       if (!success && hasDirtyDocs && this.isLeader) {
         this.scheduleRetry()
+      } else if (this.snapshotPushPending && hasDirtyDocs && this.isLeader) {
+        void this.triggerSnapshotPush()
       }
 
-      if (this.snapshotPushPending && hasDirtyDocs && this.isLeader) {
-        this.snapshotPushPending = false
-        void this.triggerSnapshotPush()
-      } else {
-        this.snapshotPushPending = false
-      }
+      this.snapshotPushPending = false
     }
   }
 
