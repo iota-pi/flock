@@ -10,7 +10,7 @@ import { SyncWriteAheadLog, packBatchedMessages, type WalEntry } from './SyncWri
 import { decodeSyncMessage } from '@automerge/automerge/slim'
 import { parseBatchedMessages } from './utils/messageParser'
 import { isAuthError } from './utils/auth'
-import { pollSyncBatchWithToken, type PushResultItem } from '../../api/vault/SyncWorkerClient'
+import { pollSyncBatchWithToken, type PushResultItem, type PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
@@ -82,202 +82,26 @@ export class SyncPoller {
     const inFlightWalIds: string[] = []
     try {
       const authToken = await getActiveSessionToken()
-      if (this.isShutdown || signal.aborted) return 'no-poll'
+      this.checkAbort(signal)
       if (!authToken) return 'no-poll'
 
       let batchEntries: [ItemId, WalEntry[]][]
       try {
-        if (this.wal) {
-          const walMap = await this.wal.readAll()
-          batchEntries = Array.from(walMap.entries())
-          for (const [, messages] of batchEntries) {
-            for (const m of messages) {
-              if (m && m.id) {
-                inFlightWalIds.push(m.id)
-              }
-            }
-          }
-          if (inFlightWalIds.length > 0) {
-            this.wal.markInFlight?.(inFlightWalIds)
-          }
-        } else {
-          batchEntries = []
-        }
+        batchEntries = await this.loadWalEntries(inFlightWalIds)
       } catch (err) {
         console.error('[SyncPoller] Failed to load WAL entries', err)
         return 'failure'
       }
 
-      if (this.isShutdown || signal.aborted) return 'no-poll'
+      this.checkAbort(signal)
 
-      const chunks = chunk(batchEntries, 5)
-      const pullCursors = this.pullQueueManager.getCursors()
-
-      if (chunks.length === 0) {
-        // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
-        // and clientLatestCursor (for global updates across all other healthy items).
-        const response = await pollSyncBatchWithToken(
-          {
-            account: this.account,
-            authToken,
-            pushMessages: [],
-            pullCursors,
-            clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
-            globalLastEvaluatedKey: this.pullQueueManager.getGlobalLastEvaluatedKey(),
-          },
-          { signal }
-        )
-
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        if (response && response.pushResults) {
-          try {
-            this.pullQueueManager.processPushResults(response.pushResults)
-          } catch (pushErr) {
-            console.error('[SyncPoller] Error processing push results', pushErr)
-          }
-        }
-
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        if (response) {
-          try {
-            if (typeof response.hasMore === 'boolean') {
-              await this.pullQueueManager.processPullResults(
-                response.pullResults ?? [],
-                response.hasMore,
-                response.globalLastEvaluatedKey
-              )
-            } else if (response.pullResults) {
-              await this.pullQueueManager.processPullResults(response.pullResults)
-            }
-          } catch (pullErr) {
-            console.error('[SyncPoller] Error processing pull results', pullErr)
-          }
-        }
-
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        await this.indexManager?.updateLastSyncTime(Date.now())
-        return 'success'
-      }
+      const chunks = batchEntries.length > 0 ? chunk(batchEntries, 5) : [[]]
 
       for (const chunkEntry of chunks) {
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        const sentIdsByItem = new Map<ItemId, string[]>()
-        const pushMessages = await Promise.all(
-          chunkEntry.map(async ([itemId, messages]) => {
-            sentIdsByItem.set(
-              itemId,
-              messages.map(m => m.id)
-            )
-            const combined = packBatchedMessages(messages)
-            const encryptedMessage = await encryptBytes(combined)
-            return {
-              itemId,
-              encryptedMessage: {
-                iv: encryptedMessage.iv,
-                cipher: encryptedMessage.cipher,
-                kver: encryptedMessage.kver,
-                version: '1.0',
-              }
-            }
-          })
-        )
-
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        const response = await pollSyncBatchWithToken(
-          {
-            account: this.account,
-            authToken,
-            pushMessages,
-            pullCursors: this.pullQueueManager.getCursors(),
-            clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
-            globalLastEvaluatedKey: this.pullQueueManager.getGlobalLastEvaluatedKey(),
-          },
-          { signal }
-        )
-
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        const acknowledgedIds: string[] = []
-        const acknowledgedItemIds = new Set<ItemId>()
-
-        if (response && Array.isArray(response.pushResults)) {
-          for (const result of response.pushResults) {
-            if (this.isPushResultSuccessful(result)) {
-              acknowledgedItemIds.add(result.itemId)
-              const ids = sentIdsByItem.get(result.itemId)
-              if (ids && ids.length > 0) {
-                acknowledgedIds.push(...ids)
-              }
-              const itemMessages = chunkEntry.find(([id]) => id === result.itemId)?.[1]
-              const lastEntry = itemMessages?.[itemMessages.length - 1]
-              if (lastEntry) {
-                const rawMsg = extractLastSyncMessage(lastEntry)
-                if (rawMsg) {
-                  try {
-                    const decoded = decodeSyncMessage(rawMsg)
-                    if (decoded.heads && decoded.heads.length > 0) {
-                      this.onPushAcknowledged?.(result.itemId, decoded.heads)
-                    }
-                  } catch (err) {
-                    console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)
-                  }
-                }
-              }
-            } else {
-              console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
-            }
-          }
-        }
-
-        for (const [sentItemId] of chunkEntry) {
-          if (!acknowledgedItemIds.has(sentItemId)) {
-            console.warn(`[SyncPoller] Item ${sentItemId} was not acknowledged in pushResults, preserving in WAL`)
-          }
-        }
-
-        if (this.wal && acknowledgedIds.length > 0) {
-          try {
-            await this.wal.remove(acknowledgedIds)
-          } catch (walErr) {
-            console.error('[SyncPoller] Failed to remove acknowledged IDs from WAL', walErr)
-          }
-        }
-
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        if (response && response.pushResults) {
-          try {
-            this.pullQueueManager.processPushResults(response.pushResults)
-          } catch (pushErr) {
-            console.error('[SyncPoller] Error processing push results', pushErr)
-          }
-        }
-
-        if (this.isShutdown || signal.aborted) return 'no-poll'
-
-        if (response) {
-          try {
-            if (typeof response.hasMore === 'boolean') {
-              await this.pullQueueManager.processPullResults(
-                response.pullResults ?? [],
-                response.hasMore,
-                response.globalLastEvaluatedKey
-              )
-            } else if (response.pullResults) {
-              await this.pullQueueManager.processPullResults(response.pullResults)
-            }
-          } catch (pullErr) {
-            console.error('[SyncPoller] Error processing pull results', pullErr)
-          }
-        }
+        await this.processChunk(chunkEntry, authToken, signal)
       }
 
-      if (this.isShutdown || signal.aborted) return 'no-poll'
+      this.checkAbort(signal)
 
       await this.indexManager?.updateLastSyncTime(Date.now())
       return 'success'
@@ -300,6 +124,168 @@ export class SyncPoller {
         this.wal.unmarkInFlight?.(inFlightWalIds)
       }
       this.clientEventHub.emit({ type: 'finishRequest' })
+    }
+  }
+
+  private checkAbort(signal: AbortSignal): void {
+    if (this.isShutdown || signal.aborted) {
+      const error = new Error('Polling aborted')
+      error.name = 'AbortError'
+      throw error
+    }
+  }
+
+  private async loadWalEntries(inFlightWalIds: string[]): Promise<[ItemId, WalEntry[]][]> {
+    if (!this.wal) return []
+    const walMap = await this.wal.readAll()
+    const batchEntries = Array.from(walMap.entries())
+    for (const [, messages] of batchEntries) {
+      for (const m of messages) {
+        if (m && m.id) {
+          inFlightWalIds.push(m.id)
+        }
+      }
+    }
+    if (inFlightWalIds.length > 0) {
+      this.wal.markInFlight?.(inFlightWalIds)
+    }
+    return batchEntries
+  }
+
+  private async processChunk(
+    chunkEntry: [ItemId, WalEntry[]][],
+    authToken: string,
+    signal: AbortSignal
+  ): Promise<void> {
+    this.checkAbort(signal)
+
+    const sentIdsByItem = new Map<ItemId, string[]>()
+    const pushMessages = await Promise.all(
+      chunkEntry.map(async ([itemId, messages]) => {
+        sentIdsByItem.set(
+          itemId,
+          messages.map(m => m.id)
+        )
+        const combined = packBatchedMessages(messages)
+        const encryptedMessage = await encryptBytes(combined)
+        return {
+          itemId,
+          encryptedMessage: {
+            iv: encryptedMessage.iv,
+            cipher: encryptedMessage.cipher,
+            kver: encryptedMessage.kver,
+            version: '1.0' as const,
+          },
+        }
+      })
+    )
+
+    this.checkAbort(signal)
+
+    // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
+    // and clientLatestCursor (for global updates across all other healthy items).
+    const response = await pollSyncBatchWithToken(
+      {
+        account: this.account!,
+        authToken,
+        pushMessages,
+        pullCursors: this.pullQueueManager.getCursors(),
+        clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
+        globalLastEvaluatedKey: this.pullQueueManager.getGlobalLastEvaluatedKey(),
+      },
+      { signal }
+    )
+
+    this.checkAbort(signal)
+
+    if (chunkEntry.length > 0) {
+      await this.handlePushAcknowledgments(chunkEntry, sentIdsByItem, response?.pushResults)
+      this.checkAbort(signal)
+    }
+
+    await this.handlePollResponse(response, signal)
+  }
+
+  private async handlePushAcknowledgments(
+    chunkEntry: [ItemId, WalEntry[]][],
+    sentIdsByItem: Map<ItemId, string[]>,
+    pushResults?: PushResultItem[]
+  ): Promise<void> {
+    const acknowledgedIds: string[] = []
+    const acknowledgedItemIds = new Set<ItemId>()
+
+    if (Array.isArray(pushResults)) {
+      for (const result of pushResults) {
+        if (this.isPushResultSuccessful(result)) {
+          acknowledgedItemIds.add(result.itemId)
+          const ids = sentIdsByItem.get(result.itemId)
+          if (ids && ids.length > 0) {
+            acknowledgedIds.push(...ids)
+          }
+          const itemMessages = chunkEntry.find(([id]) => id === result.itemId)?.[1]
+          const lastEntry = itemMessages?.[itemMessages.length - 1]
+          if (lastEntry) {
+            const rawMsg = extractLastSyncMessage(lastEntry)
+            if (rawMsg) {
+              try {
+                const decoded = decodeSyncMessage(rawMsg)
+                if (decoded.heads && decoded.heads.length > 0) {
+                  this.onPushAcknowledged?.(result.itemId, decoded.heads)
+                }
+              } catch (err) {
+                console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)
+              }
+            }
+          }
+        } else {
+          console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
+        }
+      }
+    }
+
+    for (const [sentItemId] of chunkEntry) {
+      if (!acknowledgedItemIds.has(sentItemId)) {
+        console.warn(`[SyncPoller] Item ${sentItemId} was not acknowledged in pushResults, preserving in WAL`)
+      }
+    }
+
+    if (this.wal && acknowledgedIds.length > 0) {
+      try {
+        await this.wal.remove(acknowledgedIds)
+      } catch (walErr) {
+        console.error('[SyncPoller] Failed to remove acknowledged IDs from WAL', walErr)
+      }
+    }
+  }
+
+  private async handlePollResponse(
+    response: PollSyncBatchResponse | null | undefined,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (!response) return
+
+    if (response.pushResults) {
+      try {
+        this.pullQueueManager.processPushResults(response.pushResults)
+      } catch (pushErr) {
+        console.error('[SyncPoller] Error processing push results', pushErr)
+      }
+    }
+
+    this.checkAbort(signal)
+
+    try {
+      if (typeof response.hasMore === 'boolean') {
+        await this.pullQueueManager.processPullResults(
+          response.pullResults ?? [],
+          response.hasMore,
+          response.globalLastEvaluatedKey
+        )
+      } else if (response.pullResults) {
+        await this.pullQueueManager.processPullResults(response.pullResults)
+      }
+    } catch (pullErr) {
+      console.error('[SyncPoller] Error processing pull results', pullErr)
     }
   }
 
