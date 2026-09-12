@@ -34,5 +34,6 @@ export interface SyncApi {
   }>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
+  claimLeader: () => Promise<void>
   shutdown: (options?: { clearLocalData?: boolean }) => Promise<void>
 }

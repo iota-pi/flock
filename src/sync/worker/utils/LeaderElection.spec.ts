@@ -466,5 +466,168 @@ describe('LeaderElection', () => {
     election1.release()
     peerPresenceChannel.close()
   })
+
+  describe('Leader Conflict & Claim Leadership (Approach B)', () => {
+    it('newer tab yields leadership and notifies onLeaderConflict(true) when two tabs enter fallback mode', async () => {
+      const onConflict1 = vi.fn()
+      const onConflict2 = vi.fn()
+      const onLeaderRevoked2 = vi.fn()
+
+      const election1 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: onConflict1,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      // Tab 1 acquires at T=100
+      vi.setSystemTime(100)
+      await election1.acquire()
+      expect(election1.leader).toBe(true)
+      expect(election1.yielded).toBe(false)
+
+      const election2 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: onLeaderRevoked2,
+          onLeaderConflict: onConflict2,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      // Tab 2 acquires later at T=200
+      vi.setSystemTime(200)
+      await election2.acquire()
+
+      // Tab 2 should detect Tab 1 is older and yield leadership
+      await vi.waitFor(() => {
+        expect(onConflict2).toHaveBeenCalledWith(true)
+        expect(onLeaderRevoked2).toHaveBeenCalled()
+        expect(election2.yielded).toBe(true)
+        expect(election2.leader).toBe(false)
+      })
+
+      // Tab 1 remains active leader without conflict
+      expect(election1.leader).toBe(true)
+      expect(election1.yielded).toBe(false)
+      expect(onConflict1).not.toHaveBeenCalledWith(true)
+
+      election1.release()
+      election2.release()
+      vi.useRealTimers()
+    })
+
+    it('allows yielded tab to reclaim leadership via claimLeadership, causing older tab to yield', async () => {
+      const onConflict1 = vi.fn()
+      const onConflict2 = vi.fn()
+      const onLeaderGranted2 = vi.fn()
+
+      const election1 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: onConflict1,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      vi.setSystemTime(100)
+      await election1.acquire()
+
+      const election2 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: onLeaderGranted2,
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: onConflict2,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      vi.setSystemTime(200)
+      await election2.acquire()
+
+      await vi.waitFor(() => {
+        expect(election2.yielded).toBe(true)
+      })
+
+      // Tab 2 claims leadership
+      onLeaderGranted2.mockClear()
+      election2.claimLeadership()
+
+      // Tab 2 becomes leader and clears conflict
+      expect(election2.leader).toBe(true)
+      expect(election2.yielded).toBe(false)
+      expect(onLeaderGranted2).toHaveBeenCalled()
+      expect(onConflict2).toHaveBeenCalledWith(false)
+
+      // Tab 1 receives claim and yields
+      await vi.waitFor(() => {
+        expect(election1.leader).toBe(false)
+        expect(election1.yielded).toBe(true)
+        expect(onConflict1).toHaveBeenCalledWith(true)
+      })
+
+      election1.release()
+      election2.release()
+      vi.useRealTimers()
+    })
+
+    it('auto-recovers leadership on yielded tab when active leader tab releases', async () => {
+      const onConflict2 = vi.fn()
+      const onLeaderGranted2 = vi.fn()
+
+      const election1 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      vi.setSystemTime(100)
+      await election1.acquire()
+
+      const election2 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: onLeaderGranted2,
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: onConflict2,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      vi.setSystemTime(200)
+      await election2.acquire()
+
+      await vi.waitFor(() => {
+        expect(election2.yielded).toBe(true)
+      })
+
+      onLeaderGranted2.mockClear()
+      onConflict2.mockClear()
+
+      // Tab 1 closes / releases
+      election1.release()
+
+      // Tab 2 automatically un-yields and reclaims leadership
+      await vi.waitFor(() => {
+        expect(election2.leader).toBe(true)
+        expect(election2.yielded).toBe(false)
+        expect(onLeaderGranted2).toHaveBeenCalled()
+        expect(onConflict2).toHaveBeenCalledWith(false)
+      })
+
+      election2.release()
+      vi.useRealTimers()
+    })
+  })
 })
 

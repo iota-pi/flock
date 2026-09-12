@@ -78,8 +78,16 @@ export class SyncOrchestrator {
       onSoleLeaderRestored: () => {
         this.internalEventHub.emit({ type: 'soleLeaderRestored' })
       },
+      onLeaderConflict: (isConflict: boolean) => {
+        this.internalEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
+        this.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
+      },
     })
     void this.leaderElection.acquire().catch(console.error)
+  }
+
+  claimLeader(): void {
+    this.leaderElection?.claimLeadership()
   }
 
   public onLeaderChange?: (isLeader: boolean) => void | Promise<void>

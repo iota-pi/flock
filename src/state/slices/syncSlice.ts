@@ -9,6 +9,7 @@ interface SyncState {
   syncWarning: string | null
   generation: number
   isQuotaExceeded: boolean
+  isLeaderConflict: boolean
 }
 
 export interface SyncSlice extends SyncState {
@@ -20,6 +21,7 @@ export interface SyncSlice extends SyncState {
   incrementGeneration: () => void
   setQuotaExceeded: (exceeded: boolean) => void
   clearQuotaExceeded: () => void
+  setLeaderConflict: (isConflict: boolean) => void
 }
 
 const initialSyncState: SyncState = {
@@ -28,6 +30,7 @@ const initialSyncState: SyncState = {
   syncWarning: null,
   generation: 0,
   isQuotaExceeded: false,
+  isLeaderConflict: false,
 }
 
 export const createSyncSlice: StateCreator<
@@ -63,6 +66,11 @@ export const createSyncSlice: StateCreator<
   clearQuotaExceeded: () => {
     set(() => ({
       isQuotaExceeded: false,
+    }))
+  },
+  setLeaderConflict: isConflict => {
+    set(() => ({
+      isLeaderConflict: isConflict,
     }))
   },
 })

@@ -234,5 +234,14 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
 
     expect(handle.on).not.toHaveBeenCalled()
   })
+
+  it('delegates claimLeader to context.claimLeader', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    const claimSpy = vi.spyOn((worker as any).context, 'claimLeader').mockImplementation(() => {})
+    await worker.claimLeader()
+    expect(claimSpy).toHaveBeenCalledTimes(1)
+  })
 })
 

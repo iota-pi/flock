@@ -22,6 +22,7 @@ import BiometricPrompt from './components/BiometricPrompt'
 import useAutoLock from './hooks/useAutoLock'
 import QuotaWarningSnackbar from './components/QuotaWarningSnackbar'
 import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
+import LeaderConflictDialog from './components/dialogs/LeaderConflictDialog'
 
 
 const Root = styled('div')({
@@ -120,6 +121,7 @@ function RootLayout() {
         open={isQuotaDialogOpen}
         onClose={() => setIsQuotaDialogOpen(false)}
       />
+      <LeaderConflictDialog />
     </Root>
   )
 }

@@ -31,6 +31,7 @@ vi.mock('./SyncOrchestrator', () => {
       shutdown = vi.fn().mockResolvedValue(undefined)
       setOnlineState = vi.fn()
       setManifestSyncManager = vi.fn()
+      claimLeader = vi.fn()
       online = true
       flush = vi.fn()
     },
@@ -241,5 +242,10 @@ describe('SyncWorkerContext', () => {
 
   it('wires manifestSyncManager into orchestrator on construction', () => {
     expect(context.orchestrator.setManifestSyncManager).toHaveBeenCalledWith(context.manifestSyncManager)
+  })
+
+  it('delegates claimLeader to orchestrator.claimLeader', () => {
+    context.claimLeader()
+    expect(context.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
   })
 })

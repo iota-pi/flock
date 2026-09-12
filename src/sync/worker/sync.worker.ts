@@ -421,6 +421,10 @@ export class SyncWorker implements SyncApi {
     if (state.lastModified) await context.snapshotManager.importLastModified(state.lastModified)
   }
 
+  async claimLeader() {
+    this.context.claimLeader()
+  }
+
   async shutdown(options?: { clearLocalData?: boolean }) {
     this.clearListeners()
 

@@ -3,6 +3,7 @@ export interface LeaderElectionCallbacks {
   onLeaderRevoked: () => void
   onMultipleLeadersDetected?: () => void
   onSoleLeaderRestored?: () => void
+  onLeaderConflict?: (isConflict: boolean) => void
 }
 
 export interface LeaderElectionOptions {
@@ -13,9 +14,11 @@ export interface LeaderElectionOptions {
 }
 
 interface PresenceMessage {
-  type: 'heartbeat' | 'release'
+  type: 'heartbeat' | 'release' | 'claim'
   leaderId: string
+  createdAt?: number
   isFallback?: boolean
+  isReply?: boolean
 }
 
 export class LeaderElection {
@@ -25,6 +28,8 @@ export class LeaderElection {
   private isLeader = false
   private isFallback = false
   private isReleased = false
+  private isYielded = false
+  private createdAt: number = Date.now()
   private consecutiveFailures = 0
 
   private readonly maxLockRetries: number
@@ -58,6 +63,10 @@ export class LeaderElection {
     return this.isFallback
   }
 
+  get yielded(): boolean {
+    return this.isYielded
+  }
+
   get activeOtherLeaderCount(): number {
     return this.otherLeaders.size
   }
@@ -66,18 +75,56 @@ export class LeaderElection {
     if (!this.isLeader) {
       this.isLeader = true
       this.isFallback = isFallback
+      this.isYielded = false
+      this.createdAt = Date.now()
       this.setupPresence()
       this.callbacks.onLeaderGranted()
+      this.callbacks.onLeaderConflict?.(false)
     }
   }
 
-  private revokeLeadership(): void {
+  private revokeLeadership(teardown = true): void {
     if (this.isLeader) {
       this.isLeader = false
       this.isFallback = false
-      this.teardownPresence()
+      if (teardown) {
+        this.teardownPresence()
+      }
       this.callbacks.onLeaderRevoked()
     }
+  }
+
+  private yieldLeadership(): void {
+    if (!this.isYielded) {
+      this.isYielded = true
+      this.revokeLeadership(false)
+      this.callbacks.onLeaderConflict?.(true)
+    }
+  }
+
+  claimLeadership(): void {
+    if (this.isReleased) return
+
+    this.isYielded = false
+    this.createdAt = Date.now()
+
+    if (!this.presenceChannel) {
+      this.setupPresence()
+    }
+
+    if (this.presenceChannel && this.leaderId) {
+      try {
+        const msg: PresenceMessage = {
+          type: 'claim',
+          leaderId: this.leaderId,
+          createdAt: this.createdAt,
+          isFallback: true,
+        }
+        this.presenceChannel.postMessage(msg)
+      } catch (_) {}
+    }
+
+    this.grantLeadership(true)
   }
 
   private setupPresence(): void {
@@ -86,59 +133,98 @@ export class LeaderElection {
     }
 
     try {
-      this.leaderId = `leader-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`
-      this.presenceChannel = new BroadcastChannel(`flock-leader-presence-${this.accountId}`)
+      if (!this.leaderId) {
+        this.leaderId = `leader-${Math.random().toString(36).slice(2, 10)}-${this.createdAt}`
+      }
+      if (!this.presenceChannel) {
+        this.presenceChannel = new BroadcastChannel(`flock-leader-presence-${this.accountId}`)
 
-      this.presenceChannel.onmessage = (event: MessageEvent<PresenceMessage>) => {
-        this.handlePresenceMessage(event.data)
+        this.presenceChannel.onmessage = (event: MessageEvent<PresenceMessage>) => {
+          this.handlePresenceMessage(event.data)
+        }
       }
 
       this.sendHeartbeat()
 
-      this.presenceTimer = setInterval(() => {
-        this.sendHeartbeat()
-        this.pruneStaleLeaders()
-      }, this.presenceHeartbeatIntervalMs)
+      if (!this.presenceTimer) {
+        this.presenceTimer = setInterval(() => {
+          this.sendHeartbeat()
+          this.pruneStaleLeaders()
+        }, this.presenceHeartbeatIntervalMs)
+      }
     } catch (err) {
       console.warn('[LeaderElection] Failed to initialize leader presence BroadcastChannel:', err)
       this.presenceChannel = null
     }
   }
 
-  private sendHeartbeat(): void {
+  private sendHeartbeat(isReply = false): void {
     if (!this.presenceChannel || !this.leaderId || !this.isLeader) return
     try {
       const msg: PresenceMessage = {
         type: 'heartbeat',
         leaderId: this.leaderId,
+        createdAt: this.createdAt,
         isFallback: this.isFallback,
+        isReply,
       }
       this.presenceChannel.postMessage(msg)
     } catch (_) {}
   }
 
   private handlePresenceMessage(data: PresenceMessage): void {
-    if (!data || !data.leaderId || data.leaderId === this.leaderId || !this.isLeader) {
+    if (!data || !data.leaderId || data.leaderId === this.leaderId) {
+      return
+    }
+
+    if (data.type === 'claim') {
+      this.otherLeaders.set(data.leaderId, Date.now())
+      if (this.isLeader) {
+        this.yieldLeadership()
+      }
       return
     }
 
     if (data.type === 'heartbeat') {
       this.otherLeaders.set(data.leaderId, Date.now())
+
+      if (!data.isReply && this.isLeader) {
+        this.sendHeartbeat(true)
+      }
+
       if (!this.multipleLeadersDetected) {
         this.multipleLeadersDetected = true
         this.callbacks.onMultipleLeadersDetected?.()
       }
+
+      if (this.isLeader && this.isFallback && (data.isFallback ?? true)) {
+        const otherCreatedAt = data.createdAt ?? 0
+        const isSelfOlder =
+          this.createdAt < otherCreatedAt ||
+          (this.createdAt === otherCreatedAt && (this.leaderId ?? '') < data.leaderId)
+
+        if (!isSelfOlder) {
+          this.yieldLeadership()
+          return
+        }
+      }
     } else if (data.type === 'release') {
       this.otherLeaders.delete(data.leaderId)
-      if (this.otherLeaders.size === 0 && this.multipleLeadersDetected) {
-        this.multipleLeadersDetected = false
-        this.callbacks.onSoleLeaderRestored?.()
+      if (this.otherLeaders.size === 0) {
+        if (this.multipleLeadersDetected) {
+          this.multipleLeadersDetected = false
+          this.callbacks.onSoleLeaderRestored?.()
+        }
+        if (this.isYielded && !this.isReleased) {
+          this.isYielded = false
+          this.grantLeadership(true)
+        }
       }
     }
   }
 
   private pruneStaleLeaders(): void {
-    if (!this.isLeader) return
+    if (this.isReleased) return
     const now = Date.now()
     let removed = false
 
@@ -149,9 +235,15 @@ export class LeaderElection {
       }
     }
 
-    if (removed && this.otherLeaders.size === 0 && this.multipleLeadersDetected) {
-      this.multipleLeadersDetected = false
-      this.callbacks.onSoleLeaderRestored?.()
+    if (removed && this.otherLeaders.size === 0) {
+      if (this.multipleLeadersDetected) {
+        this.multipleLeadersDetected = false
+        this.callbacks.onSoleLeaderRestored?.()
+      }
+      if (this.isYielded && !this.isReleased) {
+        this.isYielded = false
+        this.grantLeadership(true)
+      }
     }
   }
 
@@ -180,6 +272,7 @@ export class LeaderElection {
     this.leaderId = null
     this.otherLeaders.clear()
     this.multipleLeadersDetected = false
+    this.isYielded = false
   }
 
   async acquire(): Promise<void> {

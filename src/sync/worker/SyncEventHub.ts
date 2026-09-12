@@ -20,11 +20,13 @@ export type ClientEvent =
   | { type: 'quotaResolved' }
   | { type: 'keyVersionMissing'; kver: string }
   | { type: 'snapshotFailed'; itemId: ItemId; message: string }
+  | { type: 'leaderConflict'; hasConflict: boolean }
 
 export type WorkerInternalEvent =
   | { type: 'pollResult'; outcome: PollOutcome }
   | { type: 'multipleLeadersDetected' }
   | { type: 'soleLeaderRestored' }
+  | { type: 'leaderConflict'; hasConflict: boolean }
 
 export type ClientEventListener = (event: ClientEvent) => void | Promise<void>
 export type WorkerInternalEventListener = (event: WorkerInternalEvent) => void | Promise<void>

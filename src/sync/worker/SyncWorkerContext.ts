@@ -289,4 +289,8 @@ export class SyncWorkerContext {
       return { success: false, error: (err as Error).message || 'Failed to retry save' }
     }
   }
+
+  claimLeader(): void {
+    this.orchestrator.claimLeader()
+  }
 }

@@ -43,6 +43,7 @@ const mockSyncApi = {
   flushSync: vi.fn().mockReturnValue(undefined),
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
   retrySave: vi.fn().mockResolvedValue({ success: true }),
+  claimLeader: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('comlink', () => {
@@ -499,6 +500,34 @@ describe('SyncBridge', () => {
     const res = await SyncBridge.retrySave()
     expect(mockSyncApi.retrySave).toHaveBeenCalled()
     expect(res).toEqual({ success: true })
+  })
+
+  it('handles leaderConflict events and updates store state', async () => {
+    await SyncBridge.initialize('test-account')
+
+    expect(useAppStore.getState().isLeaderConflict).toBe(false)
+
+    // Simulate leaderConflict true event from worker
+    lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: true })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().isLeaderConflict).toBe(true)
+    })
+
+    // Simulate leaderConflict false event from worker
+    lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: false })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().isLeaderConflict).toBe(false)
+    })
+  })
+
+  it('delegates claimLeader to syncApi', async () => {
+    await SyncBridge.initialize('test-account')
+    mockSyncApi.claimLeader.mockResolvedValueOnce(undefined)
+
+    await SyncBridge.claimLeader()
+    expect(mockSyncApi.claimLeader).toHaveBeenCalledTimes(1)
   })
 
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
@@ -990,7 +1019,7 @@ describe('SyncBridge', () => {
       expect(mockSyncApi.storeItems).toHaveBeenCalledWith([person3])
 
       await SyncBridge.mutateMetadata({ prayerGoal: 10 })
-      expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 })
+      expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 }, undefined)
 
       await SyncBridge.flushSync()
       expect(mockSyncApi.flushSync).toHaveBeenCalledTimes(1)

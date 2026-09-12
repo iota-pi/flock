@@ -236,6 +236,11 @@ class SyncBridgeService {
       case 'keyVersionMissing':
         void this.handleKeyringUpdate(event.kver)
         break
+      case 'leaderConflict': {
+        const syncStore = useAppStore.getState()
+        syncStore.setLeaderConflict(event.hasConflict)
+        break
+      }
     }
   }
 
@@ -798,6 +803,11 @@ class SyncBridgeService {
   async restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
     await this.ensureReady()
     return this.syncApi!.restoreSyncState(state)
+  }
+
+  async claimLeader(): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.claimLeader()
   }
 }
 

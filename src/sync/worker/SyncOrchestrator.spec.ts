@@ -399,6 +399,38 @@ describe('SyncOrchestrator', () => {
     await orchestrator.shutdown()
   })
 
+  it('forwards leaderConflict event to internalEventHub and clientEventHub', async () => {
+    const internalListener = vi.fn()
+    const clientListener = vi.fn()
+    internalEventHub.subscribe(internalListener)
+    clientEventHub.subscribe(clientListener)
+
+    await orchestrator.start()
+    const leaderElection = (orchestrator as any).leaderElection
+
+    // Trigger onLeaderConflict callback
+    leaderElection.callbacks.onLeaderConflict?.(true)
+    expect(internalListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: true })
+    expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: true })
+
+    leaderElection.callbacks.onLeaderConflict?.(false)
+    expect(internalListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
+    expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
+
+    await orchestrator.shutdown()
+  })
+
+  it('delegates claimLeader to leaderElection.claimLeadership', async () => {
+    await orchestrator.start()
+    const leaderElection = (orchestrator as any).leaderElection
+    const claimSpy = vi.spyOn(leaderElection, 'claimLeadership')
+
+    orchestrator.claimLeader()
+    expect(claimSpy).toHaveBeenCalledTimes(1)
+
+    await orchestrator.shutdown()
+  })
+
   describe('promoted leader cursor reloading', () => {
     it('reloads cursors via pullQueueManager and awaits reload before polling on promotion', async () => {
       let resolveReload: () => void = () => {}
