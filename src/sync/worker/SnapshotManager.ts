@@ -29,6 +29,19 @@ interface SnapshotPushResult {
   success: boolean
 }
 
+interface PreparedSnapshotItem {
+  snapshot: VaultSnapshotInput
+  tick: number
+  heads?: string[]
+}
+
+type ItemPreparationResult =
+  | { type: 'ready'; item: PreparedSnapshotItem; size: number }
+  | { type: 'not-ready' }
+  | { type: 'error' }
+  | { type: 'oversized' }
+  | { type: 'skipped' }
+
 const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
 export class SnapshotManager {
@@ -454,6 +467,126 @@ export class SnapshotManager {
     }
   }
 
+  private handleOversizedItem(
+    itemId: ItemId,
+    snapshotSize: number,
+    modified: number,
+    accountId: string,
+  ): void {
+    const isAlreadyOversized = this.oversizedItems.has(itemId)
+    this.oversizedItems.add(itemId)
+
+    // Unconditionally remove from dirtyItems to avoid infinite retry loops
+    this.dirtyItems.delete(itemId)
+
+    // Advance lastSnapshotAt to localModifiedAt to prevent startup audit / sync loops while quarantined
+    const localMod = this.lastModifiedByItemId.get(itemId) ?? modified
+    this.lastSnapshotAtByItemId.set(itemId, localMod)
+    this.saveLastModifiedDebounced()
+
+    if (!isAlreadyOversized) {
+      console.error(
+        `[SnapshotManager] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`
+      )
+      this.deps.eventHub?.emit({
+        type: 'quotaExceeded',
+        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
+      })
+      void upsertManualRecoveryEntry(accountId, {
+        itemId,
+        reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
+      })
+        .then(async () => {
+          const entries = await readManualRecoveryEntries(accountId)
+          this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
+        })
+        .catch(() => {})
+    }
+  }
+
+  private async prepareItemForPush(
+    itemId: ItemId,
+    snapshotCursor: number,
+    accountId: string,
+  ): Promise<ItemPreparationResult> {
+    const tick = this.dirtyItems.get(itemId)
+    if (tick === undefined) {
+      return { type: 'skipped' }
+    }
+
+    const buildResult = await this.buildSnapshot(itemId, snapshotCursor)
+    if (buildResult.type === 'not-ready') {
+      return { type: 'not-ready' }
+    }
+
+    if (buildResult.type === 'error') {
+      await this.handleSnapshotFailure(itemId, tick, 'build', buildResult.reason)
+      return { type: 'error' }
+    }
+
+    const snapshot = buildResult.snapshot
+    this.consecutiveFailures.delete(itemId)
+
+    const snapshotSize = JSON.stringify(snapshot).length
+
+    if (snapshotSize > this.maxPayloadBytes) {
+      this.handleOversizedItem(itemId, snapshotSize, snapshot.modified, accountId)
+      return { type: 'oversized' }
+    }
+
+    this.oversizedItems.delete(itemId)
+
+    return {
+      type: 'ready',
+      item: { snapshot, tick, heads: buildResult.heads },
+      size: snapshotSize,
+    }
+  }
+
+  private finalizeSuccessfulBatch(
+    batch: PreparedSnapshotItem[],
+    accountId: string,
+    _authToken?: string,
+  ): void {
+    for (const item of batch) {
+      if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
+        this.dirtyItems.delete(item.snapshot.itemId)
+      }
+      this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
+      const currentLocalMod = this.lastModifiedByItemId.get(item.snapshot.itemId) ?? 0
+      this.lastModifiedByItemId.set(
+        item.snapshot.itemId,
+        Math.max(currentLocalMod, item.snapshot.modified),
+      )
+      if (item.heads && item.heads.length > 0) {
+        this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
+      }
+      this.deps.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
+      this.deps.broker.unblockItem?.(item.snapshot.itemId)
+      void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
+    }
+    this.saveLastModifiedDebounced()
+  }
+
+  private async flushBatch(
+    batch: PreparedSnapshotItem[],
+    accountId: string,
+    authToken: string,
+  ): Promise<{ success: boolean; persisted: number }> {
+    if (batch.length === 0) {
+      return { success: true, persisted: 0 }
+    }
+    const result = await this.sendSnapshotBatch(
+      accountId,
+      authToken,
+      batch.map(b => b.snapshot),
+    )
+    if (result.success) {
+      this.finalizeSuccessfulBatch(batch, accountId, authToken)
+    }
+    return result
+  }
+
   private async processSnapshotPush(context: {
     accountId: string
     authToken: string
@@ -465,140 +598,51 @@ export class SnapshotManager {
     let total = 0
     let success = true
     let sendFailed = false
-    let currentBatch: { snapshot: VaultSnapshotInput; tick: number; heads?: string[] }[] = []
+    let currentBatch: PreparedSnapshotItem[] = []
     let currentBatchBytes = 0
 
     for (const itemId of dirtyItemIds) {
-      const tick = this.dirtyItems.get(itemId)
-      if (tick === undefined) {
+      const prepared = await this.prepareItemForPush(itemId, snapshotCursor, accountId)
+      if (prepared.type === 'skipped') {
         continue
       }
-
-      const buildResult = await this.buildSnapshot(itemId, snapshotCursor)
-      if (buildResult.type === 'not-ready') {
+      if (prepared.type === 'not-ready' || prepared.type === 'error') {
         success = false
         continue
       }
-
-      if (buildResult.type === 'error') {
-        success = false
-        await this.handleSnapshotFailure(itemId, tick, 'build', buildResult.reason)
+      if (prepared.type === 'oversized') {
         continue
       }
-
-      const snapshot = buildResult.snapshot
-      this.consecutiveFailures.delete(itemId)
-
-      const snapshotSize = JSON.stringify(snapshot).length
-
-      if (snapshotSize > this.maxPayloadBytes) {
-        const isAlreadyOversized = this.oversizedItems.has(itemId)
-        this.oversizedItems.add(itemId)
-
-        // Unconditionally remove from dirtyItems to avoid infinite retry loops
-        this.dirtyItems.delete(itemId)
-
-        // Advance lastSnapshotAt to localModifiedAt to prevent startup audit / sync loops while quarantined
-        const localMod = this.lastModifiedByItemId.get(itemId) ?? snapshot.modified
-        this.lastSnapshotAtByItemId.set(itemId, localMod)
-        this.saveLastModifiedDebounced()
-
-        if (!isAlreadyOversized) {
-          console.error(
-            `[SnapshotManager] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`
-          )
-          this.deps.eventHub?.emit({
-            type: 'quotaExceeded',
-            message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
-          })
-          void upsertManualRecoveryEntry(accountId, {
-            itemId,
-            reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
-          })
-            .then(async () => {
-              const entries = await readManualRecoveryEntries(accountId)
-              this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
-            })
-            .catch(() => {})
-        }
-        continue
-      }
-
-      this.oversizedItems.delete(itemId)
 
       // Check if we should flush the current batch before adding this snapshot.
       const wouldExceedCount = currentBatch.length >= 25
-      const wouldExceedBytes = currentBatchBytes + snapshotSize > Math.min(this.maxPayloadBytes, 2 * 1024 * 1024)
+      const wouldExceedBytes =
+        currentBatchBytes + prepared.size > Math.min(this.maxPayloadBytes, 2 * 1024 * 1024)
 
       if ((wouldExceedCount || wouldExceedBytes) && currentBatch.length > 0) {
         total += currentBatch.length
-        const result = await this.sendSnapshotBatch(
-          accountId,
-          authToken,
-          currentBatch.map(b => b.snapshot),
-        )
+        const result = await this.flushBatch(currentBatch, accountId, authToken)
+        persisted += result.persisted
         if (!result.success) {
           success = false
           sendFailed = true
           break
         }
-        for (const item of currentBatch) {
-          if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
-            this.dirtyItems.delete(item.snapshot.itemId)
-          }
-          this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
-          const currentLocalMod = this.lastModifiedByItemId.get(item.snapshot.itemId) ?? 0
-          this.lastModifiedByItemId.set(
-            item.snapshot.itemId,
-            Math.max(currentLocalMod, item.snapshot.modified),
-          )
-          if (item.heads && item.heads.length > 0) {
-            this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
-          }
-          this.deps.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
-          this.deps.broker.unblockItem?.(item.snapshot.itemId)
-          void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
-        }
-        this.saveLastModifiedDebounced()
-        persisted += result.persisted
         currentBatch = []
         currentBatchBytes = 0
       }
 
-      currentBatch.push({ snapshot, tick, heads: buildResult.heads })
-      currentBatchBytes += snapshotSize
+      currentBatch.push(prepared.item)
+      currentBatchBytes += prepared.size
     }
 
     // Flush any remaining items in the batch
     if (!sendFailed && currentBatch.length > 0) {
       total += currentBatch.length
-      const result = await this.sendSnapshotBatch(
-        accountId,
-        authToken,
-        currentBatch.map(b => b.snapshot),
-      )
+      const result = await this.flushBatch(currentBatch, accountId, authToken)
+      persisted += result.persisted
       if (!result.success) {
         success = false
-      } else {
-        for (const item of currentBatch) {
-          if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
-            this.dirtyItems.delete(item.snapshot.itemId)
-          }
-          this.lastSnapshotAtByItemId.set(item.snapshot.itemId, item.snapshot.modified)
-          const currentLocalMod = this.lastModifiedByItemId.get(item.snapshot.itemId) ?? 0
-          this.lastModifiedByItemId.set(
-            item.snapshot.itemId,
-            Math.max(currentLocalMod, item.snapshot.modified),
-          )
-          if (item.heads && item.heads.length > 0) {
-            this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
-          }
-          this.deps.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
-          this.deps.broker.unblockItem?.(item.snapshot.itemId)
-          void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
-        }
-        this.saveLastModifiedDebounced()
-        persisted += result.persisted
       }
     }
 
@@ -663,16 +707,20 @@ export class SnapshotManager {
       success = false
       return { persisted, total, success }
     } finally {
-      const hasDirtyDocs = this.dirtyItems.size > 0
-
-      if (!success && hasDirtyDocs && this.isLeader) {
-        this.scheduleRetry()
-      } else if (this.snapshotPushPending && hasDirtyDocs && this.isLeader) {
-        void this.triggerSnapshotPush()
-      }
-
-      this.snapshotPushPending = false
+      this.handlePostPushScheduling(success)
     }
+  }
+
+  private handlePostPushScheduling(success: boolean): void {
+    const hasDirtyDocs = this.dirtyItems.size > 0
+
+    if (!success && hasDirtyDocs && this.isLeader) {
+      this.scheduleRetry()
+    } else if (this.snapshotPushPending && hasDirtyDocs && this.isLeader) {
+      void this.triggerSnapshotPush()
+    }
+
+    this.snapshotPushPending = false
   }
 
   private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
@@ -725,6 +773,7 @@ export class SnapshotManager {
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
     this.pushGuard.clear()
+    this.loadGuard.clear()
     if (this.retryTimeoutId !== null) {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
