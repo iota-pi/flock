@@ -272,4 +272,30 @@ describe('SyncWorkerContext', () => {
     await context.shutdown()
     expect(unregisterSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('delegates initialize and shutdown to lifecycle manager', async () => {
+    const startSpy = vi.spyOn(context.lifecycle, 'start')
+    const stopSpy = vi.spyOn(context.lifecycle, 'stop')
+
+    await context.initialize()
+    expect(startSpy).toHaveBeenCalledTimes(1)
+
+    await context.shutdown({ clearLocalData: true })
+    expect(stopSpy).toHaveBeenCalledWith({ clearLocalData: true })
+  })
+
+  it('registers expected services in lifecycle manager in correct order', () => {
+    const serviceNames = context.lifecycle.getRegisteredServiceNames()
+    expect(serviceNames).toEqual([
+      'StorageCleanup',
+      'QuotaRecovery',
+      'IndexManager',
+      'ItemOperations',
+      'DocStore',
+      'SnapshotManager',
+      'SyncedHeads',
+      'PullQueueManager',
+      'SyncOrchestrator',
+    ])
+  })
 })

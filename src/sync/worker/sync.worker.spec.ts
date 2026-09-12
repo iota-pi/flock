@@ -143,6 +143,17 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
       'adapter.setAccount:brokerFinished=true',
     ])
   })
+
+  it('stops lifecycle and tears down all services on shutdown', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    await worker.shutdown()
+
+    expect(mockBrokerShutdown).toHaveBeenCalledTimes(1)
+    expect(mockAdapterDisconnect).toHaveBeenCalledTimes(1)
+    expect(() => (worker as any).context).toThrow('SyncWorker not initialized')
+  })
 })
 
 describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {

@@ -30,6 +30,7 @@ import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 import { reencryptAllItems } from './reencryptAllItems'
+import { ServiceLifecycleManager } from './ServiceLifecycleManager'
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {
@@ -61,6 +62,7 @@ export class SyncWorker implements SyncApi {
   private repoManager: AutomergeRepoManager | null = null
   private subscribedIds = new Set<ItemId>()
   private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<RepoDoc>; listener: () => void }>()
+  private lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorker')
 
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
@@ -70,46 +72,16 @@ export class SyncWorker implements SyncApi {
   async initRepo(accountId: string, vaultKey: string) {
     this.clearListeners()
 
-    if (this._context) {
-      try {
-        await this._context.shutdown()
-      } catch (err) {
-        console.error('[SyncWorker] Error shutting down context in initRepo', err)
-      }
-      this._context = null
-    }
-
-    if (this.broker) {
-      try {
-        await this.broker.shutdown()
-      } catch (err) {
-        console.error('[SyncWorker] Error shutting down broker in initRepo', err)
-      }
-      this.broker = null
-    }
-
-    if (this.adapter) {
-      try {
-        this.adapter.disconnect()
-      } catch (err) {
-        console.error('[SyncWorker] Error disconnecting adapter in initRepo', err)
-      }
-      this.adapter = null
-    }
-
-    if (this.repoManager) {
-      try {
-        await this.repoManager.close()
-      } catch (err) {
-        console.error('[SyncWorker] Error closing RepoManager in initRepo', err)
-      }
-      this.repoManager = null
-    }
-
+    await this.lifecycle.stop()
+    this._context = null
+    this.broker = null
+    this.adapter = null
+    this.repoManager = null
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
     }
+    this.lifecycle.clear()
 
     resetQuotaExceededStatus()
     this.clientEventHub = new ClientEventHub()
@@ -228,7 +200,62 @@ export class SyncWorker implements SyncApi {
       }
     })
 
-    await this._context.initialize()
+    this.lifecycle.register({
+      name: 'RepoManager',
+      onStop: async options => {
+        if (options?.clearLocalData && this.repoManager) {
+          try {
+            await this.repoManager.clearLocalData()
+          } catch (err) {
+            console.error('[SyncWorker] Error clearing Automerge DB', err)
+          }
+        }
+        await this.repoManager?.close()
+      },
+    })
+
+    this.lifecycle.register({
+      name: 'VaultNetworkAdapter',
+      onStop: () => {
+        this.adapter?.disconnect()
+      },
+    })
+
+    this.lifecycle.register({
+      name: 'SyncMessageBroker',
+      onStop: async () => {
+        await this.broker?.shutdown()
+      },
+    })
+
+    this.lifecycle.register({
+      name: 'SyncWorkerContext',
+      onStart: async () => {
+        await this._context?.initialize()
+      },
+      onStop: async options => {
+        await this._context?.shutdown(options)
+      },
+    })
+
+    this.lifecycle.register({
+      name: 'RealtimeBus',
+      onStop: () => {
+        if (this.unsubscribeRealtimeBus) {
+          this.unsubscribeRealtimeBus()
+          this.unsubscribeRealtimeBus = null
+        }
+      },
+    })
+
+    this.lifecycle.register({
+      name: 'ChangeListeners',
+      onStop: () => {
+        this.clearListeners()
+      },
+    })
+
+    await this.lifecycle.start()
 
     this._context.orchestrator.setOnlineState(this.isOnline)
     this._context.snapshotManager.onOnlineStateChange(this.isOnline)
@@ -432,56 +459,17 @@ export class SyncWorker implements SyncApi {
   }
 
   async shutdown(options?: { clearLocalData?: boolean }) {
-    this.clearListeners()
-
+    await this.lifecycle.stop(options)
+    this._context = null
+    this.broker = null
+    this.adapter = null
+    this.repoManager = null
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
     }
-
-    if (options?.clearLocalData && this.repoManager) {
-      try {
-        await this.repoManager.clearLocalData()
-      } catch (err) {
-        console.error('[SyncWorker] Error clearing Automerge DB', err)
-      }
-    }
-
-    try {
-      if (this._context) {
-        await this._context.shutdown(options)
-      }
-    } catch (err) {
-      console.error('[SyncWorker] Error shutting down context', err)
-    }
-    this._context = null
-
-    if (this.broker) {
-      try {
-        await this.broker.shutdown()
-      } catch (err) {
-        console.error('[SyncWorker] Error shutting down broker', err)
-      }
-      this.broker = null
-    }
-
-    if (this.adapter) {
-      try {
-        this.adapter.disconnect()
-      } catch (err) {
-        console.error('[SyncWorker] Error disconnecting adapter', err)
-      }
-      this.adapter = null
-    }
-
-    if (this.repoManager) {
-      try {
-        await this.repoManager.close()
-      } catch (err) {
-        console.error('[SyncWorker] Error closing RepoManager', err)
-      }
-      this.repoManager = null
-    }
+    this.clearListeners()
+    this.lifecycle.clear()
 
     // Give the browser event loop a moment to finish closing the IndexedDB connection
     if (typeof process === 'undefined' || process.env.NODE_ENV !== 'test') {

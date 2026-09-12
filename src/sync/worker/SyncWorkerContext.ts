@@ -19,6 +19,14 @@ import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/au
 import type { ItemId } from 'src/shared/schemas/items'
 import { resetQuotaExceededStatus, registerQuotaRecoveryHandler } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
+import { ServiceLifecycleManager } from './ServiceLifecycleManager'
+
+class QuotaExceededRetryError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'QuotaExceededRetryError'
+  }
+}
 
 export interface SyncWorkerContextDeps {
   accountId: string
@@ -58,6 +66,7 @@ export class SyncWorkerContext {
   public readonly orchestrator: SyncOrchestrator
   public readonly manifestSyncManager: ManifestSyncManager
   public readonly itemOperations: ItemOperations
+  public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unregisterQuotaRecovery: (() => void) | null = null
 
@@ -176,69 +185,117 @@ export class SyncWorkerContext {
     this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
       return this.wal.handleQuotaExceeded()
     })
+
+    this.registerLifecycleServices()
   }
 
-  async initialize() {
-    await Promise.all([
-      this.indexManager.ensureIndexDocument(),
-      this.snapshotManager.loadLastModified(),
-    ])
+  private registerLifecycleServices(): void {
+    // Teardown runs in LIFO order (reverse registration order).
+    // Startup runs in FIFO order (registration order).
+    // Register items that should stop last first, and items that should stop first last.
 
-    const storedHeads = await this.syncedHeadsStore.loadSyncedHeads()
-    if (storedHeads && storedHeads.length > 0) {
-      this.adapter.loadSyncedHeads(storedHeads)
-    }
+    // 1. Storage cleanup on logout/clearLocalData (runs last on teardown)
+    this.lifecycle.register({
+      name: 'StorageCleanup',
+      onStop: async options => {
+        if (options?.clearLocalData) {
+          await Promise.all([
+            this.indexStore.clear(),
+            this.cursorStore.clear(),
+            this.lastModifiedStore.clear(),
+            this.wal.clear(),
+            this.syncedHeadsStore.clear(),
+          ])
+        }
+      },
+    })
 
-    await this.orchestrator.start()
+    // 2. Quota recovery listener
+    this.lifecycle.register({
+      name: 'QuotaRecovery',
+      onStop: () => {
+        if (this.unregisterQuotaRecovery) {
+          this.unregisterQuotaRecovery()
+          this.unregisterQuotaRecovery = null
+        }
+      },
+    })
+
+    // 3. IndexManager
+    this.lifecycle.register({
+      name: 'IndexManager',
+      onStart: async () => {
+        await this.indexManager.ensureIndexDocument()
+      },
+      onStop: () => {
+        this.indexManager.close?.()
+      },
+    })
+
+    // 4. ItemOperations
+    this.lifecycle.register({
+      name: 'ItemOperations',
+      onStop: () => {
+        this.itemOperations.resetRecoveryState()
+      },
+    })
+
+    // 5. DocStore
+    this.lifecycle.register({
+      name: 'DocStore',
+      onStop: async () => {
+        await this.docStore.shutdown()
+      },
+    })
+
+    // 6. SnapshotManager
+    this.lifecycle.register({
+      name: 'SnapshotManager',
+      onStart: async () => {
+        await this.snapshotManager.loadLastModified()
+      },
+      onStop: async options => {
+        await this.snapshotManager.shutdown(options)
+      },
+    })
+
+    // 7. SyncedHeads
+    this.lifecycle.register({
+      name: 'SyncedHeads',
+      onStart: async () => {
+        const storedHeads = await this.syncedHeadsStore.loadSyncedHeads()
+        if (storedHeads && storedHeads.length > 0) {
+          this.adapter.loadSyncedHeads(storedHeads)
+        }
+      },
+    })
+
+    // 8. PullQueueManager
+    this.lifecycle.register({
+      name: 'PullQueueManager',
+      onStop: async options => {
+        await this.pullQueueManager.shutdown(options)
+      },
+    })
+
+    // 9. SyncOrchestrator (starts last, stops first)
+    this.lifecycle.register({
+      name: 'SyncOrchestrator',
+      onStart: async () => {
+        await this.orchestrator.start()
+      },
+      onStop: async () => {
+        await this.orchestrator.shutdown()
+      },
+    })
+  }
+
+  async initialize(): Promise<void> {
+    await this.lifecycle.start()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.orchestrator.shutdown()
-
-    try {
-      await this.pullQueueManager.shutdown(options)
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down PullQueueManager', err)
-    }
-
-    try {
-      await this.snapshotManager.shutdown(options)
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down SnapshotManager', err)
-    }
-
-    try {
-      await this.docStore.shutdown()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down DocStore repo', err)
-    }
-
-    this.itemOperations.resetRecoveryState()
-
-    try {
-      this.indexManager.close?.()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error closing indexManager', err)
-    }
-
-    if (this.unregisterQuotaRecovery) {
-      this.unregisterQuotaRecovery()
-      this.unregisterQuotaRecovery = null
-    }
-
-    if (options?.clearLocalData) {
-      try {
-        await Promise.all([
-          this.indexStore.clear(),
-          this.cursorStore.clear(),
-          this.lastModifiedStore.clear(),
-          this.wal.clear(),
-          this.syncedHeadsStore.clear(),
-        ])
-      } catch (err) {
-        console.error('[SyncWorkerContext] Error clearing metadata stores on logout', err)
-      }
-    }
+    await this.lifecycle.stop(options)
   }
 
   /**
@@ -257,61 +314,106 @@ export class SyncWorkerContext {
     })
   }
 
+  /**
+   * Probes storage availability before attempting full persistence.
+   */
+  private async probeStorageAvailability(): Promise<void> {
+    try {
+      await this.lastModifiedStore.testStorageAvailable()
+    } catch (probeErr) {
+      if (isQuotaError(probeErr)) {
+        throw new QuotaExceededRetryError(
+          'Storage quota is still exceeded. Please free up more space on your device.'
+        )
+      }
+      throw probeErr
+    }
+  }
+
+  /**
+   * Resets broker and network renegotiation circuits once storage is available.
+   */
+  private resetStorageCircuits(): void {
+    this.broker.unblockAllItems?.()
+    this.adapter.resetReNegotiationCircuit?.()
+  }
+
+  /**
+   * Persists dirty Automerge documents to local IndexedDB storage.
+   */
+  private async persistDirtyDocuments(dirtyIds: ItemId[]): Promise<void> {
+    for (const itemId of dirtyIds) {
+      try {
+        await this.docStore.saveDocToStorage(itemId)
+      } catch (saveErr) {
+        if (isQuotaError(saveErr)) {
+          throw new QuotaExceededRetryError('Storage quota is still exceeded while saving documents.')
+        }
+        console.warn(`[SyncWorkerContext] Failed to save doc for item ${itemId} during retrySave`, saveErr)
+      }
+    }
+  }
+
+  /**
+   * Triggers Automerge renegotiation so sync messages are queued into the WAL.
+   */
+  private triggerRenegotiations(dirtyIds: ItemId[]): void {
+    for (const itemId of dirtyIds) {
+      const documentId = toDocumentIdFromItemId(itemId)
+      this.adapter.triggerReNegotiation?.(documentId)
+    }
+  }
+
+  /**
+   * Persists timestamps metadata.
+   */
+  private async persistTimestamps(): Promise<void> {
+    try {
+      await this.snapshotManager.persistLastModified()
+    } catch (tsErr) {
+      if (isQuotaError(tsErr)) {
+        throw new QuotaExceededRetryError('Storage quota is still exceeded while saving timestamps.')
+      }
+      throw tsErr
+    }
+  }
+
+  /**
+   * If online, flushes pending snapshots and triggers orchestrator sync.
+   */
+  private flushPendingSyncIfOnline(): void {
+    if (this.orchestrator.online) {
+      void this.snapshotManager.flushPendingSnapshots().catch(console.error)
+      this.orchestrator.flush()
+    }
+  }
+
+  /**
+   * Resets global quota status and notifies client.
+   */
+  private resolveQuotaStatus(): void {
+    resetQuotaExceededStatus()
+    this.clientEventHub.emit({ type: 'quotaResolved' })
+  }
+
   async retrySave(): Promise<{ success: boolean; error?: string }> {
     try {
-      // 1. Pre-flight probe to check if IndexedDB writes work
-      try {
-        await this.lastModifiedStore.testStorageAvailable()
-      } catch (probeErr) {
-        if (isQuotaError(probeErr)) {
-          return { success: false, error: 'Storage quota is still exceeded. Please free up more space on your device.' }
-        }
-      }
+      await this.probeStorageAvailability()
+      this.resetStorageCircuits()
 
-      // Storage is available: unblock items and reset renegotiation circuits
-      this.broker.unblockAllItems?.()
-      this.adapter.resetReNegotiationCircuit?.()
-
-      // 2. Persist dirty Automerge documents to IndexedDB
       const dirtyIds = this.snapshotManager.getDirtyItemIds()
-      for (const itemId of dirtyIds) {
-        try {
-          await this.docStore.saveDocToStorage(itemId)
-        } catch (saveErr) {
-          if (isQuotaError(saveErr)) {
-            return { success: false, error: 'Storage quota is still exceeded while saving documents.' }
-          }
-          console.warn(`[SyncWorkerContext] Failed to save doc for item ${itemId} during retrySave`, saveErr)
-        }
-      }
+      await this.persistDirtyDocuments(dirtyIds)
+      this.triggerRenegotiations(dirtyIds)
 
-      // 3. Trigger renegotiation so Automerge re-generates sync messages for WAL
-      for (const itemId of dirtyIds) {
-        const documentId = toDocumentIdFromItemId(itemId)
-        this.adapter.triggerReNegotiation?.(documentId)
-      }
+      await this.persistTimestamps()
+      this.flushPendingSyncIfOnline()
 
-      // 4. Persist timestamps
-      try {
-        await this.snapshotManager.persistLastModified()
-      } catch (tsErr) {
-        if (isQuotaError(tsErr)) {
-          return { success: false, error: 'Storage quota is still exceeded while saving timestamps.' }
-        }
-      }
-
-      // 5. If online, trigger snapshot push & orchestrator flush
-      if (this.orchestrator.online) {
-        void this.snapshotManager.flushPendingSnapshots().catch(console.error)
-        this.orchestrator.flush()
-      }
-
-      // 6. Reset quota status and notify client
-      resetQuotaExceededStatus()
-      this.clientEventHub.emit({ type: 'quotaResolved' })
-
+      this.resolveQuotaStatus()
       return { success: true }
     } catch (err) {
+      if (err instanceof QuotaExceededRetryError) {
+        return { success: false, error: err.message }
+      }
       console.error('[SyncWorkerContext] Unexpected error during retrySave', err)
       return { success: false, error: (err as Error).message || 'Failed to retry save' }
     }
