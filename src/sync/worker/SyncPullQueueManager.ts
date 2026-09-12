@@ -9,22 +9,26 @@ import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
+import { PullRetryTracker, type ItemPullState } from './PullRetryTracker'
 
-export interface ItemPullState {
-  cursor: number
-  pending: boolean
-  retryCount: number
+export { type ItemPullState } from './PullRetryTracker'
+
+interface ProcessItemMessagesResult {
+  highestCursor: number
+  hasParseFailure: boolean
+  hasKeyFailure: boolean
   blockedOnKey?: string
-  lastEvaluatedKey?: Record<string, unknown>
+  failingCursor?: number
+  hasParsedMessages: boolean
 }
 
 export class SyncPullQueueManager {
   private isShutdown = false
   private account: string | null = null
-  private readonly itemStates = new Map<ItemId, ItemPullState>()
+  private readonly retryTracker = new PullRetryTracker()
   private hasMoreGlobal = false
   private globalLastEvaluatedKey?: Record<string, unknown>
-  public static readonly MAX_PULL_RETRIES = 5
+  public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
 
   private readonly seenMessageCursors = new Set<string>() // "itemId:cursor" compound keys
   private static readonly SEEN_CACHE_MAX = 2000
@@ -52,26 +56,6 @@ export class SyncPullQueueManager {
 
   public setLockCoordinator(coordinator?: ItemLockCoordinator): void {
     this.lockCoordinator = coordinator
-  }
-
-  private getOrCreateState(itemId: ItemId): ItemPullState {
-    let state = this.itemStates.get(itemId)
-    if (!state) {
-      state = {
-        cursor: 0,
-        pending: false,
-        retryCount: 0,
-      }
-      this.itemStates.set(itemId, state)
-    }
-    return state
-  }
-
-  private isAnyRetrying(): boolean {
-    for (const state of this.itemStates.values()) {
-      if (state.retryCount > 0 || (state.blockedOnKey && !hasVaultKey(state.blockedOnKey))) return true
-    }
-    return false
   }
 
   private makeSeenKey(itemId: ItemId, cursor: number): string {
@@ -124,7 +108,7 @@ export class SyncPullQueueManager {
     this.account = account
     this.isShutdown = false
 
-    this.itemStates.clear()
+    this.retryTracker.clear()
     this.seenMessageCursors.clear()
     this.batchProgress.clear()
     this.hasMoreGlobal = false
@@ -142,12 +126,7 @@ export class SyncPullQueueManager {
     try {
       const stored = await this.cursorStore.loadCursors()
       if (stored && Array.isArray(stored)) {
-        for (const [itemId, cursor] of stored) {
-          if (Number.isFinite(cursor) && cursor >= 0) {
-            const state = this.getOrCreateState(itemId)
-            state.cursor = Math.max(state.cursor, cursor)
-          }
-        }
+        this.retryTracker.loadStoredCursors(stored)
       }
     } catch (error) {
       console.error('[SyncPullQueueManager] Failed to load cursors', error)
@@ -160,12 +139,7 @@ export class SyncPullQueueManager {
 
   async persistCursors(): Promise<void> {
     if (!this.account) return
-    const data: [ItemId, number][] = []
-    for (const [itemId, state] of this.itemStates.entries()) {
-      if (state.cursor >= 0) {
-        data.push([itemId, state.cursor])
-      }
-    }
+    const data = this.retryTracker.exportValidCursors()
     try {
       await this.cursorStore.saveCursors(data)
     } catch (error) {
@@ -181,7 +155,7 @@ export class SyncPullQueueManager {
     if (!options?.clearLocalData) {
       await this.persistCursors()
     }
-    this.itemStates.clear()
+    this.retryTracker.clear()
     this.seenMessageCursors.clear()
     this.batchProgress.clear()
     this.hasMoreGlobal = false
@@ -189,12 +163,7 @@ export class SyncPullQueueManager {
   }
 
   addPendingItem(itemId: ItemId): void {
-    if (!itemId) return
-    const state = this.getOrCreateState(itemId)
-    state.pending = true
-    if (state.blockedOnKey && hasVaultKey(state.blockedOnKey)) {
-      state.blockedOnKey = undefined
-    }
+    this.retryTracker.addPendingItem(itemId)
   }
 
   private async handleMessageEntry(
@@ -269,58 +238,108 @@ export class SyncPullQueueManager {
   }
 
   getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> {
-    const cursors: Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> = []
-
-    for (const [itemId, state] of this.itemStates.entries()) {
-      if (state.blockedOnKey && !hasVaultKey(state.blockedOnKey)) {
-        continue
-      }
-      if (state.pending) {
-        cursors.push({ itemId, cursor: state.cursor, lastEvaluatedKey: state.lastEvaluatedKey })
-      }
-    }
-
-    return cursors
+    return this.retryTracker.getCursors()
   }
 
   hasImmediatePendingPulls(): boolean {
     if (this.hasMoreGlobal) {
       return true
     }
-    for (const state of this.itemStates.values()) {
-      if (state.pending && state.retryCount === 0 && (!state.blockedOnKey || hasVaultKey(state.blockedOnKey))) {
-        return true
-      }
-    }
-    return false
+    return this.retryTracker.hasImmediatePendingPulls()
   }
 
   onKeyringUpdated(): void {
-    let unblockedAny = false
-    for (const state of this.itemStates.values()) {
-      if (state.blockedOnKey && hasVaultKey(state.blockedOnKey)) {
-        state.blockedOnKey = undefined
-        state.pending = true
-        state.retryCount = 0
-        unblockedAny = true
-      }
-    }
+    const unblockedAny = this.retryTracker.onKeyringUpdated()
     if (unblockedAny) {
-      this.onRetryingStateChange?.(this.isAnyRetrying())
+      this.onRetryingStateChange?.(this.retryTracker.isAnyRetrying())
       this.onPendingPullsAvailable?.()
     }
   }
 
   getGlobalLatestCursor(): number {
-    let max = 0
-    for (const state of this.itemStates.values()) {
-      if (state.cursor > max) max = state.cursor
-    }
-    return max
+    return this.retryTracker.getGlobalLatestCursor()
   }
 
   getGlobalLastEvaluatedKey(): Record<string, unknown> | undefined {
     return this.hasMoreGlobal ? this.globalLastEvaluatedKey : undefined
+  }
+
+  private async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
+    if (this.lockCoordinator) {
+      return this.lockCoordinator.withItemLock(itemId, fn)
+    }
+    return fn()
+  }
+
+  private async processItemMessages(
+    itemId: ItemId,
+    messages: PullSyncMessagesResponse['messages'] | undefined,
+    initialCursor: number,
+    timedOutKeys: Set<string>
+  ): Promise<ProcessItemMessagesResult> {
+    const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+
+    // Sort messages ascending by cursor to ensure causal processing order and prevent
+    // out-of-order cursors from prematurely advancing state.cursor if an earlier cursor fails.
+    const sortedMessages = [...(messages || [])].sort((a, b) => {
+      const cursorA = Number.isFinite(a?.cursor) ? (a.cursor as number) : 0
+      const cursorB = Number.isFinite(b?.cursor) ? (b.cursor as number) : 0
+      if (cursorA < cursorB) return -1
+      if (cursorA > cursorB) return 1
+      return 0
+    })
+
+    if (sortedMessages.length === 0) {
+      return {
+        highestCursor: initialCursor,
+        hasParseFailure: false,
+        hasKeyFailure: false,
+        hasParsedMessages: false,
+      }
+    }
+
+    return this.withItemLock(itemId, async () => {
+      let highestCursor = initialCursor
+      let hasParseFailure = false
+      let hasKeyFailure = false
+      let blockedOnKey: string | undefined
+      let failingCursor: number | undefined
+      let hasParsedMessages = false
+
+      for (const entry of sortedMessages) {
+        if (Number.isFinite(entry.cursor) && this.hasSeen(itemId, entry.cursor)) {
+          highestCursor = Math.max(highestCursor, entry.cursor!)
+          continue // overlap window dedup
+        }
+
+        const handled = await this.handleMessageEntry(itemId, documentId, entry, timedOutKeys)
+        if (handled.parsed) {
+          hasParsedMessages = true
+          if (Number.isFinite(handled.cursor)) {
+            this.markSeen(itemId, handled.cursor!)
+            this.clearBatchProgress(itemId, handled.cursor!)
+            highestCursor = Math.max(highestCursor, handled.cursor!)
+          }
+        } else if (handled.missingKey) {
+          hasKeyFailure = true
+          blockedOnKey = handled.kver
+          break
+        } else {
+          hasParseFailure = true
+          failingCursor = entry?.cursor
+          break
+        }
+      }
+
+      return {
+        highestCursor,
+        hasParseFailure,
+        hasKeyFailure,
+        blockedOnKey,
+        failingCursor,
+        hasParsedMessages,
+      }
+    })
   }
 
   async processPullResults(
@@ -343,110 +362,63 @@ export class SyncPullQueueManager {
         try {
           const itemId = result.itemId
           const hasMore = result.hasMore === true
-          const hasExisting = this.itemStates.has(itemId)
-          const state = this.getOrCreateState(itemId)
-          const originalCursor = state.cursor
-          let highestCursor = originalCursor
-          let hasParseFailure = false
-          let hasKeyFailure = false
-          let failingCursor: number | undefined
-          const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+          const isNewItem = !this.retryTracker.hasState(itemId)
+          const initialCursor = this.retryTracker.getCursor(itemId)
 
-          // Sort messages ascending by cursor to ensure causal processing order and prevent
-          // out-of-order cursors from prematurely advancing state.cursor if an earlier cursor fails.
-          const sortedMessages = [...(result.messages || [])].sort((a, b) => {
-            const cursorA = Number.isFinite(a?.cursor) ? (a.cursor as number) : 0
-            const cursorB = Number.isFinite(b?.cursor) ? (b.cursor as number) : 0
-            if (cursorA < cursorB) return -1
-            if (cursorA > cursorB) return 1
-            return 0
-          })
+          const messageResult = await this.processItemMessages(
+            itemId,
+            result.messages,
+            initialCursor,
+            timedOutKeys
+          )
 
-          const processMessages = async () => {
-            for (const entry of sortedMessages) {
-              if (Number.isFinite(entry.cursor) && this.hasSeen(itemId, entry.cursor)) {
-                highestCursor = Math.max(highestCursor, entry.cursor!)
-                continue // overlap window dedup
-              }
-              const handled = await this.handleMessageEntry(itemId, documentId, entry, timedOutKeys)
-              if (handled.parsed) {
-                successfullyPulledItemIds.add(itemId)
-                if (Number.isFinite(handled.cursor)) {
-                  this.markSeen(itemId, handled.cursor!)
-                  this.clearBatchProgress(itemId, handled.cursor!)
-                  highestCursor = Math.max(highestCursor, handled.cursor!)
-                }
-              } else if (handled.missingKey) {
-                hasKeyFailure = true
-                state.blockedOnKey = handled.kver
-                break
-              } else {
-                hasParseFailure = true
-                failingCursor = entry?.cursor
-                break
-              }
-            }
+          if (messageResult.hasParsedMessages) {
+            successfullyPulledItemIds.add(itemId)
           }
 
-          if (this.lockCoordinator && sortedMessages.length > 0) {
-            await this.lockCoordinator.withItemLock(itemId, processMessages)
-          } else {
-            await processMessages()
-          }
-
-          if (!hasParseFailure && !hasKeyFailure && typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor)) {
+          let highestCursor = messageResult.highestCursor
+          if (
+            !messageResult.hasParseFailure &&
+            !messageResult.hasKeyFailure &&
+            typeof result.nextCursor === 'number' &&
+            Number.isFinite(result.nextCursor)
+          ) {
             highestCursor = Math.max(highestCursor, result.nextCursor)
           }
 
-          if (hasKeyFailure) {
-            state.pending = true
-            state.lastEvaluatedKey = undefined
-          } else if (hasMore && !hasParseFailure) {
-            state.pending = true
-            state.retryCount = 0 // success resets counter
-            state.blockedOnKey = undefined
-            state.lastEvaluatedKey = result.lastEvaluatedKey
-          } else if (hasParseFailure) {
-            state.lastEvaluatedKey = undefined
-            state.retryCount += 1
-            if (state.retryCount >= SyncPullQueueManager.MAX_PULL_RETRIES) {
-              state.pending = false
-              state.retryCount = 0
-              this.clearBatchProgressForItem(itemId)
+          const outcome = this.retryTracker.recordPullOutcome({
+            itemId,
+            initialCursor,
+            highestCursor,
+            isNewItem,
+            hasKeyFailure: messageResult.hasKeyFailure,
+            blockedOnKey: messageResult.blockedOnKey,
+            hasParseFailure: messageResult.hasParseFailure,
+            failingCursor: messageResult.failingCursor,
+            hasMore,
+            nextCursor: result.nextCursor,
+            lastEvaluatedKey: result.lastEvaluatedKey,
+          })
 
-              // Advance cursor past the permanently failing message so it is not re-fetched,
-              // and mark it seen to dedup across overlap queries.
-              const advanceCursor = Number.isFinite(failingCursor)
-                ? (failingCursor as number)
-                : (typeof result.nextCursor === 'number' && Number.isFinite(result.nextCursor) ? result.nextCursor : undefined)
-
-              if (typeof advanceCursor === 'number') {
-                this.markSeen(itemId, advanceCursor)
-                highestCursor = Math.max(highestCursor, advanceCursor)
-              }
-
-              this.onDecryptionFailure?.(
-                itemId,
-                new Error(
-                  `Permanently failed to parse sync messages after ${SyncPullQueueManager.MAX_PULL_RETRIES} attempts`
-                )
-              )
-            } else {
-              state.pending = true
-            }
-          } else {
-            state.pending = false
-            state.retryCount = 0
-            state.blockedOnKey = undefined
-            state.lastEvaluatedKey = undefined
+          if (outcome.cursorUpdated) {
+            cursorsUpdated = true
           }
 
-          if (highestCursor > originalCursor) {
-            state.cursor = highestCursor
-            cursorsUpdated = true
-          } else if (!hasExisting && highestCursor >= 0) {
-            state.cursor = highestCursor
-            cursorsUpdated = true
+          if (outcome.permanentlyFailed) {
+            this.clearBatchProgressForItem(itemId)
+
+            // Advance cursor past the permanently failing message so it is not re-fetched,
+            // and mark it seen to dedup across overlap queries.
+            if (typeof outcome.advanceCursor === 'number') {
+              this.markSeen(itemId, outcome.advanceCursor)
+            }
+
+            this.onDecryptionFailure?.(
+              itemId,
+              new Error(
+                `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
+              )
+            )
           }
         } catch (innerError) {
           console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)
@@ -459,7 +431,7 @@ export class SyncPullQueueManager {
     } catch (error) {
       console.error('[SyncPullQueueManager] Pull sync batch failed', error)
     } finally {
-      this.onRetryingStateChange?.(this.isAnyRetrying())
+      this.onRetryingStateChange?.(this.retryTracker.isAnyRetrying())
       if (successfullyPulledItemIds.size > 0) {
         try {
           publishRealtimeBusSyncPing(Array.from(successfullyPulledItemIds))
@@ -490,33 +462,22 @@ export class SyncPullQueueManager {
     if (this.hasMoreGlobal) {
       return true
     }
-    for (const state of this.itemStates.values()) {
-      if (state.pending) return true
-    }
-    return false
+    return this.retryTracker.hasPendingPulls()
   }
 
   exportCursors(): [ItemId, number][] {
-    const cursors: [ItemId, number][] = []
-    for (const [itemId, state] of this.itemStates.entries()) {
-      cursors.push([itemId, state.cursor])
-    }
-    return cursors
+    return this.retryTracker.exportCursors()
   }
 
   async importCursors(cursors: [ItemId, number][]): Promise<void> {
     if (!this.account) return
-    this.itemStates.clear()
-    for (const [itemId, cursor] of cursors) {
-      const state = this.getOrCreateState(itemId)
-      state.cursor = cursor
-    }
+    this.retryTracker.importCursors(cursors)
     await this.cursorStore.saveCursors(cursors)
   }
 
   async resetCursors(): Promise<void> {
     if (!this.account) return
-    this.itemStates.clear()
+    this.retryTracker.clear()
     this.batchProgress.clear()
     await this.cursorStore.clear()
     this.onRetryingStateChange?.(false)
