@@ -15,6 +15,7 @@ import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { readManualRecoveryEntries } from '../shared/manualRecoveryStore'
 import { reconcileAccountMetadata, extractSyncableMetadata } from './utils/metadataSync'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
@@ -36,24 +37,11 @@ export class ManifestSyncManager {
     private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {}
 
-  private activeSyncPromise: Promise<{ added: ItemId[] }> | null = null
+  private readonly syncGuard = new SingleFlightGuard<{ added: ItemId[] }>()
 
   async sync(force = false): Promise<{ added: ItemId[] }> {
     if (!this.deps.accountId) return { added: [] }
-
-    if (this.activeSyncPromise) {
-      return this.activeSyncPromise
-    }
-
-    const syncTask = this.executeSync(force)
-    this.activeSyncPromise = syncTask
-    try {
-      return await syncTask
-    } finally {
-      if (this.activeSyncPromise === syncTask) {
-        this.activeSyncPromise = null
-      }
-    }
+    return this.syncGuard.run(() => this.executeSync(force))
   }
 
   private async executeSync(force = false): Promise<{ added: ItemId[] }> {

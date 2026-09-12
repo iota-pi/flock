@@ -5,6 +5,7 @@ import { runStorageOperation } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
 import { packBatchedMessages, type BatchableMessage } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export { packBatchedMessages, type BatchableMessage, WalEntryQuery, type WalEntryDescriptor }
 
@@ -115,7 +116,7 @@ export class SyncWriteAheadLog {
     return new WalEntryQuery(entries, this.inFlightEntryIds)
   }
 
-  private compactionPromise: Promise<number> | null = null
+  private readonly compactionGuard = new SingleFlightGuard<number>()
 
   /**
    * Compacts WAL by grouping entries by itemId and merging multiple entries
@@ -123,13 +124,7 @@ export class SyncWriteAheadLog {
    * Returns the number of entries reduced.
    */
   async compact(): Promise<number> {
-    if (this.compactionPromise) {
-      return this.compactionPromise
-    }
-    this.compactionPromise = this.performCompact().finally(() => {
-      this.compactionPromise = null
-    })
-    return this.compactionPromise
+    return this.compactionGuard.run(() => this.performCompact())
   }
 
   private async performCompact(): Promise<number> {
@@ -174,20 +169,14 @@ export class SyncWriteAheadLog {
     return reducedCount
   }
 
-  private pruningPromise: Promise<void> | null = null
+  private readonly pruningGuard = new SingleFlightGuard<void>()
 
   /**
    * Prunes oldest entries from WAL to keep size within limits or free space.
    */
   private async pruneOldest(count: number): Promise<void> {
     if (count <= 0) return
-    if (this.pruningPromise) {
-      return this.pruningPromise
-    }
-    this.pruningPromise = this.performPruneOldest(count).finally(() => {
-      this.pruningPromise = null
-    })
-    return this.pruningPromise
+    return this.pruningGuard.run(() => this.performPruneOldest(count))
   }
 
   private async performPruneOldest(count: number): Promise<void> {
@@ -258,16 +247,10 @@ export class SyncWriteAheadLog {
     }
   }
 
-  private enforceSizeLimitPromise: Promise<void> | null = null
+  private readonly enforceSizeLimitGuard = new SingleFlightGuard<void>()
 
   private async enforceSizeLimit(): Promise<void> {
-    if (this.enforceSizeLimitPromise) {
-      return this.enforceSizeLimitPromise
-    }
-    this.enforceSizeLimitPromise = this.performEnforceSizeLimit().finally(() => {
-      this.enforceSizeLimitPromise = null
-    })
-    return this.enforceSizeLimitPromise
+    return this.enforceSizeLimitGuard.run(() => this.performEnforceSizeLimit())
   }
 
   private async performEnforceSizeLimit(): Promise<void> {

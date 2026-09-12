@@ -3,6 +3,7 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 
 export interface ManifestSyncManagerLike {
@@ -24,8 +25,8 @@ export class SyncOrchestrator {
   private isShutdown = false
 
   private pendingFlush = false
-  private activePollPromise: Promise<void> | null = null
-  private cursorReloadPromise: Promise<void> | null = null
+  private readonly pollGuard = new SingleFlightGuard<void>()
+  private readonly cursorReloadGuard = new SingleFlightGuard<void>()
 
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
@@ -34,7 +35,7 @@ export class SyncOrchestrator {
 
   private manifestSyncIntervalId: number | null = null
   private readonly manifestSyncIntervalMs: number
-  private activeManifestSyncPromise: Promise<void> | null = null
+  private readonly manifestSyncGuard = new SingleFlightGuard<void>()
   private manifestSyncManager: ManifestSyncManagerLike | null = null
 
   constructor(
@@ -109,19 +110,14 @@ export class SyncOrchestrator {
     this.onLeaderChange?.(isLeader)
 
     if (isLeader) {
-      const reloadPromise = this.reloadCursors()
-      this.cursorReloadPromise = reloadPromise.finally(() => {
-        if (this.cursorReloadPromise === reloadPromise) {
-          this.cursorReloadPromise = null
-        }
-      })
+      void this.cursorReloadGuard.run(() => this.reloadCursors())
       this.startPolling(true)
       if (this.isOnline) {
         this.startPeriodicManifestSync()
         void this.triggerManifestSync()
       }
     } else {
-      this.cursorReloadPromise = null
+      this.cursorReloadGuard.clear()
       this.stopPolling()
       this.stopPeriodicManifestSync()
     }
@@ -255,8 +251,8 @@ export class SyncOrchestrator {
     const pollTask = async () => {
       let outcome: PollOutcome
       try {
-        if (this.cursorReloadPromise) {
-          await this.cursorReloadPromise
+        if (this.cursorReloadGuard.isRunning) {
+          await this.cursorReloadGuard.waitForRunning()
         }
         if (this.isShutdown || !this.isOnline || !this.isLeader) {
           return
@@ -305,15 +301,7 @@ export class SyncOrchestrator {
       }
     }
 
-    const currentPoll = pollTask()
-    this.activePollPromise = currentPoll
-    try {
-      await currentPoll
-    } finally {
-      if (this.activePollPromise === currentPoll) {
-        this.activePollPromise = null
-      }
-    }
+    await this.pollGuard.run(pollTask)
   }
 
   private async reloadCursors(): Promise<void> {
@@ -331,7 +319,7 @@ export class SyncOrchestrator {
   async shutdown(): Promise<void> {
     this.isShutdown = true
     this.setLeader(false)
-    this.cursorReloadPromise = null
+    this.cursorReloadGuard.clear()
     if (this.leaderElection) {
       this.leaderElection.release()
       this.leaderElection = null
@@ -340,12 +328,8 @@ export class SyncOrchestrator {
     this.stopPeriodicManifestSync()
 
     this.broker.abortPoll?.()
-    if (this.activePollPromise) {
-      await this.activePollPromise
-    }
-    if (this.activeManifestSyncPromise) {
-      await this.activeManifestSyncPromise
-    }
+    await this.pollGuard.waitForRunning()
+    await this.manifestSyncGuard.waitForRunning()
   }
 
   startPeriodicManifestSync(): void {
@@ -369,24 +353,12 @@ export class SyncOrchestrator {
     if (this.isShutdown || !this.isOnline || !this.isLeader || !this.manifestSyncManager) {
       return
     }
-    if (this.activeManifestSyncPromise) {
-      return this.activeManifestSyncPromise
-    }
-    const syncPromise = (async () => {
+    return this.manifestSyncGuard.run(async () => {
       try {
         await this.manifestSyncManager!.sync(force)
       } catch (error) {
         console.warn('[SyncOrchestrator] Manifest sync failed', error)
       }
-    })()
-
-    this.activeManifestSyncPromise = syncPromise
-    try {
-      await syncPromise
-    } finally {
-      if (this.activeManifestSyncPromise === syncPromise) {
-        this.activeManifestSyncPromise = null
-      }
-    }
+    })
   }
 }

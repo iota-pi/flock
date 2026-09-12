@@ -14,6 +14,7 @@ import {
   removeManualRecoveryEntryByItemId,
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -40,9 +41,9 @@ export class SnapshotManager {
   private lastSnapshotAtByItemId = new Map<ItemId, number>()
   private oversizedItems = new Set<ItemId>()
   private snapshotPushPending = false
-  private activePushPromise: Promise<SnapshotPushResult> | null = null
+  private readonly pushGuard = new SingleFlightGuard<SnapshotPushResult>()
   private snapshotRequestCursor: number | null = null
-  private loadPromise: Promise<void> | null = null
+  private readonly loadGuard = new SingleFlightGuard<void>()
   private retryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private retryAttempt = 0
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
@@ -103,20 +104,7 @@ export class SnapshotManager {
 
   async loadLastModified(): Promise<void> {
     if (this.isShutdown) return
-    while (this.loadPromise) {
-      await this.loadPromise
-      if (this.isShutdown) return
-    }
-
-    const promise = this.executeLoadLastModified()
-    this.loadPromise = promise
-    try {
-      await promise
-    } finally {
-      if (this.loadPromise === promise) {
-        this.loadPromise = null
-      }
-    }
+    await this.loadGuard.run(() => this.executeLoadLastModified())
   }
 
   private async executeLoadLastModified(): Promise<void> {
@@ -255,19 +243,23 @@ export class SnapshotManager {
     if (this.isShutdown || !this.isLeader) {
       return { persisted: 0, total: 0 }
     }
-    if (this.dirtyItems.size === 0 && !this.activePushPromise) {
+    if (this.dirtyItems.size === 0 && !this.pushGuard.isRunning) {
       return { persisted: 0, total: 0 }
     }
 
     let persisted = 0
     let total = 0
 
-    while (this.activePushPromise || this.dirtyItems.size > 0) {
-      if (this.activePushPromise) {
-        const result = await this.activePushPromise
-        persisted += result.persisted
-        total += result.total
-        if (!result.success || (result.persisted === 0 && this.dirtyItems.size > 0)) {
+    while (this.pushGuard.isRunning || this.dirtyItems.size > 0) {
+      if (this.pushGuard.isRunning) {
+        const result = await this.pushGuard.waitForRunning()
+        if (result) {
+          persisted += result.persisted
+          total += result.total
+          if (!result.success || (result.persisted === 0 && this.dirtyItems.size > 0)) {
+            break
+          }
+        } else {
           break
         }
       } else {
@@ -317,10 +309,10 @@ export class SnapshotManager {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
     }
-    if (this.activePushPromise) {
+    if (this.pushGuard.isRunning) {
       this.snapshotPushPending = true
-      const res = await this.activePushPromise
-      return { persisted: res.persisted, total: res.total }
+      const res = await this.pushGuard.waitForRunning()
+      return { persisted: res?.persisted ?? 0, total: res?.total ?? 0 }
     }
 
     return this.pushSnapshots()
@@ -618,19 +610,16 @@ export class SnapshotManager {
       return Promise.resolve({ persisted: 0, total: 0, success: true })
     }
 
-    if (this.activePushPromise) {
-      this.snapshotPushPending = true
-      return this.activePushPromise
-    }
-
-    if (this.retryTimeoutId !== null) {
+    if (this.retryTimeoutId !== null && !this.pushGuard.isRunning) {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
     }
 
-    const pushPromise = this.executePush()
-    this.activePushPromise = pushPromise
-    return pushPromise
+    return this.pushGuard.run(() => this.executePush(), {
+      onCoalesce: () => {
+        this.snapshotPushPending = true
+      },
+    })
   }
 
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
@@ -674,8 +663,6 @@ export class SnapshotManager {
       success = false
       return { persisted, total, success }
     } finally {
-      this.activePushPromise = null
-
       const hasDirtyDocs = this.dirtyItems.size > 0
 
       if (!success && hasDirtyDocs && this.isLeader) {
@@ -706,20 +693,8 @@ export class SnapshotManager {
     this.isShutdown = true
     this.isLeader = false
 
-    if (this.activePushPromise) {
-      try {
-        await this.activePushPromise
-      } catch {
-        // ignore errors on shutdown
-      }
-    }
-    if (this.loadPromise) {
-      try {
-        await this.loadPromise
-      } catch {
-        // ignore errors on shutdown
-      }
-    }
+    await this.pushGuard.waitForRunning()
+    await this.loadGuard.waitForRunning()
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
@@ -749,7 +724,7 @@ export class SnapshotManager {
     this.oversizedItems.clear()
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
-    this.activePushPromise = null
+    this.pushGuard.clear()
     if (this.retryTimeoutId !== null) {
       clearTimeout(this.retryTimeoutId)
       this.retryTimeoutId = null
