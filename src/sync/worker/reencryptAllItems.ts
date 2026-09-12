@@ -57,6 +57,90 @@ function scheduleReencryptRetry(
   return delayMs
 }
 
+function toAuthExpiredError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err)
+  return new Error(`Re-encryption aborted: authentication session expired (${message})`, {
+    cause: err,
+  })
+}
+
+async function quarantineItem(
+  accountId: string,
+  itemId: ItemId,
+  reason: string
+): Promise<void> {
+  try {
+    await upsertManualRecoveryEntry(accountId, {
+      itemId,
+      reason,
+    })
+  } catch (storageErr) {
+    console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
+  }
+}
+
+export class ReencryptAuthManager {
+  private currentToken: string | null = null
+  private readonly getAuth: () => Promise<string | null>
+  private readonly refreshAuth?: () => Promise<string | null>
+
+  constructor(deps: Pick<ReencryptDeps, 'getAuthToken' | 'refreshAuthToken'>) {
+    this.getAuth = deps.getAuthToken ?? getActiveSessionToken
+    this.refreshAuth = deps.refreshAuthToken
+  }
+
+  async getInitialToken(): Promise<string> {
+    this.currentToken = await this.getAuth()
+    if (!this.currentToken && this.refreshAuth) {
+      try {
+        this.currentToken = await this.refreshAuth()
+      } catch (refreshErr) {
+        console.warn('[reencryptAllItems] Initial token refresh callback failed:', refreshErr)
+      }
+    }
+    if (!this.currentToken) {
+      throw new Error('No active session token available')
+    }
+    return this.currentToken
+  }
+
+  async syncLatestToken(): Promise<string> {
+    const latest = await this.getAuth()
+    if (latest) {
+      this.currentToken = latest
+    }
+    return this.currentToken!
+  }
+
+  async tryRefresh(): Promise<string | null> {
+    let refreshedToken: string | null = null
+    if (this.refreshAuth) {
+      try {
+        refreshedToken = await this.refreshAuth()
+      } catch (refreshErr) {
+        console.warn('[reencryptAllItems] Token refresh callback failed:', refreshErr)
+      }
+    }
+    if (!refreshedToken) {
+      refreshedToken = await this.getAuth()
+    }
+
+    if (refreshedToken && refreshedToken !== this.currentToken) {
+      console.info('[reencryptAllItems] Acquired fresh auth token, retrying batch upload...')
+      this.currentToken = refreshedToken
+      return refreshedToken
+    }
+    return null
+  }
+
+  getToken(): string {
+    if (!this.currentToken) {
+      throw new Error('No active session token available')
+    }
+    return this.currentToken
+  }
+}
+
 export interface ReencryptDeps {
   accountId: string
   repo: Repo
@@ -80,18 +164,8 @@ export async function reencryptAllItems(
   }
 
   const { accountId, repo, indexManager } = deps
-  const getAuth = deps.getAuthToken ?? getActiveSessionToken
-  let authToken = await getAuth()
-  if (!authToken && deps.refreshAuthToken) {
-    try {
-      authToken = await deps.refreshAuthToken()
-    } catch (refreshErr) {
-      console.warn('[reencryptAllItems] Initial token refresh callback failed:', refreshErr)
-    }
-  }
-  if (!authToken) {
-    throw new Error('No active session token available')
-  }
+  const authManager = new ReencryptAuthManager(deps)
+  await authManager.getInitialToken()
 
   const allItemIds = await indexManager.listAutomergeItemIds()
   const total = allItemIds.length
@@ -107,6 +181,24 @@ export async function reencryptAllItems(
   const succeeded: ItemId[] = []
   const failed: Array<{ itemId: ItemId; error: string }> = []
 
+  const handleSnapshotFailure = async (
+    itemId: ItemId,
+    errorMsg: string,
+    rawError?: unknown
+  ): Promise<void> => {
+    if (rawError !== undefined) {
+      console.error(`[reencryptAllItems] ${errorMsg}`, rawError)
+    } else {
+      console.error(`[reencryptAllItems] ${errorMsg}`)
+    }
+    failed.push({ itemId, error: errorMsg })
+    await quarantineItem(
+      accountId,
+      itemId,
+      `Re-encryption snapshot build failed: ${errorMsg}`
+    )
+  }
+
   const itemChunks = chunk(allItemIds, 10)
 
   for (const chunkIds of itemChunks) {
@@ -117,10 +209,7 @@ export async function reencryptAllItems(
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
     }
 
-    const currentToken = await getAuth()
-    if (currentToken) {
-      authToken = currentToken
-    }
+    await authManager.syncLatestToken()
 
     const snapshotPromises = chunkIds.map(async itemId => {
       let retries = 0
@@ -150,32 +239,19 @@ export async function reencryptAllItems(
         } else if (result.value.type === 'not-ready') {
           console.warn(`[reencryptAllItems] Item ${itemId} was not ready. Skipping.`)
         } else if (result.value.type === 'error') {
-          const errMsg = `Failed to build snapshot for item ${itemId}`
-          console.error(`[reencryptAllItems] ${errMsg}`)
-          failed.push({ itemId, error: errMsg })
-          try {
-            await upsertManualRecoveryEntry(deps.accountId, {
-              itemId,
-              reason: `Re-encryption snapshot build failed: ${errMsg}`,
-            })
-          } catch (storageErr) {
-            console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
-          }
+          const errMsg = result.value.reason
+            ? `Failed to build snapshot for item ${itemId}: ${result.value.reason}`
+            : `Failed to build snapshot for item ${itemId}`
+          await handleSnapshotFailure(itemId, errMsg)
         }
       } else {
-        const errMsg = `Failed to build snapshot for item ${itemId}: ${
+        const errorDetail =
           result.reason instanceof Error ? result.reason.message : String(result.reason)
-        }`
-        console.error(`[reencryptAllItems] ${errMsg}`, result.reason)
-        failed.push({ itemId, error: errMsg })
-        try {
-          await upsertManualRecoveryEntry(deps.accountId, {
-            itemId,
-            reason: `Re-encryption snapshot build failed: ${errMsg}`,
-          })
-        } catch (storageErr) {
-          console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
-        }
+        await handleSnapshotFailure(
+          itemId,
+          `Failed to build snapshot for item ${itemId}: ${errorDetail}`,
+          result.reason
+        )
       }
     }
 
@@ -187,7 +263,7 @@ export async function reencryptAllItems(
         try {
           const response = await putSnapshotsWithToken({
             account: accountId,
-            authToken,
+            authToken: authManager.getToken(),
             snapshots: readySnapshots.map(r => r.snapshot),
           })
 
@@ -203,31 +279,13 @@ export async function reencryptAllItems(
           )
 
           if (isAuthError(err)) {
-            let refreshedToken: string | null = null
-            if (deps.refreshAuthToken) {
-              try {
-                refreshedToken = await deps.refreshAuthToken()
-              } catch (refreshErr) {
-                console.warn('[reencryptAllItems] Token refresh callback failed:', refreshErr)
-              }
-            }
-            if (!refreshedToken) {
-              refreshedToken = await getAuth()
-            }
-
-            if (refreshedToken && refreshedToken !== authToken) {
-              console.info('[reencryptAllItems] Acquired fresh auth token, retrying batch upload...')
-              authToken = refreshedToken
+            const refreshed = await authManager.tryRefresh()
+            if (refreshed) {
               continue
             }
 
             // Auth error cannot be resolved; abort immediately without quarantining items!
-            throw new Error(
-              `Re-encryption aborted: authentication session expired (${
-                err instanceof Error ? err.message : String(err)
-              })`,
-              { cause: err }
-            )
+            throw toAuthExpiredError(err)
           }
 
           if (isNetworkError(err) || isServerError(err)) {
@@ -244,12 +302,7 @@ export async function reencryptAllItems(
         }
       } else {
         if (isAuthError(lastError)) {
-          throw new Error(
-            `Re-encryption aborted: authentication session expired (${
-              lastError instanceof Error ? lastError.message : String(lastError)
-            })`,
-            { cause: lastError }
-          )
+          throw toAuthExpiredError(lastError)
         }
 
         if (isNetworkError(lastError) || isServerError(lastError)) {
@@ -271,14 +324,11 @@ export async function reencryptAllItems(
         console.error(`[reencryptAllItems] ${errMsg}`)
         for (const item of readySnapshots) {
           failed.push({ itemId: item.itemId, error: errMsg })
-          try {
-            await upsertManualRecoveryEntry(accountId, {
-              itemId: item.itemId,
-              reason: `Re-encryption upload failed: ${errMsg}`,
-            })
-          } catch (storageErr) {
-            console.error(`[reencryptAllItems] Failed to quarantine item ${item.itemId}:`, storageErr)
-          }
+          await quarantineItem(
+            accountId,
+            item.itemId,
+            `Re-encryption upload failed: ${errMsg}`
+          )
         }
       }
     }

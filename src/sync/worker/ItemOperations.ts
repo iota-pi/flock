@@ -40,15 +40,44 @@ export class ItemOperations {
 
   constructor(private deps: ItemOperationsDeps) {}
 
+  private async applyDocumentChange(
+    id: ItemId,
+    itemOrChanges: Partial<Item>,
+    options?: { createIfMissing?: boolean; knownToExist?: boolean },
+  ): Promise<boolean> {
+    return await this.deps.docStore.changeDocument(
+      id,
+      doc => {
+        applyItemUpdatesToDraft(doc, itemOrChanges)
+      },
+      options,
+    )
+  }
+
+  private async emitTrueState(id: ItemId): Promise<void> {
+    try {
+      const trueState = await this.deps.docStore.getAutomergeItem(id)
+      this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
+    } catch {
+      // Doc retrieval failure fallback
+    }
+  }
+
+  private async handleMutationFailure(
+    id: ItemId,
+    mutationType: 'edit' | 'create',
+    error: string,
+    syncTrueState = true,
+  ): Promise<void> {
+    this.deps.eventHub.emit({ type: 'mutationFailed', mutationType, error })
+    if (syncTrueState) {
+      await this.emitTrueState(id)
+    }
+  }
+
   async mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
     try {
-      const updated = await this.deps.docStore.changeDocument(
-        id,
-        doc => {
-          applyItemUpdatesToDraft(doc, changes)
-        },
-        { knownToExist: true },
-      )
+      const updated = await this.applyDocumentChange(id, changes, { knownToExist: true })
       if (updated) {
         if (changes.deleted === true) {
           await this.deps.indexManager.removeAutomergeItemIdsFromIndex([id])
@@ -57,41 +86,28 @@ export class ItemOperations {
         }
         this.deps.markDocumentDirty(id)
       } else {
-        this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'edit', error: `Failed to update document ${id}` })
-        const trueState = await this.deps.docStore.getAutomergeItem(id)
-        this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
+        await this.handleMutationFailure(id, 'edit', `Failed to update document ${id}`)
       }
     } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'edit', error: (err as Error).message })
-      try {
-        const trueState = await this.deps.docStore.getAutomergeItem(id)
-        this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
-      } catch {
-        // Doc retrieval failure fallback
-      }
+      await this.handleMutationFailure(id, 'edit', (err as Error).message)
     }
   }
 
   async createItem(item: Item): Promise<void> {
     try {
-      const updated = await this.deps.docStore.changeDocument(
-        item.id,
-        doc => {
-          applyItemUpdatesToDraft(doc, item)
-        },
-        { createIfMissing: true, knownToExist: false },
-      )
+      const updated = await this.applyDocumentChange(item.id, item, {
+        createIfMissing: true,
+        knownToExist: false,
+      })
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
         publishRealtimeBusSyncPing([item.id])
       } else {
-        this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: `Failed to create document ${item.id}` })
-        const trueState = await this.deps.docStore.getAutomergeItem(item.id)
-        this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
+        await this.handleMutationFailure(item.id, 'create', `Failed to create document ${item.id}`)
       }
     } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: (err as Error).message })
+      await this.handleMutationFailure(item.id, 'create', (err as Error).message, false)
     }
   }
 
@@ -104,13 +120,10 @@ export class ItemOperations {
 
     for (const item of items) {
       try {
-        const updated = await this.deps.docStore.changeDocument(
-          item.id,
-          doc => {
-            applyItemUpdatesToDraft(doc, item)
-          },
-          { createIfMissing: true, knownToExist: existingIds.has(item.id) },
-        )
+        const updated = await this.applyDocumentChange(item.id, item, {
+          createIfMissing: true,
+          knownToExist: existingIds.has(item.id),
+        })
         if (updated) {
           if (item.deleted) {
             succeededDeletedIds.push(item.id)
@@ -138,8 +151,7 @@ export class ItemOperations {
     }
 
     for (const item of failedItems) {
-      const trueState = await this.deps.docStore.getAutomergeItem(item.id)
-      this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
+      await this.emitTrueState(item.id)
     }
   }
 
@@ -210,6 +222,14 @@ export class ItemOperations {
     this.cooldownUntilByItemId.clear()
   }
 
+  private async clearRecoveryState(itemId: ItemId): Promise<void> {
+    if (this.deps.accountId) {
+      await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
+    }
+    this.clearRecoveryCooldown(itemId)
+    this.setInFlight(itemId, false)
+  }
+
   reset(): void {
     this.resetRecoveryState()
   }
@@ -274,9 +294,7 @@ export class ItemOperations {
     }
 
     for (const itemId of uniqueItemIds) {
-      await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
-      this.clearRecoveryCooldown(itemId)
-      this.setInFlight(itemId, false)
+      await this.clearRecoveryState(itemId)
     }
 
     const nextCount = await readManualRecoveryCount(this.deps.accountId)
@@ -287,9 +305,7 @@ export class ItemOperations {
 
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
-    this.clearRecoveryCooldown(itemId)
-    this.setInFlight(itemId, false)
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
+    await this.clearRecoveryState(itemId)
     await this.pushRecoveryItems()
   }
 
@@ -305,9 +321,7 @@ export class ItemOperations {
       localSnapshot.prayedFor = [...localItem.prayedFor]
     }
 
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
-    this.clearRecoveryCooldown(itemId)
-    this.setInFlight(itemId, false)
+    await this.clearRecoveryState(itemId)
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -327,9 +341,7 @@ export class ItemOperations {
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
-    this.clearRecoveryCooldown(itemId)
-    this.setInFlight(itemId, false)
+    await this.clearRecoveryState(itemId)
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -361,9 +373,7 @@ export class ItemOperations {
 
     await this.deps.docStore.compactDocument(itemId, localItem)
 
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
-    this.clearRecoveryCooldown(itemId)
-    this.setInFlight(itemId, false)
+    await this.clearRecoveryState(itemId)
     await this.pushRecoveryItems()
 
     this.deps.markDocumentDirty(itemId)
