@@ -3,8 +3,12 @@ import { nanoid } from 'nanoid'
 import type { ItemId } from 'src/shared/schemas/items'
 import { runStorageOperation } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
+import { packBatchedMessages, type BatchableMessage } from './utils/binaryFraming'
+import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 
-export interface WalEntry {
+export { packBatchedMessages, type BatchableMessage, WalEntryQuery, type WalEntryDescriptor }
+
+export interface WalEntry extends WalEntryDescriptor {
   id: string
   itemId: ItemId
   data: Uint8Array
@@ -12,36 +16,6 @@ export interface WalEntry {
   seq?: number
   isBatched?: boolean
   replaces?: string[]
-}
-
-/**
- * Combines multiple WAL entries for an item into a length-prefixed batched stream.
- * Compatible with parseBatchedMessages on the receiving end.
- */
-export function packBatchedMessages(entries: WalEntry[]): Uint8Array {
-  let totalLength = 0
-  for (const e of entries) {
-    if (e.isBatched) {
-      totalLength += e.data.length
-    } else {
-      totalLength += 4 + e.data.length
-    }
-  }
-  const combined = new Uint8Array(totalLength)
-  const view = new DataView(combined.buffer, combined.byteOffset, combined.byteLength)
-  let offset = 0
-  for (const e of entries) {
-    if (e.isBatched) {
-      combined.set(e.data, offset)
-      offset += e.data.length
-    } else {
-      view.setUint32(offset, e.data.length, false)
-      offset += 4
-      combined.set(e.data, offset)
-      offset += e.data.length
-    }
-  }
-  return combined
 }
 
 function toUint8Array(data: unknown): Uint8Array {
@@ -134,6 +108,13 @@ export class SyncWriteAheadLog {
     return this.inFlightEntryIds.has(entryId)
   }
 
+  /**
+   * Create a query abstraction over a set of WAL entries, bound to this instance's in-flight state.
+   */
+  query<T extends WalEntryDescriptor>(entries: readonly T[]): WalEntryQuery<T> {
+    return new WalEntryQuery(entries, this.inFlightEntryIds)
+  }
+
   private compactionPromise: Promise<number> | null = null
 
   /**
@@ -157,9 +138,7 @@ export class SyncWriteAheadLog {
 
     for (const [itemId, entries] of byItem.entries()) {
       // Exclude entries that are currently in-flight from compaction to prevent race conditions with active push
-      const availableEntries = this.inFlightEntryIds.size > 0
-        ? entries.filter(e => !this.inFlightEntryIds.has(e.id))
-        : entries
+      const availableEntries = this.query(entries).available()
 
       if (availableEntries.length <= 1) continue
 
@@ -234,19 +213,16 @@ export class SyncWriteAheadLog {
         }
       })
 
+      const query = this.query(allEntries)
+
       // Clean up superseded entries first, excluding any in-flight entries
-      const supersededInStorage = allEntries
-        .filter(e => supersededIds.has(e.id) && !this.inFlightEntryIds.has(e.id))
-        .map(e => e.id)
+      const supersededInStorage = query.superseded(supersededIds).map(e => e.id)
       if (supersededInStorage.length > 0) {
         await this.remove(supersededInStorage)
       }
 
-      // Valid entries exclude both superseded and currently in-flight entries
-      const validEntries = allEntries.filter(
-        e => !supersededIds.has(e.id) && !this.inFlightEntryIds.has(e.id)
-      )
-      validEntries.sort((a, b) => (a.createdAt - b.createdAt) || (a.seq - b.seq))
+      // Valid entries exclude both superseded and currently in-flight entries, sorted chronologically
+      const validEntries = query.validSorted(supersededIds)
       const entriesToPrune = validEntries.slice(0, count)
       if (entriesToPrune.length === 0) {
         return

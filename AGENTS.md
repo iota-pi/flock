@@ -88,6 +88,7 @@ src/sync/
 │   ├── SyncPoller.ts                 # Executes poll cycles (push WAL + pull new data)
 │   ├── SyncPullQueueManager.ts       # Tracks per-item pull cursors, processes inbound
 │   ├── SyncWriteAheadLog.ts          # Durable queue of outbound Automerge sync messages
+│   ├── WalEntryQuery.ts              # Query abstraction over WAL entries encapsulating in-flight filtering
 │   ├── SyncStatusManager.ts          # Computes sync status for the UI
 │   ├── SyncEventHub.ts               # Typed event emitters (client ↔ worker internal)
 │   ├── SnapshotManager.ts            # Debounced full-snapshot push to server
@@ -110,6 +111,7 @@ src/sync/
 │   └── utils/
 │       ├── LeaderElection.ts         # navigator.locks-based leader election
 │       ├── automerge.ts              # URL/ID conversion helpers
+│       ├── binaryFraming.ts          # Length-prefixed batched message framing & packing
 │       ├── messageParser.ts          # Length-prefixed batched message parser
 │       └── snapshot.ts               # Snapshot type normalization
 └── utils/                            # (currently empty)
