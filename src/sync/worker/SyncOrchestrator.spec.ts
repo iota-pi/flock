@@ -920,6 +920,83 @@ describe('SyncOrchestrator', () => {
       expect(p2Resolved).toBe(true)
     })
   })
+
+  describe('liveness and cancellation', () => {
+    it('correctly reports isOperational and isPolling', async () => {
+      expect(orchestrator.isOperational).toBe(false)
+      expect(orchestrator.isPolling).toBe(false)
+
+      orchestrator.setLeader(true)
+      expect(orchestrator.isOperational).toBe(true)
+
+      orchestrator.setOnlineState(false)
+      expect(orchestrator.isOperational).toBe(false)
+
+      orchestrator.setOnlineState(true)
+      expect(orchestrator.isOperational).toBe(true)
+
+      await orchestrator.shutdown()
+      expect(orchestrator.isOperational).toBe(false)
+    })
+
+    it('aborts in-flight poll when leadership is revoked', async () => {
+      mockBroker.abortPoll = vi.fn()
+      let resolvePoll: (val: any) => void = () => {}
+      mockBroker.executePoll.mockImplementationOnce(
+        () => new Promise(resolve => { resolvePoll = resolve })
+      )
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      expect(orchestrator.isPolling).toBe(true)
+
+      // Revoke leadership while poll is in-flight
+      orchestrator.setLeader(false)
+
+      expect(mockBroker.abortPoll).toHaveBeenCalledTimes(1)
+
+      // Resolve after abort
+      resolvePoll('success')
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(orchestrator.isPolling).toBe(false)
+      // Advancing timers should not schedule follower polls
+      await vi.advanceTimersByTimeAsync(100000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('aborts in-flight poll when going offline', async () => {
+      mockBroker.abortPoll = vi.fn()
+      let resolvePoll: (val: any) => void = () => {}
+      mockBroker.executePoll.mockImplementationOnce(
+        () => new Promise(resolve => { resolvePoll = resolve })
+      )
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      expect(orchestrator.isPolling).toBe(true)
+
+      // Go offline while poll is in-flight
+      orchestrator.setOnlineState(false)
+
+      expect(mockBroker.abortPoll).toHaveBeenCalledTimes(1)
+
+      // Resolve after abort
+      resolvePoll('success')
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(orchestrator.isPolling).toBe(false)
+      // Advancing timers should not poll while offline
+      await vi.advanceTimersByTimeAsync(100000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
 

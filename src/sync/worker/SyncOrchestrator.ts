@@ -20,13 +20,13 @@ export class SyncOrchestrator {
   private leaderElection: LeaderElection | null = null
   private isOnline = true
   private isLeader = false
-  private isPolling = false
   private pollingPausedForAuth = false
   private isShutdown = false
 
   private pendingFlush = false
   private readonly pollGuard = new SingleFlightGuard<void>()
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
+  private pollAbortController: AbortController | null = null
 
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
@@ -57,9 +57,37 @@ export class SyncOrchestrator {
     this.broker.setSendEnabled(this.isLeader)
   }
 
+  get isOperational(): boolean {
+    return !this.isShutdown && this.isOnline && this.isLeader
+  }
+
+  get isPolling(): boolean {
+    return this.pollGuard.isRunning
+  }
+
+  private canPoll(force = false): boolean {
+    return this.isOperational && (force || !this.pollingPausedForAuth)
+  }
+
+  private checkAbort(signal: AbortSignal): void {
+    if (signal.aborted || !this.isOperational) {
+      const error = new Error('Polling aborted')
+      error.name = 'AbortError'
+      throw error
+    }
+  }
+
+  private abortPoll(): void {
+    if (this.pollAbortController) {
+      this.pollAbortController.abort()
+      this.pollAbortController = null
+      this.broker.abortPoll?.()
+    }
+  }
+
   setManifestSyncManager(manifestSyncManager: ManifestSyncManagerLike): void {
     this.manifestSyncManager = manifestSyncManager
-    if (this.isLeader && this.isOnline && !this.isShutdown) {
+    if (this.isOperational) {
       this.startPeriodicManifestSync()
       void this.triggerManifestSync()
     }
@@ -120,6 +148,7 @@ export class SyncOrchestrator {
       this.cursorReloadGuard.clear()
       this.stopPolling()
       this.stopPeriodicManifestSync()
+      this.abortPoll()
     }
   }
 
@@ -133,6 +162,7 @@ export class SyncOrchestrator {
     if (!isOnline) {
       this.stopPolling()
       this.stopPeriodicManifestSync()
+      this.abortPoll()
       return
     }
 
@@ -157,7 +187,7 @@ export class SyncOrchestrator {
 
   private async flushSyncBatch(): Promise<void> {
     this.syncBatchTimeout = null
-    if (this.isPolling) {
+    if (this.pollGuard.isRunning) {
       this.pendingFlush = true
       return
     }
@@ -183,7 +213,7 @@ export class SyncOrchestrator {
     this.pollingPausedForAuth = false
 
     if (immediate) {
-      if (!this.isPolling) {
+      if (!this.pollGuard.isRunning) {
         void this.executeWrappedPoll(true)
       } else {
         this.pendingFlush = true
@@ -208,7 +238,7 @@ export class SyncOrchestrator {
   }
 
   private scheduleNextPoll(delayMs: number): void {
-    if (this.isShutdown || this.pollingPausedForAuth || !this.isOnline || !this.isLeader) {
+    if (!this.canPoll()) {
       return
     }
 
@@ -245,26 +275,36 @@ export class SyncOrchestrator {
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
-    if (this.isShutdown || this.isPolling || (!force && this.pollingPausedForAuth) || !this.isOnline || !this.isLeader) return
-    this.isPolling = true
+    if (!this.canPoll(force) || this.pollGuard.isRunning) return
 
     const pollTask = async () => {
+      const abortController = new AbortController()
+      this.pollAbortController = abortController
+      const { signal } = abortController
+
       let outcome: PollOutcome
       try {
         if (this.cursorReloadGuard.isRunning) {
           await this.cursorReloadGuard.waitForRunning()
         }
-        if (this.isShutdown || !this.isOnline || !this.isLeader) {
+        this.checkAbort(signal)
+
+        outcome = await this.broker.executePoll()
+        this.checkAbort(signal)
+      } catch (err) {
+        if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
           return
         }
-        outcome = await this.broker.executePoll()
-      } catch (_) {
         outcome = 'failure'
       } finally {
-        this.isPolling = false
+        if (this.pollAbortController === abortController) {
+          this.pollAbortController = null
+        }
       }
 
-      if (this.isShutdown) return
+      if (signal.aborted || !this.isOperational) {
+        return
+      }
 
       if (outcome === 'auth-failure') {
         this.pollingPausedForAuth = true
@@ -301,7 +341,11 @@ export class SyncOrchestrator {
       }
     }
 
-    await this.pollGuard.run(pollTask)
+    await this.pollGuard.run(pollTask, {
+      onCoalesce: () => {
+        this.pendingFlush = true
+      },
+    })
   }
 
   private async reloadCursors(): Promise<void> {
@@ -318,6 +362,7 @@ export class SyncOrchestrator {
 
   async shutdown(): Promise<void> {
     this.isShutdown = true
+    const wasPolling = this.pollAbortController !== null
     this.setLeader(false)
     this.cursorReloadGuard.clear()
     if (this.leaderElection) {
@@ -327,13 +372,16 @@ export class SyncOrchestrator {
     this.stopPolling()
     this.stopPeriodicManifestSync()
 
-    this.broker.abortPoll?.()
+    this.abortPoll()
+    if (!wasPolling) {
+      this.broker.abortPoll?.()
+    }
     await this.pollGuard.waitForRunning()
     await this.manifestSyncGuard.waitForRunning()
   }
 
   startPeriodicManifestSync(): void {
-    if (this.isShutdown || !this.isOnline || !this.isLeader) {
+    if (!this.isOperational) {
       return
     }
     this.stopPeriodicManifestSync()
@@ -350,7 +398,7 @@ export class SyncOrchestrator {
   }
 
   async triggerManifestSync(force = false): Promise<void> {
-    if (this.isShutdown || !this.isOnline || !this.isLeader || !this.manifestSyncManager) {
+    if (!this.isOperational || !this.manifestSyncManager) {
       return
     }
     return this.manifestSyncGuard.run(async () => {
