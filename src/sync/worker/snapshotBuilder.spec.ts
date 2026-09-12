@@ -1,5 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { buildSnapshot } from './snapshotBuilder'
+import { buildSnapshot, isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './snapshotBuilder'
 import { VaultNotInitializedError } from '../../api/vault'
 
 const mockEncryptBytes = vi.fn()
@@ -147,3 +147,32 @@ describe('buildSnapshot helper function', () => {
     await expect(buildSnapshot(mockRepo, 'item-1' as ItemId, 42)).rejects.toThrow('Crypto error')
   })
 })
+
+describe('isTransientVaultError', () => {
+  it('returns false for falsy values', () => {
+    expect(isTransientVaultError(null)).toBe(false)
+    expect(isTransientVaultError(undefined)).toBe(false)
+    expect(isTransientVaultError('')).toBe(false)
+  })
+
+  it('returns true for VaultNotInitializedError instance or error with that name', () => {
+    expect(isTransientVaultError(new VaultNotInitializedError())).toBe(true)
+    const err = new Error('Some message')
+    err.name = 'VaultNotInitializedError'
+    expect(isTransientVaultError(err)).toBe(true)
+  })
+
+  it('returns true for each substring in TRANSIENT_VAULT_ERROR_SUBSTRINGS', () => {
+    for (const substring of TRANSIENT_VAULT_ERROR_SUBSTRINGS) {
+      expect(isTransientVaultError(new Error(`Prefix ${substring.toUpperCase()} suffix`))).toBe(true)
+      expect(isTransientVaultError(`Raw string containing ${substring}`)).toBe(true)
+    }
+  })
+
+  it('returns false for non-transient errors', () => {
+    expect(isTransientVaultError(new Error('Corrupt block detected'))).toBe(false)
+    expect(isTransientVaultError(new Error('Permission denied'))).toBe(false)
+    expect(isTransientVaultError('Unexpected EOF')).toBe(false)
+  })
+})
+

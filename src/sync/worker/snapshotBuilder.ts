@@ -14,6 +14,13 @@ export type BuildSnapshotResult =
   | { type: 'not-ready' }
   | { type: 'error'; reason?: string }
 
+export const TRANSIENT_VAULT_ERROR_SUBSTRINGS = [
+  'vault is locked',
+  'vaultnotinitializederror',
+  'not initialized',
+  'active key not found',
+] as const
+
 export function isTransientVaultError(error: unknown): boolean {
   if (!error) return false
   if (error instanceof VaultNotInitializedError) return true
@@ -21,10 +28,7 @@ export function isTransientVaultError(error: unknown): boolean {
   const name = error instanceof Error ? error.name : ''
   return (
     name === 'VaultNotInitializedError' ||
-    message.includes('vault is locked') ||
-    message.includes('vaultnotinitializederror') ||
-    message.includes('not initialized') ||
-    message.includes('active key not found')
+    TRANSIENT_VAULT_ERROR_SUBSTRINGS.some((substring) => message.includes(substring))
   )
 }
 
