@@ -28,36 +28,56 @@ export type WorkerInternalEvent =
   | { type: 'soleLeaderRestored' }
   | { type: 'leaderConflict'; hasConflict: boolean }
 
-export type ClientEventListener = (event: ClientEvent) => void | Promise<void>
-export type WorkerInternalEventListener = (event: WorkerInternalEvent) => void | Promise<void>
+export type EventListener<T> = (event: T) => void | Promise<void>
+export type ClientEventListener = EventListener<ClientEvent>
+export type WorkerInternalEventListener = EventListener<WorkerInternalEvent>
 
-export class ClientEventHub {
-  private listeners = new Set<ClientEventListener>()
-  private externalPort: MessagePort | null = null
+export class EventHub<T> {
+  protected listeners = new Set<EventListener<T>>()
+  protected readonly hubName: string
+  protected readonly listenerDescription: string
 
-  subscribe(listener: ClientEventListener): () => void {
+  constructor(hubName = 'EventHub', listenerDescription = 'listener') {
+    this.hubName = hubName
+    this.listenerDescription = listenerDescription
+  }
+
+  subscribe(listener: EventListener<T>): () => void {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
     }
   }
 
-  setExternalPort(port: MessagePort | null): void {
-    this.externalPort = port
-  }
-
-  emit(event: ClientEvent): void {
-    // Distribute to local subscribers
+  emit(event: T): void {
     for (const listener of Array.from(this.listeners)) {
       try {
         const result = listener(event)
         if (result instanceof Promise) {
-          result.catch(err => console.error('[ClientEventHub] Error in local listener:', err))
+          result.catch(err =>
+            console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
+          )
         }
       } catch (err) {
-        console.error('[ClientEventHub] Error in local listener:', err)
+        console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
       }
     }
+  }
+}
+
+export class ClientEventHub extends EventHub<ClientEvent> {
+  private externalPort: MessagePort | null = null
+
+  constructor() {
+    super('ClientEventHub', 'local listener')
+  }
+
+  setExternalPort(port: MessagePort | null): void {
+    this.externalPort = port
+  }
+
+  override emit(event: ClientEvent): void {
+    super.emit(event)
 
     // Distribute to main-thread listener via MessagePort
     if (this.externalPort) {
@@ -70,27 +90,10 @@ export class ClientEventHub {
   }
 }
 
-export class WorkerInternalEventHub {
-  private listeners = new Set<WorkerInternalEventListener>()
-
-  subscribe(listener: WorkerInternalEventListener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
-  }
-
-  emit(event: WorkerInternalEvent): void {
-    for (const listener of Array.from(this.listeners)) {
-      try {
-        const result = listener(event)
-        if (result instanceof Promise) {
-          result.catch(err => console.error('[WorkerInternalEventHub] Error in listener:', err))
-        }
-      } catch (err) {
-        console.error('[WorkerInternalEventHub] Error in listener:', err)
-      }
-    }
+export class WorkerInternalEventHub extends EventHub<WorkerInternalEvent> {
+  constructor() {
+    super('WorkerInternalEventHub', 'listener')
   }
 }
+
 
