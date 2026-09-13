@@ -1282,6 +1282,206 @@ describe('ManifestSyncManager', () => {
       expect(result.added).toEqual([])
     })
   })
+
+  describe('discrete steps unit tests', () => {
+    describe('calculateSyncDeltas', () => {
+      it('partitions deltas correctly into missingIds, locallyTombstonedSnapshots, and upstreamIds', () => {
+        const result = manifestSyncManager.calculateSyncDeltas({
+          manifest: [
+            ['item-new-remote', 2000],
+            ['item-server-deleted', 2000, true],
+            ['item-in-sync', 1000],
+          ],
+          clockSkew: 0,
+          force: false,
+          knownItemIds: ['item-server-deleted' as ItemId, 'item-in-sync' as ItemId, 'item-local-only' as ItemId],
+          tombstoneItemIds: [],
+          localLastModifiedMap: new Map([
+            ['item-server-deleted', 1000],
+            ['item-in-sync', 1000],
+            ['item-local-only', 1500],
+          ]),
+          quarantinedMap: new Map(),
+        })
+
+        expect(result.missingIds).toEqual(['item-new-remote'])
+        expect(result.locallyTombstonedSnapshots).toEqual([{ id: 'item-server-deleted', deleted: true }])
+        expect(result.deletedLastModifiedUpdates).toEqual([['item-server-deleted', 2000]])
+        expect(result.upstreamIds).toEqual(['item-local-only'])
+        expect(result.knownSet.has('item-in-sync' as ItemId)).toBe(true)
+      })
+
+      it('filters quarantined items unless server has a newer timestamp', () => {
+        const result = manifestSyncManager.calculateSyncDeltas({
+          manifest: [
+            ['item-quarantined-old', 500],
+            ['item-quarantined-new', 1500],
+          ],
+          clockSkew: 0,
+          force: false,
+          knownItemIds: [],
+          tombstoneItemIds: [],
+          localLastModifiedMap: new Map(),
+          quarantinedMap: new Map([
+            ['item-quarantined-old' as ItemId, 600],
+            ['item-quarantined-new' as ItemId, 1000],
+          ]),
+        })
+
+        expect(result.missingIds).toEqual(['item-quarantined-new'])
+      })
+    })
+
+    describe('hydrateRemoteItem', () => {
+      it('returns structured success for active Automerge binary document', async () => {
+        mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+        mockHydrateAutomergeDocumentBinary.mockResolvedValue({
+          hasLocalChanges: false,
+          incomingHeads: ['head-1'],
+        })
+
+        const item = {
+          item: 'item-binary',
+          snapshot: { iv: 'iv-1', cipher: 'c-1' },
+        }
+
+        const result = await manifestSyncManager.hydrateRemoteItem(
+          item as any,
+          [['item-binary', 2000]],
+          new Set(['item-binary' as ItemId]),
+        )
+
+        expect(result).toEqual({
+          status: 'success',
+          itemId: 'item-binary',
+          hydratedId: 'item-binary',
+          lastModifiedUpdate: ['item-binary', 2000],
+        })
+      })
+
+      it('returns structured success with markDirty when Automerge document has local changes', async () => {
+        mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+        mockHydrateAutomergeDocumentBinary.mockResolvedValue({
+          hasLocalChanges: true,
+          incomingHeads: ['head-1'],
+        })
+
+        const item = {
+          item: 'item-binary-changes',
+          snapshot: { iv: 'iv-1', cipher: 'c-1' },
+        }
+
+        const result = await manifestSyncManager.hydrateRemoteItem(
+          item as any,
+          [['item-binary-changes', 2000]],
+          new Set(['item-binary-changes' as ItemId]),
+        )
+
+        expect(result).toEqual({
+          status: 'success',
+          itemId: 'item-binary-changes',
+          hydratedId: 'item-binary-changes',
+          lastModifiedUpdate: undefined,
+        })
+        expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-binary-changes', 2000)
+      })
+
+      it('returns structured success for deleted metadata without decryption', async () => {
+        const item = {
+          item: 'item-deleted-meta',
+          metadata: { deleted: true },
+        }
+
+        const result = await manifestSyncManager.hydrateRemoteItem(
+          item as any,
+          [['item-deleted-meta', 3000]],
+          new Set(),
+        )
+
+        expect(result).toEqual({
+          status: 'success',
+          itemId: 'item-deleted-meta',
+          snapshot: { id: 'item-deleted-meta', deleted: true },
+          lastModifiedUpdate: ['item-deleted-meta', 3000],
+        })
+        expect(mockDecryptBytes).not.toHaveBeenCalled()
+        expect(mockDecryptObject).not.toHaveBeenCalled()
+      })
+
+      it('returns decryption_failure when both binary and legacy decryption fail', async () => {
+        mockDecryptBytes.mockResolvedValue(null)
+
+        const item = {
+          item: 'item-un-decryptable',
+          snapshot: { iv: 'iv-bad', cipher: 'c-bad' },
+        }
+
+        const result = await manifestSyncManager.hydrateRemoteItem(
+          item as any,
+          [['item-un-decryptable', 1000]],
+          new Set(),
+        )
+
+        expect(result.status).toBe('decryption_failure')
+        expect(result.itemId).toBe('item-un-decryptable')
+        if (result.status === 'decryption_failure') {
+          expect(result.error.message).toContain('Failed to decrypt')
+        }
+      })
+
+      it('returns error when Automerge hydration throws', async () => {
+        mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
+        mockHydrateAutomergeDocumentBinary.mockRejectedValue(new Error('WASM crash'))
+
+        const item = {
+          item: 'item-crash',
+          snapshot: { iv: 'iv-1', cipher: 'c-1' },
+        }
+
+        const result = await manifestSyncManager.hydrateRemoteItem(
+          item as any,
+          [['item-crash', 1000]],
+          new Set(),
+        )
+
+        expect(result.status).toBe('error')
+        expect(result.itemId).toBe('item-crash')
+        if (result.status === 'error') {
+          expect((result.error as Error).message).toBe('WASM crash')
+        }
+      })
+    })
+
+    describe('pushLocalUpdates', () => {
+      it('stores local tombstones, imports timestamps, and marks upstream dirty when passed SyncDeltas', async () => {
+        await manifestSyncManager.pushLocalUpdates({
+          missingIds: [],
+          upstreamIds: ['item-up-1' as ItemId, 'item-up-2' as ItemId],
+          locallyTombstonedSnapshots: [{ id: 'item-tomb-1', deleted: true } as any],
+          deletedLastModifiedUpdates: [['item-tomb-1' as ItemId, 2500]],
+          knownSet: new Set(),
+          tombstoneSet: new Set(),
+        })
+
+        expect(storeItemsSpy).toHaveBeenCalledWith(
+          [{ id: 'item-tomb-1', deleted: true }],
+          { markDirty: false },
+        )
+        expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith([
+          ['item-tomb-1', 2500],
+        ])
+        expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-up-1', 2000)
+        expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-up-2', 2000)
+      })
+
+      it('marks upstream dirty when passed an array of ItemIds', async () => {
+        await manifestSyncManager.pushLocalUpdates(['item-up-3' as ItemId])
+
+        expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-up-3', 2000)
+        expect(storeItemsSpy).not.toHaveBeenCalled()
+      })
+    })
+  })
 })
 
 
