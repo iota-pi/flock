@@ -389,6 +389,19 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     })
   }
 
+  private applyMerge(targetHandle: DocHandle<RepoDoc>, binary: Uint8Array): void {
+    const incomingHandle = this.repo.import<RepoDoc>(binary)
+    try {
+      targetHandle.merge(incomingHandle)
+    } finally {
+      try {
+        this.repo.delete(incomingHandle.documentId)
+      } catch {
+        // Ignore temp handle cleanup failure
+      }
+    }
+  }
+
   async hydrateAutomergeDocumentBinary(
     itemId: string,
     binary: Uint8Array,
@@ -412,16 +425,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         const existingHandle = await this.findHandleInternal(normalizedItemId, options)
 
         if (existingHandle && existingHandle.isReady()) {
-          const incomingHandle = this.repo.import<RepoDoc>(binary)
-          try {
-            existingHandle.merge(incomingHandle)
-          } finally {
-            try {
-              this.repo.delete(incomingHandle.documentId)
-            } catch {
-              // Ignore temp handle cleanup failure
-            }
-          }
+          this.applyMerge(existingHandle, binary)
           const doc = existingHandle.doc()
           const postMergeHeads = doc ? Automerge.getHeads(doc) : []
           const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
@@ -444,16 +448,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
           const { documentId } = this.resolveDocumentId(normalizedItemId)
           const inMemoryHandle = this.repo.handles[documentId]
           if (inMemoryHandle && inMemoryHandle.isReady()) {
-            const incomingHandle = this.repo.import<RepoDoc>(binary)
-            try {
-              inMemoryHandle.merge(incomingHandle)
-            } finally {
-              try {
-                this.repo.delete(incomingHandle.documentId)
-              } catch {
-                // Ignore temp handle cleanup failure
-              }
-            }
+            this.applyMerge(inMemoryHandle, binary)
             const doc = inMemoryHandle.doc()
             const postMergeHeads = doc ? Automerge.getHeads(doc) : []
             const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
@@ -513,16 +508,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     // Concurrency defense: If a ready handle already exists in the repo, merge rather than evicting it!
     const existing = this.repo.handles[documentId]
     if (existing && existing.isReady()) {
-      const incomingHandle = this.repo.import<RepoDoc>(binary)
-      try {
-        existing.merge(incomingHandle)
-      } finally {
-        try {
-          this.repo.delete(incomingHandle.documentId)
-        } catch {
-          // Ignore temp handle cleanup failure
-        }
-      }
+      this.applyMerge(existing, binary)
       this.onDocHandleReplaced?.(itemId, existing)
       return existing
     }
