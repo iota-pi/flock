@@ -109,6 +109,7 @@ src/sync/
 │   │   ├── IndexStore.ts             # Persists index document
 │   │   └── LastModifiedStore.ts      # Persists last-modified timestamps
 │   └── utils/
+│       ├── AsyncQueue.ts             # Sequential FIFO async queue with in-flight safety
 │       ├── LeaderElection.ts         # navigator.locks-based leader election
 │       ├── automerge.ts              # URL/ID conversion helpers
 │       ├── binaryFraming.ts          # Length-prefixed batched message framing & packing
