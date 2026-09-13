@@ -70,19 +70,13 @@ export class AutomergeIndexManager {
     this.onMetadataUpdated?.(metadata)
   }
 
-  private notifyLocalIndexUpdated(itemIds: ItemId[]): void {
+  private emitIndexUpdated(itemIds: ItemId[]): void {
     if (this.areItemIdsEqual(this.lastEmittedItemIds, itemIds)) {
       return
     }
     this.lastEmittedItemIds = [...itemIds]
     this.onIndexUpdated?.(itemIds)
-  }
 
-  private notifyLocalMetadataUpdated(metadata: AccountMetadata): void {
-    this.onMetadataUpdated?.(metadata)
-  }
-
-  private broadcastIndexUpdated(itemIds: ItemId[]): void {
     if (!this.broadcastChannel || this.isClosed) return
     try {
       this.broadcastChannel.postMessage({
@@ -90,6 +84,10 @@ export class AutomergeIndexManager {
         itemIds,
       })
     } catch (_) {}
+  }
+
+  private notifyLocalMetadataUpdated(metadata: AccountMetadata): void {
+    this.onMetadataUpdated?.(metadata)
   }
 
   private broadcastMetadataUpdated(metadata: AccountMetadata): void {
@@ -167,8 +165,7 @@ export class AutomergeIndexManager {
     return this.withLock(async () => {
       await this.indexStore.saveIndex(indexDoc)
       const itemIds = indexDoc.itemIds || []
-      this.notifyLocalIndexUpdated(itemIds)
-      this.broadcastIndexUpdated(itemIds)
+      this.emitIndexUpdated(itemIds)
       if (indexDoc.metadata) {
         this.notifyLocalMetadataUpdated(indexDoc.metadata)
         this.broadcastMetadataUpdated(indexDoc.metadata)
@@ -217,10 +214,9 @@ export class AutomergeIndexManager {
         doc.tombstoneIds = Array.from(tombstoneSet)
         await this.indexStore.saveIndex(doc)
         if (updated) {
-          this.broadcastIndexUpdated(doc.itemIds)
+          this.emitIndexUpdated(doc.itemIds)
         }
       }
-      this.notifyLocalIndexUpdated(doc.itemIds || [])
     })
   }
 
@@ -244,10 +240,9 @@ export class AutomergeIndexManager {
         doc.tombstoneIds = Array.from(tombstoneSet)
         await this.indexStore.saveIndex(doc)
         if (newItemIds.length !== current.length) {
-          this.broadcastIndexUpdated(newItemIds)
+          this.emitIndexUpdated(newItemIds)
         }
       }
-      this.notifyLocalIndexUpdated(newItemIds)
     })
   }
 
