@@ -27,8 +27,15 @@ import {
   generateVaultKey,
   type CryptoResult,
 } from './crypto'
-import { SyncBridge } from 'src/sync/client/SyncBridge'
-import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRYPTO_ITERATIONS } from './util'
+import {
+  readStoredMetadata,
+  VAULT_STORAGE_KEY,
+  VaultStoredMetadata,
+  DEFAULT_CRYPTO_ITERATIONS,
+  KEYRING_CACHE_KEY,
+  VAULT_EVENTS_CHANNEL,
+  type VaultBroadcastEvent,
+} from './util'
 import { SyncWriteAheadLog } from 'src/sync/worker/SyncWriteAheadLog'
 import {
   clearBiometricData,
@@ -55,8 +62,7 @@ export {
   readStoredMetadata,
 }
 export type { CryptoResult }
-
-export const KEYRING_CACHE_KEY = 'FlockKeyringCache'
+export { KEYRING_CACHE_KEY, VAULT_EVENTS_CHANNEL, type VaultBroadcastEvent }
 
 export function readCachedKeyring(): string | null {
   if (typeof localStorage === 'undefined') return null
@@ -148,11 +154,6 @@ function notifyKeyWaiters(): void {
   }
 }
 
-export const VAULT_EVENTS_CHANNEL = 'flock-vault-events'
-
-export type VaultBroadcastEvent =
-  | { type: 'KEY_ROTATED'; account: string; keyVersion: string }
-  | { type: 'PASSWORD_CHANGED'; account: string }
 
 export function broadcastVaultEvent(event: VaultBroadcastEvent): void {
   if (typeof BroadcastChannel === 'undefined') return
@@ -494,6 +495,7 @@ function clearKeyData() {
 
 export async function lockVault() {
   const { useAppStore } = await import('src/state/store')
+  const { SyncBridge } = await import('src/sync/client/SyncBridge')
   const { updateAuth } = useAppStore.getState()
   clearKeyData()
   await clearActiveSessionToken()
@@ -505,6 +507,7 @@ export async function lockVault() {
 
 export async function removeVaultFromDevice() {
   const { useAppStore } = await import('src/state/store')
+  const { SyncBridge } = await import('src/sync/client/SyncBridge')
   const { account, updateAuth } = useAppStore.getState()
 
   if (account) {

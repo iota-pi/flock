@@ -3,6 +3,12 @@ export const DEFAULT_CRYPTO_ITERATIONS = isCypress ? 1 : 600000
 export const LEGACY_CRYPTO_ITERATIONS = isCypress ? 1 : 100000
 
 export const VAULT_STORAGE_KEY = 'FlockVaultMeta'
+export const KEYRING_CACHE_KEY = 'FlockKeyringCache'
+export const VAULT_EVENTS_CHANNEL = 'flock-vault-events'
+
+export type VaultBroadcastEvent =
+  | { type: 'KEY_ROTATED'; account: string; keyVersion: string }
+  | { type: 'PASSWORD_CHANGED'; account: string }
 
 export type VaultStoredMetadata = {
   account: string,
