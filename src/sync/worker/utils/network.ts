@@ -1,3 +1,5 @@
+import { parseError, type ParsedError } from './errorParser'
+
 export function isNetworkError(error: unknown): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return true
@@ -7,14 +9,13 @@ export function isNetworkError(error: unknown): boolean {
     return false
   }
 
-  if (typeof error !== 'object') {
-    return isNetworkErrorMessage(String(error).toLowerCase())
-  }
+  const parsed = parseError(error)
+  return matchesNetworkError(parsed)
+}
 
-  const anyError = error as { [key: string]: unknown }
-
+function matchesNetworkError(parsed: ParsedError): boolean {
   // Check error name
-  const name = typeof anyError.name === 'string' ? anyError.name : ''
+  const name = parsed.name ?? ''
   if (
     name === 'NetworkError' ||
     name === 'FetchError' ||
@@ -25,15 +26,7 @@ export function isNetworkError(error: unknown): boolean {
   }
 
   // Check HTTP status (from TRPC error data or response)
-  const data = (anyError.data || (anyError as { shape?: { data?: unknown } }).shape?.data) as
-    | { httpStatus?: number; code?: string }
-    | undefined
-  const httpStatus =
-    data?.httpStatus ??
-    (anyError.httpStatus as number | undefined) ??
-    (anyError.status as number | undefined) ??
-    (anyError.statusCode as number | undefined)
-
+  const httpStatus = parsed.status
   if (
     httpStatus === 502 ||
     httpStatus === 503 ||
@@ -45,7 +38,7 @@ export function isNetworkError(error: unknown): boolean {
   }
 
   // Check error code
-  const code = (data?.code ?? anyError.code) as string | undefined
+  const code = parsed.code
   if (code && typeof code === 'string') {
     const upperCode = code.toUpperCase()
     if (
@@ -62,14 +55,14 @@ export function isNetworkError(error: unknown): boolean {
   }
 
   // Check error message
-  const message = typeof anyError.message === 'string' ? anyError.message.toLowerCase() : ''
+  const message = typeof parsed.message === 'string' ? parsed.message.toLowerCase() : ''
   if (isNetworkErrorMessage(message)) {
     return true
   }
 
   // Check cause recursively
-  if (anyError.cause) {
-    return isNetworkError(anyError.cause)
+  if (parsed.cause) {
+    return matchesNetworkError(parsed.cause)
   }
 
   return false
