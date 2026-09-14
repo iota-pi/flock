@@ -383,8 +383,8 @@ export class SyncWriteAheadLog {
       result.set(entry.itemId, list)
     }
 
-    for (const list of result.values()) {
-      list.sort((a, b) => (a.createdAt - b.createdAt) || ((a.seq ?? 0) - (b.seq ?? 0)))
+    for (const [itemId, list] of result) {
+      result.set(itemId, WalEntryQuery.sortByAge(list))
     }
 
     return result
