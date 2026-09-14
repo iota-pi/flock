@@ -5,7 +5,7 @@ import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { toAutomergeUrlFromItemId } from './utils/automerge'
+import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 
@@ -139,18 +139,8 @@ describe('SyncMessageBroker', () => {
     expect(indexManager.addAutomergeItemIdsToIndex).not.toHaveBeenCalled()
   })
 
-  it('abortPoll calls poller.abort instead of poller.shutdown', () => {
-    const abortSpy = vi.spyOn((broker as any).syncPoller, 'abort')
-    const shutdownSpy = vi.spyOn((broker as any).syncPoller, 'shutdown')
-
-    broker.abortPoll()
-
-    expect(abortSpy).toHaveBeenCalledTimes(1)
-    expect(shutdownSpy).not.toHaveBeenCalled()
-  })
-
   it('shuts down syncPoller and pullQueueManager cleanly', async () => {
-    const shutdownSpy = vi.spyOn((broker as any).syncPoller, 'shutdown')
+    const shutdownSpy = vi.spyOn(broker.poller, 'shutdown')
     await broker.shutdown()
     expect(shutdownSpy).toHaveBeenCalledTimes(1)
     expect(pullQueueManager.shutdown).toHaveBeenCalledTimes(1)
@@ -265,19 +255,51 @@ describe('SyncMessageBroker', () => {
     expect(prunedSpy).toHaveBeenCalledWith(['item-1'])
   })
 
-  it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeadsForItem or clearSnapshotOnlyItem', async () => {
+  it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeads or clearSnapshotOnlyItem', async () => {
     broker.setWal(mockWal)
     mockWal.onEntriesPruned!(['item-1' as ItemId, 'item-2' as ItemId])
     expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
     expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
 
-    broker.setSyncedHeadsForItem('item-1' as ItemId, ['head-1'])
+    broker.setSyncedHeads('item-1' as ItemId, ['head-1'])
     expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(false)
     expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
 
     broker.clearSnapshotOnlyItem('item-2' as ItemId)
     expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(false)
     expect(broker.getSnapshotOnlyItemCount()).toBe(0)
+  })
+
+  it('handles setSyncedHeads accepting either ItemId or DocumentId correctly', async () => {
+    const setSyncedHeadsSpy = vi.spyOn(adapter, 'setSyncedHeads')
+    const resetRenegSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
+
+    const itemId = 'item-polymorphic' as ItemId
+    const docId = toDocumentIdFromItemId(itemId)
+
+    // Test with ItemId: should unblock, clear snapshot-only, and call adapter with DocumentId
+    broker.blockItem(itemId)
+    broker.markSnapshotOnly(itemId)
+    expect(broker.isItemBlocked(itemId)).toBe(true)
+    expect(broker.isSnapshotOnly(itemId)).toBe(true)
+
+    broker.setSyncedHeads(itemId, ['head-from-item'])
+    expect(broker.isItemBlocked(itemId)).toBe(false)
+    expect(broker.isSnapshotOnly(itemId)).toBe(false)
+    expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-item'])
+    expect(resetRenegSpy).toHaveBeenCalledWith(docId)
+
+    // Test with DocumentId: should unblock, clear snapshot-only, and call adapter with DocumentId
+    broker.blockItem(itemId)
+    broker.markSnapshotOnly(itemId)
+    expect(broker.isItemBlocked(itemId)).toBe(true)
+    expect(broker.isSnapshotOnly(itemId)).toBe(true)
+
+    broker.setSyncedHeads(docId, ['head-from-doc'])
+    expect(broker.isItemBlocked(itemId)).toBe(false)
+    expect(broker.isSnapshotOnly(itemId)).toBe(false)
+    expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-doc'])
+    expect(resetRenegSpy).toHaveBeenCalledWith(docId)
   })
 
   it('clears snapshot-only items on account change and shutdown', async () => {
@@ -329,7 +351,7 @@ describe('SyncMessageBroker', () => {
       expect(mockWal.append).toHaveBeenCalledTimes(1)
     })
 
-    it('unblocks item when setSyncedHeadsForItem is called after successful snapshot upload', async () => {
+    it('unblocks item when setSyncedHeads is called after successful snapshot upload', async () => {
       broker.setSendEnabled(true)
       await broker.setAccount('account-1')
       broker.setWal(mockWal)
@@ -339,7 +361,7 @@ describe('SyncMessageBroker', () => {
       expect(broker.isItemBlocked('item-snap' as ItemId)).toBe(true)
 
       // SnapshotManager succeeds and updates synced heads
-      broker.setSyncedHeadsForItem('item-snap' as ItemId, ['head-123'])
+      broker.setSyncedHeads('item-snap' as ItemId, ['head-123'])
 
       expect(broker.isItemBlocked('item-snap' as ItemId)).toBe(false)
       expect(broker.getBlockedItemCount()).toBe(0)

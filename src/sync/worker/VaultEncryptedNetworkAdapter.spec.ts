@@ -49,6 +49,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
   let mockDocStore: AutomergeDocStore
+  let pullQueueManager: SyncPullQueueManager
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -82,14 +83,15 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     internalEventHub = new WorkerInternalEventHub()
     adapter = new VaultNetworkAdapter()
     const cursorStore = new CursorStore('test-account')
-    const pullQueueManager = new SyncPullQueueManager(cursorStore)
+    pullQueueManager = new SyncPullQueueManager(cursorStore)
     const wal = new SyncWriteAheadLog('test-account')
     broker = new SyncMessageBroker(adapter, clientEventHub, internalEventHub, mockDocStore as any, pullQueueManager, wal)
     orchestrator = new SyncOrchestrator(
       'test-account',
       broker,
       clientEventHub,
-      internalEventHub
+      internalEventHub,
+      pullQueueManager,
     )
 
     // Keep offline by default to avoid automatic background runs in static tests
@@ -187,7 +189,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Set online and run poll manually and synchronously!
     broker.setOnlineState(true)
-    const outcome = await broker.executePoll()
+    const outcome = await broker.poller.executePoll()
     expect(outcome).toBe('success')
     broker.setOnlineState(false)
 
@@ -251,7 +253,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Set online and run poll manually and synchronously!
     broker.setOnlineState(true)
-    const outcome = await broker.executePoll()
+    const outcome = await broker.poller.executePoll()
     expect(outcome).toBe('success')
     broker.setOnlineState(false)
 
@@ -285,7 +287,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Set online and run poll manually and synchronously!
     broker.setOnlineState(true)
-    const outcome = await broker.executePoll()
+    const outcome = await broker.poller.executePoll()
     expect(outcome).toBe('failure')
     broker.setOnlineState(false)
 
@@ -543,7 +545,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       accountId,
       broker,
       clientEventHub,
-      internalEventHub
+      internalEventHub,
+      pullQueueManager,
     )
 
     let pollCount = 0

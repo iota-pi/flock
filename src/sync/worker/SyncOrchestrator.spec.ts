@@ -4,6 +4,8 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 describe('SyncOrchestrator', () => {
   let orchestrator: SyncOrchestrator
   let mockBroker: any
+  let mockPoller: any
+  let mockPullQueueManager: any
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
 
@@ -13,10 +15,45 @@ describe('SyncOrchestrator', () => {
     mockBroker = {
       setOnlineState: vi.fn(),
       setSendEnabled: vi.fn(),
-      executePoll: vi.fn().mockResolvedValue('success'),
-      hasPendingPulls: vi.fn().mockReturnValue(false),
       onFlushNeeded: null,
     }
+
+    mockPoller = {
+      executePoll: vi.fn().mockResolvedValue('success'),
+      abort: vi.fn(),
+    }
+
+    mockPullQueueManager = {
+      loadCursors: vi.fn().mockResolvedValue(undefined),
+      hasPendingPulls: vi.fn().mockReturnValue(false),
+      hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
+    }
+
+    Object.defineProperty(mockBroker, 'executePoll', {
+      get: () => mockPoller.executePoll,
+      set: (fn) => { mockPoller.executePoll = fn },
+      configurable: true,
+    })
+    Object.defineProperty(mockBroker, 'hasPendingPulls', {
+      get: () => mockPullQueueManager.hasPendingPulls,
+      set: (fn) => { mockPullQueueManager.hasPendingPulls = fn },
+      configurable: true,
+    })
+    Object.defineProperty(mockBroker, 'hasImmediatePendingPulls', {
+      get: () => mockPullQueueManager.hasImmediatePendingPulls,
+      set: (fn) => { mockPullQueueManager.hasImmediatePendingPulls = fn },
+      configurable: true,
+    })
+    Object.defineProperty(mockBroker, 'abortPoll', {
+      get: () => mockPoller.abort,
+      set: (fn) => { mockPoller.abort = fn },
+      configurable: true,
+    })
+    Object.defineProperty(mockBroker, 'loadCursors', {
+      get: () => mockPullQueueManager.loadCursors,
+      set: (fn) => { mockPullQueueManager.loadCursors = fn },
+      configurable: true,
+    })
 
     clientEventHub = new ClientEventHub()
     internalEventHub = new WorkerInternalEventHub()
@@ -25,7 +62,8 @@ describe('SyncOrchestrator', () => {
       'account-1',
       mockBroker,
       clientEventHub,
-      internalEventHub
+      internalEventHub,
+      mockPullQueueManager
     )
   })
 
@@ -469,16 +507,16 @@ describe('SyncOrchestrator', () => {
       await orchestratorWithPQM.shutdown()
     })
 
-    it('falls back to broker.loadCursors if pullQueueManager is not directly provided', async () => {
+    it('reloads cursors on leader promotion before executing poll', async () => {
       let resolveReload: () => void = () => {}
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      mockBroker.loadCursors = vi.fn().mockImplementation(() => reloadPromise)
+      mockPullQueueManager.loadCursors = vi.fn().mockImplementation(() => reloadPromise)
 
       orchestrator.setLeader(true)
 
-      expect(mockBroker.loadCursors).toHaveBeenCalledTimes(1)
+      expect(mockPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
 
       await vi.advanceTimersByTimeAsync(0)
       expect(mockBroker.executePoll).not.toHaveBeenCalled()
@@ -730,7 +768,7 @@ describe('SyncOrchestrator', () => {
         mockBroker,
         clientEventHub,
         internalEventHub,
-        undefined,
+        mockPullQueueManager,
         mockManifestSyncManager,
         { manifestSyncIntervalMs: 5000 }
       )
@@ -756,7 +794,7 @@ describe('SyncOrchestrator', () => {
         mockBroker,
         clientEventHub,
         internalEventHub,
-        undefined,
+        mockPullQueueManager,
         mockManifestSyncManager,
         { manifestSyncIntervalMs: 10000 }
       )
@@ -782,7 +820,7 @@ describe('SyncOrchestrator', () => {
         mockBroker,
         clientEventHub,
         internalEventHub,
-        undefined,
+        mockPullQueueManager,
         mockManifestSyncManager,
         { manifestSyncIntervalMs: 5000 }
       )
@@ -808,7 +846,7 @@ describe('SyncOrchestrator', () => {
         mockBroker,
         clientEventHub,
         internalEventHub,
-        undefined,
+        mockPullQueueManager,
         mockManifestSyncManager,
         { manifestSyncIntervalMs: 5000 }
       )

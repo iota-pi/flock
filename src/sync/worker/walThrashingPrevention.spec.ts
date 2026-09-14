@@ -195,8 +195,8 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     expect(onPrunedSpy).toHaveBeenCalledWith(['offline-item-5'])
 
     // Step 8: When the snapshot is uploaded to server upon reconnecting:
-    // broker.setSyncedHeadsForItem is called, removing the item from snapshot-only mode.
-    broker.setSyncedHeadsForItem('offline-item-5' as ItemId, ['server-head-1'])
+    // broker.setSyncedHeads is called, removing the item from snapshot-only mode.
+    broker.setSyncedHeads('offline-item-5' as ItemId, ['server-head-1'])
     expect(broker.isSnapshotOnly('offline-item-5' as ItemId)).toBe(false)
     expect(broker.getSnapshotOnlyItemCount()).toBe(99)
 

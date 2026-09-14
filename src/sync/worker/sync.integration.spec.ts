@@ -164,7 +164,7 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [],
     })
 
-    const outcome = await broker.executePoll()
+    const outcome = await broker.poller.executePoll()
     expect(outcome).toBe('success')
 
     // 4. Server confirmed write; WAL entry is cleaned up
@@ -195,7 +195,7 @@ describe('Sync System Integration Test Suite', () => {
       ],
     })
 
-    await broker.executePoll()
+    await broker.poller.executePoll()
     expect(parsedMessages).toHaveLength(1)
 
     // Second poll with overlap window returns same message with cursor 10 -> skipped by dedup cache
@@ -212,7 +212,7 @@ describe('Sync System Integration Test Suite', () => {
       ],
     })
 
-    await broker.executePoll()
+    await broker.poller.executePoll()
     // Should still be length 1, not 2
     expect(parsedMessages).toHaveLength(1)
   })
@@ -259,7 +259,7 @@ describe('Sync System Integration Test Suite', () => {
     })
 
     broker.setOnlineState(true)
-    const outcome = await broker.executePoll()
+    const outcome = await broker.poller.executePoll()
     expect(outcome).toBe('success')
 
     // WAL is completely drained
@@ -316,14 +316,14 @@ describe('Sync System Integration Test Suite', () => {
     // Pull attempts 1 through 4: stays in pending pull items for retry
     for (let attempt = 1; attempt <= 4; attempt++) {
       mockPollSyncBatchWithToken.mockResolvedValueOnce(corruptMessageResponse)
-      await broker.executePoll()
+      await broker.poller.executePoll()
       expect(pullQueueManager.hasPendingPulls()).toBe(true)
       expect(failureSpy).not.toHaveBeenCalled()
     }
 
     // Attempt 5: permanently fails and invokes onDecryptionFailure
     mockPollSyncBatchWithToken.mockResolvedValueOnce(corruptMessageResponse)
-    await broker.executePoll()
+    await broker.poller.executePoll()
 
     expect(failureSpy).toHaveBeenCalledWith(
       itemId,
@@ -352,7 +352,7 @@ describe('Sync System Integration Test Suite', () => {
       ],
     })
 
-    await broker.executePoll()
+    await broker.poller.executePoll()
 
     // Message is passed to adapter for CRDT processing
     expect(receiveSpy).toHaveBeenCalled()
@@ -386,7 +386,7 @@ describe('Sync System Integration Test Suite', () => {
     // Repeated polls do NOT increment retryCount or quarantine
     for (let attempt = 1; attempt <= 5; attempt++) {
       mockPollSyncBatchWithToken.mockResolvedValueOnce(keyMissingResponse)
-      await broker.executePoll()
+      await broker.poller.executePoll()
       expect(failureSpy).not.toHaveBeenCalled()
     }
 
@@ -404,7 +404,7 @@ describe('Sync System Integration Test Suite', () => {
     const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
     // Next poll with key now available successfully parses and decrypts
     mockPollSyncBatchWithToken.mockResolvedValueOnce(keyMissingResponse)
-    await broker.executePoll()
+    await broker.poller.executePoll()
 
     expect(receiveSpy).toHaveBeenCalled()
     expect(pullQueueManager.exportCursors()).toContainEqual([itemId, 50])

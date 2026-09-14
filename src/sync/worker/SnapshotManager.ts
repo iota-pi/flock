@@ -584,7 +584,7 @@ export class SnapshotManager {
         Math.max(currentLocalMod, item.snapshot.modified),
       )
       if (item.heads && item.heads.length > 0) {
-        this.deps.broker.setSyncedHeadsForItem?.(item.snapshot.itemId, item.heads)
+        this.deps.broker.setSyncedHeads?.(item.snapshot.itemId, item.heads)
       }
       this.deps.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
       this.deps.broker.unblockItem?.(item.snapshot.itemId)

@@ -9,7 +9,13 @@ import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../../utils/storageQuota'
 
-export class SyncMessageBroker {
+export interface SyncBrokerControl {
+  setOnlineState(isOnline: boolean): void
+  setSendEnabled(sendEnabled: boolean): void
+  onFlushNeeded: (() => void) | null
+}
+
+export class SyncMessageBroker implements SyncBrokerControl {
   private account: string | null = null
   private isOnline = true
   private sendEnabled = false
@@ -142,18 +148,14 @@ export class SyncMessageBroker {
     return this.blockedItemIds.size
   }
 
-  setSyncedHeads(documentId: DocumentId, heads: string[]): void {
-    const itemId = toVaultItemIdFromAutomergeId(documentId)
-    this.unblockItem(itemId)
-    this.snapshotOnlyItems.delete(itemId)
-    this.adapter.setSyncedHeads(documentId, heads)
-    this.adapter.resetReNegotiationCircuit(documentId)
-  }
+  setSyncedHeads(id: ItemId | DocumentId, heads: string[]): void {
+    const decodedItemId = toVaultItemIdFromAutomergeId(id as DocumentId)
+    const isDocumentId = toDocumentIdFromItemId(decodedItemId) === id
+    const itemId = isDocumentId ? decodedItemId : (id as ItemId)
+    const documentId = isDocumentId ? (id as DocumentId) : toDocumentIdFromItemId(id as ItemId)
 
-  setSyncedHeadsForItem(itemId: ItemId, heads: string[]): void {
     this.unblockItem(itemId)
     this.snapshotOnlyItems.delete(itemId)
-    const documentId = toDocumentIdFromItemId(itemId)
     this.adapter.setSyncedHeads(documentId, heads)
     this.adapter.resetReNegotiationCircuit(documentId)
   }
@@ -294,36 +296,8 @@ export class SyncMessageBroker {
     this.internalEventHub.emit({ type: 'flushNeeded' })
   }
 
-  exportCursors(): [ItemId, number][] {
-    return this.pullQueueManager.exportCursors()
-  }
-
-  async importCursors(cursors: [ItemId, number][]): Promise<void> {
-    await this.pullQueueManager.importCursors(cursors)
-  }
-
-  async loadCursors(): Promise<void> {
-    await this.pullQueueManager.loadCursors()
-  }
-
-  async resetCursors(): Promise<void> {
-    await this.pullQueueManager.resetCursors()
-  }
-
-  async executePoll(): Promise<PollOutcome> {
-    return await this.syncPoller.executePoll()
-  }
-
-  hasPendingPulls(): boolean {
-    return this.pullQueueManager.hasPendingPulls()
-  }
-
-  hasImmediatePendingPulls(): boolean {
-    return this.pullQueueManager.hasImmediatePendingPulls()
-  }
-
-  abortPoll(): void {
-    this.syncPoller.abort()
+  get poller(): SyncPoller {
+    return this.syncPoller
   }
 
   async shutdown(): Promise<void> {

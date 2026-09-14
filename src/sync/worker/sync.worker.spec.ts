@@ -52,8 +52,6 @@ vi.mock('./SyncWorkerContext', () => {
       }
       broker = {
         setAccount: mockBrokerSetAccount,
-        exportCursors: vi.fn().mockReturnValue([]),
-        importCursors: vi.fn(),
       }
       adapter = { setAccount: mockAdapterSetAccount }
       indexManager = {
@@ -79,6 +77,8 @@ vi.mock('./SyncWorkerContext', () => {
       }
       pullQueueManager = {
         onKeyringUpdated: vi.fn(),
+        exportCursors: vi.fn().mockReturnValue([]),
+        importCursors: vi.fn(),
       }
       manifestSyncManager = {
         sync: vi.fn().mockResolvedValue(undefined),

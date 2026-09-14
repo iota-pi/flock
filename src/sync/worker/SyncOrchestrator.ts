@@ -1,11 +1,20 @@
 import { LeaderElection } from './utils/LeaderElection'
-import { SyncMessageBroker } from './SyncMessageBroker'
+import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from './utils/abort'
 
+export interface SyncPollerLike {
+  executePoll: () => Promise<PollOutcome>
+  abort?: () => void
+}
+
+export interface SyncPullQueueManagerLike {
+  loadCursors: () => Promise<void>
+  hasImmediatePendingPulls?: () => boolean
+  hasPendingPulls?: () => boolean
+}
 
 export interface ManifestSyncManagerLike {
   sync: (force?: boolean, signal?: AbortSignal) => Promise<{ added: any[] }>
@@ -30,6 +39,7 @@ export class SyncOrchestrator {
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private pollAbortController: AbortController | null = null
   private manifestSyncAbortController: AbortController | null = null
+  private poller: SyncPollerLike
 
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
@@ -48,10 +58,11 @@ export class SyncOrchestrator {
     private broker: SyncMessageBroker,
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
-    private pullQueueManager?: SyncPullQueueManager,
+    private pullQueueManager: SyncPullQueueManagerLike,
     manifestSyncManager?: ManifestSyncManagerLike,
     options?: SyncOrchestratorOptions
   ) {
+    this.poller = broker.poller
     this.manifestSyncManager = manifestSyncManager ?? null
     this.manifestSyncIntervalMs = options?.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
@@ -85,7 +96,7 @@ export class SyncOrchestrator {
     if (this.pollAbortController) {
       this.pollAbortController.abort()
       this.pollAbortController = null
-      this.broker.abortPoll?.()
+      this.poller.abort?.()
     }
   }
 
@@ -304,7 +315,7 @@ export class SyncOrchestrator {
         }
         checkAlive(signal, () => this.isOperational)
 
-        outcome = await this.broker.executePoll()
+        outcome = await this.poller.executePoll()
         checkAlive(signal, () => this.isOperational)
       } catch (err) {
         if (signal.aborted || isAbortError(err)) {
@@ -341,14 +352,15 @@ export class SyncOrchestrator {
 
       this.internalEventHub.emit({ type: 'pollResult', outcome })
 
+      const hasMorePulls = this.pullQueueManager.hasImmediatePendingPulls
+        ? this.pullQueueManager.hasImmediatePendingPulls()
+        : Boolean(this.pullQueueManager.hasPendingPulls?.())
+
       if (outcome === 'failure') {
         this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
       } else if (
         wasFlushPending ||
-        (outcome === 'success' &&
-          (typeof this.broker.hasImmediatePendingPulls === 'function'
-            ? this.broker.hasImmediatePendingPulls()
-            : this.broker.hasPendingPulls()))
+        (outcome === 'success' && hasMorePulls)
       ) {
         this.scheduleNextPoll(0)
       } else {
@@ -365,11 +377,7 @@ export class SyncOrchestrator {
 
   private async reloadCursors(): Promise<void> {
     try {
-      if (this.pullQueueManager) {
-        await this.pullQueueManager.loadCursors()
-      } else if (typeof (this.broker as any).loadCursors === 'function') {
-        await (this.broker as any).loadCursors()
-      }
+      await this.pullQueueManager.loadCursors()
     } catch (error) {
       console.error('[SyncOrchestrator] Failed to reload cursors on leader promotion', error)
     }
@@ -394,7 +402,7 @@ export class SyncOrchestrator {
     this.abortPoll()
     this.abortManifestSync()
     if (!wasPolling) {
-      this.broker.abortPoll?.()
+      this.poller.abort?.()
     }
     await this.pollGuard.waitForRunning()
     await this.manifestSyncGuard.waitForRunning()

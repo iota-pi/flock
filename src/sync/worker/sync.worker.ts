@@ -328,7 +328,7 @@ export class SyncWorker implements SyncApi {
 
   async exportSyncState(): Promise<BackupSyncState> {
     const context = this.context
-    const cursors = context.broker.exportCursors()
+    const cursors = context.pullQueueManager.exportCursors()
     const walMap = context.wal ? await context.wal.readAll() : new Map<ItemId, WalEntry[]>()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
@@ -341,7 +341,7 @@ export class SyncWorker implements SyncApi {
 
   async restoreSyncState(state: Partial<BackupSyncState>) {
     const context = this.context
-    if (state.cursors) await context.broker.importCursors(state.cursors)
+    if (state.cursors) await context.pullQueueManager.importCursors(state.cursors)
     if (state.pendingSync && context.wal) {
       for (const [itemId, base64Msgs] of state.pendingSync) {
         for (const msg of base64Msgs) {

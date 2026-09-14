@@ -55,6 +55,7 @@ vi.mock('./SyncMessageBroker', () => ({
     onWalEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
     onFlushNeeded: (() => void) | null = null
     unblockAllItems = vi.fn()
+    poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
     shutdown = vi.fn().mockResolvedValue(undefined)
   },
 }))
