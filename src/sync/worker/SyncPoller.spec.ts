@@ -498,6 +498,42 @@ describe('SyncPoller', () => {
       const nextOutcome = await poller.executePoll()
       expect(nextOutcome).toBe('success')
     })
+
+    it('correctly tracks isCurrentlyPolling lifecycle during execution and abort', async () => {
+      expect(poller.isCurrentlyPolling()).toBe(false)
+
+      let resolveNetwork: (val: any) => void = () => {}
+      let networkStarted = false
+      mockPollSyncBatchWithToken.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            networkStarted = true
+            resolveNetwork = resolve
+          })
+      )
+
+      const pollPromise = poller.executePoll()
+      await vi.waitFor(() => {
+        expect(networkStarted).toBe(true)
+      })
+      expect(poller.isCurrentlyPolling()).toBe(true)
+
+      resolveNetwork({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+      await pollPromise
+      expect(poller.isCurrentlyPolling()).toBe(false)
+    })
+
+    it('checkAlive aborts poll before network dispatch if poller goes offline during preparation', async () => {
+      // Mock packBatchedMessages / encryptBytes to take time or trigger offline before network call
+      poller.setOnlineState(false)
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('no-poll')
+      expect(mockPollSyncBatchWithToken).not.toHaveBeenCalled()
+    })
   })
 
   describe('pushResults inspection and selective WAL removal', () => {

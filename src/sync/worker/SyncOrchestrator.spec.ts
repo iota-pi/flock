@@ -12,15 +12,16 @@ describe('SyncOrchestrator', () => {
   beforeEach(() => {
     vi.useFakeTimers()
 
+    mockPoller = {
+      executePoll: vi.fn().mockResolvedValue('success'),
+      abort: vi.fn(),
+    }
+
     mockBroker = {
       setOnlineState: vi.fn(),
       setSendEnabled: vi.fn(),
       onFlushNeeded: null,
-    }
-
-    mockPoller = {
-      executePoll: vi.fn().mockResolvedValue('success'),
-      abort: vi.fn(),
+      poller: mockPoller,
     }
 
     mockPullQueueManager = {
@@ -599,7 +600,7 @@ describe('SyncOrchestrator', () => {
       expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
 
       // Resolve poll with failure (server outage / error)
-      mockBroker.executePoll.mockResolvedValueOnce('success')
+      mockBroker.executePoll.mockImplementationOnce(() => new Promise(() => {}))
       resolvePoll('failure')
       await vi.advanceTimersByTimeAsync(0)
 

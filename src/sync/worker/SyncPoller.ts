@@ -12,7 +12,6 @@ import { parseBatchedMessages } from './utils/messageParser'
 import { packBatchedMessages } from './utils/binaryFraming'
 import { isAuthError } from './utils/auth'
 import { pollSyncBatchWithToken, type PushResultItem, type PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
-import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from './utils/abort'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
@@ -30,7 +29,6 @@ function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
 export class SyncPoller {
   private account: string | null = null
   private isOnline = true
-  private readonly pollGuard = new SingleFlightGuard<PollOutcome>()
   private isShutdown = false
   private abortController: AbortController | null = null
 
@@ -64,7 +62,7 @@ export class SyncPoller {
   }
 
   isCurrentlyPolling(): boolean {
-    return this.pollGuard.isRunning
+    return this.abortController !== null
   }
 
   abort(): void {
@@ -81,58 +79,51 @@ export class SyncPoller {
 
   async executePoll(): Promise<PollOutcome> {
     if (!this.isOperational) return 'no-poll'
-    return this.pollGuard.run(async () => {
-      this.abortController = new AbortController()
-      const signal = this.abortController.signal
 
-      this.clientEventHub.emit({ type: 'startRequest' })
-      const inFlightWalIds: string[] = []
+    this.abortController = new AbortController()
+    const signal = this.abortController.signal
+
+    this.clientEventHub.emit({ type: 'startRequest' })
+    const inFlightWalIds: string[] = []
+    try {
+      const authToken = await getActiveSessionToken()
+      if (!authToken) return 'no-poll'
+
+      let batchEntries: [ItemId, WalEntry[]][]
       try {
-        checkAlive(signal, () => this.isOperational)
-        const authToken = await getActiveSessionToken()
-        checkAlive(signal, () => this.isOperational)
-        if (!authToken) return 'no-poll'
-
-        let batchEntries: [ItemId, WalEntry[]][]
-        try {
-          batchEntries = await this.loadWalEntries(inFlightWalIds)
-        } catch (err) {
-          console.error('[SyncPoller] Failed to load WAL entries', err)
-          return 'failure'
-        }
-
-        checkAlive(signal, () => this.isOperational)
-
-        const chunks = batchEntries.length > 0 ? chunk(batchEntries, 5) : [[]]
-
-        for (const chunkEntry of chunks) {
-          await this.processChunk(chunkEntry, authToken, signal)
-        }
-
-        checkAlive(signal, () => this.isOperational)
-
-        await this.indexManager?.updateLastSyncTime(Date.now())
-        return 'success'
-      } catch (error) {
-        if (isAbortError(error) || signal.aborted || !this.isOperational) {
-          return 'no-poll'
-        }
-
-        if (this.isAuthError(error)) {
-          console.error('[SyncPoller] Auth failure during polling', error)
-          return 'auth-failure'
-        }
-
-        console.error('[SyncPoller] Polling failed', error)
+        batchEntries = await this.loadWalEntries(inFlightWalIds)
+      } catch (err) {
+        console.error('[SyncPoller] Failed to load WAL entries', err)
         return 'failure'
-      } finally {
-        this.abortController = null
-        if (this.wal && inFlightWalIds.length > 0) {
-          this.wal.unmarkInFlight?.(inFlightWalIds)
-        }
-        this.clientEventHub.emit({ type: 'finishRequest' })
       }
-    })
+
+      const chunks = batchEntries.length > 0 ? chunk(batchEntries, 5) : [[]]
+
+      for (const chunkEntry of chunks) {
+        await this.processChunk(chunkEntry, authToken, signal)
+      }
+
+      await this.indexManager?.updateLastSyncTime(Date.now())
+      return 'success'
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted || !this.isOperational) {
+        return 'no-poll'
+      }
+
+      if (this.isAuthError(error)) {
+        console.error('[SyncPoller] Auth failure during polling', error)
+        return 'auth-failure'
+      }
+
+      console.error('[SyncPoller] Polling failed', error)
+      return 'failure'
+    } finally {
+      this.abortController = null
+      if (this.wal && inFlightWalIds.length > 0) {
+        this.wal.unmarkInFlight?.(inFlightWalIds)
+      }
+      this.clientEventHub.emit({ type: 'finishRequest' })
+    }
   }
 
   private async loadWalEntries(inFlightWalIds: string[]): Promise<[ItemId, WalEntry[]][]> {
@@ -157,8 +148,6 @@ export class SyncPoller {
     authToken: string,
     signal: AbortSignal
   ): Promise<void> {
-    checkAlive(signal, () => this.isOperational)
-
     const sentIdsByItem = new Map<ItemId, string[]>()
     const pushMessages = await Promise.all(
       chunkEntry.map(async ([itemId, messages]) => {
@@ -200,10 +189,9 @@ export class SyncPoller {
 
     if (chunkEntry.length > 0) {
       await this.handlePushAcknowledgments(chunkEntry, sentIdsByItem, response?.pushResults)
-      checkAlive(signal, () => this.isOperational)
     }
 
-    await this.handlePollResponse(response, signal)
+    await this.handlePollResponse(response)
   }
 
   private async handlePushAcknowledgments(
@@ -264,8 +252,7 @@ export class SyncPoller {
   }
 
   private async handlePollResponse(
-    response: PollSyncBatchResponse | null | undefined,
-    signal: AbortSignal
+    response: PollSyncBatchResponse | null | undefined
   ): Promise<void> {
     if (!response) return
 
@@ -276,8 +263,6 @@ export class SyncPoller {
         console.error('[SyncPoller] Error processing push results', pushErr)
       }
     }
-
-    checkAlive(signal, () => this.isOperational)
 
     try {
       if (typeof response.hasMore === 'boolean') {
