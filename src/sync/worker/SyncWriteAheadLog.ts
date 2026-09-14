@@ -2,7 +2,6 @@ import localforage from 'localforage'
 import { nanoid } from 'nanoid'
 import type { ItemId } from 'src/shared/schemas/items'
 import { runStorageOperation } from '../../utils/storageManager'
-import { isQuotaError } from '../../utils/storageQuota'
 import { packBatchedMessages, type BatchableMessage } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -327,18 +326,7 @@ export class SyncWriteAheadLog {
       seq: SyncWriteAheadLog.seqCounter,
     }
 
-    try {
-      await runStorageOperation(() => this.storage.setItem(id, entry))
-    } catch (err) {
-      if (isQuotaError(err)) {
-        console.warn('[SyncWriteAheadLog] Quota exceeded on append. Attempting compaction...')
-        await this.handleQuotaExceeded()
-        // Retry once after emergency compaction/prune
-        await runStorageOperation(() => this.storage.setItem(id, entry), { retryOnQuotaError: false })
-      } else {
-        throw err
-      }
-    }
+    await runStorageOperation(() => this.storage.setItem(id, entry))
 
     return id
   }

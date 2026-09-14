@@ -1,5 +1,6 @@
 import { SyncWriteAheadLog, packBatchedMessages, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
 import type { ItemId } from 'src/shared/schemas/items'
+import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../../utils/storageManager'
 
 class MockLocalforage {
   store = new Map<string, any>()
@@ -46,6 +47,7 @@ describe('SyncWriteAheadLog', () => {
     vi.clearAllMocks()
     activeStoreMap.clear()
     clearWalInstancesCacheForTesting()
+    clearQuotaRecoveryHandlerForTesting()
     wal = new SyncWriteAheadLog('test-account')
   })
 
@@ -179,31 +181,38 @@ describe('SyncWriteAheadLog', () => {
     expect(store.store.has('id-0')).toBe(false)
   })
 
-  it('recovers from QuotaExceededError by emergency pruning and retrying write', async () => {
-    const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
-    // Add an older entry
-    store.store.set('old-entry', {
-      id: 'old-entry',
-      itemId: 'item-old' as ItemId,
-      data: new Uint8Array([1]),
-      createdAt: 1,
+  it('recovers from QuotaExceededError by emergency pruning and retrying write via registered recovery handler', async () => {
+    const unregister = registerQuotaRecoveryHandler(async () => {
+      return wal.handleQuotaExceeded()
     })
+    try {
+      const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+      // Add an older entry
+      store.store.set('old-entry', {
+        id: 'old-entry',
+        itemId: 'item-old' as ItemId,
+        data: new Uint8Array([1]),
+        createdAt: 1,
+      })
 
-    let hasThrownQuota = false
-    const originalSetItem = store.setItem
-    store.setItem = vi.fn().mockImplementation(async (key: string, value: any) => {
-      if (!hasThrownQuota) {
-        hasThrownQuota = true
-        const quotaErr = new Error('QuotaExceededError: The quota has been exceeded')
-        quotaErr.name = 'QuotaExceededError'
-        throw quotaErr
-      }
-      return originalSetItem.call(store, key, value)
-    })
+      let hasThrownQuota = false
+      const originalSetItem = store.setItem
+      store.setItem = vi.fn().mockImplementation(async (key: string, value: any) => {
+        if (!hasThrownQuota) {
+          hasThrownQuota = true
+          const quotaErr = new Error('QuotaExceededError: The quota has been exceeded')
+          quotaErr.name = 'QuotaExceededError'
+          throw quotaErr
+        }
+        return originalSetItem.call(store, key, value)
+      })
 
-    const newId = await wal.append('item-retry' as ItemId, new Uint8Array([42]))
-    expect(store.store.has(newId)).toBe(true)
-    expect(store.store.has('old-entry')).toBe(false)
+      const newId = await wal.append('item-retry' as ItemId, new Uint8Array([42]))
+      expect(store.store.has(newId)).toBe(true)
+      expect(store.store.has('old-entry')).toBe(false)
+    } finally {
+      unregister()
+    }
   })
 
   it('compacts multiple entries for the same item into 1 batched entry', async () => {

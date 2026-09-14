@@ -11,7 +11,7 @@ import type { AccountMetadata } from '../../state/metadata'
 import { subscribeRealtimeBusSyncPing } from '../client/realtimeBus'
 import { initWorkerVault } from '../../api/vault'
 import { SyncStatusManager } from './SyncStatusManager'
-import { registerQuotaReporter, resetQuotaExceededStatus } from '../../utils/storageManager'
+import { resetQuotaExceededStatus } from '../../utils/storageManager'
 import { type BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
 import { SyncWorkerContext } from './SyncWorkerContext'
@@ -74,10 +74,6 @@ export class SyncWorker implements SyncApi {
     }
     this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
     this.internalEventHub = new WorkerInternalEventHub()
-    registerQuotaReporter((msg: string) => {
-      this.syncStatusManager.setQuotaExceeded(true)
-      this.clientEventHub.emit({ type: 'quotaExceeded', message: msg })
-    })
 
     const trackedFetch = getTrackedFetch(
       () => this.clientEventHub.emit({ type: 'startRequest' }),
@@ -102,6 +98,7 @@ export class SyncWorker implements SyncApi {
         }
       },
       onRetryingStateChange: isRetrying => this.syncStatusManager.setDegradedPull(isRetrying),
+      onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
     })
 
     // Subscribe to client events (syncStatusManager is SyncWorker-level state)
@@ -117,6 +114,12 @@ export class SyncWorker implements SyncApi {
           this.updateItemSubscriptions(event.itemIds)
           break
         }
+        case 'quotaExceeded':
+          this.syncStatusManager.setQuotaExceeded(true)
+          break
+        case 'quotaResolved':
+          this.syncStatusManager.setQuotaExceeded(false)
+          break
       }
     })
 

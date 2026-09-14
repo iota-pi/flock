@@ -8,6 +8,7 @@ import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/au
 import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../../utils/storageQuota'
+import type { StorageRecoveryService } from './StorageRecoveryService'
 
 export interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
@@ -22,6 +23,7 @@ export class SyncMessageBroker implements SyncBrokerControl {
 
   private syncPoller: SyncPoller
   private wal: SyncWriteAheadLog | null = null
+  private storageRecovery: StorageRecoveryService | null = null
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
   private unsubscribeClientEvents: (() => void) | null = null
@@ -39,7 +41,9 @@ export class SyncMessageBroker implements SyncBrokerControl {
     private indexManager: AutomergeIndexManager | undefined,
     private pullQueueManager: SyncPullQueueManager,
     wal?: SyncWriteAheadLog | null,
+    storageRecovery?: StorageRecoveryService | null,
   ) {
+    this.storageRecovery = storageRecovery ?? null
     this.adapter?.setInternalEventHub?.(this.internalEventHub)
     this.pullQueueManager?.setInternalEventHub?.(this.internalEventHub)
     this.setWal(wal ?? null)
@@ -67,21 +71,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
         case 'walEntriesPruned':
           this.handleWalEntriesPruned(event.itemIds)
           break
-      }
-    })
-
-    this.syncPoller = new SyncPoller(
-      this.pullQueueManager,
-      this.clientEventHub,
-      this.internalEventHub,
-      this.indexManager,
-      this.wal,
-    )
-
-    this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
-      if (event.type === 'quotaResolved') {
-        this.unblockAllItems()
-        this.adapter.resetReNegotiationCircuit()
       }
     })
 
@@ -122,6 +111,14 @@ export class SyncMessageBroker implements SyncBrokerControl {
         void this.handleOutgoingMessage(msg)
       }
     }
+  }
+
+  setStorageRecoveryService(storageRecovery: StorageRecoveryService | null): void {
+    this.storageRecovery = storageRecovery
+  }
+
+  getStorageRecoveryService(): StorageRecoveryService | null {
+    return this.storageRecovery
   }
 
   getWal(): SyncWriteAheadLog | null {
@@ -284,10 +281,14 @@ export class SyncMessageBroker implements SyncBrokerControl {
     this.onWalAppendFailed?.(itemId, err)
     this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
     if (isQuotaError(err)) {
-      this.clientEventHub.emit({
-        type: 'quotaExceeded',
-        message: 'Storage quota exceeded. Some changes could not be saved.',
-      })
+      if (this.storageRecovery) {
+        void this.storageRecovery.handleQuotaExceeded(err)
+      } else {
+        this.clientEventHub.emit({
+          type: 'quotaExceeded',
+          message: 'Storage quota exceeded. Some changes could not be saved.',
+        })
+      }
     }
   }
 

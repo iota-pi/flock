@@ -55,6 +55,7 @@ vi.mock('./SyncMessageBroker', () => ({
     onWalEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
     onFlushNeeded: (() => void) | null = null
     unblockAllItems = vi.fn()
+    setStorageRecoveryService = vi.fn()
     poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
     shutdown = vi.fn().mockResolvedValue(undefined)
   },
@@ -312,7 +313,7 @@ describe('SyncWorkerContext', () => {
       'RepoManager',
       'VaultNetworkAdapter',
       'SyncMessageBroker',
-      'QuotaRecovery',
+      'StorageRecoveryService',
       'IndexManager',
       'ItemOperations',
       'DocStore',

@@ -19,17 +19,11 @@ import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
-import { resetQuotaExceededStatus, registerQuotaRecoveryHandler } from '../../utils/storageManager'
-import { isQuotaError } from '../../utils/storageQuota'
 import { ServiceLifecycleManager } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
+import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
 
-class QuotaExceededRetryError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'QuotaExceededRetryError'
-  }
-}
+export { QuotaExceededRetryError }
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -57,6 +51,10 @@ export interface SyncWorkerContextConfig {
    * so the Comlink layer can update the sync status manager.
    */
   onRetryingStateChange?: (isRetrying: boolean) => void
+  /**
+   * Called when storage quota state changes (exceeded / resolved).
+   */
+  onQuotaStatusChange?: (isQuotaExceeded: boolean) => void
   /** Optional override for testing. */
   apiClient?: SyncApiClient
 }
@@ -85,7 +83,12 @@ export class SyncWorkerContext {
   public readonly orchestrator: SyncOrchestrator
   public readonly manifestSyncManager: ManifestSyncManager
   public readonly itemOperations: ItemOperations
+  public readonly storageRecoveryService: StorageRecoveryService
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
+
+  public get storageRecovery(): StorageRecoveryService {
+    return this.storageRecoveryService
+  }
 
   private unregisterQuotaRecovery: (() => void) | null = null
   private unsubscribers: Array<() => void> = []
@@ -114,11 +117,8 @@ export class SyncWorkerContext {
           config.onDocumentReceived?.(itemId)
         }
       },
-      onQuotaError: () => {
-        config.clientEventHub.emit({
-          type: 'quotaExceeded',
-          message: 'Storage quota exceeded. Some changes could not be saved to this device.',
-        })
+      onQuotaError: error => {
+        void this.storageRecoveryService?.handleQuotaExceeded(error)
       },
     })
 
@@ -268,9 +268,19 @@ export class SyncWorkerContext {
 
     this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
 
-    this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
-      return this.wal.handleQuotaExceeded()
+    this.storageRecoveryService = new StorageRecoveryService({
+      accountId: config.accountId,
+      clientEventHub: config.clientEventHub,
+      wal: this.wal,
+      docStore: this.docStore,
+      snapshotManager: this.snapshotManager,
+      lastModifiedStore: this.lastModifiedStore,
+      broker: this.broker,
+      adapter: this.adapter,
+      orchestrator: this.orchestrator,
+      onQuotaStatusChange: config.onQuotaStatusChange,
     })
+    this.broker.setStorageRecoveryService?.(this.storageRecoveryService)
 
     this.registerLifecycleServices()
   }
@@ -327,10 +337,14 @@ export class SyncWorkerContext {
       },
     })
 
-    // 5. Quota recovery listener
+    // 5. StorageRecoveryService
     this.lifecycle.register({
-      name: 'QuotaRecovery',
+      name: 'StorageRecoveryService',
+      onStart: () => {
+        this.storageRecoveryService.start()
+      },
       onStop: () => {
+        this.storageRecoveryService.stop()
         if (this.unregisterQuotaRecovery) {
           this.unregisterQuotaRecovery()
           this.unregisterQuotaRecovery = null
@@ -462,121 +476,11 @@ export class SyncWorkerContext {
    * Reacts to quota exceeded: triggers emergency compaction and notifies client.
    */
   async handleQuotaExceeded(error?: unknown): Promise<void> {
-    console.warn('[SyncWorkerContext] Storage quota exceeded. Running emergency WAL compaction...', error)
-    try {
-      await this.wal.handleQuotaExceeded()
-    } catch (compactionErr) {
-      console.error('[SyncWorkerContext] Failed emergency compaction during quota handling:', compactionErr)
-    }
-    this.clientEventHub.emit({
-      type: 'quotaExceeded',
-      message: 'Storage quota exceeded. Flock cannot save changes or synchronize, risking data loss. Please free up space and check your connection to sync.',
-    })
-  }
-
-  /**
-   * Probes storage availability before attempting full persistence.
-   */
-  private async probeStorageAvailability(): Promise<void> {
-    try {
-      await this.lastModifiedStore.testStorageAvailable()
-    } catch (probeErr) {
-      if (isQuotaError(probeErr)) {
-        throw new QuotaExceededRetryError(
-          'Storage quota is still exceeded. Please free up more space on your device.'
-        )
-      }
-      throw probeErr
-    }
-  }
-
-  /**
-   * Resets broker and network renegotiation circuits once storage is available.
-   */
-  private resetStorageCircuits(): void {
-    this.broker.unblockAllItems?.()
-    this.adapter.resetReNegotiationCircuit?.()
-  }
-
-  /**
-   * Persists dirty Automerge documents to local IndexedDB storage.
-   */
-  private async persistDirtyDocuments(dirtyIds: ItemId[]): Promise<void> {
-    for (const itemId of dirtyIds) {
-      try {
-        await this.docStore.saveDocToStorage(itemId)
-      } catch (saveErr) {
-        if (isQuotaError(saveErr)) {
-          throw new QuotaExceededRetryError('Storage quota is still exceeded while saving documents.')
-        }
-        console.warn(`[SyncWorkerContext] Failed to save doc for item ${itemId} during retrySave`, saveErr)
-      }
-    }
-  }
-
-  /**
-   * Triggers Automerge renegotiation so sync messages are queued into the WAL.
-   */
-  private triggerRenegotiations(dirtyIds: ItemId[]): void {
-    for (const itemId of dirtyIds) {
-      const documentId = toDocumentIdFromItemId(itemId)
-      this.adapter.triggerReNegotiation?.(documentId)
-    }
-  }
-
-  /**
-   * Persists timestamps metadata.
-   */
-  private async persistTimestamps(): Promise<void> {
-    try {
-      await this.snapshotManager.persistLastModified()
-    } catch (tsErr) {
-      if (isQuotaError(tsErr)) {
-        throw new QuotaExceededRetryError('Storage quota is still exceeded while saving timestamps.')
-      }
-      throw tsErr
-    }
-  }
-
-  /**
-   * If online, flushes pending snapshots and triggers orchestrator sync.
-   */
-  private flushPendingSyncIfOnline(): void {
-    if (this.orchestrator.online) {
-      void this.snapshotManager.flushPendingSnapshots().catch(console.error)
-      this.orchestrator.flush()
-    }
-  }
-
-  /**
-   * Resets global quota status and notifies client.
-   */
-  private resolveQuotaStatus(): void {
-    resetQuotaExceededStatus()
-    this.clientEventHub.emit({ type: 'quotaResolved' })
+    return this.storageRecoveryService.handleQuotaExceeded(error)
   }
 
   async retrySave(): Promise<{ success: boolean; error?: string }> {
-    try {
-      await this.probeStorageAvailability()
-      this.resetStorageCircuits()
-
-      const dirtyIds = this.snapshotManager.getDirtyItemIds()
-      await this.persistDirtyDocuments(dirtyIds)
-      this.triggerRenegotiations(dirtyIds)
-
-      await this.persistTimestamps()
-      this.flushPendingSyncIfOnline()
-
-      this.resolveQuotaStatus()
-      return { success: true }
-    } catch (err) {
-      if (err instanceof QuotaExceededRetryError) {
-        return { success: false, error: err.message }
-      }
-      console.error('[SyncWorkerContext] Unexpected error during retrySave', err)
-      return { success: false, error: (err as Error).message || 'Failed to retry save' }
-    }
+    return this.storageRecoveryService.retrySave()
   }
 
   claimLeader(): void {
