@@ -4,33 +4,20 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { encryptBytes, VaultNotInitializedError } from '../../api/vault'
+import { encryptBytes } from '../../api/vault'
 import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'
+import {
+  isTransientVaultError,
+  TRANSIENT_VAULT_ERROR_SUBSTRINGS,
+} from './utils/vaultErrors'
 
+export { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS }
 
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
   | { type: 'not-ready' }
   | { type: 'error'; reason?: string }
-
-export const TRANSIENT_VAULT_ERROR_SUBSTRINGS = [
-  'vault is locked',
-  'vaultnotinitializederror',
-  'not initialized',
-  'active key not found',
-] as const
-
-export function isTransientVaultError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof VaultNotInitializedError) return true
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
-  const name = error instanceof Error ? error.name : ''
-  return (
-    name === 'VaultNotInitializedError' ||
-    TRANSIENT_VAULT_ERROR_SUBSTRINGS.some((substring) => message.includes(substring))
-  )
-}
 
 export async function buildSnapshot(
   repo: Repo,
