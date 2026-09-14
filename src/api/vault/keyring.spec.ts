@@ -220,6 +220,38 @@ describe('Vault Keyring Integration', () => {
     expect(readCachedKeyring()).toBe(cachedBefore)
   })
 
+  it('does not encrypt with uncommitted key during rotation network call, and activates only after upload succeeds', async () => {
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    expect(getVaultKey('1')).toBeDefined()
+    expect(() => getVaultKey('2')).toThrow()
+
+    let concurrentEncryptionKver: string | undefined
+    let hasKey2DuringUpload: boolean | undefined
+
+    vi.mocked(updateKeyring).mockImplementationOnce(async () => {
+      // Simulate concurrent encryption while the keyring is being uploaded to the server
+      const midFlightEnc = await encrypt('encrypted during upload')
+      concurrentEncryptionKver = midFlightEnc.kver
+      hasKey2DuringUpload = hasVaultKey('2')
+    })
+
+    await rotateVaultKey('test-account')
+
+    // During network call: key 2 was in keyring for decryption, but activeKeyVersion was still 1
+    expect(hasKey2DuringUpload).toBe(true)
+    expect(concurrentEncryptionKver).toBe('1')
+
+    // After rotation completes: activeKeyVersion is 2
+    const postRotationEnc = await encrypt('encrypted after rotation')
+    expect(postRotationEnc.kver).toBe('2')
+  })
+
   it('locks vault without clearing stored metadata and clears active session token', async () => {
     const shutdownSpy = vi.spyOn(SyncBridge, 'shutdown').mockResolvedValue(undefined)
     await initialiseVault({

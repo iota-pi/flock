@@ -451,7 +451,8 @@ export async function exportKeyringData(): Promise<string> {
   return JSON.stringify(keyringData)
 }
 
-export async function storeVault(account: string) {
+export async function storeVault(account: string, activeVersionOverride?: string) {
+  const effectiveVersion = activeVersionOverride ?? activeKeyVersion
   const meta = readStoredMetadata()
   await writeStoredMetadata(account, {
     salt: meta?.salt,
@@ -459,7 +460,7 @@ export async function storeVault(account: string) {
     saltVersion: meta?.saltVersion,
   })
   const keyringData: Record<string, string> = {
-    activeVersion: activeKeyVersion,
+    activeVersion: effectiveVersion,
   }
   for (const [ver, k] of keyring.entries()) {
     keyringData[ver] = await exportVaultKey(k)
@@ -470,7 +471,7 @@ export async function storeVault(account: string) {
   const encryptedStr = JSON.stringify(encrypted)
 
   if (session) {
-    const currentVer = parseInt(activeKeyVersion, 10)
+    const currentVer = parseInt(effectiveVersion, 10)
     const expectedVer = Math.max(currentVer - 1, 1)
     await updateKeyring(account, encryptedStr, expectedVer, currentVer)
   }
@@ -636,19 +637,18 @@ export async function rotateVaultKey(account: string): Promise<void> {
   const currentActiveVer = parseInt(activeKeyVersion, 10)
   const nextActiveVer = (currentActiveVer + 1).toString()
   keyring.set(nextActiveVer, newKey)
-  activeKeyVersion = nextActiveVer
-  notifyKeyWaiters()
   try {
-    await storeVault(account)
-    broadcastVaultEvent({ type: 'KEY_ROTATED', account, keyVersion: nextActiveVer })
+    await storeVault(account, nextActiveVer)
   } catch (err) {
     keyring.delete(nextActiveVer)
-    activeKeyVersion = currentActiveVer.toString()
     throw new Error(
       `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`,
       { cause: err },
     )
   }
+  activeKeyVersion = nextActiveVer
+  notifyKeyWaiters()
+  broadcastVaultEvent({ type: 'KEY_ROTATED', account, keyVersion: nextActiveVer })
 }
 
 export async function enableBiometrics(account: string): Promise<void> {
