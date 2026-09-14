@@ -13,6 +13,7 @@ import { packBatchedMessages } from './utils/binaryFraming'
 import { isAuthError } from './utils/auth'
 import { pollSyncBatchWithToken, type PushResultItem, type PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { checkAlive, isAbortError } from './utils/abort'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
@@ -58,6 +59,10 @@ export class SyncPoller {
     this.isOnline = isOnline
   }
 
+  get isOperational(): boolean {
+    return !this.isShutdown && this.isOnline && Boolean(this.account)
+  }
+
   isCurrentlyPolling(): boolean {
     return this.pollGuard.isRunning
   }
@@ -75,7 +80,7 @@ export class SyncPoller {
   }
 
   async executePoll(): Promise<PollOutcome> {
-    if (this.isShutdown || !this.isOnline || !this.account) return 'no-poll'
+    if (!this.isOperational) return 'no-poll'
     return this.pollGuard.run(async () => {
       this.abortController = new AbortController()
       const signal = this.abortController.signal
@@ -83,8 +88,9 @@ export class SyncPoller {
       this.clientEventHub.emit({ type: 'startRequest' })
       const inFlightWalIds: string[] = []
       try {
+        checkAlive(signal, () => this.isOperational)
         const authToken = await getActiveSessionToken()
-        this.checkAbort(signal)
+        checkAlive(signal, () => this.isOperational)
         if (!authToken) return 'no-poll'
 
         let batchEntries: [ItemId, WalEntry[]][]
@@ -95,7 +101,7 @@ export class SyncPoller {
           return 'failure'
         }
 
-        this.checkAbort(signal)
+        checkAlive(signal, () => this.isOperational)
 
         const chunks = batchEntries.length > 0 ? chunk(batchEntries, 5) : [[]]
 
@@ -103,12 +109,12 @@ export class SyncPoller {
           await this.processChunk(chunkEntry, authToken, signal)
         }
 
-        this.checkAbort(signal)
+        checkAlive(signal, () => this.isOperational)
 
         await this.indexManager?.updateLastSyncTime(Date.now())
         return 'success'
       } catch (error) {
-        if (this.isShutdown || signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        if (isAbortError(error) || signal.aborted || !this.isOperational) {
           return 'no-poll'
         }
 
@@ -127,14 +133,6 @@ export class SyncPoller {
         this.clientEventHub.emit({ type: 'finishRequest' })
       }
     })
-  }
-
-  private checkAbort(signal: AbortSignal): void {
-    if (this.isShutdown || signal.aborted) {
-      const error = new Error('Polling aborted')
-      error.name = 'AbortError'
-      throw error
-    }
   }
 
   private async loadWalEntries(inFlightWalIds: string[]): Promise<[ItemId, WalEntry[]][]> {
@@ -159,7 +157,7 @@ export class SyncPoller {
     authToken: string,
     signal: AbortSignal
   ): Promise<void> {
-    this.checkAbort(signal)
+    checkAlive(signal, () => this.isOperational)
 
     const sentIdsByItem = new Map<ItemId, string[]>()
     const pushMessages = await Promise.all(
@@ -182,7 +180,7 @@ export class SyncPoller {
       })
     )
 
-    this.checkAbort(signal)
+    checkAlive(signal, () => this.isOperational)
 
     // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
     // and clientLatestCursor (for global updates across all other healthy items).
@@ -198,11 +196,11 @@ export class SyncPoller {
       { signal }
     )
 
-    this.checkAbort(signal)
+    checkAlive(signal, () => this.isOperational)
 
     if (chunkEntry.length > 0) {
       await this.handlePushAcknowledgments(chunkEntry, sentIdsByItem, response?.pushResults)
-      this.checkAbort(signal)
+      checkAlive(signal, () => this.isOperational)
     }
 
     await this.handlePollResponse(response, signal)
@@ -274,7 +272,7 @@ export class SyncPoller {
       }
     }
 
-    this.checkAbort(signal)
+    checkAlive(signal, () => this.isOperational)
 
     try {
       if (typeof response.hasMore === 'boolean') {

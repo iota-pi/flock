@@ -10,6 +10,7 @@ import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifie
 import type { ClientEventHub } from './SyncEventHub'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { checkAlive, isAbortError } from './utils/abort'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -42,6 +43,8 @@ const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 export class SnapshotManager {
   private isShutdown = false
   private isLeader = false
+  private isOnline = true
+  private pushAbortController: AbortController | null = null
   private dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private consecutiveFailures = new Map<ItemId, number>()
@@ -95,6 +98,17 @@ export class SnapshotManager {
     this.maxWaitMs = options?.maxWaitMs ?? 5 * 60 * 1000
   }
 
+  get isOperational(): boolean {
+    return !this.isShutdown && this.isLeader && this.isOnline
+  }
+
+  private abortPush(): void {
+    if (this.pushAbortController) {
+      this.pushAbortController.abort()
+      this.pushAbortController = null
+    }
+  }
+
   async setLeader(isLeader: boolean): Promise<void> {
     if (this.isShutdown || this.isLeader === isLeader) {
       return
@@ -108,6 +122,7 @@ export class SnapshotManager {
       await this.loadLastModified()
     } else {
       this.clearDebounceTimers()
+      this.abortPush()
       if (this.retryTimeoutId !== null) {
         clearTimeout(this.retryTimeoutId)
         this.retryTimeoutId = null
@@ -126,8 +141,9 @@ export class SnapshotManager {
 
   private async executeLoadLastModified(): Promise<void> {
     try {
+      checkAlive(null, () => !this.isShutdown)
       const stored = await this.lastModifiedStore.loadTimestamps()
-      if (this.isShutdown) return
+      checkAlive(null, () => !this.isShutdown)
 
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
@@ -145,7 +161,7 @@ export class SnapshotManager {
       if (this.deps.accountId) {
         try {
           const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
-          if (this.isShutdown) return
+          checkAlive(null, () => !this.isShutdown)
           for (const entry of recoveryEntries) {
             quarantinedIds.add(entry.itemId)
             if (
@@ -156,9 +172,12 @@ export class SnapshotManager {
             }
           }
         } catch (recoveryErr) {
+          if (isAbortError(recoveryErr)) throw recoveryErr
           console.error('[SnapshotManager] Failed to read manual recovery entries during startup audit', recoveryErr)
         }
       }
+
+      checkAlive(null, () => !this.isShutdown)
 
       // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
       let auditCount = 0
@@ -180,6 +199,7 @@ export class SnapshotManager {
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
+      if (isAbortError(error) || this.isShutdown) return
       console.error('[SnapshotManager] Failed to load lastModified timestamps', error)
     }
   }
@@ -224,7 +244,7 @@ export class SnapshotManager {
   }
 
   scheduleDebouncedSnapshotPush(customDelayMs?: number) {
-    if (this.isShutdown || !this.isLeader) return
+    if (!this.isOperational) return
     if (this.retryTimeoutId !== null) return
     const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
     if (this.debounceTimer !== null) {
@@ -257,7 +277,7 @@ export class SnapshotManager {
 
   async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
     this.clearDebounceTimers()
-    if (this.isShutdown || !this.isLeader) {
+    if (!this.isOperational) {
       return { persisted: 0, total: 0 }
     }
     if (this.dirtyItems.size === 0 && !this.pushGuard.isRunning) {
@@ -311,7 +331,7 @@ export class SnapshotManager {
   }
 
   scheduleSnapshotPush(cursor?: number) {
-    if (this.isShutdown || !this.isLeader) return
+    if (!this.isOperational) return
     if (typeof cursor === 'number') {
       this.snapshotRequestCursor = cursor
     }
@@ -319,7 +339,7 @@ export class SnapshotManager {
   }
 
   async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
-    if (this.isShutdown || !this.isLeader) {
+    if (!this.isOperational) {
       return { persisted: 0, total: 0 }
     }
     if (this.retryTimeoutId !== null) {
@@ -336,7 +356,7 @@ export class SnapshotManager {
   }
 
   private scheduleRetry() {
-    if (this.isShutdown || !this.isLeader || this.retryTimeoutId !== null) {
+    if (!this.isOperational || this.retryTimeoutId !== null) {
       return
     }
 
@@ -356,6 +376,7 @@ export class SnapshotManager {
   }
 
   onOnlineStateChange(isOnline: boolean) {
+    this.isOnline = isOnline
     if (isOnline) {
       if (this.isLeader && this.dirtyItems.size > 0) {
         this.retryAttempt = 0
@@ -366,6 +387,7 @@ export class SnapshotManager {
         void this.triggerSnapshotPush()
       }
     } else {
+      this.abortPush()
       if (this.retryTimeoutId !== null) {
         clearTimeout(this.retryTimeoutId)
         this.retryTimeoutId = null
@@ -378,7 +400,7 @@ export class SnapshotManager {
     dirtyItemIds: ItemId[]
     snapshotCursor: number
   } | null> {
-    if (this.isShutdown || !this.isLeader) {
+    if (!this.isOperational) {
       return null
     }
     const dirtyItemIds = Array.from(this.dirtyItems.keys())
@@ -405,21 +427,28 @@ export class SnapshotManager {
   private async sendSnapshotBatch(
     accountId: string,
     batch: VaultSnapshotInput[],
+    signal?: AbortSignal,
   ): Promise<{ success: boolean; persisted: number }> {
     if (batch.length === 0) {
       return { success: true, persisted: 0 }
     }
     try {
-      const response = await this.apiClient.putSnapshots({
-        account: accountId,
-        snapshots: batch,
-      })
+      const response = await this.apiClient.putSnapshots(
+        {
+          account: accountId,
+          snapshots: batch,
+        },
+        signal ? { signal } : undefined,
+      )
 
       if (response?.success && response.persisted === batch.length) {
         return { success: true, persisted: response.persisted }
       }
       return { success: false, persisted: response?.persisted ?? 0 }
     } catch (error) {
+      if (signal?.aborted || isAbortError(error)) {
+        throw error
+      }
       console.error('[SnapshotManager] Failed to put snapshots', error)
       return { success: false, persisted: 0 }
     }
@@ -567,6 +596,7 @@ export class SnapshotManager {
   private async flushBatch(
     batch: PreparedSnapshotItem[],
     accountId: string,
+    signal?: AbortSignal,
   ): Promise<{ success: boolean; persisted: number }> {
     if (batch.length === 0) {
       return { success: true, persisted: 0 }
@@ -574,6 +604,7 @@ export class SnapshotManager {
     const result = await this.sendSnapshotBatch(
       accountId,
       batch.map(b => b.snapshot),
+      signal,
     )
     if (result.success) {
       this.finalizeSuccessfulBatch(batch, accountId)
@@ -581,11 +612,14 @@ export class SnapshotManager {
     return result
   }
 
-  private async processSnapshotPush(context: {
-    accountId: string
-    dirtyItemIds: ItemId[]
-    snapshotCursor: number
-  }): Promise<{ persisted: number; total: number; success: boolean }> {
+  private async processSnapshotPush(
+    context: {
+      accountId: string
+      dirtyItemIds: ItemId[]
+      snapshotCursor: number
+    },
+    signal?: AbortSignal,
+  ): Promise<{ persisted: number; total: number; success: boolean }> {
     const { accountId, dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
@@ -595,6 +629,7 @@ export class SnapshotManager {
     let currentBatchBytes = 0
 
     for (const itemId of dirtyItemIds) {
+      checkAlive(signal, () => this.isOperational)
       const prepared = await this.prepareItemForPush(itemId, snapshotCursor, accountId)
       if (prepared.type === 'skipped') {
         continue
@@ -614,7 +649,8 @@ export class SnapshotManager {
 
       if ((wouldExceedCount || wouldExceedBytes) && currentBatch.length > 0) {
         total += currentBatch.length
-        const result = await this.flushBatch(currentBatch, accountId)
+        checkAlive(signal, () => this.isOperational)
+        const result = await this.flushBatch(currentBatch, accountId, signal)
         persisted += result.persisted
         if (!result.success) {
           success = false
@@ -632,7 +668,8 @@ export class SnapshotManager {
     // Flush any remaining items in the batch
     if (!sendFailed && currentBatch.length > 0) {
       total += currentBatch.length
-      const result = await this.flushBatch(currentBatch, accountId)
+      checkAlive(signal, () => this.isOperational)
+      const result = await this.flushBatch(currentBatch, accountId, signal)
       persisted += result.persisted
       if (!result.success) {
         success = false
@@ -643,7 +680,7 @@ export class SnapshotManager {
   }
 
   private startPush(): Promise<SnapshotPushResult> {
-    if (this.isShutdown || !this.isLeader) {
+    if (!this.isOperational) {
       return Promise.resolve({ persisted: 0, total: 0, success: true })
     }
 
@@ -660,7 +697,7 @@ export class SnapshotManager {
   }
 
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
-    if (this.isShutdown || !this.isLeader) {
+    if (!this.isOperational) {
       return { persisted: 0, total: 0 }
     }
     const res = await this.startPush()
@@ -668,11 +705,16 @@ export class SnapshotManager {
   }
 
   private async executePush(): Promise<SnapshotPushResult> {
+    const abortController = new AbortController()
+    this.pushAbortController = abortController
+    const { signal } = abortController
+
     let persisted = 0
     let total = 0
     let success = true
 
     try {
+      checkAlive(signal, () => this.isOperational)
       const context = await this.preparePushContext()
       if (!context) {
         if (this.dirtyItems.size > 0) {
@@ -681,7 +723,8 @@ export class SnapshotManager {
         return { persisted: 0, total: 0, success }
       }
 
-      const result = await this.processSnapshotPush(context)
+      checkAlive(signal, () => this.isOperational)
+      const result = await this.processSnapshotPush(context, signal)
       persisted = result.persisted
       total = result.total
       success = result.success
@@ -696,10 +739,16 @@ export class SnapshotManager {
 
       return { persisted, total, success }
     } catch (error) {
+      if (signal.aborted || isAbortError(error) || !this.isOperational) {
+        return { persisted, total, success: false }
+      }
       console.error('[SnapshotManager] Error during pushSnapshots', error)
       success = false
       return { persisted, total, success }
     } finally {
+      if (this.pushAbortController === abortController) {
+        this.pushAbortController = null
+      }
       this.handlePostPushScheduling(success)
     }
   }
@@ -707,9 +756,9 @@ export class SnapshotManager {
   private handlePostPushScheduling(success: boolean): void {
     const hasDirtyDocs = this.dirtyItems.size > 0
 
-    if (!success && hasDirtyDocs && this.isLeader) {
+    if (!success && hasDirtyDocs && this.isOperational) {
       this.scheduleRetry()
-    } else if (this.snapshotPushPending && hasDirtyDocs && this.isLeader) {
+    } else if (this.snapshotPushPending && hasDirtyDocs && this.isOperational) {
       void this.triggerSnapshotPush()
     }
 
@@ -733,6 +782,7 @@ export class SnapshotManager {
     if (this.isShutdown) return
     this.isShutdown = true
     this.isLeader = false
+    this.abortPush()
 
     await this.pushGuard.waitForRunning()
     await this.loadGuard.waitForRunning()

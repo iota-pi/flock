@@ -4,10 +4,12 @@ import type { PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { checkAlive, isAbortError } from './utils/abort'
 
 
 export interface ManifestSyncManagerLike {
-  sync: (force?: boolean) => Promise<{ added: any[] }>
+  sync: (force?: boolean, signal?: AbortSignal) => Promise<{ added: any[] }>
+  abort?: () => void
 }
 
 export interface SyncOrchestratorOptions {
@@ -27,6 +29,7 @@ export class SyncOrchestrator {
   private readonly pollGuard = new SingleFlightGuard<void>()
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private pollAbortController: AbortController | null = null
+  private manifestSyncAbortController: AbortController | null = null
 
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
@@ -69,20 +72,20 @@ export class SyncOrchestrator {
     return this.isOperational && (force || !this.pollingPausedForAuth)
   }
 
-  private checkAbort(signal: AbortSignal): void {
-    if (signal.aborted || !this.isOperational) {
-      const error = new Error('Polling aborted')
-      error.name = 'AbortError'
-      throw error
-    }
-  }
-
   private abortPoll(): void {
     if (this.pollAbortController) {
       this.pollAbortController.abort()
       this.pollAbortController = null
       this.broker.abortPoll?.()
     }
+  }
+
+  private abortManifestSync(): void {
+    if (this.manifestSyncAbortController) {
+      this.manifestSyncAbortController.abort()
+      this.manifestSyncAbortController = null
+    }
+    this.manifestSyncManager?.abort?.()
   }
 
   setManifestSyncManager(manifestSyncManager: ManifestSyncManagerLike): void {
@@ -149,6 +152,7 @@ export class SyncOrchestrator {
       this.stopPolling()
       this.stopPeriodicManifestSync()
       this.abortPoll()
+      this.abortManifestSync()
     }
   }
 
@@ -163,6 +167,7 @@ export class SyncOrchestrator {
       this.stopPolling()
       this.stopPeriodicManifestSync()
       this.abortPoll()
+      this.abortManifestSync()
       return
     }
 
@@ -287,12 +292,12 @@ export class SyncOrchestrator {
         if (this.cursorReloadGuard.isRunning) {
           await this.cursorReloadGuard.waitForRunning()
         }
-        this.checkAbort(signal)
+        checkAlive(signal, () => this.isOperational)
 
         outcome = await this.broker.executePoll()
-        this.checkAbort(signal)
+        checkAlive(signal, () => this.isOperational)
       } catch (err) {
-        if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        if (signal.aborted || isAbortError(err)) {
           return
         }
         outcome = 'failure'
@@ -373,6 +378,7 @@ export class SyncOrchestrator {
     this.stopPeriodicManifestSync()
 
     this.abortPoll()
+    this.abortManifestSync()
     if (!wasPolling) {
       this.broker.abortPoll?.()
     }
@@ -402,10 +408,22 @@ export class SyncOrchestrator {
       return
     }
     return this.manifestSyncGuard.run(async () => {
+      const abortController = new AbortController()
+      this.manifestSyncAbortController = abortController
+      const { signal } = abortController
       try {
-        await this.manifestSyncManager!.sync(force)
+        checkAlive(signal, () => this.isOperational)
+        await this.manifestSyncManager!.sync(force, signal)
+        checkAlive(signal, () => this.isOperational)
       } catch (error) {
+        if (signal.aborted || isAbortError(error) || !this.isOperational) {
+          return
+        }
         console.warn('[SyncOrchestrator] Manifest sync failed', error)
+      } finally {
+        if (this.manifestSyncAbortController === abortController) {
+          this.manifestSyncAbortController = null
+        }
       }
     })
   }

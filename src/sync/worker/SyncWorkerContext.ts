@@ -294,7 +294,15 @@ export class SyncWorkerContext {
       },
     })
 
-    // 9. SyncOrchestrator (starts last, stops first)
+    // 9. ManifestSyncManager
+    this.lifecycle.register({
+      name: 'ManifestSyncManager',
+      onStop: () => {
+        this.manifestSyncManager.shutdown()
+      },
+    })
+
+    // 10. SyncOrchestrator (starts last, stops first)
     this.lifecycle.register({
       name: 'SyncOrchestrator',
       onStart: async () => {

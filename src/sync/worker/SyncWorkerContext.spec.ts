@@ -295,6 +295,7 @@ describe('SyncWorkerContext', () => {
       'SnapshotManager',
       'SyncedHeads',
       'PullQueueManager',
+      'ManifestSyncManager',
       'SyncOrchestrator',
     ])
   })

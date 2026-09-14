@@ -709,7 +709,7 @@ describe('SyncOrchestrator', () => {
       orchestrator.setOnlineState(true)
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false, expect.any(AbortSignal))
     })
 
     it('does not trigger manifest sync on reconnection when not leader', async () => {
@@ -741,7 +741,7 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false, expect.any(AbortSignal))
 
       // Periodic check after 5000ms
       await vi.advanceTimersByTimeAsync(5000)
@@ -995,6 +995,55 @@ describe('SyncOrchestrator', () => {
       // Advancing timers should not poll while offline
       await vi.advanceTimersByTimeAsync(100000)
       expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('aborts in-flight manifest sync when leadership is revoked', async () => {
+      let capturedSignal: AbortSignal | undefined
+      const mockManifest = {
+        sync: vi.fn((_force?: boolean, signal?: AbortSignal) => {
+          capturedSignal = signal
+          return new Promise<{ added: any[] }>(() => {})
+        }),
+        abort: vi.fn(),
+      }
+
+      orchestrator.setManifestSyncManager(mockManifest)
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifest.sync).toHaveBeenCalledTimes(1)
+      expect(capturedSignal).toBeDefined()
+      expect(capturedSignal?.aborted).toBe(false)
+
+      orchestrator.setLeader(false)
+
+      expect(capturedSignal?.aborted).toBe(true)
+      expect(mockManifest.abort).toHaveBeenCalledTimes(1)
+    })
+
+    it('aborts in-flight manifest sync when going offline', async () => {
+      let capturedSignal: AbortSignal | undefined
+      const mockManifest = {
+        sync: vi.fn((_force?: boolean, signal?: AbortSignal) => {
+          capturedSignal = signal
+          return new Promise<{ added: any[] }>(() => {})
+        }),
+        abort: vi.fn(),
+      }
+
+      orchestrator.setManifestSyncManager(mockManifest)
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockManifest.sync).toHaveBeenCalledTimes(1)
+      expect(capturedSignal?.aborted).toBe(false)
+
+      orchestrator.setOnlineState(false)
+
+      expect(capturedSignal?.aborted).toBe(true)
+      expect(mockManifest.abort).toHaveBeenCalledTimes(1)
     })
   })
 })

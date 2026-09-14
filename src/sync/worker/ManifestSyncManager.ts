@@ -15,6 +15,7 @@ import type { StoreItemsOptions } from './ItemOperations'
 import { RecoveryManager } from './RecoveryManager'
 import { reconcileAccountMetadata, extractSyncableMetadata } from './utils/metadataSync'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { checkAlive, isAbortError } from './utils/abort'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
@@ -55,6 +56,8 @@ export type HydrateItemResult =
 export class ManifestSyncManager {
   private recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
+  private isShutdown = false
+  private abortController: AbortController | null = null
 
   constructor(
     private deps: {
@@ -74,122 +77,183 @@ export class ManifestSyncManager {
     this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId: deps.accountId })
   }
 
-  private readonly syncGuard = new SingleFlightGuard<{ added: ItemId[] }>()
-
-  async sync(force = false): Promise<{ added: ItemId[] }> {
-    if (!this.deps.accountId) return { added: [] }
-    return this.syncGuard.run(() => this.executeSync(force))
+  abort(): void {
+    if (this.abortController) {
+      this.abortController.abort()
+      this.abortController = null
+    }
   }
 
-  private async executeSync(force = false): Promise<{ added: ItemId[] }> {
-    const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
-    const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
+  shutdown(): void {
+    this.isShutdown = true
+    this.abort()
+  }
 
-    const hasKnownItems = knownItemIds.length > 0
-    const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
+  private readonly syncGuard = new SingleFlightGuard<{ added: ItemId[] }>()
 
-    // Gating logic:
-    // - Force runs unconditionally
-    // - If it has been more than 7 days, always run (even if not forced)
-    // - If we already have items and last run was less than 24 hours ago, skip
-    const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
-    const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
+  async sync(force = false, signal?: AbortSignal): Promise<{ added: ItemId[] }> {
+    if (this.isShutdown || !this.deps.accountId) return { added: [] }
+    return this.syncGuard.run(() => this.executeSync(force, signal))
+  }
 
-    if (!force && !isOfflineTooLong && isWithinDailyWindow) {
-      return { added: [] }
+  private async executeSync(force = false, outerSignal?: AbortSignal): Promise<{ added: ItemId[] }> {
+    const abortController = new AbortController()
+    this.abortController = abortController
+    const isAlive = () => !this.isShutdown && (!outerSignal || !outerSignal.aborted)
+
+    if (outerSignal?.aborted) {
+      abortController.abort(outerSignal.reason)
+    } else if (outerSignal) {
+      outerSignal.addEventListener('abort', () => abortController.abort(outerSignal.reason), { once: true })
     }
+    const { signal } = abortController
 
-    const hasToken = await this.apiClient.hasAuthToken()
-    if (!hasToken) {
-      if (hasKnownItems) {
-        console.info('[ManifestSyncManager] No auth token, using local data only')
+    let hasKnownItems = false
+
+    try {
+      checkAlive(signal, isAlive)
+      const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
+      const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
+      checkAlive(signal, isAlive)
+
+      hasKnownItems = knownItemIds.length > 0
+      const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
+
+      // Gating logic:
+      // - Force runs unconditionally
+      // - If it has been more than 7 days, always run (even if not forced)
+      // - If we already have items and last run was less than 24 hours ago, skip
+      const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
+      const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
+
+      if (!force && !isOfflineTooLong && isWithinDailyWindow) {
         return { added: [] }
       }
-      console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
-      return { added: [] }
-    }
 
-    let manifestResponse: Awaited<ReturnType<typeof fetchManifest>>
-    let clockSkew = 0
-    try {
-      const requestStartTime = Date.now()
-      manifestResponse = await this.apiClient.fetchManifest({
-        account: this.deps.accountId,
+      const hasToken = await this.apiClient.hasAuthToken()
+      checkAlive(signal, isAlive)
+      if (!hasToken) {
+        if (hasKnownItems) {
+          console.info('[ManifestSyncManager] No auth token, using local data only')
+          return { added: [] }
+        }
+        console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
+        return { added: [] }
+      }
+
+      let manifestResponse: Awaited<ReturnType<typeof fetchManifest>>
+      let clockSkew = 0
+      try {
+        const requestStartTime = Date.now()
+        manifestResponse = await this.apiClient.fetchManifest(
+          { account: this.deps.accountId },
+          outerSignal ? { signal } : undefined,
+        )
+        const requestEndTime = Date.now()
+        const clientMidTime = Math.round((requestStartTime + requestEndTime) / 2)
+        clockSkew = clientMidTime - manifestResponse.serverTime
+      } catch (e) {
+        if (signal.aborted || isAbortError(e) || !isAlive()) {
+          return { added: [] }
+        }
+        if (hasKnownItems) {
+          console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
+          return { added: [] }
+        }
+        console.error('[ManifestSyncManager] Failed to fetch manifest', e)
+        throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
+      }
+
+      checkAlive(signal, isAlive)
+      try {
+        await this.deps.snapshotManager.flushPendingSnapshots()
+      } catch (flushErr) {
+        if (signal.aborted || isAbortError(flushErr)) throw flushErr
+        console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
+      }
+
+      checkAlive(signal, isAlive)
+      const tombstoneItemIds = (await this.deps.indexManager.listAutomergeTombstoneIds?.()) ?? []
+      const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
+      checkAlive(signal, isAlive)
+
+      let quarantinedMap = new Map<ItemId, number>()
+      if (this.deps.accountId) {
+        try {
+          const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
+          checkAlive(signal, isAlive)
+          for (const entry of recoveryEntries) {
+            quarantinedMap.set(entry.itemId, entry.createdAt)
+          }
+        } catch (err) {
+          if (signal.aborted || isAbortError(err)) throw err
+          console.warn('[ManifestSyncManager] Failed to read manual recovery entries', err)
+        }
+      }
+
+      checkAlive(signal, isAlive)
+
+      // Step 1: Calculate sync deltas
+      const deltas = this.calculateSyncDeltas({
+        manifest: manifestResponse.manifest,
+        clockSkew,
+        force,
+        knownItemIds,
+        tombstoneItemIds,
+        localLastModifiedMap,
+        quarantinedMap,
       })
-      const requestEndTime = Date.now()
-      const clientMidTime = Math.round((requestStartTime + requestEndTime) / 2)
-      clockSkew = clientMidTime - manifestResponse.serverTime
+
+      // Step 2: Push local updates (apply discovered local tombstones, update tombstone timestamps, mark upstream items dirty)
+      checkAlive(signal, isAlive)
+      await this.pushLocalUpdates(deltas)
+      checkAlive(signal, isAlive)
+
+      let added: ItemId[] = []
+      let hasFailures = false
+
+      // Step 3: Fetch and hydrate remote items (if any missing items need to be pulled)
+      if (deltas.missingIds.length > 0) {
+        checkAlive(signal, isAlive)
+        const hydrationResult = await this.fetchAndHydrateRemoteItems({
+          missingIds: deltas.missingIds,
+          manifest: manifestResponse.manifest,
+          serverTime: manifestResponse.serverTime,
+          knownSet: deltas.knownSet,
+          tombstoneSet: deltas.tombstoneSet,
+        }, outerSignal ? signal : undefined)
+        added = hydrationResult.added
+        hasFailures = hydrationResult.hasFailures
+      }
+
+      checkAlive(signal, isAlive)
+      await this.syncMetadata()
+      checkAlive(signal, isAlive)
+
+      if (!hasFailures) {
+        await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
+      } else {
+        console.warn(
+          '[ManifestSyncManager] Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry'
+        )
+      }
+
+      return { added }
     } catch (e) {
+      if (signal.aborted || isAbortError(e) || !isAlive()) {
+        return { added: [] }
+      }
       if (hasKnownItems) {
         console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
         return { added: [] }
       }
       console.error('[ManifestSyncManager] Failed to fetch manifest', e)
       throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
-    }
-
-    try {
-      await this.deps.snapshotManager.flushPendingSnapshots()
-    } catch (flushErr) {
-      console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
-    }
-
-    const tombstoneItemIds = (await this.deps.indexManager.listAutomergeTombstoneIds?.()) ?? []
-    const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
-
-    let quarantinedMap = new Map<ItemId, number>()
-    if (this.deps.accountId) {
-      try {
-        const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
-        for (const entry of recoveryEntries) {
-          quarantinedMap.set(entry.itemId, entry.createdAt)
-        }
-      } catch (err) {
-        console.warn('[ManifestSyncManager] Failed to read manual recovery entries', err)
+    } finally {
+      if (this.abortController === abortController) {
+        this.abortController = null
       }
     }
-
-    // Step 1: Calculate sync deltas
-    const deltas = this.calculateSyncDeltas({
-      manifest: manifestResponse.manifest,
-      clockSkew,
-      force,
-      knownItemIds,
-      tombstoneItemIds,
-      localLastModifiedMap,
-      quarantinedMap,
-    })
-
-    // Step 2: Push local updates (apply discovered local tombstones, update tombstone timestamps, mark upstream items dirty)
-    await this.pushLocalUpdates(deltas)
-
-    let added: ItemId[] = []
-    let hasFailures = false
-
-    // Step 3: Fetch and hydrate remote items (if any missing items need to be pulled)
-    if (deltas.missingIds.length > 0) {
-      const hydrationResult = await this.fetchAndHydrateRemoteItems({
-        missingIds: deltas.missingIds,
-        manifest: manifestResponse.manifest,
-        serverTime: manifestResponse.serverTime,
-        knownSet: deltas.knownSet,
-        tombstoneSet: deltas.tombstoneSet,
-      })
-      added = hydrationResult.added
-      hasFailures = hydrationResult.hasFailures
-    }
-
-    await this.syncMetadata()
-
-    if (!hasFailures) {
-      await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
-    } else {
-      console.warn(
-        '[ManifestSyncManager] Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry'
-      )
-    }
-
-    return { added }
   }
 
   calculateSyncDeltas(params: {
@@ -352,29 +416,39 @@ export class ManifestSyncManager {
     }
   }
 
-  async fetchAndHydrateRemoteItems(params: {
-    missingIds: ItemId[]
-    manifest: ManifestEntry[]
-    serverTime: number
-    knownSet: Set<ItemId>
-    tombstoneSet: Set<ItemId>
-  }): Promise<{ added: ItemId[]; hasFailures: boolean }> {
+  async fetchAndHydrateRemoteItems(
+    params: {
+      missingIds: ItemId[]
+      manifest: ManifestEntry[]
+      serverTime: number
+      knownSet: Set<ItemId>
+      tombstoneSet: Set<ItemId>
+    },
+    signal?: AbortSignal,
+  ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
     const batches = chunk(params.missingIds, BATCH_SIZE)
     const fetchedItems: VaultItem[] = []
     let hasBatchFailures = false
 
     for (const batch of batches) {
+      checkAlive(signal, () => !this.isShutdown)
       try {
-        const response = await this.apiClient.fetchSnapshotsByIds({
-          account: this.deps.accountId,
-          itemIds: batch,
-        })
+        const response = await this.apiClient.fetchSnapshotsByIds(
+          {
+            account: this.deps.accountId,
+            itemIds: batch,
+          },
+          signal ? { signal } : undefined,
+        )
         if (response?.items && Array.isArray(response.items)) {
           fetchedItems.push(...response.items)
         } else {
           hasBatchFailures = true
         }
       } catch (error) {
+        if (signal?.aborted || isAbortError(error)) {
+          throw error
+        }
         hasBatchFailures = true
         console.error('[ManifestSyncManager] Failed to fetch snapshot batch', {
           batch,
@@ -382,6 +456,8 @@ export class ManifestSyncManager {
         })
       }
     }
+
+    checkAlive(signal, () => !this.isShutdown)
 
     const validFetchedItems = fetchedItems.filter(
       entry =>

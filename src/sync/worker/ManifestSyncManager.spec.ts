@@ -1480,6 +1480,62 @@ describe('ManifestSyncManager', () => {
         expect(storeItemsSpy).not.toHaveBeenCalled()
       })
     })
+
+    describe('cancellation and shutdown', () => {
+      it('returns early when pre-aborted signal is provided', async () => {
+        const controller = new AbortController()
+        controller.abort()
+
+        const result = await manifestSyncManager.sync(true, controller.signal)
+
+        expect(result).toEqual({ added: [] })
+        expect(mockFetchManifest).not.toHaveBeenCalled()
+      })
+
+      it('returns early without work when manager is shut down', async () => {
+        manifestSyncManager.shutdown()
+
+        const result = await manifestSyncManager.sync(true)
+
+        expect(result).toEqual({ added: [] })
+        expect(mockFetchManifest).not.toHaveBeenCalled()
+      })
+
+      it('aborts in-flight manifest fetch when aborted externally', async () => {
+        const controller = new AbortController()
+        mockFetchManifest.mockImplementation(async (_input: any, options?: { signal?: AbortSignal }) => {
+          return new Promise((resolve, reject) => {
+            if (options?.signal) {
+              options.signal.addEventListener('abort', () => {
+                const err = new Error('Aborted')
+                err.name = 'AbortError'
+                reject(err)
+              })
+            }
+          })
+        })
+
+        const syncPromise = manifestSyncManager.sync(true, controller.signal)
+        controller.abort()
+
+        const result = await syncPromise
+        expect(result).toEqual({ added: [] })
+      })
+
+      it('aborts in-flight sync when abort() is called on the manager', async () => {
+        mockFetchManifest.mockImplementation(async () => {
+          manifestSyncManager.abort()
+          return {
+            manifest: [['item-remote-1', 1000, 1, 1]],
+            serverTime: 1000,
+          }
+        })
+
+        const result = await manifestSyncManager.sync(true)
+        expect(result).toEqual({ added: [] })
+        expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      })
+    })
   })
 })
 

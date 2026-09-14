@@ -1206,6 +1206,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect.objectContaining({
           authToken: 'restored-auth-token',
         }),
+        expect.anything(),
       )
       expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
       expect(manager['retryAttempt']).toBe(0)
@@ -1697,6 +1698,88 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       await vi.advanceTimersByTimeAsync(30_000)
       expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('In-flight push cancellation', () => {
+    it('aborts in-flight snapshot push when leadership is revoked', async () => {
+      let capturedSignal: AbortSignal | undefined
+      mockPutSnapshotsWithToken.mockImplementationOnce((_input, options) => {
+        capturedSignal = options?.signal
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      const pushPromise = manager.pushSnapshots()
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(capturedSignal).toBeDefined()
+      expect(capturedSignal?.aborted).toBe(false)
+
+      await manager.setLeader(false)
+
+      expect(capturedSignal?.aborted).toBe(true)
+      const result = await pushPromise
+      expect(result.persisted).toBe(0)
+    })
+
+    it('aborts in-flight snapshot push when going offline', async () => {
+      let capturedSignal: AbortSignal | undefined
+      mockPutSnapshotsWithToken.mockImplementationOnce((_input, options) => {
+        capturedSignal = options?.signal
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      const pushPromise = manager.pushSnapshots()
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(capturedSignal?.aborted).toBe(false)
+
+      manager.onOnlineStateChange(false)
+
+      expect(capturedSignal?.aborted).toBe(true)
+      const result = await pushPromise
+      expect(result.persisted).toBe(0)
+    })
+
+    it('aborts in-flight snapshot push when shutdown occurs', async () => {
+      let capturedSignal: AbortSignal | undefined
+      mockPutSnapshotsWithToken.mockImplementationOnce((_input, options) => {
+        capturedSignal = options?.signal
+        return new Promise((resolve) => {
+          options?.signal?.addEventListener('abort', () => {
+            resolve({ success: false, persisted: 0, total: 1 })
+          })
+        })
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      const pushPromise = manager.pushSnapshots()
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(capturedSignal?.aborted).toBe(false)
+
+      await manager.shutdown()
+
+      expect(capturedSignal?.aborted).toBe(true)
+      const result = await pushPromise
+      expect(result.persisted).toBe(0)
     })
   })
 })

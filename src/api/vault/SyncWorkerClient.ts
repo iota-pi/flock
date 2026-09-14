@@ -72,15 +72,21 @@ export async function pollSyncBatchWithToken(
   return client.sync.pollSync.mutate(rpcInput, options?.signal ? { signal: options.signal } : undefined)
 }
 
-export async function putSnapshotsWithToken(input: {
-  account: string
-  authToken: string
-  snapshots: VaultSnapshotInput[]
-}): Promise<{ success: boolean; persisted: number; total: number }> {
+export async function putSnapshotsWithToken(
+  input: {
+    account: string
+    authToken: string
+    snapshots: VaultSnapshotInput[]
+  },
+  options?: { signal?: AbortSignal }
+): Promise<{ success: boolean; persisted: number; total: number }> {
   const client = createWorkerSyncClient(input.authToken)
-  return client.items.putSnapshots.mutate({
-    account: input.account,
-    snapshots: input.snapshots,
-  })
+  return client.items.putSnapshots.mutate(
+    {
+      account: input.account,
+      snapshots: input.snapshots,
+    },
+    options?.signal ? { signal: options.signal } : undefined
+  )
 }
 

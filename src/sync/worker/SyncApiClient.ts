@@ -230,36 +230,58 @@ export class SyncApiClient {
     }
   }
 
-  async putSnapshots(input: {
-    account: string
-    snapshots: VaultSnapshotInput[]
-  }): Promise<{ success: boolean; persisted: number; total?: number }> {
+  async putSnapshots(
+    input: {
+      account: string
+      snapshots: VaultSnapshotInput[]
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<{ success: boolean; persisted: number; total?: number }> {
     return this.executeWithAuth(async authToken => {
       safeSetApiAuthToken(authToken)
-      return putSnapshotsWithToken({
-        account: input.account,
-        authToken,
-        snapshots: input.snapshots,
-      })
+      return options !== undefined
+        ? putSnapshotsWithToken(
+            {
+              account: input.account,
+              authToken,
+              snapshots: input.snapshots,
+            },
+            options
+          )
+        : putSnapshotsWithToken({
+            account: input.account,
+            authToken,
+            snapshots: input.snapshots,
+          })
     })
   }
 
-  async fetchManifest(input: {
-    account: string
-  }): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
+  async fetchManifest(
+    input: {
+      account: string
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
     return this.executeWithAuth(async authToken => {
       safeSetApiAuthToken(authToken)
-      return fetchManifest({ account: input.account })
+      return options !== undefined
+        ? fetchManifest({ account: input.account }, options)
+        : fetchManifest({ account: input.account })
     })
   }
 
-  async fetchSnapshotsByIds(input: {
-    account: string
-    itemIds: ItemId[]
-  }): Promise<{ items: VaultItem[]; serverTime: number }> {
+  async fetchSnapshotsByIds(
+    input: {
+      account: string
+      itemIds: ItemId[]
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<{ items: VaultItem[]; serverTime: number }> {
     return this.executeWithAuth(async authToken => {
       safeSetApiAuthToken(authToken)
-      return fetchSnapshotsByIds({ account: input.account, itemIds: input.itemIds })
+      return options !== undefined
+        ? fetchSnapshotsByIds({ account: input.account, itemIds: input.itemIds }, options)
+        : fetchSnapshotsByIds({ account: input.account, itemIds: input.itemIds })
     })
   }
 
