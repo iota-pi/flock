@@ -10,35 +10,32 @@ import { SyncApiClient } from './SyncApiClient'
 import { isAuthError } from './utils/auth'
 import { isNetworkError } from './utils/network'
 import { isServerError } from './utils/server'
+import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 const MAX_BATCH_RETRIES = 3
-const REENCRYPT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000]
+export const REENCRYPT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
+const reencryptRetryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
 let scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
-let scheduledRetryAttempt = 0
 
 export function cancelScheduledReencryption(): void {
   if (scheduledRetryTimeoutId !== null) {
     clearTimeout(scheduledRetryTimeoutId)
     scheduledRetryTimeoutId = null
   }
-  scheduledRetryAttempt = 0
+  reencryptRetryStrategy.reset()
 }
 
 function scheduleReencryptRetry(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
 ): number {
-  const delayMs =
-    REENCRYPT_RETRY_DELAYS[
-      Math.min(scheduledRetryAttempt, REENCRYPT_RETRY_DELAYS.length - 1)
-    ]
-  scheduledRetryAttempt += 1
+  const delayMs = reencryptRetryStrategy.nextDelay()
 
   console.warn(
-    `[reencryptAllItems] Scheduling re-encryption retry (attempt ${scheduledRetryAttempt}) in ${delayMs}ms`
+    `[reencryptAllItems] Scheduling re-encryption retry (attempt ${reencryptRetryStrategy.attempt}) in ${delayMs}ms`
   )
 
   if (deps.scheduleRetry) {
@@ -181,7 +178,7 @@ export async function reencryptAllItems(
     if (onProgress) {
       onProgress(0, 0)
     }
-    scheduledRetryAttempt = 0
+    reencryptRetryStrategy.reset()
     return { succeeded: [], failed: [] }
   }
 
@@ -342,6 +339,6 @@ export async function reencryptAllItems(
     }
   }
 
-  scheduledRetryAttempt = 0
+  reencryptRetryStrategy.reset()
   return { succeeded, failed }
 }

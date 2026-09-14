@@ -3,6 +3,7 @@ import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from './utils/abort'
 
 export interface SyncPollerLike {
@@ -43,8 +44,19 @@ export class SyncOrchestrator {
 
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
-  private readonly pollBackoffStepsMs = [30000, 60000, 120000, 300000]
-  private pollBackoffIndex = 0
+  private readonly pollBackoff = new RetryStrategy({
+    delays: DEFAULT_POLL_BACKOFF_DELAYS,
+    jitter: { factor: 0.25, maxJitterMs: 15000 },
+  })
+  private get pollBackoffIndex(): number {
+    return this.pollBackoff.attempt
+  }
+  private set pollBackoffIndex(val: number) {
+    this.pollBackoff.attempt = val
+  }
+  private get pollBackoffStepsMs(): readonly number[] {
+    return this.pollBackoff.delays
+  }
 
   private manifestSyncIntervalId: number | null = null
   private readonly manifestSyncIntervalMs: number
@@ -280,24 +292,15 @@ export class SyncOrchestrator {
   }
 
   private applyBackoffJitter(delayMs: number): number {
-    const jitterWindow = Math.min(15000, Math.floor(delayMs * 0.25))
-    if (jitterWindow <= 0) {
-      return delayMs
-    }
-
-    const offset = Math.floor(Math.random() * (jitterWindow + 1)) - Math.floor(jitterWindow / 2)
-    return Math.max(0, delayMs + offset)
+    return this.pollBackoff.applyJitter(delayMs)
   }
 
   private resetPollBackoff(): void {
-    this.pollBackoffIndex = 0
+    this.pollBackoff.reset()
   }
 
   private increasePollBackoff(): void {
-    this.pollBackoffIndex = Math.min(
-      this.pollBackoffIndex + 1,
-      this.pollBackoffStepsMs.length - 1
-    )
+    this.pollBackoff.increment({ clampToLast: true })
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {

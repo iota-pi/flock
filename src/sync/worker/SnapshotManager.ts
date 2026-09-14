@@ -10,6 +10,7 @@ import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifie
 import type { ClientEventHub } from './SyncEventHub'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from './utils/abort'
 
 export interface SnapshotManagerOptions {
@@ -56,8 +57,16 @@ export class SnapshotManager {
   private snapshotRequestCursor: number | null = null
   private readonly loadGuard = new SingleFlightGuard<void>()
   private retryTimeoutId: ReturnType<typeof setTimeout> | null = null
-  private retryAttempt = 0
-  private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
+  private readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
+  private get retryAttempt(): number {
+    return this.retryStrategy.attempt
+  }
+  private set retryAttempt(val: number) {
+    this.retryStrategy.attempt = val
+  }
+  private get retryDelays(): readonly number[] {
+    return this.retryStrategy.delays
+  }
   private readonly maxPayloadBytes: number
   private readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
@@ -362,8 +371,7 @@ export class SnapshotManager {
 
     this.clearDebounceTimers()
 
-    const delayMs = this.retryDelays[Math.min(this.retryAttempt, this.retryDelays.length - 1)]
-    this.retryAttempt += 1
+    const delayMs = this.retryStrategy.nextDelay()
 
     console.warn(`[SnapshotManager] Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
 

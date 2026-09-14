@@ -12,6 +12,7 @@ import {
 } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
+import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 
 export interface WorkerLifecycleCallbacks {
   onEvent: (event: ClientEvent) => void
@@ -33,9 +34,18 @@ export class WorkerLifecycleManager {
 
   private initializationPromise: Promise<void> | null = null
   private currentInitSession = 0
-  private initRetryCount = 0
   private static readonly MAX_INIT_RETRIES = 5
-  private static readonly INIT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000]
+  private static readonly INIT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
+  private readonly initRetryStrategy = new RetryStrategy({
+    delays: DEFAULT_RETRY_DELAYS,
+    maxAttempts: WorkerLifecycleManager.MAX_INIT_RETRIES,
+  })
+  private get initRetryCount(): number {
+    return this.initRetryStrategy.attempt
+  }
+  private set initRetryCount(val: number) {
+    this.initRetryStrategy.attempt = val
+  }
   private _restartResolve: (() => void) | null = null
 
   constructor(private callbacks: WorkerLifecycleCallbacks) {}
@@ -254,11 +264,8 @@ export class WorkerLifecycleManager {
         console.error('Failed to initialize SyncBridge:', error)
         cleanupSessionResources()
 
-        if (initSession === this.currentInitSession && this.initRetryCount < WorkerLifecycleManager.MAX_INIT_RETRIES) {
-          const delay = WorkerLifecycleManager.INIT_RETRY_DELAYS[
-            Math.min(this.initRetryCount, WorkerLifecycleManager.INIT_RETRY_DELAYS.length - 1)
-          ]
-          this.initRetryCount += 1
+        if (initSession === this.currentInitSession && this.initRetryStrategy.canRetry) {
+          const delay = this.initRetryStrategy.nextDelay()
           useAppStore.getState().setSyncWarning(`Sync initialization failed. Retrying in ${delay / 1000}s...`)
 
           // Keep initializationPromise alive so ensureReady() callers wait

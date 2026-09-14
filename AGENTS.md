@@ -115,7 +115,9 @@ src/sync/
 │       ├── binaryFraming.ts          # Length-prefixed batched message framing & packing
 │       ├── messageParser.ts          # Length-prefixed batched message parser
 │       └── snapshot.ts               # Snapshot type normalization
-└── utils/                            # (currently empty)
+└── utils/
+    ├── RetryStrategy.ts              # Configurable delay schedules, jitter, and max attempts
+    └── SingleFlightGuard.ts          # Concurrency deduplicator for async operations
 ```
 
 ### Key Sync Concepts
