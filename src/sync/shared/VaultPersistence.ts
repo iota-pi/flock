@@ -1,4 +1,3 @@
-import localforage from 'localforage'
 import { nanoid } from 'nanoid'
 import { ItemId } from 'src/shared/schemas/items'
 import {
@@ -6,25 +5,19 @@ import {
   checkQuotaExceeded,
   resetQuotaExceededStatus,
 } from '../../utils/storageManager'
+import {
+  createAccountStore,
+  clearAccountStoreInstancesCacheForTesting,
+} from './createAccountStore'
 
 export { resetQuotaExceededStatus }
 
-const storageInstances = new Map<string, LocalForage>()
-
 export function getSyncBatchStorage(accountId: string): LocalForage {
-  let instance = storageInstances.get(accountId)
-  if (!instance) {
-    instance = localforage.createInstance({
-      name: `FlockVault_SyncBatchDB_${accountId}`,
-      storeName: 'sync-batch-messages',
-    })
-    storageInstances.set(accountId, instance)
-  }
-  return instance
+  return createAccountStore('sync-batch-messages', accountId)
 }
 
 export function clearInstancesCacheForTesting(): void {
-  storageInstances.clear()
+  clearAccountStoreInstancesCacheForTesting()
 }
 
 const MAX_MESSAGES_PER_ITEM = 2000

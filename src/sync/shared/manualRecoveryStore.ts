@@ -1,8 +1,9 @@
-import localforage from 'localforage'
-
 import { runStorageOperation } from '../../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
-
+import {
+  createAccountStore,
+  clearAccountStoreInstancesCacheForTesting,
+} from './createAccountStore'
 
 const STORE_NAME = 'manual-recovery-items'
 
@@ -13,31 +14,12 @@ export type ManualRecoveryEntry = {
   createdAt: number
 }
 
-const storageInstances = new Map<string, LocalForage>()
-const metaStorageInstances = new Map<string, LocalForage>()
-
 function getManualRecoveryStorage(accountId: string) {
-  let instance = storageInstances.get(accountId)
-  if (!instance) {
-    instance = localforage.createInstance({
-      name: `FlockVault_ManualRecoveryDB_${accountId}`,
-      storeName: STORE_NAME,
-    })
-    storageInstances.set(accountId, instance)
-  }
-  return instance
+  return createAccountStore(STORE_NAME, accountId)
 }
 
 function getManualRecoveryMetaStorage(accountId: string) {
-  let instance = metaStorageInstances.get(accountId)
-  if (!instance) {
-    instance = localforage.createInstance({
-      name: `FlockVault_ManualRecoveryDB_${accountId}`,
-      storeName: 'manual-recovery-metadata',
-    })
-    metaStorageInstances.set(accountId, instance)
-  }
-  return instance
+  return createAccountStore('manual-recovery-metadata', accountId)
 }
 
 const migrationPromisesByAccount = new Map<string, Promise<void>>()
@@ -47,8 +29,7 @@ export function resetMigrationForTesting(): void {
 }
 
 export function clearInstancesCacheForTesting(): void {
-  storageInstances.clear()
-  metaStorageInstances.clear()
+  clearAccountStoreInstancesCacheForTesting()
 }
 
 async function runMigration(accountId: string): Promise<void> {

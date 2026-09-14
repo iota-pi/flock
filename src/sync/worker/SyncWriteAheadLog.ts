@@ -1,4 +1,3 @@
-import localforage from 'localforage'
 import { nanoid } from 'nanoid'
 import type { ItemId } from 'src/shared/schemas/items'
 import { runStorageOperation } from '../../utils/storageManager'
@@ -6,6 +5,10 @@ import { packBatchedMessages, type BatchableMessage } from './utils/binaryFramin
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { WorkerInternalEventHub } from './SyncEventHub'
+import {
+  createAccountStore,
+  clearAccountStoreInstancesCacheForTesting,
+} from '../shared/createAccountStore'
 
 export { packBatchedMessages, type BatchableMessage, WalEntryQuery, type WalEntryDescriptor }
 
@@ -38,10 +41,8 @@ function toUint8Array(data: unknown): Uint8Array {
   return new Uint8Array()
 }
 
-const storageInstances = new Map<string, LocalForage>()
-
 export function clearWalInstancesCacheForTesting(): void {
-  storageInstances.clear()
+  clearAccountStoreInstancesCacheForTesting()
   SyncWriteAheadLog.resetSeqCounterForTesting()
 }
 
@@ -58,15 +59,7 @@ export class SyncWriteAheadLog {
   private internalEventHub: WorkerInternalEventHub | null = null
 
   public static getStorage(accountId: string): LocalForage {
-    let instance = storageInstances.get(accountId)
-    if (!instance) {
-      instance = localforage.createInstance({
-        name: `FlockVault_SyncWAL_${accountId}`,
-        storeName: 'wal-entries',
-      })
-      storageInstances.set(accountId, instance)
-    }
-    return instance
+    return createAccountStore('wal-entries', accountId)
   }
 
   /**
