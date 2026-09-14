@@ -1,9 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { CursorStore } from './CursorStore'
+import {
+  clearSyncMetadataInstancesCacheForTesting,
+  SYNC_METADATA_KEYS,
+  LEGACY_KEYS,
+  LEGACY_DB_NAMES,
+} from './syncMetadataStorage'
 import type { ItemId } from 'src/shared/schemas/items'
 
 class MockLocalforage {
   private data = new Map<string, any>()
+  public config?: Record<string, any>
+
+  constructor(config?: Record<string, any>) {
+    this.config = config
+  }
 
   async getItem<T>(key: string): Promise<T | null> {
     return (this.data.get(key) as T) ?? null
@@ -14,17 +25,27 @@ class MockLocalforage {
     return value
   }
 
+  async removeItem(key: string): Promise<void> {
+    this.data.delete(key)
+  }
+
   async clear(): Promise<void> {
     this.data.clear()
   }
 }
 
-let activeStore: MockLocalforage
+const instances = new Map<string, MockLocalforage>()
+
 vi.mock('localforage', () => ({
   default: {
-    createInstance: vi.fn().mockImplementation(() => {
-      activeStore = new MockLocalforage()
-      return activeStore
+    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
+      const key = `${config.name}#${config.storeName}`
+      let inst = instances.get(key)
+      if (!inst) {
+        inst = new MockLocalforage(config)
+        instances.set(key, inst)
+      }
+      return inst
     }),
   },
 }))
@@ -35,12 +56,16 @@ vi.mock('../../../utils/storageManager', () => ({
 
 describe('CursorStore', () => {
   let store: CursorStore
+  const accountId = 'account-1'
 
   beforeEach(() => {
-    store = new CursorStore('account-1')
+    vi.clearAllMocks()
+    instances.clear()
+    clearSyncMetadataInstancesCacheForTesting()
+    store = new CursorStore(accountId)
   })
 
-  it('saves and loads cursors correctly', async () => {
+  it('saves and loads cursors correctly using consolidated key', async () => {
     const cursors: [ItemId, number][] = [
       ['item-1' as ItemId, 100],
       ['item-2' as ItemId, 200],
@@ -49,12 +74,64 @@ describe('CursorStore', () => {
     await store.saveCursors(cursors)
     const loaded = await store.loadCursors()
     expect(loaded).toEqual(cursors)
+
+    // Verify key in consolidated store
+    const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
+    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual(cursors)
   })
 
-  it('clears cursors', async () => {
+  it('clears cursors without clearing entire database', async () => {
+    const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
+    await consolidatedStore?.setItem(SYNC_METADATA_KEYS.INDEX_DOC, { itemIds: ['other'] })
+
     await store.saveCursors([['item-1' as ItemId, 100]])
     await store.clear()
+
     const loaded = await store.loadCursors()
     expect(loaded).toBeNull()
+
+    // Index doc should remain intact!
+    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.INDEX_DOC)).toEqual({ itemIds: ['other'] })
+  })
+
+  it('migrates legacy in-store key cursorByItemId to cursors', async () => {
+    const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
+    const legacyCursors: [ItemId, number][] = [['item-legacy' as ItemId, 50]]
+    await consolidatedStore?.setItem(LEGACY_KEYS.CURSORS, legacyCursors)
+
+    const loaded = await store.loadCursors()
+    expect(loaded).toEqual(legacyCursors)
+
+    // Key should now be in new cursors key and removed from legacy
+    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual(legacyCursors)
+    expect(await consolidatedStore?.getItem(LEGACY_KEYS.CURSORS)).toBeNull()
+  })
+
+  it('migrates legacy database flock-sync-cursors to consolidated storage', async () => {
+    const originalIndexedDb = (globalThis as any).indexedDB
+    ;(globalThis as any).indexedDB = {
+      databases: vi.fn().mockResolvedValue([{ name: LEGACY_DB_NAMES.CURSORS }]),
+    }
+    try {
+      const legacyStoreKey = `${LEGACY_DB_NAMES.CURSORS}#cursors-${accountId}`
+      const legacyStore = new MockLocalforage({ name: LEGACY_DB_NAMES.CURSORS, storeName: `cursors-${accountId}` })
+      const legacyCursors: [ItemId, number][] = [['item-from-db' as ItemId, 77]]
+      await legacyStore.setItem(LEGACY_KEYS.CURSORS, legacyCursors)
+      instances.set(legacyStoreKey, legacyStore)
+
+      const loaded = await store.loadCursors()
+      expect(loaded).toEqual(legacyCursors)
+
+      // Verify saved to new consolidated database and removed from legacy
+      const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
+      expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual(legacyCursors)
+      expect(await legacyStore.getItem(LEGACY_KEYS.CURSORS)).toBeNull()
+    } finally {
+      if (originalIndexedDb === undefined) {
+        delete (globalThis as any).indexedDB
+      } else {
+        ;(globalThis as any).indexedDB = originalIndexedDb
+      }
+    }
   })
 })

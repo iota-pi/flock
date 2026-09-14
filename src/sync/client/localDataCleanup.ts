@@ -1,7 +1,5 @@
 import { getAutomergeDBName } from '../worker/AutomergeRepoManager'
-import { IndexStore } from '../worker/stores/IndexStore'
-import { CursorStore } from '../worker/stores/CursorStore'
-import { LastModifiedStore } from '../worker/stores/LastModifiedStore'
+import { clearSyncMetadataStorage, clearLegacySyncDatabases } from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
 import { clearSyncBatch } from '../shared/VaultPersistence'
 import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
@@ -66,9 +64,8 @@ export async function clearAccountLocalData(accountId: string): Promise<void> {
   try {
     await Promise.allSettled([
       clearAutomergeIndexedDb(accountId).catch(err => console.error('[SyncBridge] Failed to clear Automerge IndexedDB', err)),
-      new IndexStore(accountId).clear().catch(err => console.error('[SyncBridge] Failed to clear IndexStore', err)),
-      new CursorStore(accountId).clear().catch(err => console.error('[SyncBridge] Failed to clear CursorStore', err)),
-      new LastModifiedStore(accountId).clear().catch(err => console.error('[SyncBridge] Failed to clear LastModifiedStore', err)),
+      clearSyncMetadataStorage(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncMetadataStorage', err)),
+      clearLegacySyncDatabases(accountId).catch(err => console.error('[SyncBridge] Failed to clear LegacySyncDatabases', err)),
       SyncWriteAheadLog.clear(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
       clearSyncBatch(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncBatch', err)),
       clearManualRecoveryEntries(accountId).catch(err => console.error('[SyncBridge] Failed to clear ManualRecovery', err)),

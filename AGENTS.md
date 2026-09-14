@@ -105,9 +105,11 @@ src/sync/
 │   │   ├── AutomergeIndexManager.ts  # Account-level item index document
 │   │   └── index.ts                  # Re-exports + normalizeItemSnapshot
 │   ├── stores/                       # Localforage-backed stores
-│   │   ├── CursorStore.ts            # Persists pull cursors
-│   │   ├── IndexStore.ts             # Persists index document
-│   │   └── LastModifiedStore.ts      # Persists last-modified timestamps
+│   │   ├── syncMetadataStorage.ts    # Consolidated IndexedDB database manager & migration
+│   │   ├── CursorStore.ts            # Persists pull cursors ('cursors' key)
+│   │   ├── IndexStore.ts             # Persists index document ('indexDoc' key)
+│   │   ├── LastModifiedStore.ts      # Persists last-modified timestamps ('lastModified' key)
+│   │   └── SyncedHeadsStore.ts       # Persists synced heads for sync adapter ('syncedHeads' key)
 │   └── utils/
 │       ├── AsyncQueue.ts             # Sequential FIFO async queue with in-flight safety
 │       ├── LeaderElection.ts         # navigator.locks-based leader election
@@ -142,6 +144,18 @@ Only one tab performs server sync at a time. `LeaderElection` uses `navigator.lo
 - The `SyncOrchestrator` tracks online state; when offline, polling stops and the `SnapshotManager` halts retries.
 - On reconnection, the orchestrator resets backoff and triggers an immediate poll, pushing any queued WAL entries and pulling server updates.
 - `ManifestSyncManager` runs periodically (daily, or every 7 days if forced) to reconcile the local item set against the server's manifest, fetching any missing/updated snapshots.
+
+#### Consolidated IndexedDB Sync Metadata Database
+
+Flock consolidates all local sync metadata into a single dedicated IndexedDB database per account: `flock-sync-metadata-${accountId}` (object store `sync-metadata`):
+- **Eliminates 3 connection pools**: Previously, 4 separate LocalForage stores (`CursorStore`, `IndexStore`, `LastModifiedStore`, `SyncedHeadsStore`) each created their own dedicated IndexedDB database for a single key. All 4 now share a single cached `LocalForage` connection pool per account managed by `getSyncMetadataStorage(accountId)`.
+- **Dedicated separate keys**:
+  - `cursors` — pull progress per item (`[ItemId, number][]`)
+  - `indexDoc` — Automerge account item index document (`AutomergeIndexDocument`)
+  - `lastModified` — timestamps of local modifications and snapshots (`[ItemId, ItemSyncTimestamps][]`)
+  - `syncedHeads` — tracked Automerge heads for the network sync adapter (`[DocumentId, string[]][]`)
+- **Seamless legacy migration**: On read, each store checks for the consolidated key first. If absent, it lazily migrates legacy entries from earlier keys or legacy singleton databases (`flock-sync-cursors`, `flock-item-metadata`, `flock-sync-last-modified`, `flock-sync-synced-heads`) if they exist on disk, avoiding phantom database creation.
+- **Simplified account data wiping**: Account logout or reset wipes the entire consolidated database in one step via `clearSyncMetadataStorage(accountId)` in `clearAccountLocalData`. Store-level `.clear()` calls remain isolated to their respective key.
 
 #### Encryption
 

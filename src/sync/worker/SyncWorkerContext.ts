@@ -6,6 +6,7 @@ import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
+import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ManifestSyncManager } from './ManifestSyncManager'
@@ -297,6 +298,7 @@ export class SyncWorkerContext {
       onStop: async options => {
         if (options?.clearLocalData) {
           await Promise.all([
+            clearSyncMetadataStorage(this.accountId),
             this.indexStore.clear(),
             this.cursorStore.clear(),
             this.lastModifiedStore.clear(),

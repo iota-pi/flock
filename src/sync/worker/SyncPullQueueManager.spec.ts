@@ -6,6 +6,7 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
+import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 
 // Create a robust MockLocalforage helper class
 class MockLocalforage {
@@ -102,6 +103,7 @@ describe('SyncPullQueueManager', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+    clearSyncMetadataInstancesCacheForTesting()
     activeStore = null
     cursorStore = new CursorStore('account-1')
     manager = new SyncPullQueueManager(cursorStore)
@@ -120,7 +122,7 @@ describe('SyncPullQueueManager', () => {
     it('sets the account and loads cursors if set', async () => {
       await manager.setAccount('account-1')
       expect(activeStore).not.toBeNull()
-      expect(activeStore?.getItem).toHaveBeenCalledWith('cursorByItemId')
+      expect(activeStore?.getItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS)
     })
 
     it('clears maps and ignores store loading if account is null', async () => {
@@ -135,7 +137,7 @@ describe('SyncPullQueueManager', () => {
       // Setup legacy mock item store pre-loaded values
       const preLoadedCursors: [string, number][] = [['item-1', 42]]
       const lf = new MockLocalforage()
-      await lf.setItem('cursorByItemId', preLoadedCursors)
+      await lf.setItem(SYNC_METADATA_KEYS.CURSORS, preLoadedCursors)
 
       // Inject this store into createInstance
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
@@ -230,7 +232,7 @@ describe('SyncPullQueueManager', () => {
 
       // Check debounce persistence
       await vi.advanceTimersByTimeAsync(1000)
-      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', [['item-1', 5]])
+      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, [['item-1', 5]])
     })
 
     it('parses batched v1.0 messages with DataView length prefixes', async () => {
@@ -1581,7 +1583,7 @@ describe('SyncPullQueueManager', () => {
       await manager.importCursors([['item-z' as ItemId, 500]])
       await manager.shutdown()
 
-      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', expect.any(Array))
+      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, expect.any(Array))
     })
 
     it('cancels debounced timer and skips persisting when clearLocalData is true', async () => {
@@ -1599,7 +1601,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.shutdown()
       expect(activeStore?.setItem).toHaveBeenCalledTimes(1)
-      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', [['item-z', 500]])
+      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, [['item-z', 500]])
 
       activeStore!.setItem.mockClear()
       await manager.shutdown()
@@ -1625,7 +1627,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.importCursors(imported)
       expect(manager.exportCursors()).toEqual(imported)
-      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', imported)
+      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, imported)
     })
   })
 
