@@ -7,10 +7,11 @@ import {
   type DocumentId,
 } from '@automerge/automerge-repo/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
-
 import { debounce } from 'lodash-es'
+
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
+import type { WorkerInternalEventHub } from './SyncEventHub'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
@@ -37,15 +38,21 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
   private syncedHeads = new Map<DocumentId, string[]>()
   private syncedHeadsStore: SyncedHeadsStore | null = null
+  private internalEventHub: WorkerInternalEventHub | null = null
 
   public onMessageToSend: ((message: Message) => void) | null = null
   public onReNegotiationTriggered: ((documentId: DocumentId) => void) | null = null
 
-  constructor() {
+  constructor(internalEventHub?: WorkerInternalEventHub | null) {
     super()
+    this.internalEventHub = internalEventHub ?? null
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve
     })
+  }
+
+  setInternalEventHub(hub: WorkerInternalEventHub | null): void {
+    this.internalEventHub = hub
   }
 
   private canSend(): boolean {
@@ -219,6 +226,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     }
 
     this.onReNegotiationTriggered?.(documentId)
+    this.internalEventHub?.emit({ type: 'renegotiationTriggered', documentId })
     return true
   }
 
@@ -297,7 +305,11 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       }
     }
 
-    this.onMessageToSend?.(message)
+    if (this.internalEventHub) {
+      this.internalEventHub.emit({ type: 'messageToSend', message })
+    } else {
+      this.onMessageToSend?.(message)
+    }
   }
 
   receiveMessage(documentId: DocumentId, message: Uint8Array): void {

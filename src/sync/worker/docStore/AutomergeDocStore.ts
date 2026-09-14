@@ -12,6 +12,7 @@ import {
 } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
+import type { WorkerInternalEventHub } from '../SyncEventHub'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -94,11 +95,24 @@ export interface ItemLockCoordinator {
 export class AutomergeDocStore implements ItemLockCoordinator {
   private pendingFindOrCreate = new Map<ItemId, Promise<RepoDocHandle>>()
   private itemLocks = new Map<ItemId, Promise<unknown>>()
+  private internalEventHub: WorkerInternalEventHub | null = null
   public onDocHandleReplaced?: DocHandleReplacedListener
 
   constructor(
     private readonly repo: Repo,
-  ) {}
+    internalEventHub?: WorkerInternalEventHub | null,
+  ) {
+    this.internalEventHub = internalEventHub ?? null
+  }
+
+  public setInternalEventHub(hub: WorkerInternalEventHub | null): void {
+    this.internalEventHub = hub
+  }
+
+  private notifyDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
+    this.onDocHandleReplaced?.(itemId, handle)
+    this.internalEventHub?.emit({ type: 'docHandleReplaced', itemId, handle })
+  }
 
   async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
     const prevLock = this.itemLocks.get(itemId) ?? Promise.resolve()
@@ -304,7 +318,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         )
       }
 
-      this.onDocHandleReplaced?.(itemId, handle)
+      this.notifyDocHandleReplaced(itemId, handle)
       return handle
     })
 
@@ -509,7 +523,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const existing = this.repo.handles[documentId]
     if (existing && existing.isReady()) {
       this.applyMerge(existing, binary)
-      this.onDocHandleReplaced?.(itemId, existing)
+      this.notifyDocHandleReplaced(itemId, existing)
       return existing
     }
 
@@ -522,7 +536,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const handle = this.repo.import<RepoDoc>(binary, {
       docId: documentId,
     })
-    this.onDocHandleReplaced?.(itemId, handle)
+    this.notifyDocHandleReplaced(itemId, handle)
     return handle
   }
 
@@ -557,7 +571,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
       const handle = this.repo.import<RepoDoc>(compactedBinary, {
         docId: documentId,
       })
-      this.onDocHandleReplaced?.(normalizedItemId, handle)
+      this.notifyDocHandleReplaced(normalizedItemId, handle)
       return true
     })
   }

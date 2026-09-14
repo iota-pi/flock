@@ -5,6 +5,9 @@ import type { AccountMetadata } from 'src/state/metadata'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { PollOutcome } from './SyncPoller'
 
+import type { DocumentId, Message, DocHandle } from '@automerge/automerge-repo/slim'
+import type { RepoDoc } from './docStore/AutomergeDocStore'
+
 export type ClientEvent =
   | { type: 'ready' }
   | { type: 'statusChange'; status: SyncStatus }
@@ -27,6 +30,20 @@ export type WorkerInternalEvent =
   | { type: 'multipleLeadersDetected' }
   | { type: 'soleLeaderRestored' }
   | { type: 'leaderConflict'; hasConflict: boolean }
+  | { type: 'flushNeeded' }
+  | { type: 'itemMessageParsed'; itemId: ItemId }
+  | { type: 'walAppendFailed'; itemId: ItemId; error: unknown }
+  | { type: 'walEntriesPruned'; itemIds: ItemId[] }
+  | { type: 'messageParsed'; itemId: ItemId; documentId: DocumentId; message: Uint8Array }
+  | { type: 'decryptionFailure'; itemId: ItemId; error: unknown }
+  | { type: 'retryingStateChange'; isRetrying: boolean }
+  | { type: 'keyVersionMissing'; kver: string }
+  | { type: 'pendingPullsAvailable' }
+  | { type: 'pushAcknowledged'; itemId: ItemId; heads: string[] }
+  | { type: 'leaderChange'; isLeader: boolean }
+  | { type: 'renegotiationTriggered'; documentId: DocumentId }
+  | { type: 'messageToSend'; message: Message }
+  | { type: 'docHandleReplaced'; itemId: ItemId; handle: DocHandle<RepoDoc> }
 
 export type EventListener<T> = (event: T) => void | Promise<void>
 export type ClientEventListener = EventListener<ClientEvent>

@@ -41,6 +41,8 @@ export class SyncOrchestrator {
   private readonly manifestSyncGuard = new SingleFlightGuard<void>()
   private manifestSyncManager: ManifestSyncManagerLike | null = null
 
+  private unsubscribeInternalEvents: (() => void) | null = null
+
   constructor(
     private accountId: string,
     private broker: SyncMessageBroker,
@@ -52,12 +54,19 @@ export class SyncOrchestrator {
   ) {
     this.manifestSyncManager = manifestSyncManager ?? null
     this.manifestSyncIntervalMs = options?.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
-    this.broker.onFlushNeeded = () => {
-      this.flush()
+    this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
+      if (event.type === 'flushNeeded') {
+        this.flush()
+      }
+    })
+    if (this.broker) {
+      this.broker.onFlushNeeded = () => {
+        this.flush()
+      }
     }
     // Sync initial states with the broker
-    this.broker.setOnlineState(this.isOnline)
-    this.broker.setSendEnabled(this.isLeader)
+    this.broker?.setOnlineState?.(this.isOnline)
+    this.broker?.setSendEnabled?.(this.isLeader)
   }
 
   get isOperational(): boolean {
@@ -139,6 +148,7 @@ export class SyncOrchestrator {
     this.isLeader = isLeader
     this.broker.setSendEnabled(isLeader)
     this.onLeaderChange?.(isLeader)
+    this.internalEventHub.emit({ type: 'leaderChange', isLeader })
 
     if (isLeader) {
       void this.cursorReloadGuard.run(() => this.reloadCursors())
@@ -367,6 +377,10 @@ export class SyncOrchestrator {
 
   async shutdown(): Promise<void> {
     this.isShutdown = true
+    if (this.unsubscribeInternalEvents) {
+      this.unsubscribeInternalEvents()
+      this.unsubscribeInternalEvents = null
+    }
     const wasPolling = this.pollAbortController !== null
     this.setLeader(false)
     this.cursorReloadGuard.clear()

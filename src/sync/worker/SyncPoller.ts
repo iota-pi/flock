@@ -231,6 +231,11 @@ export class SyncPoller {
                 const decoded = decodeSyncMessage(rawMsg)
                 if (decoded.heads && decoded.heads.length > 0) {
                   this.onPushAcknowledged?.(result.itemId, decoded.heads)
+                  this.internalEventHub.emit({
+                    type: 'pushAcknowledged',
+                    itemId: result.itemId,
+                    heads: decoded.heads,
+                  })
                 }
               } catch (err) {
                 console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)

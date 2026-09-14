@@ -88,6 +88,7 @@ export class SyncWorkerContext {
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unregisterQuotaRecovery: (() => void) | null = null
+  private unsubscribers: Array<() => void> = []
 
   constructor(config: SyncWorkerContextConfig) {
     this.accountId = config.accountId
@@ -200,41 +201,47 @@ export class SyncWorkerContext {
       recoveryManager: this.recoveryManager,
     })
 
-    // ── Cross-component callback wiring ────────────────────────────────────
-    this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
-      void this.itemOperations.reportDecryptionFailure(itemId, error)
-    }
+    // ── Cross-component EventHub wiring ──────────────────────────────────
+    this.adapter.setInternalEventHub?.(this.internalEventHub)
+    this.pullQueueManager.setInternalEventHub?.(this.internalEventHub)
+    this.docStore.setInternalEventHub?.(this.internalEventHub)
+    this.wal.setInternalEventHub?.(this.internalEventHub)
 
-    this.pullQueueManager.onPendingPullsAvailable = () => {
-      this.broker.onFlushNeeded?.()
-    }
+    this.subscribeInternalEvents(config)
 
-    this.broker.onItemMessageParsed = itemId => {
-      void this.itemOperations.clearManualRecoveryForItems([itemId])
-      config.onItemMessageParsed?.(itemId)
-    }
-
-    this.adapter.onReNegotiationTriggered = documentId => {
-      const itemId = toVaultItemIdFromAutomergeId(documentId)
-      this.snapshotManager.markItemDirty(itemId, 0)
-    }
-
-    this.broker.onWalAppendFailed = (itemId, _error) => {
-      this.snapshotManager.markItemDirty(itemId, 0)
-    }
-
-    this.broker.onWalEntriesPruned = itemIds => {
-      for (const itemId of itemIds) {
-        this.snapshotManager.markItemDirty(itemId, 0)
+    // Compatibility hooks for mocks/direct callback invocation in unit tests
+    if (this.orchestrator) {
+      this.orchestrator.onLeaderChange = isLeader => {
+        this.snapshotManager.setLeader(isLeader)
       }
     }
-
-    if (this.wal && !this.wal.onEntriesPruned) {
+    if (this.pullQueueManager) {
+      this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
+        this.internalEventHub.emit({ type: 'decryptionFailure', itemId, error })
+      }
+      this.pullQueueManager.onPendingPullsAvailable = () => {
+        this.internalEventHub.emit({ type: 'flushNeeded' })
+      }
+    }
+    if (this.broker) {
+      this.broker.onItemMessageParsed = itemId => {
+        this.internalEventHub.emit({ type: 'itemMessageParsed', itemId })
+      }
+      this.broker.onWalAppendFailed = (itemId, error) => {
+        this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error })
+      }
+      this.broker.onWalEntriesPruned = itemIds => {
+        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds })
+      }
+    }
+    if (this.adapter) {
+      this.adapter.onReNegotiationTriggered = documentId => {
+        this.internalEventHub.emit({ type: 'renegotiationTriggered', documentId })
+      }
+    }
+    if (this.wal) {
       this.wal.onEntriesPruned = itemIds => {
-        for (const itemId of itemIds) {
-          this.broker.markSnapshotOnly?.(itemId)
-          this.snapshotManager.markItemDirty(itemId, 0)
-        }
+        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds })
       }
     }
 
@@ -408,12 +415,47 @@ export class SyncWorkerContext {
     })
   }
 
+  private subscribeInternalEvents(config: SyncWorkerContextConfig): void {
+    const unsub = this.internalEventHub.subscribe(event => {
+      switch (event.type) {
+        case 'leaderChange':
+          this.snapshotManager.setLeader(event.isLeader)
+          break
+        case 'decryptionFailure':
+          void this.itemOperations.reportDecryptionFailure(event.itemId, event.error)
+          break
+        case 'itemMessageParsed':
+          void this.itemOperations.clearManualRecoveryForItems([event.itemId])
+          config.onItemMessageParsed?.(event.itemId)
+          break
+        case 'renegotiationTriggered': {
+          const itemId = toVaultItemIdFromAutomergeId(event.documentId)
+          this.snapshotManager.markItemDirty(itemId, 0)
+          break
+        }
+        case 'walAppendFailed':
+          this.snapshotManager.markItemDirty(event.itemId, 0)
+          break
+        case 'walEntriesPruned':
+          for (const itemId of event.itemIds) {
+            this.snapshotManager.markItemDirty(itemId, 0)
+          }
+          break
+      }
+    })
+    this.unsubscribers.push(unsub)
+  }
+
   async initialize(): Promise<void> {
     await this.lifecycle.start()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     await this.lifecycle.stop(options)
+    for (const unsub of this.unsubscribers) {
+      unsub()
+    }
+    this.unsubscribers = []
   }
 
   /**

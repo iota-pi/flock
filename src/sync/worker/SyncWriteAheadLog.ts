@@ -6,6 +6,7 @@ import { isQuotaError } from '../../utils/storageQuota'
 import { packBatchedMessages, type BatchableMessage } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { WorkerInternalEventHub } from './SyncEventHub'
 
 export { packBatchedMessages, type BatchableMessage, WalEntryQuery, type WalEntryDescriptor }
 
@@ -54,7 +55,8 @@ export class SyncWriteAheadLog {
     SyncWriteAheadLog.seqCounter = 0
   }
 
-  private readonly storage: LocalForage
+  private storage: LocalForage
+  private internalEventHub: WorkerInternalEventHub | null = null
 
   public static getStorage(accountId: string): LocalForage {
     let instance = storageInstances.get(accountId)
@@ -77,8 +79,16 @@ export class SyncWriteAheadLog {
     await runStorageOperation(() => storage.clear())
   }
 
-  constructor(public readonly accountId: string) {
+  constructor(
+    public readonly accountId: string,
+    internalEventHub?: WorkerInternalEventHub | null,
+  ) {
     this.storage = SyncWriteAheadLog.getStorage(accountId)
+    this.internalEventHub = internalEventHub ?? null
+  }
+
+  public setInternalEventHub(hub: WorkerInternalEventHub | null): void {
+    this.internalEventHub = hub
   }
 
   public onEntriesPruned: ((prunedItemIds: ItemId[]) => void) | null = null
@@ -235,12 +245,15 @@ export class SyncWriteAheadLog {
         await this.remove(toRemove)
       }
 
-      if (prunedItemIds.length > 0 && this.onEntriesPruned) {
-        try {
-          this.onEntriesPruned(prunedItemIds)
-        } catch (cbErr) {
-          console.error('[SyncWriteAheadLog] Error in onEntriesPruned callback', cbErr)
+      if (prunedItemIds.length > 0) {
+        if (this.onEntriesPruned) {
+          try {
+            this.onEntriesPruned(prunedItemIds)
+          } catch (cbErr) {
+            console.error('[SyncWriteAheadLog] Error in onEntriesPruned callback', cbErr)
+          }
         }
+        this.internalEventHub?.emit({ type: 'walEntriesPruned', itemIds: prunedItemIds })
       }
     } catch (err) {
       console.error('[SyncWriteAheadLog] Failed to prune oldest entries', err)

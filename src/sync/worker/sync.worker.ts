@@ -134,6 +134,20 @@ export class SyncWorker implements SyncApi {
           console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
           this._context?.repoManager.resumeBroadcastSync()
           break
+        case 'retryingStateChange':
+          this.syncStatusManager.setDegradedPull(event.isRetrying)
+          break
+        case 'keyVersionMissing':
+          this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
+          break
+        case 'docHandleReplaced':
+          this.handleDocHandleReplaced(event.itemId, event.handle)
+          break
+        case 'itemMessageParsed':
+          if ((event.itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+            this.subscribeToItems([event.itemId])
+          }
+          break
       }
     })
 

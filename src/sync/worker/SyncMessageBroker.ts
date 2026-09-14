@@ -19,6 +19,7 @@ export class SyncMessageBroker {
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
   private unsubscribeClientEvents: (() => void) | null = null
+  private unsubscribeInternalEvents: (() => void) | null = null
 
   public onFlushNeeded: (() => void) | null = null
   public onItemMessageParsed: ((itemId: ItemId) => void) | null = null
@@ -33,13 +34,59 @@ export class SyncMessageBroker {
     private pullQueueManager: SyncPullQueueManager,
     wal?: SyncWriteAheadLog | null,
   ) {
+    this.adapter?.setInternalEventHub?.(this.internalEventHub)
+    this.pullQueueManager?.setInternalEventHub?.(this.internalEventHub)
     this.setWal(wal ?? null)
 
-    this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
-      if (this.account) {
-        this.onItemMessageParsed?.(itemId)
+    this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
+      switch (event.type) {
+        case 'messageToSend':
+          void this.handleOutgoingMessage(event.message)
+          break
+        case 'messageParsed':
+          if (this.account) {
+            this.onItemMessageParsed?.(event.itemId)
+            this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
+          }
+          this.adapter.receiveMessage(event.documentId, event.message)
+          break
+        case 'pushAcknowledged':
+          this.unblockItem(event.itemId)
+          {
+            const documentId = toDocumentIdFromItemId(event.itemId)
+            this.adapter.setSyncedHeads(documentId, event.heads)
+            this.adapter.resetReNegotiationCircuit(documentId)
+          }
+          break
+        case 'walEntriesPruned':
+          this.handleWalEntriesPruned(event.itemIds)
+          break
       }
-      this.adapter.receiveMessage(documentId, message)
+    })
+
+    this.syncPoller = new SyncPoller(
+      this.pullQueueManager,
+      this.clientEventHub,
+      this.internalEventHub,
+      this.indexManager,
+      this.wal,
+    )
+
+    this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
+      if (event.type === 'quotaResolved') {
+        this.unblockAllItems()
+        this.adapter.resetReNegotiationCircuit()
+      }
+    })
+
+    if (this.pullQueueManager) {
+      this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
+        if (this.account) {
+          this.onItemMessageParsed?.(itemId)
+          this.internalEventHub?.emit({ type: 'itemMessageParsed', itemId })
+        }
+        this.adapter.receiveMessage(documentId, message)
+      }
     }
 
     this.syncPoller = new SyncPoller(
@@ -64,8 +111,10 @@ export class SyncMessageBroker {
       }
     })
 
-    this.adapter.onMessageToSend = (msg: Message) => {
-      void this.handleOutgoingMessage(msg)
+    if (this.adapter) {
+      this.adapter.onMessageToSend = (msg: Message) => {
+        void this.handleOutgoingMessage(msg)
+      }
     }
   }
 
@@ -156,7 +205,11 @@ export class SyncMessageBroker {
     this.wal = wal
     if (this.wal) {
       this.unblockAllItems()
-      this.wal.onEntriesPruned = itemIds => this.handleWalEntriesPruned(itemIds)
+      if (this.internalEventHub && typeof this.wal.setInternalEventHub === 'function') {
+        this.wal.setInternalEventHub(this.internalEventHub)
+      } else {
+        this.wal.onEntriesPruned = itemIds => this.handleWalEntriesPruned(itemIds)
+      }
     }
     if (this.syncPoller) {
       this.syncPoller.setWal(this.wal)
@@ -203,8 +256,8 @@ export class SyncMessageBroker {
       if (this.snapshotOnlyItems.has(itemId)) {
         // Item was pruned from WAL and is flagged for snapshot-only sync.
         // Drop incremental sync message to avoid re-filling WAL and causing thrashing.
-        // Forward to onWalEntriesPruned callback to ensure dirty snapshot state is refreshed.
-        this.onWalEntriesPruned?.([itemId])
+        // Emit walEntriesPruned to ensure dirty snapshot state is refreshed.
+        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
         return
       }
 
@@ -227,6 +280,7 @@ export class SyncMessageBroker {
     this.blockItem(itemId)
     this.adapter.triggerReNegotiation(documentId)
     this.onWalAppendFailed?.(itemId, err)
+    this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
     if (isQuotaError(err)) {
       this.clientEventHub.emit({
         type: 'quotaExceeded',
@@ -237,6 +291,7 @@ export class SyncMessageBroker {
 
   flush(): void {
     this.onFlushNeeded?.()
+    this.internalEventHub.emit({ type: 'flushNeeded' })
   }
 
   exportCursors(): [ItemId, number][] {
@@ -274,6 +329,8 @@ export class SyncMessageBroker {
   async shutdown(): Promise<void> {
     this.unsubscribeClientEvents?.()
     this.unsubscribeClientEvents = null
+    this.unsubscribeInternalEvents?.()
+    this.unsubscribeInternalEvents = null
     this.unblockAllItems()
     this.snapshotOnlyItems.clear()
     this.syncPoller.shutdown()
