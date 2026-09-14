@@ -6,6 +6,7 @@ import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
 import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { isAuthError } from './utils/auth'
 import { isNetworkError } from './utils/network'
 import { isServerError } from './utils/server'
@@ -143,6 +144,7 @@ export interface ReencryptDeps {
   accountId: string
   repo: Repo
   indexManager: AutomergeIndexManager
+  apiClient?: SyncApiClient
   getAuthToken?: () => Promise<string | null>
   refreshAuthToken?: () => Promise<string | null>
   scheduleRetry?: (delayMs?: number) => void
@@ -164,8 +166,14 @@ export async function reencryptAllItems(
 
   const { accountId, repo, indexManager } = deps
   const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
-  const authManager = new ReencryptAuthManager(deps)
-  await authManager.getInitialToken()
+  const apiClient = deps.apiClient ?? new SyncApiClient({
+    getAuthToken: deps.getAuthToken,
+    refreshAuthToken: deps.refreshAuthToken,
+  })
+  const initialToken = await apiClient.getValidToken()
+  if (!initialToken) {
+    throw new Error('No active session token available')
+  }
 
   const allItemIds = await indexManager.listAutomergeItemIds()
   const total = allItemIds.length
@@ -210,7 +218,7 @@ export async function reencryptAllItems(
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
     }
 
-    await authManager.syncLatestToken()
+    await apiClient.syncLatestToken()
 
     const snapshotPromises = chunkIds.map(async itemId => {
       let retries = 0
@@ -262,9 +270,8 @@ export async function reencryptAllItems(
 
       for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
         try {
-          const response = await putSnapshotsWithToken({
+          const response = await apiClient.putSnapshots({
             account: accountId,
-            authToken: authManager.getToken(),
             snapshots: readySnapshots.map(r => r.snapshot),
           })
 
@@ -280,12 +287,6 @@ export async function reencryptAllItems(
           )
 
           if (isAuthError(err)) {
-            const refreshed = await authManager.tryRefresh()
-            if (refreshed) {
-              continue
-            }
-
-            // Auth error cannot be resolved; abort immediately without quarantining items!
             throw toAuthExpiredError(err)
           }
 

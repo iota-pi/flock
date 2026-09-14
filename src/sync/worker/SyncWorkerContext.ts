@@ -21,6 +21,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { resetQuotaExceededStatus, registerQuotaRecoveryHandler } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
 import { ServiceLifecycleManager } from './ServiceLifecycleManager'
+import { SyncApiClient } from './SyncApiClient'
 
 class QuotaExceededRetryError extends Error {
   constructor(message: string) {
@@ -44,6 +45,7 @@ export interface SyncWorkerContextDeps {
   syncedHeadsStore?: SyncedHeadsStore
   onDocHandleReplaced?: DocHandleReplacedListener
   onItemMessageParsed?: (itemId: ItemId) => void
+  apiClient?: SyncApiClient
 }
 
 export class SyncWorkerContext {
@@ -53,6 +55,7 @@ export class SyncWorkerContext {
   public readonly broker: SyncMessageBroker
   public readonly clientEventHub: ClientEventHub
   public readonly internalEventHub: WorkerInternalEventHub
+  public readonly apiClient: SyncApiClient
 
   public readonly indexStore: IndexStore
   public readonly cursorStore: CursorStore
@@ -79,6 +82,7 @@ export class SyncWorkerContext {
     this.broker = deps.broker
     this.clientEventHub = deps.clientEventHub
     this.internalEventHub = deps.internalEventHub
+    this.apiClient = deps.apiClient ?? new SyncApiClient()
 
     this.indexStore = deps.indexStore
     this.indexManager = deps.indexManager
@@ -108,6 +112,7 @@ export class SyncWorkerContext {
         getLatestCursor: () => this.pullQueueManager.getGlobalLatestCursor(),
         eventHub: deps.clientEventHub,
         recoveryManager: this.recoveryManager,
+        apiClient: this.apiClient,
       },
       this.lastModifiedStore
     )
@@ -178,6 +183,7 @@ export class SyncWorkerContext {
         indexManager: this.indexManager,
         snapshotManager: this.snapshotManager,
         recoveryManager: this.recoveryManager,
+        apiClient: this.apiClient,
       },
       (items, options) => this.itemOperations.storeItems(items, options),
       changes => this.itemOperations.mutateMetadata(changes),

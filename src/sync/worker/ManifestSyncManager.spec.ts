@@ -178,8 +178,7 @@ describe('ManifestSyncManager', () => {
       const syncPromise1 = manifestSyncManager.sync(true)
       const syncPromise2 = manifestSyncManager.sync(false)
 
-      await Promise.resolve()
-      await Promise.resolve()
+      await new Promise(resolve => setTimeout(resolve, 0))
 
       expect(mockFetchManifest).toHaveBeenCalledTimes(1)
 

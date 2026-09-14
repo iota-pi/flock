@@ -8,9 +8,8 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { SnapshotManager } from './SnapshotManager'
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
 import { decryptObject, decryptBytes, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
-import { hasApiAuthToken } from '../../api/runtime'
 import type { ItemId } from 'src/shared/schemas/items'
-import { getTrpcClient } from 'src/api/trpcClient'
+import { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { RecoveryManager } from './RecoveryManager'
@@ -55,6 +54,7 @@ export type HydrateItemResult =
 
 export class ManifestSyncManager {
   private recoveryManager: RecoveryManager
+  private readonly apiClient: SyncApiClient
 
   constructor(
     private deps: {
@@ -63,12 +63,14 @@ export class ManifestSyncManager {
       indexManager: AutomergeIndexManager
       snapshotManager: SnapshotManager
       recoveryManager?: RecoveryManager
+      apiClient?: SyncApiClient
     },
     private storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
     private mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
     private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
     private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {
+    this.apiClient = deps.apiClient ?? new SyncApiClient()
     this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId: deps.accountId })
   }
 
@@ -97,7 +99,8 @@ export class ManifestSyncManager {
       return { added: [] }
     }
 
-    if (!hasApiAuthToken()) {
+    const hasToken = await this.apiClient.hasAuthToken()
+    if (!hasToken) {
       if (hasKnownItems) {
         console.info('[ManifestSyncManager] No auth token, using local data only')
         return { added: [] }
@@ -110,7 +113,7 @@ export class ManifestSyncManager {
     let clockSkew = 0
     try {
       const requestStartTime = Date.now()
-      manifestResponse = await fetchManifest({
+      manifestResponse = await this.apiClient.fetchManifest({
         account: this.deps.accountId,
       })
       const requestEndTime = Date.now()
@@ -362,7 +365,7 @@ export class ManifestSyncManager {
 
     for (const batch of batches) {
       try {
-        const response = await fetchSnapshotsByIds({
+        const response = await this.apiClient.fetchSnapshotsByIds({
           account: this.deps.accountId,
           itemIds: batch,
         })
@@ -582,21 +585,15 @@ export class ManifestSyncManager {
   }
 
   private async syncMetadata() {
-    if (!hasApiAuthToken() || !this.deps.accountId) return
+    if (!this.deps.accountId) return
+    const hasToken = await this.apiClient.hasAuthToken()
+    if (!hasToken) return
 
     let remoteMetadata: AccountMetadata | null = null
     try {
-      const response = await getTrpcClient().accounts.getMetadata.query({
+      remoteMetadata = await this.apiClient.getAccountMetadata({
         account: this.deps.accountId,
       })
-      if (
-        response?.success &&
-        response.metadata &&
-        typeof response.metadata === 'object' &&
-        !Array.isArray(response.metadata)
-      ) {
-        remoteMetadata = response.metadata as AccountMetadata
-      }
     } catch (error) {
       console.warn('[ManifestSyncManager] Metadata sync skipped (failed to query remote metadata):', error)
       return
@@ -615,7 +612,7 @@ export class ManifestSyncManager {
 
       if (needsRemotePush) {
         const syncablePayload = extractSyncableMetadata(merged)
-        await getTrpcClient().accounts.updateMetadata.mutate({
+        await this.apiClient.updateAccountMetadata({
           account: this.deps.accountId,
           metadata: syncablePayload,
         })

@@ -2,8 +2,7 @@ import { debounce } from 'lodash-es'
 import type { Repo } from '@automerge/automerge-repo/slim'
 
 import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
-import { getActiveSessionToken } from '../shared/workerAuthStore'
-import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
+import { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { buildSnapshot, isTransientVaultError, type BuildSnapshotResult } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
@@ -58,6 +57,7 @@ export class SnapshotManager {
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
   private readonly maxPayloadBytes: number
   private readonly recoveryManager: RecoveryManager
+  private readonly apiClient: SyncApiClient
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private maxWaitTimer: ReturnType<typeof setTimeout> | null = null
@@ -79,10 +79,12 @@ export class SnapshotManager {
       getLatestCursor?: () => number
       eventHub?: ClientEventHub
       recoveryManager?: RecoveryManager
+      apiClient?: SyncApiClient
     },
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
+    this.apiClient = deps.apiClient ?? new SyncApiClient()
     this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
       accountId: deps.accountId,
       eventHub: deps.eventHub,
@@ -373,7 +375,6 @@ export class SnapshotManager {
 
   private async preparePushContext(): Promise<{
     accountId: string
-    authToken: string
     dirtyItemIds: ItemId[]
     snapshotCursor: number
   } | null> {
@@ -386,8 +387,8 @@ export class SnapshotManager {
       return null
     }
 
-    const authToken = await getActiveSessionToken()
-    if (!authToken) {
+    const hasToken = await this.apiClient.hasAuthToken()
+    if (!hasToken) {
       console.warn('[SnapshotManager] Cannot push snapshots: missing active session token')
       return null
     }
@@ -396,7 +397,6 @@ export class SnapshotManager {
 
     return {
       accountId: this.deps.accountId,
-      authToken,
       dirtyItemIds,
       snapshotCursor,
     }
@@ -404,16 +404,14 @@ export class SnapshotManager {
 
   private async sendSnapshotBatch(
     accountId: string,
-    authToken: string,
     batch: VaultSnapshotInput[],
   ): Promise<{ success: boolean; persisted: number }> {
     if (batch.length === 0) {
       return { success: true, persisted: 0 }
     }
     try {
-      const response = await putSnapshotsWithToken({
+      const response = await this.apiClient.putSnapshots({
         account: accountId,
-        authToken,
         snapshots: batch,
       })
 
@@ -545,7 +543,6 @@ export class SnapshotManager {
   private finalizeSuccessfulBatch(
     batch: PreparedSnapshotItem[],
     accountId: string,
-    _authToken?: string,
   ): void {
     for (const item of batch) {
       if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
@@ -570,29 +567,26 @@ export class SnapshotManager {
   private async flushBatch(
     batch: PreparedSnapshotItem[],
     accountId: string,
-    authToken: string,
   ): Promise<{ success: boolean; persisted: number }> {
     if (batch.length === 0) {
       return { success: true, persisted: 0 }
     }
     const result = await this.sendSnapshotBatch(
       accountId,
-      authToken,
       batch.map(b => b.snapshot),
     )
     if (result.success) {
-      this.finalizeSuccessfulBatch(batch, accountId, authToken)
+      this.finalizeSuccessfulBatch(batch, accountId)
     }
     return result
   }
 
   private async processSnapshotPush(context: {
     accountId: string
-    authToken: string
     dirtyItemIds: ItemId[]
     snapshotCursor: number
   }): Promise<{ persisted: number; total: number; success: boolean }> {
-    const { accountId, authToken, dirtyItemIds, snapshotCursor } = context
+    const { accountId, dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
     let success = true
@@ -620,7 +614,7 @@ export class SnapshotManager {
 
       if ((wouldExceedCount || wouldExceedBytes) && currentBatch.length > 0) {
         total += currentBatch.length
-        const result = await this.flushBatch(currentBatch, accountId, authToken)
+        const result = await this.flushBatch(currentBatch, accountId)
         persisted += result.persisted
         if (!result.success) {
           success = false
@@ -638,7 +632,7 @@ export class SnapshotManager {
     // Flush any remaining items in the batch
     if (!sendFailed && currentBatch.length > 0) {
       total += currentBatch.length
-      const result = await this.flushBatch(currentBatch, accountId, authToken)
+      const result = await this.flushBatch(currentBatch, accountId)
       persisted += result.persisted
       if (!result.success) {
         success = false
