@@ -11,6 +11,7 @@ import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker, type ItemPullState } from './PullRetryTracker'
 import type { WorkerInternalEventHub } from './SyncEventHub'
+import { BoundedSet, BoundedMap } from '../utils/boundedCollections'
 
 export { type ItemPullState } from './PullRetryTracker'
 
@@ -31,11 +32,11 @@ export class SyncPullQueueManager {
   private globalLastEvaluatedKey?: Record<string, unknown>
   public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
 
-  private readonly seenMessageCursors = new Set<string>() // "itemId:cursor" compound keys
   private static readonly SEEN_CACHE_MAX = 2000
+  private readonly seenMessageCursors = new BoundedSet<string>(SyncPullQueueManager.SEEN_CACHE_MAX) // "itemId:cursor" compound keys
 
-  private readonly batchProgress = new Map<string, number>() // "itemId:cursor" -> succeeded prefix count
   private static readonly BATCH_PROGRESS_CACHE_MAX = 500
+  private readonly batchProgress = new BoundedMap<string, number>(SyncPullQueueManager.BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
 
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
@@ -71,14 +72,7 @@ export class SyncPullQueueManager {
   }
 
   private markSeen(itemId: ItemId, cursor: number): void {
-    const key = this.makeSeenKey(itemId, cursor)
-    this.seenMessageCursors.add(key)
-    // Evict oldest entries if cache grows too large
-    if (this.seenMessageCursors.size > SyncPullQueueManager.SEEN_CACHE_MAX) {
-      const iterator = this.seenMessageCursors.values()
-      const oldest = iterator.next().value
-      if (oldest) this.seenMessageCursors.delete(oldest)
-    }
+    this.seenMessageCursors.add(this.makeSeenKey(itemId, cursor))
   }
 
   private hasSeen(itemId: ItemId, cursor: number): boolean {
@@ -90,12 +84,7 @@ export class SyncPullQueueManager {
   }
 
   private setBatchProgress(itemId: ItemId, cursor: number, count: number): void {
-    const key = this.makeSeenKey(itemId, cursor)
-    this.batchProgress.set(key, count)
-    if (this.batchProgress.size > SyncPullQueueManager.BATCH_PROGRESS_CACHE_MAX) {
-      const oldest = this.batchProgress.keys().next().value
-      if (oldest) this.batchProgress.delete(oldest)
-    }
+    this.batchProgress.set(this.makeSeenKey(itemId, cursor), count)
   }
 
   private clearBatchProgress(itemId: ItemId, cursor: number): void {

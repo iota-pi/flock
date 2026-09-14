@@ -12,6 +12,7 @@ import { debounce } from 'lodash-es'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
 import type { WorkerInternalEventHub } from './SyncEventHub'
+import { BoundedQueue, BoundedSet } from '../utils/boundedCollections'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
@@ -32,8 +33,17 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private readyPromiseResolver: (() => void) | null = null
   private readonly readyPromise: Promise<void>
   private sendEnabled = false
-  private seededDocuments = new Set<DocumentId>()
-  private outboundQueue: Message[] = []
+  private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
+  private outboundQueue = new BoundedQueue<Message>(MAX_OUTBOUND_QUEUE_SIZE, {
+    onEvict: evicted => {
+      console.warn(
+        `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
+      )
+      if (evicted?.documentId) {
+        this.triggerReNegotiation(evicted.documentId)
+      }
+    },
+  })
   private pendingReNegotiations = new Set<DocumentId>()
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
   private syncedHeads = new Map<DocumentId, string[]>()
@@ -171,15 +181,6 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       }
     }
 
-    if (this.outboundQueue.length >= MAX_OUTBOUND_QUEUE_SIZE) {
-      console.warn(
-        `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
-      )
-      const evicted = this.outboundQueue.shift()
-      if (evicted?.documentId) {
-        this.triggerReNegotiation(evicted.documentId)
-      }
-    }
     this.outboundQueue.push(message)
   }
 
@@ -211,7 +212,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     circuit.timestamps.push(now)
 
     this.removeSeededDocument(documentId)
-    this.outboundQueue = this.outboundQueue.filter(m => m.documentId !== documentId)
+    this.outboundQueue.filterInPlace(m => m.documentId !== documentId)
 
     if (this.canSend() && this.peerId) {
       const emptySyncMsg = encodeSyncMessage({
@@ -275,12 +276,6 @@ export class VaultNetworkAdapter extends NetworkAdapter {
           // the last confirmed synced heads and request the missing local heads (need: decoded.heads),
           // prompting Automerge to emit the delta changes.
           if (message.documentId && !this.seededDocuments.has(message.documentId)) {
-            if (this.seededDocuments.size >= MAX_SEEDED_DOCUMENTS) {
-              const oldest = this.seededDocuments.values().next().value
-              if (oldest) {
-                this.seededDocuments.delete(oldest)
-              }
-            }
             this.seededDocuments.add(message.documentId)
 
             const synced = this.syncedHeads.get(message.documentId)
@@ -397,7 +392,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   }
 
   clearOutboundQueue(): void {
-    this.outboundQueue = []
+    this.outboundQueue.clear()
     this.pendingReNegotiations.clear()
     this.resetReNegotiationCircuit()
   }

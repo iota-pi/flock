@@ -20,6 +20,7 @@ import {
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import { AsyncQueue } from './utils/AsyncQueue'
+import { BoundedQueue } from '../utils/boundedCollections'
 
 export const DEFAULT_MAX_CRYPTO_RETRIES = 3
 export const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
@@ -45,7 +46,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: AsyncQueue<QueuedMessage>
   private receiveQueue: AsyncQueue<QueuedMessage>
-  private pendingKeyMessages = new Map<string, Message[]>()
+  private pendingKeyMessages = new Map<string, BoundedQueue<Message>>()
   private activeKeyWaiters = new Set<string>()
   private isDisconnected = false
   private isPaused = false
@@ -174,17 +175,19 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   private bufferPendingMessage(kver: string, message: Message) {
-    let pending = this.pendingKeyMessages.get(kver)
-    if (!pending) {
-      pending = []
-      this.pendingKeyMessages.set(kver, pending)
-    }
-    if (pending.length >= this.maxPendingMessagesPerKey) {
-      console.warn(
-        `[EncryptedBroadcastChannel] Pending queue for key version ${kver} exceeded max capacity (${this.maxPendingMessagesPerKey}). Evicting oldest message.`
-      )
-      pending.shift()
-    }
+    let pending = this.pendingKeyMessages.getOrInsertComputed(
+      kver,
+      () => new BoundedQueue<Message>(
+        this.maxPendingMessagesPerKey,
+        {
+          onEvict: () => {
+            console.warn(
+              `[EncryptedBroadcastChannel] Pending queue for key version ${kver} exceeded max capacity (${this.maxPendingMessagesPerKey}). Evicting oldest message.`
+            )
+          },
+        },
+      ),
+    )
     pending.push(message)
   }
 
