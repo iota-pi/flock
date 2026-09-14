@@ -11,32 +11,102 @@ vi.mock('@automerge/automerge/automerge.wasm?url', () => ({
   default: 'mock-wasm-url'
 }))
 
-vi.mock('./docStore', () => ({
-  AutomergeDocStore: class MockDocStore {
-    initialize = vi.fn().mockResolvedValue(undefined)
-    withAutomergeDocumentChange = vi.fn().mockResolvedValue(true)
-    removeAutomergeItem = vi.fn().mockResolvedValue(undefined)
-    getAutomergeItem = vi.fn().mockResolvedValue(null)
-    clear = vi.fn().mockResolvedValue(undefined)
-    normalizeItemSnapshot = vi.fn()
-    shutdown = vi.fn().mockResolvedValue(undefined)
-  },
-  normalizeItemSnapshot: vi.fn().mockImplementation((id, doc) => ({ ...doc, id }))
-}))
-
-vi.mock('./docStore/AutomergeIndexManager', () => ({
-  AutomergeIndexManager: class MockIndexManager {
-    listAutomergeItemIds = vi.fn().mockResolvedValue([])
-    addAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
-    removeAutomergeItemIdsFromIndex = vi.fn().mockResolvedValue(undefined)
-    getAutomergeMetadata = vi.fn().mockResolvedValue({})
-    ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
-  }
-}))
-
 vi.mock('../../api/vault', () => ({
   initWorkerVault: vi.fn().mockResolvedValue(undefined),
 }))
+
+// normalizeItemSnapshot is used inside SyncWorker.bindItemHandle; mock it so tests
+// receive a clean item shape without needing real Automerge doc parsing.
+vi.mock('./docStore', () => ({
+  normalizeItemSnapshot: vi.fn().mockImplementation((id: string, doc: unknown) => (doc ? ({ ...(doc as object), id }) : null)),
+  RepoDoc: undefined,
+  AutomergeDocStore: class {},
+}))
+
+// Mock SyncWorkerContext — the worker delegates all service management here
+const mockContextInitialize = vi.fn().mockResolvedValue(undefined)
+const mockContextShutdown = vi.fn().mockResolvedValue(undefined)
+const mockContextClaimLeader = vi.fn()
+const mockContextRetrySave = vi.fn().mockResolvedValue({ success: true })
+const mockRepoManagerPauseBroadcastSync = vi.fn()
+const mockRepoManagerResumeBroadcastSync = vi.fn()
+const mockBrokerSetAccount = vi.fn().mockResolvedValue(undefined)
+const mockAdapterSetAccount = vi.fn()
+const mockIndexManagerListAutomergeItemIds = vi.fn().mockResolvedValue([])
+const mockIndexManagerAddAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
+const mockItemOperationsClearManualRecoveryForItems = vi.fn().mockResolvedValue(undefined)
+const mockOrchestratorSetOnlineState = vi.fn()
+const mockOrchestratorFlush = vi.fn()
+const mockSnapshotManagerOnOnlineStateChange = vi.fn()
+const mockDocStoreOnDocHandleReplaced = vi.fn()
+
+vi.mock('./SyncWorkerContext', () => {
+  return {
+    SyncWorkerContext: class MockSyncWorkerContext {
+      // Public properties accessed by SyncWorker
+      accountId = 'test-account'
+      repo = { find: mockRepoFind, handles: {} }
+      repoManager = {
+        pauseBroadcastSync: mockRepoManagerPauseBroadcastSync,
+        resumeBroadcastSync: mockRepoManagerResumeBroadcastSync,
+      }
+      broker = {
+        setAccount: mockBrokerSetAccount,
+        exportCursors: vi.fn().mockReturnValue([]),
+        importCursors: vi.fn(),
+      }
+      adapter = { setAccount: mockAdapterSetAccount }
+      indexManager = {
+        listAutomergeItemIds: mockIndexManagerListAutomergeItemIds,
+        addAutomergeItemIdsToIndex: mockIndexManagerAddAutomergeItemIdsToIndex,
+        removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
+      }
+      itemOperations = {
+        clearManualRecoveryForItems: mockItemOperationsClearManualRecoveryForItems,
+      }
+      snapshotManager = {
+        onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
+        markItemDirty: vi.fn(),
+        recordInboundChange: vi.fn(),
+        flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+        exportLastModified: vi.fn().mockReturnValue({}),
+        importLastModified: vi.fn().mockResolvedValue(undefined),
+      }
+      orchestrator = {
+        setOnlineState: mockOrchestratorSetOnlineState,
+        flush: mockOrchestratorFlush,
+        shutdown: vi.fn().mockResolvedValue(undefined),
+      }
+      pullQueueManager = {
+        onKeyringUpdated: vi.fn(),
+      }
+      manifestSyncManager = {
+        sync: vi.fn().mockResolvedValue(undefined),
+      }
+      docStore = {
+        onDocHandleReplaced: mockDocStoreOnDocHandleReplaced,
+        exportAllBinaries: vi.fn().mockResolvedValue({}),
+        restoreFromBinaries: vi.fn().mockResolvedValue([]),
+      }
+      recoveryManager = {}
+      wal = {
+        readAll: vi.fn().mockResolvedValue(new Map()),
+        append: vi.fn().mockResolvedValue(undefined),
+      }
+
+      initialize = mockContextInitialize
+      shutdown = mockContextShutdown
+      claimLeader = mockContextClaimLeader
+      retrySave = mockContextRetrySave
+
+      constructor(config?: any) {
+        if (config?.onDocHandleReplaced) {
+          this.docStore.onDocHandleReplaced = config.onDocHandleReplaced
+        }
+      }
+    }
+  }
+})
 
 const { mockRepoFind } = vi.hoisted(() => ({
   mockRepoFind: vi.fn().mockImplementation(() => Promise.resolve({
@@ -47,74 +117,30 @@ const { mockRepoFind } = vi.hoisted(() => ({
   }))
 }))
 
-vi.mock('./AutomergeRepoManager', () => {
-  const mockRepo = {
-    find: mockRepoFind,
-    handles: {},
-  }
-  return {
-    AutomergeRepoManager: class MockRepoManager {
-      init = vi.fn().mockReturnValue(mockRepo)
-      getRepo = vi.fn().mockReturnValue(mockRepo)
-      close = vi.fn().mockResolvedValue(undefined)
-    },
-    getAutomergeDBName: vi.fn().mockReturnValue('mock-db'),
-  }
-})
-
 vi.mock('./utils/automerge', () => ({
   toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
+  ACCOUNT_INDEX_DOCUMENT_ID: '__account_index__',
 }))
-
-const mockAdapterDisconnect = vi.fn()
-const mockAdapterSetAccount = vi.fn()
-vi.mock('./VaultEncryptedNetworkAdapter', () => {
-  return {
-    VaultNetworkAdapter: class MockAdapter {
-      setAccount = mockAdapterSetAccount
-      setSendEnabled = vi.fn()
-      disconnect = mockAdapterDisconnect
-    }
-  }
-})
-
-const mockBrokerShutdown = vi.fn().mockResolvedValue(undefined)
-const mockBrokerSetAccount = vi.fn().mockResolvedValue(undefined)
-vi.mock('./SyncMessageBroker', () => {
-  return {
-    SyncMessageBroker: class MockBroker {
-      setOnlineState = vi.fn()
-      setAccount = mockBrokerSetAccount
-      setSendEnabled = vi.fn()
-      shutdown = mockBrokerShutdown
-      flush = vi.fn()
-      exportCursors = vi.fn().mockReturnValue([])
-      importCursors = vi.fn()
-      executePoll = vi.fn().mockResolvedValue('success')
-      hasPendingPulls = vi.fn().mockReturnValue(false)
-      queuePendingPullItems = vi.fn()
-      onFlushNeeded?: () => void
-    }
-  }
-})
 
 describe('SyncWorker initRepo cleanup on re-init', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIndexManagerListAutomergeItemIds.mockResolvedValue([])
+    mockBrokerSetAccount.mockResolvedValue(undefined)
+    mockContextInitialize.mockResolvedValue(undefined)
+    mockContextShutdown.mockResolvedValue(undefined)
   })
 
-  it('shuts down broker and disconnects adapter when initRepo is called a second time', async () => {
+  it('shuts down previous context when initRepo is called a second time', async () => {
     const worker = new SyncWorker()
 
     // First init
     await worker.initRepo('account-1', 'vault-key-1')
-    expect(mockBrokerShutdown).not.toHaveBeenCalled()
-    expect(mockAdapterDisconnect).not.toHaveBeenCalled()
+    expect(mockContextShutdown).not.toHaveBeenCalled()
 
     // Second init (e.g. account switch)
     await worker.initRepo('account-2', 'vault-key-2')
-    expect(mockBrokerShutdown).toHaveBeenCalledTimes(1)
-    expect(mockAdapterDisconnect).toHaveBeenCalledTimes(1)
+    expect(mockContextShutdown).toHaveBeenCalledTimes(1)
   })
 
   it('awaits broker.setAccount before calling adapter.setAccount during initRepo', async () => {
@@ -144,15 +170,37 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
     ])
   })
 
-  it('stops lifecycle and tears down all services on shutdown', async () => {
+  it('shuts down context and clears listeners on shutdown', async () => {
     const worker = new SyncWorker()
     await worker.initRepo('account-1', 'vault-key-1')
 
     await worker.shutdown()
 
-    expect(mockBrokerShutdown).toHaveBeenCalledTimes(1)
-    expect(mockAdapterDisconnect).toHaveBeenCalledTimes(1)
+    expect(mockContextShutdown).toHaveBeenCalledTimes(1)
     expect(() => (worker as any).context).toThrow('SyncWorker not initialized')
+  })
+
+  it('delegates initialize to SyncWorkerContext.initialize', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+    expect(mockContextInitialize).toHaveBeenCalledTimes(1)
+  })
+
+  it('pauses BroadcastChannel sync via context.repoManager on multipleLeadersDetected', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    // Fire the internal event subscription
+    ;(worker as any).internalEventHub.emit({ type: 'multipleLeadersDetected' })
+    expect(mockRepoManagerPauseBroadcastSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('resumes BroadcastChannel sync via context.repoManager on soleLeaderRestored', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    ;(worker as any).internalEventHub.emit({ type: 'soleLeaderRestored' })
+    expect(mockRepoManagerResumeBroadcastSync).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -202,8 +250,8 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
 
     clientEvents.length = 0
 
-    // Invoke docStore's onDocHandleReplaced callback
-    ;(worker as any).context.docStore.onDocHandleReplaced('item-1' as any, handleB)
+    // Invoke the onDocHandleReplaced callback wired by SyncWorker into SyncWorkerContext config
+    ;(worker as any)._context.docStore.onDocHandleReplaced('item-1' as any, handleB)
 
     // 1. Old handle listener must be unbound
     expect(handleA.off).toHaveBeenCalledWith('change', expect.any(Function))
@@ -241,7 +289,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
       doc: vi.fn().mockReturnValue({ id: 'item-unsub', name: 'Unsubscribed Item' }),
     }
 
-    ;(worker as any).context.docStore.onDocHandleReplaced('item-unsub' as any, handle)
+    ;(worker as any)._context.docStore.onDocHandleReplaced('item-unsub' as any, handle)
 
     expect(handle.on).not.toHaveBeenCalled()
   })
@@ -250,9 +298,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     const worker = new SyncWorker()
     await worker.initRepo('account-1', 'vault-key-1')
 
-    const claimSpy = vi.spyOn((worker as any).context, 'claimLeader').mockImplementation(() => {})
     await worker.claimLeader()
-    expect(claimSpy).toHaveBeenCalledTimes(1)
+    expect(mockContextClaimLeader).toHaveBeenCalledTimes(1)
   })
 })
-

@@ -1,152 +1,179 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SyncWorkerContext } from './SyncWorkerContext'
-import type { Repo } from '@automerge/automerge-repo/slim'
-import type { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
-import type { SyncMessageBroker } from './SyncMessageBroker'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import type { IndexStore } from './stores/IndexStore'
-import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import type { CursorStore } from './stores/CursorStore'
-import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import type { ItemId } from 'src/shared/schemas/items'
+import type { DocumentId } from '@automerge/automerge-repo/slim'
 
-vi.mock('./SnapshotManager', () => {
-  return {
-    SnapshotManager: class MockSnapshotManager {
-      markItemDirty = vi.fn()
-      loadLastModified = vi.fn().mockResolvedValue(undefined)
-      shutdown = vi.fn().mockResolvedValue(undefined)
-      flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
-      setLeader = vi.fn()
-      getDirtyItemIds = vi.fn().mockReturnValue([])
-      persistLastModified = vi.fn().mockResolvedValue(undefined)
-    },
-  }
-})
+// ── Internalized store mocks ─────────────────────────────────────────────────
 
-vi.mock('./SyncOrchestrator', () => {
-  return {
-    SyncOrchestrator: class MockOrchestrator {
-      start = vi.fn().mockResolvedValue(undefined)
-      shutdown = vi.fn().mockResolvedValue(undefined)
-      setOnlineState = vi.fn()
-      setManifestSyncManager = vi.fn()
-      claimLeader = vi.fn()
-      online = true
-      flush = vi.fn()
-    },
-  }
-})
+vi.mock('./stores/CursorStore', () => ({
+  CursorStore: class MockCursorStore {
+    clear = vi.fn().mockResolvedValue(undefined)
+  },
+}))
 
-vi.mock('./stores/LastModifiedStore', () => {
-  return {
-    LastModifiedStore: class MockLastModifiedStore {
-      clear = vi.fn().mockResolvedValue(undefined)
-      testStorageAvailable = vi.fn().mockResolvedValue(true)
-    },
-  }
-})
+vi.mock('./stores/IndexStore', () => ({
+  IndexStore: class MockIndexStore {
+    clear = vi.fn().mockResolvedValue(undefined)
+  },
+}))
 
-vi.mock('./stores/SyncedHeadsStore', () => {
-  return {
-    SyncedHeadsStore: class MockSyncedHeadsStore {
-      loadSyncedHeads = vi.fn().mockResolvedValue([])
-      saveSyncedHeads = vi.fn().mockResolvedValue(undefined)
-      clear = vi.fn().mockResolvedValue(undefined)
-    },
-  }
-})
+vi.mock('./SyncWriteAheadLog', () => ({
+  SyncWriteAheadLog: class MockSyncWriteAheadLog {
+    onEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
+    clear = vi.fn().mockResolvedValue(undefined)
+    handleQuotaExceeded = vi.fn().mockResolvedValue(1)
+    append = vi.fn().mockResolvedValue(undefined)
+    readAll = vi.fn().mockResolvedValue(new Map())
+  },
+}))
 
-vi.mock('./docStore', () => {
-  return {
-    AutomergeDocStore: class MockDocStore {
-      shutdown = vi.fn().mockResolvedValue(undefined)
-      saveDocToStorage = vi.fn().mockResolvedValue(true)
-    },
-  }
-})
+vi.mock('./docStore/AutomergeIndexManager', () => ({
+  AutomergeIndexManager: class MockAutomergeIndexManager {
+    ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
+    addAutomergeItemIdsToIndex = vi.fn()
+    close = vi.fn()
+  },
+}))
 
-vi.mock('./ItemOperations', () => {
-  return {
-    ItemOperations: class MockItemOperations {
-      resetRecoveryState = vi.fn()
-      clearManualRecoveryForItems = vi.fn().mockResolvedValue(undefined)
-      reportDecryptionFailure = vi.fn().mockResolvedValue(undefined)
-    },
-  }
-})
+vi.mock('./SyncPullQueueManager', () => ({
+  SyncPullQueueManager: class MockSyncPullQueueManager {
+    onDecryptionFailure: ((itemId: ItemId, error: unknown) => void) | null = null
+    onRetryingStateChange: ((isRetrying: boolean) => void) | null = null
+    onKeyVersionMissing: ((kver: string) => void) | null = null
+    onPendingPullsAvailable: (() => void) | null = null
+    setLockCoordinator = vi.fn()
+    getGlobalLatestCursor = vi.fn().mockReturnValue(0)
+    shutdown = vi.fn().mockResolvedValue(undefined)
+  },
+}))
 
-vi.mock('./ManifestSyncManager', () => {
-  return {
-    ManifestSyncManager: class MockManifestSyncManager {},
-  }
-})
+vi.mock('./SyncMessageBroker', () => ({
+  SyncMessageBroker: class MockSyncMessageBroker {
+    onItemMessageParsed: ((itemId: ItemId) => void) | null = null
+    onWalAppendFailed: ((itemId: ItemId, error: unknown) => void) | null = null
+    onWalEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
+    onFlushNeeded: (() => void) | null = null
+    unblockAllItems = vi.fn()
+    shutdown = vi.fn().mockResolvedValue(undefined)
+  },
+}))
+
+vi.mock('./VaultEncryptedNetworkAdapter', () => ({
+  VaultNetworkAdapter: class MockVaultNetworkAdapter {
+    onReNegotiationTriggered: ((documentId: DocumentId) => void) | null = null
+    triggerReNegotiation = vi.fn()
+    setSyncedHeadsStore = vi.fn()
+    setSyncedHeads = vi.fn()
+    loadSyncedHeads = vi.fn()
+    resetReNegotiationCircuit = vi.fn()
+    disconnect = vi.fn()
+    setAccount = vi.fn()
+  },
+}))
+
+vi.mock('./AutomergeRepoManager', () => ({
+  AutomergeRepoManager: class MockAutomergeRepoManager {
+    init = vi.fn().mockReturnValue({} /* mock Repo */)
+    clearLocalData = vi.fn().mockResolvedValue(undefined)
+    close = vi.fn().mockResolvedValue(undefined)
+  },
+}))
+
+// ── Context-owned manager mocks ──────────────────────────────────────────────
+
+vi.mock('./SnapshotManager', () => ({
+  SnapshotManager: class MockSnapshotManager {
+    markItemDirty = vi.fn()
+    loadLastModified = vi.fn().mockResolvedValue(undefined)
+    shutdown = vi.fn().mockResolvedValue(undefined)
+    flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
+    setLeader = vi.fn()
+    getDirtyItemIds = vi.fn().mockReturnValue([])
+    persistLastModified = vi.fn().mockResolvedValue(undefined)
+  },
+}))
+
+vi.mock('./SyncOrchestrator', () => ({
+  SyncOrchestrator: class MockOrchestrator {
+    start = vi.fn().mockResolvedValue(undefined)
+    shutdown = vi.fn().mockResolvedValue(undefined)
+    setOnlineState = vi.fn()
+    setManifestSyncManager = vi.fn()
+    claimLeader = vi.fn()
+    online = true
+    flush = vi.fn()
+  },
+}))
+
+vi.mock('./stores/LastModifiedStore', () => ({
+  LastModifiedStore: class MockLastModifiedStore {
+    clear = vi.fn().mockResolvedValue(undefined)
+    testStorageAvailable = vi.fn().mockResolvedValue(true)
+  },
+}))
+
+vi.mock('./stores/SyncedHeadsStore', () => ({
+  SyncedHeadsStore: class MockSyncedHeadsStore {
+    loadSyncedHeads = vi.fn().mockResolvedValue([])
+    saveSyncedHeads = vi.fn().mockResolvedValue(undefined)
+    clear = vi.fn().mockResolvedValue(undefined)
+  },
+}))
+
+vi.mock('./docStore', () => ({
+  AutomergeDocStore: class MockDocStore {
+    shutdown = vi.fn().mockResolvedValue(undefined)
+    saveDocToStorage = vi.fn().mockResolvedValue(true)
+  },
+}))
+
+vi.mock('./ItemOperations', () => ({
+  ItemOperations: class MockItemOperations {
+    resetRecoveryState = vi.fn()
+    clearManualRecoveryForItems = vi.fn().mockResolvedValue(undefined)
+    reportDecryptionFailure = vi.fn().mockResolvedValue(undefined)
+  },
+}))
+
+vi.mock('./ManifestSyncManager', () => ({
+  ManifestSyncManager: class MockManifestSyncManager {
+    shutdown = vi.fn()
+  },
+}))
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 describe('SyncWorkerContext', () => {
-  let mockAdapter: any
-  let mockBroker: any
   let context: SyncWorkerContext
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAdapter = {
-      onReNegotiationTriggered: null,
-      triggerReNegotiation: vi.fn(),
-      setSyncedHeadsStore: vi.fn(),
-      setSyncedHeads: vi.fn(),
-      loadSyncedHeads: vi.fn(),
-      resetReNegotiationCircuit: vi.fn(),
-    }
-    mockBroker = {
-      onItemMessageParsed: null,
-      onWalAppendFailed: null,
-      unblockAllItems: vi.fn(),
-    }
-
-    const mockRepo = {} as Repo
     const clientEventHub = new ClientEventHub()
     const internalEventHub = new WorkerInternalEventHub()
-    const mockIndexStore = { clear: vi.fn() } as unknown as IndexStore
-    const mockIndexManager = {
-      ensureIndexDocument: vi.fn().mockResolvedValue(undefined),
-      addAutomergeItemIdsToIndex: vi.fn(),
-    } as unknown as AutomergeIndexManager
-    const mockCursorStore = { clear: vi.fn() } as unknown as CursorStore
-    const mockPullQueueManager = {
-      onDecryptionFailure: null,
-      getGlobalLatestCursor: vi.fn().mockReturnValue(0),
-      shutdown: vi.fn().mockResolvedValue(undefined),
-    } as unknown as SyncPullQueueManager
 
     context = new SyncWorkerContext({
       accountId: 'test-account',
-      repo: mockRepo,
-      adapter: mockAdapter as VaultNetworkAdapter,
-      broker: mockBroker as SyncMessageBroker,
       clientEventHub,
       internalEventHub,
-      indexStore: mockIndexStore,
-      indexManager: mockIndexManager,
-      cursorStore: mockCursorStore,
-      pullQueueManager: mockPullQueueManager,
     })
   })
 
   it('marks item dirty in SnapshotManager when adapter triggers re-negotiation', () => {
-    expect(mockAdapter.onReNegotiationTriggered).toBeTypeOf('function')
-    mockAdapter.onReNegotiationTriggered('test-doc-id')
+    expect(context.adapter.onReNegotiationTriggered).toBeTypeOf('function')
+    context.adapter.onReNegotiationTriggered!('test-doc-id' as DocumentId)
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('test-doc-id' as ItemId, 0)
   })
 
   it('marks item dirty in SnapshotManager when broker reports WAL append failure', () => {
-    expect(mockBroker.onWalAppendFailed).toBeTypeOf('function')
-    mockBroker.onWalAppendFailed('test-item-id' as ItemId, new Error('WAL write failed'))
+    expect(context.broker.onWalAppendFailed).toBeTypeOf('function')
+    context.broker.onWalAppendFailed!('test-item-id' as ItemId, new Error('WAL write failed'))
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
   })
 
   it('marks items dirty in SnapshotManager when broker reports onWalEntriesPruned', () => {
-    expect(mockBroker.onWalEntriesPruned).toBeTypeOf('function')
-    mockBroker.onWalEntriesPruned(['pruned-item-1' as ItemId, 'pruned-item-2' as ItemId])
+    expect(context.broker.onWalEntriesPruned).toBeTypeOf('function')
+    context.broker.onWalEntriesPruned!(['pruned-item-1' as ItemId, 'pruned-item-2' as ItemId])
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-item-1' as ItemId, 0)
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-item-2' as ItemId, 0)
   })
@@ -186,26 +213,19 @@ describe('SyncWorkerContext', () => {
     expect(context.snapshotManager.setLeader).toHaveBeenCalledWith(false)
   })
 
-  it('forwards broker onItemMessageParsed to clearManualRecovery and deps.onItemMessageParsed', () => {
+  it('forwards broker onItemMessageParsed to clearManualRecovery and onItemMessageParsed callback', () => {
     const onItemMessageParsedMock = vi.fn()
     const ctx = new SyncWorkerContext({
       accountId: 'test-account',
-      repo: {} as Repo,
-      adapter: mockAdapter as VaultNetworkAdapter,
-      broker: mockBroker as SyncMessageBroker,
       clientEventHub: new ClientEventHub(),
       internalEventHub: new WorkerInternalEventHub(),
-      indexStore: { clear: vi.fn() } as unknown as IndexStore,
-      indexManager: { ensureIndexDocument: vi.fn().mockResolvedValue(undefined) } as unknown as AutomergeIndexManager,
-      cursorStore: { clear: vi.fn() } as unknown as CursorStore,
-      pullQueueManager: { getGlobalLatestCursor: vi.fn().mockReturnValue(0) } as unknown as SyncPullQueueManager,
       onItemMessageParsed: onItemMessageParsedMock,
     })
 
     const clearSpy = vi.spyOn(ctx.itemOperations, 'clearManualRecoveryForItems').mockResolvedValue(undefined)
 
-    expect(mockBroker.onItemMessageParsed).toBeTypeOf('function')
-    mockBroker.onItemMessageParsed!('item-parsed-1' as ItemId)
+    expect(ctx.broker.onItemMessageParsed).toBeTypeOf('function')
+    ctx.broker.onItemMessageParsed!('item-parsed-1' as ItemId)
 
     expect(clearSpy).toHaveBeenCalledWith(['item-parsed-1'])
     expect(onItemMessageParsedMock).toHaveBeenCalledWith('item-parsed-1')
@@ -230,11 +250,11 @@ describe('SyncWorkerContext', () => {
       const result = await context.retrySave()
 
       expect(result.success).toBe(true)
-      expect(mockBroker.unblockAllItems).toHaveBeenCalled()
-      expect(mockAdapter.resetReNegotiationCircuit).toHaveBeenCalled()
+      expect(context.broker.unblockAllItems).toHaveBeenCalled()
+      expect(context.adapter.resetReNegotiationCircuit).toHaveBeenCalled()
       expect(saveDocSpy).toHaveBeenCalledWith('item-1' as ItemId)
       expect(saveDocSpy).toHaveBeenCalledWith('item-2' as ItemId)
-      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalled()
+      expect(context.adapter.triggerReNegotiation).toHaveBeenCalled()
       expect(persistTimestampsSpy).toHaveBeenCalled()
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
@@ -288,6 +308,9 @@ describe('SyncWorkerContext', () => {
     const serviceNames = context.lifecycle.getRegisteredServiceNames()
     expect(serviceNames).toEqual([
       'StorageCleanup',
+      'RepoManager',
+      'VaultNetworkAdapter',
+      'SyncMessageBroker',
       'QuotaRecovery',
       'IndexManager',
       'ItemOperations',

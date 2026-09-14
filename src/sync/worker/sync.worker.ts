@@ -10,27 +10,18 @@ import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { subscribeRealtimeBusSyncPing } from '../client/realtimeBus'
 import { initWorkerVault } from '../../api/vault'
-import { AutomergeRepoManager } from './AutomergeRepoManager'
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
-import { SyncMessageBroker } from './SyncMessageBroker'
 import { SyncStatusManager } from './SyncStatusManager'
 import { registerQuotaReporter, resetQuotaExceededStatus } from '../../utils/storageManager'
 import { type BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
-import { CursorStore } from './stores/CursorStore'
-import { IndexStore } from './stores/IndexStore'
-import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWorkerContext } from './SyncWorkerContext'
 import type { WalEntry } from './SyncWriteAheadLog'
 import { normalizeItemSnapshot, RepoDoc } from './docStore'
-import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
-import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 import { reencryptAllItems } from './reencryptAllItems'
-import { ServiceLifecycleManager } from './ServiceLifecycleManager'
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {
@@ -52,17 +43,13 @@ self.addEventListener('message', ev => {
 
 export class SyncWorker implements SyncApi {
   private _context: SyncWorkerContext | null = null
-  private adapter: VaultNetworkAdapter | null = null
-  private broker: SyncMessageBroker | null = null
   private clientEventHub = new ClientEventHub()
   private internalEventHub = new WorkerInternalEventHub()
   private isOnline = true
   private syncStatusManager = new SyncStatusManager(this.clientEventHub)
   private unsubscribeRealtimeBus: (() => void) | null = null
-  private repoManager: AutomergeRepoManager | null = null
   private subscribedIds = new Set<ItemId>()
   private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<RepoDoc>; listener: () => void }>()
-  private lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorker')
 
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
@@ -70,19 +57,16 @@ export class SyncWorker implements SyncApi {
   }
 
   async initRepo(accountId: string, vaultKey: string) {
+    // Tear down any previous session
     this.clearListeners()
-
-    await this.lifecycle.stop()
-    this._context = null
-    this.broker = null
-    this.adapter = null
-    this.repoManager = null
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
     }
-    this.lifecycle.clear()
+    await this._context?.shutdown()
+    this._context = null
 
+    // Re-initialise worker-scoped state
     resetQuotaExceededStatus()
     this.clientEventHub = new ClientEventHub()
     if (globalEventPort) {
@@ -101,73 +85,26 @@ export class SyncWorker implements SyncApi {
     )
     initTrpcClient(trackedFetch)
 
+    // Global async prerequisites (worker-scoped, not per-account)
     await initWorkerVault(vaultKey)
     await Automerge.initializeWasm(wasmUrl)
 
-    this.adapter = new VaultNetworkAdapter()
-    this.repoManager = new AutomergeRepoManager(accountId)
-    const repo = this.repoManager.init(this.adapter, {
-      onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
-      onDocumentReceived: docId => {
-        const itemId = toVaultItemIdFromAutomergeId(docId)
-        if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-          this.subscribeToItems([itemId])
-        }
-      },
-      onQuotaError: () => {
-        this.clientEventHub.emit({
-          type: 'quotaExceeded',
-          message: 'Storage quota exceeded. Some changes could not be saved to this device.',
-        })
-      },
-    })
-
-    const cursorStore = new CursorStore(accountId)
-    const indexStore = new IndexStore(accountId)
-    const wal = new SyncWriteAheadLog(accountId)
-    const indexManager = new AutomergeIndexManager(
-      accountId,
-      indexStore,
-      itemIds => this.clientEventHub.emit({ type: 'indexUpdated', itemIds }),
-      metadata => this.clientEventHub.emit({ type: 'metadataUpdated', metadata })
-    )
-    const pullQueueManager = new SyncPullQueueManager(cursorStore)
-    pullQueueManager.onRetryingStateChange = isRetrying => {
-      this.syncStatusManager.setDegradedPull(isRetrying)
-    }
-    pullQueueManager.onKeyVersionMissing = kver => {
-      this.clientEventHub.emit({ type: 'keyVersionMissing', kver })
-    }
-
-    this.broker = new SyncMessageBroker(
-      this.adapter,
-      this.clientEventHub,
-      this.internalEventHub,
-      indexManager,
-      pullQueueManager,
-      wal
-    )
-
+    // Construct and wire the context — all service instantiation lives here
     this._context = new SyncWorkerContext({
       accountId,
-      repo,
-      adapter: this.adapter,
-      broker: this.broker,
       clientEventHub: this.clientEventHub,
       internalEventHub: this.internalEventHub,
-      indexStore,
-      indexManager,
-      cursorStore,
-      pullQueueManager,
-      wal,
+      onDocumentReceived: itemId => this.subscribeToItems([itemId]),
       onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
       onItemMessageParsed: itemId => {
         if ((itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
           this.subscribeToItems([itemId])
         }
       },
+      onRetryingStateChange: isRetrying => this.syncStatusManager.setDegradedPull(isRetrying),
     })
-    // Listen to client events
+
+    // Subscribe to client events (syncStatusManager is SyncWorker-level state)
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
         case 'startRequest':
@@ -183,7 +120,7 @@ export class SyncWorker implements SyncApi {
       }
     })
 
-    // Listen to worker internal events
+    // Subscribe to worker-internal events
     this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
       switch (event.type) {
         case 'pollResult':
@@ -191,78 +128,24 @@ export class SyncWorker implements SyncApi {
           break
         case 'multipleLeadersDetected':
           console.warn('[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
-          this.repoManager?.pauseBroadcastSync()
+          this._context?.repoManager.pauseBroadcastSync()
           break
         case 'soleLeaderRestored':
           console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
-          this.repoManager?.resumeBroadcastSync()
+          this._context?.repoManager.resumeBroadcastSync()
           break
       }
     })
 
-    this.lifecycle.register({
-      name: 'RepoManager',
-      onStop: async options => {
-        if (options?.clearLocalData && this.repoManager) {
-          try {
-            await this.repoManager.clearLocalData()
-          } catch (err) {
-            console.error('[SyncWorker] Error clearing Automerge DB', err)
-          }
-        }
-        await this.repoManager?.close()
-      },
-    })
-
-    this.lifecycle.register({
-      name: 'VaultNetworkAdapter',
-      onStop: () => {
-        this.adapter?.disconnect()
-      },
-    })
-
-    this.lifecycle.register({
-      name: 'SyncMessageBroker',
-      onStop: async () => {
-        await this.broker?.shutdown()
-      },
-    })
-
-    this.lifecycle.register({
-      name: 'SyncWorkerContext',
-      onStart: async () => {
-        await this._context?.initialize()
-      },
-      onStop: async options => {
-        await this._context?.shutdown(options)
-      },
-    })
-
-    this.lifecycle.register({
-      name: 'RealtimeBus',
-      onStop: () => {
-        if (this.unsubscribeRealtimeBus) {
-          this.unsubscribeRealtimeBus()
-          this.unsubscribeRealtimeBus = null
-        }
-      },
-    })
-
-    this.lifecycle.register({
-      name: 'ChangeListeners',
-      onStop: () => {
-        this.clearListeners()
-      },
-    })
-
-    await this.lifecycle.start()
+    await this._context.initialize()
 
     this._context.orchestrator.setOnlineState(this.isOnline)
     this._context.snapshotManager.onOnlineStateChange(this.isOnline)
 
-    // Broker needs to be initialised before the adapter so that the adapter doesn't attempt sending messages before the broker is ready
-    await this.broker.setAccount(accountId)
-    this.adapter.setAccount(accountId)
+    // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
+    // sending messages before the broker is ready
+    await this._context.broker.setAccount(accountId)
+    this._context.adapter.setAccount(accountId)
 
     const localItemIds = await this._context.indexManager.listAutomergeItemIds()
     this.updateItemSubscriptions(localItemIds)
@@ -460,17 +343,13 @@ export class SyncWorker implements SyncApi {
   }
 
   async shutdown(options?: { clearLocalData?: boolean }) {
-    await this.lifecycle.stop(options)
-    this._context = null
-    this.broker = null
-    this.adapter = null
-    this.repoManager = null
+    this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
     }
-    this.clearListeners()
-    this.lifecycle.clear()
+    await this._context?.shutdown(options)
+    this._context = null
 
     // Give the browser event loop a moment to finish closing the IndexedDB connection
     if (typeof process === 'undefined' || process.env.NODE_ENV !== 'test') {

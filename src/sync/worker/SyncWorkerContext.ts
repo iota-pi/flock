@@ -16,7 +16,8 @@ import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
+import { AutomergeRepoManager } from './AutomergeRepoManager'
+import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
 import { resetQuotaExceededStatus, registerQuotaRecoveryHandler } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
@@ -30,21 +31,33 @@ class QuotaExceededRetryError extends Error {
   }
 }
 
-export interface SyncWorkerContextDeps {
+/**
+ * Slim configuration for SyncWorkerContext.
+ * All stores and managers are constructed internally; only primitive inputs and
+ * optional callback bridges back to the Comlink layer are accepted here.
+ */
+export interface SyncWorkerContextConfig {
   accountId: string
-  repo: Repo
-  adapter: VaultNetworkAdapter
-  broker: SyncMessageBroker
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
-  indexStore: IndexStore
-  indexManager: AutomergeIndexManager
-  cursorStore: CursorStore
-  pullQueueManager: SyncPullQueueManager
-  wal?: SyncWriteAheadLog
-  syncedHeadsStore?: SyncedHeadsStore
+  /**
+   * Called when the Automerge repo receives a new document from the network,
+   * so the Comlink layer can subscribe to change events on that handle.
+   */
+  onDocumentReceived?: (itemId: ItemId) => void
+  /** Called when a doc handle is replaced (e.g. after compaction/import). */
   onDocHandleReplaced?: DocHandleReplacedListener
+  /**
+   * Called when the broker parses an inbound message for an item,
+   * so the Comlink layer can ensure it is subscribed to that handle.
+   */
   onItemMessageParsed?: (itemId: ItemId) => void
+  /**
+   * Called when the pull queue manager's retrying state changes,
+   * so the Comlink layer can update the sync status manager.
+   */
+  onRetryingStateChange?: (isRetrying: boolean) => void
+  /** Optional override for testing. */
   apiClient?: SyncApiClient
 }
 
@@ -53,6 +66,7 @@ export class SyncWorkerContext {
   public readonly repo: Repo
   public readonly adapter: VaultNetworkAdapter
   public readonly broker: SyncMessageBroker
+  public readonly repoManager: AutomergeRepoManager
   public readonly clientEventHub: ClientEventHub
   public readonly internalEventHub: WorkerInternalEventHub
   public readonly apiClient: SyncApiClient
@@ -75,54 +89,100 @@ export class SyncWorkerContext {
 
   private unregisterQuotaRecovery: (() => void) | null = null
 
-  constructor(deps: SyncWorkerContextDeps) {
-    this.accountId = deps.accountId
-    this.repo = deps.repo
-    this.adapter = deps.adapter
-    this.broker = deps.broker
-    this.clientEventHub = deps.clientEventHub
-    this.internalEventHub = deps.internalEventHub
-    this.apiClient = deps.apiClient ?? new SyncApiClient()
+  constructor(config: SyncWorkerContextConfig) {
+    this.accountId = config.accountId
+    this.clientEventHub = config.clientEventHub
+    this.internalEventHub = config.internalEventHub
+    this.apiClient = config.apiClient ?? new SyncApiClient()
 
-    this.indexStore = deps.indexStore
-    this.indexManager = deps.indexManager
-    this.cursorStore = deps.cursorStore
-    this.pullQueueManager = deps.pullQueueManager
-    this.lastModifiedStore = new LastModifiedStore(deps.accountId)
-    this.syncedHeadsStore = deps.syncedHeadsStore ?? new SyncedHeadsStore(deps.accountId)
+    // ── Stores ────────────────────────────────────────────────────────────
+    this.cursorStore = new CursorStore(config.accountId)
+    this.indexStore = new IndexStore(config.accountId)
+    this.lastModifiedStore = new LastModifiedStore(config.accountId)
+    this.syncedHeadsStore = new SyncedHeadsStore(config.accountId)
+    this.wal = new SyncWriteAheadLog(config.accountId)
+
+    // ── Network adapter & repo ─────────────────────────────────────────────
+    this.adapter = new VaultNetworkAdapter()
+    this.repoManager = new AutomergeRepoManager(config.accountId)
+    this.repo = this.repoManager.init(this.adapter, {
+      onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onDocumentReceived: docId => {
+        const itemId = toVaultItemIdFromAutomergeId(docId)
+        if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+          config.onDocumentReceived?.(itemId)
+        }
+      },
+      onQuotaError: () => {
+        config.clientEventHub.emit({
+          type: 'quotaExceeded',
+          message: 'Storage quota exceeded. Some changes could not be saved to this device.',
+        })
+      },
+    })
+
     this.adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
-    this.wal = deps.wal ?? deps.broker.getWal?.() ?? new SyncWriteAheadLog(deps.accountId)
 
-    this.docStore = new AutomergeDocStore(deps.repo)
-    if (deps.onDocHandleReplaced) {
-      this.docStore.onDocHandleReplaced = deps.onDocHandleReplaced
+    // ── Index manager ──────────────────────────────────────────────────────
+    this.indexManager = new AutomergeIndexManager(
+      config.accountId,
+      this.indexStore,
+      itemIds => config.clientEventHub.emit({ type: 'indexUpdated', itemIds }),
+      metadata => config.clientEventHub.emit({ type: 'metadataUpdated', metadata })
+    )
+
+    // ── Pull queue ─────────────────────────────────────────────────────────
+    this.pullQueueManager = new SyncPullQueueManager(this.cursorStore)
+    this.pullQueueManager.onRetryingStateChange = isRetrying => {
+      config.onRetryingStateChange?.(isRetrying)
+    }
+    this.pullQueueManager.onKeyVersionMissing = kver => {
+      config.clientEventHub.emit({ type: 'keyVersionMissing', kver })
+    }
+
+    // ── Message broker ─────────────────────────────────────────────────────
+    this.broker = new SyncMessageBroker(
+      this.adapter,
+      config.clientEventHub,
+      config.internalEventHub,
+      this.indexManager,
+      this.pullQueueManager,
+      this.wal
+    )
+
+    // ── Doc store ──────────────────────────────────────────────────────────
+    this.docStore = new AutomergeDocStore(this.repo)
+    if (config.onDocHandleReplaced) {
+      this.docStore.onDocHandleReplaced = config.onDocHandleReplaced
     }
     this.pullQueueManager.setLockCoordinator?.(this.docStore)
 
+    // ── Recovery & snapshot ────────────────────────────────────────────────
     this.recoveryManager = new RecoveryManager({
-      accountId: deps.accountId,
-      eventHub: deps.clientEventHub,
+      accountId: config.accountId,
+      eventHub: config.clientEventHub,
     })
 
     this.snapshotManager = new SnapshotManager(
       {
-        accountId: deps.accountId,
-        repo: deps.repo,
-        broker: deps.broker,
+        accountId: config.accountId,
+        repo: this.repo,
+        broker: this.broker,
         getLatestCursor: () => this.pullQueueManager.getGlobalLatestCursor(),
-        eventHub: deps.clientEventHub,
+        eventHub: config.clientEventHub,
         recoveryManager: this.recoveryManager,
         apiClient: this.apiClient,
       },
       this.lastModifiedStore
     )
 
+    // ── Orchestrator ───────────────────────────────────────────────────────
     this.orchestrator = new SyncOrchestrator(
-      deps.accountId,
-      deps.broker,
-      deps.clientEventHub,
-      deps.internalEventHub,
-      deps.pullQueueManager
+      config.accountId,
+      this.broker,
+      config.clientEventHub,
+      config.internalEventHub,
+      this.pullQueueManager
     )
 
     this.orchestrator.onLeaderChange = isLeader => {
@@ -130,15 +190,17 @@ export class SyncWorkerContext {
     }
     this.snapshotManager.setLeader(this.orchestrator.leader)
 
+    // ── Item operations ────────────────────────────────────────────────────
     this.itemOperations = new ItemOperations({
-      accountId: deps.accountId,
+      accountId: config.accountId,
       docStore: this.docStore,
       indexManager: this.indexManager,
-      eventHub: deps.clientEventHub,
+      eventHub: config.clientEventHub,
       markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
       recoveryManager: this.recoveryManager,
     })
 
+    // ── Cross-component callback wiring ────────────────────────────────────
     this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
       void this.itemOperations.reportDecryptionFailure(itemId, error)
     }
@@ -149,7 +211,7 @@ export class SyncWorkerContext {
 
     this.broker.onItemMessageParsed = itemId => {
       void this.itemOperations.clearManualRecoveryForItems([itemId])
-      deps.onItemMessageParsed?.(itemId)
+      config.onItemMessageParsed?.(itemId)
     }
 
     this.adapter.onReNegotiationTriggered = documentId => {
@@ -176,9 +238,10 @@ export class SyncWorkerContext {
       }
     }
 
+    // ── Manifest sync ──────────────────────────────────────────────────────
     this.manifestSyncManager = new ManifestSyncManager(
       {
-        accountId: deps.accountId,
+        accountId: config.accountId,
         docStore: this.docStore,
         indexManager: this.indexManager,
         snapshotManager: this.snapshotManager,
@@ -226,7 +289,38 @@ export class SyncWorkerContext {
       },
     })
 
-    // 2. Quota recovery listener
+    // 2. RepoManager — close IndexedDB last (after all doc operations)
+    this.lifecycle.register({
+      name: 'RepoManager',
+      onStop: async options => {
+        if (options?.clearLocalData) {
+          try {
+            await this.repoManager.clearLocalData()
+          } catch (err) {
+            console.error('[SyncWorkerContext] Error clearing Automerge DB', err)
+          }
+        }
+        await this.repoManager.close()
+      },
+    })
+
+    // 3. VaultNetworkAdapter
+    this.lifecycle.register({
+      name: 'VaultNetworkAdapter',
+      onStop: () => {
+        this.adapter.disconnect()
+      },
+    })
+
+    // 4. SyncMessageBroker
+    this.lifecycle.register({
+      name: 'SyncMessageBroker',
+      onStop: async () => {
+        await this.broker.shutdown()
+      },
+    })
+
+    // 5. Quota recovery listener
     this.lifecycle.register({
       name: 'QuotaRecovery',
       onStop: () => {
@@ -237,7 +331,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 3. IndexManager
+    // 6. IndexManager
     this.lifecycle.register({
       name: 'IndexManager',
       onStart: async () => {
@@ -248,7 +342,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 4. ItemOperations
+    // 7. ItemOperations
     this.lifecycle.register({
       name: 'ItemOperations',
       onStop: () => {
@@ -256,7 +350,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 5. DocStore
+    // 8. DocStore
     this.lifecycle.register({
       name: 'DocStore',
       onStop: async () => {
@@ -264,7 +358,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 6. SnapshotManager
+    // 9. SnapshotManager
     this.lifecycle.register({
       name: 'SnapshotManager',
       onStart: async () => {
@@ -275,7 +369,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 7. SyncedHeads
+    // 10. SyncedHeads
     this.lifecycle.register({
       name: 'SyncedHeads',
       onStart: async () => {
@@ -286,7 +380,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 8. PullQueueManager
+    // 11. PullQueueManager
     this.lifecycle.register({
       name: 'PullQueueManager',
       onStop: async options => {
@@ -294,7 +388,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 9. ManifestSyncManager
+    // 12. ManifestSyncManager
     this.lifecycle.register({
       name: 'ManifestSyncManager',
       onStop: () => {
@@ -302,7 +396,7 @@ export class SyncWorkerContext {
       },
     })
 
-    // 10. SyncOrchestrator (starts last, stops first)
+    // 13. SyncOrchestrator (starts last, stops first)
     this.lifecycle.register({
       name: 'SyncOrchestrator',
       onStart: async () => {
