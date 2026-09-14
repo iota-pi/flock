@@ -4,16 +4,14 @@ import { debounce } from 'lodash-es'
 import type { PullSyncMessagesResponse, PushResultItem } from '../../api/vault/SyncWorkerClient'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
-import { decryptBytes, hasVaultKey, waitForKeyVersion } from 'src/api/vault'
+import { decryptWithKeyResolution, MissingKeyError } from './utils/decryptWithKeyResolution'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
-import { PullRetryTracker, type ItemPullState } from './PullRetryTracker'
+import { PullRetryTracker } from './PullRetryTracker'
 import type { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedSet, BoundedMap } from '../utils/boundedCollections'
-
-export { type ItemPullState } from './PullRetryTracker'
 
 interface ProcessItemMessagesResult {
   highestCursor: number
@@ -182,25 +180,27 @@ export class SyncPullQueueManager {
       return { parsed: false }
     }
 
-    const kver = entry.encryptedMessage.kver || '1'
-    if (!hasVaultKey(kver)) {
-      if (timedOutKeys?.has(kver)) {
-        return { parsed: false, missingKey: true, kver }
+    let decrypted: Uint8Array
+    try {
+      decrypted = await decryptWithKeyResolution(entry.encryptedMessage, {
+        timeoutMs: this.keyWaitTimeoutMs,
+        timedOutKeys,
+        onKeyVersionMissing: (missingKver) => {
+          if (this.internalEventHub) {
+            this.internalEventHub.emit({ type: 'keyVersionMissing', kver: missingKver })
+          } else {
+            this.onKeyVersionMissing?.(missingKver)
+          }
+        },
+      })
+    } catch (error) {
+      if (error instanceof MissingKeyError) {
+        return { parsed: false, missingKey: true, kver: error.kver }
       }
-      if (this.internalEventHub) {
-        this.internalEventHub.emit({ type: 'keyVersionMissing', kver })
-      } else {
-        this.onKeyVersionMissing?.(kver)
-      }
-      const keyAcquired = await waitForKeyVersion(kver, this.keyWaitTimeoutMs)
-      if (!keyAcquired && !hasVaultKey(kver)) {
-        timedOutKeys?.add(kver)
-        return { parsed: false, missingKey: true, kver }
-      }
+      return { parsed: false }
     }
 
     try {
-      const decrypted = await decryptBytes(entry.encryptedMessage)
       const isBatched = entry.encryptedMessage.version === '1.0'
       let hasError = false
       if (isBatched) {
@@ -239,10 +239,7 @@ export class SyncPullQueueManager {
       }
 
       return { parsed: true, cursor: entry.cursor }
-    } catch (error: any) {
-      if (!hasVaultKey(kver) || (typeof error?.message === 'string' && error.message.includes('not found in keyring'))) {
-        return { parsed: false, missingKey: true, kver }
-      }
+    } catch {
       return { parsed: false }
     }
   }

@@ -12,11 +12,11 @@ import {
 
 import {
   encryptBytes,
-  decryptBytes,
   hasVaultKey,
   waitForKeyVersion,
   type CryptoResult,
 } from 'src/api/vault'
+import { decryptWithKeyResolution, MissingKeyError } from './utils/decryptWithKeyResolution'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import { AsyncQueue } from './utils/AsyncQueue'
@@ -246,28 +246,29 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           const cryptoResult = JSON.parse(jsonString) as CryptoResult
           kver = cryptoResult.kver || '1'
 
-          if (!hasVaultKey(kver)) {
-            if (this.hasPendingMessages(kver)) {
-              this.bufferPendingMessage(kver, message)
-              return
-            }
-
-            if (this.options?.onKeyVersionMissing) {
-              this.options.onKeyVersionMissing(kver)
-            }
-            const timeout = this.options?.keyWaitTimeoutMs ?? 5000
-            const keyAcquired = await waitForKeyVersion(kver, timeout)
-            if (!keyAcquired && !hasVaultKey(kver)) {
-              console.warn(
-                `[EncryptedBroadcastChannel] Timed out waiting for key version ${kver}. Buffering message until key arrives.`
-              )
-              this.bufferPendingMessage(kver, message)
-              this.ensureKeyWaiter(kver)
-              return
-            }
+          if (!hasVaultKey(kver) && this.hasPendingMessages(kver)) {
+            this.bufferPendingMessage(kver, message)
+            return
           }
 
-          const decryptedData = await decryptBytes(cryptoResult)
+          let decryptedData: Uint8Array
+          try {
+            decryptedData = await decryptWithKeyResolution(cryptoResult, {
+              timeoutMs: this.options?.keyWaitTimeoutMs ?? 5000,
+              onKeyVersionMissing: this.options?.onKeyVersionMissing,
+            })
+          } catch (err) {
+            if (err instanceof MissingKeyError) {
+              console.warn(
+                `[EncryptedBroadcastChannel] Timed out waiting for key version ${err.kver}. Buffering message until key arrives.`
+              )
+              this.bufferPendingMessage(err.kver, message)
+              this.ensureKeyWaiter(err.kver)
+              return
+            }
+            throw err
+          }
+
           this.emit('message', { ...message, data: decryptedData })
           if (message.documentId && this.options?.onDocumentReceived) {
             this.options.onDocumentReceived(message.documentId)

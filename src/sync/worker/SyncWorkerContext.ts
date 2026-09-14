@@ -254,6 +254,7 @@ export class SyncWorkerContext {
         snapshotManager: this.snapshotManager,
         recoveryManager: this.recoveryManager,
         apiClient: this.apiClient,
+        onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       },
       (items, options) => this.itemOperations.storeItems(items, options),
       changes => this.itemOperations.mutateMetadata(changes),

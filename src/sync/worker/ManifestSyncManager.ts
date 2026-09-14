@@ -6,8 +6,9 @@ import type { AccountMetadata } from '../../state/metadata'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { SnapshotManager } from './SnapshotManager'
-import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
-import { decryptObject, decryptBytes, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
+import { fetchManifest } from '../../api/vault/ItemClient'
+import { decryptObject, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
+import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import type { ItemId } from 'src/shared/schemas/items'
 import { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
@@ -67,6 +68,7 @@ export class ManifestSyncManager {
       snapshotManager: SnapshotManager
       recoveryManager?: RecoveryManager
       apiClient?: SyncApiClient
+      onKeyVersionMissing?: (kver: string) => void
     },
     private storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
     private mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
@@ -638,6 +640,9 @@ export class ManifestSyncManager {
 
     const kver = (item.metadata as Record<string, unknown> | undefined)?.kver as string | undefined
     if (kver && !hasVaultKey(kver)) {
+      if (this.deps.onKeyVersionMissing) {
+        this.deps.onKeyVersionMissing(kver)
+      }
       await waitForKeyVersion(kver, 3000)
     }
     return decryptObject({
@@ -651,10 +656,10 @@ export class ManifestSyncManager {
     encryptedAutomergeDoc: CryptoResult,
   ): Promise<Uint8Array | null> {
     try {
-      if (encryptedAutomergeDoc.kver && !hasVaultKey(encryptedAutomergeDoc.kver)) {
-        await waitForKeyVersion(encryptedAutomergeDoc.kver, 3000)
-      }
-      return await decryptBytes(encryptedAutomergeDoc)
+      return await decryptWithKeyResolution(encryptedAutomergeDoc, {
+        timeoutMs: 3000,
+        onKeyVersionMissing: this.deps.onKeyVersionMissing,
+      })
     } catch {
       return null
     }
