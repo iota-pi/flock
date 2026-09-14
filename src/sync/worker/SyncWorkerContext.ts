@@ -10,6 +10,7 @@ import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
+import { RecoveryManager } from './RecoveryManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -61,6 +62,7 @@ export class SyncWorkerContext {
 
   public readonly docStore: AutomergeDocStore
   public readonly indexManager: AutomergeIndexManager
+  public readonly recoveryManager: RecoveryManager
   public readonly pullQueueManager: SyncPullQueueManager
   public readonly snapshotManager: SnapshotManager
   public readonly orchestrator: SyncOrchestrator
@@ -93,6 +95,11 @@ export class SyncWorkerContext {
     }
     this.pullQueueManager.setLockCoordinator?.(this.docStore)
 
+    this.recoveryManager = new RecoveryManager({
+      accountId: deps.accountId,
+      eventHub: deps.clientEventHub,
+    })
+
     this.snapshotManager = new SnapshotManager(
       {
         accountId: deps.accountId,
@@ -100,6 +107,7 @@ export class SyncWorkerContext {
         broker: deps.broker,
         getLatestCursor: () => this.pullQueueManager.getGlobalLatestCursor(),
         eventHub: deps.clientEventHub,
+        recoveryManager: this.recoveryManager,
       },
       this.lastModifiedStore
     )
@@ -123,6 +131,7 @@ export class SyncWorkerContext {
       indexManager: this.indexManager,
       eventHub: deps.clientEventHub,
       markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
+      recoveryManager: this.recoveryManager,
     })
 
     this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
@@ -168,6 +177,7 @@ export class SyncWorkerContext {
         docStore: this.docStore,
         indexManager: this.indexManager,
         snapshotManager: this.snapshotManager,
+        recoveryManager: this.recoveryManager,
       },
       (items, options) => this.itemOperations.storeItems(items, options),
       changes => this.itemOperations.mutateMetadata(changes),

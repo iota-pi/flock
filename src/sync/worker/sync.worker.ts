@@ -425,6 +425,7 @@ export class SyncWorker implements SyncApi {
       repo: this.context.repo,
       indexManager: this.context.indexManager,
       refreshAuthToken,
+      recoveryManager: this.context.recoveryManager,
     }, onProgress)
   }
 

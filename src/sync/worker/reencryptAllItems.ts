@@ -5,7 +5,7 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
-import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import { RecoveryManager } from './RecoveryManager'
 import { isAuthError } from './utils/auth'
 import { isNetworkError } from './utils/network'
 import { isServerError } from './utils/server'
@@ -65,15 +65,13 @@ function toAuthExpiredError(err: unknown): Error {
 }
 
 async function quarantineItem(
+  recoveryManager: RecoveryManager,
   accountId: string,
   itemId: ItemId,
   reason: string
 ): Promise<void> {
   try {
-    await upsertManualRecoveryEntry(accountId, {
-      itemId,
-      reason,
-    })
+    await recoveryManager.quarantine(accountId, itemId, reason)
   } catch (storageErr) {
     console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
   }
@@ -148,6 +146,7 @@ export interface ReencryptDeps {
   getAuthToken?: () => Promise<string | null>
   refreshAuthToken?: () => Promise<string | null>
   scheduleRetry?: (delayMs?: number) => void
+  recoveryManager?: RecoveryManager
 }
 
 export interface ReencryptResult {
@@ -164,6 +163,7 @@ export async function reencryptAllItems(
   }
 
   const { accountId, repo, indexManager } = deps
+  const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
   const authManager = new ReencryptAuthManager(deps)
   await authManager.getInitialToken()
 
@@ -193,6 +193,7 @@ export async function reencryptAllItems(
     }
     failed.push({ itemId, error: errorMsg })
     await quarantineItem(
+      recoveryManager,
       accountId,
       itemId,
       `Re-encryption snapshot build failed: ${errorMsg}`
@@ -325,6 +326,7 @@ export async function reencryptAllItems(
         for (const item of readySnapshots) {
           failed.push({ itemId: item.itemId, error: errMsg })
           await quarantineItem(
+            recoveryManager,
             accountId,
             item.itemId,
             `Re-encryption upload failed: ${errMsg}`

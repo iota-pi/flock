@@ -4,14 +4,7 @@ import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { ItemId } from 'src/shared/schemas/items'
-import {
-  type ManualRecoveryEntry,
-  readManualRecoveryEntries,
-  readManualRecoveryCount,
-  removeManualRecoveryEntryById,
-  removeManualRecoveryEntryByItemId,
-  upsertManualRecoveryEntry,
-} from '../shared/manualRecoveryStore'
+import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { normalizeSyncError } from 'src/shared/syncErrors'
@@ -19,8 +12,9 @@ import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { hasApiAuthToken } from '../../api/runtime'
 import { getTrpcClient } from '../../api/trpcClient'
 import { extractSyncableMetadata, hasSyncableChanges } from './utils/metadataSync'
+import { RecoveryManager, RECOVERY_RETRY_COOLDOWN_MS } from './RecoveryManager'
 
-export const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
+export { RECOVERY_RETRY_COOLDOWN_MS }
 
 export interface ItemOperationsDeps {
   accountId: string
@@ -28,6 +22,7 @@ export interface ItemOperationsDeps {
   indexManager: AutomergeIndexManager
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
+  recoveryManager?: RecoveryManager
 }
 
 export interface StoreItemsOptions {
@@ -35,10 +30,14 @@ export interface StoreItemsOptions {
 }
 
 export class ItemOperations {
-  private inFlightItemIds = new Set<ItemId>()
-  private cooldownUntilByItemId = new Map<ItemId, number>()
+  private recoveryManager: RecoveryManager
 
-  constructor(private deps: ItemOperationsDeps) {}
+  constructor(private deps: ItemOperationsDeps) {
+    this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
+      accountId: deps.accountId,
+      eventHub: deps.eventHub,
+    })
+  }
 
   private async applyDocumentChange(
     id: ItemId,
@@ -189,59 +188,35 @@ export class ItemOperations {
   // --- Manual Recovery & Lifecycle Management ---
 
   isInFlight(itemId: ItemId): boolean {
-    return this.inFlightItemIds.has(itemId)
+    return this.recoveryManager.isInFlight(itemId)
   }
 
   setInFlight(itemId: ItemId, inFlight: boolean): void {
-    if (inFlight) {
-      this.inFlightItemIds.add(itemId)
-    } else {
-      this.inFlightItemIds.delete(itemId)
-    }
+    this.recoveryManager.setInFlight(itemId, inFlight)
   }
 
   getRecoveryCooldownUntil(itemId: ItemId): number {
-    const cooldownUntil = this.cooldownUntilByItemId.get(itemId) || 0
-    if (cooldownUntil <= Date.now()) {
-      this.cooldownUntilByItemId.delete(itemId)
-      return 0
-    }
-    return cooldownUntil
+    return this.recoveryManager.getRecoveryCooldownUntil(itemId)
   }
 
   setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
-    this.cooldownUntilByItemId.set(itemId, cooldownUntil)
+    this.recoveryManager.setRecoveryCooldown(itemId, cooldownUntil)
   }
 
   clearRecoveryCooldown(itemId: ItemId): void {
-    this.cooldownUntilByItemId.delete(itemId)
+    this.recoveryManager.clearRecoveryCooldown(itemId)
   }
 
   resetRecoveryState(): void {
-    this.inFlightItemIds.clear()
-    this.cooldownUntilByItemId.clear()
-  }
-
-  private async clearRecoveryState(itemId: ItemId): Promise<void> {
-    if (this.deps.accountId) {
-      await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
-    }
-    this.clearRecoveryCooldown(itemId)
-    this.setInFlight(itemId, false)
+    this.recoveryManager.resetRecoveryState()
   }
 
   reset(): void {
-    this.resetRecoveryState()
+    this.recoveryManager.reset()
   }
 
   async pushRecoveryItems(): Promise<void> {
-    if (!this.deps.accountId) return
-    try {
-      const entries = await readManualRecoveryEntries(this.deps.accountId)
-      this.deps.eventHub.emit({ type: 'recoveryItemsChanged', entries })
-    } catch (error) {
-      console.error('[ItemOperations] Failed to push recovery entries change', error)
-    }
+    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
   async reportDecryptionFailure(itemId: ItemId, error: unknown, failedBranches?: string[]): Promise<void> {
@@ -257,56 +232,26 @@ export class ItemOperations {
 
   async attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): Promise<void> {
     if (!this.deps.accountId) return
-
-    const now = Date.now()
-    if (this.isInFlight(itemId) || this.getRecoveryCooldownUntil(itemId) > now) {
-      return
-    }
-
-    this.setInFlight(itemId, true)
     try {
-      const branchHint = failedBranches && failedBranches.length > 0
-        ? `Corrupted branches: ${failedBranches.join(', ')}`
-        : 'Automated recovery is unavailable for this revision'
-
-      await upsertManualRecoveryEntry(this.deps.accountId, { itemId, reason: branchHint })
-      await this.pushRecoveryItems()
-      this.setRecoveryCooldown(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+      await this.recoveryManager.quarantine(
+        this.deps.accountId,
+        itemId,
+        null,
+        { checkCooldown: true, failedBranches },
+      )
     } catch (error) {
       console.error('[ItemOperations] Failed to record manual recovery entry', error)
-    } finally {
-      this.setInFlight(itemId, false)
     }
   }
 
   async clearManualRecoveryForItems(itemIds: ItemId[]): Promise<void> {
     if (!this.deps.accountId) return
-    const uniqueItemIds = Array.from(new Set(itemIds.filter(id => !!id)))
-    if (uniqueItemIds.length === 0) return
-
-    const previousCount = await readManualRecoveryCount(this.deps.accountId)
-    if (previousCount === 0) {
-      for (const itemId of uniqueItemIds) {
-        this.clearRecoveryCooldown(itemId)
-        this.setInFlight(itemId, false)
-      }
-      return
-    }
-
-    for (const itemId of uniqueItemIds) {
-      await this.clearRecoveryState(itemId)
-    }
-
-    const nextCount = await readManualRecoveryCount(this.deps.accountId)
-    if (nextCount !== previousCount) {
-      await this.pushRecoveryItems()
-    }
+    await this.recoveryManager.unquarantineBatch(this.deps.accountId, itemIds)
   }
 
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
-    await this.clearRecoveryState(itemId)
-    await this.pushRecoveryItems()
+    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
   }
 
   async forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
@@ -321,7 +266,7 @@ export class ItemOperations {
       localSnapshot.prayedFor = [...localItem.prayedFor]
     }
 
-    await this.clearRecoveryState(itemId)
+    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -336,12 +281,12 @@ export class ItemOperations {
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
     publishRealtimeBusSyncPing([itemId])
-    await this.pushRecoveryItems()
+    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
-    await this.clearRecoveryState(itemId)
+    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -355,13 +300,12 @@ export class ItemOperations {
     )
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
-    await this.pushRecoveryItems()
+    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
   async dismissRecoveryItem(entryId: string): Promise<void> {
     if (!this.deps.accountId) return
-    await removeManualRecoveryEntryById(this.deps.accountId, entryId)
-    await this.pushRecoveryItems()
+    await this.recoveryManager.dismissEntry(this.deps.accountId, entryId)
   }
 
   async compactItem(itemId: ItemId): Promise<void> {
@@ -373,8 +317,7 @@ export class ItemOperations {
 
     await this.deps.docStore.compactDocument(itemId, localItem)
 
-    await this.clearRecoveryState(itemId)
-    await this.pushRecoveryItems()
+    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
 
     this.deps.markDocumentDirty(itemId)
     this.deps.eventHub.emit({ type: 'itemUpdated', id: itemId, item: localItem })
@@ -382,6 +325,6 @@ export class ItemOperations {
 
   async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
     if (!this.deps.accountId) return []
-    return await readManualRecoveryEntries(this.deps.accountId)
+    return await this.recoveryManager.listRecoveryItems(this.deps.accountId)
   }
 }

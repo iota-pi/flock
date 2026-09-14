@@ -13,7 +13,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { getTrpcClient } from 'src/api/trpcClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
-import { readManualRecoveryEntries } from '../shared/manualRecoveryStore'
+import { RecoveryManager } from './RecoveryManager'
 import { reconcileAccountMetadata, extractSyncableMetadata } from './utils/metadataSync'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
@@ -54,18 +54,23 @@ export type HydrateItemResult =
     }
 
 export class ManifestSyncManager {
+  private recoveryManager: RecoveryManager
+
   constructor(
     private deps: {
       accountId: string
       docStore: AutomergeDocStore
       indexManager: AutomergeIndexManager
       snapshotManager: SnapshotManager
+      recoveryManager?: RecoveryManager
     },
     private storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
     private mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
     private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
     private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
-  ) {}
+  ) {
+    this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId: deps.accountId })
+  }
 
   private readonly syncGuard = new SingleFlightGuard<{ added: ItemId[] }>()
 
@@ -132,7 +137,7 @@ export class ManifestSyncManager {
     let quarantinedMap = new Map<ItemId, number>()
     if (this.deps.accountId) {
       try {
-        const recoveryEntries = await readManualRecoveryEntries(this.deps.accountId)
+        const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
         for (const entry of recoveryEntries) {
           quarantinedMap.set(entry.itemId, entry.createdAt)
         }

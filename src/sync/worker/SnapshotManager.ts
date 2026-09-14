@@ -9,11 +9,7 @@ import { buildSnapshot, isTransientVaultError, type BuildSnapshotResult } from '
 import { ItemId } from 'src/shared/schemas/items'
 import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import type { ClientEventHub } from './SyncEventHub'
-import {
-  readManualRecoveryEntries,
-  removeManualRecoveryEntryByItemId,
-  upsertManualRecoveryEntry,
-} from '../shared/manualRecoveryStore'
+import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export interface SnapshotManagerOptions {
@@ -61,6 +57,7 @@ export class SnapshotManager {
   private retryAttempt = 0
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
   private readonly maxPayloadBytes: number
+  private readonly recoveryManager: RecoveryManager
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private maxWaitTimer: ReturnType<typeof setTimeout> | null = null
@@ -81,10 +78,15 @@ export class SnapshotManager {
       broker: SyncMessageBroker
       getLatestCursor?: () => number
       eventHub?: ClientEventHub
+      recoveryManager?: RecoveryManager
     },
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
+    this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
+      accountId: deps.accountId,
+      eventHub: deps.eventHub,
+    })
     this.isLeader = options?.isLeader ?? false
     this.maxPayloadBytes = options?.maxPayloadBytes ?? 350 * 1024
     this.debounceDelayMs = options?.debounceDelayMs ?? 30_000
@@ -140,7 +142,7 @@ export class SnapshotManager {
       const quarantinedIds = new Set<ItemId>()
       if (this.deps.accountId) {
         try {
-          const recoveryEntries = await readManualRecoveryEntries(this.deps.accountId)
+          const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
           if (this.isShutdown) return
           for (const entry of recoveryEntries) {
             quarantinedIds.add(entry.itemId)
@@ -452,12 +454,11 @@ export class SnapshotManager {
 
       if (this.deps.accountId) {
         try {
-          await upsertManualRecoveryEntry(this.deps.accountId, {
+          await this.recoveryManager.quarantine(
+            this.deps.accountId,
             itemId,
-            reason: `Snapshot failure: ${detailedReason}`,
-          })
-          const entries = await readManualRecoveryEntries(this.deps.accountId)
-          this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
+            `Snapshot failure: ${detailedReason}`,
+          )
         } catch (recoveryError) {
           console.error('[SnapshotManager] Failed to record manual recovery entry', recoveryError)
         }
@@ -492,14 +493,12 @@ export class SnapshotManager {
         type: 'quotaExceeded',
         message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
       })
-      void upsertManualRecoveryEntry(accountId, {
-        itemId,
-        reason: `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
-      })
-        .then(async () => {
-          const entries = await readManualRecoveryEntries(accountId)
-          this.deps.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
-        })
+      void this.recoveryManager
+        .quarantine(
+          accountId,
+          itemId,
+          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
+        )
         .catch(() => {})
     }
   }
@@ -563,7 +562,7 @@ export class SnapshotManager {
       }
       this.deps.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
       this.deps.broker.unblockItem?.(item.snapshot.itemId)
-      void removeManualRecoveryEntryByItemId(accountId, item.snapshot.itemId).catch(() => {})
+      void this.recoveryManager.unquarantine(accountId, item.snapshot.itemId).catch(() => {})
     }
     this.saveLastModifiedDebounced()
   }
