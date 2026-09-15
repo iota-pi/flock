@@ -81,6 +81,27 @@ describe('buildSnapshot helper function', () => {
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' })
   })
 
+  it('captures snapshot timestamp prior to async encryption to prevent stale timestamp masking', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1000)
+      mockEncryptBytes.mockImplementation(async () => {
+        // Simulate async encryption delay where time advances to T3
+        vi.setSystemTime(3000)
+        return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
+      })
+
+      const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+      expect(result.type).toBe('success')
+      if (result.type === 'success') {
+        // Timestamp must be T1 (1000), not T3 (3000)
+        expect(result.snapshot.modified).toBe(1000)
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('returns error if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
     let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)

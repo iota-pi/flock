@@ -1433,6 +1433,47 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(manager.exportLastModified()).toEqual([['item-1', 33000]])
       })
 
+      it('retains newer localModifiedAt and re-enqueues item if inbound change occurs during snapshot encryption (C3 fix)', async () => {
+        vi.setSystemTime(1000)
+        manager.markItemDirty('item-1' as ItemId)
+        await vi.advanceTimersByTimeAsync(1000)
+
+        // Time advances to 30000 when snapshot push starts
+        vi.setSystemTime(30000)
+
+        const { encryptBytes } = await import('../../api/vault')
+        vi.mocked(encryptBytes).mockImplementationOnce(async () => {
+          // Inbound change arrives at T2 (31000) while encryption is in-flight
+          vi.setSystemTime(31000)
+          manager.recordInboundChange('item-1' as ItemId, 31000)
+          // Encryption completes at T3 (32000)
+          vi.setSystemTime(32000)
+          return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
+        })
+
+        mockPutSnapshotsWithToken.mockResolvedValueOnce({
+          success: true,
+          persisted: 1,
+        })
+
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+
+        // Snapshot timestamp was captured at T1 (30000), so lastSnapshotAt must be 30000
+        expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(30000)
+        // Inbound edit was at T2 (31000), so localModifiedAt must be 31000 (> lastSnapshotAt 30000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(31000)
+
+        // Persist timestamps and simulate restart / promotion audit
+        await manager.persistLastModified()
+        manager.clear()
+        expect(manager.getDirtyItemIds()).not.toContain('item-1')
+
+        await manager.loadLastModified()
+        // Startup audit should detect localMod (31000) > lastSnap (30000) and re-enqueue item-1
+        expect(manager.getDirtyItemIds()).toContain('item-1')
+      })
+
       it('heals legacy stored data on load where localModifiedAt < lastSnapshotAt', async () => {
         await lastModifiedStore.saveTimestamps([
           ['item-legacy' as ItemId, { localModifiedAt: 1000, lastSnapshotAt: 5000 }],

@@ -39,6 +39,7 @@ export async function buildSnapshot(
     return { type: 'error', reason: 'Document data not available' }
   }
 
+  const snapshotTimestamp = Date.now()
   const heads = Automerge.getHeads(doc)
   const binary = Automerge.save(doc)
   if (!binary || binary.byteLength === 0) {
@@ -72,7 +73,7 @@ export async function buildSnapshot(
       snapshot: encryptedDoc,
       snapshotCursor,
       type: normalizeSnapshotType(itemSnapshot.type, originalType),
-      modified: Date.now(),
+      modified: snapshotTimestamp,
       deleted: !!itemSnapshot.deleted || undefined,
     },
     heads,
