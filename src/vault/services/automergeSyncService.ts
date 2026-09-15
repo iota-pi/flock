@@ -102,11 +102,10 @@ export function createAutomergeSyncService({
   }> {
     const isContinuation = !!input.lastEvaluatedKey
     const fromCursor = typeof input.cursor === 'number' ? input.cursor : 0
-    const overlapCursor = Math.max(0, fromCursor - OVERLAP_CURSOR_DELTA)
     const { messages: storedMessages, hasMore, lastEvaluatedKey } = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
-      fromCursor: isContinuation ? undefined : overlapCursor,
+      fromCursor: isContinuation ? undefined : fromCursor,
       limit: SYNC_MESSAGE_PAGE_LIMIT,
       exclusiveStartKey: input.lastEvaluatedKey,
     })
@@ -182,10 +181,9 @@ export function createAutomergeSyncService({
     lastEvaluatedKey?: Record<string, unknown>
   }> {
     const isContinuation = !!input.lastEvaluatedKey
-    const overlapCursor = Math.max(0, input.cursor - OVERLAP_CURSOR_DELTA)
     const { items, hasMore, lastEvaluatedKey } = await repository.getGlobalSyncMessagesAfterCursor({
       account: input.account,
-      cursor: isContinuation ? undefined : overlapCursor,
+      cursor: isContinuation ? undefined : input.cursor,
       exclusiveStartKey: input.lastEvaluatedKey,
     })
 

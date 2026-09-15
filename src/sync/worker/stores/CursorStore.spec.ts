@@ -66,25 +66,25 @@ describe('CursorStore', () => {
   })
 
   it('saves and loads cursors correctly using consolidated key', async () => {
-    const cursors: [ItemId, number][] = [
-      ['item-1' as ItemId, 100],
-      ['item-2' as ItemId, 200],
-    ]
+    const state = {
+      globalCursor: 200,
+      retries: [['item-1' as ItemId, 100]] as [ItemId, number][],
+    }
 
-    await store.saveCursors(cursors)
+    await store.saveCursors(state)
     const loaded = await store.loadCursors()
-    expect(loaded).toEqual(cursors)
+    expect(loaded).toEqual(state)
 
     // Verify key in consolidated store
     const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual(cursors)
+    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual(state)
   })
 
   it('clears cursors without clearing entire database', async () => {
     const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
     await consolidatedStore?.setItem(SYNC_METADATA_KEYS.INDEX_DOC, { itemIds: ['other'] })
 
-    await store.saveCursors([['item-1' as ItemId, 100]])
+    await store.saveCursors({ globalCursor: 100 })
     await store.clear()
 
     const loaded = await store.loadCursors()
@@ -100,10 +100,16 @@ describe('CursorStore', () => {
     await consolidatedStore?.setItem(LEGACY_KEYS.CURSORS, legacyCursors)
 
     const loaded = await store.loadCursors()
-    expect(loaded).toEqual(legacyCursors)
+    expect(loaded).toEqual({
+      globalCursor: 50,
+      retries: legacyCursors,
+    })
 
     // Key should now be in new cursors key and removed from legacy
-    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual(legacyCursors)
+    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual({
+      globalCursor: 50,
+      retries: legacyCursors,
+    })
     expect(await consolidatedStore?.getItem(LEGACY_KEYS.CURSORS)).toBeNull()
   })
 
@@ -120,11 +126,17 @@ describe('CursorStore', () => {
       instances.set(legacyStoreKey, legacyStore)
 
       const loaded = await store.loadCursors()
-      expect(loaded).toEqual(legacyCursors)
+      expect(loaded).toEqual({
+        globalCursor: 77,
+        retries: legacyCursors,
+      })
 
       // Verify saved to new consolidated database and removed from legacy
       const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-      expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual(legacyCursors)
+      expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual({
+        globalCursor: 77,
+        retries: legacyCursors,
+      })
       expect(await legacyStore.getItem(LEGACY_KEYS.CURSORS)).toBeNull()
     } finally {
       if (originalIndexedDb === undefined) {

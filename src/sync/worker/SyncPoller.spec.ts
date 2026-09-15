@@ -360,7 +360,6 @@ describe('SyncPoller', () => {
           })
       )
 
-      const pushResultsSpy = vi.spyOn(pullQueueManager, 'processPushResults')
       const pullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults')
 
       const pollPromise = poller.executePoll()
@@ -384,7 +383,6 @@ describe('SyncPoller', () => {
       expect(outcome).toBe('no-poll')
 
       // Must NOT have written to stores
-      expect(pushResultsSpy).not.toHaveBeenCalled()
       expect(pullResultsSpy).not.toHaveBeenCalled()
       expect(mockWal.remove).not.toHaveBeenCalled()
       expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()

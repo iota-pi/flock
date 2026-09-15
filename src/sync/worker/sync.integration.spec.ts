@@ -7,6 +7,7 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
+import { clearSyncMetadataInstancesCacheForTesting } from './stores/syncMetadataStorage'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
@@ -97,6 +98,7 @@ describe('Sync System Integration Test Suite', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     mockStores.clear()
+    clearSyncMetadataInstancesCacheForTesting()
 
     clientEventHub = new ClientEventHub()
     internalEventHub = new WorkerInternalEventHub()

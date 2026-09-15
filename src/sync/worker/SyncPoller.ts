@@ -256,14 +256,6 @@ export class SyncPoller {
   ): Promise<void> {
     if (!response) return
 
-    if (response.pushResults) {
-      try {
-        this.pullQueueManager.processPushResults(response.pushResults)
-      } catch (pushErr) {
-        console.error('[SyncPoller] Error processing push results', pushErr)
-      }
-    }
-
     try {
       if (typeof response.hasMore === 'boolean') {
         await this.pullQueueManager.processPullResults(

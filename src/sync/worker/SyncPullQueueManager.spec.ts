@@ -232,7 +232,7 @@ describe('SyncPullQueueManager', () => {
 
       // Check debounce persistence
       await vi.advanceTimersByTimeAsync(1000)
-      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, [['item-1', 5]])
+      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, expect.objectContaining({ globalCursor: 5 }))
     })
 
     it('parses batched v1.0 messages with DataView length prefixes', async () => {
@@ -787,115 +787,6 @@ describe('SyncPullQueueManager', () => {
       expect(manager.exportCursors()).toContainEqual(['item-stagnate', 20])
     })
 
-    it('evicts oldest seen message cache entries when exceeding SEEN_CACHE_MAX', async () => {
-      const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-
-      // Fill seen cache with 2001 messages
-      const messages = []
-      for (let i = 1; i <= 2001; i++) {
-        messages.push({
-          cursor: i,
-          encryptedMessage: {
-            iv: `iv-${i}`,
-            cipher: `msg${i}`,
-          },
-        })
-      }
-
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-cache' as ItemId,
-          hasMore: false,
-          nextCursor: 2001,
-          messages,
-        },
-      ])
-
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2001)
-
-      // Message with cursor 1 was evicted, so receiving it again will re-process it
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-cache' as ItemId,
-          hasMore: false,
-          nextCursor: 2001,
-          messages: [
-            {
-              cursor: 1, // Was evicted
-              encryptedMessage: {
-                iv: 'iv-1',
-                cipher: 'msg1',
-              },
-            },
-            {
-              cursor: 2001, // Still in cache
-              encryptedMessage: {
-                iv: 'iv-2001',
-                cipher: 'msg2001',
-              },
-            },
-          ],
-        },
-      ])
-
-      // Only cursor 1 was reprocessed, cursor 2001 was skipped
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2002)
-    })
-
-    it('clears seen message cache on account change and shutdown', async () => {
-      const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-
-      const msg = {
-        cursor: 10,
-        encryptedMessage: {
-          iv: 'iv-1',
-          cipher: 'msg1',
-        },
-      }
-
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-1' as ItemId,
-          hasMore: false,
-          nextCursor: 10,
-          messages: [msg],
-        },
-      ])
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
-
-      // Re-running on same account skips it
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-1' as ItemId,
-          hasMore: false,
-          nextCursor: 10,
-          messages: [msg],
-        },
-      ])
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
-
-      // Change account
-      await manager.setAccount('account-2')
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-1' as ItemId,
-          hasMore: false,
-          nextCursor: 10,
-          messages: [msg],
-        },
-      ])
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
-    })
-
     it('re-queues pending items and clears them based on hasMore', async () => {
       // First batch hasMore: true
       await manager.processPullResults([
@@ -1422,147 +1313,6 @@ describe('SyncPullQueueManager', () => {
     })
   })
 
-  describe('processPushResults (B4 fix)', () => {
-    beforeEach(async () => {
-      await manager.setAccount('account-1')
-    })
-
-    it('does not advance pull cursor or clear pending status', async () => {
-      await manager.importCursors([['item-y' as ItemId, 10]])
-      manager.addPendingItem('item-y' as ItemId)
-
-      // Push results arrive with higher cursor (e.g. cursor 50 assigned to this client's push)
-      manager.processPushResults([{ itemId: 'item-y' as ItemId, cursor: 50 }])
-
-      // Pull cursor MUST NOT jump forward to 50 (which would skip peer messages < 50)
-      expect(manager.exportCursors()).toContainEqual(['item-y', 10])
-      expect(manager.getGlobalLatestCursor()).toBe(10)
-
-      // Pending pull status MUST NOT be cleared (which would kill pagination)
-      expect(manager.hasPendingPulls()).toBe(true)
-      expect(manager.getCursors()).toEqual([{ itemId: 'item-y', cursor: 10 }])
-    })
-
-    it('preserves multi-page pull pagination when push results arrive', async () => {
-      // Step 1: Simulate a multi-page pull result where hasMore: true sets pending: true
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-page' as ItemId,
-          messages: [
-            {
-              cursor: 100,
-              encryptedMessage: { iv: 'iv1', cipher: 'c1', version: 'legacy' },
-            },
-          ],
-          hasMore: true,
-          nextCursor: 100,
-        },
-      ])
-
-      expect(manager.hasPendingPulls()).toBe(true)
-      expect(manager.getCursors()).toEqual([{ itemId: 'item-page', cursor: 100 }])
-
-      // Step 2: Push results arrive (e.g. from an outbound push chunk)
-      manager.processPushResults([{ itemId: 'item-page' as ItemId, cursor: 500 }])
-
-      // Step 3: Pagination must still be alive (pending = true, cursor = 100)
-      expect(manager.hasPendingPulls()).toBe(true)
-      expect(manager.getCursors()).toEqual([{ itemId: 'item-page', cursor: 100 }])
-
-      // Step 4: Next page can be pulled successfully
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-page' as ItemId,
-          messages: [
-            {
-              cursor: 200,
-              encryptedMessage: { iv: 'iv2', cipher: 'c2', version: 'legacy' },
-            },
-          ],
-          hasMore: false,
-          nextCursor: 200,
-        },
-      ])
-
-      expect(manager.hasPendingPulls()).toBe(false)
-      expect(manager.exportCursors()).toContainEqual(['item-page', 200])
-    })
-
-    it('marks pushed messages as seen so they are deduplicated when pulled', async () => {
-      const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
-
-      // Client pushes a message and gets cursor 500
-      manager.processPushResults([{ itemId: 'item-sync' as ItemId, cursor: 500 }])
-
-      // Subsequent pull returns peer message at 450 and echoed push message at 500
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-sync' as ItemId,
-          messages: [
-            {
-              cursor: 450,
-              encryptedMessage: { iv: 'iv-peer', cipher: 'c-peer', version: 'legacy' },
-            },
-            {
-              cursor: 500,
-              encryptedMessage: { iv: 'iv-pushed', cipher: 'c-pushed', version: 'legacy' },
-            },
-          ],
-          hasMore: false,
-          nextCursor: 500,
-        },
-      ])
-
-      // Peer message at 450 must be parsed, pushed message at 500 must be skipped (deduped)
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
-      expect(manager.exportCursors()).toContainEqual(['item-sync', 500])
-    })
-
-    it('ignores failed push results with success: false', async () => {
-      const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
-
-      manager.processPushResults([
-        { itemId: 'item-fail' as ItemId, cursor: 100, success: false },
-        { itemId: 'item-ok' as ItemId, cursor: 50, success: true },
-      ])
-
-      // Pull both messages
-      await manager.processPullResults([
-        {
-          success: true,
-          itemId: 'item-fail' as ItemId,
-          messages: [
-            {
-              cursor: 100,
-              encryptedMessage: { iv: 'iv-fail', cipher: 'c-fail', version: 'legacy' },
-            },
-          ],
-          hasMore: false,
-        },
-        {
-          success: true,
-          itemId: 'item-ok' as ItemId,
-          messages: [
-            {
-              cursor: 50,
-              encryptedMessage: { iv: 'iv-ok', cipher: 'c-ok', version: 'legacy' },
-            },
-          ],
-          hasMore: false,
-        },
-      ])
-
-      // item-fail was NOT marked seen (success: false), so its message is parsed.
-      // item-ok WAS marked seen (success: true), so its message is skipped.
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
-    })
-  })
-
   describe('persistCursors and shutdown', () => {
     beforeEach(async () => {
       await manager.setAccount('account-quota')
@@ -1583,7 +1333,10 @@ describe('SyncPullQueueManager', () => {
       await manager.importCursors([['item-z' as ItemId, 500]])
       await manager.shutdown()
 
-      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, expect.any(Array))
+      expect(activeStore?.setItem).toHaveBeenCalledWith(
+        SYNC_METADATA_KEYS.CURSORS,
+        expect.objectContaining({ globalCursor: 500 })
+      )
     })
 
     it('cancels debounced timer and skips persisting when clearLocalData is true', async () => {
@@ -1601,7 +1354,10 @@ describe('SyncPullQueueManager', () => {
 
       await manager.shutdown()
       expect(activeStore?.setItem).toHaveBeenCalledTimes(1)
-      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, [['item-z', 500]])
+      expect(activeStore?.setItem).toHaveBeenCalledWith(
+        SYNC_METADATA_KEYS.CURSORS,
+        expect.objectContaining({ globalCursor: 500 })
+      )
 
       activeStore!.setItem.mockClear()
       await manager.shutdown()
@@ -1612,7 +1368,6 @@ describe('SyncPullQueueManager', () => {
       await manager.shutdown()
       activeStore!.setItem.mockClear()
 
-      manager.processPushResults([{ itemId: 'item-new' as ItemId, cursor: 100 }])
       await manager.processPullResults([{ success: true, itemId: 'item-new' as ItemId, messages: [], hasMore: false }])
 
       expect(activeStore?.setItem).not.toHaveBeenCalled()
@@ -1627,7 +1382,10 @@ describe('SyncPullQueueManager', () => {
 
       await manager.importCursors(imported)
       expect(manager.exportCursors()).toEqual(imported)
-      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, imported)
+      expect(activeStore?.setItem).toHaveBeenCalledWith(
+        SYNC_METADATA_KEYS.CURSORS,
+        expect.objectContaining({ globalCursor: 77 })
+      )
     })
   })
 

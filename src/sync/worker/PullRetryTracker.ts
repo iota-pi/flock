@@ -29,36 +29,54 @@ export interface RecordPullOutcomeResult {
   advanceCursor?: number
 }
 
+export interface PersistedSyncCursors {
+  globalCursor: number
+  retries?: [ItemId, number][]
+}
+
 export class PullRetryTracker {
   public static readonly MAX_PULL_RETRIES = 5
 
-  private readonly itemStates = new Map<ItemId, ItemPullState>()
+  private globalCursor = 0
+  private readonly retryQueue = new Map<ItemId, ItemPullState>()
+  private readonly itemCursors = new Map<ItemId, number>()
 
   constructor(private readonly maxRetries: number = PullRetryTracker.MAX_PULL_RETRIES) {}
 
   getOrCreateState(itemId: ItemId): ItemPullState {
-    let state = this.itemStates.get(itemId)
+    let state = this.retryQueue.get(itemId)
     if (!state) {
+      const knownCursor = this.itemCursors.get(itemId) ?? 0
       state = {
-        cursor: 0,
+        cursor: knownCursor,
         pending: false,
         retryCount: 0,
       }
-      this.itemStates.set(itemId, state)
+      this.retryQueue.set(itemId, state)
     }
     return state
   }
 
   hasState(itemId: ItemId): boolean {
-    return this.itemStates.has(itemId)
+    return this.retryQueue.has(itemId)
   }
 
   getState(itemId: ItemId): ItemPullState | undefined {
-    return this.itemStates.get(itemId)
+    const existing = this.retryQueue.get(itemId)
+    if (existing) return existing
+    const knownCursor = this.itemCursors.get(itemId)
+    if (typeof knownCursor === 'number') {
+      return {
+        cursor: knownCursor,
+        pending: false,
+        retryCount: 0,
+      }
+    }
+    return undefined
   }
 
   getCursor(itemId: ItemId): number {
-    return this.itemStates.get(itemId)?.cursor ?? 0
+    return this.retryQueue.get(itemId)?.cursor ?? this.itemCursors.get(itemId) ?? 0
   }
 
   addPendingItem(itemId: ItemId): void {
@@ -71,7 +89,7 @@ export class PullRetryTracker {
   }
 
   isAnyRetrying(): boolean {
-    for (const state of this.itemStates.values()) {
+    for (const state of this.retryQueue.values()) {
       if (state.retryCount > 0 || (state.blockedOnKey && !hasVaultKey(state.blockedOnKey))) {
         return true
       }
@@ -80,14 +98,14 @@ export class PullRetryTracker {
   }
 
   hasPendingPulls(): boolean {
-    for (const state of this.itemStates.values()) {
+    for (const state of this.retryQueue.values()) {
       if (state.pending) return true
     }
     return false
   }
 
   hasImmediatePendingPulls(): boolean {
-    for (const state of this.itemStates.values()) {
+    for (const state of this.retryQueue.values()) {
       if (state.pending && state.retryCount === 0 && (!state.blockedOnKey || hasVaultKey(state.blockedOnKey))) {
         return true
       }
@@ -97,7 +115,7 @@ export class PullRetryTracker {
 
   onKeyringUpdated(): boolean {
     let unblockedAny = false
-    for (const state of this.itemStates.values()) {
+    for (const state of this.retryQueue.values()) {
       if (state.blockedOnKey && hasVaultKey(state.blockedOnKey)) {
         state.blockedOnKey = undefined
         state.pending = true
@@ -111,7 +129,7 @@ export class PullRetryTracker {
   getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> {
     const cursors: Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> = []
 
-    for (const [itemId, state] of this.itemStates.entries()) {
+    for (const [itemId, state] of this.retryQueue.entries()) {
       if (state.blockedOnKey && !hasVaultKey(state.blockedOnKey)) {
         continue
       }
@@ -124,50 +142,123 @@ export class PullRetryTracker {
   }
 
   getGlobalLatestCursor(): number {
-    let max = 0
-    for (const state of this.itemStates.values()) {
+    let max = this.globalCursor
+    for (const state of this.retryQueue.values()) {
       if (state.cursor > max) max = state.cursor
+    }
+    for (const cursor of this.itemCursors.values()) {
+      if (cursor > max) max = cursor
     }
     return max
   }
 
+  setGlobalCursor(cursor: number): void {
+    if (Number.isFinite(cursor) && cursor >= 0) {
+      this.globalCursor = Math.max(this.globalCursor, cursor)
+    }
+  }
+
+  exportState(): PersistedSyncCursors {
+    const retries: [ItemId, number][] = []
+    for (const [itemId, state] of this.retryQueue.entries()) {
+      if (state.cursor >= 0) {
+        retries.push([itemId, state.cursor])
+      }
+    }
+    return {
+      globalCursor: this.getGlobalLatestCursor(),
+      retries: retries.length > 0 ? retries : undefined,
+    }
+  }
+
+  loadState(stored: PersistedSyncCursors | [ItemId, number][]): void {
+    if (Array.isArray(stored)) {
+      this.loadStoredCursors(stored)
+      return
+    }
+    if (stored && typeof stored === 'object') {
+      if (typeof stored.globalCursor === 'number' && Number.isFinite(stored.globalCursor)) {
+        this.globalCursor = Math.max(this.globalCursor, stored.globalCursor)
+      }
+      if (Array.isArray(stored.retries)) {
+        for (const [itemId, cursor] of stored.retries) {
+          if (Number.isFinite(cursor) && cursor >= 0) {
+            const state = this.getOrCreateState(itemId)
+            state.cursor = Math.max(state.cursor, cursor)
+            state.pending = true
+            const current = this.itemCursors.get(itemId) ?? 0
+            this.itemCursors.set(itemId, Math.max(current, cursor))
+          }
+        }
+      }
+    }
+  }
+
   exportCursors(): [ItemId, number][] {
     const cursors: [ItemId, number][] = []
-    for (const [itemId, state] of this.itemStates.entries()) {
+    const seen = new Set<ItemId>()
+    for (const [itemId, state] of this.retryQueue.entries()) {
       cursors.push([itemId, state.cursor])
+      seen.add(itemId)
+    }
+    for (const [itemId, cursor] of this.itemCursors.entries()) {
+      if (!seen.has(itemId)) {
+        cursors.push([itemId, cursor])
+        seen.add(itemId)
+      }
     }
     return cursors
   }
 
   exportValidCursors(): [ItemId, number][] {
     const data: [ItemId, number][] = []
-    for (const [itemId, state] of this.itemStates.entries()) {
+    const seen = new Set<ItemId>()
+    for (const [itemId, state] of this.retryQueue.entries()) {
       if (state.cursor >= 0) {
         data.push([itemId, state.cursor])
+        seen.add(itemId)
+      }
+    }
+    for (const [itemId, cursor] of this.itemCursors.entries()) {
+      if (!seen.has(itemId) && cursor >= 0) {
+        data.push([itemId, cursor])
+        seen.add(itemId)
       }
     }
     return data
   }
 
   importCursors(cursors: [ItemId, number][]): void {
-    this.itemStates.clear()
+    this.retryQueue.clear()
+    this.itemCursors.clear()
     for (const [itemId, cursor] of cursors) {
-      const state = this.getOrCreateState(itemId)
-      state.cursor = cursor
+      if (Number.isFinite(cursor) && cursor >= 0) {
+        this.globalCursor = Math.max(this.globalCursor, cursor)
+        this.itemCursors.set(itemId, cursor)
+        const state = this.getOrCreateState(itemId)
+        state.cursor = cursor
+      }
     }
   }
 
   loadStoredCursors(stored: [ItemId, number][]): void {
     for (const [itemId, cursor] of stored) {
       if (Number.isFinite(cursor) && cursor >= 0) {
-        const state = this.getOrCreateState(itemId)
-        state.cursor = Math.max(state.cursor, cursor)
+        this.globalCursor = Math.max(this.globalCursor, cursor)
+        const current = this.itemCursors.get(itemId) ?? 0
+        this.itemCursors.set(itemId, Math.max(current, cursor))
+        const state = this.retryQueue.get(itemId)
+        if (state) {
+          state.cursor = Math.max(state.cursor, cursor)
+        }
       }
     }
   }
 
   clear(): void {
-    this.itemStates.clear()
+    this.globalCursor = 0
+    this.retryQueue.clear()
+    this.itemCursors.clear()
   }
 
   recordPullOutcome(params: RecordPullOutcomeParams): RecordPullOutcomeResult {
@@ -200,6 +291,10 @@ export class PullRetryTracker {
       state.retryCount = 0
       state.blockedOnKey = undefined
       state.lastEvaluatedKey = lastEvaluatedKey
+      if (highestCursor > state.cursor) {
+        state.cursor = highestCursor
+      }
+      this.setGlobalCursor(highestCursor)
     } else if (hasParseFailure) {
       state.lastEvaluatedKey = undefined
       state.retryCount += 1
@@ -218,22 +313,34 @@ export class PullRetryTracker {
         if (typeof advanceCursor === 'number') {
           highestCursor = Math.max(highestCursor, advanceCursor)
         }
+        state.cursor = highestCursor
+        this.retryQueue.delete(itemId)
+        this.setGlobalCursor(highestCursor)
       } else {
         state.pending = true
+        if (highestCursor > state.cursor) {
+          state.cursor = highestCursor
+        }
       }
     } else {
+      // Terminal success (hasMore: false, no failure)
       state.pending = false
       state.retryCount = 0
       state.blockedOnKey = undefined
       state.lastEvaluatedKey = undefined
+      state.cursor = highestCursor
+      this.retryQueue.delete(itemId)
+      this.setGlobalCursor(highestCursor)
     }
 
     let cursorUpdated = false
     if (highestCursor > initialCursor) {
       state.cursor = highestCursor
+      this.itemCursors.set(itemId, highestCursor)
       cursorUpdated = true
     } else if (isNewItem && highestCursor >= 0) {
       state.cursor = highestCursor
+      this.itemCursors.set(itemId, highestCursor)
       cursorUpdated = true
     }
 

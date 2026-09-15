@@ -11,7 +11,7 @@ import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
 import type { WorkerInternalEventHub } from './SyncEventHub'
-import { BoundedSet, BoundedMap } from '../utils/boundedCollections'
+import { BoundedMap } from '../utils/boundedCollections'
 
 interface ProcessItemMessagesResult {
   highestCursor: number
@@ -29,9 +29,6 @@ export class SyncPullQueueManager {
   private hasMoreGlobal = false
   private globalLastEvaluatedKey?: Record<string, unknown>
   public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
-
-  private static readonly SEEN_CACHE_MAX = 2000
-  private readonly seenMessageCursors = new BoundedSet<string>(SyncPullQueueManager.SEEN_CACHE_MAX) // "itemId:cursor" compound keys
 
   private static readonly BATCH_PROGRESS_CACHE_MAX = 500
   private readonly batchProgress = new BoundedMap<string, number>(SyncPullQueueManager.BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
@@ -65,28 +62,20 @@ export class SyncPullQueueManager {
     this.lockCoordinator = coordinator
   }
 
-  private makeSeenKey(itemId: ItemId, cursor: number): string {
+  private makeBatchProgressKey(itemId: ItemId, cursor: number): string {
     return `${itemId}:${cursor}`
   }
 
-  private markSeen(itemId: ItemId, cursor: number): void {
-    this.seenMessageCursors.add(this.makeSeenKey(itemId, cursor))
-  }
-
-  private hasSeen(itemId: ItemId, cursor: number): boolean {
-    return this.seenMessageCursors.has(this.makeSeenKey(itemId, cursor))
-  }
-
   private getBatchProgress(itemId: ItemId, cursor: number): number {
-    return this.batchProgress.get(this.makeSeenKey(itemId, cursor)) ?? 0
+    return this.batchProgress.get(this.makeBatchProgressKey(itemId, cursor)) ?? 0
   }
 
   private setBatchProgress(itemId: ItemId, cursor: number, count: number): void {
-    this.batchProgress.set(this.makeSeenKey(itemId, cursor), count)
+    this.batchProgress.set(this.makeBatchProgressKey(itemId, cursor), count)
   }
 
   private clearBatchProgress(itemId: ItemId, cursor: number): void {
-    this.batchProgress.delete(this.makeSeenKey(itemId, cursor))
+    this.batchProgress.delete(this.makeBatchProgressKey(itemId, cursor))
   }
 
   private clearBatchProgressForItem(itemId: ItemId): void {
@@ -104,7 +93,6 @@ export class SyncPullQueueManager {
     this.isShutdown = false
 
     this.retryTracker.clear()
-    this.seenMessageCursors.clear()
     this.batchProgress.clear()
     this.hasMoreGlobal = false
     this.globalLastEvaluatedKey = undefined
@@ -124,8 +112,8 @@ export class SyncPullQueueManager {
     if (this.isShutdown || !this.account) return
     try {
       const stored = await this.cursorStore.loadCursors()
-      if (stored && Array.isArray(stored)) {
-        this.retryTracker.loadStoredCursors(stored)
+      if (stored) {
+        this.retryTracker.loadState(stored)
       }
     } catch (error) {
       console.error('[SyncPullQueueManager] Failed to load cursors', error)
@@ -138,7 +126,7 @@ export class SyncPullQueueManager {
 
   async persistCursors(): Promise<void> {
     if (!this.account) return
-    const data = this.retryTracker.exportValidCursors()
+    const data = this.retryTracker.exportState()
     try {
       await this.cursorStore.saveCursors(data)
     } catch (error) {
@@ -155,7 +143,6 @@ export class SyncPullQueueManager {
       await this.persistCursors()
     }
     this.retryTracker.clear()
-    this.seenMessageCursors.clear()
     this.batchProgress.clear()
     this.hasMoreGlobal = false
     this.account = null
@@ -321,16 +308,15 @@ export class SyncPullQueueManager {
       let hasParsedMessages = false
 
       for (const entry of sortedMessages) {
-        if (Number.isFinite(entry.cursor) && this.hasSeen(itemId, entry.cursor)) {
-          highestCursor = Math.max(highestCursor, entry.cursor!)
-          continue // overlap window dedup
+        if (Number.isFinite(entry.cursor) && (entry.cursor as number) <= initialCursor) {
+          highestCursor = Math.max(highestCursor, entry.cursor as number)
+          continue
         }
 
         const handled = await this.handleMessageEntry(itemId, documentId, entry, timedOutKeys)
         if (handled.parsed) {
           hasParsedMessages = true
           if (Number.isFinite(handled.cursor)) {
-            this.markSeen(itemId, handled.cursor!)
             this.clearBatchProgress(itemId, handled.cursor!)
             highestCursor = Math.max(highestCursor, handled.cursor!)
           }
@@ -421,12 +407,6 @@ export class SyncPullQueueManager {
           if (outcome.permanentlyFailed) {
             this.clearBatchProgressForItem(itemId)
 
-            // Advance cursor past the permanently failing message so it is not re-fetched,
-            // and mark it seen to dedup across overlap queries.
-            if (typeof outcome.advanceCursor === 'number') {
-              this.markSeen(itemId, outcome.advanceCursor)
-            }
-
             const err = new Error(
               `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
             )
@@ -460,22 +440,6 @@ export class SyncPullQueueManager {
     }
   }
 
-  processPushResults(results: Array<PushResultItem>): void {
-    if (this.isShutdown || !this.account || !Array.isArray(results)) return
-    for (const res of results) {
-      if (res.itemId && typeof res.cursor === 'number' && Number.isFinite(res.cursor) && res.success !== false) {
-        // Mark as seen so that if/when the client later pulls this message (e.g. during overlap window),
-        // it is deduplicated without re-decrypting or re-parsing.
-        // NOTE: We do NOT advance state.cursor or clear state.pending here:
-        // 1. state.cursor tracks the PULL cursor. Advancing it from a push result would jump past
-        //    peer messages at earlier cursors that haven't been pulled yet.
-        // 2. state.pending tracks in-progress pulls (including multi-page pagination). Resetting it
-        //    here would kill active pagination.
-        this.markSeen(res.itemId, res.cursor)
-      }
-    }
-  }
-
   hasPendingPulls(): boolean {
     if (this.hasMoreGlobal) {
       return true
@@ -490,7 +454,7 @@ export class SyncPullQueueManager {
   async importCursors(cursors: [ItemId, number][]): Promise<void> {
     if (!this.account) return
     this.retryTracker.importCursors(cursors)
-    await this.cursorStore.saveCursors(cursors)
+    await this.cursorStore.saveCursors(this.retryTracker.exportState())
   }
 
   async resetCursors(): Promise<void> {

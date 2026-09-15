@@ -294,5 +294,69 @@ describe('PullRetryTracker', () => {
       expect(outcome.advanceCursor).toBe(40)
       expect(state.cursor).toBe(40)
     })
+
+    it('evicts healthy items from retryQueue on success while advancing globalCursor', () => {
+      tracker.addPendingItem('item-healthy' as ItemId)
+      expect(tracker.hasPendingPulls()).toBe(true)
+      expect(tracker.hasState('item-healthy' as ItemId)).toBe(true)
+
+      const outcome = tracker.recordPullOutcome({
+        itemId: 'item-healthy' as ItemId,
+        initialCursor: 0,
+        highestCursor: 500,
+        isNewItem: false,
+        hasKeyFailure: false,
+        hasParseFailure: false,
+        hasMore: false,
+      })
+
+      expect(outcome.cursorUpdated).toBe(true)
+      expect(tracker.hasState('item-healthy' as ItemId)).toBe(false)
+      expect(tracker.hasPendingPulls()).toBe(false)
+      expect(tracker.getGlobalLatestCursor()).toBe(500)
+      expect(tracker.getCursors()).toEqual([])
+    })
+  })
+
+  describe('global cursor and state persistence', () => {
+    it('sets global cursor monotonically', () => {
+      tracker.setGlobalCursor(100)
+      expect(tracker.getGlobalLatestCursor()).toBe(100)
+
+      tracker.setGlobalCursor(50) // lower, should not regress
+      expect(tracker.getGlobalLatestCursor()).toBe(100)
+
+      tracker.setGlobalCursor(250)
+      expect(tracker.getGlobalLatestCursor()).toBe(250)
+    })
+
+    it('exports and loads state with globalCursor and active retries', () => {
+      tracker.setGlobalCursor(1000)
+      tracker.addPendingItem('item-retrying' as ItemId)
+      const s = tracker.getOrCreateState('item-retrying' as ItemId)
+      s.cursor = 400
+
+      const state = tracker.exportState()
+      expect(state.globalCursor).toBe(1000)
+      expect(state.retries).toEqual([['item-retrying', 400]])
+
+      const tracker2 = new PullRetryTracker()
+      tracker2.loadState(state)
+      expect(tracker2.getGlobalLatestCursor()).toBe(1000)
+      expect(tracker2.hasPendingPulls()).toBe(true)
+      expect(tracker2.getCursors()).toEqual([{ itemId: 'item-retrying', cursor: 400, lastEvaluatedKey: undefined }])
+    })
+
+    it('loads legacy [ItemId, number][] format cleanly into globalCursor without populating retryQueue', () => {
+      tracker.loadState([
+        ['item-1' as ItemId, 50],
+        ['item-2' as ItemId, 200],
+        ['item-3' as ItemId, 120],
+      ])
+
+      expect(tracker.getGlobalLatestCursor()).toBe(200)
+      expect(tracker.hasPendingPulls()).toBe(false)
+      expect(tracker.getCursors()).toEqual([])
+    })
   })
 })
