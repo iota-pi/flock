@@ -628,6 +628,230 @@ describe('LeaderElection', () => {
       election2.release()
       vi.useRealTimers()
     })
+
+    it('fallback leader yields immediately when receiving a heartbeat from a true leader', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const onConflictFallback = vi.fn()
+      const onRevokedFallback = vi.fn()
+      const onGrantedFallback = vi.fn()
+
+      const onConflictTrue = vi.fn()
+      const onRevokedTrue = vi.fn()
+      const onGrantedTrue = vi.fn()
+
+      let trueLockRelease: (() => void) | null = null
+      const requestMock = vi.fn().mockImplementation((name, options, callback) => {
+        if (requestMock.mock.calls.length === 1) {
+          return new Promise<void>(resolve => {
+            trueLockRelease = resolve
+            callback()
+          })
+        }
+        // Tab B fails lock acquisition
+        return Promise.reject(new Error('Lock acquisition failed for Tab B'))
+      })
+
+      Object.defineProperty(global, 'navigator', {
+        value: {
+          locks: {
+            request: requestMock,
+          },
+        },
+        writable: true,
+        configurable: true,
+      })
+
+      // Tab A acquires true Web Lock (isFallback: false)
+      const electionTrue = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: onGrantedTrue,
+          onLeaderRevoked: onRevokedTrue,
+          onLeaderConflict: onConflictTrue,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      await electionTrue.acquire()
+      expect(electionTrue.leader).toBe(true)
+      expect(electionTrue.fallback).toBe(false)
+      expect(electionTrue.yielded).toBe(false)
+
+      // Tab B is created in fallback mode after retries fail
+      const electionFallback = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: onGrantedFallback,
+          onLeaderRevoked: onRevokedFallback,
+          onLeaderConflict: onConflictFallback,
+        },
+        { maxLockRetries: 1, retryDelayMs: 10, presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      await electionFallback.acquire()
+
+      // Tab B receives true leader's heartbeat with isFallback: false
+      // Tab B must yield immediately and trigger onLeaderConflict(true)
+      await vi.waitFor(() => {
+        expect(electionFallback.leader).toBe(false)
+        expect(electionFallback.yielded).toBe(true)
+        expect(onConflictFallback).toHaveBeenCalledWith(true)
+        expect(onRevokedFallback).toHaveBeenCalled()
+      })
+
+      // Tab A (true leader) remains active leader
+      expect(electionTrue.leader).toBe(true)
+      expect(electionTrue.fallback).toBe(false)
+      expect(electionTrue.yielded).toBe(false)
+      expect(onConflictTrue).not.toHaveBeenCalledWith(true)
+
+      // When Tab A releases, Tab B should auto-recover as fallback leader
+      electionTrue.release()
+      if (trueLockRelease) trueLockRelease()
+
+      await vi.waitFor(() => {
+        expect(electionFallback.leader).toBe(true)
+        expect(electionFallback.fallback).toBe(true)
+        expect(electionFallback.yielded).toBe(false)
+        expect(onConflictFallback).toHaveBeenCalledWith(false)
+      })
+
+      electionFallback.release()
+      consoleErrorSpy.mockRestore()
+      consoleWarnSpy.mockRestore()
+    })
+
+    it('fallback leader yields to true leader even if fallback leader was created earlier', async () => {
+      const onConflictFallback = vi.fn()
+      const onRevokedFallback = vi.fn()
+
+      const requestMock = vi.fn().mockImplementation((name, options, callback) => {
+        return callback()
+      })
+
+      Object.defineProperty(global, 'navigator', {
+        value: {
+          locks: {
+            request: requestMock,
+          },
+        },
+        writable: true,
+        configurable: true,
+      })
+
+      vi.setSystemTime(100)
+      const electionFallback = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: onRevokedFallback,
+          onLeaderConflict: onConflictFallback,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+      electionFallback.claimLeadership()
+      expect(electionFallback.leader).toBe(true)
+      expect(electionFallback.fallback).toBe(true)
+
+      // Later at T=500, a true leader starts
+      vi.setSystemTime(500)
+      const electionTrue = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: vi.fn(),
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+      await electionTrue.acquire()
+      expect(electionTrue.leader).toBe(true)
+      expect(electionTrue.fallback).toBe(false)
+
+      // Even though fallback leader is older (T=100 vs T=500), it MUST yield to the true leader
+      await vi.waitFor(() => {
+        expect(electionFallback.leader).toBe(false)
+        expect(electionFallback.yielded).toBe(true)
+        expect(onConflictFallback).toHaveBeenCalledWith(true)
+        expect(onRevokedFallback).toHaveBeenCalled()
+      })
+
+      expect(electionTrue.leader).toBe(true)
+      expect(electionTrue.yielded).toBe(false)
+
+      electionFallback.release()
+      electionTrue.release()
+      vi.useRealTimers()
+    })
+
+    it('true leader that yields to a claim re-grants leadership with isFallback: false when claimer releases', async () => {
+      let trueLockRelease: (() => void) | null = null
+      const requestMock = vi.fn().mockImplementation((name, options, callback) => {
+        return new Promise<void>(resolve => {
+          trueLockRelease = resolve
+          callback()
+        })
+      })
+
+      Object.defineProperty(global, 'navigator', {
+        value: {
+          locks: {
+            request: requestMock,
+          },
+        },
+        writable: true,
+        configurable: true,
+      })
+
+      const onConflictTrue = vi.fn()
+      const electionTrue = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: onConflictTrue,
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      await electionTrue.acquire()
+      expect(electionTrue.leader).toBe(true)
+      expect(electionTrue.fallback).toBe(false)
+
+      const electionClaimer = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: vi.fn(),
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+
+      // Claimer claims leadership
+      electionClaimer.claimLeadership()
+
+      // True leader yields to claim
+      await vi.waitFor(() => {
+        expect(electionTrue.leader).toBe(false)
+        expect(electionTrue.yielded).toBe(true)
+      })
+
+      // When claimer releases, true leader should un-yield and preserve isFallback: false
+      electionClaimer.release()
+
+      await vi.waitFor(() => {
+        expect(electionTrue.leader).toBe(true)
+        expect(electionTrue.yielded).toBe(false)
+        expect(electionTrue.fallback).toBe(false)
+      })
+
+      electionTrue.release()
+      if (trueLockRelease) trueLockRelease()
+    })
   })
 })
+
 

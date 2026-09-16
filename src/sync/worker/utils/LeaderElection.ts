@@ -197,7 +197,12 @@ export class LeaderElection {
         this.callbacks.onMultipleLeadersDetected?.()
       }
 
-      if (this.isLeader && this.isFallback && (data.isFallback ?? true)) {
+      if (this.isLeader && this.isFallback) {
+        if (!data.isFallback) {
+          this.yieldLeadership()
+          return
+        }
+
         const otherCreatedAt = data.createdAt ?? 0
         const isSelfOlder =
           this.createdAt < otherCreatedAt ||
@@ -217,7 +222,7 @@ export class LeaderElection {
         }
         if (this.isYielded && !this.isReleased) {
           this.isYielded = false
-          this.grantLeadership(true)
+          this.grantLeadership(this.releaseLeadershipLock === null)
         }
       }
     }
@@ -242,7 +247,7 @@ export class LeaderElection {
       }
       if (this.isYielded && !this.isReleased) {
         this.isYielded = false
-        this.grantLeadership(true)
+        this.grantLeadership(this.releaseLeadershipLock === null)
       }
     }
   }
