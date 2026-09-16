@@ -4,6 +4,11 @@ import {
   CreateTableCommandInput,
   DynamoDBClient,
   DynamoDBClientConfig,
+  InternalServerError,
+  LimitExceededException,
+  ProvisionedThroughputExceededException,
+  ThrottlingException,
+  TransactionConflictException,
 } from '@aws-sdk/client-dynamodb'
 import {
   BatchGetCommand,
@@ -155,6 +160,100 @@ function isConditionalCheckFailure(error: unknown): boolean {
     || error.message.includes('ConditionalCheckFailed')
     || error.message.includes('conditional request failed')
   )
+}
+
+const TRANSIENT_DYNAMO_ERROR_NAMES = new Set([
+  'ProvisionedThroughputExceededException',
+  'InternalServerError',
+  'InternalServerErrorException',
+  'RequestLimitExceeded',
+  'ThrottlingException',
+  'ServiceUnavailable',
+  'ServiceUnavailableException',
+  'TransactionConflictException',
+  'RequestTimeout',
+  'RequestTimeoutException',
+  'LimitExceededException',
+  'NetworkingError',
+  'TimeoutError',
+  'FetchError',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+])
+
+const TRANSIENT_HTTP_STATUS_CODES = new Set([429, 500, 502, 503, 504])
+
+export function isTransientDynamoError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  if (
+    error instanceof ProvisionedThroughputExceededException ||
+    error instanceof InternalServerError ||
+    error instanceof ThrottlingException ||
+    error instanceof LimitExceededException ||
+    error instanceof TransactionConflictException
+  ) {
+    return true
+  }
+
+  const typed = error as {
+    name?: unknown
+    code?: unknown
+    __type?: unknown
+    $retryable?: unknown
+    $metadata?: { httpStatusCode?: unknown }
+    message?: unknown
+    cause?: unknown
+  }
+
+  // AWS SDK v3 $retryable property
+  if (typed.$retryable !== undefined) {
+    return true
+  }
+
+  // HTTP status codes for throttling (429) or transient 5xx server errors
+  const statusCode = typed.$metadata?.httpStatusCode
+  if (typeof statusCode === 'number' && TRANSIENT_HTTP_STATUS_CODES.has(statusCode)) {
+    return true
+  }
+
+  const name = typeof typed.name === 'string' ? typed.name : ''
+  const code = typeof typed.code === 'string' ? typed.code : ''
+  const typeStr = typeof typed.__type === 'string' ? typed.__type : ''
+  const typeName = typeStr.includes('#') ? typeStr.split('#')[1] : typeStr
+
+  if (
+    (name && TRANSIENT_DYNAMO_ERROR_NAMES.has(name)) ||
+    (code && TRANSIENT_DYNAMO_ERROR_NAMES.has(code)) ||
+    (typeName && TRANSIENT_DYNAMO_ERROR_NAMES.has(typeName))
+  ) {
+    return true
+  }
+
+  const message = typeof typed.message === 'string' ? typed.message : ''
+  if (
+    message.includes('ProvisionedThroughputExceededException') ||
+    message.includes('Throughput exceeds') ||
+    message.includes('throttling') ||
+    message.includes('rate exceeded') ||
+    message.includes('ECONNRESET') ||
+    message.includes('ETIMEDOUT') ||
+    message.includes('socket hang up')
+  ) {
+    return true
+  }
+
+  if (typed.cause && typed.cause !== error) {
+    return isTransientDynamoError(typed.cause)
+  }
+
+  return false
 }
 
 function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSessionRecord[] {
@@ -641,8 +740,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-
-
   async fetchManifest(
     { account }: { account: string },
   ): Promise<Array<{ itemId: string; modifiedAt: number; deleted?: boolean }>> {
@@ -702,9 +799,27 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const accumulatedResponses: Record<string, Record<string, unknown>[]> = {}
 
     while (true) {
-      const response = await this.client.send(new BatchGetCommand({
-        RequestItems: currentRequestItems,
-      }))
+      let response
+      try {
+        response = await this.client.send(new BatchGetCommand({
+          RequestItems: currentRequestItems,
+        }))
+      } catch (error) {
+        if (!isTransientDynamoError(error)) {
+          throw error
+        }
+
+        attempt += 1
+        if (attempt > maxRetries) {
+          throw error
+        }
+
+        const jitter = Math.random() * 50
+        await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
+        delayMs = Math.min(delayMs * 2, 5000)
+
+        continue
+      }
 
       if (response.Responses) {
         for (const [tableName, items] of Object.entries(response.Responses)) {
@@ -727,7 +842,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const jitter = Math.random() * 50
       await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-      delayMs *= 2
+      delayMs = Math.min(delayMs * 2, 5000)
 
       currentRequestItems = unprocessed
     }
@@ -795,9 +910,27 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     let delayMs = 100
 
     while (true) {
-      const response = await this.client.send(new BatchWriteCommand({
-        RequestItems: currentRequestItems,
-      }))
+      let response
+      try {
+        response = await this.client.send(new BatchWriteCommand({
+          RequestItems: currentRequestItems,
+        }))
+      } catch (error) {
+        if (!isTransientDynamoError(error)) {
+          throw error
+        }
+
+        attempt += 1
+        if (attempt > maxRetries) {
+          throw error
+        }
+
+        const jitter = Math.random() * 50
+        await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
+        delayMs = Math.min(delayMs * 2, 5000)
+
+        continue
+      }
 
       const unprocessed = response.UnprocessedItems
       if (!unprocessed || Object.keys(unprocessed).length === 0) {
@@ -811,7 +944,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const jitter = Math.random() * 50
       await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-      delayMs *= 2
+      delayMs = Math.min(delayMs * 2, 5000)
 
       currentRequestItems = unprocessed
     }
