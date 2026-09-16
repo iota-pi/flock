@@ -35,6 +35,8 @@ const mockAdapterSetAccount = vi.fn()
 const mockIndexManagerListAutomergeItemIds = vi.fn().mockResolvedValue([])
 const mockIndexManagerAddAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
 const mockItemOperationsClearManualRecoveryForItems = vi.fn().mockResolvedValue(undefined)
+const mockItemOperationsMutateItem = vi.fn().mockResolvedValue(undefined)
+const mockItemOperationsListRecoveryItems = vi.fn().mockResolvedValue([])
 const mockOrchestratorSetOnlineState = vi.fn()
 const mockOrchestratorFlush = vi.fn()
 const mockSnapshotManagerOnOnlineStateChange = vi.fn()
@@ -61,6 +63,8 @@ vi.mock('./SyncWorkerContext', () => {
       }
       itemOperations = {
         clearManualRecoveryForItems: mockItemOperationsClearManualRecoveryForItems,
+        mutateItem: mockItemOperationsMutateItem,
+        listRecoveryItems: mockItemOperationsListRecoveryItems,
       }
       snapshotManager = {
         onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
@@ -300,5 +304,155 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
 
     await worker.claimLeader()
     expect(mockContextClaimLeader).toHaveBeenCalledTimes(1)
+  })
+})
+
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: any) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+describe('SyncWorker readiness and queueing before initialization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIndexManagerListAutomergeItemIds.mockResolvedValue([])
+    mockBrokerSetAccount.mockResolvedValue(undefined)
+    mockContextInitialize.mockResolvedValue(undefined)
+    mockContextShutdown.mockResolvedValue(undefined)
+    mockItemOperationsMutateItem.mockResolvedValue(undefined)
+    mockItemOperationsListRecoveryItems.mockResolvedValue([{ entryId: 'rec-1' }] as any)
+  })
+
+  it('queues API calls made while initRepo is in-flight and resolves them once init completes', async () => {
+    const initDeferred = createDeferred<void>()
+    mockContextInitialize.mockImplementation(() => initDeferred.promise)
+
+    const worker = new SyncWorker()
+    // Start initRepo without awaiting it yet
+    const initPromise = worker.initRepo('account-1', 'vault-key-1')
+
+    // Fire API calls while init is in-flight
+    let mutateDone = false
+    const mutatePromise = worker.mutateItem('item-1' as any, { name: 'Updated' }).then(() => {
+      mutateDone = true
+    })
+
+    let recoveryItemsResult: any = null
+    const recoveryPromise = worker.listRecoveryItems().then(items => {
+      recoveryItemsResult = items
+    })
+
+    // Give microtasks a tick
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(mutateDone).toBe(false)
+    expect(recoveryItemsResult).toBeNull()
+    expect(mockItemOperationsMutateItem).not.toHaveBeenCalled()
+
+    // Complete initRepo
+    initDeferred.resolve()
+    await initPromise
+    await mutatePromise
+    await recoveryPromise
+
+    expect(mutateDone).toBe(true)
+    expect(mockItemOperationsMutateItem).toHaveBeenCalledWith('item-1', { name: 'Updated' })
+    expect(recoveryItemsResult).toEqual([{ entryId: 'rec-1' }])
+  })
+
+  it('queues API calls made before initRepo is even invoked', async () => {
+    const worker = new SyncWorker()
+
+    // Fire API call before initRepo is called
+    let mutateDone = false
+    const mutatePromise = worker.mutateItem('item-pre' as any, { name: 'PreInit' }).then(() => {
+      mutateDone = true
+    })
+
+    await Promise.resolve()
+    expect(mutateDone).toBe(false)
+    expect(mockItemOperationsMutateItem).not.toHaveBeenCalled()
+
+    // Now start and finish initRepo
+    await worker.initRepo('account-1', 'vault-key-1')
+    await mutatePromise
+
+    expect(mutateDone).toBe(true)
+    expect(mockItemOperationsMutateItem).toHaveBeenCalledWith('item-pre', { name: 'PreInit' })
+  })
+
+  it('queues setOnlineState while initRepo is in-flight and updates online state after ready', async () => {
+    const initDeferred = createDeferred<void>()
+    mockContextInitialize.mockImplementation(() => initDeferred.promise)
+
+    const worker = new SyncWorker()
+    const initPromise = worker.initRepo('account-1', 'vault-key-1')
+
+    const onlinePromise = worker.setOnlineState(false)
+
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(mockOrchestratorSetOnlineState).not.toHaveBeenCalled()
+
+    initDeferred.resolve()
+    await initPromise
+    await onlinePromise
+
+    expect(mockOrchestratorSetOnlineState).toHaveBeenCalledWith(false)
+  })
+
+  it('rejects queued API calls if initRepo fails', async () => {
+    const initDeferred = createDeferred<void>()
+    mockContextInitialize.mockImplementation(() => initDeferred.promise)
+
+    const worker = new SyncWorker()
+    const initPromise = worker.initRepo('account-1', 'vault-key-1')
+
+    const mutatePromise = worker.mutateItem('item-1' as any, { name: 'Fail' })
+
+    await new Promise(resolve => setTimeout(resolve, 5))
+    initDeferred.reject(new Error('WASM initialization failed'))
+
+    await expect(initPromise).rejects.toThrow('WASM initialization failed')
+    await expect(mutatePromise).rejects.toThrow('WASM initialization failed')
+  })
+
+  it('rejects API calls invoked after shutdown', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+    await worker.shutdown()
+
+    await expect(worker.mutateItem('item-1' as any, {})).rejects.toThrow(
+      'SyncWorker not initialized. Call initRepo first.'
+    )
+  })
+
+  it('queues API calls during second initRepo (account switch) until new context is ready', async () => {
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    // Second init begins with delayed initialization
+    const secondInitDeferred = createDeferred<void>()
+    mockContextInitialize.mockImplementation(() => secondInitDeferred.promise)
+
+    const secondInitPromise = worker.initRepo('account-2', 'vault-key-2')
+
+    let mutateDone = false
+    const mutatePromise = worker.mutateItem('item-switch' as any, { name: 'Switch' }).then(() => {
+      mutateDone = true
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(mutateDone).toBe(false)
+
+    secondInitDeferred.resolve()
+    await secondInitPromise
+    await mutatePromise
+
+    expect(mutateDone).toBe(true)
+    expect(mockItemOperationsMutateItem).toHaveBeenCalledWith('item-switch', { name: 'Switch' })
   })
 })

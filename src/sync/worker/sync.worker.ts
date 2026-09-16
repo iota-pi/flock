@@ -43,6 +43,11 @@ self.addEventListener('message', ev => {
 
 export class SyncWorker implements SyncApi {
   private _context: SyncWorkerContext | null = null
+  private readyPromise: Promise<SyncWorkerContext> | null = null
+  private readyResolve: ((ctx: SyncWorkerContext) => void) | null = null
+  private readyReject: ((err: unknown) => void) | null = null
+  private isReady = false
+  private isShutDown = false
   private clientEventHub = new ClientEventHub()
   private internalEventHub = new WorkerInternalEventHub()
   private isOnline = true
@@ -51,12 +56,42 @@ export class SyncWorker implements SyncApi {
   private subscribedIds = new Set<ItemId>()
   private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<RepoDoc>; listener: () => void }>()
 
+  constructor() {
+    this.initReadyPromise()
+  }
+
+  private initReadyPromise() {
+    this.readyPromise = new Promise<SyncWorkerContext>((resolve, reject) => {
+      this.readyResolve = resolve
+      this.readyReject = reject
+    })
+  }
+
+  private async ensureReady(): Promise<SyncWorkerContext> {
+    if (this.isShutDown) {
+      throw new Error("SyncWorker not initialized. Call initRepo first.")
+    }
+    if (this.isReady && this._context) {
+      return this._context
+    }
+    if (this.readyPromise) {
+      return this.readyPromise
+    }
+    throw new Error("SyncWorker not initialized. Call initRepo first.")
+  }
+
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
     return this._context
   }
 
   async initRepo(accountId: string, vaultKey: string) {
+    this.isShutDown = false
+    if (this.isReady || !this.readyPromise) {
+      this.isReady = false
+      this.initReadyPromise()
+    }
+
     // Tear down any previous session
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
@@ -66,125 +101,137 @@ export class SyncWorker implements SyncApi {
     await this._context?.shutdown()
     this._context = null
 
-    // Re-initialise worker-scoped state
-    resetQuotaExceededStatus()
-    this.clientEventHub = new ClientEventHub()
-    if (globalEventPort) {
-      this.clientEventHub.setExternalPort(globalEventPort)
-    }
-    this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
-    this.internalEventHub = new WorkerInternalEventHub()
-
-    const trackedFetch = getTrackedFetch(
-      () => this.clientEventHub.emit({ type: 'startRequest' }),
-      () => this.clientEventHub.emit({ type: 'finishRequest' })
-    )
-    initTrpcClient(trackedFetch)
-
-    // Global async prerequisites (worker-scoped, not per-account)
-    await initWorkerVault(vaultKey)
-    await Automerge.initializeWasm(wasmUrl)
-
-    // Construct and wire the context — all service instantiation lives here
-    this._context = new SyncWorkerContext({
-      accountId,
-      clientEventHub: this.clientEventHub,
-      internalEventHub: this.internalEventHub,
-      onDocumentReceived: itemId => this.subscribeToItems([itemId]),
-      onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
-      onItemMessageParsed: itemId => {
-        if ((itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-          this.subscribeToItems([itemId])
-        }
-      },
-      onRetryingStateChange: isRetrying => this.syncStatusManager.setDegradedPull(isRetrying),
-      onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
-    })
-
-    // Subscribe to client events (syncStatusManager is SyncWorker-level state)
-    this.clientEventHub.subscribe((event: ClientEvent) => {
-      switch (event.type) {
-        case 'startRequest':
-          this.syncStatusManager.startRequest()
-          break
-        case 'finishRequest':
-          this.syncStatusManager.finishRequest()
-          break
-        case 'indexUpdated': {
-          this.updateItemSubscriptions(event.itemIds)
-          break
-        }
-        case 'quotaExceeded':
-          this.syncStatusManager.setQuotaExceeded(true)
-          break
-        case 'quotaResolved':
-          this.syncStatusManager.setQuotaExceeded(false)
-          break
+    try {
+      // Re-initialise worker-scoped state
+      resetQuotaExceededStatus()
+      this.clientEventHub = new ClientEventHub()
+      if (globalEventPort) {
+        this.clientEventHub.setExternalPort(globalEventPort)
       }
-    })
+      this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
+      this.internalEventHub = new WorkerInternalEventHub()
 
-    // Subscribe to worker-internal events
-    this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
-      switch (event.type) {
-        case 'pollResult':
-          this.handlePollResult(event.outcome)
-          break
-        case 'multipleLeadersDetected':
-          console.warn('[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
-          this._context?.repoManager.pauseBroadcastSync()
-          break
-        case 'soleLeaderRestored':
-          console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
-          this._context?.repoManager.resumeBroadcastSync()
-          break
-        case 'retryingStateChange':
-          this.syncStatusManager.setDegradedPull(event.isRetrying)
-          break
-        case 'keyVersionMissing':
-          this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
-          break
-        case 'docHandleReplaced':
-          this.handleDocHandleReplaced(event.itemId, event.handle)
-          break
-        case 'itemMessageParsed':
-          if ((event.itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-            this.subscribeToItems([event.itemId])
+      const trackedFetch = getTrackedFetch(
+        () => this.clientEventHub.emit({ type: 'startRequest' }),
+        () => this.clientEventHub.emit({ type: 'finishRequest' })
+      )
+      initTrpcClient(trackedFetch)
+
+      // Global async prerequisites (worker-scoped, not per-account)
+      await initWorkerVault(vaultKey)
+      await Automerge.initializeWasm(wasmUrl)
+
+      // Construct and wire the context — all service instantiation lives here
+      const context = new SyncWorkerContext({
+        accountId,
+        clientEventHub: this.clientEventHub,
+        internalEventHub: this.internalEventHub,
+        onDocumentReceived: itemId => this.subscribeToItems([itemId]),
+        onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
+        onItemMessageParsed: itemId => {
+          if ((itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+            this.subscribeToItems([itemId])
           }
-          break
-      }
-    })
+        },
+        onRetryingStateChange: isRetrying => this.syncStatusManager.setDegradedPull(isRetrying),
+        onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
+      })
+      this._context = context
 
-    await this._context.initialize()
+      // Subscribe to client events (syncStatusManager is SyncWorker-level state)
+      this.clientEventHub.subscribe((event: ClientEvent) => {
+        switch (event.type) {
+          case 'startRequest':
+            this.syncStatusManager.startRequest()
+            break
+          case 'finishRequest':
+            this.syncStatusManager.finishRequest()
+            break
+          case 'indexUpdated': {
+            this.updateItemSubscriptions(event.itemIds)
+            break
+          }
+          case 'quotaExceeded':
+            this.syncStatusManager.setQuotaExceeded(true)
+            break
+          case 'quotaResolved':
+            this.syncStatusManager.setQuotaExceeded(false)
+            break
+        }
+      })
 
-    this._context.orchestrator.setOnlineState(this.isOnline)
-    this._context.snapshotManager.onOnlineStateChange(this.isOnline)
+      // Subscribe to worker-internal events
+      this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
+        switch (event.type) {
+          case 'pollResult':
+            this.handlePollResult(event.outcome)
+            break
+          case 'multipleLeadersDetected':
+            console.warn('[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
+            this._context?.repoManager.pauseBroadcastSync()
+            break
+          case 'soleLeaderRestored':
+            console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
+            this._context?.repoManager.resumeBroadcastSync()
+            break
+          case 'retryingStateChange':
+            this.syncStatusManager.setDegradedPull(event.isRetrying)
+            break
+          case 'keyVersionMissing':
+            this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
+            break
+          case 'docHandleReplaced':
+            this.handleDocHandleReplaced(event.itemId, event.handle)
+            break
+          case 'itemMessageParsed':
+            if ((event.itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+              this.subscribeToItems([event.itemId])
+            }
+            break
+        }
+      })
 
-    // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
-    // sending messages before the broker is ready
-    await this._context.broker.setAccount(accountId)
-    this._context.adapter.setAccount(accountId)
+      await context.initialize()
 
-    const localItemIds = await this._context.indexManager.listAutomergeItemIds()
-    this.updateItemSubscriptions(localItemIds)
-    this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
+      context.orchestrator.setOnlineState(this.isOnline)
+      context.snapshotManager.onOnlineStateChange(this.isOnline)
 
-    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
-      this.subscribeToItems(itemIds)
-      if (this._context) {
-        this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
-        this._context.itemOperations.clearManualRecoveryForItems(itemIds).catch(console.error)
-      }
-    })
+      // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
+      // sending messages before the broker is ready
+      await context.broker.setAccount(accountId)
+      context.adapter.setAccount(accountId)
 
-    this.clientEventHub.emit({ type: 'ready' })
-    this.syncStatusManager.reset(this.isOnline)
+      const localItemIds = await context.indexManager.listAutomergeItemIds()
+      this.updateItemSubscriptions(localItemIds)
+      this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
+
+      this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
+        this.subscribeToItems(itemIds)
+        if (this._context) {
+          this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
+          this._context.itemOperations.clearManualRecoveryForItems(itemIds).catch(console.error)
+        }
+      })
+
+      this.clientEventHub.emit({ type: 'ready' })
+      this.syncStatusManager.reset(this.isOnline)
+
+      this.isReady = true
+      this.readyResolve?.(context)
+    } catch (err) {
+      this.isReady = false
+      this.readyReject?.(err)
+      this.initReadyPromise()
+      throw err
+    }
   }
 
   async setOnlineState(isOnline: boolean) {
     this.isOnline = isOnline
 
-    this.context.orchestrator.setOnlineState(isOnline)
-    this.context.snapshotManager.onOnlineStateChange(isOnline)
+    const context = await this.ensureReady()
+    context.orchestrator.setOnlineState(isOnline)
+    context.snapshotManager.onOnlineStateChange(isOnline)
     this.syncStatusManager.setOnlineState(isOnline)
   }
 
@@ -275,62 +322,106 @@ export class SyncWorker implements SyncApi {
   }
 
   // Sync API Pass-through Delegation
-  async bootstrapItems() { await this.context.manifestSyncManager.sync() }
-  async mutateItem(id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(id, changes) }
-  async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
-  async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }
-  async mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) { await this.context.itemOperations.mutateMetadata(changes, options) }
-  async exportAllBinaries() { return this.context.docStore.exportAllBinaries(this.context.indexManager) }
+  async bootstrapItems() {
+    const context = await this.ensureReady()
+    await context.manifestSyncManager.sync()
+  }
+  async mutateItem(id: ItemId, changes: Partial<Item>) {
+    const context = await this.ensureReady()
+    await context.itemOperations.mutateItem(id, changes)
+  }
+  async createItem(item: Item) {
+    const context = await this.ensureReady()
+    await context.itemOperations.createItem(item)
+  }
+  async storeItems(items: Item[]) {
+    const context = await this.ensureReady()
+    await context.itemOperations.storeItems(items)
+  }
+  async mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) {
+    const context = await this.ensureReady()
+    await context.itemOperations.mutateMetadata(changes, options)
+  }
+  async exportAllBinaries() {
+    const context = await this.ensureReady()
+    return context.docStore.exportAllBinaries(context.indexManager)
+  }
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
-    const restored = await this.context.docStore.restoreFromBinaries(documents, this.context.indexManager)
+    const context = await this.ensureReady()
+    const restored = await context.docStore.restoreFromBinaries(documents, context.indexManager)
     return restored
   }
 
-  async flushSync() { this.context.orchestrator.flush() }
+  async flushSync() {
+    const context = await this.ensureReady()
+    context.orchestrator.flush()
+  }
   async fullResync() {
-    await this.context.manifestSyncManager.sync(true)
-    this.context.orchestrator.flush()
+    const context = await this.ensureReady()
+    await context.manifestSyncManager.sync(true)
+    context.orchestrator.flush()
   }
 
-  async pushSnapshots() { return this.context.snapshotManager.flushPendingSnapshots() }
+  async pushSnapshots() {
+    const context = await this.ensureReady()
+    return context.snapshotManager.flushPendingSnapshots()
+  }
   async retrySave() {
-    if (!this._context) {
+    try {
+      const context = await this.ensureReady()
+      return context.retrySave()
+    } catch {
       return { success: false, error: 'Sync worker not initialized' }
     }
-    return this._context.retrySave()
   }
   async retryRecoveryItem(itemId: ItemId) {
-    await this.context.itemOperations.retryRecoveryItem(itemId)
-    this.context.snapshotManager.markItemDirty(itemId)
-    void this.context.snapshotManager.flushPendingSnapshots()
+    const context = await this.ensureReady()
+    await context.itemOperations.retryRecoveryItem(itemId)
+    context.snapshotManager.markItemDirty(itemId)
+    void context.snapshotManager.flushPendingSnapshots()
   }
-  async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceOverwriteRecoveryItem(itemId) }
-  async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceDeleteRecoveryItem(itemId) }
+  async forceOverwriteRecoveryItem(itemId: ItemId) {
+    const context = await this.ensureReady()
+    await context.itemOperations.forceOverwriteRecoveryItem(itemId)
+  }
+  async forceDeleteRecoveryItem(itemId: ItemId) {
+    const context = await this.ensureReady()
+    await context.itemOperations.forceDeleteRecoveryItem(itemId)
+  }
   async compactItem(itemId: ItemId) {
-    await this.context.itemOperations.compactItem(itemId)
-    void this.context.snapshotManager.flushPendingSnapshots()
+    const context = await this.ensureReady()
+    await context.itemOperations.compactItem(itemId)
+    void context.snapshotManager.flushPendingSnapshots()
   }
-  async dismissRecoveryItem(entryId: string) { await this.context.itemOperations.dismissRecoveryItem(entryId) }
-  async listRecoveryItems() { return this.context.itemOperations.listRecoveryItems() }
+  async dismissRecoveryItem(entryId: string) {
+    const context = await this.ensureReady()
+    await context.itemOperations.dismissRecoveryItem(entryId)
+  }
+  async listRecoveryItems() {
+    const context = await this.ensureReady()
+    return context.itemOperations.listRecoveryItems()
+  }
   async updateVaultKey(vaultKey: string) {
     await initWorkerVault(vaultKey)
-    this.context?.pullQueueManager?.onKeyringUpdated()
+    const context = await this.ensureReady()
+    context.pullQueueManager?.onKeyringUpdated()
   }
   async reencryptAllItems(
     onProgress: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>
   ) {
+    const context = await this.ensureReady()
     return await reencryptAllItems({
-      accountId: this.context.accountId,
-      repo: this.context.repo,
-      indexManager: this.context.indexManager,
+      accountId: context.accountId,
+      repo: context.repo,
+      indexManager: context.indexManager,
       refreshAuthToken,
-      recoveryManager: this.context.recoveryManager,
+      recoveryManager: context.recoveryManager,
     }, onProgress)
   }
 
   async exportSyncState(): Promise<BackupSyncState> {
-    const context = this.context
+    const context = await this.ensureReady()
     const cursors = context.pullQueueManager.exportCursors()
     const walMap = context.wal ? await context.wal.readAll() : new Map<ItemId, WalEntry[]>()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
@@ -343,7 +434,7 @@ export class SyncWorker implements SyncApi {
   }
 
   async restoreSyncState(state: Partial<BackupSyncState>) {
-    const context = this.context
+    const context = await this.ensureReady()
     if (state.cursors) await context.pullQueueManager.importCursors(state.cursors)
     if (state.pendingSync && context.wal) {
       for (const [itemId, base64Msgs] of state.pendingSync) {
@@ -356,10 +447,18 @@ export class SyncWorker implements SyncApi {
   }
 
   async claimLeader() {
-    this.context.claimLeader()
+    const context = await this.ensureReady()
+    context.claimLeader()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }) {
+    this.isShutDown = true
+    this.isReady = false
+    if (this.readyReject) {
+      this.readyReject(new Error("SyncWorker not initialized. Call initRepo first."))
+    }
+    this.initReadyPromise()
+
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
