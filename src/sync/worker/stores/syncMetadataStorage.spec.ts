@@ -7,6 +7,8 @@ import {
   clearLegacySyncDatabases,
   SYNC_METADATA_STORE_NAME,
   LEGACY_DB_NAMES,
+  ScopedMetadataStore,
+  type ScopedMetadataStoreOptions,
 } from './syncMetadataStorage'
 import localforage from 'localforage'
 
@@ -36,11 +38,18 @@ class MockLocalforage {
   }
 }
 
+const mockInstances = new Map<string, MockLocalforage>()
 const createdInstances: MockLocalforage[] = []
 
 vi.mock('localforage', () => ({
   default: {
     createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
+      const key = `${config.name}#${config.storeName}`
+      const existing = mockInstances.get(key)
+      if (existing) {
+        createdInstances.push(existing)
+        return existing
+      }
       const inst = new MockLocalforage(config)
       createdInstances.push(inst)
       return inst
@@ -55,6 +64,7 @@ vi.mock('../../../utils/storageManager', () => ({
 describe('syncMetadataStorage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockInstances.clear()
     createdInstances.length = 0
     clearSyncMetadataInstancesCacheForTesting()
   })
@@ -124,3 +134,131 @@ describe('syncMetadataStorage', () => {
     })
   })
 })
+
+interface TestData {
+  value: string
+  upgraded?: boolean
+}
+
+class TestScopedStore extends ScopedMetadataStore<TestData> {
+  constructor(
+    accountIdOrStore: string | LocalForage,
+    options?: Partial<ScopedMetadataStoreOptions<TestData>>
+  ) {
+    super(accountIdOrStore, {
+      metadataKey: 'testKey',
+      legacyKey: 'testLegacyKey',
+      legacyDbName: 'test-legacy-db',
+      legacyStorePrefix: 'test-store',
+      storeLabel: 'TestScopedStore',
+      ...options,
+    })
+  }
+}
+
+describe('ScopedMetadataStore', () => {
+  const accountId = 'account-scoped-1'
+  let store: TestScopedStore
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockInstances.clear()
+    createdInstances.length = 0
+    clearSyncMetadataInstancesCacheForTesting()
+    store = new TestScopedStore(accountId)
+  })
+
+  it('initializes with accountId string and uses consolidated metadata storage', async () => {
+    await store.setScopedData({ value: 'hello' })
+    const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+    expect(await consolidated.getItem('testKey')).toEqual({ value: 'hello' })
+  })
+
+  it('initializes with a direct LocalForage instance', async () => {
+    const customInstance = new MockLocalforage({ name: 'custom-db', storeName: 'custom-store' })
+    const customStore = new TestScopedStore(customInstance as unknown as LocalForage)
+
+    await customStore.setScopedData({ value: 'direct' })
+    expect(await customInstance.getItem('testKey')).toEqual({ value: 'direct' })
+  })
+
+  it('loads scoped data when present in primary metadataKey', async () => {
+    await store.setScopedData({ value: 'existing' })
+    const data = await store.getScopedData()
+    expect(data).toEqual({ value: 'existing' })
+  })
+
+  it('normalizes data and upgrades in-place when shouldUpgradeInPlace is true', async () => {
+    const upgradingStore = new TestScopedStore(accountId, {
+      normalize: (raw: unknown) => {
+        if (typeof raw === 'string') {
+          return { value: raw, upgraded: true }
+        }
+        return raw as TestData
+      },
+      shouldUpgradeInPlace: (raw: unknown) => typeof raw === 'string',
+    })
+
+    const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+    await consolidated.setItem('testKey', 'raw-string-value')
+
+    const data = await upgradingStore.getScopedData()
+    expect(data).toEqual({ value: 'raw-string-value', upgraded: true })
+
+    // Consolidated storage should now contain the upgraded object
+    expect(await consolidated.getItem('testKey')).toEqual({ value: 'raw-string-value', upgraded: true })
+  })
+
+  it('migrates from in-store legacyKey (Tier 1)', async () => {
+    const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+    await consolidated.setItem('testLegacyKey', { value: 'from-tier-1' })
+
+    const data = await store.getScopedData()
+    expect(data).toEqual({ value: 'from-tier-1' })
+
+    // Moved to primary key and deleted from legacy key
+    expect(await consolidated.getItem('testKey')).toEqual({ value: 'from-tier-1' })
+    expect(await consolidated.getItem('testLegacyKey')).toBeNull()
+  })
+
+  it('migrates from legacy database (Tier 2)', async () => {
+    const originalIndexedDb = (globalThis as any).indexedDB
+    ;(globalThis as any).indexedDB = {
+      databases: vi.fn().mockResolvedValue([{ name: 'test-legacy-db' }]),
+    }
+    try {
+      const legacyStoreKey = `test-legacy-db#test-store-${accountId}`
+      const legacyStore = new MockLocalforage({ name: 'test-legacy-db', storeName: `test-store-${accountId}` })
+      await legacyStore.setItem('testLegacyKey', { value: 'from-tier-2-db' })
+      mockInstances.set(legacyStoreKey, legacyStore)
+
+      const data = await store.getScopedData()
+      expect(data).toEqual({ value: 'from-tier-2-db' })
+
+      // Moved to primary key in consolidated store and removed from legacy store
+      const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+      expect(await consolidated.getItem('testKey')).toEqual({ value: 'from-tier-2-db' })
+      expect(await legacyStore.getItem('testLegacyKey')).toBeNull()
+    } finally {
+      if (originalIndexedDb === undefined) {
+        delete (globalThis as any).indexedDB
+      } else {
+        ;(globalThis as any).indexedDB = originalIndexedDb
+      }
+    }
+  })
+
+  it('clears scoped data and legacy key without wiping other keys in storage', async () => {
+    const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+    await consolidated.setItem('unrelatedKey', 'important-data')
+    await consolidated.setItem('testKey', { value: 'to-be-cleared' })
+    await consolidated.setItem('testLegacyKey', { value: 'legacy-to-be-cleared' })
+
+    await store.clear()
+
+    expect(await consolidated.getItem('testKey')).toBeNull()
+    expect(await consolidated.getItem('testLegacyKey')).toBeNull()
+    expect(await consolidated.getItem('unrelatedKey')).toBe('important-data')
+  })
+})
+

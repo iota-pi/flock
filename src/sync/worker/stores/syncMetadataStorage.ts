@@ -1,5 +1,6 @@
 import localforage from 'localforage'
-import { runStorageOperation } from '../../../utils/storageManager'
+import { runStorageOperation, type RunStorageOperationOptions } from '../../../utils/storageManager'
+import { BaseLocalForageStore } from './BaseLocalForageStore'
 
 export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
 
@@ -107,3 +108,122 @@ export async function clearLegacySyncDatabases(accountId: string): Promise<void>
     })
   )
 }
+
+export interface ScopedMetadataStoreOptions<T> {
+  metadataKey: string
+  legacyKey?: string
+  legacyDbName?: string
+  legacyStorePrefix?: string
+  storeLabel?: string
+  normalize?: (raw: unknown) => T | null
+  shouldUpgradeInPlace?: (raw: unknown) => boolean
+}
+
+/**
+ * Generic base class for account-scoped metadata stores backed by the consolidated IndexedDB database.
+ * Encapsulates string | LocalForage constructor, scoped clear(), and two-tier legacy migration.
+ */
+export abstract class ScopedMetadataStore<T> extends BaseLocalForageStore {
+  protected readonly accountId: string | null
+  protected readonly metadataKey: string
+  protected readonly legacyKey?: string
+  protected readonly legacyDbName?: string
+  protected readonly legacyStorePrefix?: string
+  protected readonly storeLabel: string
+  protected readonly normalizeValue?: (raw: unknown) => T | null
+  protected readonly shouldUpgradeInPlace?: (raw: unknown) => boolean
+
+  constructor(accountIdOrStore: string | LocalForage, options: ScopedMetadataStoreOptions<T>) {
+    if (typeof accountIdOrStore === 'string') {
+      super(getSyncMetadataStorage(accountIdOrStore))
+      this.accountId = accountIdOrStore
+    } else {
+      super(accountIdOrStore)
+      this.accountId = null
+    }
+
+    this.metadataKey = options.metadataKey
+    this.legacyKey = options.legacyKey
+    this.legacyDbName = options.legacyDbName
+    this.legacyStorePrefix = options.legacyStorePrefix
+    this.storeLabel = options.storeLabel ?? 'ScopedMetadataStore'
+    this.normalizeValue = options.normalize
+    this.shouldUpgradeInPlace = options.shouldUpgradeInPlace
+  }
+
+  async getScopedData(): Promise<T | null> {
+    const raw = await this.getItem<unknown>(this.metadataKey)
+    if (raw !== null && raw !== undefined) {
+      if (this.normalizeValue) {
+        const normalized = this.normalizeValue(raw)
+        if (normalized !== null) {
+          if (this.shouldUpgradeInPlace?.(raw)) {
+            await this.setScopedData(normalized)
+          }
+          return normalized
+        }
+      } else {
+        return raw as T
+      }
+    }
+
+    return this.migrateLegacyData()
+  }
+
+  async setScopedData(data: T, options?: RunStorageOperationOptions): Promise<void> {
+    await this.setItem(this.metadataKey, data, options)
+  }
+
+  override async clear(options?: RunStorageOperationOptions): Promise<void> {
+    await this.removeItem(this.metadataKey, options)
+    if (this.legacyKey && this.legacyKey !== this.metadataKey) {
+      await this.removeItem(this.legacyKey, options).catch(() => {})
+    }
+  }
+
+  protected async migrateLegacyData(): Promise<T | null> {
+    // 1. Check in-store legacy key
+    if (this.legacyKey && this.legacyKey !== this.metadataKey) {
+      const inStoreLegacy = await this.getItem<unknown>(this.legacyKey)
+      if (inStoreLegacy !== null && inStoreLegacy !== undefined) {
+        const migrated = this.normalizeValue
+          ? this.normalizeValue(inStoreLegacy)
+          : (inStoreLegacy as T)
+        if (migrated !== null) {
+          await this.setScopedData(migrated)
+          await this.removeItem(this.legacyKey).catch(() => {})
+          return migrated
+        }
+      }
+    }
+
+    // 2. Check legacy database
+    if (this.accountId && this.legacyDbName && this.legacyStorePrefix && this.legacyKey) {
+      try {
+        const hasLegacy = await hasLegacyDatabase(this.legacyDbName)
+        if (hasLegacy) {
+          const legacyStore = localforage.createInstance({
+            name: this.legacyDbName,
+            storeName: `${this.legacyStorePrefix}-${this.accountId}`,
+          })
+          const legacyData = await legacyStore.getItem<unknown>(this.legacyKey)
+          if (legacyData !== null && legacyData !== undefined) {
+            const migrated = this.normalizeValue
+              ? this.normalizeValue(legacyData)
+              : (legacyData as T)
+            if (migrated !== null) {
+              await this.setScopedData(migrated)
+              await legacyStore.removeItem(this.legacyKey).catch(() => {})
+              return migrated
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[${this.storeLabel}] Failed to migrate legacy data:`, err)
+      }
+    }
+
+    return null
+  }
+}
+

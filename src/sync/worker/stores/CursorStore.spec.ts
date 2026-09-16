@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { CursorStore } from './CursorStore'
+import { CursorStore, normalizeCursors } from './CursorStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
@@ -146,4 +146,38 @@ describe('CursorStore', () => {
       }
     }
   })
+
+  it('normalizes cursor entries and ignores negative or non-finite values', () => {
+    const raw: [ItemId, number][] = [
+      ['item-1' as ItemId, 10],
+      ['item-2' as ItemId, 100],
+      ['item-3' as ItemId, -5],
+      ['item-4' as ItemId, NaN],
+      ['item-5' as ItemId, Infinity],
+      ['item-6' as ItemId, 50],
+    ]
+    const normalized = normalizeCursors(raw)
+    expect(normalized.globalCursor).toBe(100)
+    expect(normalized.retries).toEqual([
+      ['item-1', 10],
+      ['item-2', 100],
+      ['item-6', 50],
+    ])
+  })
+
+  it('handles tens of thousands of items without stack overflow (no Math.max spread)', async () => {
+    const largeCount = 70_000
+    const largeArray: [ItemId, number][] = Array.from({ length: largeCount }, (_, i) => [
+      `item-${i}` as ItemId,
+      i + 1,
+    ])
+
+    await store.saveCursors(largeArray)
+    const loaded = await store.loadCursors()
+
+    expect(loaded).not.toBeNull()
+    expect(loaded?.globalCursor).toBe(largeCount)
+    expect(loaded?.retries?.length).toBe(largeCount)
+  })
 })
+
