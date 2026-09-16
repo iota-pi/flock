@@ -266,8 +266,6 @@ export class ItemOperations {
       localSnapshot.prayedFor = [...localItem.prayedFor]
     }
 
-    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
-
     await this.deps.docStore.changeDocument(
       itemId,
       doc => {
@@ -279,6 +277,8 @@ export class ItemOperations {
       { createIfMissing: true },
     )
 
+    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
+
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
     publishRealtimeBusSyncPing([itemId])
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
@@ -286,7 +286,6 @@ export class ItemOperations {
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
-    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -298,6 +297,8 @@ export class ItemOperations {
       },
       { createIfMissing: true },
     )
+
+    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)

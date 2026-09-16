@@ -176,16 +176,16 @@ describe('ItemOperations - Recovery', () => {
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
     })
 
-    it('does not mutate document if removeManualRecoveryEntryByItemId fails', async () => {
+    it('does not clear recovery state if changeDocument throws', async () => {
       const localItem = { id: 'item-3', type: 'person' }
       mockGetAutomergeItem.mockResolvedValue(localItem)
-      mockRemoveManualRecoveryEntryByItemId.mockRejectedValue(new Error('Deletion failed'))
+      mockChangeDocument.mockRejectedValue(new Error('Change document failed'))
 
       await expect(
         itemOperations.forceOverwriteRecoveryItem('item-3' as ItemId)
-      ).rejects.toThrow('Deletion failed')
+      ).rejects.toThrow('Change document failed')
 
-      expect(mockChangeDocument).not.toHaveBeenCalled()
+      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
     })
   })
 
@@ -201,12 +201,12 @@ describe('ItemOperations - Recovery', () => {
 
       await itemOperations.forceDeleteRecoveryItem('item-4' as ItemId)
 
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-4')
       expect(mockChangeDocument).toHaveBeenCalledWith(
         'item-4',
         expect.any(Function),
         { createIfMissing: true }
       )
+      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-4')
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-4'])
 
       expect(capturedDoc).toEqual({
@@ -215,14 +215,14 @@ describe('ItemOperations - Recovery', () => {
       })
     })
 
-    it('does not mutate document if removeManualRecoveryEntryByItemId fails', async () => {
-      mockRemoveManualRecoveryEntryByItemId.mockRejectedValue(new Error('Deletion failed'))
+    it('does not clear recovery state if changeDocument throws', async () => {
+      mockChangeDocument.mockRejectedValue(new Error('Change document failed'))
 
       await expect(
         itemOperations.forceDeleteRecoveryItem('item-4' as ItemId)
-      ).rejects.toThrow('Deletion failed')
+      ).rejects.toThrow('Change document failed')
 
-      expect(mockChangeDocument).not.toHaveBeenCalled()
+      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
     })
   })
 
