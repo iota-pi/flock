@@ -374,14 +374,18 @@ describe('SyncMessageBroker', () => {
       expect(mockWal.append).toHaveBeenCalledWith('item-snap', new Uint8Array([10, 11]))
     })
 
-    it('unblocks all items when quotaResolved is emitted on clientEventHub', async () => {
+    it('unblocks all items and triggers renegotiation for previously blocked items when quotaResolved is emitted', async () => {
       broker.setSendEnabled(true)
       await broker.setAccount('account-1')
       broker.setWal(mockWal)
 
+      const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
+      const resetCircuitSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
+
       broker.blockItem('item-1' as ItemId)
       broker.blockItem('item-2' as ItemId)
       expect(broker.getBlockedItemCount()).toBe(2)
+      expect(broker.getBlockedItemIds()).toEqual(['item-1', 'item-2'])
 
       // Storage is freed and quotaResolved event is emitted
       clientEventHub.emit({ type: 'quotaResolved' })
@@ -389,6 +393,42 @@ describe('SyncMessageBroker', () => {
       expect(broker.isItemBlocked('item-1' as ItemId)).toBe(false)
       expect(broker.isItemBlocked('item-2' as ItemId)).toBe(false)
       expect(broker.getBlockedItemCount()).toBe(0)
+      expect(broker.getBlockedItemIds()).toEqual([])
+
+      expect(resetCircuitSpy).toHaveBeenCalled()
+      expect(renegSpy).toHaveBeenCalledWith(toDocumentIdFromItemId('item-1' as ItemId))
+      expect(renegSpy).toHaveBeenCalledWith(toDocumentIdFromItemId('item-2' as ItemId))
+    })
+
+    it('successfully appends sync messages to WAL after quotaResolved unblocks previously blocked items', async () => {
+      const flushSpy = vi.fn()
+      broker.onFlushNeeded = flushSpy
+      broker.setSendEnabled(true)
+      await broker.setAccount('account-1')
+      broker.setWal(mockWal)
+
+      // Block item
+      broker.blockItem('item-blocked' as ItemId)
+      expect(broker.isItemBlocked('item-blocked' as ItemId)).toBe(true)
+
+      // Message dropped while blocked
+      const droppedMsg = createSyncMessage('item-blocked', [1, 2, 3])
+      adapter.onMessageToSend?.(droppedMsg)
+      await Promise.resolve()
+      expect(mockWal.append).not.toHaveBeenCalled()
+      expect(flushSpy).not.toHaveBeenCalled()
+
+      // Resolve quota
+      clientEventHub.emit({ type: 'quotaResolved' })
+      expect(broker.isItemBlocked('item-blocked' as ItemId)).toBe(false)
+
+      // Renegotiation message arrives and is appended to WAL
+      const recoveredMsg = createSyncMessage('item-blocked', [4, 5, 6])
+      adapter.onMessageToSend?.(recoveredMsg)
+      await Promise.resolve()
+
+      expect(mockWal.append).toHaveBeenCalledWith('item-blocked', new Uint8Array([4, 5, 6]))
+      expect(flushSpy).toHaveBeenCalledTimes(1)
     })
 
     it('explicit unblockItem unblocks single item', () => {

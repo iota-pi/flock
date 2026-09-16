@@ -101,8 +101,13 @@ export class SyncMessageBroker implements SyncBrokerControl {
 
     this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
       if (event.type === 'quotaResolved') {
+        const previouslyBlocked = Array.from(this.blockedItemIds)
         this.unblockAllItems()
         this.adapter.resetReNegotiationCircuit()
+        for (const itemId of previouslyBlocked) {
+          const documentId = toDocumentIdFromItemId(itemId)
+          this.adapter.triggerReNegotiation(documentId)
+        }
       }
     })
 
@@ -143,6 +148,10 @@ export class SyncMessageBroker implements SyncBrokerControl {
 
   getBlockedItemCount(): number {
     return this.blockedItemIds.size
+  }
+
+  getBlockedItemIds(): ItemId[] {
+    return Array.from(this.blockedItemIds)
   }
 
   setSyncedHeads(id: ItemId | DocumentId, heads: string[]): void {

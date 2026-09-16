@@ -35,6 +35,7 @@ describe('StorageRecoveryService', () => {
     }
     mockBroker = {
       unblockAllItems: vi.fn(),
+      getBlockedItemIds: vi.fn().mockReturnValue([]),
     }
     mockAdapter = {
       resetReNegotiationCircuit: vi.fn(),
@@ -196,6 +197,22 @@ describe('StorageRecoveryService', () => {
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
       expect(service.getQuotaExceeded()).toBe(false)
       expect(onQuotaStatusChange).toHaveBeenCalledWith(false)
+    })
+
+    it('includes blocked items from broker in dirtyIds during retrySave', async () => {
+      mockSnapshotManager.getDirtyItemIds.mockReturnValue(['item-1' as ItemId])
+      mockBroker.getBlockedItemIds.mockReturnValue(['item-blocked' as ItemId])
+
+      const result = await service.retrySave()
+
+      expect(result.success).toBe(true)
+      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-1')
+      expect(mockDocStore.saveDocToStorage).toHaveBeenCalledWith('item-blocked')
+
+      const doc1 = toDocumentIdFromItemId('item-1' as ItemId)
+      const docBlocked = toDocumentIdFromItemId('item-blocked' as ItemId)
+      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc1)
+      expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(docBlocked)
     })
 
     it('returns failure when storage probe fails with QuotaExceededError', async () => {

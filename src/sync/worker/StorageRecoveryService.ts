@@ -212,9 +212,12 @@ export class StorageRecoveryService {
   async retrySave(): Promise<{ success: boolean; error?: string }> {
     try {
       await this.probeStorageAvailability()
+      const blockedIds = this.deps.broker.getBlockedItemIds?.() ?? []
       this.resetStorageCircuits()
 
-      const dirtyIds = this.deps.snapshotManager.getDirtyItemIds()
+      const dirtyIds = Array.from(
+        new Set([...this.deps.snapshotManager.getDirtyItemIds(), ...blockedIds])
+      )
       await this.persistDirtyDocuments(dirtyIds)
       this.triggerRenegotiations(dirtyIds)
 
