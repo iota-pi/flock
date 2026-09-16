@@ -46,13 +46,13 @@ export const syncRouter = router({
         const [batchPullResult, globalPullResult] = await Promise.all([
           shouldPullBatch
             ? service.pullAutomergeSyncBatch({
-                account: input.account,
+                account: ctx.account,
                 cursors: input.pullCursors,
               })
             : null,
           shouldPullGlobal
             ? service.pullAutomergeSyncGlobal({
-                account: input.account,
+                account: ctx.account,
                 cursor: input.clientLatestCursor ?? 0,
                 lastEvaluatedKey: input.globalLastEvaluatedKey,
               })
