@@ -56,29 +56,29 @@ export interface SyncWorkerContextConfig {
 
 export class SyncWorkerContext {
   public readonly accountId: string
-  public readonly repo: Repo
-  public readonly adapter: VaultNetworkAdapter
-  public readonly broker: SyncMessageBroker
-  public readonly repoManager: AutomergeRepoManager
+  public repo!: Repo
+  public adapter!: VaultNetworkAdapter
+  public broker!: SyncMessageBroker
+  public repoManager!: AutomergeRepoManager
   public readonly clientEventHub: ClientEventHub
   public readonly internalEventHub: WorkerInternalEventHub
   public readonly apiClient: SyncApiClient
 
-  public readonly indexStore: IndexStore
-  public readonly cursorStore: CursorStore
-  public readonly lastModifiedStore: LastModifiedStore
-  public readonly syncedHeadsStore: SyncedHeadsStore
-  public readonly wal: SyncWriteAheadLog
+  public indexStore!: IndexStore
+  public cursorStore!: CursorStore
+  public lastModifiedStore!: LastModifiedStore
+  public syncedHeadsStore!: SyncedHeadsStore
+  public wal!: SyncWriteAheadLog
 
-  public readonly docStore: AutomergeDocStore
-  public readonly indexManager: AutomergeIndexManager
-  public readonly recoveryManager: RecoveryManager
-  public readonly pullQueueManager: SyncPullQueueManager
-  public readonly snapshotManager: SnapshotManager
-  public readonly orchestrator: SyncOrchestrator
-  public readonly manifestSyncManager: ManifestSyncManager
-  public readonly itemOperations: ItemOperations
-  public readonly storageRecoveryService: StorageRecoveryService
+  public docStore!: AutomergeDocStore
+  public indexManager!: AutomergeIndexManager
+  public recoveryManager!: RecoveryManager
+  public pullQueueManager!: SyncPullQueueManager
+  public snapshotManager!: SnapshotManager
+  public orchestrator!: SyncOrchestrator
+  public manifestSyncManager!: ManifestSyncManager
+  public itemOperations!: ItemOperations
+  public storageRecoveryService!: StorageRecoveryService
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   public get storageRecovery(): StorageRecoveryService {
@@ -94,13 +94,20 @@ export class SyncWorkerContext {
     this.internalEventHub = config.internalEventHub
     this.apiClient = config.apiClient ?? new SyncApiClient()
 
-    const stores = this.createStores(config.accountId)
-    this.cursorStore = stores.cursorStore
-    this.indexStore = stores.indexStore
-    this.lastModifiedStore = stores.lastModifiedStore
-    this.syncedHeadsStore = stores.syncedHeadsStore
-    this.wal = stores.wal
+    this.initStores(config.accountId)
+    this.initServices(config)
+    this.wireEvents()
+  }
 
+  private initStores(accountId: string): void {
+    this.cursorStore = new CursorStore(accountId)
+    this.indexStore = new IndexStore(accountId)
+    this.lastModifiedStore = new LastModifiedStore(accountId)
+    this.syncedHeadsStore = new SyncedHeadsStore(accountId)
+    this.wal = new SyncWriteAheadLog(accountId, this.internalEventHub)
+  }
+
+  private initServices(config: SyncWorkerContextConfig): void {
     const network = this.initNetworkAndRepo(config)
     this.adapter = network.adapter
     this.repoManager = network.repoManager
@@ -119,19 +126,11 @@ export class SyncWorkerContext {
     this.itemOperations = ops.itemOperations
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
-
-    this.wireCrossServiceDependencies()
-    this.registerLifecycleServices()
   }
 
-  private createStores(accountId: string) {
-    return {
-      cursorStore: new CursorStore(accountId),
-      indexStore: new IndexStore(accountId),
-      lastModifiedStore: new LastModifiedStore(accountId),
-      syncedHeadsStore: new SyncedHeadsStore(accountId),
-      wal: new SyncWriteAheadLog(accountId, this.internalEventHub),
-    }
+  private wireEvents(): void {
+    this.wireCrossServiceDependencies()
+    this.registerLifecycleServices()
   }
 
   private initNetworkAndRepo(config: SyncWorkerContextConfig) {

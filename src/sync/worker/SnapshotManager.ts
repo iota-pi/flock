@@ -13,6 +13,11 @@ import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from './utils/abort'
+import {
+  SnapshotBatchAccumulator,
+  estimateSnapshotSize,
+  type PreparedSnapshotItem,
+} from './SnapshotBatchAccumulator'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -25,12 +30,6 @@ interface SnapshotPushResult {
   persisted: number
   total: number
   success: boolean
-}
-
-interface PreparedSnapshotItem {
-  snapshot: VaultSnapshotInput
-  tick: number
-  heads?: string[]
 }
 
 type ItemPreparationResult =
@@ -565,7 +564,7 @@ export class SnapshotManager {
     const snapshot = buildResult.snapshot
     this.consecutiveFailures.delete(itemId)
 
-    const snapshotSize = JSON.stringify(snapshot).length
+    const snapshotSize = estimateSnapshotSize(snapshot)
 
     if (snapshotSize > this.maxPayloadBytes) {
       this.handleOversizedItem(itemId, snapshotSize, snapshot.modified, accountId)
@@ -637,8 +636,11 @@ export class SnapshotManager {
     let total = 0
     let success = true
     let sendFailed = false
-    let currentBatch: PreparedSnapshotItem[] = []
-    let currentBatchBytes = 0
+
+    const accumulator = new SnapshotBatchAccumulator({
+      maxBatchCount: 25,
+      maxBatchBytes: this.maxPayloadBytes,
+    })
 
     for (const itemId of dirtyItemIds) {
       checkAlive(signal, () => this.isOperational)
@@ -654,34 +656,28 @@ export class SnapshotManager {
         continue
       }
 
-      // Check if we should flush the current batch before adding this snapshot.
-      const wouldExceedCount = currentBatch.length >= 25
-      const wouldExceedBytes =
-        currentBatchBytes + prepared.size > Math.min(this.maxPayloadBytes, 2 * 1024 * 1024)
-
-      if ((wouldExceedCount || wouldExceedBytes) && currentBatch.length > 0) {
-        total += currentBatch.length
+      if (accumulator.wouldExceed(prepared.size) && !accumulator.isEmpty) {
+        const batch = accumulator.drain()
+        total += batch.length
         checkAlive(signal, () => this.isOperational)
-        const result = await this.flushBatch(currentBatch, accountId, signal)
+        const result = await this.flushBatch(batch, accountId, signal)
         persisted += result.persisted
         if (!result.success) {
           success = false
           sendFailed = true
           break
         }
-        currentBatch = []
-        currentBatchBytes = 0
       }
 
-      currentBatch.push(prepared.item)
-      currentBatchBytes += prepared.size
+      accumulator.push(prepared.item, prepared.size)
     }
 
-    // Flush any remaining items in the batch
-    if (!sendFailed && currentBatch.length > 0) {
-      total += currentBatch.length
+    // Flush any remaining items in the accumulator
+    if (!sendFailed && !accumulator.isEmpty) {
+      const batch = accumulator.drain()
+      total += batch.length
       checkAlive(signal, () => this.isOperational)
-      const result = await this.flushBatch(currentBatch, accountId, signal)
+      const result = await this.flushBatch(batch, accountId, signal)
       persisted += result.persisted
       if (!result.success) {
         success = false

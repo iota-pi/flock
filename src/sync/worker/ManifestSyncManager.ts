@@ -277,7 +277,7 @@ export class ManifestSyncManager {
     }
   }
 
-  private calculateDownstreamDeltas(params: {
+  private calculateInboundDeltas(params: {
     manifest: ManifestEntry[]
     activeSet: Set<ItemId>
     tombstoneSet: Set<ItemId>
@@ -412,7 +412,7 @@ export class ManifestSyncManager {
     const knownSet = new Set([...activeSet, ...tombstoneSet])
 
     const { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates } =
-      this.calculateDownstreamDeltas({
+      this.calculateInboundDeltas({
         manifest: params.manifest,
         activeSet,
         tombstoneSet,
@@ -605,6 +605,76 @@ export class ManifestSyncManager {
     }
   }
 
+  private async hydrateSnapshotBinary(
+    itemId: ItemId,
+    item: VaultItem,
+    serverTime: number,
+    knownSet: Set<ItemId>,
+    tombstoneSet: Set<ItemId>,
+  ): Promise<HydrateItemResult | null> {
+    if (!item.snapshot) return null
+    const binary = await this.decryptSnapshotBinary(item.snapshot)
+    if (!binary) return null
+
+    const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
+      knownToExist: knownSet.has(itemId),
+    })
+    try {
+      const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
+      this.onItemSnapshotHydrated?.(itemId, heads)
+    } catch {
+      // Best-effort heads notification; ignore failure if binary cannot be inspected
+    }
+
+    const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))
+    if (isDeleted) {
+      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
+    }
+
+    if (hydrationResult?.hasLocalChanges) {
+      this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+    }
+
+    return {
+      status: 'success',
+      itemId,
+      hydratedId: isDeleted ? undefined : itemId,
+      lastModifiedUpdate: hydrationResult?.hasLocalChanges ? undefined : [itemId, serverTime],
+    }
+  }
+
+  private async hydrateLegacyCipher(
+    itemId: ItemId,
+    item: VaultItem,
+    serverTime: number,
+    tombstoneSet: Set<ItemId>,
+  ): Promise<HydrateItemResult | null> {
+    const decryptedLegacy = await this.decryptLegacyCipher(item)
+    if (!decryptedLegacy || typeof decryptedLegacy !== 'object' || Array.isArray(decryptedLegacy)) {
+      return null
+    }
+
+    const snapshot = { ...(decryptedLegacy as Record<string, unknown>) }
+    if (!snapshot.id || typeof snapshot.id !== 'string') {
+      snapshot.id = item.item
+    }
+    const snapshotId = snapshot.id as ItemId
+    if (tombstoneSet.has(snapshotId) && snapshot.deleted !== true) {
+      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([snapshotId])
+      this.deps.snapshotManager.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      return {
+        status: 'success',
+        itemId,
+      }
+    }
+    return {
+      status: 'success',
+      itemId,
+      snapshot: snapshot as Item,
+      lastModifiedUpdate: [snapshotId, serverTime],
+    }
+  }
+
   async hydrateRemoteItem(
     item: VaultItem,
     manifest: ManifestEntry[],
@@ -627,57 +697,15 @@ export class ManifestSyncManager {
       }
 
       if (item.snapshot) {
-        const binary = await this.decryptSnapshotBinary(item.snapshot)
-        if (binary) {
-          const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
-            knownToExist: knownSet.has(itemId),
-          })
-          try {
-            const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
-            this.onItemSnapshotHydrated?.(itemId, heads)
-          } catch {
-            // Best-effort heads notification; ignore failure if binary cannot be inspected
-          }
-
-          const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))
-          if (isDeleted) {
-            await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
-          }
-
-          if (hydrationResult?.hasLocalChanges) {
-            this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
-          }
-
-          return {
-            status: 'success',
-            itemId,
-            hydratedId: isDeleted ? undefined : itemId,
-            lastModifiedUpdate: hydrationResult?.hasLocalChanges ? undefined : [itemId, serverTime],
-          }
+        const binaryResult = await this.hydrateSnapshotBinary(itemId, item, serverTime, knownSet, tombstoneSet)
+        if (binaryResult) {
+          return binaryResult
         }
       }
 
-      const decryptedLegacy = await this.decryptLegacyCipher(item)
-      if (decryptedLegacy && typeof decryptedLegacy === 'object' && !Array.isArray(decryptedLegacy)) {
-        const snapshot = { ...(decryptedLegacy as Record<string, unknown>) }
-        if (!snapshot.id || typeof snapshot.id !== 'string') {
-          snapshot.id = item.item
-        }
-        const snapshotId = snapshot.id as ItemId
-        if (tombstoneSet.has(snapshotId) && snapshot.deleted !== true) {
-          await this.deps.indexManager.removeAutomergeItemIdsFromIndex([snapshotId])
-          this.deps.snapshotManager.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
-          return {
-            status: 'success',
-            itemId,
-          }
-        }
-        return {
-          status: 'success',
-          itemId,
-          snapshot: snapshot as Item,
-          lastModifiedUpdate: [snapshotId, serverTime],
-        }
+      const legacyResult = await this.hydrateLegacyCipher(itemId, item, serverTime, tombstoneSet)
+      if (legacyResult) {
+        return legacyResult
       }
 
       return {
