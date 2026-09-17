@@ -81,11 +81,6 @@ export class SyncWorkerContext {
   public storageRecoveryService!: StorageRecoveryService
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
-  public get storageRecovery(): StorageRecoveryService {
-    return this.storageRecoveryService
-  }
-
-  private unregisterQuotaRecovery: (() => void) | null = null
   private unsubscribers: Array<() => void> = []
 
   constructor(config: SyncWorkerContextConfig) {
@@ -324,10 +319,6 @@ export class SyncWorkerContext {
       },
       onStop: () => {
         this.storageRecoveryService.stop()
-        if (this.unregisterQuotaRecovery) {
-          this.unregisterQuotaRecovery()
-          this.unregisterQuotaRecovery = null
-        }
       },
     })
 
