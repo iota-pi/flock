@@ -56,7 +56,7 @@ export class SyncWriteAheadLog {
   }
 
   private storage: LocalForage
-  private internalEventHub: WorkerInternalEventHub | null = null
+  private internalEventHub: WorkerInternalEventHub
 
   public static getStorage(accountId: string): LocalForage {
     return createAccountStore('wal-entries', accountId)
@@ -73,17 +73,19 @@ export class SyncWriteAheadLog {
 
   constructor(
     public readonly accountId: string,
-    internalEventHub?: WorkerInternalEventHub | null,
+    internalEventHub?: WorkerInternalEventHub,
   ) {
     this.storage = SyncWriteAheadLog.getStorage(accountId)
-    this.internalEventHub = internalEventHub ?? null
+    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
-  public setInternalEventHub(hub: WorkerInternalEventHub | null): void {
+  public get eventHub(): WorkerInternalEventHub {
+    return this.internalEventHub
+  }
+
+  public setInternalEventHub(hub: WorkerInternalEventHub): void {
     this.internalEventHub = hub
   }
-
-  public onEntriesPruned: ((prunedItemIds: ItemId[]) => void) | null = null
 
   private readonly inFlightEntryIds = new Set<string>()
 
@@ -238,14 +240,7 @@ export class SyncWriteAheadLog {
       }
 
       if (prunedItemIds.length > 0) {
-        if (this.onEntriesPruned) {
-          try {
-            this.onEntriesPruned(prunedItemIds)
-          } catch (cbErr) {
-            console.error('[SyncWriteAheadLog] Error in onEntriesPruned callback', cbErr)
-          }
-        }
-        this.internalEventHub?.emit({ type: 'walEntriesPruned', itemIds: prunedItemIds })
+        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: prunedItemIds })
       }
     } catch (err) {
       console.error('[SyncWriteAheadLog] Failed to prune oldest entries', err)

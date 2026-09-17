@@ -157,13 +157,13 @@ describe('SyncEventHub', () => {
       expect(listener).toHaveBeenCalledWith(event)
     })
 
-    it('logs with [WorkerInternalEventHub] Error in listener on error', () => {
+    it('logs with [WorkerInternalEventHub] Error in listener on error and rethrows', () => {
       const hub = new WorkerInternalEventHub()
       hub.subscribe(() => {
         throw new Error('internal error')
       })
 
-      hub.emit({ type: 'soleLeaderRestored' })
+      expect(() => hub.emit({ type: 'soleLeaderRestored' })).toThrow('internal error')
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         '[WorkerInternalEventHub] Error in listener:',

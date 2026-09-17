@@ -12,7 +12,7 @@ import {
 } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
-import type { WorkerInternalEventHub } from '../SyncEventHub'
+import { WorkerInternalEventHub } from '../SyncEventHub'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -95,23 +95,23 @@ export interface ItemLockCoordinator {
 export class AutomergeDocStore implements ItemLockCoordinator {
   private pendingFindOrCreate = new Map<ItemId, Promise<RepoDocHandle>>()
   private itemLocks = new Map<ItemId, Promise<unknown>>()
-  private internalEventHub: WorkerInternalEventHub | null = null
+  private internalEventHub: WorkerInternalEventHub
   public onDocHandleReplaced?: DocHandleReplacedListener
 
   constructor(
     private readonly repo: Repo,
-    internalEventHub?: WorkerInternalEventHub | null,
+    internalEventHub?: WorkerInternalEventHub,
   ) {
-    this.internalEventHub = internalEventHub ?? null
+    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
-  public setInternalEventHub(hub: WorkerInternalEventHub | null): void {
+  public setInternalEventHub(hub: WorkerInternalEventHub): void {
     this.internalEventHub = hub
   }
 
   private notifyDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
     this.onDocHandleReplaced?.(itemId, handle)
-    this.internalEventHub?.emit({ type: 'docHandleReplaced', itemId, handle })
+    this.internalEventHub.emit({ type: 'docHandleReplaced', itemId, handle })
   }
 
   async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {

@@ -111,6 +111,28 @@ export class WorkerInternalEventHub extends EventHub<WorkerInternalEvent> {
   constructor() {
     super('WorkerInternalEventHub', 'listener')
   }
+
+  override emit(event: WorkerInternalEvent): void {
+    let firstError: unknown = null
+    for (const listener of Array.from(this.listeners)) {
+      try {
+        const result = listener(event)
+        if (result instanceof Promise) {
+          result.catch(err =>
+            console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
+          )
+        }
+      } catch (err) {
+        console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
+        if (!firstError) {
+          firstError = err
+        }
+      }
+    }
+    if (firstError) {
+      throw firstError
+    }
+  }
 }
 
 

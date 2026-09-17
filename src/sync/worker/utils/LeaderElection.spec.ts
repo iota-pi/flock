@@ -641,7 +641,7 @@ describe('LeaderElection', () => {
       const onRevokedTrue = vi.fn()
       const onGrantedTrue = vi.fn()
 
-      let trueLockRelease: (() => void) | null = null
+      let trueLockRelease: (() => void) | undefined
       const requestMock = vi.fn().mockImplementation((name, options, callback) => {
         if (requestMock.mock.calls.length === 1) {
           return new Promise<void>(resolve => {
@@ -709,7 +709,7 @@ describe('LeaderElection', () => {
 
       // When Tab A releases, Tab B should auto-recover as fallback leader
       electionTrue.release()
-      if (trueLockRelease) trueLockRelease()
+      trueLockRelease?.()
 
       await vi.waitFor(() => {
         expect(electionFallback.leader).toBe(true)
@@ -787,7 +787,7 @@ describe('LeaderElection', () => {
     })
 
     it('true leader that yields to a claim re-grants leadership with isFallback: false when claimer releases', async () => {
-      let trueLockRelease: (() => void) | null = null
+      let trueLockRelease: (() => void) | undefined
       const requestMock = vi.fn().mockImplementation((name, options, callback) => {
         return new Promise<void>(resolve => {
           trueLockRelease = resolve
@@ -849,7 +849,7 @@ describe('LeaderElection', () => {
       })
 
       electionTrue.release()
-      if (trueLockRelease) trueLockRelease()
+      trueLockRelease?.()
     })
   })
 })

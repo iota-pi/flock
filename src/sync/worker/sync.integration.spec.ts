@@ -177,9 +177,11 @@ describe('Sync System Integration Test Suite', () => {
   it('Scenario 2: Server advances cursor -> Client polls -> receives message and deduplicates in overlap window', async () => {
     const itemId = 'item-pull-1' as ItemId
     const parsedMessages: Uint8Array[] = []
-    pullQueueManager.onMessageParsed = (_id, _docId, msg) => {
-      parsedMessages.push(msg)
-    }
+    internalEventHub.subscribe(e => {
+      if (e.type === 'messageParsed') {
+        parsedMessages.push(e.message)
+      }
+    })
 
     pullQueueManager.addPendingItem(itemId)
 
@@ -300,7 +302,11 @@ describe('Sync System Integration Test Suite', () => {
   it('Scenario 5: Decryption failure -> retry 5 times -> quarantined to manual recovery store', async () => {
     const itemId = 'item-corrupt' as ItemId
     const failureSpy = vi.fn()
-    pullQueueManager.onDecryptionFailure = failureSpy
+    internalEventHub.subscribe(e => {
+      if (e.type === 'decryptionFailure') {
+        failureSpy(e.itemId, e.error)
+      }
+    })
 
     const corruptMessageResponse = {
       success: true,
@@ -365,7 +371,11 @@ describe('Sync System Integration Test Suite', () => {
   it('Scenario 7: Pulling message with missing key version does not burn retries or advance cursor, and cleanly decrypts when keyring updates', async () => {
     const itemId = 'item-rotated-key' as ItemId
     const failureSpy = vi.fn()
-    pullQueueManager.onDecryptionFailure = failureSpy
+    internalEventHub.subscribe(e => {
+      if (e.type === 'decryptionFailure') {
+        failureSpy(e.itemId, e.error)
+      }
+    })
 
     const { hasVaultKey, waitForKeyVersion } = await import('../../api/vault')
     // Key '2' is not yet in keyring and times out

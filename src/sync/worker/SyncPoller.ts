@@ -32,8 +32,6 @@ export class SyncPoller {
   private isShutdown = false
   private abortController: AbortController | null = null
 
-  public onPushAcknowledged: ((itemId: ItemId, heads: string[]) => void) | null = null
-
   constructor(
     private pullQueueManager: SyncPullQueueManager,
     private clientEventHub: ClientEventHub,
@@ -218,7 +216,6 @@ export class SyncPoller {
               try {
                 const decoded = decodeSyncMessage(rawMsg)
                 if (decoded.heads && decoded.heads.length > 0) {
-                  this.onPushAcknowledged?.(result.itemId, decoded.heads)
                   this.internalEventHub.emit({
                     type: 'pushAcknowledged',
                     itemId: result.itemId,

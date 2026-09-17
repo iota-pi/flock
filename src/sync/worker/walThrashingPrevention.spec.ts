@@ -110,7 +110,6 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
       hasPendingPulls: vi.fn().mockReturnValue(false),
       hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       shutdown: vi.fn().mockResolvedValue(undefined),
-      onMessageParsed: null,
     } as unknown as SyncPullQueueManager
 
     wal = new SyncWriteAheadLog(accountId)
@@ -131,7 +130,9 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
     const walAppendSpy = vi.spyOn(wal, 'append')
     const onPrunedSpy = vi.fn()
-    broker.onWalEntriesPruned = onPrunedSpy
+    internalEventHub.subscribe(e => {
+      if (e.type === 'walEntriesPruned') onPrunedSpy(e.itemIds)
+    })
 
     // Step 1: Pre-populate WAL with MAX_ENTRIES (2000) unique items directly in storage
     const store = mockStores.get(`FlockVault_SyncWAL_${accountId}:wal-entries`)!

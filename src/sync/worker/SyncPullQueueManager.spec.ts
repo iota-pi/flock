@@ -195,7 +195,9 @@ describe('SyncPullQueueManager', () => {
 
     it('parses single unbatched message', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
       mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -237,7 +239,9 @@ describe('SyncPullQueueManager', () => {
 
     it('parses batched v1.0 messages with DataView length prefixes', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       // Generate batched payload
       const msg1 = new Uint8Array([10, 20, 30])
@@ -411,7 +415,9 @@ describe('SyncPullQueueManager', () => {
 
     it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -443,7 +449,9 @@ describe('SyncPullQueueManager', () => {
 
     it('removes item from queue and triggers onDecryptionFailure on 5th consecutive failure', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -482,7 +490,9 @@ describe('SyncPullQueueManager', () => {
 
     it('advances cursor past corrupted message on 5th failure and prevents infinite retry loop on subsequent polls', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -527,7 +537,9 @@ describe('SyncPullQueueManager', () => {
 
     it('falls back to nextCursor when message cursor is omitted on 5th failure', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -558,7 +570,9 @@ describe('SyncPullQueueManager', () => {
 
     it('resets retry counter on successful message parse', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
 
       const failResults: PullSyncMessagesResponse[] = [
         {
@@ -617,7 +631,9 @@ describe('SyncPullQueueManager', () => {
 
     it('clears retry counter on shutdown and setAccount', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const failResults: PullSyncMessagesResponse[] = [
@@ -660,7 +676,9 @@ describe('SyncPullQueueManager', () => {
 
     it('skips processing already seen messages (overlap window dedup)', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
 
       const batch1: PullSyncMessagesResponse[] = [
@@ -724,7 +742,9 @@ describe('SyncPullQueueManager', () => {
 
     it('advances cursor when batch consists entirely of seen messages and server omits nextCursor', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
 
       // First, process messages with cursor 10 and 20 to populate seenMessageCursors
@@ -820,7 +840,9 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Transient processing error for message 1')
         }
       })
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       const msg1 = new Uint8Array([10, 20, 30])
       const msg2 = new Uint8Array([40, 50])
@@ -903,7 +925,9 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Transient processing error for message 2')
         }
       })
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       const msg1 = new Uint8Array([10, 20, 30])
       const msg2 = new Uint8Array([40, 50])
@@ -969,9 +993,13 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Persistent failure for message 2')
         }
       })
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
 
       const msg1 = new Uint8Array([10, 20, 30])
       const msg2 = new Uint8Array([40, 50])
@@ -1035,7 +1063,9 @@ describe('SyncPullQueueManager', () => {
       const onMessageParsedSpy = vi.fn().mockImplementation(() => {
         throw new Error('Processing failed')
       })
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
 
@@ -1064,7 +1094,9 @@ describe('SyncPullQueueManager', () => {
 
     it('stops processing messages and preserves cursor before failed message when a parse failure occurs mid-batch and keeps item for retry', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       mockDecryptBytes
         .mockResolvedValueOnce(new Uint8Array([1]))
@@ -1139,7 +1171,9 @@ describe('SyncPullQueueManager', () => {
 
     it('continues processing subsequent items if one item throws an error', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
 
@@ -1191,7 +1225,9 @@ describe('SyncPullQueueManager', () => {
 
     it('does not advance cursor past failed message when batch contains out-of-order cursors', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       // cursor 2 will fail, cursor 3 would succeed if reached
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
@@ -1238,9 +1274,11 @@ describe('SyncPullQueueManager', () => {
 
     it('processes out-of-order messages in ascending cursor order', async () => {
       const processedCursors: number[] = []
-      manager.onMessageParsed = (_itemId, _docId, msg) => {
-        processedCursors.push(msg[0])
-      }
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') {
+          processedCursors.push(e.message[0])
+        }
+      })
 
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
         return new Uint8Array([encrypted.val])
@@ -1268,7 +1306,9 @@ describe('SyncPullQueueManager', () => {
 
     it('advances cursor to earlier successful message when higher out-of-order message fails', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
         if (encrypted.cipher === 'fail-msg30') {
@@ -1465,7 +1505,9 @@ describe('SyncPullQueueManager', () => {
     it('pauses inline and decrypts when missing key version arrives within timeout', async () => {
       await manager.setAccount('account-key-test')
       const onKeyVersionMissingSpy = vi.fn()
-      manager.onKeyVersionMissing = onKeyVersionMissingSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
+      })
 
       // Initially key '2' is not in keyring
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
@@ -1510,8 +1552,10 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-key-timeout')
       const onKeyVersionMissingSpy = vi.fn()
       const onDecryptionFailureSpy = vi.fn()
-      manager.onKeyVersionMissing = onKeyVersionMissingSpy
-      manager.onDecryptionFailure = onDecryptionFailureSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
+        if (e.type === 'decryptionFailure') onDecryptionFailureSpy(e.itemId, e.error)
+      })
 
       // Key '2' is missing and times out
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
@@ -1583,7 +1627,9 @@ describe('SyncPullQueueManager', () => {
       // Key arrives in keyring
       mockHasVaultKey.mockImplementation(() => true)
       const onPendingPullsAvailableSpy = vi.fn()
-      manager.onPendingPullsAvailable = onPendingPullsAvailableSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'pendingPullsAvailable') onPendingPullsAvailableSpy()
+      })
 
       manager.onKeyringUpdated()
 

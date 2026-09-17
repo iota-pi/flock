@@ -20,7 +20,6 @@ vi.mock('./stores/IndexStore', () => ({
 
 vi.mock('./SyncWriteAheadLog', () => ({
   SyncWriteAheadLog: class MockSyncWriteAheadLog {
-    onEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
     clear = vi.fn().mockResolvedValue(undefined)
     handleQuotaExceeded = vi.fn().mockResolvedValue(1)
     append = vi.fn().mockResolvedValue(undefined)
@@ -38,10 +37,6 @@ vi.mock('./docStore/AutomergeIndexManager', () => ({
 
 vi.mock('./SyncPullQueueManager', () => ({
   SyncPullQueueManager: class MockSyncPullQueueManager {
-    onDecryptionFailure: ((itemId: ItemId, error: unknown) => void) | null = null
-    onRetryingStateChange: ((isRetrying: boolean) => void) | null = null
-    onKeyVersionMissing: ((kver: string) => void) | null = null
-    onPendingPullsAvailable: (() => void) | null = null
     setLockCoordinator = vi.fn()
     getGlobalLatestCursor = vi.fn().mockReturnValue(0)
     shutdown = vi.fn().mockResolvedValue(undefined)
@@ -50,10 +45,6 @@ vi.mock('./SyncPullQueueManager', () => ({
 
 vi.mock('./SyncMessageBroker', () => ({
   SyncMessageBroker: class MockSyncMessageBroker {
-    onItemMessageParsed: ((itemId: ItemId) => void) | null = null
-    onWalAppendFailed: ((itemId: ItemId, error: unknown) => void) | null = null
-    onWalEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
-    onFlushNeeded: (() => void) | null = null
     unblockAllItems = vi.fn()
     setStorageRecoveryService = vi.fn()
     poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
@@ -63,7 +54,6 @@ vi.mock('./SyncMessageBroker', () => ({
 
 vi.mock('./VaultEncryptedNetworkAdapter', () => ({
   VaultNetworkAdapter: class MockVaultNetworkAdapter {
-    onReNegotiationTriggered: ((documentId: DocumentId) => void) | null = null
     triggerReNegotiation = vi.fn()
     setSyncedHeadsStore = vi.fn()
     setSyncedHeads = vi.fn()
@@ -148,11 +138,13 @@ vi.mock('./ManifestSyncManager', () => ({
 
 describe('SyncWorkerContext', () => {
   let context: SyncWorkerContext
+  let internalEventHub: WorkerInternalEventHub
+  let clientEventHub: ClientEventHub
 
   beforeEach(() => {
     vi.clearAllMocks()
-    const clientEventHub = new ClientEventHub()
-    const internalEventHub = new WorkerInternalEventHub()
+    clientEventHub = new ClientEventHub()
+    internalEventHub = new WorkerInternalEventHub()
 
     context = new SyncWorkerContext({
       accountId: 'test-account',
@@ -162,28 +154,19 @@ describe('SyncWorkerContext', () => {
   })
 
   it('marks item dirty in SnapshotManager when adapter triggers re-negotiation', () => {
-    expect(context.adapter.onReNegotiationTriggered).toBeTypeOf('function')
-    context.adapter.onReNegotiationTriggered!('test-doc-id' as DocumentId)
+    internalEventHub.emit({ type: 'renegotiationTriggered', documentId: 'test-doc-id' as DocumentId })
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('test-doc-id' as ItemId, 0)
   })
 
   it('marks item dirty in SnapshotManager when broker reports WAL append failure', () => {
-    expect(context.broker.onWalAppendFailed).toBeTypeOf('function')
-    context.broker.onWalAppendFailed!('test-item-id' as ItemId, new Error('WAL write failed'))
+    internalEventHub.emit({ type: 'walAppendFailed', itemId: 'test-item-id' as ItemId, error: new Error('WAL write failed') })
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
   })
 
-  it('marks items dirty in SnapshotManager when broker reports onWalEntriesPruned', () => {
-    expect(context.broker.onWalEntriesPruned).toBeTypeOf('function')
-    context.broker.onWalEntriesPruned!(['pruned-item-1' as ItemId, 'pruned-item-2' as ItemId])
+  it('marks items dirty in SnapshotManager when WAL entries are pruned', () => {
+    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['pruned-item-1' as ItemId, 'pruned-item-2' as ItemId] })
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-item-1' as ItemId, 0)
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-item-2' as ItemId, 0)
-  })
-
-  it('marks items dirty in SnapshotManager when WAL directly invokes onEntriesPruned', () => {
-    expect(context.wal.onEntriesPruned).toBeTypeOf('function')
-    context.wal.onEntriesPruned!(['pruned-wal-item' as ItemId])
-    expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-wal-item' as ItemId, 0)
   })
 
   it('forwards clearLocalData options to pullQueueManager and snapshotManager on shutdown', async () => {
@@ -206,31 +189,26 @@ describe('SyncWorkerContext', () => {
     expect(context.cursorStore.clear).not.toHaveBeenCalled()
   })
 
-  it('forwards orchestrator onLeaderChange to snapshotManager.setLeader', () => {
-    expect(context.orchestrator.onLeaderChange).toBeTypeOf('function')
-    context.orchestrator.onLeaderChange!(true)
+  it('forwards leaderChange to snapshotManager.setLeader', () => {
+    internalEventHub.emit({ type: 'leaderChange', isLeader: true })
     expect(context.snapshotManager.setLeader).toHaveBeenCalledWith(true)
 
-    context.orchestrator.onLeaderChange!(false)
+    internalEventHub.emit({ type: 'leaderChange', isLeader: false })
     expect(context.snapshotManager.setLeader).toHaveBeenCalledWith(false)
   })
 
-  it('forwards broker onItemMessageParsed to clearManualRecovery and onItemMessageParsed callback', () => {
-    const onItemMessageParsedMock = vi.fn()
+  it('clears manual recovery when itemMessageParsed is received', () => {
+    const ctxInternalHub = new WorkerInternalEventHub()
     const ctx = new SyncWorkerContext({
       accountId: 'test-account',
       clientEventHub: new ClientEventHub(),
-      internalEventHub: new WorkerInternalEventHub(),
-      onItemMessageParsed: onItemMessageParsedMock,
+      internalEventHub: ctxInternalHub,
     })
 
     const clearSpy = vi.spyOn(ctx.itemOperations, 'clearManualRecoveryForItems').mockResolvedValue(undefined)
-
-    expect(ctx.broker.onItemMessageParsed).toBeTypeOf('function')
-    ctx.broker.onItemMessageParsed!('item-parsed-1' as ItemId)
+    ctxInternalHub.emit({ type: 'itemMessageParsed', itemId: 'item-parsed-1' as ItemId })
 
     expect(clearSpy).toHaveBeenCalledWith(['item-parsed-1'])
-    expect(onItemMessageParsedMock).toHaveBeenCalledWith('item-parsed-1')
   })
 
   describe('retrySave', () => {

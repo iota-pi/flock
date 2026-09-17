@@ -43,16 +43,6 @@ export interface SyncWorkerContextConfig {
   /** Called when a doc handle is replaced (e.g. after compaction/import). */
   onDocHandleReplaced?: DocHandleReplacedListener
   /**
-   * Called when the broker parses an inbound message for an item,
-   * so the Comlink layer can ensure it is subscribed to that handle.
-   */
-  onItemMessageParsed?: (itemId: ItemId) => void
-  /**
-   * Called when the pull queue manager's retrying state changes,
-   * so the Comlink layer can update the sync status manager.
-   */
-  onRetryingStateChange?: (isRetrying: boolean) => void
-  /**
    * Called when storage quota state changes (exceeded / resolved).
    */
   onQuotaStatusChange?: (isQuotaExceeded: boolean) => void
@@ -105,10 +95,10 @@ export class SyncWorkerContext {
     this.indexStore = new IndexStore(config.accountId)
     this.lastModifiedStore = new LastModifiedStore(config.accountId)
     this.syncedHeadsStore = new SyncedHeadsStore(config.accountId)
-    this.wal = new SyncWriteAheadLog(config.accountId)
+    this.wal = new SyncWriteAheadLog(config.accountId, this.internalEventHub)
 
     // ── Network adapter & repo ─────────────────────────────────────────────
-    this.adapter = new VaultNetworkAdapter()
+    this.adapter = new VaultNetworkAdapter(this.internalEventHub)
     this.repoManager = new AutomergeRepoManager(config.accountId)
     this.repo = this.repoManager.init(this.adapter, {
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
@@ -125,6 +115,12 @@ export class SyncWorkerContext {
 
     this.adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
 
+    // ── Doc store ──────────────────────────────────────────────────────────
+    this.docStore = new AutomergeDocStore(this.repo, this.internalEventHub)
+    if (config.onDocHandleReplaced) {
+      this.docStore.onDocHandleReplaced = config.onDocHandleReplaced
+    }
+
     // ── Index manager ──────────────────────────────────────────────────────
     this.indexManager = new AutomergeIndexManager(
       config.accountId,
@@ -134,13 +130,11 @@ export class SyncWorkerContext {
     )
 
     // ── Pull queue ─────────────────────────────────────────────────────────
-    this.pullQueueManager = new SyncPullQueueManager(this.cursorStore)
-    this.pullQueueManager.onRetryingStateChange = isRetrying => {
-      config.onRetryingStateChange?.(isRetrying)
-    }
-    this.pullQueueManager.onKeyVersionMissing = kver => {
-      config.clientEventHub.emit({ type: 'keyVersionMissing', kver })
-    }
+    this.pullQueueManager = new SyncPullQueueManager(
+      this.cursorStore,
+      this.docStore,
+      this.internalEventHub,
+    )
 
     // ── Message broker ─────────────────────────────────────────────────────
     this.broker = new SyncMessageBroker(
@@ -151,13 +145,6 @@ export class SyncWorkerContext {
       this.pullQueueManager,
       this.wal
     )
-
-    // ── Doc store ──────────────────────────────────────────────────────────
-    this.docStore = new AutomergeDocStore(this.repo)
-    if (config.onDocHandleReplaced) {
-      this.docStore.onDocHandleReplaced = config.onDocHandleReplaced
-    }
-    this.pullQueueManager.setLockCoordinator?.(this.docStore)
 
     // ── Recovery & snapshot ────────────────────────────────────────────────
     this.recoveryManager = new RecoveryManager({
@@ -187,9 +174,6 @@ export class SyncWorkerContext {
       this.pullQueueManager
     )
 
-    this.orchestrator.onLeaderChange = isLeader => {
-      this.snapshotManager.setLeader(isLeader)
-    }
     this.snapshotManager.setLeader(this.orchestrator.leader)
 
     // ── Item operations ────────────────────────────────────────────────────
@@ -202,49 +186,7 @@ export class SyncWorkerContext {
       recoveryManager: this.recoveryManager,
     })
 
-    // ── Cross-component EventHub wiring ──────────────────────────────────
-    this.adapter.setInternalEventHub?.(this.internalEventHub)
-    this.pullQueueManager.setInternalEventHub?.(this.internalEventHub)
-    this.docStore.setInternalEventHub?.(this.internalEventHub)
-    this.wal.setInternalEventHub?.(this.internalEventHub)
-
     this.subscribeInternalEvents(config)
-
-    // Compatibility hooks for mocks/direct callback invocation in unit tests
-    if (this.orchestrator) {
-      this.orchestrator.onLeaderChange = isLeader => {
-        this.snapshotManager.setLeader(isLeader)
-      }
-    }
-    if (this.pullQueueManager) {
-      this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
-        this.internalEventHub.emit({ type: 'decryptionFailure', itemId, error })
-      }
-      this.pullQueueManager.onPendingPullsAvailable = () => {
-        this.internalEventHub.emit({ type: 'flushNeeded' })
-      }
-    }
-    if (this.broker) {
-      this.broker.onItemMessageParsed = itemId => {
-        this.internalEventHub.emit({ type: 'itemMessageParsed', itemId })
-      }
-      this.broker.onWalAppendFailed = (itemId, error) => {
-        this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error })
-      }
-      this.broker.onWalEntriesPruned = itemIds => {
-        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds })
-      }
-    }
-    if (this.adapter) {
-      this.adapter.onReNegotiationTriggered = documentId => {
-        this.internalEventHub.emit({ type: 'renegotiationTriggered', documentId })
-      }
-    }
-    if (this.wal) {
-      this.wal.onEntriesPruned = itemIds => {
-        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds })
-      }
-    }
 
     // ── Manifest sync ──────────────────────────────────────────────────────
     this.manifestSyncManager = new ManifestSyncManager(
@@ -443,7 +385,6 @@ export class SyncWorkerContext {
           break
         case 'itemMessageParsed':
           void this.itemOperations.clearManualRecoveryForItems([event.itemId])
-          config.onItemMessageParsed?.(event.itemId)
           break
         case 'renegotiationTriggered': {
           const itemId = toVaultItemIdFromAutomergeId(event.documentId)

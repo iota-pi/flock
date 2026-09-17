@@ -13,7 +13,6 @@ import type { StorageRecoveryService } from './StorageRecoveryService'
 export interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
   setSendEnabled(sendEnabled: boolean): void
-  onFlushNeeded: (() => void) | null
 }
 
 export class SyncMessageBroker implements SyncBrokerControl {
@@ -28,11 +27,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
   private blockedItemIds = new Set<ItemId>()
   private unsubscribeClientEvents: (() => void) | null = null
   private unsubscribeInternalEvents: (() => void) | null = null
-
-  public onFlushNeeded: (() => void) | null = null
-  public onItemMessageParsed: ((itemId: ItemId) => void) | null = null
-  public onWalAppendFailed: ((itemId: ItemId, error: unknown) => void) | null = null
-  public onWalEntriesPruned: ((itemIds: ItemId[]) => void) | null = null
 
   constructor(
     private adapter: VaultNetworkAdapter,
@@ -55,7 +49,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
           break
         case 'messageParsed':
           if (this.account) {
-            this.onItemMessageParsed?.(event.itemId)
             this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
           }
           this.adapter.receiveMessage(event.documentId, event.message)
@@ -74,16 +67,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
       }
     })
 
-    if (this.pullQueueManager) {
-      this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
-        if (this.account) {
-          this.onItemMessageParsed?.(itemId)
-          this.internalEventHub?.emit({ type: 'itemMessageParsed', itemId })
-        }
-        this.adapter.receiveMessage(documentId, message)
-      }
-    }
-
     this.syncPoller = new SyncPoller(
       this.pullQueueManager,
       this.clientEventHub,
@@ -91,13 +74,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
       this.indexManager,
       this.wal,
     )
-
-    this.syncPoller.onPushAcknowledged = (itemId, heads) => {
-      this.unblockItem(itemId)
-      const documentId = toDocumentIdFromItemId(itemId)
-      this.adapter.setSyncedHeads(documentId, heads)
-      this.adapter.resetReNegotiationCircuit(documentId)
-    }
 
     this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
       if (event.type === 'quotaResolved') {
@@ -110,12 +86,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
         }
       }
     })
-
-    if (this.adapter) {
-      this.adapter.onMessageToSend = (msg: Message) => {
-        void this.handleOutgoingMessage(msg)
-      }
-    }
   }
 
   setStorageRecoveryService(storageRecovery: StorageRecoveryService | null): void {
@@ -201,7 +171,7 @@ export class SyncMessageBroker implements SyncBrokerControl {
     this.snapshotOnlyItems.clear()
     this.account = nextAccount
     if (!this.wal || this.wal.accountId !== this.account) {
-      const wal = this.account ? new SyncWriteAheadLog(this.account) : null
+      const wal = this.account ? new SyncWriteAheadLog(this.account, this.internalEventHub) : null
       this.setWal(wal)
     }
 
@@ -213,11 +183,7 @@ export class SyncMessageBroker implements SyncBrokerControl {
     this.wal = wal
     if (this.wal) {
       this.unblockAllItems()
-      if (this.internalEventHub && typeof this.wal.setInternalEventHub === 'function') {
-        this.wal.setInternalEventHub(this.internalEventHub)
-      } else {
-        this.wal.onEntriesPruned = itemIds => this.handleWalEntriesPruned(itemIds)
-      }
+      this.wal.setInternalEventHub(this.internalEventHub)
     }
     if (this.syncPoller) {
       this.syncPoller.setWal(this.wal)
@@ -228,7 +194,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
     for (const itemId of itemIds) {
       this.snapshotOnlyItems.add(itemId)
     }
-    this.onWalEntriesPruned?.(itemIds)
   }
 
   setOnlineState(isOnline: boolean): void {
@@ -287,7 +252,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
   private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId, err: unknown): void {
     this.blockItem(itemId)
     this.adapter.triggerReNegotiation(documentId)
-    this.onWalAppendFailed?.(itemId, err)
     this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
     if (isQuotaError(err)) {
       if (this.storageRecovery) {
@@ -302,7 +266,6 @@ export class SyncMessageBroker implements SyncBrokerControl {
   }
 
   flush(): void {
-    this.onFlushNeeded?.()
     this.internalEventHub.emit({ type: 'flushNeeded' })
   }
 

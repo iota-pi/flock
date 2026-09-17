@@ -137,20 +137,22 @@ describe('Document Hydration Race Condition (C4)', () => {
     })
 
     let pullProcessed = false
-    pullQueueManager.onMessageParsed = (_id, docId, _msg) => {
-      const handle = repo.handles[docId]
-      if (handle) {
-        const tempHandle = repo.import(Automerge.save(updatedDoc))
-        try {
-          handle.merge(tempHandle)
-        } finally {
+    pullQueueManager.eventHub.subscribe(e => {
+      if (e.type === 'messageParsed') {
+        const handle = repo.handles[e.documentId]
+        if (handle) {
+          const tempHandle = repo.import(Automerge.save(updatedDoc))
           try {
-            repo.delete(tempHandle.documentId)
-          } catch {}
+            handle.merge(tempHandle)
+          } finally {
+            try {
+              repo.delete(tempHandle.documentId)
+            } catch {}
+          }
         }
+        pullProcessed = true
       }
-      pullProcessed = true
-    }
+    })
 
     mockDecryptBytes.mockResolvedValueOnce(syncMsg)
 
@@ -218,23 +220,25 @@ describe('Document Hydration Race Condition (C4)', () => {
     const snapshotB = Automerge.save(docB)
 
     // First, seed initial handle from baseBinary so pull queue can apply changes
-    const initialHandle = repo.import<any>(baseBinary, {
+    repo.import<any>(baseBinary, {
       docId: interpretAsDocumentId(toAutomergeUrlFromItemId(itemId)),
     })
 
-    pullQueueManager.onMessageParsed = (_id, docId, _msg) => {
-      const handle = repo.handles[docId]
-      if (handle) {
-        const tempHandle = repo.import(Automerge.save(docA))
-        try {
-          handle.merge(tempHandle)
-        } finally {
+    pullQueueManager.eventHub.subscribe(e => {
+      if (e.type === 'messageParsed') {
+        const handle = repo.handles[e.documentId]
+        if (handle) {
+          const tempHandle = repo.import(Automerge.save(docA))
           try {
-            repo.delete(tempHandle.documentId)
-          } catch {}
+            handle.merge(tempHandle)
+          } finally {
+            try {
+              repo.delete(tempHandle.documentId)
+            } catch {}
+          }
         }
       }
-    }
+    })
 
     mockDecryptBytes.mockResolvedValueOnce(syncMsgA)
 

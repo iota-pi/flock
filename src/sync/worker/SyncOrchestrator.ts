@@ -82,11 +82,6 @@ export class SyncOrchestrator {
         this.flush()
       }
     })
-    if (this.broker) {
-      this.broker.onFlushNeeded = () => {
-        this.flush()
-      }
-    }
     // Sync initial states with the broker
     this.broker?.setOnlineState?.(this.isOnline)
     this.broker?.setSendEnabled?.(this.isLeader)
@@ -154,8 +149,6 @@ export class SyncOrchestrator {
     this.leaderElection?.claimLeadership()
   }
 
-  public onLeaderChange?: (isLeader: boolean) => void | Promise<void>
-
   get leader(): boolean {
     return this.isLeader
   }
@@ -170,7 +163,6 @@ export class SyncOrchestrator {
     }
     this.isLeader = isLeader
     this.broker.setSendEnabled(isLeader)
-    this.onLeaderChange?.(isLeader)
     this.internalEventHub.emit({ type: 'leaderChange', isLeader })
 
     if (isLeader) {

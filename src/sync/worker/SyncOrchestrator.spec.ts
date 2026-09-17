@@ -20,7 +20,6 @@ describe('SyncOrchestrator', () => {
     mockBroker = {
       setOnlineState: vi.fn(),
       setSendEnabled: vi.fn(),
-      onFlushNeeded: null,
       poller: mockPoller,
     }
 
@@ -562,9 +561,11 @@ describe('SyncOrchestrator', () => {
     })
   })
 
-  it('notifies onLeaderChange callback when leadership is granted and revoked', async () => {
+  it('emits leaderChange on internalEventHub when leadership is granted and revoked', async () => {
     const leaderChangeListener = vi.fn()
-    orchestrator.onLeaderChange = leaderChangeListener
+    internalEventHub.subscribe(e => {
+      if (e.type === 'leaderChange') leaderChangeListener(e.isLeader)
+    })
 
     expect(orchestrator.leader).toBe(false)
 

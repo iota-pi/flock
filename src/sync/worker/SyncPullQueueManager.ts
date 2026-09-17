@@ -10,7 +10,7 @@ import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
-import type { WorkerInternalEventHub } from './SyncEventHub'
+import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap } from '../utils/boundedCollections'
 
 interface ProcessItemMessagesResult {
@@ -36,25 +36,23 @@ export class SyncPullQueueManager {
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
   private lockCoordinator?: ItemLockCoordinator
-  private internalEventHub: WorkerInternalEventHub | null = null
-
-  public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
-  public onDecryptionFailure: ((itemId: ItemId, error: unknown) => void) | null = null
-  public onRetryingStateChange: ((isRetrying: boolean) => void) | null = null
-  public onKeyVersionMissing: ((kver: string) => void) | null = null
-  public onPendingPullsAvailable: (() => void) | null = null
+  private internalEventHub: WorkerInternalEventHub
   public keyWaitTimeoutMs = 5000
 
   constructor(
     private readonly cursorStore: CursorStore,
     lockCoordinator?: ItemLockCoordinator,
-    internalEventHub?: WorkerInternalEventHub | null,
+    internalEventHub?: WorkerInternalEventHub,
   ) {
     this.lockCoordinator = lockCoordinator
-    this.internalEventHub = internalEventHub ?? null
+    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
-  public setInternalEventHub(hub: WorkerInternalEventHub | null): void {
+  public get eventHub(): WorkerInternalEventHub {
+    return this.internalEventHub
+  }
+
+  public setInternalEventHub(hub: WorkerInternalEventHub): void {
     this.internalEventHub = hub
   }
 
@@ -96,11 +94,7 @@ export class SyncPullQueueManager {
     this.batchProgress.clear()
     this.hasMoreGlobal = false
     this.globalLastEvaluatedKey = undefined
-    if (this.internalEventHub) {
-      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
-    } else {
-      this.onRetryingStateChange?.(false)
-    }
+    this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
 
     if (account) {
       return this.loadCursors()
@@ -153,8 +147,7 @@ export class SyncPullQueueManager {
   }
 
   private notifyMessageParsed(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
-    this.onMessageParsed(itemId, documentId, message)
-    this.internalEventHub?.emit({ type: 'messageParsed', itemId, documentId, message })
+    this.internalEventHub.emit({ type: 'messageParsed', itemId, documentId, message })
   }
 
   private async handleMessageEntry(
@@ -173,11 +166,7 @@ export class SyncPullQueueManager {
         timeoutMs: this.keyWaitTimeoutMs,
         timedOutKeys,
         onKeyVersionMissing: (missingKver) => {
-          if (this.internalEventHub) {
-            this.internalEventHub.emit({ type: 'keyVersionMissing', kver: missingKver })
-          } else {
-            this.onKeyVersionMissing?.(missingKver)
-          }
+          this.internalEventHub.emit({ type: 'keyVersionMissing', kver: missingKver })
         },
       })
     } catch (error) {
@@ -246,14 +235,9 @@ export class SyncPullQueueManager {
     const unblockedAny = this.retryTracker.onKeyringUpdated()
     if (unblockedAny) {
       const isRetrying = this.retryTracker.isAnyRetrying()
-      if (this.internalEventHub) {
-        this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-        this.internalEventHub.emit({ type: 'pendingPullsAvailable' })
-        this.internalEventHub.emit({ type: 'flushNeeded' })
-      } else {
-        this.onRetryingStateChange?.(isRetrying)
-        this.onPendingPullsAvailable?.()
-      }
+      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
+      this.internalEventHub.emit({ type: 'pendingPullsAvailable' })
+      this.internalEventHub.emit({ type: 'flushNeeded' })
     }
   }
 
@@ -410,8 +394,7 @@ export class SyncPullQueueManager {
             const err = new Error(
               `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
             )
-            this.onDecryptionFailure?.(itemId, err)
-            this.internalEventHub?.emit({ type: 'decryptionFailure', itemId, error: err })
+            this.internalEventHub.emit({ type: 'decryptionFailure', itemId, error: err })
           }
         } catch (innerError) {
           console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)
@@ -425,11 +408,7 @@ export class SyncPullQueueManager {
       console.error('[SyncPullQueueManager] Pull sync batch failed', error)
     } finally {
       const isRetrying = this.retryTracker.isAnyRetrying()
-      if (this.internalEventHub) {
-        this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-      } else {
-        this.onRetryingStateChange?.(isRetrying)
-      }
+      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
       if (successfullyPulledItemIds.size > 0) {
         try {
           publishRealtimeBusSyncPing(Array.from(successfullyPulledItemIds))
@@ -462,10 +441,6 @@ export class SyncPullQueueManager {
     this.retryTracker.clear()
     this.batchProgress.clear()
     await this.cursorStore.clear()
-    if (this.internalEventHub) {
-      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
-    } else {
-      this.onRetryingStateChange?.(false)
-    }
+    this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
   }
 }

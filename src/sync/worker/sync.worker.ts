@@ -128,12 +128,6 @@ export class SyncWorker implements SyncApi {
         internalEventHub: this.internalEventHub,
         onDocumentReceived: itemId => this.subscribeToItems([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
-        onItemMessageParsed: itemId => {
-          if ((itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-            this.subscribeToItems([itemId])
-          }
-        },
-        onRetryingStateChange: isRetrying => this.syncStatusManager.setDegradedPull(isRetrying),
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
       })
       this._context = context

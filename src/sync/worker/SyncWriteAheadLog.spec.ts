@@ -707,7 +707,9 @@ describe('SyncWriteAheadLog', () => {
     })
 
     const onPruned = vi.fn()
-    wal.onEntriesPruned = onPruned
+    wal.eventHub.subscribe(e => {
+      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
+    })
 
     // Prune oldest 2 entries (both belong to item-A)
     await (wal as any).pruneOldest(2)
@@ -734,7 +736,9 @@ describe('SyncWriteAheadLog', () => {
     }
 
     const onPruned = vi.fn()
-    wal.onEntriesPruned = onPruned
+    wal.eventHub.subscribe(e => {
+      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
+    })
 
     // Append 1 new entry -> triggers size limit enforcement which prunes oldest
     await wal.append('item-new' as ItemId, new Uint8Array([99]))
@@ -780,7 +784,9 @@ describe('SyncWriteAheadLog', () => {
     })
 
     const onPruned = vi.fn()
-    wal.onEntriesPruned = onPruned
+    wal.eventHub.subscribe(e => {
+      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
+    })
 
     // Prune oldest 1 entry: this is prune-1 (item-A)
     await (wal as any).pruneOldest(1)

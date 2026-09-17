@@ -449,9 +449,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      outgoingMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
+    })
 
     const repo = new Repo({
       network: [testAdapter],
@@ -503,9 +503,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      outgoingMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
+    })
 
     // Prepare a doc that was previously synced at count = 1
     let doc = Automerge.init<{ count: number }>()
@@ -725,9 +725,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setAccount('test-account')
 
     const sentMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      sentMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') sentMessages.push(e.message)
+    })
 
     const syncMsgWithChanges = encodeSyncMessage({
       heads: [],
@@ -765,9 +765,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setSendEnabled(false)
 
     const sentMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      sentMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') sentMessages.push(e.message)
+    })
 
     const syncMsgWithChanges = encodeSyncMessage({
       heads: [],
@@ -804,9 +804,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.disconnect() // disconnected
 
     const sentMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      sentMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') sentMessages.push(e.message)
+    })
 
     const emptySyncMsg = encodeSyncMessage({
       heads: [],
@@ -894,9 +894,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(testAdapter.getPendingOutboundCount()).toBe(MAX_OUTBOUND_QUEUE_SIZE)
 
     const sentMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      sentMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') sentMessages.push(e.message)
+    })
 
     testAdapter.connect('test-peer' as PeerId)
 
@@ -913,9 +913,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      outgoingMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
+    })
 
     const repo = new Repo({
       network: [testAdapter],
@@ -1056,21 +1056,24 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      outgoingMessages.push(msg)
-      if (msg.type === 'sync' && msg.data instanceof Uint8Array && msg.documentId) {
-        const decoded = decodeSyncMessage(msg.data)
-        if (decoded.changes && decoded.changes.length > 0) {
-          const ack = encodeSyncMessage({
-            heads: decoded.heads,
-            need: [],
-            have: decoded.have,
-            changes: [],
-          })
-          testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') {
+        const msg = e.message
+        outgoingMessages.push(msg)
+        if (msg.type === 'sync' && msg.data instanceof Uint8Array && msg.documentId) {
+          const decoded = decodeSyncMessage(msg.data)
+          if (decoded.changes && decoded.changes.length > 0) {
+            const ack = encodeSyncMessage({
+              heads: decoded.heads,
+              need: [],
+              have: decoded.have,
+              changes: [],
+            })
+            testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
+          }
         }
       }
-    }
+    })
 
     const repo = new Repo({
       network: [testAdapter],
@@ -1157,9 +1160,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.onMessageToSend = msg => {
-      outgoingMessages.push(msg)
-    }
+    testAdapter.eventHub.subscribe(e => {
+      if (e.type === 'messageToSend') {
+        outgoingMessages.push(e.message)
+      }
+    })
 
     const repo = new Repo({
       network: [testAdapter],
@@ -1219,9 +1224,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await repo.shutdown()
   })
 
-  it('calls onReNegotiationTriggered callback when triggerReNegotiation is invoked', () => {
+  it('calls renegotiationTriggered event when triggerReNegotiation is invoked', () => {
     const callback = vi.fn()
-    adapter.onReNegotiationTriggered = callback
+    adapter.eventHub.subscribe(e => {
+      if (e.type === 'renegotiationTriggered') callback(e.documentId)
+    })
     adapter.triggerReNegotiation('test-doc' as DocumentId)
     expect(callback).toHaveBeenCalledWith('test-doc')
   })
@@ -1230,7 +1237,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     it('allows renegotiations within rate limit and trips circuit breaker when exceeded', () => {
       const docId = 'doc-burst' as DocumentId
       const callback = vi.fn()
-      adapter.onReNegotiationTriggered = callback
+      adapter.eventHub.subscribe(e => {
+        if (e.type === 'renegotiationTriggered') callback(e.documentId)
+      })
 
       // First 3 calls within window should succeed
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
