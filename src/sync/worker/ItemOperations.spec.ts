@@ -24,22 +24,44 @@ vi.mock('../../api/trpcClient', () => ({
   }),
 }))
 
+const mockReadManualRecoveryEntries = vi.fn()
+const mockReadManualRecoveryCount = vi.fn()
+const mockRemoveManualRecoveryEntryById = vi.fn()
+const mockRemoveManualRecoveryEntryByItemId = vi.fn()
+const mockUpsertManualRecoveryEntry = vi.fn()
+
+vi.mock('../shared/manualRecoveryStore', () => ({
+  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
+  readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
+  removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
+  removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
+  upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
+}))
+
 describe('ItemOperations', () => {
   let deps: ItemOperationsDeps
   let operations: ItemOperations
   let emitMock: any
   let changeDocumentMock: any
+  let compactDocumentMock: any
   let addAutomergeItemIdsToIndexMock: any
   let removeAutomergeItemIdsFromIndexMock: any
   let markDocumentDirtyMock: any
   let getAutomergeItemMock: any
 
   beforeEach(() => {
+    vi.clearAllMocks()
     mockPublishRealtimeBusSyncPing.mockClear()
     mockUpdateMetadataMutate.mockClear()
     mockHasApiAuthToken.mockReturnValue(true)
+    mockReadManualRecoveryEntries.mockResolvedValue([])
+    mockReadManualRecoveryCount.mockResolvedValue(0)
+    mockRemoveManualRecoveryEntryById.mockResolvedValue(undefined)
+    mockRemoveManualRecoveryEntryByItemId.mockResolvedValue(undefined)
+    mockUpsertManualRecoveryEntry.mockResolvedValue(undefined)
     emitMock = vi.fn()
     changeDocumentMock = vi.fn()
+    compactDocumentMock = vi.fn().mockResolvedValue(undefined)
     addAutomergeItemIdsToIndexMock = vi.fn()
     removeAutomergeItemIdsFromIndexMock = vi.fn().mockResolvedValue(undefined)
     markDocumentDirtyMock = vi.fn()
@@ -50,6 +72,7 @@ describe('ItemOperations', () => {
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: getAutomergeItemMock,
+        compactDocument: compactDocumentMock,
         removeAutomergeItem: vi.fn(),
       } as any,
       indexManager: {
@@ -407,6 +430,172 @@ describe('ItemOperations', () => {
         metadata: { prayerGoal: 3 },
       })
       expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('recovery operations', () => {
+    it('exposes recoveryManager instance directly', () => {
+      expect(operations.recoveryManager).toBeDefined()
+    })
+
+    describe('forceOverwriteRecoveryItem', () => {
+      it('throws if no local item is found', async () => {
+        getAutomergeItemMock.mockResolvedValue(null)
+
+        await expect(operations.forceOverwriteRecoveryItem('item-3' as ItemId)).rejects.toThrow(
+          'No local item found for item-3. Force delete is available instead.'
+        )
+      })
+
+      it('does nothing if accountId is not set', async () => {
+        deps.accountId = ''
+
+        await operations.forceOverwriteRecoveryItem('item-3' as ItemId)
+
+        expect(getAutomergeItemMock).not.toHaveBeenCalled()
+      })
+
+      it('mutates the Automerge document to match local snapshot and clears recovery entry', async () => {
+        const localItem = {
+          id: 'item-3',
+          type: 'person',
+          name: 'Local Name',
+          prayedFor: ['a', 'b'],
+        }
+        getAutomergeItemMock.mockResolvedValue(localItem)
+
+        let capturedDoc: any = null
+        changeDocumentMock.mockImplementation(
+          async (itemId: ItemId, changeCallback: (doc: any) => void) => {
+            capturedDoc = {}
+            changeCallback(capturedDoc)
+          }
+        )
+
+        const mockEntries: any[] = []
+        mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
+
+        await operations.forceOverwriteRecoveryItem('item-3' as ItemId)
+
+        expect(getAutomergeItemMock).toHaveBeenCalledWith('item-3')
+        expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-3')
+        expect(changeDocumentMock).toHaveBeenCalledWith(
+          'item-3',
+          expect.any(Function),
+          { createIfMissing: true }
+        )
+        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-3'])
+        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-3'])
+
+        // Verify the document was mutated properly
+        expect(capturedDoc).toEqual({
+          id: 'item-3',
+          type: 'person',
+          name: 'Local Name',
+          prayedFor: ['a', 'b'],
+        })
+
+        expect(emitMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
+      })
+
+      it('does not clear recovery state if changeDocument throws', async () => {
+        const localItem = { id: 'item-3', type: 'person' }
+        getAutomergeItemMock.mockResolvedValue(localItem)
+        changeDocumentMock.mockRejectedValue(new Error('Change document failed'))
+
+        await expect(
+          operations.forceOverwriteRecoveryItem('item-3' as ItemId)
+        ).rejects.toThrow('Change document failed')
+
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('forceDeleteRecoveryItem', () => {
+      it('sets deleted to true on Automerge doc and removes recovery entry', async () => {
+        let capturedDoc: any = null
+        changeDocumentMock.mockImplementation(
+          async (itemId: ItemId, changeCallback: (doc: any) => void) => {
+            capturedDoc = {}
+            changeCallback(capturedDoc)
+          }
+        )
+
+        await operations.forceDeleteRecoveryItem('item-4' as ItemId)
+
+        expect(changeDocumentMock).toHaveBeenCalledWith(
+          'item-4',
+          expect.any(Function),
+          { createIfMissing: true }
+        )
+        expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-4')
+        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-4'])
+
+        expect(capturedDoc).toEqual({
+          id: 'item-4',
+          deleted: true,
+        })
+      })
+
+      it('does not clear recovery state if changeDocument throws', async () => {
+        changeDocumentMock.mockRejectedValue(new Error('Change document failed'))
+
+        await expect(
+          operations.forceDeleteRecoveryItem('item-4' as ItemId)
+        ).rejects.toThrow('Change document failed')
+
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('compactItem', () => {
+      it('throws if no local item is found', async () => {
+        getAutomergeItemMock.mockResolvedValue(null)
+
+        await expect(operations.compactItem('item-5' as ItemId)).rejects.toThrow(
+          'No local item found for item-5 to compact.'
+        )
+      })
+
+      it('does nothing if accountId is not set', async () => {
+        deps.accountId = ''
+
+        await operations.compactItem('item-5' as ItemId)
+
+        expect(getAutomergeItemMock).not.toHaveBeenCalled()
+      })
+
+      it('compacts document, clears recovery state, pushes recovery updates, and emits itemUpdated', async () => {
+        const localItem = { id: 'item-5', type: 'note', text: 'hello' }
+        getAutomergeItemMock.mockResolvedValue(localItem)
+        compactDocumentMock.mockResolvedValue(undefined)
+        const mockEntries: any[] = []
+        mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
+
+        operations.recoveryManager.setRecoveryCooldown('item-5' as ItemId, Date.now() + 10000)
+        operations.recoveryManager.setInFlight('item-5' as ItemId, true)
+
+        await operations.compactItem('item-5' as ItemId)
+
+        expect(getAutomergeItemMock).toHaveBeenCalledWith('item-5')
+        expect(compactDocumentMock).toHaveBeenCalledWith('item-5', localItem)
+        expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-5')
+        expect(operations.recoveryManager.isInFlight('item-5' as ItemId)).toBe(false)
+        expect(operations.recoveryManager.getRecoveryCooldownUntil('item-5' as ItemId)).toBe(0)
+        expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-5')
+        expect(emitMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
+        expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-5', item: localItem })
+      })
+
+      it('does not clear recovery state if compactDocument throws', async () => {
+        const localItem = { id: 'item-5', type: 'note', text: 'hello' }
+        getAutomergeItemMock.mockResolvedValue(localItem)
+        compactDocumentMock.mockRejectedValue(new Error('Compact failed'))
+
+        await expect(operations.compactItem('item-5' as ItemId)).rejects.toThrow('Compact failed')
+
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
     })
   })
 })
