@@ -66,6 +66,7 @@ export class AutomergeRepoManager {
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       channelName: `flock-automerge-broadcast-${this.accountId}`,
+      accountId: this.accountId,
       onKeyVersionMissing: options?.onKeyVersionMissing,
       onDocumentReceived: options?.onDocumentReceived,
     })

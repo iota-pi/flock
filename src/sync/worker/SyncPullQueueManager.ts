@@ -3,7 +3,7 @@ import { debounce } from 'lodash-es'
 
 import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
+import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { decryptWithKeyResolution, MissingKeyError } from './utils/decryptWithKeyResolution'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
@@ -420,9 +420,9 @@ export class SyncPullQueueManager {
     } finally {
       const isRetrying = this.retryTracker.isAnyRetrying()
       this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-      if (successfullyPulledItemIds.size > 0) {
+      if (this.account && successfullyPulledItemIds.size > 0) {
         try {
-          publishRealtimeBusSyncPing(Array.from(successfullyPulledItemIds))
+          publishRealtimeBusSyncPing(this.account, Array.from(successfullyPulledItemIds))
         } catch (error) {
           console.error('[SyncPullQueueManager] publishRealtimeBusSyncPing failed', error)
         }

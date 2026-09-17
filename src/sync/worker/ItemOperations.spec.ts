@@ -3,7 +3,7 @@ import type { Item } from '../../state/items'
 import type { ItemId } from 'src/shared/schemas/items'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('../client/realtimeBus', () => ({
+vi.mock('./realtimeBus', () => ({
   publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
 }))
 
@@ -101,7 +101,7 @@ describe('ItemOperations', () => {
 
       expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-1'])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-1'])
       expect(emitMock).not.toHaveBeenCalled()
     })
 
@@ -295,7 +295,7 @@ describe('ItemOperations', () => {
 
       expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-deleted'])
       expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-active'])
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-active'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-active'])
       expect(markDocumentDirtyMock).toHaveBeenCalledTimes(2)
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-active')
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-deleted')
@@ -485,7 +485,7 @@ describe('ItemOperations', () => {
           { createIfMissing: true }
         )
         expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-3'])
-        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-3'])
+        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-3'])
 
         // Verify the document was mutated properly
         expect(capturedDoc).toEqual({

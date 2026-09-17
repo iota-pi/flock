@@ -73,8 +73,7 @@ src/sync/
 ├── client/                           # Main-thread side
 │   ├── SyncBridge.ts                 # Main-thread ↔ Worker bridge (Comlink wrapper)
 │   ├── useSyncCoordinatorLifecycle.ts # React hook managing worker lifecycle
-│   ├── syncWorkerHealth.ts           # Heartbeat + crash detection + auto-restart
-│   └── realtimeBus.ts                # BroadcastChannel for cross-tab item update pings
+│   └── syncWorkerHealth.ts           # Heartbeat + crash detection + auto-restart
 ├── shared/                           # Shared between main thread and worker
 │   ├── manualRecoveryStore.ts        # Quarantine store for items that fail decryption
 │   ├── workerAuthStore.ts            # Auth token accessor for the worker
@@ -99,6 +98,7 @@ src/sync/
 │   ├── EncryptedBroadcastChannelNetworkAdapter.ts  # Encrypted cross-tab sync adapter
 │   ├── FlockIndexedDBStorageAdapter.ts    # Custom IndexedDB storage for Automerge
 │   ├── reencryptAllItems.ts          # Key rotation: re-encrypt all items
+│   ├── realtimeBus.ts                # Account-scoped BroadcastChannel for cross-tab item update pings
 │   ├── docStore/                     # Automerge document management
 │   │   ├── AutomergeDocStore.ts      # Find/create/change/hydrate Automerge documents
 │   │   ├── AutomergeIndexManager.ts  # Account-level item index document

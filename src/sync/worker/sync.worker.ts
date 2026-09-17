@@ -8,7 +8,7 @@ import type { SyncApi } from './syncProtocol'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
-import { subscribeRealtimeBusSyncPing } from '../client/realtimeBus'
+import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
 import { initWorkerVault } from '../../api/vault'
 import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../../utils/storageManager'
@@ -86,10 +86,14 @@ export class SyncWorker implements SyncApi {
   }
 
   private async teardownSession(): Promise<void> {
+    const accountId = this._context?.accountId
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
+    }
+    if (accountId) {
+      teardownRealtimeBus(accountId)
     }
     await this._context?.shutdown()
     this._context = null
@@ -186,8 +190,8 @@ export class SyncWorker implements SyncApi {
     this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
   }
 
-  private setupRealtimeBus(): void {
-    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
+  private setupRealtimeBus(accountId: string): void {
+    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(accountId, itemIds => {
       this.subscribeToItems(itemIds)
       if (this._context) {
         this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
@@ -223,7 +227,7 @@ export class SyncWorker implements SyncApi {
       this.subscribeInternalEvents()
 
       await this.initializeAccountSession(context, accountId)
-      this.setupRealtimeBus()
+      this.setupRealtimeBus(accountId)
 
       this.clientEventHub.emit({ type: 'ready' })
       this.syncStatusManager.reset(this.isOnline)
@@ -487,10 +491,16 @@ export class SyncWorker implements SyncApi {
     }
     this.initReadyPromise()
 
+    const accountId = this._context?.accountId
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
+    }
+    if (accountId) {
+      teardownRealtimeBus(accountId)
+    } else {
+      teardownRealtimeBus()
     }
     await this._context?.shutdown(options)
     this._context = null

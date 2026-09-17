@@ -6,7 +6,7 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { ItemId } from 'src/shared/schemas/items'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
-import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
+import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { hasApiAuthToken } from '../../api/runtime'
 import { getTrpcClient } from '../../api/trpcClient'
 import { extractSyncableMetadata, hasSyncableChanges } from './utils/metadataSync'
@@ -99,7 +99,7 @@ export class ItemOperations {
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
-        publishRealtimeBusSyncPing([item.id])
+        publishRealtimeBusSyncPing(this.deps.accountId, [item.id])
       } else {
         await this.handleMutationFailure(item.id, 'create', `Failed to create document ${item.id}`)
       }
@@ -144,7 +144,7 @@ export class ItemOperations {
 
     if (succeededActiveIds.length > 0) {
       await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededActiveIds)
-      publishRealtimeBusSyncPing(succeededActiveIds)
+      publishRealtimeBusSyncPing(this.deps.accountId, succeededActiveIds)
     }
 
     for (const item of failedItems) {
@@ -211,7 +211,7 @@ export class ItemOperations {
     await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
-    publishRealtimeBusSyncPing([itemId])
+    publishRealtimeBusSyncPing(this.deps.accountId, [itemId])
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
