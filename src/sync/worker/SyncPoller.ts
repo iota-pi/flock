@@ -15,6 +15,7 @@ import { pollSyncBatchWithToken, type PushResultItem, type PollSyncBatchResponse
 import { checkAlive, isAbortError } from './utils/abort'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
+type ChunkEntry = [ItemId, WalEntry[]][]
 
 function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
   if (!entry || !entry.data || entry.data.byteLength === 0) return null
@@ -87,7 +88,7 @@ export class SyncPoller {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'no-poll'
 
-      let batchEntries: [ItemId, WalEntry[]][]
+      let batchEntries: ChunkEntry
       try {
         batchEntries = await this.loadWalEntries(inFlightWalIds)
       } catch (err) {
@@ -124,7 +125,7 @@ export class SyncPoller {
     }
   }
 
-  private async loadWalEntries(inFlightWalIds: string[]): Promise<[ItemId, WalEntry[]][]> {
+  private async loadWalEntries(inFlightWalIds: string[]): Promise<ChunkEntry> {
     if (!this.wal) return []
     const walMap = await this.wal.readAll()
     const batchEntries = Array.from(walMap.entries())
@@ -142,7 +143,7 @@ export class SyncPoller {
   }
 
   private async processChunk(
-    chunkEntry: [ItemId, WalEntry[]][],
+    chunkEntry: ChunkEntry,
     authToken: string,
     signal: AbortSignal
   ): Promise<void> {
@@ -193,43 +194,24 @@ export class SyncPoller {
   }
 
   private async handlePushAcknowledgments(
-    chunkEntry: [ItemId, WalEntry[]][],
+    chunkEntry: ChunkEntry,
     sentIdsByItem: Map<ItemId, string[]>,
     pushResults?: PushResultItem[]
   ): Promise<void> {
     const acknowledgedIds: string[] = []
     const acknowledgedItemIds = new Set<ItemId>()
 
-    if (Array.isArray(pushResults)) {
-      for (const result of pushResults) {
-        if (this.isPushResultSuccessful(result)) {
-          acknowledgedItemIds.add(result.itemId)
-          const ids = sentIdsByItem.get(result.itemId)
-          if (ids && ids.length > 0) {
-            acknowledgedIds.push(...ids)
-          }
-          const itemMessages = chunkEntry.find(([id]) => id === result.itemId)?.[1]
-          const lastEntry = itemMessages?.[itemMessages.length - 1]
-          if (lastEntry) {
-            const rawMsg = extractLastSyncMessage(lastEntry)
-            if (rawMsg) {
-              try {
-                const decoded = decodeSyncMessage(rawMsg)
-                if (decoded.heads && decoded.heads.length > 0) {
-                  this.internalEventHub.emit({
-                    type: 'pushAcknowledged',
-                    itemId: result.itemId,
-                    heads: decoded.heads,
-                  })
-                }
-              } catch (err) {
-                console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)
-              }
-            }
-          }
-        } else {
-          console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
+    const results = pushResults ?? []
+    for (const result of results) {
+      if (this.isPushResultSuccessful(result)) {
+        acknowledgedItemIds.add(result.itemId)
+        const ids = sentIdsByItem.get(result.itemId)
+        if (ids && ids.length > 0) {
+          acknowledgedIds.push(...ids)
         }
+        this.acknowledgeSuccessfulPush(chunkEntry, result)
+      } else {
+        console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
       }
     }
 
@@ -245,6 +227,27 @@ export class SyncPoller {
       } catch (walErr) {
         console.error('[SyncPoller] Failed to remove acknowledged IDs from WAL', walErr)
       }
+    }
+  }
+
+  private acknowledgeSuccessfulPush(chunkEntry: ChunkEntry, result: PushResultItem): void {
+    const itemMessages = chunkEntry.find(([id]) => id === result.itemId)?.[1]
+    const lastEntry = itemMessages?.[itemMessages.length - 1]
+    if (!lastEntry) return
+    const rawMsg = extractLastSyncMessage(lastEntry)
+    if (!rawMsg) return
+
+    try {
+      const decoded = decodeSyncMessage(rawMsg)
+      if (decoded.heads && decoded.heads.length > 0) {
+        this.internalEventHub.emit({
+          type: 'pushAcknowledged',
+          itemId: result.itemId,
+          heads: decoded.heads,
+        })
+      }
+    } catch (err) {
+      console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)
     }
   }
 
