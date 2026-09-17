@@ -4,10 +4,8 @@ import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { ItemId } from 'src/shared/schemas/items'
-import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
-import { normalizeSyncError } from 'src/shared/syncErrors'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { hasApiAuthToken } from '../../api/runtime'
 import { getTrpcClient } from '../../api/trpcClient'
@@ -30,7 +28,7 @@ export interface StoreItemsOptions {
 }
 
 export class ItemOperations {
-  private recoveryManager: RecoveryManager
+  public readonly recoveryManager: RecoveryManager
 
   constructor(private deps: ItemOperationsDeps) {
     this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
@@ -185,74 +183,7 @@ export class ItemOperations {
     }
   }
 
-  // --- Manual Recovery & Lifecycle Management ---
-
-  isInFlight(itemId: ItemId): boolean {
-    return this.recoveryManager.isInFlight(itemId)
-  }
-
-  setInFlight(itemId: ItemId, inFlight: boolean): void {
-    this.recoveryManager.setInFlight(itemId, inFlight)
-  }
-
-  getRecoveryCooldownUntil(itemId: ItemId): number {
-    return this.recoveryManager.getRecoveryCooldownUntil(itemId)
-  }
-
-  setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
-    this.recoveryManager.setRecoveryCooldown(itemId, cooldownUntil)
-  }
-
-  clearRecoveryCooldown(itemId: ItemId): void {
-    this.recoveryManager.clearRecoveryCooldown(itemId)
-  }
-
-  resetRecoveryState(): void {
-    this.recoveryManager.resetRecoveryState()
-  }
-
-  reset(): void {
-    this.recoveryManager.reset()
-  }
-
-  async pushRecoveryItems(): Promise<void> {
-    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
-  }
-
-  async reportDecryptionFailure(itemId: ItemId, error: unknown, failedBranches?: string[]): Promise<void> {
-    const normalizedError = normalizeSyncError(error)
-    console.error('[ItemOperations] Failed to decrypt item', {
-      itemId,
-      error: normalizedError,
-    })
-
-    if (!itemId) return
-    await this.attemptAutoRecovery(itemId, failedBranches)
-  }
-
-  async attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): Promise<void> {
-    if (!this.deps.accountId) return
-    try {
-      await this.recoveryManager.quarantine(
-        this.deps.accountId,
-        itemId,
-        null,
-        { checkCooldown: true, failedBranches },
-      )
-    } catch (error) {
-      console.error('[ItemOperations] Failed to record manual recovery entry', error)
-    }
-  }
-
-  async clearManualRecoveryForItems(itemIds: ItemId[]): Promise<void> {
-    if (!this.deps.accountId) return
-    await this.recoveryManager.unquarantineBatch(this.deps.accountId, itemIds)
-  }
-
-  async retryRecoveryItem(itemId: ItemId): Promise<void> {
-    if (!this.deps.accountId) return
-    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
-  }
+  // --- Document-level Recovery Operations ---
 
   async forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
@@ -304,11 +235,6 @@ export class ItemOperations {
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
-  async dismissRecoveryItem(entryId: string): Promise<void> {
-    if (!this.deps.accountId) return
-    await this.recoveryManager.dismissEntry(this.deps.accountId, entryId)
-  }
-
   async compactItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
     const localItem = await this.deps.docStore.getAutomergeItem(itemId)
@@ -322,10 +248,5 @@ export class ItemOperations {
 
     this.deps.markDocumentDirty(itemId)
     this.deps.eventHub.emit({ type: 'itemUpdated', id: itemId, item: localItem })
-  }
-
-  async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
-    if (!this.deps.accountId) return []
-    return await this.recoveryManager.listRecoveryItems(this.deps.accountId)
   }
 }

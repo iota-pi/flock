@@ -34,9 +34,9 @@ const mockBrokerSetAccount = vi.fn().mockResolvedValue(undefined)
 const mockAdapterSetAccount = vi.fn()
 const mockIndexManagerListAutomergeItemIds = vi.fn().mockResolvedValue([])
 const mockIndexManagerAddAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
-const mockItemOperationsClearManualRecoveryForItems = vi.fn().mockResolvedValue(undefined)
+const mockRecoveryManagerUnquarantineBatch = vi.fn().mockResolvedValue(undefined)
 const mockItemOperationsMutateItem = vi.fn().mockResolvedValue(undefined)
-const mockItemOperationsListRecoveryItems = vi.fn().mockResolvedValue([])
+const mockRecoveryManagerListRecoveryItems = vi.fn().mockResolvedValue([])
 const mockOrchestratorSetOnlineState = vi.fn()
 const mockOrchestratorFlush = vi.fn()
 const mockSnapshotManagerOnOnlineStateChange = vi.fn()
@@ -62,9 +62,7 @@ vi.mock('./SyncWorkerContext', () => {
         removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
       }
       itemOperations = {
-        clearManualRecoveryForItems: mockItemOperationsClearManualRecoveryForItems,
         mutateItem: mockItemOperationsMutateItem,
-        listRecoveryItems: mockItemOperationsListRecoveryItems,
       }
       snapshotManager = {
         onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
@@ -92,7 +90,12 @@ vi.mock('./SyncWorkerContext', () => {
         exportAllBinaries: vi.fn().mockResolvedValue({}),
         restoreFromBinaries: vi.fn().mockResolvedValue([]),
       }
-      recoveryManager = {}
+      recoveryManager = {
+        unquarantineBatch: mockRecoveryManagerUnquarantineBatch,
+        listRecoveryItems: mockRecoveryManagerListRecoveryItems,
+        unquarantine: vi.fn().mockResolvedValue(undefined),
+        dismissEntry: vi.fn().mockResolvedValue(undefined),
+      }
       wal = {
         readAll: vi.fn().mockResolvedValue(new Map()),
         append: vi.fn().mockResolvedValue(undefined),
@@ -325,7 +328,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     mockContextInitialize.mockResolvedValue(undefined)
     mockContextShutdown.mockResolvedValue(undefined)
     mockItemOperationsMutateItem.mockResolvedValue(undefined)
-    mockItemOperationsListRecoveryItems.mockResolvedValue([{ entryId: 'rec-1' }] as any)
+    mockRecoveryManagerListRecoveryItems.mockResolvedValue([{ entryId: 'rec-1' }] as any)
   })
 
   it('queues API calls made while initRepo is in-flight and resolves them once init completes', async () => {

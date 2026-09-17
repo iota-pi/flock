@@ -202,7 +202,7 @@ export class SyncWorkerContext {
       (items, options) => this.itemOperations.storeItems(items, options),
       changes => this.itemOperations.mutateMetadata(changes),
       (itemId, error) => {
-        void this.itemOperations.reportDecryptionFailure(itemId, error)
+        void this.recoveryManager.reportDecryptionFailure(itemId, error)
       },
       (itemId, heads) => {
         const docId = toDocumentIdFromItemId(itemId)
@@ -308,11 +308,11 @@ export class SyncWorkerContext {
       },
     })
 
-    // 7. ItemOperations
+    // 7. RecoveryManager
     this.lifecycle.register({
-      name: 'ItemOperations',
+      name: 'RecoveryManager',
       onStop: () => {
-        this.itemOperations.resetRecoveryState()
+        this.recoveryManager.resetRecoveryState()
       },
     })
 
@@ -381,10 +381,10 @@ export class SyncWorkerContext {
           this.snapshotManager.setLeader(event.isLeader)
           break
         case 'decryptionFailure':
-          void this.itemOperations.reportDecryptionFailure(event.itemId, event.error)
+          void this.recoveryManager.reportDecryptionFailure(event.itemId, event.error)
           break
         case 'itemMessageParsed':
-          void this.itemOperations.clearManualRecoveryForItems([event.itemId])
+          void this.recoveryManager.unquarantineBatch([event.itemId])
           break
         case 'renegotiationTriggered': {
           const itemId = toVaultItemIdFromAutomergeId(event.documentId)

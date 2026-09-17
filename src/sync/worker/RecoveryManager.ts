@@ -250,4 +250,29 @@ export class RecoveryManager {
     await removeManualRecoveryEntryById(accountId, entryId)
     await this.pushRecoveryItems(accountId)
   }
+
+  async attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): Promise<void> {
+    if (!this.accountId) return
+    try {
+      await this.quarantine(
+        this.accountId,
+        itemId,
+        null,
+        { checkCooldown: true, failedBranches },
+      )
+    } catch (error) {
+      console.error('[RecoveryManager] Failed to record manual recovery entry', error)
+    }
+  }
+
+  async reportDecryptionFailure(itemId: ItemId, error: unknown, failedBranches?: string[]): Promise<void> {
+    const normalizedError = normalizeSyncError(error)
+    console.error('[RecoveryManager] Failed to decrypt item', {
+      itemId,
+      error: normalizedError,
+    })
+
+    if (!itemId) return
+    await this.attemptAutoRecovery(itemId, failedBranches)
+  }
 }

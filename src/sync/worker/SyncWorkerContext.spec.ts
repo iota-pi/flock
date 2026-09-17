@@ -121,9 +121,13 @@ vi.mock('./docStore', () => ({
 }))
 
 vi.mock('./ItemOperations', () => ({
-  ItemOperations: class MockItemOperations {
+  ItemOperations: class MockItemOperations {},
+}))
+
+vi.mock('./RecoveryManager', () => ({
+  RecoveryManager: class MockRecoveryManager {
     resetRecoveryState = vi.fn()
-    clearManualRecoveryForItems = vi.fn().mockResolvedValue(undefined)
+    unquarantineBatch = vi.fn().mockResolvedValue(undefined)
     reportDecryptionFailure = vi.fn().mockResolvedValue(undefined)
   },
 }))
@@ -205,7 +209,7 @@ describe('SyncWorkerContext', () => {
       internalEventHub: ctxInternalHub,
     })
 
-    const clearSpy = vi.spyOn(ctx.itemOperations, 'clearManualRecoveryForItems').mockResolvedValue(undefined)
+    const clearSpy = vi.spyOn(ctx.recoveryManager, 'unquarantineBatch').mockResolvedValue(undefined)
     ctxInternalHub.emit({ type: 'itemMessageParsed', itemId: 'item-parsed-1' as ItemId })
 
     expect(clearSpy).toHaveBeenCalledWith(['item-parsed-1'])
@@ -293,7 +297,7 @@ describe('SyncWorkerContext', () => {
       'SyncMessageBroker',
       'StorageRecoveryService',
       'IndexManager',
-      'ItemOperations',
+      'RecoveryManager',
       'DocStore',
       'SnapshotManager',
       'SyncedHeads',

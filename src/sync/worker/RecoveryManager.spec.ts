@@ -214,4 +214,68 @@ describe('RecoveryManager', () => {
       expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
     })
   })
+
+  describe('reportDecryptionFailure and attemptAutoRecovery', () => {
+    it('creates manual recovery entry and emits recoveryItemsChanged', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const mockEntries = [{ id: 'entry-1', itemId: 'item-1', reason: 'fail', createdAt: 1 }]
+      mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
+
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('bad decrypt'))
+
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
+        itemId: 'item-1',
+        reason: 'Automated recovery is unavailable for this revision',
+      })
+      expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
+      consoleSpy.mockRestore()
+    })
+
+    it('includes failed branches hint when available', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await recoveryManager.reportDecryptionFailure(
+        'item-1' as ItemId,
+        new Error('bad decrypt'),
+        ['branch-A', 'branch-B']
+      )
+
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
+        itemId: 'item-1',
+        reason: 'Corrupted branches: branch-A, branch-B',
+      })
+      consoleSpy.mockRestore()
+    })
+
+    it('suppresses duplicate recovery triggers while in-flight or on cooldown', async () => {
+      vi.useFakeTimers()
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 1'))
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
+
+      // Immediate second call should be blocked by cooldown
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 2'))
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
+
+      // Advance past 60s cooldown
+      vi.advanceTimersByTime(61 * 1000)
+
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 3'))
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(2)
+
+      consoleSpy.mockRestore()
+      vi.useRealTimers()
+    })
+
+    it('does nothing if accountId or itemId is not set', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await recoveryManager.reportDecryptionFailure('' as ItemId, new Error('fail'))
+      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
+
+      recoveryManager.setAccountId(null)
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail'))
+      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
+      consoleSpy.mockRestore()
+    })
+  })
 })

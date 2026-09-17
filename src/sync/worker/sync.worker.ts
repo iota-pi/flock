@@ -203,7 +203,7 @@ export class SyncWorker implements SyncApi {
         this.subscribeToItems(itemIds)
         if (this._context) {
           this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
-          this._context.itemOperations.clearManualRecoveryForItems(itemIds).catch(console.error)
+          this._context.recoveryManager.unquarantineBatch(itemIds).catch(console.error)
         }
       })
 
@@ -370,7 +370,7 @@ export class SyncWorker implements SyncApi {
   }
   async retryRecoveryItem(itemId: ItemId) {
     const context = await this.ensureReady()
-    await context.itemOperations.retryRecoveryItem(itemId)
+    await context.recoveryManager.unquarantine(itemId)
     context.snapshotManager.markItemDirty(itemId)
     void context.snapshotManager.flushPendingSnapshots()
   }
@@ -389,11 +389,11 @@ export class SyncWorker implements SyncApi {
   }
   async dismissRecoveryItem(entryId: string) {
     const context = await this.ensureReady()
-    await context.itemOperations.dismissRecoveryItem(entryId)
+    await context.recoveryManager.dismissEntry(entryId)
   }
   async listRecoveryItems() {
     const context = await this.ensureReady()
-    return context.itemOperations.listRecoveryItems()
+    return context.recoveryManager.listRecoveryItems()
   }
   async updateVaultKey(vaultKey: string) {
     await initWorkerVault(vaultKey)
