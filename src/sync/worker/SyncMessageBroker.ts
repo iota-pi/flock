@@ -9,6 +9,7 @@ import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../../utils/storageQuota'
 import type { StorageRecoveryService } from './StorageRecoveryService'
+import type { SyncApiClient } from './SyncApiClient'
 
 export interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
@@ -36,6 +37,7 @@ export class SyncMessageBroker implements SyncBrokerControl {
     private pullQueueManager: SyncPullQueueManager,
     wal?: SyncWriteAheadLog | null,
     storageRecovery?: StorageRecoveryService | null,
+    apiClient?: SyncApiClient,
   ) {
     this.storageRecovery = storageRecovery ?? null
     this.adapter?.setInternalEventHub?.(this.internalEventHub)
@@ -73,6 +75,7 @@ export class SyncMessageBroker implements SyncBrokerControl {
       this.internalEventHub,
       this.indexManager,
       this.wal,
+      apiClient,
     )
 
     this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {

@@ -160,6 +160,7 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
       'test-account',
       'test-key',
+      expect.any(Function),
     )
     expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
   })
@@ -874,7 +875,11 @@ describe('SyncBridge', () => {
     await vi.advanceTimersByTimeAsync(2000)
 
     // Should be initialized with account-success, not failed account
-    expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-success', 'test-key')
+    expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith(
+      'account-success',
+      'test-key',
+      expect.any(Function),
+    )
 
     vi.useRealTimers()
   })

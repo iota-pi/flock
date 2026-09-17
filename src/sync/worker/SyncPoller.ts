@@ -1,6 +1,5 @@
 import { chunk } from 'lodash-es'
 
-import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { encryptBytes } from '../../api/vault'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
@@ -12,7 +11,8 @@ import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { parseBatchedMessages } from './utils/messageParser'
 import { packBatchedMessages } from './utils/binaryFraming'
 import { isAuthError } from './utils/auth'
-import { pollSyncBatchWithToken, type PushResultItem, type PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
+import type { PushResultItem, PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
+import { SyncApiClient } from './SyncApiClient'
 import { checkAlive, isAbortError } from './utils/abort'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
@@ -33,6 +33,7 @@ export class SyncPoller {
   private isOnline = true
   private isShutdown = false
   private abortController: AbortController | null = null
+  private readonly apiClient: SyncApiClient
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
@@ -40,7 +41,10 @@ export class SyncPoller {
     private internalEventHub: WorkerInternalEventHub,
     private indexManager?: AutomergeIndexManager,
     private wal?: SyncWriteAheadLog | null,
-  ) {}
+    apiClient?: SyncApiClient,
+  ) {
+    this.apiClient = apiClient ?? new SyncApiClient()
+  }
 
   setAccount(account: string | null): void {
     this.account = account
@@ -86,8 +90,8 @@ export class SyncPoller {
     this.clientEventHub.emit({ type: 'startRequest' })
     const inFlightWalIds: string[] = []
     try {
-      const authToken = await getActiveSessionToken()
-      if (!authToken) return 'no-poll'
+      const hasToken = await this.apiClient.hasAuthToken()
+      if (!hasToken) return 'no-poll'
 
       let batchEntries: ChunkEntry
       try {
@@ -100,7 +104,7 @@ export class SyncPoller {
       const chunks = batchEntries.length > 0 ? chunk(batchEntries, 5) : [[]]
 
       for (const chunkEntry of chunks) {
-        await this.processChunk(chunkEntry, authToken, signal)
+        await this.processChunk(chunkEntry, signal)
       }
 
       await this.indexManager?.updateLastSyncTime(Date.now())
@@ -145,7 +149,6 @@ export class SyncPoller {
 
   private async processChunk(
     chunkEntry: ChunkEntry,
-    authToken: string,
     signal: AbortSignal
   ): Promise<void> {
     const sentIdsByItem = new Map<ItemId, string[]>()
@@ -173,10 +176,9 @@ export class SyncPoller {
 
     // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
     // and clientLatestCursor (for global updates across all other healthy items).
-    const response = await pollSyncBatchWithToken(
+    const response = await this.apiClient.pollSyncBatch(
       {
         account: this.account!,
-        authToken,
         pushMessages,
         pullCursors: this.pullQueueManager.getCursors(),
         clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),

@@ -50,6 +50,8 @@ export interface SyncWorkerContextConfig {
    * Called when an inbound item sync message has been parsed.
    */
   onItemMessageParsed?: (itemId: ItemId) => void
+  /** Optional callback to refresh the authentication token with the main thread. */
+  refreshAuthToken?: () => Promise<string | null>
   /** Optional override for testing. */
   apiClient?: SyncApiClient
 }
@@ -87,7 +89,9 @@ export class SyncWorkerContext {
     this.accountId = config.accountId
     this.clientEventHub = config.clientEventHub
     this.internalEventHub = config.internalEventHub
-    this.apiClient = config.apiClient ?? new SyncApiClient()
+    this.apiClient = config.apiClient ?? new SyncApiClient({
+      refreshAuthToken: config.refreshAuthToken,
+    })
 
     this.initStores(config.accountId)
     this.initServices(config)
@@ -172,7 +176,9 @@ export class SyncWorkerContext {
       config.internalEventHub,
       indexManager,
       pullQueueManager,
-      this.wal
+      this.wal,
+      null,
+      this.apiClient,
     )
 
     const recoveryManager = new RecoveryManager({

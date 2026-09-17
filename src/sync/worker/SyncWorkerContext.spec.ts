@@ -296,4 +296,17 @@ describe('SyncWorkerContext', () => {
       'SyncOrchestrator',
     ])
   })
+
+  it('initializes apiClient with refreshAuthToken when provided in config', async () => {
+    const mockRefresh = vi.fn().mockResolvedValue('token-123')
+    const ctx = new SyncWorkerContext({
+      accountId: 'test-account-refresh',
+      clientEventHub,
+      internalEventHub,
+      refreshAuthToken: mockRefresh,
+    })
+
+    expect((ctx.apiClient as any).refreshAuth).toBe(mockRefresh)
+  })
 })
+

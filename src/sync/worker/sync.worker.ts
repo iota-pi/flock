@@ -200,7 +200,7 @@ export class SyncWorker implements SyncApi {
     })
   }
 
-  async initRepo(accountId: string, vaultKey: string) {
+  async initRepo(accountId: string, vaultKey: string, refreshAuthToken?: () => Promise<string | null>) {
     this.isShutDown = false
     if (this.isReady || !this.readyPromise) {
       this.isReady = false
@@ -217,6 +217,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
+        refreshAuthToken,
         onDocumentReceived: itemId => this.subscribeToItems([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
@@ -449,6 +450,7 @@ export class SyncWorker implements SyncApi {
       indexManager: context.indexManager,
       refreshAuthToken,
       recoveryManager: context.recoveryManager,
+      apiClient: context.apiClient,
     }, onProgress)
   }
 
