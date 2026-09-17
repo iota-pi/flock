@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest'
 import { AsyncQueue } from './AsyncQueue'
 
 describe('AsyncQueue', () => {
@@ -35,7 +34,7 @@ describe('AsyncQueue', () => {
     })
 
     const queue = new AsyncQueue<{ id: string; retries: number }>(async item => {
-      item.retries++
+      item.retries += 1
       await workerPromise
     })
 
@@ -210,5 +209,4 @@ describe('AsyncQueue', () => {
     await expect(queue.whenIdle()).resolves.toBeUndefined()
   })
 })
-
 

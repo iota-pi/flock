@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SyncApiClient, AuthExpiredError } from './SyncApiClient'
 
 const mockPutSnapshotsWithToken = vi.fn()

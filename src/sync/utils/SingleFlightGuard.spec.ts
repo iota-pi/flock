@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest'
 import { SingleFlightGuard, TaskDeduplicator, KeyedSingleFlightGuard } from './SingleFlightGuard'
 
 describe('SingleFlightGuard', () => {
@@ -47,7 +46,10 @@ describe('SingleFlightGuard', () => {
   it('allows a new execution after the prior one settles', async () => {
     const guard = new SingleFlightGuard<number>()
     let count = 0
-    const fn = vi.fn().mockImplementation(async () => ++count)
+    const fn = vi.fn().mockImplementation(async () => {
+      count += 1
+      return count
+    })
 
     const first = await guard.run(fn)
     expect(first).toBe(1)
@@ -191,7 +193,7 @@ describe('KeyedSingleFlightGuard', () => {
     let executions = 0
 
     const fn = async () => {
-      executions++
+      executions += 1
       await new Promise(resolve => setTimeout(resolve, 10))
       return 42
     }
@@ -233,7 +235,10 @@ describe('KeyedSingleFlightGuard', () => {
     const guard = new KeyedSingleFlightGuard<string, number>()
     let counter = 0
 
-    const fn = async () => ++counter
+    const fn = async () => {
+      counter += 1
+      return counter
+    }
 
     const r1 = await guard.run('item1', fn)
     expect(r1).toBe(1)
@@ -249,7 +254,7 @@ describe('KeyedSingleFlightGuard', () => {
     let attempts = 0
 
     const failingFn = async () => {
-      attempts++
+      attempts += 1
       await new Promise(resolve => setTimeout(resolve, 10))
       throw new Error('Key failure')
     }
@@ -273,7 +278,7 @@ describe('KeyedSingleFlightGuard', () => {
 
     const p1 = guard.run('k1', () => taskPromise)
     const p2 = guard.run('k1', () => taskPromise, {
-      onCoalesce: () => { coalesced++ },
+      onCoalesce: () => { coalesced += 1 },
     })
 
     expect(coalesced).toBe(1)

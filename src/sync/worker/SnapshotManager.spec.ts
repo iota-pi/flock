@@ -1802,7 +1802,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       let capturedSignal: AbortSignal | undefined
       mockPutSnapshotsWithToken.mockImplementationOnce((_input, options) => {
         capturedSignal = options?.signal
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
           options?.signal?.addEventListener('abort', () => {
             resolve({ success: false, persisted: 0, total: 1 })
           })

@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './vaultErrors'
 import { VaultNotInitializedError } from 'src/api/vault'
 

@@ -44,6 +44,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       }
     },
   })
+
   private pendingReNegotiations = new Set<DocumentId>()
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
   private syncedHeads = new Map<DocumentId, string[]>()

@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { ITEM_LIMITS } from '../constants/limits'
 import { personItemSchema, ItemId } from './items'
 

@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { CursorStore, normalizeCursors } from './CursorStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,

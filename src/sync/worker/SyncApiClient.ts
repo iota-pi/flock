@@ -241,18 +241,18 @@ export class SyncApiClient {
       safeSetApiAuthToken(authToken)
       return options !== undefined
         ? putSnapshotsWithToken(
-            {
-              account: input.account,
-              authToken,
-              snapshots: input.snapshots,
-            },
-            options
-          )
-        : putSnapshotsWithToken({
+          {
             account: input.account,
             authToken,
             snapshots: input.snapshots,
-          })
+          },
+          options
+        )
+        : putSnapshotsWithToken({
+          account: input.account,
+          authToken,
+          snapshots: input.snapshots,
+        })
     })
   }
 

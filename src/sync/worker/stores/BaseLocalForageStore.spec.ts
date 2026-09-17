@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { BaseLocalForageStore } from './BaseLocalForageStore'
 import * as storageManager from '../../../utils/storageManager'
 
@@ -34,7 +33,8 @@ class MockLocalforage {
   async iterate<T, U>(iteratee: (value: T, key: string, iterationNumber: number) => U): Promise<U> {
     let i = 0
     for (const [key, value] of this.data.entries()) {
-      iteratee(value, key, i++)
+      iteratee(value, key, i)
+      i += 1
     }
     return undefined as unknown as U
   }

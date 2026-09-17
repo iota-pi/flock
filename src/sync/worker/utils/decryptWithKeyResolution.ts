@@ -72,20 +72,9 @@ export async function decryptWithKeyResolution(
     }
   }
 
-  try {
-    const payload: CryptoResult =
-      typeof arg1 === 'object' && arg1 !== null
-        ? { ...arg1, kver: resolvedKver }
-        : { cipher, iv, kver: resolvedKver }
-    return await decryptBytes(payload)
-  } catch (error: any) {
-    if (
-      !hasVaultKey(resolvedKver) ||
-      (typeof error?.message === 'string' && error.message.includes('not found in keyring'))
-    ) {
-      options?.timedOutKeys?.add(resolvedKver)
-      throw new MissingKeyError(resolvedKver, `Key version ${resolvedKver} not found in keyring`)
-    }
-    throw error
-  }
+  const payload: CryptoResult =
+    typeof arg1 === 'object' && arg1 !== null
+      ? { ...arg1, kver: resolvedKver }
+      : { cipher, iv, kver: resolvedKver }
+  return await decryptBytes(payload)
 }

@@ -28,7 +28,7 @@ export function isTransientVaultError(error: unknown): boolean {
       : String(error)
   const message = rawMessage.toLowerCase()
 
-  if (TRANSIENT_VAULT_ERROR_SUBSTRINGS.some((substring) => message.includes(substring))) {
+  if (TRANSIENT_VAULT_ERROR_SUBSTRINGS.some(substring => message.includes(substring))) {
     return true
   }
 

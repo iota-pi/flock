@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
@@ -17,12 +16,15 @@ const { mockStores } = vi.hoisted(() => {
       this.store.set(key, value)
       return value
     })
+
     removeItem = vi.fn().mockImplementation(async (key: string) => {
       this.store.delete(key)
     })
+
     clear = vi.fn().mockImplementation(async () => {
       this.store.clear()
     })
+
     keys = vi.fn().mockImplementation(async () => Array.from(this.store.keys()))
     length = vi.fn().mockImplementation(async () => this.store.size)
     iterate = vi.fn().mockImplementation(async (fn: (val: any, key: string) => void) => {

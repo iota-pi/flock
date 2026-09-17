@@ -175,7 +175,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   private bufferPendingMessage(kver: string, message: Message) {
-    let pending = this.pendingKeyMessages.getOrInsertComputed(
+    const pending = this.pendingKeyMessages.getOrInsertComputed(
       kver,
       () => new BoundedQueue<Message>(
         this.maxPendingMessagesPerKey,

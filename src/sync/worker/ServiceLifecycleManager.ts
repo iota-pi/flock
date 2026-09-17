@@ -37,6 +37,7 @@ export class ServiceLifecycleManager<TOptions = unknown> {
     name: string,
     hooks: { onStart?: LifecycleHook; onStop?: LifecycleStopHook<TOptions> }
   ): this
+
   public register(
     serviceOrName: string | ServiceRegistration<TOptions>,
     hooks?: { onStart?: LifecycleHook; onStop?: LifecycleStopHook<TOptions> }

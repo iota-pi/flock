@@ -30,7 +30,7 @@ export function parseBatchedMessages(
         throw new Error('Unexpected end of batch payload')
       }
 
-      const currentIndex = index++
+      const currentIndex = index += 1
       if (currentIndex < startIndex) {
         offset += length
         continue

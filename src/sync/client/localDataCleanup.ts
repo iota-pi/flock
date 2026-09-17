@@ -14,6 +14,8 @@ export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: numb
     let settled = false
     let isBlocked = false
 
+    const req = indexedDB.deleteDatabase(dbName)
+    let timer: ReturnType<typeof setTimeout> | null = null
     const cleanup = () => {
       settled = true
       if (timer !== null) {
@@ -25,9 +27,7 @@ export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: numb
       req.onblocked = null
     }
 
-    const req = indexedDB.deleteDatabase(dbName)
-
-    let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    timer = setTimeout(() => {
       if (settled) return
       const errMsg = isBlocked
         ? `[SyncBridge] deleteDatabase blocked and timed out after ${timeoutMs}ms for ${dbName}`

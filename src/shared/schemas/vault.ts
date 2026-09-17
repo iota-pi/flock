@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { CryptoResultSchema } from './crypto'
 
 export const WebPushSubscriptionSchema = z.object({
   endpoint: z.string(),

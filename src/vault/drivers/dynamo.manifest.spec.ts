@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import DynamoDriver, { ITEM_TABLE_NAME } from './dynamo'
 import { QueryCommand } from '@aws-sdk/lib-dynamodb'
 

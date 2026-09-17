@@ -187,7 +187,7 @@ export function createAutomergeSyncService({
       exclusiveStartKey: input.lastEvaluatedKey,
     })
 
-    const results = items.map((item) => {
+    const results = items.map(item => {
       const messages = item.messages
       return {
         success: true as const,

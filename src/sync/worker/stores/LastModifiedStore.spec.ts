@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { LastModifiedStore, type ItemSyncTimestamps } from './LastModifiedStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,

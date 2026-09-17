@@ -135,4 +135,3 @@ export class WorkerInternalEventHub extends EventHub<WorkerInternalEvent> {
   }
 }
 
-

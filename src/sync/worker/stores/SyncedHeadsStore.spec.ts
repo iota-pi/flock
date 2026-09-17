@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SyncedHeadsStore } from './SyncedHeadsStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,

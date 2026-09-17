@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { AbortError, isAbortError, checkAlive } from './abort'
 
 describe('abort utility', () => {
@@ -72,7 +71,7 @@ describe('abort utility', () => {
     })
 
     it('throws AbortError when isAlive function returns false', () => {
-      let active = false
+      const active = false
       expect(() => checkAlive(null, () => active, 'Inactive')).toThrowError('Inactive')
     })
   })

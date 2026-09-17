@@ -18,9 +18,7 @@ import {
   KEYRING_CACHE_KEY,
   hasVaultKey,
   waitForKeyVersion,
-  broadcastVaultEvent,
   reloadKeyringFromStorage,
-  VAULT_EVENTS_CHANNEL,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
@@ -545,7 +543,7 @@ describe('Vault Keyring Integration', () => {
       })
       await storeVault('test-account')
 
-      const result = await reloadKeyringFromStorage('test-account')
+      const result = await reloadKeyringFromStorage()
       expect(result.success).toBe(true)
       expect(result.passwordChanged).toBeUndefined()
       expect(result.keyringData).toBeDefined()
@@ -567,7 +565,7 @@ describe('Vault Keyring Integration', () => {
         version: '1.0',
       }))
 
-      const result = await reloadKeyringFromStorage('test-account')
+      const result = await reloadKeyringFromStorage()
       expect(result.success).toBe(false)
       expect(result.passwordChanged).toBe(true)
     })

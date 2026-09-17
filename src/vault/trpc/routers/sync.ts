@@ -46,16 +46,16 @@ export const syncRouter = router({
         const [batchPullResult, globalPullResult] = await Promise.all([
           shouldPullBatch
             ? service.pullAutomergeSyncBatch({
-                account: ctx.account,
-                cursors: input.pullCursors,
-              })
+              account: ctx.account,
+              cursors: input.pullCursors,
+            })
             : null,
           shouldPullGlobal
             ? service.pullAutomergeSyncGlobal({
-                account: ctx.account,
-                cursor: input.clientLatestCursor ?? 0,
-                lastEvaluatedKey: input.globalLastEvaluatedKey,
-              })
+              account: ctx.account,
+              cursor: input.clientLatestCursor ?? 0,
+              lastEvaluatedKey: input.globalLastEvaluatedKey,
+            })
             : null,
         ])
 
@@ -66,8 +66,8 @@ export const syncRouter = router({
         // and missing message gaps while lagging items catch up sequentially.
         const filteredGlobalResults = globalPullResult
           ? (pullCursorItemIds.size > 0
-              ? globalPullResult.results.filter(r => !pullCursorItemIds.has(r.itemId))
-              : globalPullResult.results)
+            ? globalPullResult.results.filter(r => !pullCursorItemIds.has(r.itemId))
+            : globalPullResult.results)
           : []
 
         pullResults = [...batchResults, ...filteredGlobalResults]

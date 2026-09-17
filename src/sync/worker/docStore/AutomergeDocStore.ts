@@ -255,7 +255,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         // SAFETY: Before creating a blank document, independently verify that
         // the item genuinely doesn't exist in storage. If it does, or if storage
         // check fails due to transient/quota/lock error, we must NOT delete it.
-        let dataExists = false
+        let dataExists: boolean
         try {
           dataExists = await this.hasDataInStorage(itemId)
         } catch (storageError) {

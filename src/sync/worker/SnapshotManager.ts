@@ -62,12 +62,15 @@ export class SnapshotManager {
   private get retryAttempt(): number {
     return this.retryStrategy.attempt
   }
+
   private set retryAttempt(val: number) {
     this.retryStrategy.attempt = val
   }
+
   private get retryDelays(): readonly number[] {
     return this.retryStrategy.delays
   }
+
   private readonly maxPayloadBytes: number
   private readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient

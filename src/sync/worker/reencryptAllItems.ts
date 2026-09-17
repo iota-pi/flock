@@ -3,7 +3,6 @@ import { chunk } from 'lodash'
 
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
-import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'

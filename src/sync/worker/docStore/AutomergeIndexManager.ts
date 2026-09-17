@@ -84,7 +84,9 @@ export class AutomergeIndexManager {
         type: 'indexUpdated',
         itemIds,
       })
-    } catch (_) {}
+    } catch (_) {
+      console.warn('[AutomergeIndexManager] Failed to broadcast index update')
+    }
   }
 
   private notifyLocalMetadataUpdated(metadata: AccountMetadata): void {
@@ -98,7 +100,9 @@ export class AutomergeIndexManager {
         type: 'metadataUpdated',
         metadata,
       })
-    } catch (_) {}
+    } catch (_) {
+      console.warn('[AutomergeIndexManager] Failed to broadcast metadata update')
+    }
   }
 
   close(): void {
@@ -106,7 +110,9 @@ export class AutomergeIndexManager {
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.close()
-      } catch (_) {}
+      } catch (_) {
+        console.warn('[AutomergeIndexManager] Failed to close broadcast channel')
+      }
       this.broadcastChannel = null
     }
   }

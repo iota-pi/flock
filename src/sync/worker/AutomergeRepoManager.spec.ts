@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import type { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import * as storageManager from '../../utils/storageManager'
@@ -12,6 +11,7 @@ vi.mock('@automerge/automerge-repo/slim', () => {
         this.storage = opts.storage
         this.network = opts.network
       }
+
       shutdown = vi.fn().mockResolvedValue(undefined)
     },
   }

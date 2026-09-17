@@ -165,7 +165,7 @@ export class BoundedQueue<T> implements Iterable<T> {
         if (writeIdx !== i) {
           this.items[writeIdx] = this.items[i]
         }
-        writeIdx++
+        writeIdx += 1
       }
     }
     this.items.length = writeIdx

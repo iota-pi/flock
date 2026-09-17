@@ -48,12 +48,15 @@ export class SyncOrchestrator {
     delays: DEFAULT_POLL_BACKOFF_DELAYS,
     jitter: { factor: 0.25, maxJitterMs: 15000 },
   })
+
   private get pollBackoffIndex(): number {
     return this.pollBackoff.attempt
   }
+
   private set pollBackoffIndex(val: number) {
     this.pollBackoff.attempt = val
   }
+
   private get pollBackoffStepsMs(): readonly number[] {
     return this.pollBackoff.delays
   }

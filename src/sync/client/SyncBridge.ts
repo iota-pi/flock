@@ -67,7 +67,7 @@ class SyncBridgeService {
   private handleKeyringUpdate = async (kver?: string) => {
     const currentAccountId = this.lifecycleManager.getCurrentAccountId()
     if (!currentAccountId) return
-    let result = await reloadKeyringFromStorage(currentAccountId)
+    let result = await reloadKeyringFromStorage()
     if (result.passwordChanged) {
       console.warn('[SyncBridge] Password changed in another tab/device. Locking vault.')
       await lockVault()
@@ -76,7 +76,7 @@ class SyncBridgeService {
     if (kver && !hasVaultKey(kver)) {
       try {
         await syncKeyringFromServer(currentAccountId)
-        result = await reloadKeyringFromStorage(currentAccountId)
+        result = await reloadKeyringFromStorage()
       } catch (err) {
         console.warn('[SyncBridge] Failed to sync keyring from server:', err)
       }

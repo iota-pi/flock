@@ -986,7 +986,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       let attempts = 0
       vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
-        attempts++
+        attempts += 1
         if (attempts === 1) {
           throw new Error('Transient encrypt error')
         }
@@ -1047,7 +1047,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       let attempts = 0
       vi.mocked(decryptBytes).mockImplementation(async () => {
-        attempts++
+        attempts += 1
         if (attempts === 1) {
           throw new Error('Transient decrypt error')
         }
@@ -1094,7 +1094,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       let calls = 0
       vi.mocked(encryptBytes).mockImplementation(async () => {
-        calls++
+        calls += 1
         throw new Error('Permanent failure')
       })
 
@@ -1138,7 +1138,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       let calls = 0
       vi.mocked(decryptBytes).mockImplementation(async () => {
-        calls++
+        calls += 1
         throw new Error('Permanent decrypt failure')
       })
 

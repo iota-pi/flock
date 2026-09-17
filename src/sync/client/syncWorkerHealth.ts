@@ -149,6 +149,24 @@ export const sendPing = (
     let settled = false
     let timer: ReturnType<typeof setTimeout> | null = null
 
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data === 'pong') {
+        cleanup()
+        recordWorkerActivity()
+        resolve()
+      }
+    }
+
+    const handleMessageError = () => {
+      cleanup()
+      reject(new Error('MessagePort error'))
+    }
+
+    const handleAbort = () => {
+      cleanup()
+      reject(signal?.reason ?? new Error('Ping aborted'))
+    }
+
     const cleanup = () => {
       if (settled) return
       settled = true
@@ -170,24 +188,6 @@ export const sendPing = (
       if (signal) {
         signal.removeEventListener('abort', handleAbort)
       }
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data === 'pong') {
-        cleanup()
-        recordWorkerActivity()
-        resolve()
-      }
-    }
-
-    const handleMessageError = () => {
-      cleanup()
-      reject(new Error('MessagePort error'))
-    }
-
-    const handleAbort = () => {
-      cleanup()
-      reject(signal?.reason ?? new Error('Ping aborted'))
     }
 
     if (signal) {

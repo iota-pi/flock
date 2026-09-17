@@ -165,7 +165,7 @@ export class SyncPullQueueManager {
       decrypted = await decryptWithKeyResolution(entry.encryptedMessage, {
         timeoutMs: this.keyWaitTimeoutMs,
         timedOutKeys,
-        onKeyVersionMissing: (missingKver) => {
+        onKeyVersionMissing: missingKver => {
           this.internalEventHub.emit({ type: 'keyVersionMissing', kver: missingKver })
         },
       })
@@ -191,7 +191,7 @@ export class SyncPullQueueManager {
           (id, docId, msg) => this.notifyMessageParsed(id, docId, msg),
           {
             startIndex,
-            onMessageSuccess: (index) => {
+            onMessageSuccess: index => {
               if (Number.isFinite(entry.cursor)) {
                 this.setBatchProgress(itemId, entry.cursor, index + 1)
               }

@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { decryptWithKeyResolution, MissingKeyError } from './decryptWithKeyResolution'
 
 const mockDecryptBytes = vi.fn()
@@ -107,27 +106,12 @@ describe('decryptWithKeyResolution', () => {
     await expect(
       decryptWithKeyResolution(
         { cipher: 'c-5', iv: 'iv-5', kver: '5' },
-        { skipWait: (kver) => kver === '5', onKeyVersionMissing },
+        { skipWait: kver => kver === '5', onKeyVersionMissing },
       ),
     ).rejects.toThrow(MissingKeyError)
 
     expect(onKeyVersionMissing).not.toHaveBeenCalled()
     expect(mockWaitForKeyVersion).not.toHaveBeenCalled()
-  })
-
-  it('catches keyring missing errors during decryptBytes and converts to MissingKeyError', async () => {
-    mockHasVaultKey.mockReturnValue(true)
-    mockDecryptBytes.mockRejectedValue(new Error('Vault key version 6 not found in keyring'))
-
-    const timedOutKeys = new Set<string>()
-    await expect(
-      decryptWithKeyResolution(
-        { cipher: 'c-6', iv: 'iv-6', kver: '6' },
-        { timedOutKeys },
-      ),
-    ).rejects.toThrow(MissingKeyError)
-
-    expect(timedOutKeys.has('6')).toBe(true)
   })
 
   it('re-throws non-key errors from decryptBytes unchanged', async () => {

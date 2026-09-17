@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SyncWorkerContext } from './SyncWorkerContext'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import type { ItemId } from 'src/shared/schemas/items'

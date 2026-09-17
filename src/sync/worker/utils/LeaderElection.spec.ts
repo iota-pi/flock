@@ -187,7 +187,7 @@ describe('LeaderElection', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     let attempts = 0
     const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-      attempts++
+      attempts += 1
       if (attempts === 1) {
         return Promise.reject(new Error('Transient error on attempt 1'))
       }
@@ -283,7 +283,7 @@ describe('LeaderElection', () => {
 
     let callCount = 0
     const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-      callCount++
+      callCount += 1
       if (callCount === 1) {
         callback()
         return new Promise<void>((_, reject) => {
@@ -331,7 +331,7 @@ describe('LeaderElection', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     let attempts = 0
     const requestMock = vi.fn().mockImplementation(() => {
-      attempts++
+      attempts += 1
       return Promise.reject(new Error('Lock error'))
     })
 
@@ -853,5 +853,4 @@ describe('LeaderElection', () => {
     })
   })
 })
-
 

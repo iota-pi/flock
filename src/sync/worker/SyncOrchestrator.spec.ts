@@ -31,27 +31,27 @@ describe('SyncOrchestrator', () => {
 
     Object.defineProperty(mockBroker, 'executePoll', {
       get: () => mockPoller.executePoll,
-      set: (fn) => { mockPoller.executePoll = fn },
+      set: fn => { mockPoller.executePoll = fn },
       configurable: true,
     })
     Object.defineProperty(mockBroker, 'hasPendingPulls', {
       get: () => mockPullQueueManager.hasPendingPulls,
-      set: (fn) => { mockPullQueueManager.hasPendingPulls = fn },
+      set: fn => { mockPullQueueManager.hasPendingPulls = fn },
       configurable: true,
     })
     Object.defineProperty(mockBroker, 'hasImmediatePendingPulls', {
       get: () => mockPullQueueManager.hasImmediatePendingPulls,
-      set: (fn) => { mockPullQueueManager.hasImmediatePendingPulls = fn },
+      set: fn => { mockPullQueueManager.hasImmediatePendingPulls = fn },
       configurable: true,
     })
     Object.defineProperty(mockBroker, 'abortPoll', {
       get: () => mockPoller.abort,
-      set: (fn) => { mockPoller.abort = fn },
+      set: fn => { mockPoller.abort = fn },
       configurable: true,
     })
     Object.defineProperty(mockBroker, 'loadCursors', {
       get: () => mockPullQueueManager.loadCursors,
-      set: (fn) => { mockPullQueueManager.loadCursors = fn },
+      set: fn => { mockPullQueueManager.loadCursors = fn },
       configurable: true,
     })
 
@@ -1087,5 +1087,4 @@ describe('SyncOrchestrator', () => {
     })
   })
 })
-
 

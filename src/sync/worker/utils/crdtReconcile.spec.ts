@@ -1,12 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
 import * as Automerge from '@automerge/automerge'
 import {
   reconcilePrimitiveArray,
   reconcileKeyedArray,
-  reconcileAutomergeList,
   applyItemUpdatesToDraft,
 } from './crdtReconcile'
-import type { Item } from 'src/state/items'
 import type { Note, ItemId } from 'src/shared/schemas/items'
 
 describe('crdtReconcile', () => {

@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { clearAccountLocalData } from './localDataCleanup'
 import * as syncMetadataStorage from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'

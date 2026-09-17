@@ -338,26 +338,32 @@ export class SyncWorker implements SyncApi {
     const context = await this.ensureReady()
     await context.manifestSyncManager.sync()
   }
+
   async mutateItem(id: ItemId, changes: Partial<Item>) {
     const context = await this.ensureReady()
     await context.itemOperations.mutateItem(id, changes)
   }
+
   async createItem(item: Item) {
     const context = await this.ensureReady()
     await context.itemOperations.createItem(item)
   }
+
   async storeItems(items: Item[]) {
     const context = await this.ensureReady()
     await context.itemOperations.storeItems(items)
   }
+
   async mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) {
     const context = await this.ensureReady()
     await context.itemOperations.mutateMetadata(changes, options)
   }
+
   async exportAllBinaries() {
     const context = await this.ensureReady()
     return context.docStore.exportAllBinaries(context.indexManager)
   }
+
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
     const context = await this.ensureReady()
     const restored = await context.docStore.restoreFromBinaries(documents, context.indexManager)
@@ -368,6 +374,7 @@ export class SyncWorker implements SyncApi {
     const context = await this.ensureReady()
     context.orchestrator.flush()
   }
+
   async fullResync() {
     const context = await this.ensureReady()
     await context.manifestSyncManager.sync(true)
@@ -378,6 +385,7 @@ export class SyncWorker implements SyncApi {
     const context = await this.ensureReady()
     return context.snapshotManager.flushPendingSnapshots()
   }
+
   async retrySave() {
     try {
       const context = await this.ensureReady()
@@ -386,38 +394,46 @@ export class SyncWorker implements SyncApi {
       return { success: false, error: 'Sync worker not initialized' }
     }
   }
+
   async retryRecoveryItem(itemId: ItemId) {
     const context = await this.ensureReady()
     await context.recoveryManager.unquarantine(itemId)
     context.snapshotManager.markItemDirty(itemId)
     void context.snapshotManager.flushPendingSnapshots()
   }
+
   async forceOverwriteRecoveryItem(itemId: ItemId) {
     const context = await this.ensureReady()
     await context.itemOperations.forceOverwriteRecoveryItem(itemId)
   }
+
   async forceDeleteRecoveryItem(itemId: ItemId) {
     const context = await this.ensureReady()
     await context.itemOperations.forceDeleteRecoveryItem(itemId)
   }
+
   async compactItem(itemId: ItemId) {
     const context = await this.ensureReady()
     await context.itemOperations.compactItem(itemId)
     void context.snapshotManager.flushPendingSnapshots()
   }
+
   async dismissRecoveryItem(entryId: string) {
     const context = await this.ensureReady()
     await context.recoveryManager.dismissEntry(entryId)
   }
+
   async listRecoveryItems() {
     const context = await this.ensureReady()
     return context.recoveryManager.listRecoveryItems()
   }
+
   async updateVaultKey(vaultKey: string) {
     await initWorkerVault(vaultKey)
     const context = await this.ensureReady()
     context.pullQueueManager?.onKeyringUpdated()
   }
+
   async reencryptAllItems(
     onProgress: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>

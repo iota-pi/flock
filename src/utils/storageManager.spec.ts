@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   runStorageOperation,
   registerQuotaReporter,
@@ -43,7 +42,7 @@ describe('storageManager', () => {
     const unregisterRecovery = registerQuotaRecoveryHandler(recoveryHandler)
 
     const result = await runStorageOperation(async () => {
-      attempts++
+      attempts += 1
       if (attempts === 1) {
         throw new DOMException('Quota exceeded', 'QuotaExceededError')
       }

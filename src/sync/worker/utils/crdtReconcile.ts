@@ -1,5 +1,7 @@
 import type { Item } from 'src/state/items'
 
+type AutomergeListItem = { id?: string; [key: string]: unknown }
+
 /**
  * Reconciles an Automerge list of primitive values (strings, numbers, booleans)
  * using prefix/suffix optimization and LCS sequence diffing.
@@ -19,7 +21,7 @@ export function reconcilePrimitiveArray<T>(
     prefix < targetLen &&
     currentList[prefix] === targetArray[prefix]
   ) {
-    prefix++
+    prefix += 1
   }
 
   // 2. Common suffix
@@ -31,8 +33,8 @@ export function reconcilePrimitiveArray<T>(
     targetSuffix >= prefix &&
     currentList[currentSuffix] === targetArray[targetSuffix]
   ) {
-    currentSuffix--
-    targetSuffix--
+    currentSuffix -= 1
+    targetSuffix -= 1
   }
 
   const deleteCount = currentSuffix - prefix + 1
@@ -76,14 +78,14 @@ export function reconcilePrimitiveArray<T>(
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && currentMiddle[i - 1] === incomingMiddle[j - 1]) {
       ops.push({ type: 'keep' })
-      i--
-      j--
+      i -= 1
+      j -= 1
     } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
       ops.push({ type: 'insert', oldIdx: i, item: incomingMiddle[j - 1] })
-      j--
+      j -= 1
     } else if (i > 0) {
       ops.push({ type: 'delete', oldIdx: i - 1 })
-      i--
+      i -= 1
     }
   }
 
@@ -92,7 +94,7 @@ export function reconcilePrimitiveArray<T>(
   for (const op of ops) {
     if (op.type === 'delete') {
       const entry = editsByOldIdx.get(op.oldIdx) || { deletes: 0, inserts: [] }
-      entry.deletes++
+      entry.deletes += 1
       editsByOldIdx.set(op.oldIdx, entry)
     } else if (op.type === 'insert') {
       const entry = editsByOldIdx.get(op.oldIdx) || { deletes: 0, inserts: [] }
@@ -115,9 +117,9 @@ export function reconcilePrimitiveArray<T>(
  * - Updates existing items in-place on the Automerge object proxy
  * - Inserts brand new items at their respective target positions
  */
-export function reconcileKeyedArray<T extends { id?: string; [key: string]: any }>(
-  currentList: T[],
-  targetArray: T[],
+export function reconcileKeyedArray(
+  currentList: AutomergeListItem[],
+  targetArray: AutomergeListItem[],
 ): void {
   const targetIdSet = new Set(
     targetArray
@@ -136,7 +138,7 @@ export function reconcileKeyedArray<T extends { id?: string; [key: string]: any 
   }
 
   // 2. Map existing items by id
-  const existingMap = new Map<string, T>()
+  const existingMap = new Map<string, AutomergeListItem>()
   for (let i = 0; i < currentList.length; i++) {
     const item = currentList[i]
     if (item?.id) {
@@ -153,7 +155,7 @@ export function reconcileKeyedArray<T extends { id?: string; [key: string]: any 
 
     const existingItem = targetItem.id ? existingMap.get(targetItem.id) : undefined
     if (existingItem) {
-      const existingObj = existingItem as Record<string, any>
+      const existingObj = existingItem as Record<string, unknown>
       // Update properties in place on the existing Automerge object proxy
       for (const [key, value] of Object.entries(targetItem)) {
         if (existingObj[key] !== value) {
@@ -187,8 +189,8 @@ export function reconcileKeyedArray<T extends { id?: string; [key: string]: any 
  * Reconciles an Automerge list proxy in place from an incoming target array.
  */
 export function reconcileAutomergeList(
-  currentList: any[],
-  targetArray: any[],
+  currentList: AutomergeListItem[],
+  targetArray: AutomergeListItem[],
 ): void {
   if (!Array.isArray(currentList) || !Array.isArray(targetArray)) {
     return
@@ -211,7 +213,7 @@ export function reconcileAutomergeList(
  * on existing Automerge list proxies rather than replaced with new objects.
  */
 export function applyItemUpdatesToDraft(
-  draft: Record<string, any>,
+  draft: Record<string, unknown>,
   updates: Partial<Item>,
 ): void {
   for (const [key, value] of Object.entries(updates)) {

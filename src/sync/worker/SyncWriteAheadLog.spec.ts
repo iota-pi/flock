@@ -590,8 +590,8 @@ describe('SyncWriteAheadLog', () => {
     wal.markInFlight([id1, id2])
 
     // id3 and id4 arrive while id1 and id2 are in flight
-    const id3 = await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
-    const id4 = await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
+    await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
+    await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
 
     // Compaction runs
     const reduced = await wal.compact()
@@ -817,5 +817,4 @@ describe('SyncWriteAheadLog', () => {
     expect(query2.available().map(e => e.id)).toEqual(['q1', 'q2'])
   })
 })
-
 

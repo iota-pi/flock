@@ -1539,4 +1539,3 @@ describe('ManifestSyncManager', () => {
   })
 })
 
-

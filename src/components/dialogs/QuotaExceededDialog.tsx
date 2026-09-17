@@ -76,7 +76,7 @@ export default function QuotaExceededDialog({ open, onClose }: Props) {
       void navigator.clipboard.writeText(dataStr)
       setCopiedBackup(true)
       setTimeout(() => setCopiedBackup(false), 3000)
-    } catch (err) {
+    } catch (_) {
       setErrorMessage('Failed to copy backup to clipboard.')
     }
   }, [items])
@@ -156,8 +156,8 @@ export default function QuotaExceededDialog({ open, onClose }: Props) {
                   {isSyncing
                     ? 'Syncing to Cloud...'
                     : isOnline
-                    ? 'Sync to Cloud Now'
-                    : 'Offline (Connect to Internet)'}
+                      ? 'Sync to Cloud Now'
+                      : 'Offline (Connect to Internet)'}
                 </Button>
               </Box>
             </Stack>
@@ -170,7 +170,7 @@ export default function QuotaExceededDialog({ open, onClose }: Props) {
                 Option 3: Emergency Data Backup
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Copy your current prayer and item data to your clipboard as JSON so you don't lose
+                Copy your current prayer and item data to your clipboard as JSON so you {"don't"} lose
                 anything if you need to close the browser.
               </Typography>
               <Box sx={{ pt: 1 }}>

@@ -42,6 +42,15 @@ const mockOrchestratorFlush = vi.fn()
 const mockSnapshotManagerOnOnlineStateChange = vi.fn()
 const mockDocStoreOnDocHandleReplaced = vi.fn()
 
+const { mockRepoFind } = vi.hoisted(() => ({
+  mockRepoFind: vi.fn().mockImplementation(() => Promise.resolve({
+    on: vi.fn(),
+    off: vi.fn(),
+    doc: vi.fn().mockReturnValue({ id: 'item-1', name: 'Original Item' }),
+    documentId: 'mock-doc-id',
+  }))
+}))
+
 vi.mock('./SyncWorkerContext', () => {
   return {
     SyncWorkerContext: class MockSyncWorkerContext {
@@ -52,18 +61,22 @@ vi.mock('./SyncWorkerContext', () => {
         pauseBroadcastSync: mockRepoManagerPauseBroadcastSync,
         resumeBroadcastSync: mockRepoManagerResumeBroadcastSync,
       }
+
       broker = {
         setAccount: mockBrokerSetAccount,
       }
+
       adapter = { setAccount: mockAdapterSetAccount }
       indexManager = {
         listAutomergeItemIds: mockIndexManagerListAutomergeItemIds,
         addAutomergeItemIdsToIndex: mockIndexManagerAddAutomergeItemIdsToIndex,
         removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
       }
+
       itemOperations = {
         mutateItem: mockItemOperationsMutateItem,
       }
+
       snapshotManager = {
         onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
         markItemDirty: vi.fn(),
@@ -72,30 +85,36 @@ vi.mock('./SyncWorkerContext', () => {
         exportLastModified: vi.fn().mockReturnValue({}),
         importLastModified: vi.fn().mockResolvedValue(undefined),
       }
+
       orchestrator = {
         setOnlineState: mockOrchestratorSetOnlineState,
         flush: mockOrchestratorFlush,
         shutdown: vi.fn().mockResolvedValue(undefined),
       }
+
       pullQueueManager = {
         onKeyringUpdated: vi.fn(),
         exportCursors: vi.fn().mockReturnValue([]),
         importCursors: vi.fn(),
       }
+
       manifestSyncManager = {
         sync: vi.fn().mockResolvedValue(undefined),
       }
+
       docStore = {
         onDocHandleReplaced: mockDocStoreOnDocHandleReplaced,
         exportAllBinaries: vi.fn().mockResolvedValue({}),
         restoreFromBinaries: vi.fn().mockResolvedValue([]),
       }
+
       recoveryManager = {
         unquarantineBatch: mockRecoveryManagerUnquarantineBatch,
         listRecoveryItems: mockRecoveryManagerListRecoveryItems,
         unquarantine: vi.fn().mockResolvedValue(undefined),
         dismissEntry: vi.fn().mockResolvedValue(undefined),
       }
+
       wal = {
         readAll: vi.fn().mockResolvedValue(new Map()),
         append: vi.fn().mockResolvedValue(undefined),
@@ -114,15 +133,6 @@ vi.mock('./SyncWorkerContext', () => {
     }
   }
 })
-
-const { mockRepoFind } = vi.hoisted(() => ({
-  mockRepoFind: vi.fn().mockImplementation(() => Promise.resolve({
-    on: vi.fn(),
-    off: vi.fn(),
-    doc: vi.fn().mockReturnValue({ id: 'item-1', name: 'Original Item' }),
-    documentId: 'mock-doc-id',
-  }))
-}))
 
 vi.mock('./utils/automerge', () => ({
   toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),

@@ -41,11 +41,6 @@ function toUint8Array(data: unknown): Uint8Array {
   return new Uint8Array()
 }
 
-export function clearWalInstancesCacheForTesting(): void {
-  clearAccountStoreInstancesCacheForTesting()
-  SyncWriteAheadLog.resetSeqCounterForTesting()
-}
-
 export class SyncWriteAheadLog {
   public static readonly MAX_ENTRIES = 2000
   private static readonly PRUNE_BATCH_SIZE = 100
@@ -400,4 +395,9 @@ export class SyncWriteAheadLog {
     this.inFlightEntryIds.clear()
     await runStorageOperation(() => this.storage.clear())
   }
+}
+
+export function clearWalInstancesCacheForTesting(): void {
+  clearAccountStoreInstancesCacheForTesting()
+  SyncWriteAheadLog.resetSeqCounterForTesting()
 }

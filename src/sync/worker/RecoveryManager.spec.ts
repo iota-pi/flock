@@ -1,5 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { RecoveryManager, RECOVERY_RETRY_COOLDOWN_MS } from './RecoveryManager'
+import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import type { ItemId } from 'src/shared/schemas/items'
 

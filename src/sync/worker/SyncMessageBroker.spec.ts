@@ -345,7 +345,7 @@ describe('SyncMessageBroker', () => {
       vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
 
       // When triggerReNegotiation is called, simulate Automerge immediately emitting a full sync message
-      vi.spyOn(adapter, 'triggerReNegotiation').mockImplementation((_docId) => {
+      vi.spyOn(adapter, 'triggerReNegotiation').mockImplementation(_docId => {
         const renegResponseMsg = createSyncMessage('item-loop', [99, 99])
         internalEventHub.emit({ type: 'messageToSend', message: renegResponseMsg })
         return true

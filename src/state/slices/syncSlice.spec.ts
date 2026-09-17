@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach } from 'vitest'
 import { useAppStore } from '../store'
 
 describe('syncSlice', () => {

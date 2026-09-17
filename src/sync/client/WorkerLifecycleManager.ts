@@ -40,12 +40,15 @@ export class WorkerLifecycleManager {
     delays: DEFAULT_RETRY_DELAYS,
     maxAttempts: WorkerLifecycleManager.MAX_INIT_RETRIES,
   })
+
   private get initRetryCount(): number {
     return this.initRetryStrategy.attempt
   }
+
   private set initRetryCount(val: number) {
     this.initRetryStrategy.attempt = val
   }
+
   private _restartResolve: (() => void) | null = null
 
   constructor(private callbacks: WorkerLifecycleCallbacks) {}

@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { AsyncMutex, KeyedAsyncMutex } from './AsyncMutex'
 
 describe('AsyncMutex', () => {
@@ -97,11 +96,11 @@ describe('KeyedAsyncMutex', () => {
     let runs = 0
 
     await mutex.runExclusive('item1', async () => {
-      runs++
+      runs += 1
     })
 
     await mutex.runExclusive('item1', async () => {
-      runs++
+      runs += 1
     })
 
     expect(runs).toBe(2)

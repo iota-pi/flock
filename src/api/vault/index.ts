@@ -166,7 +166,7 @@ export function broadcastVaultEvent(event: VaultBroadcastEvent): void {
   }
 }
 
-export async function reloadKeyringFromStorage(account?: string): Promise<{
+export async function reloadKeyringFromStorage(): Promise<{
   success: boolean
   passwordChanged?: boolean
   keyringData?: string

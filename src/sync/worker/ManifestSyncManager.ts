@@ -37,22 +37,22 @@ export interface SyncDeltas {
 
 export type HydrateItemResult =
   | {
-      status: 'success'
-      itemId: ItemId
-      hydratedId?: ItemId
-      snapshot?: Item
-      lastModifiedUpdate?: [ItemId, number]
-    }
+    status: 'success'
+    itemId: ItemId
+    hydratedId?: ItemId
+    snapshot?: Item
+    lastModifiedUpdate?: [ItemId, number]
+  }
   | {
-      status: 'decryption_failure'
-      itemId: ItemId
-      error: Error
-    }
+    status: 'decryption_failure'
+    itemId: ItemId
+    error: Error
+  }
   | {
-      status: 'error'
-      itemId: ItemId
-      error: unknown
-    }
+    status: 'error'
+    itemId: ItemId
+    error: unknown
+  }
 
 export class ManifestSyncManager {
   private recoveryManager: RecoveryManager

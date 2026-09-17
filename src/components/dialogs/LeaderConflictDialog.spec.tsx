@@ -1,5 +1,4 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import LeaderConflictDialog from './LeaderConflictDialog'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from '../../sync/client/SyncBridge'
