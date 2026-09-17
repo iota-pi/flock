@@ -279,7 +279,7 @@ export class SyncWriteAheadLog {
    */
   async handleQuotaExceeded(): Promise<number> {
     console.warn('[SyncWriteAheadLog] Handling QuotaExceededError: compacting entries...')
-    let reduced = 0
+    let reduced: number
     try {
       reduced = await this.compact()
       if (reduced === 0) {

@@ -220,6 +220,10 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('loads range of chunks using cursor', async () => {
+      const mockRequest: any = {
+        onsuccess: null,
+        onerror: null,
+      }
       const mockCursor = {
         value: { binary: new Uint8Array([4, 5, 6]) },
         key: ['doc-prefix', '1'],
@@ -228,11 +232,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
           mockRequest.onsuccess()
         }),
       }
-      const mockRequest: any = {
-        onsuccess: null,
-        onerror: null,
-        result: mockCursor,
-      }
+      mockRequest.result = mockCursor
       mockStore.openCursor.mockReturnValue(mockRequest)
 
       const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')

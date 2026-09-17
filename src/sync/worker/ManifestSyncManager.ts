@@ -6,7 +6,6 @@ import type { AccountMetadata } from '../../state/metadata'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { SnapshotManager } from './SnapshotManager'
-import { fetchManifest } from '../../api/vault/ItemClient'
 import { decryptObject, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import type { ItemId } from 'src/shared/schemas/items'
@@ -735,7 +734,7 @@ export class ManifestSyncManager {
     const hasToken = await this.apiClient.hasAuthToken()
     if (!hasToken) return
 
-    let remoteMetadata: AccountMetadata | null = null
+    let remoteMetadata: AccountMetadata | null
     try {
       remoteMetadata = await this.apiClient.getAccountMetadata({
         account: this.deps.accountId,

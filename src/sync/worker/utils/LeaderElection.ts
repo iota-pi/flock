@@ -334,7 +334,7 @@ export class LeaderElection {
     }
 
     this.revokeLeadership()
-    this.consecutiveFailures++
+    this.consecutiveFailures += 1
 
     if (this.consecutiveFailures < this.maxLockRetries) {
       console.error(

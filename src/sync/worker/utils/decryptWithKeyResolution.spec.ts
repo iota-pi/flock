@@ -47,7 +47,7 @@ describe('decryptWithKeyResolution', () => {
 
   it('fires onKeyVersionMissing and waits for key when key is not initially available', async () => {
     mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
-    mockWaitForKeyVersion.mockImplementation(async (kver: string) => {
+    mockWaitForKeyVersion.mockImplementation(async () => {
       // Simulate key arriving
       mockHasVaultKey.mockReturnValue(true)
       return true

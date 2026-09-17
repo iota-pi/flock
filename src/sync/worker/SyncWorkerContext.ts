@@ -120,7 +120,7 @@ export class SyncWorkerContext {
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
 
-    this.wireCrossServiceDependencies(config)
+    this.wireCrossServiceDependencies()
     this.registerLifecycleServices()
   }
 
@@ -257,11 +257,11 @@ export class SyncWorkerContext {
     return { orchestrator, itemOperations, manifestSyncManager, storageRecoveryService }
   }
 
-  private wireCrossServiceDependencies(config: SyncWorkerContextConfig): void {
+  private wireCrossServiceDependencies(): void {
     this.snapshotManager.setLeader(this.orchestrator.leader)
     this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
     this.broker.setStorageRecoveryService?.(this.storageRecoveryService)
-    this.subscribeInternalEvents(config)
+    this.subscribeInternalEvents()
   }
 
   private registerLifecycleServices(): void {
@@ -409,7 +409,7 @@ export class SyncWorkerContext {
     })
   }
 
-  private subscribeInternalEvents(config: SyncWorkerContextConfig): void {
+  private subscribeInternalEvents(): void {
     const unsub = this.internalEventHub.subscribe(event => {
       switch (event.type) {
         case 'leaderChange':
