@@ -51,14 +51,18 @@ describe('useSyncCoordinatorLifecycle', () => {
     expect(shutdownSpy).not.toHaveBeenCalled()
   })
 
-  it('resumes pending re-encryption when coming online', async () => {
+  it('resumes pending re-encryption after successful initialization', async () => {
     const { resumePendingReencryption } = await import('../../api/vault/reencrypt')
     renderHook(() => useSyncCoordinatorLifecycle('test-acc-3', true))
-
-    window.dispatchEvent(new Event('online'))
 
     await vi.waitFor(() => {
       expect(resumePendingReencryption).toHaveBeenCalledWith('test-acc-3')
     })
+  })
+
+  it('does not register a direct online window event listener', () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+    renderHook(() => useSyncCoordinatorLifecycle('test-acc-4', true))
+    expect(addEventListenerSpy).not.toHaveBeenCalledWith('online', expect.any(Function))
   })
 })

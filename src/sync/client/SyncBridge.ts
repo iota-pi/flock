@@ -38,9 +38,14 @@ class SyncBridgeService {
       },
       onReady: () => {
         this.domListeners.start({
-          onOnlineChange: isOnline => {
+          setOnlineState: async isOnline => {
             const api = this.lifecycleManager.getSyncApi()
-            if (api) void api.setOnlineState(isOnline)
+            if (api) await api.setOnlineState(isOnline)
+          },
+          getAccountId: () => this.lifecycleManager.getCurrentAccountId(),
+          flushSync: async () => {
+            const api = this.lifecycleManager.getSyncApi()
+            if (api) await api.flushSync()
           },
           onVisibilityHidden: () => {
             const api = this.lifecycleManager.getSyncApi()
