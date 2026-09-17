@@ -2,6 +2,7 @@ import type { ItemId } from '../../../shared/schemas/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
+import { AsyncMutex } from '../../utils/AsyncMutex'
 
 interface IndexBroadcastMessage {
   type: 'indexUpdated' | 'metadataUpdated'
@@ -12,7 +13,7 @@ interface IndexBroadcastMessage {
 const INDEX_LOCK_TIMEOUT_MS = 10000
 
 export class AutomergeIndexManager {
-  private queueTail: Promise<void> = Promise.resolve()
+  private mutex = new AsyncMutex()
   private broadcastChannel: BroadcastChannel | null = null
   private lastEmittedItemIds: string[] | null = null
   private isClosed = false
@@ -110,21 +111,8 @@ export class AutomergeIndexManager {
     }
   }
 
-  private enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const previousTail = this.queueTail
-
-    const taskPromise = (async () => {
-      await previousTail.catch(() => {})
-      return task()
-    })()
-
-    this.queueTail = taskPromise.then(() => {}).catch(() => {})
-
-    return taskPromise
-  }
-
   private async withLock<T>(task: () => Promise<T>): Promise<T> {
-    return this.enqueue(async () => {
+    return this.mutex.runExclusive(async () => {
       if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
         const lockName = `flock-index-lock-${this.accountId}`
         const controller = new AbortController()

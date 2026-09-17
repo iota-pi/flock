@@ -16,11 +16,9 @@ export interface AsyncQueueOptions {
  * - Deadlock-free: The drain loop safely resets processing state in a `finally` block even
  *   on unhandled rejections.
  * - Array-like inspection: Exposes `.length`, `.size`, `.isEmpty`, `[Symbol.iterator]()`,
- *   and indexed access `queue[0]` via a transparent Proxy.
+ *   `.peek()`, `.at(index)`, and `queue[0]`.
  */
 export class AsyncQueue<T> {
-  [index: number]: T | undefined
-
   private items: T[] = []
   private isProcessing = false
   private isCurrentItemRunning = false
@@ -31,16 +29,6 @@ export class AsyncQueue<T> {
   constructor(worker: AsyncQueueWorker<T>, options?: AsyncQueueOptions) {
     this.worker = worker
     this.options = options
-
-    return new Proxy(this, {
-      get(target, prop, receiver) {
-        if (typeof prop === 'string' && /^\d+$/.test(prop)) {
-          const index = Number(prop)
-          return target.items[index]
-        }
-        return Reflect.get(target, prop, receiver)
-      },
-    })
   }
 
   get length(): number {
@@ -61,6 +49,10 @@ export class AsyncQueue<T> {
 
   peek(): T | undefined {
     return this.items[0]
+  }
+
+  at(index: number): T | undefined {
+    return this.items.at(index)
   }
 
   get 0(): T | undefined {

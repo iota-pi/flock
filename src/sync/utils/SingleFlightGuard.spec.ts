@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { SingleFlightGuard, TaskDeduplicator } from './SingleFlightGuard'
+import { SingleFlightGuard, TaskDeduplicator, KeyedSingleFlightGuard } from './SingleFlightGuard'
 
 describe('SingleFlightGuard', () => {
   it('exports TaskDeduplicator as an alias for SingleFlightGuard', () => {
@@ -184,3 +184,142 @@ describe('SingleFlightGuard', () => {
     })
   })
 })
+
+describe('KeyedSingleFlightGuard', () => {
+  it('coalesces concurrent calls for the same key', async () => {
+    const guard = new KeyedSingleFlightGuard<string, number>()
+    let executions = 0
+
+    const fn = async () => {
+      executions++
+      await new Promise(resolve => setTimeout(resolve, 10))
+      return 42
+    }
+
+    const [r1, r2, r3] = await Promise.all([
+      guard.run('keyA', fn),
+      guard.run('keyA', fn),
+      guard.run('keyA', fn),
+    ])
+
+    expect(executions).toBe(1)
+    expect(r1).toBe(42)
+    expect(r2).toBe(42)
+    expect(r3).toBe(42)
+  })
+
+  it('runs tasks with different keys concurrently and independently', async () => {
+    const guard = new KeyedSingleFlightGuard<string, string>()
+    const executions: string[] = []
+
+    const fn = (key: string) => async () => {
+      executions.push(key)
+      await new Promise(resolve => setTimeout(resolve, 10))
+      return `result-${key}`
+    }
+
+    const [rA, rB] = await Promise.all([
+      guard.run('keyA', fn('keyA')),
+      guard.run('keyB', fn('keyB')),
+    ])
+
+    expect(executions).toContain('keyA')
+    expect(executions).toContain('keyB')
+    expect(rA).toBe('result-keyA')
+    expect(rB).toBe('result-keyB')
+  })
+
+  it('cleans up the key on resolution and allows subsequent runs', async () => {
+    const guard = new KeyedSingleFlightGuard<string, number>()
+    let counter = 0
+
+    const fn = async () => ++counter
+
+    const r1 = await guard.run('item1', fn)
+    expect(r1).toBe(1)
+    expect(guard.isRunning('item1')).toBe(false)
+    expect(guard.activeKeys.has('item1')).toBe(false)
+
+    const r2 = await guard.run('item1', fn)
+    expect(r2).toBe(2)
+  })
+
+  it('cleans up the key on rejection and notifies all coalesced callers', async () => {
+    const guard = new KeyedSingleFlightGuard<string, void>()
+    let attempts = 0
+
+    const failingFn = async () => {
+      attempts++
+      await new Promise(resolve => setTimeout(resolve, 10))
+      throw new Error('Key failure')
+    }
+
+    const [p1, p2] = [
+      guard.run('itemX', failingFn),
+      guard.run('itemX', failingFn),
+    ]
+
+    await expect(p1).rejects.toThrow('Key failure')
+    await expect(p2).rejects.toThrow('Key failure')
+    expect(attempts).toBe(1)
+    expect(guard.isRunning('itemX')).toBe(false)
+  })
+
+  it('invokes onCoalesce when concurrent callers join an in-flight key', async () => {
+    const guard = new KeyedSingleFlightGuard<string, string>()
+    let coalesced = 0
+    let resolveTask!: (val: string) => void
+    const taskPromise = new Promise<string>(r => { resolveTask = r })
+
+    const p1 = guard.run('k1', () => taskPromise)
+    const p2 = guard.run('k1', () => taskPromise, {
+      onCoalesce: () => { coalesced++ },
+    })
+
+    expect(coalesced).toBe(1)
+    resolveTask('done')
+    await Promise.all([p1, p2])
+  })
+
+  it('provides getPromise and waitForRunning for active keys', async () => {
+    const guard = new KeyedSingleFlightGuard<string, string>()
+    let resolveTask!: (val: string) => void
+    const taskPromise = new Promise<string>(r => { resolveTask = r })
+
+    void guard.run('doc1', () => taskPromise)
+
+    expect(guard.isRunning('doc1')).toBe(true)
+    expect(guard.getPromise('doc1')).toBeDefined()
+
+    const waitPromise = guard.waitForRunning('doc1')
+    resolveTask('resolved')
+
+    const result = await waitPromise
+    expect(result).toBe('resolved')
+  })
+
+  it('supports clear(key) and clear()', async () => {
+    const guard = new KeyedSingleFlightGuard<string, void>()
+    let resolveA!: () => void
+    let resolveB!: () => void
+    const taskA = new Promise<void>(r => { resolveA = r })
+    const taskB = new Promise<void>(r => { resolveB = r })
+
+    void guard.run('a', () => taskA)
+    void guard.run('b', () => taskB)
+
+    expect(guard.isRunning('a')).toBe(true)
+    expect(guard.isRunning('b')).toBe(true)
+
+    guard.clear('a')
+    expect(guard.isRunning('a')).toBe(false)
+    expect(guard.isRunning('b')).toBe(true)
+
+    guard.clear()
+    expect(guard.isRunning('b')).toBe(false)
+
+    resolveA()
+    resolveB()
+  })
+})
+

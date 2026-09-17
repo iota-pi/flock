@@ -118,8 +118,9 @@ src/sync/
 │       ├── messageParser.ts          # Length-prefixed batched message parser
 │       └── snapshot.ts               # Snapshot type normalization
 └── utils/
+    ├── AsyncMutex.ts                 # Sequential FIFO mutual exclusion (AsyncMutex & KeyedAsyncMutex)
     ├── RetryStrategy.ts              # Configurable delay schedules, jitter, and max attempts
-    └── SingleFlightGuard.ts          # Concurrency deduplicator for async operations
+    └── SingleFlightGuard.ts          # Concurrency deduplicator for async operations (SingleFlightGuard & KeyedSingleFlightGuard)
 ```
 
 ### Key Sync Concepts

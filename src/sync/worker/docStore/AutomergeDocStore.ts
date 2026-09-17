@@ -13,6 +13,8 @@ import {
 import { isPlainObject } from '../utils/objectUtils'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
 import { WorkerInternalEventHub } from '../SyncEventHub'
+import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
+import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -93,8 +95,8 @@ export interface ItemLockCoordinator {
 }
 
 export class AutomergeDocStore implements ItemLockCoordinator {
-  private pendingFindOrCreate = new Map<ItemId, Promise<RepoDocHandle>>()
-  private itemLocks = new Map<ItemId, Promise<unknown>>()
+  private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
+  private itemMutex = new KeyedAsyncMutex<ItemId>()
   private internalEventHub: WorkerInternalEventHub
   public onDocHandleReplaced?: DocHandleReplacedListener
 
@@ -115,30 +117,11 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
-    const prevLock = this.itemLocks.get(itemId) ?? Promise.resolve()
-    let release: () => void
-    const lockPromise = new Promise<void>(resolve => {
-      release = resolve
-    })
-    const nextLock = prevLock.catch(() => {}).then(() => lockPromise)
-    this.itemLocks.set(itemId, nextLock)
-
-    try {
-      await prevLock.catch(() => {})
-      return await fn()
-    } finally {
-      release!()
-      if (this.itemLocks.get(itemId) === nextLock) {
-        this.itemLocks.delete(itemId)
-      }
-    }
+    return this.itemMutex.runExclusive(itemId, fn)
   }
 
   async waitForItemLock(itemId: ItemId): Promise<void> {
-    const lock = this.itemLocks.get(itemId)
-    if (lock) {
-      await lock.catch(() => {})
-    }
+    return this.itemMutex.waitForIdle(itemId)
   }
 
   private resolveDocumentId(itemId: ItemId) {
@@ -196,7 +179,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     itemId: ItemId,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
-    const pending = this.pendingFindOrCreate.get(itemId)
+    const pending = this.findOrCreateGuard.getPromise(itemId)
     if (pending) {
       return pending
     }
@@ -256,79 +239,68 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     itemId: ItemId,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
-    const pending = this.pendingFindOrCreate.get(itemId)
-    if (pending) {
-      return pending
-    }
+    return this.findOrCreateGuard.run(itemId, () =>
+      this.withItemLock(itemId, async () => {
+        let handle = await this.findHandleInternal(itemId, options)
+        if (handle) return handle
 
-    const promise = this.withItemLock(itemId, async () => {
-      let handle = await this.findHandleInternal(itemId, options)
-      if (handle) return handle
+        if (options.knownToExist) {
+          console.error(
+            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
+            `Document is known to exist but handle could not be loaded within the timeout.`
+          )
+          return undefined
+        }
 
-      if (options.knownToExist) {
-        console.error(
-          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
-          `Document is known to exist but handle could not be loaded within the timeout.`
-        )
-        return undefined
-      }
+        // SAFETY: Before creating a blank document, independently verify that
+        // the item genuinely doesn't exist in storage. If it does, or if storage
+        // check fails due to transient/quota/lock error, we must NOT delete it.
+        let dataExists = false
+        try {
+          dataExists = await this.hasDataInStorage(itemId)
+        } catch (storageError) {
+          console.error(
+            `[AutomergeDocStore] Refusing to overwrite storage data for ${itemId}. ` +
+            `Storage check failed with an error, cannot confirm document does not exist:`,
+            storageError
+          )
+          return undefined
+        }
 
-      // SAFETY: Before creating a blank document, independently verify that
-      // the item genuinely doesn't exist in storage. If it does, or if storage
-      // check fails due to transient/quota/lock error, we must NOT delete it.
-      let dataExists = false
-      try {
-        dataExists = await this.hasDataInStorage(itemId)
-      } catch (storageError) {
-        console.error(
-          `[AutomergeDocStore] Refusing to overwrite storage data for ${itemId}. ` +
-          `Storage check failed with an error, cannot confirm document does not exist:`,
-          storageError
-        )
-        return undefined
-      }
+        if (dataExists) {
+          console.error(
+            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
+            `Document exists in storage but could not be loaded within the timeout.`
+          )
+          return undefined
+        }
 
-      if (dataExists) {
-        console.error(
-          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
-          `Document exists in storage but could not be loaded within the timeout.`
-        )
-        return undefined
-      }
+        // Document genuinely doesn't exist — safe to create
+        const { documentId } = this.resolveDocumentId(itemId)
+        try {
+          this.repo.delete(documentId)
+        } catch (error) {
+          console.error('[automerge] failed to clear unavailable handle before import', {
+            itemId,
+            error,
+          })
+        }
 
-      // Document genuinely doesn't exist — safe to create
-      const { documentId } = this.resolveDocumentId(itemId)
-      try {
-        this.repo.delete(documentId)
-      } catch (error) {
-        console.error('[automerge] failed to clear unavailable handle before import', {
-          itemId,
-          error,
-        })
-      }
+        const newDoc = Automerge.init()
+        const binary = Automerge.save(newDoc)
+        try {
+          handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
+        } catch (error) {
+          throw new Error(
+            `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
+            { cause: error },
+          )
+        }
 
-      const newDoc = Automerge.init()
-      const binary = Automerge.save(newDoc)
-      try {
-        handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
-      } catch (error) {
-        throw new Error(
-          `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
-          { cause: error },
-        )
-      }
-
-      this.notifyDocHandleReplaced(itemId, handle)
-      return handle
-    })
-
-    this.pendingFindOrCreate.set(itemId, promise)
-
-    try {
-      return await promise
-    } finally {
-      this.pendingFindOrCreate.delete(itemId)
-    }
+        this.notifyDocHandleReplaced(itemId, handle)
+        return handle
+      })
+    )
   }
 
   snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {

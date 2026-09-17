@@ -15,13 +15,14 @@ describe('AsyncQueue', () => {
     expect(executed).toEqual([1, 2, 3])
   })
 
-  it('provides array-like inspection and index access via Proxy', () => {
+  it('provides array-like inspection and index access', () => {
     const queue = new AsyncQueue<string>(() => {})
     expect(queue.length).toBe(0)
     expect(queue.size).toBe(0)
     expect(queue.isEmpty).toBe(true)
     expect(queue[0]).toBeUndefined()
     expect(queue.peek()).toBeUndefined()
+    expect(queue.at(0)).toBeUndefined()
 
     // Note: queue.push triggers drain synchronously until first await.
     // If worker is sync, it completes immediately.
@@ -86,9 +87,9 @@ describe('AsyncQueue', () => {
 
     // The active item must remain at index 0!
     expect(queue[0]).toBe('first')
-    expect(queue[1]).toBe('p1')
-    expect(queue[2]).toBe('p2')
-    expect(queue[3]).toBe('normal')
+    expect(queue.at(1)).toBe('p1')
+    expect(queue.at(2)).toBe('p2')
+    expect(queue.at(3)).toBe('normal')
 
     // Release the first item
     releaseFirstItem()
@@ -123,7 +124,7 @@ describe('AsyncQueue', () => {
     queue.unshift('a', 'b')
 
     expect(queue[0]).toBe('a')
-    expect(queue[1]).toBe('b')
+    expect(queue.at(1)).toBe('b')
 
     releaseDrain()
     await queue.whenIdle()
@@ -209,3 +210,5 @@ describe('AsyncQueue', () => {
     await expect(queue.whenIdle()).resolves.toBeUndefined()
   })
 })
+
+
