@@ -267,15 +267,6 @@ describe('SyncWorkerContext', () => {
     )
   })
 
-  it('cleans up quota recovery handler on shutdown', async () => {
-    const unregisterSpy = vi.fn()
-    // @ts-expect-error accessing private field for test
-    context.unregisterQuotaRecovery = unregisterSpy
-
-    await context.shutdown()
-    expect(unregisterSpy).toHaveBeenCalledTimes(1)
-  })
-
   it('delegates initialize and shutdown to lifecycle manager', async () => {
     const startSpy = vi.spyOn(context.lifecycle, 'start')
     const stopSpy = vi.spyOn(context.lifecycle, 'stop')

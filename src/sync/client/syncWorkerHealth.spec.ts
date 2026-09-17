@@ -231,31 +231,14 @@ describe('syncWorkerHealth', () => {
     channel.port2.close()
   })
 
-  it('supports pingFn as fallback', async () => {
-    const onCrash = vi.fn()
-    const onRestart = vi.fn()
-    const pingFn = vi.fn().mockResolvedValue(undefined)
-
-    setupWorkerHealthCheck({
-      worker: mockWorker,
-      pingFn,
-      isCurrentWorker: () => true,
-      onCrash,
-      onRestart,
-    })
-
-    await vi.advanceTimersByTimeAsync(15000)
-    expect(pingFn).toHaveBeenCalledTimes(1)
-    expect(onCrash).not.toHaveBeenCalled()
-  })
-
   it('handles worker error events as crash', async () => {
     const onCrash = vi.fn()
     const onRestart = vi.fn()
+    const channel = new MessageChannel()
 
     setupWorkerHealthCheck({
       worker: mockWorker,
-      pingFn: vi.fn(),
+      pingPort: channel.port1,
       isCurrentWorker: () => true,
       onCrash,
       onRestart,
@@ -265,6 +248,9 @@ describe('syncWorkerHealth', () => {
     expect(onCrash).toHaveBeenCalledTimes(1)
     expect(mockWorker.terminate).toHaveBeenCalledTimes(1)
     expect(onRestart).toHaveBeenCalledTimes(1)
+
+    channel.port1.close()
+    channel.port2.close()
   })
 
   it('aborts in-flight ping and prevents secondary crash handling when worker crashes during ping', async () => {
@@ -505,8 +491,10 @@ describe('syncWorkerHealth', () => {
     for (let i = 1; i < MAX_CONSECUTIVE_CRASHES; i++) {
       const onCrash = vi.fn()
       const onRestart = vi.fn()
+      const channel = new MessageChannel()
       setupWorkerHealthCheck({
         worker: mockWorker,
+        pingPort: channel.port1,
         isCurrentWorker: () => true,
         onCrash,
         onRestart,
@@ -514,11 +502,15 @@ describe('syncWorkerHealth', () => {
       mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Explicit crash' }))
       expect(onCrash).toHaveBeenCalledWith(true)
       expect(onRestart).toHaveBeenCalled()
+      channel.port1.close()
+      channel.port2.close()
     }
     const finalOnCrash = vi.fn()
     const finalOnRestart = vi.fn()
+    const finalErrorChannel = new MessageChannel()
     setupWorkerHealthCheck({
       worker: mockWorker,
+      pingPort: finalErrorChannel.port1,
       isCurrentWorker: () => true,
       onCrash: finalOnCrash,
       onRestart: finalOnRestart,
@@ -526,6 +518,8 @@ describe('syncWorkerHealth', () => {
     mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Explicit crash' }))
     expect(finalOnCrash).toHaveBeenCalledWith(false)
     expect(useAppStore.getState().syncStatus).toBe('dead')
+    finalErrorChannel.port1.close()
+    finalErrorChannel.port2.close()
 
     // 2. Timeouts allow up to MAX_CONSECUTIVE_TIMEOUTS (5)
     resetCrashMetrics()

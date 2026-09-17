@@ -74,67 +74,6 @@ async function quarantineItem(
   }
 }
 
-export class ReencryptAuthManager {
-  private currentToken: string | null = null
-  private readonly getAuth: () => Promise<string | null>
-  private readonly refreshAuth?: () => Promise<string | null>
-
-  constructor(deps: Pick<ReencryptDeps, 'getAuthToken' | 'refreshAuthToken'>) {
-    this.getAuth = deps.getAuthToken ?? getActiveSessionToken
-    this.refreshAuth = deps.refreshAuthToken
-  }
-
-  async getInitialToken(): Promise<string> {
-    this.currentToken = await this.getAuth()
-    if (!this.currentToken && this.refreshAuth) {
-      try {
-        this.currentToken = await this.refreshAuth()
-      } catch (refreshErr) {
-        console.warn('[reencryptAllItems] Initial token refresh callback failed:', refreshErr)
-      }
-    }
-    if (!this.currentToken) {
-      throw new Error('No active session token available')
-    }
-    return this.currentToken
-  }
-
-  async syncLatestToken(): Promise<string> {
-    const latest = await this.getAuth()
-    if (latest) {
-      this.currentToken = latest
-    }
-    return this.currentToken!
-  }
-
-  async tryRefresh(): Promise<string | null> {
-    let refreshedToken: string | null = null
-    if (this.refreshAuth) {
-      try {
-        refreshedToken = await this.refreshAuth()
-      } catch (refreshErr) {
-        console.warn('[reencryptAllItems] Token refresh callback failed:', refreshErr)
-      }
-    }
-    if (!refreshedToken) {
-      refreshedToken = await this.getAuth()
-    }
-
-    if (refreshedToken && refreshedToken !== this.currentToken) {
-      console.info('[reencryptAllItems] Acquired fresh auth token, retrying batch upload...')
-      this.currentToken = refreshedToken
-      return refreshedToken
-    }
-    return null
-  }
-
-  getToken(): string {
-    if (!this.currentToken) {
-      throw new Error('No active session token available')
-    }
-    return this.currentToken
-  }
-}
 
 export interface ReencryptDeps {
   accountId: string

@@ -61,8 +61,7 @@ export interface SendPingOptions {
 
 export interface HealthCheckOptions {
   worker: Worker
-  pingPort?: MessagePort
-  pingFn?: (signal?: AbortSignal) => Promise<void>
+  pingPort: MessagePort
   isCurrentWorker: () => boolean
   onCrash: (willRestart?: boolean) => void
   onRestart: () => void
@@ -232,7 +231,6 @@ function isExternalAbort(signal: AbortSignal): boolean {
 export const setupWorkerHealthCheck = ({
   worker,
   pingPort,
-  pingFn,
   isCurrentWorker,
   onCrash,
   onRestart,
@@ -316,31 +314,10 @@ export const setupWorkerHealthCheck = ({
     activePingAbortController = abortController
 
     try {
-      if (pingPort) {
-        await sendPing(pingPort, {
-          signal: abortController.signal,
-          timeoutMs: heartbeatTimeoutMs,
-        })
-      } else if (pingFn) {
-        let timeoutId: ReturnType<typeof setTimeout> | null = null
-        try {
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => {
-              const err = new Error('Heartbeat timeout')
-              abortController.abort(err)
-              reject(err)
-            }, heartbeatTimeoutMs)
-          })
-          const pingPromise = pingFn(abortController.signal)
-          pingPromise.catch(() => {})
-          timeoutPromise.catch(() => {})
-          await Promise.race([pingPromise, timeoutPromise])
-        } finally {
-          if (timeoutId !== null) {
-            clearTimeout(timeoutId)
-          }
-        }
-      }
+      await sendPing(pingPort, {
+        signal: abortController.signal,
+        timeoutMs: heartbeatTimeoutMs,
+      })
 
       // Ping succeeded
       consecutiveMissedPings = 0
