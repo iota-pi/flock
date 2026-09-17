@@ -15,7 +15,7 @@ export abstract class BaseLocalForageStore {
   constructor(optionsOrInstance: BaseStoreOptions | LocalForage) {
     if ('getItem' in optionsOrInstance && typeof (optionsOrInstance as LocalForage).getItem === 'function') {
       this.store = optionsOrInstance as LocalForage
-      this.storeName = (optionsOrInstance as any)._config?.storeName ?? ''
+      this.storeName = (optionsOrInstance as unknown as { _config?: { storeName?: string } })._config?.storeName ?? ''
     } else {
       const options = optionsOrInstance as BaseStoreOptions
       this.storeName = options.storeName

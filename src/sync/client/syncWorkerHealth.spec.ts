@@ -502,7 +502,7 @@ describe('syncWorkerHealth', () => {
   it('differentiates explicit error vs timeout in crash limits', async () => {
     // 1. Explicit errors halt after MAX_CONSECUTIVE_CRASHES (3)
     resetCrashMetrics()
-    for (let i = 1; i <= MAX_CONSECUTIVE_CRASHES; i++) {
+    for (let i = 1; i < MAX_CONSECUTIVE_CRASHES; i++) {
       const onCrash = vi.fn()
       const onRestart = vi.fn()
       setupWorkerHealthCheck({
@@ -512,19 +512,25 @@ describe('syncWorkerHealth', () => {
         onRestart,
       })
       mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Explicit crash' }))
-      if (i < MAX_CONSECUTIVE_CRASHES) {
-        expect(onCrash).toHaveBeenCalledWith(true)
-        expect(onRestart).toHaveBeenCalled()
-      } else {
-        expect(onCrash).toHaveBeenCalledWith(false)
-        expect(useAppStore.getState().syncStatus).toBe('dead')
-      }
+      expect(onCrash).toHaveBeenCalledWith(true)
+      expect(onRestart).toHaveBeenCalled()
     }
+    const finalOnCrash = vi.fn()
+    const finalOnRestart = vi.fn()
+    setupWorkerHealthCheck({
+      worker: mockWorker,
+      isCurrentWorker: () => true,
+      onCrash: finalOnCrash,
+      onRestart: finalOnRestart,
+    })
+    mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Explicit crash' }))
+    expect(finalOnCrash).toHaveBeenCalledWith(false)
+    expect(useAppStore.getState().syncStatus).toBe('dead')
 
     // 2. Timeouts allow up to MAX_CONSECUTIVE_TIMEOUTS (5)
     resetCrashMetrics()
     useAppStore.setState({ syncStatus: 'idle', fatalError: null })
-    for (let i = 1; i <= MAX_CONSECUTIVE_TIMEOUTS; i++) {
+    for (let i = 1; i < MAX_CONSECUTIVE_TIMEOUTS; i++) {
       const onCrash = vi.fn()
       const onRestart = vi.fn()
       const channel = new MessageChannel()
@@ -537,16 +543,26 @@ describe('syncWorkerHealth', () => {
         maxMissedPings: 1,
       })
       await vi.advanceTimersByTimeAsync(45000)
-      if (i < MAX_CONSECUTIVE_TIMEOUTS) {
-        expect(onCrash).toHaveBeenCalledWith(true)
-      } else {
-        expect(onCrash).toHaveBeenCalledWith(false)
-        expect(useAppStore.getState().syncStatus).toBe('dead')
-        expect(useAppStore.getState().fatalError).toContain('became unresponsive')
-      }
+      expect(onCrash).toHaveBeenCalledWith(true)
       channel.port1.close()
       channel.port2.close()
     }
+    const finalTimeoutCrash = vi.fn()
+    const finalTimeoutRestart = vi.fn()
+    const finalChannel = new MessageChannel()
+    setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: finalChannel.port1,
+      isCurrentWorker: () => true,
+      onCrash: finalTimeoutCrash,
+      onRestart: finalTimeoutRestart,
+      maxMissedPings: 1,
+    })
+    await vi.advanceTimersByTimeAsync(45000)
+    expect(finalTimeoutCrash).toHaveBeenCalledWith(false)
+    expect(useAppStore.getState().syncStatus).toBe('dead')
+    expect(useAppStore.getState().fatalError).toContain('became unresponsive')
+    finalChannel.port1.close()
+    finalChannel.port2.close()
   })
 })
-

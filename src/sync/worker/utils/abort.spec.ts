@@ -57,13 +57,14 @@ describe('abort utility', () => {
     it('throws AbortError with custom abort reason when signal is aborted with string', () => {
       const controller = new AbortController()
       controller.abort('custom reason')
+      let thrown: unknown
       try {
         checkAlive(controller.signal, true)
-        expect.unreachable('Should have thrown')
-      } catch (err: any) {
-        expect(err).toBeInstanceOf(AbortError)
-        expect(err.message).toBe('custom reason')
+      } catch (err) {
+        thrown = err
       }
+      expect(thrown).toBeInstanceOf(AbortError)
+      expect((thrown as Error).message).toBe('custom reason')
     })
 
     it('throws AbortError when isAlive is false', () => {

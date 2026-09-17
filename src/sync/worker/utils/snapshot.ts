@@ -1,6 +1,6 @@
 import { ITEM_TYPES } from 'src/shared/schemas/items'
 import type { Item } from 'src/state/items'
-import { reconcileAutomergeList } from './crdtReconcile'
+import { reconcileAutomergeList, type AutomergeListItem } from './crdtReconcile'
 
 export function mutateDraftToMatchSnapshot<T>(
   draft: Record<string, T>,
@@ -15,7 +15,10 @@ export function mutateDraftToMatchSnapshot<T>(
   for (const [key, value] of Object.entries(snapshot)) {
     if (value !== undefined) {
       if (Array.isArray(value) && Array.isArray(draft[key])) {
-        reconcileAutomergeList(draft[key] as any[], value as any[])
+        reconcileAutomergeList(
+          draft[key] as unknown as AutomergeListItem[],
+          value as unknown as AutomergeListItem[],
+        )
       } else {
         draft[key] = value
       }

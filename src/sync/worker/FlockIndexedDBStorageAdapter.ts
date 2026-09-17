@@ -72,7 +72,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
         }
       }
 
-      const safeReject = (err: any) => {
+      const safeReject = (err: unknown) => {
         if (!isSettled) {
           isSettled = true
           reject(err)

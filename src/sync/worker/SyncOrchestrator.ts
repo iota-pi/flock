@@ -5,6 +5,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from './utils/abort'
+import type { ItemId } from 'src/shared/schemas/items'
 
 export interface SyncPollerLike {
   executePoll: () => Promise<PollOutcome>
@@ -18,7 +19,7 @@ export interface SyncPullQueueManagerLike {
 }
 
 export interface ManifestSyncManagerLike {
-  sync: (force?: boolean, signal?: AbortSignal) => Promise<{ added: any[] }>
+  sync: (force?: boolean, signal?: AbortSignal) => Promise<{ added: ItemId[] }>
   abort?: () => void
 }
 

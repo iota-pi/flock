@@ -1,5 +1,5 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncPoller, type PollOutcome } from './SyncPoller'
+import { SyncPoller } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'

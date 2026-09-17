@@ -140,7 +140,10 @@ describe('KeyedAsyncMutex', () => {
     const task = new Promise<void>(r => { release = r })
 
     void mutex.runExclusive('a', () => task)
+    let idleAfterClear = false
     mutex.clear('a')
+    await mutex.waitForIdle('a').then(() => { idleAfterClear = true })
+    expect(idleAfterClear).toBe(true)
     release()
   })
 })

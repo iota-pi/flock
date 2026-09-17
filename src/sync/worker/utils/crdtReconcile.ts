@@ -1,6 +1,6 @@
 import type { Item } from 'src/state/items'
 
-type AutomergeListItem = { id?: string; [key: string]: unknown }
+export type AutomergeListItem = { id?: string; [key: string]: unknown }
 
 /**
  * Reconciles an Automerge list of primitive values (strings, numbers, booleans)

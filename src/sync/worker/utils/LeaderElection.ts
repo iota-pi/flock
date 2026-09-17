@@ -121,7 +121,9 @@ export class LeaderElection {
           isFallback: true,
         }
         this.presenceChannel.postMessage(msg)
-      } catch (_) {}
+      } catch (_) {
+        // BroadcastChannel might be closed; ignore error
+      }
     }
 
     this.grantLeadership(true)
@@ -169,7 +171,9 @@ export class LeaderElection {
         isReply,
       }
       this.presenceChannel.postMessage(msg)
-    } catch (_) {}
+    } catch (_) {
+      // BroadcastChannel might be closed; ignore error
+    }
   }
 
   private handlePresenceMessage(data: PresenceMessage): void {
@@ -266,11 +270,15 @@ export class LeaderElection {
             leaderId: this.leaderId,
           }
           this.presenceChannel.postMessage(msg)
-        } catch (_) {}
+        } catch (_) {
+          // Ignore errors sending release message
+        }
       }
       try {
         this.presenceChannel.close()
-      } catch (_) {}
+      } catch (_) {
+        // Ignore errors closing channel
+      }
       this.presenceChannel = null
     }
 

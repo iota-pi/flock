@@ -106,7 +106,7 @@ function validateItem(item: VaultItem) {
   }
 
   // Calculate item length without expanding binary Buffers into huge JSON arrays
-  let itemLength = 0
+  let itemLength: number
   const cipher = item.snapshot?.cipher
   if (cipher && (Buffer.isBuffer(cipher) || cipher instanceof Uint8Array)) {
     const cipherLength = cipher.byteLength
@@ -888,8 +888,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: Record<string, any>
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, any> }> {
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
     const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
     const hasCursor = typeof fromCursor === 'number'
     const response = await this.client.send(new QueryCommand({
@@ -918,8 +918,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   async getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: Record<string, any>
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, any> }> {
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
     const hasCursor = typeof input.cursor === 'number'
 

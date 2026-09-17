@@ -635,7 +635,9 @@ export class ManifestSyncManager {
           try {
             const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
             this.onItemSnapshotHydrated?.(itemId, heads)
-          } catch {}
+          } catch {
+            // Best-effort heads notification; ignore failure if binary cannot be inspected
+          }
 
           const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))
           if (isDeleted) {

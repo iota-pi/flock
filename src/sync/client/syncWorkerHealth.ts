@@ -167,7 +167,7 @@ export const sendPing = (
       reject(signal?.reason ?? new Error('Ping aborted'))
     }
 
-    const cleanup = () => {
+    function cleanup() {
       if (settled) return
       settled = true
 

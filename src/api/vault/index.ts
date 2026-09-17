@@ -337,7 +337,7 @@ export async function syncKeyringFromServer(account: string): Promise<void> {
 
 export async function initWorkerVault(vaultKeyOrKeyring: string) {
   const nextKeys = new Map<string, CryptoKey>()
-  let nextActiveVersion = '1'
+  let nextActiveVersion: string
 
   try {
     const keyringData = JSON.parse(vaultKeyOrKeyring)

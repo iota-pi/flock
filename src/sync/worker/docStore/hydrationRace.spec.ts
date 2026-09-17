@@ -146,7 +146,9 @@ describe('Document Hydration Race Condition (C4)', () => {
           } finally {
             try {
               repo.delete(tempHandle.documentId)
-            } catch {}
+            } catch {
+              // ignore cleanup error
+            }
           }
         }
         pullProcessed = true
@@ -233,7 +235,9 @@ describe('Document Hydration Race Condition (C4)', () => {
           } finally {
             try {
               repo.delete(tempHandle.documentId)
-            } catch {}
+            } catch {
+              // ignore cleanup error
+            }
           }
         }
       }

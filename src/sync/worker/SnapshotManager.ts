@@ -780,13 +780,13 @@ export class SnapshotManager {
   private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
     try {
       return await buildSnapshot(this.deps.repo, itemId, snapshotCursor)
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (isTransientVaultError(error)) {
         console.warn('[SnapshotManager] Vault is locked or uninitialized during snapshot build, waiting', error)
         return { type: 'not-ready' }
       }
       console.error('[SnapshotManager] failed to encrypt snapshot binary', error)
-      return { type: 'error', reason: error?.message || 'Failed to encrypt snapshot binary' }
+      return { type: 'error', reason: error instanceof Error ? error.message : 'Failed to encrypt snapshot binary' }
     }
   }
 

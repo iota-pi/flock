@@ -1423,9 +1423,7 @@ describe('ManifestSyncManager', () => {
 
         expect(result.status).toBe('decryption_failure')
         expect(result.itemId).toBe('item-un-decryptable')
-        if (result.status === 'decryption_failure') {
-          expect(result.error.message).toContain('Failed to decrypt')
-        }
+        expect((result as Extract<typeof result, { status: 'decryption_failure' }>).error.message).toContain('Failed to decrypt')
       })
 
       it('returns error when Automerge hydration throws', async () => {
@@ -1445,9 +1443,7 @@ describe('ManifestSyncManager', () => {
 
         expect(result.status).toBe('error')
         expect(result.itemId).toBe('item-crash')
-        if (result.status === 'error') {
-          expect((result.error as Error).message).toBe('WASM crash')
-        }
+        expect(((result as Extract<typeof result, { status: 'error' }>).error as Error).message).toBe('WASM crash')
       })
     })
 

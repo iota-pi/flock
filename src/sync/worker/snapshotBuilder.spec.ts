@@ -93,10 +93,8 @@ describe('buildSnapshot helper function', () => {
 
       const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
       expect(result.type).toBe('success')
-      if (result.type === 'success') {
-        // Timestamp must be T1 (1000), not T3 (3000)
-        expect(result.snapshot.modified).toBe(1000)
-      }
+      // Timestamp must be T1 (1000), not T3 (3000)
+      expect((result as Extract<typeof result, { type: 'success' }>).snapshot.modified).toBe(1000)
     } finally {
       vi.useRealTimers()
     }

@@ -391,7 +391,7 @@ describe('SyncBridge', () => {
     window.dispatchEvent(storageEvent)
 
     await vi.waitFor(() => {
-      expect(reloadKeyringFromStorage).toHaveBeenCalledWith('test-account')
+      expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
       expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-2')
     })
   })
@@ -428,7 +428,7 @@ describe('SyncBridge', () => {
     lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '3' })
 
     await vi.waitFor(() => {
-      expect(reloadKeyringFromStorage).toHaveBeenCalledWith('test-account')
+      expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
       expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-3')
     })
   })

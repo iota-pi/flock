@@ -1,7 +1,7 @@
 export type AsyncQueueWorker<T> = (item: T) => Promise<void> | void
 
-export interface AsyncQueueOptions {
-  onError?: (error: unknown, item: any) => void
+export interface AsyncQueueOptions<T = unknown> {
+  onError?: (error: unknown, item: T) => void
 }
 
 /**
@@ -23,10 +23,10 @@ export class AsyncQueue<T> {
   private isProcessing = false
   private isCurrentItemRunning = false
   private worker: AsyncQueueWorker<T>
-  private options?: AsyncQueueOptions
+  private options?: AsyncQueueOptions<T>
   private idleResolvers: Array<() => void> = []
 
-  constructor(worker: AsyncQueueWorker<T>, options?: AsyncQueueOptions) {
+  constructor(worker: AsyncQueueWorker<T>, options?: AsyncQueueOptions<T>) {
     this.worker = worker
     this.options = options
   }
