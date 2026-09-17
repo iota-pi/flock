@@ -153,6 +153,137 @@ export interface ReencryptResult {
   failed: Array<{ itemId: ItemId; error: string }>
 }
 
+async function buildSingleSnapshotWithRetry(repo: Repo, itemId: ItemId) {
+  let retries = 0
+  let lastError: Error | null = null
+  while (retries < MAX_BATCH_RETRIES) {
+    try {
+      return await buildSnapshot(repo, itemId, 0)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      retries += 1
+      console.warn(
+        `[reencryptAllItems] Retry ${retries}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
+        err
+      )
+    }
+  }
+  throw lastError
+}
+
+async function buildSnapshotsForChunk(
+  repo: Repo,
+  chunkIds: ItemId[]
+): Promise<{
+  readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
+  failureDetails: Array<{ itemId: ItemId; errorMsg: string; rawError?: unknown }>
+}> {
+  const settled = await Promise.allSettled(
+    chunkIds.map(itemId => buildSingleSnapshotWithRetry(repo, itemId))
+  )
+
+  const readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }> = []
+  const failureDetails: Array<{ itemId: ItemId; errorMsg: string; rawError?: unknown }> = []
+
+  for (const [index, result] of settled.entries()) {
+    const itemId = chunkIds[index]
+    if (result.status === 'fulfilled') {
+      if (result.value.type === 'success') {
+        readySnapshots.push({ itemId, snapshot: result.value.snapshot })
+      } else if (result.value.type === 'not-ready') {
+        console.warn(`[reencryptAllItems] Item ${itemId} was not ready. Skipping.`)
+      } else if (result.value.type === 'error') {
+        const errorMsg = result.value.reason
+          ? `Failed to build snapshot for item ${itemId}: ${result.value.reason}`
+          : `Failed to build snapshot for item ${itemId}`
+        failureDetails.push({ itemId, errorMsg })
+      }
+    } else {
+      const errorDetail =
+        result.reason instanceof Error ? result.reason.message : String(result.reason)
+      failureDetails.push({
+        itemId,
+        errorMsg: `Failed to build snapshot for item ${itemId}: ${errorDetail}`,
+        rawError: result.reason,
+      })
+    }
+  }
+
+  return { readySnapshots, failureDetails }
+}
+
+async function uploadSnapshotBatchWithRetry(
+  apiClient: SyncApiClient,
+  accountId: string,
+  readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
+): Promise<{ uploadSuccess: boolean; lastError: unknown }> {
+  let uploadSuccess = false
+  let lastError: unknown = null
+
+  for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
+    try {
+      const response = await apiClient.putSnapshots({
+        account: accountId,
+        snapshots: readySnapshots.map(r => r.snapshot),
+      })
+
+      if (
+        response?.success &&
+        (response.persisted === undefined || response.persisted === readySnapshots.length)
+      ) {
+        uploadSuccess = true
+        break
+      }
+    } catch (err) {
+      lastError = err
+      console.warn(
+        `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
+        err
+      )
+
+      if (isAuthError(err)) {
+        throw toAuthExpiredError(err)
+      }
+
+      if (isNetworkError(err) || isServerError(err)) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          break
+        }
+      }
+    }
+  }
+
+  return { uploadSuccess, lastError }
+}
+
+function handleBatchUploadFailure(
+  lastError: unknown,
+  deps: ReencryptDeps,
+  onProgress?: (done: number, total: number) => void
+): string {
+  if (isAuthError(lastError)) {
+    throw toAuthExpiredError(lastError)
+  }
+
+  if (isNetworkError(lastError) || isServerError(lastError)) {
+    const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
+    const errorType = isServerError(lastError) ? 'server error' : 'network error'
+    console.warn(
+      `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
+    )
+    scheduleReencryptRetry(deps, onProgress)
+    throw new Error(
+      `Re-encryption aborted: ${errorType} (${errMsg})`,
+      { cause: lastError }
+    )
+  }
+
+  return (
+    `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
+    (lastError instanceof Error ? `: ${lastError.message}` : '')
+  )
+}
+
 export async function reencryptAllItems(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
@@ -186,25 +317,6 @@ export async function reencryptAllItems(
   const succeeded: ItemId[] = []
   const failed: Array<{ itemId: ItemId; error: string }> = []
 
-  const handleSnapshotFailure = async (
-    itemId: ItemId,
-    errorMsg: string,
-    rawError?: unknown
-  ): Promise<void> => {
-    if (rawError !== undefined) {
-      console.error(`[reencryptAllItems] ${errorMsg}`, rawError)
-    } else {
-      console.error(`[reencryptAllItems] ${errorMsg}`)
-    }
-    failed.push({ itemId, error: errorMsg })
-    await quarantineItem(
-      recoveryManager,
-      accountId,
-      itemId,
-      `Re-encryption snapshot build failed: ${errorMsg}`
-    )
-  }
-
   const itemChunks = chunk(allItemIds, 10)
 
   for (const chunkIds of itemChunks) {
@@ -217,109 +329,35 @@ export async function reencryptAllItems(
 
     await apiClient.syncLatestToken()
 
-    const snapshotPromises = chunkIds.map(async itemId => {
-      let retries = 0
-      let lastError: Error | null = null
-      while (retries < MAX_BATCH_RETRIES) {
-        try {
-          return await buildSnapshot(repo, itemId, 0)
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err))
-          retries += 1
-          console.warn(
-            `[reencryptAllItems] Retry ${retries}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
-            err
-          )
-        }
-      }
-      throw lastError
-    })
-    const settled = await Promise.allSettled(snapshotPromises)
-
-    const readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }> = []
-    for (const [index, result] of settled.entries()) {
-      const itemId = chunkIds[index]
-      if (result.status === 'fulfilled') {
-        if (result.value.type === 'success') {
-          readySnapshots.push({ itemId, snapshot: result.value.snapshot })
-        } else if (result.value.type === 'not-ready') {
-          console.warn(`[reencryptAllItems] Item ${itemId} was not ready. Skipping.`)
-        } else if (result.value.type === 'error') {
-          const errMsg = result.value.reason
-            ? `Failed to build snapshot for item ${itemId}: ${result.value.reason}`
-            : `Failed to build snapshot for item ${itemId}`
-          await handleSnapshotFailure(itemId, errMsg)
-        }
+    const { readySnapshots, failureDetails } = await buildSnapshotsForChunk(repo, chunkIds)
+    for (const failure of failureDetails) {
+      if (failure.rawError !== undefined) {
+        console.error(`[reencryptAllItems] ${failure.errorMsg}`, failure.rawError)
       } else {
-        const errorDetail =
-          result.reason instanceof Error ? result.reason.message : String(result.reason)
-        await handleSnapshotFailure(
-          itemId,
-          `Failed to build snapshot for item ${itemId}: ${errorDetail}`,
-          result.reason
-        )
+        console.error(`[reencryptAllItems] ${failure.errorMsg}`)
       }
+      failed.push({ itemId: failure.itemId, error: failure.errorMsg })
+      await quarantineItem(
+        recoveryManager,
+        accountId,
+        failure.itemId,
+        `Re-encryption snapshot build failed: ${failure.errorMsg}`
+      )
     }
 
     if (readySnapshots.length > 0) {
-      let uploadSuccess = false
-      let lastError: unknown = null
-
-      for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
-        try {
-          const response = await apiClient.putSnapshots({
-            account: accountId,
-            snapshots: readySnapshots.map(r => r.snapshot),
-          })
-
-          if (response?.success && (response.persisted === undefined || response.persisted === readySnapshots.length)) {
-            uploadSuccess = true
-            break
-          }
-        } catch (err) {
-          lastError = err
-          console.warn(
-            `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
-            err
-          )
-
-          if (isAuthError(err)) {
-            throw toAuthExpiredError(err)
-          }
-
-          if (isNetworkError(err) || isServerError(err)) {
-            if (typeof navigator !== 'undefined' && !navigator.onLine) {
-              break
-            }
-          }
-        }
-      }
+      const { uploadSuccess, lastError } = await uploadSnapshotBatchWithRetry(
+        apiClient,
+        accountId,
+        readySnapshots
+      )
 
       if (uploadSuccess) {
         for (const item of readySnapshots) {
           succeeded.push(item.itemId)
         }
       } else {
-        if (isAuthError(lastError)) {
-          throw toAuthExpiredError(lastError)
-        }
-
-        if (isNetworkError(lastError) || isServerError(lastError)) {
-          const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
-          const errorType = isServerError(lastError) ? 'server error' : 'network error'
-          console.warn(
-            `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
-          )
-          scheduleReencryptRetry(deps, onProgress)
-          throw new Error(
-            `Re-encryption aborted: ${errorType} (${errMsg})`,
-            { cause: lastError }
-          )
-        }
-
-        const errMsg =
-          `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
-          (lastError instanceof Error ? `: ${lastError.message}` : '')
+        const errMsg = handleBatchUploadFailure(lastError, deps, onProgress)
         console.error(`[reencryptAllItems] ${errMsg}`)
         for (const item of readySnapshots) {
           failed.push({ itemId: item.itemId, error: errMsg })

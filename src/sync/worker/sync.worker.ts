@@ -85,14 +85,7 @@ export class SyncWorker implements SyncApi {
     return this._context
   }
 
-  async initRepo(accountId: string, vaultKey: string) {
-    this.isShutDown = false
-    if (this.isReady || !this.readyPromise) {
-      this.isReady = false
-      this.initReadyPromise()
-    }
-
-    // Tear down any previous session
+  private async teardownSession(): Promise<void> {
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
@@ -100,28 +93,122 @@ export class SyncWorker implements SyncApi {
     }
     await this._context?.shutdown()
     this._context = null
+  }
+
+  private initWorkerState(): void {
+    resetQuotaExceededStatus()
+    this.clientEventHub = new ClientEventHub()
+    if (globalEventPort) {
+      this.clientEventHub.setExternalPort(globalEventPort)
+    }
+    this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
+    this.internalEventHub = new WorkerInternalEventHub()
+
+    const trackedFetch = getTrackedFetch(
+      () => this.clientEventHub.emit({ type: 'startRequest' }),
+      () => this.clientEventHub.emit({ type: 'finishRequest' })
+    )
+    initTrpcClient(trackedFetch)
+  }
+
+  private async initGlobalPrerequisites(vaultKey: string): Promise<void> {
+    await initWorkerVault(vaultKey)
+    await Automerge.initializeWasm(wasmUrl)
+  }
+
+  private subscribeClientEvents(): void {
+    this.clientEventHub.subscribe((event: ClientEvent) => {
+      switch (event.type) {
+        case 'startRequest':
+          this.syncStatusManager.startRequest()
+          break
+        case 'finishRequest':
+          this.syncStatusManager.finishRequest()
+          break
+        case 'indexUpdated':
+          this.updateItemSubscriptions(event.itemIds)
+          break
+        case 'quotaExceeded':
+          this.syncStatusManager.setQuotaExceeded(true)
+          break
+        case 'quotaResolved':
+          this.syncStatusManager.setQuotaExceeded(false)
+          break
+      }
+    })
+  }
+
+  private subscribeInternalEvents(): void {
+    this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
+      switch (event.type) {
+        case 'pollResult':
+          this.handlePollResult(event.outcome)
+          break
+        case 'multipleLeadersDetected':
+          console.warn('[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
+          this._context?.repoManager.pauseBroadcastSync()
+          break
+        case 'soleLeaderRestored':
+          console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
+          this._context?.repoManager.resumeBroadcastSync()
+          break
+        case 'retryingStateChange':
+          this.syncStatusManager.setDegradedPull(event.isRetrying)
+          break
+        case 'keyVersionMissing':
+          this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
+          break
+        case 'docHandleReplaced':
+          this.handleDocHandleReplaced(event.itemId, event.handle)
+          break
+        case 'itemMessageParsed':
+          if ((event.itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+            this.subscribeToItems([event.itemId])
+          }
+          break
+      }
+    })
+  }
+
+  private async initializeAccountSession(context: SyncWorkerContext, accountId: string): Promise<void> {
+    await context.initialize()
+
+    context.orchestrator.setOnlineState(this.isOnline)
+    context.snapshotManager.onOnlineStateChange(this.isOnline)
+
+    // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
+    // sending messages before the broker is ready
+    await context.broker.setAccount(accountId)
+    context.adapter.setAccount(accountId)
+
+    const localItemIds = await context.indexManager.listAutomergeItemIds()
+    this.updateItemSubscriptions(localItemIds)
+    this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
+  }
+
+  private setupRealtimeBus(): void {
+    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
+      this.subscribeToItems(itemIds)
+      if (this._context) {
+        this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
+        this._context.recoveryManager.unquarantineBatch(itemIds).catch(console.error)
+      }
+    })
+  }
+
+  async initRepo(accountId: string, vaultKey: string) {
+    this.isShutDown = false
+    if (this.isReady || !this.readyPromise) {
+      this.isReady = false
+      this.initReadyPromise()
+    }
+
+    await this.teardownSession()
 
     try {
-      // Re-initialise worker-scoped state
-      resetQuotaExceededStatus()
-      this.clientEventHub = new ClientEventHub()
-      if (globalEventPort) {
-        this.clientEventHub.setExternalPort(globalEventPort)
-      }
-      this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
-      this.internalEventHub = new WorkerInternalEventHub()
+      this.initWorkerState()
+      await this.initGlobalPrerequisites(vaultKey)
 
-      const trackedFetch = getTrackedFetch(
-        () => this.clientEventHub.emit({ type: 'startRequest' }),
-        () => this.clientEventHub.emit({ type: 'finishRequest' })
-      )
-      initTrpcClient(trackedFetch)
-
-      // Global async prerequisites (worker-scoped, not per-account)
-      await initWorkerVault(vaultKey)
-      await Automerge.initializeWasm(wasmUrl)
-
-      // Construct and wire the context — all service instantiation lives here
       const context = new SyncWorkerContext({
         accountId,
         clientEventHub: this.clientEventHub,
@@ -132,80 +219,11 @@ export class SyncWorker implements SyncApi {
       })
       this._context = context
 
-      // Subscribe to client events (syncStatusManager is SyncWorker-level state)
-      this.clientEventHub.subscribe((event: ClientEvent) => {
-        switch (event.type) {
-          case 'startRequest':
-            this.syncStatusManager.startRequest()
-            break
-          case 'finishRequest':
-            this.syncStatusManager.finishRequest()
-            break
-          case 'indexUpdated': {
-            this.updateItemSubscriptions(event.itemIds)
-            break
-          }
-          case 'quotaExceeded':
-            this.syncStatusManager.setQuotaExceeded(true)
-            break
-          case 'quotaResolved':
-            this.syncStatusManager.setQuotaExceeded(false)
-            break
-        }
-      })
+      this.subscribeClientEvents()
+      this.subscribeInternalEvents()
 
-      // Subscribe to worker-internal events
-      this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
-        switch (event.type) {
-          case 'pollResult':
-            this.handlePollResult(event.outcome)
-            break
-          case 'multipleLeadersDetected':
-            console.warn('[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
-            this._context?.repoManager.pauseBroadcastSync()
-            break
-          case 'soleLeaderRestored':
-            console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
-            this._context?.repoManager.resumeBroadcastSync()
-            break
-          case 'retryingStateChange':
-            this.syncStatusManager.setDegradedPull(event.isRetrying)
-            break
-          case 'keyVersionMissing':
-            this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
-            break
-          case 'docHandleReplaced':
-            this.handleDocHandleReplaced(event.itemId, event.handle)
-            break
-          case 'itemMessageParsed':
-            if ((event.itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-              this.subscribeToItems([event.itemId])
-            }
-            break
-        }
-      })
-
-      await context.initialize()
-
-      context.orchestrator.setOnlineState(this.isOnline)
-      context.snapshotManager.onOnlineStateChange(this.isOnline)
-
-      // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
-      // sending messages before the broker is ready
-      await context.broker.setAccount(accountId)
-      context.adapter.setAccount(accountId)
-
-      const localItemIds = await context.indexManager.listAutomergeItemIds()
-      this.updateItemSubscriptions(localItemIds)
-      this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
-
-      this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
-        this.subscribeToItems(itemIds)
-        if (this._context) {
-          this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
-          this._context.recoveryManager.unquarantineBatch(itemIds).catch(console.error)
-        }
-      })
+      await this.initializeAccountSession(context, accountId)
+      this.setupRealtimeBus()
 
       this.clientEventHub.emit({ type: 'ready' })
       this.syncStatusManager.reset(this.isOnline)

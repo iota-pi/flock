@@ -98,6 +98,78 @@ export class ManifestSyncManager {
     return this.syncGuard.run(() => this.executeSync(force, signal))
   }
 
+  private shouldSkipSync(force: boolean, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
+    const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
+    const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
+    return !force && !isOfflineTooLong && isWithinDailyWindow
+  }
+
+  private async fetchRemoteManifest(
+    signal: AbortSignal,
+    isAlive: () => boolean,
+    hasKnownItems: boolean,
+    outerSignal?: AbortSignal,
+  ): Promise<{ manifest: ManifestEntry[]; serverTime: number; clockSkew: number } | null> {
+    const hasToken = await this.apiClient.hasAuthToken()
+    checkAlive(signal, isAlive)
+    if (!hasToken) {
+      if (hasKnownItems) {
+        console.info('[ManifestSyncManager] No auth token, using local data only')
+      } else {
+        console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
+      }
+      return null
+    }
+
+    try {
+      const requestStartTime = Date.now()
+      const manifestResponse = await this.apiClient.fetchManifest(
+        { account: this.deps.accountId },
+        outerSignal ? { signal } : undefined,
+      )
+      const requestEndTime = Date.now()
+      const clientMidTime = Math.round((requestStartTime + requestEndTime) / 2)
+      const clockSkew = clientMidTime - manifestResponse.serverTime
+      return {
+        manifest: manifestResponse.manifest,
+        serverTime: manifestResponse.serverTime,
+        clockSkew,
+      }
+    } catch (e) {
+      if (signal.aborted || isAbortError(e) || !isAlive()) {
+        return null
+      }
+      if (hasKnownItems) {
+        console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
+        return null
+      }
+      console.error('[ManifestSyncManager] Failed to fetch manifest', e)
+      throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
+    }
+  }
+
+  private async collectLocalSyncState(signal: AbortSignal, isAlive: () => boolean) {
+    const tombstoneItemIds = (await this.deps.indexManager.listAutomergeTombstoneIds?.()) ?? []
+    const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
+    checkAlive(signal, isAlive)
+
+    const quarantinedMap = new Map<ItemId, number>()
+    if (this.deps.accountId) {
+      try {
+        const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
+        checkAlive(signal, isAlive)
+        for (const entry of recoveryEntries) {
+          quarantinedMap.set(entry.itemId, entry.createdAt)
+        }
+      } catch (err) {
+        if (signal.aborted || isAbortError(err)) throw err
+        console.warn('[ManifestSyncManager] Failed to read manual recovery entries', err)
+      }
+    }
+
+    return { tombstoneItemIds, localLastModifiedMap, quarantinedMap }
+  }
+
   private async executeSync(force = false, outerSignal?: AbortSignal): Promise<{ added: ItemId[] }> {
     const abortController = new AbortController()
     this.abortController = abortController
@@ -121,49 +193,13 @@ export class ManifestSyncManager {
       hasKnownItems = knownItemIds.length > 0
       const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
 
-      // Gating logic:
-      // - Force runs unconditionally
-      // - If it has been more than 7 days, always run (even if not forced)
-      // - If we already have items and last run was less than 24 hours ago, skip
-      const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
-      const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
-
-      if (!force && !isOfflineTooLong && isWithinDailyWindow) {
+      if (this.shouldSkipSync(force, hasKnownItems, timeSinceLastSync)) {
         return { added: [] }
       }
 
-      const hasToken = await this.apiClient.hasAuthToken()
-      checkAlive(signal, isAlive)
-      if (!hasToken) {
-        if (hasKnownItems) {
-          console.info('[ManifestSyncManager] No auth token, using local data only')
-          return { added: [] }
-        }
-        console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
+      const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems, outerSignal)
+      if (!remoteData) {
         return { added: [] }
-      }
-
-      let manifestResponse: Awaited<ReturnType<typeof fetchManifest>>
-      let clockSkew = 0
-      try {
-        const requestStartTime = Date.now()
-        manifestResponse = await this.apiClient.fetchManifest(
-          { account: this.deps.accountId },
-          outerSignal ? { signal } : undefined,
-        )
-        const requestEndTime = Date.now()
-        const clientMidTime = Math.round((requestStartTime + requestEndTime) / 2)
-        clockSkew = clientMidTime - manifestResponse.serverTime
-      } catch (e) {
-        if (signal.aborted || isAbortError(e) || !isAlive()) {
-          return { added: [] }
-        }
-        if (hasKnownItems) {
-          console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
-          return { added: [] }
-        }
-        console.error('[ManifestSyncManager] Failed to fetch manifest', e)
-        throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
       }
 
       checkAlive(signal, isAlive)
@@ -175,30 +211,14 @@ export class ManifestSyncManager {
       }
 
       checkAlive(signal, isAlive)
-      const tombstoneItemIds = (await this.deps.indexManager.listAutomergeTombstoneIds?.()) ?? []
-      const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
-      checkAlive(signal, isAlive)
-
-      let quarantinedMap = new Map<ItemId, number>()
-      if (this.deps.accountId) {
-        try {
-          const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
-          checkAlive(signal, isAlive)
-          for (const entry of recoveryEntries) {
-            quarantinedMap.set(entry.itemId, entry.createdAt)
-          }
-        } catch (err) {
-          if (signal.aborted || isAbortError(err)) throw err
-          console.warn('[ManifestSyncManager] Failed to read manual recovery entries', err)
-        }
-      }
-
+      const { tombstoneItemIds, localLastModifiedMap, quarantinedMap } =
+        await this.collectLocalSyncState(signal, isAlive)
       checkAlive(signal, isAlive)
 
       // Step 1: Calculate sync deltas
       const deltas = this.calculateSyncDeltas({
-        manifest: manifestResponse.manifest,
-        clockSkew,
+        manifest: remoteData.manifest,
+        clockSkew: remoteData.clockSkew,
         force,
         knownItemIds,
         tombstoneItemIds,
@@ -219,8 +239,8 @@ export class ManifestSyncManager {
         checkAlive(signal, isAlive)
         const hydrationResult = await this.fetchAndHydrateRemoteItems({
           missingIds: deltas.missingIds,
-          manifest: manifestResponse.manifest,
-          serverTime: manifestResponse.serverTime,
+          manifest: remoteData.manifest,
+          serverTime: remoteData.serverTime,
           knownSet: deltas.knownSet,
           tombstoneSet: deltas.tombstoneSet,
         }, outerSignal ? signal : undefined)
@@ -258,6 +278,113 @@ export class ManifestSyncManager {
     }
   }
 
+  private calculateDownstreamDeltas(params: {
+    manifest: ManifestEntry[]
+    activeSet: Set<ItemId>
+    tombstoneSet: Set<ItemId>
+    knownSet: Set<ItemId>
+    quarantinedMap: Map<ItemId, number>
+    localLastModifiedMap: Map<string, number>
+    clockSkew: number
+    force: boolean
+  }) {
+    const locallyTombstonedSnapshots: Item[] = []
+    const deletedLastModifiedUpdates: [ItemId, number][] = []
+    const missingIds: ItemId[] = []
+
+    for (const [itemId, serverTime, isDeleted] of params.manifest) {
+      const id = itemId as ItemId
+      if (!id) continue
+
+      // If not forced and item is currently quarantined in manual recovery:
+      // skip unless the server has a newer snapshot timestamp than when it was quarantined
+      if (!params.force && params.quarantinedMap.has(id)) {
+        const quarantinedAt = params.quarantinedMap.get(id) ?? 0
+        if (serverTime <= quarantinedAt) {
+          continue
+        }
+      }
+
+      const localTime = params.localLastModifiedMap.get(id) ?? 0
+
+      if (isDeleted) {
+        if (params.activeSet.has(id)) {
+          // Item exists locally and is active, but the server manifest indicates it is deleted.
+          // Apply tombstone locally and record timestamp to prevent resurrection.
+          locallyTombstonedSnapshots.push({ id, deleted: true } as unknown as Item)
+          deletedLastModifiedUpdates.push([id, serverTime])
+        } else if (serverTime > localTime) {
+          // Item is deleted on server and client does not have it active (e.g. fresh login or already deleted).
+          // Track that this item exists and is deleted at serverTime without fetching snapshot.
+          deletedLastModifiedUpdates.push([id, serverTime])
+        }
+        continue
+      }
+
+      // If the item is already tombstoned locally, the local tombstone is terminal and authoritative.
+      // Do NOT fetch older or concurrent active snapshot from server, which would cause resurrection.
+      if (params.tombstoneSet.has(id)) {
+        continue
+      }
+
+      if (localTime === 0) {
+        missingIds.push(id)
+        continue
+      }
+      if (params.force && !params.knownSet.has(id)) {
+        missingIds.push(id)
+        continue
+      }
+      if (serverTime === localTime) continue
+      if (serverTime > localTime) {
+        missingIds.push(id)
+        continue
+      }
+
+      // Clock skew + buffer compensation for cases where client clock was ahead
+      const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
+      if (serverTime > adjustedLocalTime) {
+        missingIds.push(id)
+        continue
+      }
+    }
+
+    return { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates }
+  }
+
+  private calculateUpstreamDeltas(params: {
+    allLocalIds: Set<ItemId>
+    missingSet: Set<ItemId>
+    locallyTombstonedSet: Set<ItemId>
+    tombstoneSet: Set<ItemId>
+    serverManifestMap: Map<string, number>
+    serverDeletedSet: Set<string>
+    localLastModifiedMap: Map<string, number>
+    clockSkew: number
+  }): ItemId[] {
+    const upstreamIds: ItemId[] = []
+    for (const localId of params.allLocalIds) {
+      if (params.missingSet.has(localId) || params.locallyTombstonedSet.has(localId)) continue
+      const serverTime = params.serverManifestMap.get(localId)
+      const localTime = params.localLastModifiedMap.get(localId) ?? 0
+
+      if (serverTime === undefined) {
+        // Item exists locally but is completely missing from server manifest
+        upstreamIds.push(localId)
+      } else if (params.tombstoneSet.has(localId) && !params.serverDeletedSet.has(localId)) {
+        // Item is tombstoned locally, but server still has an active snapshot: push tombstone upstream
+        upstreamIds.push(localId)
+      } else {
+        // Clock skew + buffer compensation: if local time exceeds server time
+        const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
+        if (adjustedLocalTime > serverTime) {
+          upstreamIds.push(localId)
+        }
+      }
+    }
+    return upstreamIds
+  }
+
   calculateSyncDeltas(params: {
     manifest: ManifestEntry[]
     clockSkew: number
@@ -285,93 +412,31 @@ export class ManifestSyncManager {
     }
     const knownSet = new Set([...activeSet, ...tombstoneSet])
 
-    const locallyTombstonedSnapshots: Item[] = []
-    const deletedLastModifiedUpdates: [ItemId, number][] = []
-    const missingIds: ItemId[] = []
-
-    for (const [itemId, serverTime, isDeleted] of params.manifest) {
-      const id = itemId as ItemId
-      if (!id) continue
-
-      // If not forced and item is currently quarantined in manual recovery:
-      // skip unless the server has a newer snapshot timestamp than when it was quarantined
-      if (!params.force && params.quarantinedMap.has(id)) {
-        const quarantinedAt = params.quarantinedMap.get(id) ?? 0
-        if (serverTime <= quarantinedAt) {
-          continue
-        }
-      }
-
-      const localTime = params.localLastModifiedMap.get(id) ?? 0
-
-      if (isDeleted) {
-        if (activeSet.has(id)) {
-          // Item exists locally and is active, but the server manifest indicates it is deleted.
-          // Apply tombstone locally and record timestamp to prevent resurrection.
-          locallyTombstonedSnapshots.push({ id, deleted: true } as unknown as Item)
-          deletedLastModifiedUpdates.push([id, serverTime])
-        } else if (serverTime > localTime) {
-          // Item is deleted on server and client does not have it active (e.g. fresh login or already deleted).
-          // Track that this item exists and is deleted at serverTime without fetching snapshot.
-          deletedLastModifiedUpdates.push([id, serverTime])
-        }
-        continue
-      }
-
-      // If the item is already tombstoned locally, the local tombstone is terminal and authoritative.
-      // Do NOT fetch older or concurrent active snapshot from server, which would cause resurrection.
-      if (tombstoneSet.has(id)) {
-        continue
-      }
-
-      if (localTime === 0) {
-        missingIds.push(id)
-        continue
-      }
-      if (params.force && !knownSet.has(id)) {
-        missingIds.push(id)
-        continue
-      }
-      if (serverTime === localTime) continue
-      if (serverTime > localTime) {
-        missingIds.push(id)
-        continue
-      }
-
-      // Clock skew + buffer compensation for cases where client clock was ahead
-      const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
-      if (serverTime > adjustedLocalTime) {
-        missingIds.push(id)
-        continue
-      }
-    }
+    const { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates } =
+      this.calculateDownstreamDeltas({
+        manifest: params.manifest,
+        activeSet,
+        tombstoneSet,
+        knownSet,
+        quarantinedMap: params.quarantinedMap,
+        localLastModifiedMap: params.localLastModifiedMap,
+        clockSkew: params.clockSkew,
+        force: params.force,
+      })
 
     // Two-Way Manifest Reconciliation (Upstream):
     // Identify local items that need to be pushed as snapshots to the server.
     // Exclude items that were just locally tombstoned.
-    const missingSet = new Set(missingIds)
-    const locallyTombstonedSet = new Set(locallyTombstonedSnapshots.map(s => s.id as ItemId))
-    const upstreamIds: ItemId[] = []
-    const allLocalIds = new Set([...params.knownItemIds, ...tombstoneSet])
-    for (const localId of allLocalIds) {
-      if (missingSet.has(localId) || locallyTombstonedSet.has(localId)) continue
-      const serverTime = serverManifestMap.get(localId)
-      const localTime = params.localLastModifiedMap.get(localId) ?? 0
-
-      if (serverTime === undefined) {
-        // Item exists locally but is completely missing from server manifest
-        upstreamIds.push(localId)
-      } else if (tombstoneSet.has(localId) && !serverDeletedSet.has(localId)) {
-        // Item is tombstoned locally, but server still has an active snapshot: push tombstone upstream
-        upstreamIds.push(localId)
-      } else {
-        // Clock skew + buffer compensation: if local time exceeds server time
-        const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
-        if (adjustedLocalTime > serverTime) {
-          upstreamIds.push(localId)
-        }
-      }
-    }
+    const upstreamIds = this.calculateUpstreamDeltas({
+      allLocalIds: new Set([...params.knownItemIds, ...tombstoneSet]),
+      missingSet: new Set(missingIds),
+      locallyTombstonedSet: new Set(locallyTombstonedSnapshots.map(s => s.id as ItemId)),
+      tombstoneSet,
+      serverManifestMap,
+      serverDeletedSet,
+      localLastModifiedMap: params.localLastModifiedMap,
+      clockSkew: params.clockSkew,
+    })
 
     return {
       missingIds,

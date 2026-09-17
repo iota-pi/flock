@@ -326,6 +326,62 @@ export class SyncPullQueueManager {
     })
   }
 
+  private async processSinglePullResult(
+    result: PullSyncMessagesResponse,
+    timedOutKeys: Set<string>
+  ): Promise<{ itemId: ItemId; hasParsedMessages: boolean; cursorUpdated: boolean }> {
+    const itemId = result.itemId
+    const hasMore = result.hasMore === true
+    const isNewItem = !this.retryTracker.hasState(itemId)
+    const initialCursor = this.retryTracker.getCursor(itemId)
+
+    const messageResult = await this.processItemMessages(
+      itemId,
+      result.messages,
+      initialCursor,
+      timedOutKeys
+    )
+
+    let highestCursor = messageResult.highestCursor
+    if (
+      !messageResult.hasParseFailure &&
+      !messageResult.hasKeyFailure &&
+      typeof result.nextCursor === 'number' &&
+      Number.isFinite(result.nextCursor)
+    ) {
+      highestCursor = Math.max(highestCursor, result.nextCursor)
+    }
+
+    const outcome = this.retryTracker.recordPullOutcome({
+      itemId,
+      initialCursor,
+      highestCursor,
+      isNewItem,
+      hasKeyFailure: messageResult.hasKeyFailure,
+      blockedOnKey: messageResult.blockedOnKey,
+      hasParseFailure: messageResult.hasParseFailure,
+      failingCursor: messageResult.failingCursor,
+      hasMore,
+      nextCursor: result.nextCursor,
+      lastEvaluatedKey: result.lastEvaluatedKey,
+    })
+
+    if (outcome.permanentlyFailed) {
+      this.clearBatchProgressForItem(itemId)
+
+      const err = new Error(
+        `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
+      )
+      this.internalEventHub.emit({ type: 'decryptionFailure', itemId, error: err })
+    }
+
+    return {
+      itemId,
+      hasParsedMessages: messageResult.hasParsedMessages,
+      cursorUpdated: outcome.cursorUpdated,
+    }
+  }
+
   async processPullResults(
     results: PullSyncMessagesResponse[],
     hasMoreGlobal?: boolean,
@@ -344,57 +400,12 @@ export class SyncPullQueueManager {
     try {
       for (const result of results || []) {
         try {
-          const itemId = result.itemId
-          const hasMore = result.hasMore === true
-          const isNewItem = !this.retryTracker.hasState(itemId)
-          const initialCursor = this.retryTracker.getCursor(itemId)
-
-          const messageResult = await this.processItemMessages(
-            itemId,
-            result.messages,
-            initialCursor,
-            timedOutKeys
-          )
-
-          if (messageResult.hasParsedMessages) {
-            successfullyPulledItemIds.add(itemId)
+          const itemOutcome = await this.processSinglePullResult(result, timedOutKeys)
+          if (itemOutcome.hasParsedMessages) {
+            successfullyPulledItemIds.add(itemOutcome.itemId)
           }
-
-          let highestCursor = messageResult.highestCursor
-          if (
-            !messageResult.hasParseFailure &&
-            !messageResult.hasKeyFailure &&
-            typeof result.nextCursor === 'number' &&
-            Number.isFinite(result.nextCursor)
-          ) {
-            highestCursor = Math.max(highestCursor, result.nextCursor)
-          }
-
-          const outcome = this.retryTracker.recordPullOutcome({
-            itemId,
-            initialCursor,
-            highestCursor,
-            isNewItem,
-            hasKeyFailure: messageResult.hasKeyFailure,
-            blockedOnKey: messageResult.blockedOnKey,
-            hasParseFailure: messageResult.hasParseFailure,
-            failingCursor: messageResult.failingCursor,
-            hasMore,
-            nextCursor: result.nextCursor,
-            lastEvaluatedKey: result.lastEvaluatedKey,
-          })
-
-          if (outcome.cursorUpdated) {
+          if (itemOutcome.cursorUpdated) {
             cursorsUpdated = true
-          }
-
-          if (outcome.permanentlyFailed) {
-            this.clearBatchProgressForItem(itemId)
-
-            const err = new Error(
-              `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
-            )
-            this.internalEventHub.emit({ type: 'decryptionFailure', itemId, error: err })
           }
         } catch (innerError) {
           console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)
