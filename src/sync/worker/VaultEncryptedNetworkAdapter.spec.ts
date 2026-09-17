@@ -4,10 +4,6 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import {
-  clearInstancesCacheForTesting,
-  resetQuotaExceededStatus,
-} from '../shared/VaultPersistence'
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -54,9 +50,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   beforeEach(async () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
-    clearInstancesCacheForTesting()
     clearWalInstancesCacheForTesting()
-    resetQuotaExceededStatus()
 
     mockDocStore = {
       getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [] }),
@@ -302,7 +296,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('detects and reports QuotaExceededError when persisting pending writes', async () => {
-    resetQuotaExceededStatus()
     const mockReporter = vi.fn()
     registerQuotaReporter(mockReporter)
 

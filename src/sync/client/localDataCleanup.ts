@@ -1,7 +1,6 @@
 import { getAutomergeDBName } from '../worker/AutomergeRepoManager'
 import { clearSyncMetadataStorage, clearLegacySyncDatabases } from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
-import { clearSyncBatch } from '../shared/VaultPersistence'
 import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
 
 export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: number = 5000): Promise<void> {
@@ -67,7 +66,6 @@ export async function clearAccountLocalData(accountId: string): Promise<void> {
       clearSyncMetadataStorage(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncMetadataStorage', err)),
       clearLegacySyncDatabases(accountId).catch(err => console.error('[SyncBridge] Failed to clear LegacySyncDatabases', err)),
       SyncWriteAheadLog.clear(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
-      clearSyncBatch(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncBatch', err)),
       clearManualRecoveryEntries(accountId).catch(err => console.error('[SyncBridge] Failed to clear ManualRecovery', err)),
     ])
   } catch (err) {

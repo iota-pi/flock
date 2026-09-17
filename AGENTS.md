@@ -76,7 +76,6 @@ src/sync/
 │   ├── syncWorkerHealth.ts           # Heartbeat + crash detection + auto-restart
 │   └── realtimeBus.ts                # BroadcastChannel for cross-tab item update pings
 ├── shared/                           # Shared between main thread and worker
-│   ├── VaultPersistence.ts           # Legacy sync batch persistence (IndexedDB)
 │   ├── manualRecoveryStore.ts        # Quarantine store for items that fail decryption
 │   ├── workerAuthStore.ts            # Auth token accessor for the worker
 │   └── legacyTypes.ts                # Legacy type definitions
