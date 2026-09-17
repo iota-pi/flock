@@ -1,56 +1,164 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncPoller, type PollOutcome } from './SyncPoller'
+import { SyncPoller } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { persistSyncMessages } from '../shared/VaultPersistence'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { toVaultItemIdFromAutomergeId } from './utils/automerge'
-import { type Message } from '@automerge/automerge-repo/slim'
+import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
+import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { isQuotaError } from '../../utils/storageQuota'
+import type { StorageRecoveryService } from './StorageRecoveryService'
 
-export class SyncMessageBroker {
+export interface SyncBrokerControl {
+  setOnlineState(isOnline: boolean): void
+  setSendEnabled(sendEnabled: boolean): void
+}
+
+export class SyncMessageBroker implements SyncBrokerControl {
   private account: string | null = null
   private isOnline = true
   private sendEnabled = false
 
   private syncPoller: SyncPoller
-
-  private pendingWritesByAccount: Map<string, Map<string, Uint8Array[]>> = new Map()
-  private persistTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-  public onFlushNeeded: (() => void) | null = null
-  public onItemMessageParsed: ((itemId: ItemId) => void) | null = null
+  private wal: SyncWriteAheadLog | null = null
+  private storageRecovery: StorageRecoveryService | null = null
+  private readonly snapshotOnlyItems = new Set<ItemId>()
+  private blockedItemIds = new Set<ItemId>()
+  private unsubscribeClientEvents: (() => void) | null = null
+  private unsubscribeInternalEvents: (() => void) | null = null
 
   constructor(
     private adapter: VaultNetworkAdapter,
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
-    private indexManager: AutomergeIndexManager,
+    private indexManager: AutomergeIndexManager | undefined,
     private pullQueueManager: SyncPullQueueManager,
+    wal?: SyncWriteAheadLog | null,
+    storageRecovery?: StorageRecoveryService | null,
   ) {
-    this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
-      if (this.account) {
-        this.onItemMessageParsed?.(itemId)
+    this.storageRecovery = storageRecovery ?? null
+    this.adapter?.setInternalEventHub?.(this.internalEventHub)
+    this.pullQueueManager?.setInternalEventHub?.(this.internalEventHub)
+    this.setWal(wal ?? null)
+
+    this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
+      switch (event.type) {
+        case 'messageToSend':
+          void this.handleOutgoingMessage(event.message)
+          break
+        case 'messageParsed':
+          if (this.account) {
+            this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
+          }
+          this.adapter.receiveMessage(event.documentId, event.message)
+          break
+        case 'pushAcknowledged':
+          this.unblockItem(event.itemId)
+          {
+            const documentId = toDocumentIdFromItemId(event.itemId)
+            this.adapter.setSyncedHeads(documentId, event.heads)
+            this.adapter.resetReNegotiationCircuit(documentId)
+          }
+          break
+        case 'walEntriesPruned':
+          this.handleWalEntriesPruned(event.itemIds)
+          break
       }
-      this.adapter.receiveMessage(documentId, message)
-      this.indexManager.addAutomergeItemIdsToIndex([itemId]).catch(console.error)
-    }
+    })
 
     this.syncPoller = new SyncPoller(
       this.pullQueueManager,
       this.clientEventHub,
       this.internalEventHub,
       this.indexManager,
+      this.wal,
     )
 
-    this.adapter.onMessageToSend = (msg: Message) => {
-      this.handleOutgoingMessage(msg)
-    }
+    this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
+      if (event.type === 'quotaResolved') {
+        const previouslyBlocked = Array.from(this.blockedItemIds)
+        this.unblockAllItems()
+        this.adapter.resetReNegotiationCircuit()
+        for (const itemId of previouslyBlocked) {
+          const documentId = toDocumentIdFromItemId(itemId)
+          this.adapter.triggerReNegotiation(documentId)
+        }
+      }
+    })
+  }
+
+  setStorageRecoveryService(storageRecovery: StorageRecoveryService | null): void {
+    this.storageRecovery = storageRecovery
+  }
+
+  getStorageRecoveryService(): StorageRecoveryService | null {
+    return this.storageRecovery
+  }
+
+  getWal(): SyncWriteAheadLog | null {
+    return this.wal
+  }
+
+  blockItem(itemId: ItemId): void {
+    this.blockedItemIds.add(itemId)
+  }
+
+  unblockItem(itemId: ItemId): void {
+    this.blockedItemIds.delete(itemId)
+  }
+
+  unblockAllItems(): void {
+    this.blockedItemIds.clear()
+  }
+
+  isItemBlocked(itemId: ItemId): boolean {
+    return this.blockedItemIds.has(itemId)
+  }
+
+  getBlockedItemCount(): number {
+    return this.blockedItemIds.size
+  }
+
+  getBlockedItemIds(): ItemId[] {
+    return Array.from(this.blockedItemIds)
+  }
+
+  setSyncedHeads(id: ItemId | DocumentId, heads: string[]): void {
+    const decodedItemId = toVaultItemIdFromAutomergeId(id as DocumentId)
+    const isDocumentId = toDocumentIdFromItemId(decodedItemId) === id
+    const itemId = isDocumentId ? decodedItemId : (id as ItemId)
+    const documentId = isDocumentId ? (id as DocumentId) : toDocumentIdFromItemId(id as ItemId)
+
+    this.unblockItem(itemId)
+    this.snapshotOnlyItems.delete(itemId)
+    this.adapter.setSyncedHeads(documentId, heads)
+    this.adapter.resetReNegotiationCircuit(documentId)
+  }
+
+  clearSnapshotOnlyItem(itemId: ItemId): void {
+    this.snapshotOnlyItems.delete(itemId)
+  }
+
+  isSnapshotOnly(itemId: ItemId): boolean {
+    return this.snapshotOnlyItems.has(itemId)
+  }
+
+  markSnapshotOnly(itemId: ItemId): void {
+    this.snapshotOnlyItems.add(itemId)
+  }
+
+  getSnapshotOnlyItemCount(): number {
+    return this.snapshotOnlyItems.size
   }
 
   setSendEnabled(sendEnabled: boolean): void {
     this.sendEnabled = sendEnabled
     this.adapter.setSendEnabled(sendEnabled)
+  }
+
+  clearSeededDocuments(): void {
+    this.adapter.clearSeededDocuments()
   }
 
   async setAccount(account: string | null): Promise<void> {
@@ -59,15 +167,33 @@ export class SyncMessageBroker {
       return
     }
 
-    if (this.persistTimeoutId) {
-      clearTimeout(this.persistTimeoutId)
-      this.persistTimeoutId = null
-    }
-    await this.persistPendingWrites()
-
+    this.unblockAllItems()
+    this.snapshotOnlyItems.clear()
     this.account = nextAccount
+    if (!this.wal || this.wal.accountId !== this.account) {
+      const wal = this.account ? new SyncWriteAheadLog(this.account, this.internalEventHub) : null
+      this.setWal(wal)
+    }
+
     await this.pullQueueManager.setAccount(this.account)
     this.syncPoller.setAccount(this.account)
+  }
+
+  setWal(wal: SyncWriteAheadLog | null): void {
+    this.wal = wal
+    if (this.wal) {
+      this.unblockAllItems()
+      this.wal.setInternalEventHub(this.internalEventHub)
+    }
+    if (this.syncPoller) {
+      this.syncPoller.setWal(this.wal)
+    }
+  }
+
+  private handleWalEntriesPruned(itemIds: ItemId[]): void {
+    for (const itemId of itemIds) {
+      this.snapshotOnlyItems.add(itemId)
+    }
   }
 
   setOnlineState(isOnline: boolean): void {
@@ -79,7 +205,7 @@ export class SyncMessageBroker {
     this.syncPoller.setOnlineState(isOnline)
   }
 
-  private handleOutgoingMessage(message: Message): void {
+  private async handleOutgoingMessage(message: Message): Promise<void> {
     if (!this.sendEnabled || !this.account) {
       return
     }
@@ -95,112 +221,67 @@ export class SyncMessageBroker {
       this.pullQueueManager.addPendingItem(itemId)
       this.flush()
     } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      let accountWrites = this.pendingWritesByAccount.get(this.account)
-      if (!accountWrites) {
-        accountWrites = new Map()
-        this.pendingWritesByAccount.set(this.account, accountWrites)
+      if (this.isItemBlocked(itemId)) {
+        console.warn(`[SyncMessageBroker] Dropping outgoing sync message for blocked item ${itemId}`)
+        return
       }
-      let messages = accountWrites.get(itemId)
-      if (!messages) {
-        messages = []
-        accountWrites.set(itemId, messages)
+
+      if (this.snapshotOnlyItems.has(itemId)) {
+        // Item was pruned from WAL and is flagged for snapshot-only sync.
+        // Drop incremental sync message to avoid re-filling WAL and causing thrashing.
+        // Emit walEntriesPruned to ensure dirty snapshot state is refreshed.
+        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
+        return
       }
-      messages.push(message.data)
-      this.flush()
-    }
-  }
 
-  private async persistPendingWrites(): Promise<void> {
-    if (this.pendingWritesByAccount.size === 0) {
-      return
-    }
-    const writesToProcess = new Map(this.pendingWritesByAccount)
-    this.pendingWritesByAccount.clear()
-
-    let firstError: unknown = null
-
-    for (const [account, writes] of writesToProcess.entries()) {
-      if (firstError) {
-        this.restoreWrites(account, writes)
-        continue
-      }
-      try {
-        await persistSyncMessages(account, writes)
-      } catch (err) {
-        firstError = err
-        this.restoreWrites(account, writes)
-      }
-    }
-
-    if (firstError) {
-      throw firstError
-    }
-  }
-
-  private restoreWrites(account: string, writes: Map<string, Uint8Array[]>): void {
-    let accountWrites = this.pendingWritesByAccount.get(account)
-    if (!accountWrites) {
-      accountWrites = new Map()
-      this.pendingWritesByAccount.set(account, accountWrites)
-    }
-    for (const [itemId, messages] of writes.entries()) {
-      const existing = accountWrites.get(itemId)
-      if (existing) {
-        accountWrites.set(itemId, [...messages, ...existing])
+      if (this.wal) {
+        try {
+          await this.wal.append(itemId, message.data)
+          this.flush()
+        } catch (err) {
+          console.error(`[SyncMessageBroker] Failed to append sync message to WAL for item ${itemId}:`, err)
+          this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
+        }
       } else {
-        accountWrites.set(itemId, messages)
+        console.warn(`[SyncMessageBroker] WAL unavailable for item ${itemId}, falling back to snapshot sync`)
+        this.handleWalAppendFailure(itemId, documentId as DocumentId, new Error('WAL not initialized'))
+      }
+    }
+  }
+
+  private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId, err: unknown): void {
+    this.blockItem(itemId)
+    this.adapter.triggerReNegotiation(documentId)
+    this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
+    if (isQuotaError(err)) {
+      if (this.storageRecovery) {
+        void this.storageRecovery.handleQuotaExceeded(err)
+      } else {
+        this.clientEventHub.emit({
+          type: 'quotaExceeded',
+          message: 'Storage quota exceeded. Some changes could not be saved.',
+        })
       }
     }
   }
 
   flush(): void {
-    if (this.persistTimeoutId === null) {
-      this.persistTimeoutId = setTimeout(
-        () => {
-          this.flushPersistAndSignal().catch(err => {
-            console.error('[SyncMessageBroker] Error in flushPersistAndSignal:', err)
-          })
-        },
-        0
-      )
-    }
+    this.internalEventHub.emit({ type: 'flushNeeded' })
   }
 
-  private async flushPersistAndSignal(): Promise<void> {
-    this.persistTimeoutId = null
-    await this.persistPendingWrites()
-    this.onFlushNeeded?.()
-  }
-
-  exportCursors(): [ItemId, number][] {
-    return this.pullQueueManager.exportCursors()
-  }
-
-  async importCursors(cursors: [ItemId, number][]): Promise<void> {
-    await this.pullQueueManager.importCursors(cursors)
-  }
-
-  async resetCursors(): Promise<void> {
-    await this.pullQueueManager.resetCursors()
-  }
-
-  async executePoll(): Promise<PollOutcome> {
-    return await this.syncPoller.executePoll()
-  }
-
-  hasPendingPulls(): boolean {
-    return this.pullQueueManager.hasPendingPulls()
+  get poller(): SyncPoller {
+    return this.syncPoller
   }
 
   async shutdown(): Promise<void> {
-    if (this.persistTimeoutId) {
-      clearTimeout(this.persistTimeoutId)
-      this.persistTimeoutId = null
-    }
-    try {
-      await this.pullQueueManager.shutdown()
-    } finally {
-      await this.persistPendingWrites()
-    }
+    this.unsubscribeClientEvents?.()
+    this.unsubscribeClientEvents = null
+    this.unsubscribeInternalEvents?.()
+    this.unsubscribeInternalEvents = null
+    this.unblockAllItems()
+    this.snapshotOnlyItems.clear()
+    this.syncPoller.shutdown()
+    await this.pullQueueManager.shutdown()
   }
 }
+

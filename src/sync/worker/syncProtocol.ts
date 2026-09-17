@@ -11,20 +11,29 @@ export interface SyncApi {
   mutateItem: (id: ItemId, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>
   storeItems: (items: Item[]) => Promise<void>
-  mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
+  mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>
   exportAllBinaries: () => Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   flushSync: () => void,
   fullResync: () => Promise<void>,
   pushSnapshots: () => Promise<{ persisted: number; total: number }>
+  retrySave: () => Promise<{ success: boolean; error?: string }>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
   forceOverwriteRecoveryItem: (itemId: ItemId) => Promise<void>
   forceDeleteRecoveryItem: (itemId: ItemId) => Promise<void>
+  compactItem: (itemId: ItemId) => Promise<void>
   dismissRecoveryItem: (entryId: string) => Promise<void>
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
-  reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<void>
+  reencryptAllItems: (
+    onProgress: (done: number, total: number) => void,
+    refreshAuthToken?: () => Promise<string | null>
+  ) => Promise<{
+    succeeded: ItemId[]
+    failed: Array<{ itemId: ItemId; error: string }>
+  }>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
+  claimLeader: () => Promise<void>
   shutdown: (options?: { clearLocalData?: boolean }) => Promise<void>
 }

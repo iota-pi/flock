@@ -25,4 +25,28 @@ export const accountMetadataSchema = z.looseObject({
   prayerGoal: z.number().optional(),
   sortCriteria: z.array(sortCriterionSchema).optional(),
   defaultPrayerFrequency: defaultPrayerFrequencySchema.optional(),
+  updatedAt: z.number().optional(),
 })
+
+export const SYNCABLE_METADATA_KEYS = [
+  'defaultPrayerFrequency',
+  'prayerGoal',
+  'completedMigrations',
+  'updatedAt',
+] as const
+
+export type SyncableMetadataKey = (typeof SYNCABLE_METADATA_KEYS)[number]
+
+export function extractSyncableMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!metadata || typeof metadata !== 'object') return {}
+  const result: Record<string, unknown> = {}
+  for (const key of SYNCABLE_METADATA_KEYS) {
+    if (metadata[key] !== undefined) {
+      result[key] = metadata[key]
+    }
+  }
+  return result
+}
+

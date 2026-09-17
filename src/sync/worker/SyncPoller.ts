@@ -2,158 +2,114 @@ import { chunk } from 'lodash-es'
 
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { encryptBytes } from '../../api/vault'
-import { loadSyncBatch, removeSentSyncMessages, type QueuedMessage } from '../shared/VaultPersistence'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
+import { decodeSyncMessage } from '@automerge/automerge/slim'
+import type { DocumentId } from '@automerge/automerge-repo/slim'
+import { parseBatchedMessages } from './utils/messageParser'
+import { packBatchedMessages } from './utils/binaryFraming'
+import { isAuthError } from './utils/auth'
+import { pollSyncBatchWithToken, type PushResultItem, type PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
+import { checkAlive, isAbortError } from './utils/abort'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
+type ChunkEntry = [ItemId, WalEntry[]][]
+
+function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
+  if (!entry || !entry.data || entry.data.byteLength === 0) return null
+  if (!entry.isBatched) return entry.data
+  let last: Uint8Array | null = null
+  parseBatchedMessages(entry.itemId, '' as DocumentId, entry.data, (_itemId, _docId, msg) => {
+    last = msg
+  })
+  return last
+}
 
 export class SyncPoller {
   private account: string | null = null
   private isOnline = true
-  private isPolling = false
+  private isShutdown = false
+  private abortController: AbortController | null = null
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
-    private indexManager: AutomergeIndexManager,
+    private indexManager?: AutomergeIndexManager,
+    private wal?: SyncWriteAheadLog | null,
   ) {}
 
   setAccount(account: string | null): void {
     this.account = account
+    if (account) {
+      this.isShutdown = false
+    }
+  }
+
+  setWal(wal: SyncWriteAheadLog | null): void {
+    this.wal = wal
   }
 
   setOnlineState(isOnline: boolean): void {
     this.isOnline = isOnline
   }
 
+  get isOperational(): boolean {
+    return !this.isShutdown && this.isOnline && Boolean(this.account)
+  }
+
   isCurrentlyPolling(): boolean {
-    return this.isPolling
+    return this.abortController !== null
+  }
+
+  abort(): void {
+    if (this.abortController) {
+      this.abortController.abort()
+      this.abortController = null
+    }
+  }
+
+  shutdown(): void {
+    this.isShutdown = true
+    this.abort()
   }
 
   async executePoll(): Promise<PollOutcome> {
-    if (this.isPolling || !this.isOnline || !this.account) return 'no-poll'
-    this.isPolling = true
+    if (!this.isOperational) return 'no-poll'
+
+    this.abortController = new AbortController()
+    const signal = this.abortController.signal
 
     this.clientEventHub.emit({ type: 'startRequest' })
+    const inFlightWalIds: string[] = []
     try {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'no-poll'
 
-      let batchEntries: [ItemId, QueuedMessage[]][]
+      let batchEntries: ChunkEntry
       try {
-        batchEntries = await loadSyncBatch(this.account)
-      } catch (_) {
+        batchEntries = await this.loadWalEntries(inFlightWalIds)
+      } catch (err) {
+        console.error('[SyncPoller] Failed to load WAL entries', err)
         return 'failure'
       }
 
-      const chunks = chunk(batchEntries, 5)
-      const pullCursors = this.pullQueueManager.getCursors()
+      const chunks = batchEntries.length > 0 ? chunk(batchEntries, 5) : [[]]
 
-      if (chunks.length === 0) {
-        const { pollSyncBatchWithToken } = await import('../../api/vault/SyncWorkerClient')
-        const response = await pollSyncBatchWithToken({
-          account: this.account,
-          authToken,
-          pushMessages: [],
-          pullCursors,
-          clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
-        })
-
-        if (response && response.pushResults) {
-          this.pullQueueManager.processPushResults(response.pushResults)
-        }
-
-        if (response && response.pullResults) {
-          await this.pullQueueManager.processPullResults(response.pullResults)
-        }
-
-        if (response?.snapshotRequest?.requested) {
-          this.internalEventHub.emit({
-            type: 'snapshotNeeded',
-            cursor: response.snapshotRequest.cursor,
-            requestedAt: response.snapshotRequest.requestedAt,
-          })
-        }
-
-        await this.indexManager.updateLastSyncTime(Date.now())
-        return 'success'
-      }
-
-      let highestSnapshotRequest: { cursor: number; requestedAt: number } | null = null
       for (const chunkEntry of chunks) {
-        const pushMessages = await Promise.all(
-          chunkEntry.map(async ([itemId, messages]) => {
-            let totalLength = 0
-            for (const m of messages) {
-              totalLength += 4 + m.data.length
-            }
-            const combined = new Uint8Array(totalLength)
-            const view = new DataView(combined.buffer)
-            let offset = 0
-            for (const m of messages) {
-              view.setUint32(offset, m.data.length, false)
-              offset += 4
-              combined.set(m.data, offset)
-              offset += m.data.length
-            }
-
-            const encryptedMessage = await encryptBytes(combined)
-            return {
-              itemId,
-              encryptedMessage: {
-                iv: encryptedMessage.iv,
-                cipher: encryptedMessage.cipher,
-                kver: encryptedMessage.kver,
-                version: '1.0',
-              }
-            }
-          })
-        )
-
-        const { pollSyncBatchWithToken } = await import('../../api/vault/SyncWorkerClient')
-        const response = await pollSyncBatchWithToken({
-          account: this.account,
-          authToken,
-          pushMessages,
-          pullCursors: this.pullQueueManager.getCursors(),
-          clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
-        })
-
-        if (response && response.pushResults) {
-          this.pullQueueManager.processPushResults(response.pushResults)
-        }
-
-        if (response && response.pullResults) {
-          await this.pullQueueManager.processPullResults(response.pullResults)
-        }
-
-        if (response?.snapshotRequest?.requested) {
-          if (!highestSnapshotRequest || response.snapshotRequest.cursor > highestSnapshotRequest.cursor) {
-            highestSnapshotRequest = {
-              cursor: response.snapshotRequest.cursor,
-              requestedAt: response.snapshotRequest.requestedAt,
-            }
-          }
-        }
-
-        await removeSentSyncMessages(this.account, chunkEntry)
+        await this.processChunk(chunkEntry, authToken, signal)
       }
 
-      if (highestSnapshotRequest) {
-        this.internalEventHub.emit({
-          type: 'snapshotNeeded',
-          cursor: highestSnapshotRequest.cursor,
-          requestedAt: highestSnapshotRequest.requestedAt,
-        })
-      }
-
-      await this.indexManager.updateLastSyncTime(Date.now())
+      await this.indexManager?.updateLastSyncTime(Date.now())
       return 'success'
     } catch (error) {
+      if (isAbortError(error) || signal.aborted || !this.isOperational) {
+        return 'no-poll'
+      }
+
       if (this.isAuthError(error)) {
         console.error('[SyncPoller] Auth failure during polling', error)
         return 'auth-failure'
@@ -162,47 +118,168 @@ export class SyncPoller {
       console.error('[SyncPoller] Polling failed', error)
       return 'failure'
     } finally {
-      this.isPolling = false
+      this.abortController = null
+      if (this.wal && inFlightWalIds.length > 0) {
+        this.wal.unmarkInFlight?.(inFlightWalIds)
+      }
       this.clientEventHub.emit({ type: 'finishRequest' })
     }
   }
 
+  private async loadWalEntries(inFlightWalIds: string[]): Promise<ChunkEntry> {
+    if (!this.wal) return []
+    const walMap = await this.wal.readAll()
+    const batchEntries = Array.from(walMap.entries())
+    for (const [, messages] of batchEntries) {
+      for (const m of messages) {
+        if (m && m.id) {
+          inFlightWalIds.push(m.id)
+        }
+      }
+    }
+    if (inFlightWalIds.length > 0) {
+      this.wal.markInFlight?.(inFlightWalIds)
+    }
+    return batchEntries
+  }
+
+  private async processChunk(
+    chunkEntry: ChunkEntry,
+    authToken: string,
+    signal: AbortSignal
+  ): Promise<void> {
+    const sentIdsByItem = new Map<ItemId, string[]>()
+    const pushMessages = await Promise.all(
+      chunkEntry.map(async ([itemId, messages]) => {
+        sentIdsByItem.set(
+          itemId,
+          messages.map(m => m.id)
+        )
+        const combined = packBatchedMessages(messages)
+        const encryptedMessage = await encryptBytes(combined)
+        return {
+          itemId,
+          encryptedMessage: {
+            iv: encryptedMessage.iv,
+            cipher: encryptedMessage.cipher,
+            kver: encryptedMessage.kver,
+            version: '1.0' as const,
+          },
+        }
+      })
+    )
+
+    checkAlive(signal, () => this.isOperational)
+
+    // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
+    // and clientLatestCursor (for global updates across all other healthy items).
+    const response = await pollSyncBatchWithToken(
+      {
+        account: this.account!,
+        authToken,
+        pushMessages,
+        pullCursors: this.pullQueueManager.getCursors(),
+        clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
+        globalLastEvaluatedKey: this.pullQueueManager.getGlobalLastEvaluatedKey(),
+      },
+      { signal }
+    )
+
+    checkAlive(signal, () => this.isOperational)
+
+    if (chunkEntry.length > 0) {
+      await this.handlePushAcknowledgments(chunkEntry, sentIdsByItem, response?.pushResults)
+    }
+
+    await this.handlePollResponse(response)
+  }
+
+  private async handlePushAcknowledgments(
+    chunkEntry: ChunkEntry,
+    sentIdsByItem: Map<ItemId, string[]>,
+    pushResults?: PushResultItem[]
+  ): Promise<void> {
+    const acknowledgedIds: string[] = []
+    const acknowledgedItemIds = new Set<ItemId>()
+
+    const results = pushResults ?? []
+    for (const result of results) {
+      if (this.isPushResultSuccessful(result)) {
+        acknowledgedItemIds.add(result.itemId)
+        const ids = sentIdsByItem.get(result.itemId)
+        if (ids && ids.length > 0) {
+          acknowledgedIds.push(...ids)
+        }
+        this.acknowledgeSuccessfulPush(chunkEntry, result)
+      } else {
+        console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
+      }
+    }
+
+    for (const [sentItemId] of chunkEntry) {
+      if (!acknowledgedItemIds.has(sentItemId)) {
+        console.warn(`[SyncPoller] Item ${sentItemId} was not acknowledged in pushResults, preserving in WAL`)
+      }
+    }
+
+    if (this.wal && acknowledgedIds.length > 0) {
+      try {
+        await this.wal.remove(acknowledgedIds)
+      } catch (walErr) {
+        console.error('[SyncPoller] Failed to remove acknowledged IDs from WAL', walErr)
+      }
+    }
+  }
+
+  private acknowledgeSuccessfulPush(chunkEntry: ChunkEntry, result: PushResultItem): void {
+    const itemMessages = chunkEntry.find(([id]) => id === result.itemId)?.[1]
+    const lastEntry = itemMessages?.[itemMessages.length - 1]
+    if (!lastEntry) return
+    const rawMsg = extractLastSyncMessage(lastEntry)
+    if (!rawMsg) return
+
+    try {
+      const decoded = decodeSyncMessage(rawMsg)
+      if (decoded.heads && decoded.heads.length > 0) {
+        this.internalEventHub.emit({
+          type: 'pushAcknowledged',
+          itemId: result.itemId,
+          heads: decoded.heads,
+        })
+      }
+    } catch (err) {
+      console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)
+    }
+  }
+
+  private async handlePollResponse(
+    response: PollSyncBatchResponse | null | undefined
+  ): Promise<void> {
+    if (!response) return
+
+    try {
+      if (typeof response.hasMore === 'boolean') {
+        await this.pullQueueManager.processPullResults(
+          response.pullResults ?? [],
+          response.hasMore,
+          response.globalLastEvaluatedKey
+        )
+      } else if (response.pullResults) {
+        await this.pullQueueManager.processPullResults(response.pullResults)
+      }
+    } catch (pullErr) {
+      console.error('[SyncPoller] Error processing pull results', pullErr)
+    }
+  }
+
   private isAuthError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
-      return false
-    }
+    return isAuthError(error)
+  }
 
-    const anyError = error as { [key: string]: unknown }
-    const data = (anyError.data || (anyError as { shape?: { data?: unknown } }).shape?.data) as
-      | { httpStatus?: number; code?: string }
-      | undefined
-    const httpStatus = data?.httpStatus ?? (anyError.httpStatus as number | undefined) ?? (anyError.status as number | undefined) ?? (anyError.statusCode as number | undefined)
-    if (httpStatus === 401 || httpStatus === 403) {
-      return true
-    }
-
-    const code = data?.code ?? (anyError.code as string | undefined)
-    if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') {
-      return true
-    }
-
-    if (anyError.cause && typeof anyError.cause === 'object') {
-      const cause = anyError.cause as { [key: string]: unknown }
-      const causeStatus = (cause.status ?? cause.statusCode ?? cause.httpStatus) as number | undefined
-      if (causeStatus === 401 || causeStatus === 403) {
-        return true
-      }
-      const causeCode = cause.code as string | undefined
-      if (causeCode === 'UNAUTHORIZED' || causeCode === 'FORBIDDEN') {
-        return true
-      }
-    }
-
-    const name = anyError.name as string | undefined
-    if (name === 'UnauthorizedError' || name === 'ForbiddenError') {
-      return true
-    }
-
-    return false
+  private isPushResultSuccessful(result: PushResultItem): boolean {
+    if (!result || !result.itemId) return false
+    if (result.success === false) return false
+    if (result.success === true) return true
+    return typeof result.cursor === 'number' && Number.isFinite(result.cursor) && result.cursor >= 0
   }
 }

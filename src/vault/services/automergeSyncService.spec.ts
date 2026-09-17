@@ -160,4 +160,216 @@ describe('AutomergeSyncService', () => {
     expect(firstCursor).toBeGreaterThanOrEqual(currentSecondNamespaceStart)
     expect(lastCursor).toBeLessThan(nextSecondNamespaceStart)
   })
+
+  it('passes the raw input cursor when pulling sync messages for an item', async () => {
+    const repository = createMockRepository()
+    repository.getSyncMessages.mockResolvedValueOnce({ messages: [], hasMore: false })
+    const service = createAutomergeSyncService({ repository })
+
+    const inputCursor = 150_000_000 // 15 seconds into epoch
+    await service.pullAutomergeSyncBatch({
+      account: 'test-account',
+      cursors: [{ itemId: 'item-1' as ItemId, cursor: inputCursor }],
+    })
+
+    expect(repository.getSyncMessages).toHaveBeenCalledWith({
+      account: 'test-account',
+      itemId: 'item-1',
+      fromCursor: 150_000_000,
+      limit: 200,
+    })
+  })
+
+  it('passes the raw input cursor when querying global sync messages across items', async () => {
+    const repository = {
+      ...createMockRepository(),
+      getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({ items: [], hasMore: false }),
+    } as unknown as Mocked<AutomergeSyncRepository>
+    const service = createAutomergeSyncService({ repository })
+
+    const inputCursor = 200_000_000 // 20 seconds into epoch
+    await service.pullAutomergeSyncGlobal({
+      account: 'test-account',
+      cursor: inputCursor,
+    })
+
+    expect(repository.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith({
+      account: 'test-account',
+      cursor: 200_000_000,
+    })
+  })
+
+  it('returns response-level hasMore and sets item-level hasMore to false for all items in pullAutomergeSyncGlobal', async () => {
+    const repository = {
+      ...createMockRepository(),
+      getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({
+        items: [
+          {
+            itemId: 'item-1' as ItemId,
+            messages: [{ cursor: 10, encryptedMessage: { iv: 'iv1', cipher: 'c1' }, createdAt: 100 }],
+          },
+          {
+            itemId: 'item-2' as ItemId,
+            messages: [{ cursor: 20, encryptedMessage: { iv: 'iv2', cipher: 'c2' }, createdAt: 200 }],
+          },
+        ],
+        hasMore: true,
+      }),
+    } as unknown as Mocked<AutomergeSyncRepository>
+    const service = createAutomergeSyncService({ repository })
+
+    const result = await service.pullAutomergeSyncGlobal({
+      account: 'test-account',
+      cursor: 5,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.hasMore).toBe(true)
+    expect(result.results).toHaveLength(2)
+    // Both items must have hasMore: false so they are not hijacked into pullCursors
+    expect(result.results[0].hasMore).toBe(false)
+    expect(result.results[1].hasMore).toBe(false)
+  })
+
+  it('bypasses the 10-second overlap buffer and passes exclusiveStartKey during pagination continuation for an item', async () => {
+    const repository = createMockRepository()
+    const lastKey = { syncId: 'test-account#item-1', cursor: 150_000_199 }
+    repository.getSyncMessages.mockResolvedValueOnce({
+      messages: [],
+      hasMore: false,
+      lastEvaluatedKey: undefined,
+    })
+    const service = createAutomergeSyncService({ repository })
+
+    const inputCursor = 150_000_199
+    await service.pullAutomergeSyncBatch({
+      account: 'test-account',
+      cursors: [{ itemId: 'item-1' as ItemId, cursor: inputCursor, lastEvaluatedKey: lastKey }],
+    })
+
+    expect(repository.getSyncMessages).toHaveBeenCalledWith({
+      account: 'test-account',
+      itemId: 'item-1',
+      fromCursor: undefined, // Must NOT subtract OVERLAP_CURSOR_DELTA or pass fromCursor
+      exclusiveStartKey: lastKey,
+      limit: 200,
+    })
+  })
+
+  it('bypasses the 10-second overlap buffer and passes exclusiveStartKey during global sync pagination continuation', async () => {
+    const repository = {
+      ...createMockRepository(),
+      getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({
+        items: [],
+        hasMore: false,
+        lastEvaluatedKey: undefined,
+      }),
+    } as unknown as Mocked<AutomergeSyncRepository>
+    const service = createAutomergeSyncService({ repository })
+
+    const globalKey = { account: 'test-account', cursor: 200_000_999, syncId: 'test-account#item-5' }
+    await service.pullAutomergeSyncGlobal({
+      account: 'test-account',
+      cursor: 200_000_999,
+      lastEvaluatedKey: globalKey,
+    })
+
+    expect(repository.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith({
+      account: 'test-account',
+      cursor: undefined, // Must NOT subtract OVERLAP_CURSOR_DELTA or pass cursor
+      exclusiveStartKey: globalKey,
+    })
+  })
+
+  it('terminates pagination cleanly on burst writes across pages without looping', async () => {
+    const repository = createMockRepository()
+    const page1Key = { syncId: 'test-account#item-1', cursor: 100_000_200 }
+    const page1Messages = Array.from({ length: 200 }, (_, i) => ({
+      cursor: 100_000_001 + i,
+      encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
+      createdAt: 1000,
+    }))
+    const page2Messages = Array.from({ length: 50 }, (_, i) => ({
+      cursor: 100_000_201 + i,
+      encryptedMessage: { iv: `iv-${i + 200}`, cipher: `c-${i + 200}` },
+      createdAt: 1000,
+    }))
+
+    // Page 1: fresh poll
+    repository.getSyncMessages.mockResolvedValueOnce({
+      messages: page1Messages,
+      hasMore: true,
+      lastEvaluatedKey: page1Key,
+    })
+
+    const service = createAutomergeSyncService({ repository })
+
+    const page1Result = await service.pullAutomergeSyncBatch({
+      account: 'test-account',
+      cursors: [{ itemId: 'item-1' as ItemId, cursor: 100_000_000 }],
+    })
+
+    expect(page1Result.results[0].hasMore).toBe(true)
+    expect(page1Result.results[0].lastEvaluatedKey).toEqual(page1Key)
+    expect(page1Result.results[0].messages).toHaveLength(200)
+    expect(repository.getSyncMessages).toHaveBeenLastCalledWith({
+      account: 'test-account',
+      itemId: 'item-1',
+      fromCursor: 100_000_000,
+      limit: 200,
+      exclusiveStartKey: undefined,
+    })
+
+    // Page 2: continuation with lastEvaluatedKey
+    repository.getSyncMessages.mockResolvedValueOnce({
+      messages: page2Messages,
+      hasMore: false,
+      lastEvaluatedKey: undefined,
+    })
+
+    const page2Result = await service.pullAutomergeSyncBatch({
+      account: 'test-account',
+      cursors: [{
+        itemId: 'item-1' as ItemId,
+        cursor: page1Result.results[0].nextCursor,
+        lastEvaluatedKey: page1Result.results[0].lastEvaluatedKey,
+      }],
+    })
+
+    expect(page2Result.results[0].hasMore).toBe(false)
+    expect(page2Result.results[0].lastEvaluatedKey).toBeUndefined()
+    expect(page2Result.results[0].messages).toHaveLength(50)
+    expect(repository.getSyncMessages).toHaveBeenLastCalledWith({
+      account: 'test-account',
+      itemId: 'item-1',
+      fromCursor: undefined,
+      limit: 200,
+      exclusiveStartKey: page1Key,
+    })
+  })
+
+  it('returns fromCursor as nextCursor when no new messages exist (client is caught up)', async () => {
+    const repository = createMockRepository()
+    repository.getSyncMessages.mockResolvedValueOnce({
+      messages: [],
+      hasMore: false,
+      lastEvaluatedKey: undefined,
+    })
+    const service = createAutomergeSyncService({ repository })
+
+    const result = await service.pullAutomergeSyncBatch({
+      account: 'test-account',
+      cursors: [{ itemId: 'item-1' as ItemId, cursor: 500_000 }],
+    })
+
+    expect(result.results[0].nextCursor).toBe(500_000)
+    expect(result.results[0].messages).toHaveLength(0)
+    expect(repository.getSyncMessages).toHaveBeenCalledWith({
+      account: 'test-account',
+      itemId: 'item-1',
+      fromCursor: 500_000,
+      limit: 200,
+      exclusiveStartKey: undefined,
+    })
+  })
 })

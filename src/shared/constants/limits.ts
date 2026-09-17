@@ -1,0 +1,8 @@
+export const ITEM_LIMITS = {
+  NAME_MAX: 500,
+  NAME_WARN: 400, // 80% of 500
+  DESCRIPTION_MAX: 1000,
+  DESCRIPTION_WARN: 800, // 80% of 1000
+  NOTE_MAX: 5000,
+  NOTE_WARN: 4000, // 80% of 5000
+} as const

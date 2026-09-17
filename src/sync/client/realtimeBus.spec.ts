@@ -4,6 +4,7 @@ import { ItemId } from 'src/shared/schemas/items'
 class MockBroadcastChannel {
   name: string
   onmessage: ((ev: MessageEvent) => any) | null = null
+  onmessageerror: ((ev: MessageEvent) => any) | null = null
   postMessage = vi.fn()
   close = vi.fn()
 
@@ -21,6 +22,7 @@ vi.stubGlobal('BroadcastChannel', MockBroadcastChannel)
 describe('realtimeBus', () => {
   beforeEach(() => {
     vi.resetModules()
+    vi.stubGlobal('BroadcastChannel', MockBroadcastChannel)
     MockBroadcastChannel.instances = []
     vi.clearAllMocks()
   })
@@ -150,5 +152,78 @@ describe('realtimeBus', () => {
     unsub1()
     unsub2()
     consoleErrorSpy.mockRestore()
+  })
+
+  it('handles environments where BroadcastChannel is undefined without crashing', async () => {
+    vi.stubGlobal('BroadcastChannel', undefined)
+    const { subscribeRealtimeBusSyncPing, publishRealtimeBusSyncPing } = await import('./realtimeBus')
+
+    const listener = vi.fn()
+    const unsubscribe = subscribeRealtimeBusSyncPing(listener)
+    expect(typeof unsubscribe).toBe('function')
+
+    expect(() => publishRealtimeBusSyncPing(['item-1'] as ItemId[])).not.toThrow()
+    expect(() => unsubscribe()).not.toThrow()
+  })
+
+  it('handles environments where BroadcastChannel constructor throws without crashing', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    class ThrowingBroadcastChannel {
+      constructor() {
+        throw new Error('SecurityError: Access is denied')
+      }
+    }
+    vi.stubGlobal('BroadcastChannel', ThrowingBroadcastChannel)
+
+    const { subscribeRealtimeBusSyncPing, publishRealtimeBusSyncPing } = await import('./realtimeBus')
+
+    const listener = vi.fn()
+    const unsubscribe = subscribeRealtimeBusSyncPing(listener)
+    expect(typeof unsubscribe).toBe('function')
+
+    expect(() => publishRealtimeBusSyncPing(['item-1'] as ItemId[])).not.toThrow()
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[realtimeBus] BroadcastChannel is not supported or failed to initialize:',
+      expect.any(Error)
+    )
+    expect(() => unsubscribe()).not.toThrow()
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('catches and warns when postMessage throws', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { publishRealtimeBusSyncPing } = await import('./realtimeBus')
+
+    // Initial postMessage initializes channel
+    publishRealtimeBusSyncPing(['item-1'] as ItemId[])
+    const channel = MockBroadcastChannel.instances[0]
+    channel.postMessage.mockImplementation(() => {
+      throw new Error('DataCloneError')
+    })
+
+    expect(() => publishRealtimeBusSyncPing(['item-2'] as ItemId[])).not.toThrow()
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[realtimeBus] Failed to post message to BroadcastChannel:',
+      expect.any(Error)
+    )
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('logs a warning on message deserialization error', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { subscribeRealtimeBusSyncPing } = await import('./realtimeBus')
+
+    const unsubscribe = subscribeRealtimeBusSyncPing(vi.fn())
+    const channel = MockBroadcastChannel.instances[0]
+
+    expect(channel.onmessageerror).toBeDefined()
+    channel.onmessageerror!(new MessageEvent('messageerror'))
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[realtimeBus] Error deserializing message on BroadcastChannel:',
+      expect.any(MessageEvent)
+    )
+
+    unsubscribe()
+    consoleWarnSpy.mockRestore()
   })
 })

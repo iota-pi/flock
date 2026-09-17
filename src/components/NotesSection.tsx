@@ -22,6 +22,7 @@ import {
 } from './Icons'
 import DelayedRender from './ui/DelayedRender'
 import type { Note } from '../shared/schemas/items'
+import { ITEM_LIMITS } from '../shared/constants/limits'
 import { formatDate, generateNoteId } from '../utils'
 import DebouncedTextField from './ui/DebouncedTextField'
 
@@ -54,10 +55,20 @@ function NoteItem({
     [note.id, onUpdate],
   )
 
+  const noteTooLong = displayText.length > ITEM_LIMITS.NOTE_MAX
+  const noteWarning = displayText.length >= ITEM_LIMITS.NOTE_WARN && !noteTooLong
+  const noteHelperText = noteTooLong
+    ? `Note must be ${ITEM_LIMITS.NOTE_MAX} characters or less (${displayText.length}/${ITEM_LIMITS.NOTE_MAX})`
+    : noteWarning
+      ? `${displayText.length}/${ITEM_LIMITS.NOTE_MAX} characters (approaching limit)`
+      : undefined
+
   return (
     <ListItem disableGutters sx={{ alignItems: 'center' }}>
       <DebouncedTextField
         debounceMs={1000}
+        error={noteTooLong}
+        helperText={noteHelperText}
         fullWidth
         multiline
         minRows={note.archived ? undefined : 2}
@@ -70,6 +81,9 @@ function NoteItem({
         placeholder={note.archived ? undefined : "Write a note..."}
         hiddenLabel={note.archived}
         slotProps={{
+          formHelperText: {
+            sx: { color: noteWarning ? 'warning.main' : undefined },
+          },
           input: {
             endAdornment: (
               <Box sx={{ position: 'absolute', bottom: 2, right: 8 }}>

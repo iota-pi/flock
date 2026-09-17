@@ -52,10 +52,17 @@ export async function getKeyring(account: string): Promise<string | undefined> {
   return response.keyring
 }
 
-export async function updateKeyring(account: string, keyring: string): Promise<void> {
+export async function updateKeyring(
+  account: string,
+  keyring: string,
+  expectedKeyringVersion?: number,
+  keyringVersion?: number,
+): Promise<void> {
   const response = await getTrpcClient().accounts.updateKeyring.mutate({
     account,
     keyring,
+    ...(typeof expectedKeyringVersion === 'number' ? { expectedKeyringVersion } : {}),
+    ...(typeof keyringVersion === 'number' ? { keyringVersion } : {}),
   })
   assertSuccess(response, 'updateKeyring')
 }
@@ -68,6 +75,8 @@ export async function changePassword({
   newIterations,
   newKeyring,
   saltVersion,
+  keyringVersion,
+  expectedKeyringVersion,
 }: {
   account: string,
   currentAuthToken: string,
@@ -76,6 +85,8 @@ export async function changePassword({
   newIterations: number,
   newKeyring: string,
   saltVersion?: number,
+  keyringVersion?: number,
+  expectedKeyringVersion?: number,
 }): Promise<void> {
   const response = await getTrpcClient().accounts.changePassword.mutate({
     account,
@@ -85,6 +96,25 @@ export async function changePassword({
     newIterations,
     newKeyring,
     saltVersion,
+    ...(typeof keyringVersion === 'number' ? { keyringVersion } : {}),
+    ...(typeof expectedKeyringVersion === 'number' ? { expectedKeyringVersion } : {}),
   })
   assertSuccess(response, 'changePassword')
+}
+
+export async function getMetadata(account: string): Promise<Record<string, unknown> | undefined> {
+  const response = await getTrpcClient().accounts.getMetadata.query({ account })
+  assertSuccess(response, 'getMetadata')
+  return response.metadata
+}
+
+export async function updateMetadata(
+  account: string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const response = await getTrpcClient().accounts.updateMetadata.mutate({
+    account,
+    metadata,
+  })
+  assertSuccess(response, 'updateMetadata')
 }

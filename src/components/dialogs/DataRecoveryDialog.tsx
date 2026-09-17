@@ -29,6 +29,7 @@ function DataRecoveryDialog({ onClose, open }: Props) {
     handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
+    handleCompactItem,
   } = useDataRecovery()
 
   const quarantinedItems = useQuarantinedItems()
@@ -61,78 +62,112 @@ function DataRecoveryDialog({ onClose, open }: Props) {
             </Typography>
           ) : (
             <Stack spacing={2}>
-              {recoveryItems.map(item => (
-                <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{
-                    alignItems: { sm: 'center' }
-                  }}>
-                    <Stack spacing={0.5} sx={{
-                      flexGrow: 1
-                    }}>
-                      <Typography variant="subtitle1" sx={{
-                        fontWeight: 500
-                      }}>
-                        Decryption failure requires manual recovery
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        Item ID: {item.itemId}
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        {item.reason || 'Auto-recovery exhausted all options.'}
-                      </Typography>
-                    </Stack>
+              {recoveryItems.map(item => {
+                const isOversized = item.reason?.toLowerCase().includes('limit') || item.reason?.toLowerCase().includes('exceeds')
 
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        size="small"
-                        disabled={isRetrying !== null}
-                        startIcon={isRetrying === item.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
-                        onClick={() => {
-                          void handleRetryCorruptedItem(item.itemId)
-                        }}
-                      >
-                        Retry
-                      </Button>
-                      <Button
-                        variant="contained"
-                        color="warning"
-                        size="small"
-                        disabled={isRetrying !== null}
-                        startIcon={isRetrying === item.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
-                        onClick={() => {
-                          void handleForceOverwriteCorruptedItem(item.itemId)
-                        }}
-                      >
-                        Overwrite with local cache
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        disabled={isRetrying !== null}
-                        onClick={() => {
-                          void handleForceDeleteCorruptedItem(item.itemId)
-                        }}
-                      >
-                        Force delete server item
-                      </Button>
-                      <Button
-                        variant="text"
-                        color="inherit"
-                        size="small"
-                        disabled={isRetrying !== null}
-                        onClick={() => {
-                          void handleDismissRecoveryItem(item.id)
-                        }}
-                      >
-                        Dismiss
-                      </Button>
+                return (
+                  <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{
+                      alignItems: { sm: 'center' }
+                    }}>
+                      <Stack spacing={0.5} sx={{
+                        flexGrow: 1
+                      }}>
+                        <Typography variant="subtitle1" sx={{
+                          fontWeight: 500
+                        }}>
+                          {isOversized ? 'Item edit history too large to sync' : 'Decryption failure requires manual recovery'}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Item ID: {item.itemId}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          {item.reason || 'Auto-recovery exhausted all options.'}
+                        </Typography>
+                      </Stack>
+
+                      <Stack direction="row" spacing={1}>
+                        {isOversized ? (
+                          <>
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              startIcon={isRetrying === item.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
+                              onClick={() => {
+                                void handleCompactItem(item.itemId)
+                              }}
+                            >
+                              Compact History
+                            </Button>
+                            <Button
+                              variant="text"
+                              color="inherit"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              onClick={() => {
+                                void handleDismissRecoveryItem(item.id)
+                              }}
+                            >
+                              Dismiss
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="outlined"
+                              color="primary"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              startIcon={isRetrying === item.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
+                              onClick={() => {
+                                void handleRetryCorruptedItem(item.itemId)
+                              }}
+                            >
+                              Retry
+                            </Button>
+                            <Button
+                              variant="contained"
+                              color="warning"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              startIcon={isRetrying === item.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
+                              onClick={() => {
+                                void handleForceOverwriteCorruptedItem(item.itemId)
+                              }}
+                            >
+                              Overwrite with local cache
+                            </Button>
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              onClick={() => {
+                                void handleForceDeleteCorruptedItem(item.itemId)
+                              }}
+                            >
+                              Force delete server item
+                            </Button>
+                            <Button
+                              variant="text"
+                              color="inherit"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              onClick={() => {
+                                void handleDismissRecoveryItem(item.id)
+                              }}
+                            >
+                              Dismiss
+                            </Button>
+                          </>
+                        )}
+                      </Stack>
                     </Stack>
-                  </Stack>
-                </Paper>
-              ))}
+                  </Paper>
+                )
+              })}
 
               {quarantinedItems.map(item => (
                 <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>

@@ -1,4 +1,3 @@
-import localforage from 'localforage'
 import { nanoid } from 'nanoid'
 import { ItemId } from 'src/shared/schemas/items'
 import {
@@ -6,25 +5,19 @@ import {
   checkQuotaExceeded,
   resetQuotaExceededStatus,
 } from '../../utils/storageManager'
+import {
+  createAccountStore,
+  clearAccountStoreInstancesCacheForTesting,
+} from './createAccountStore'
 
 export { resetQuotaExceededStatus }
 
-const storageInstances = new Map<string, LocalForage>()
-
 export function getSyncBatchStorage(accountId: string): LocalForage {
-  let instance = storageInstances.get(accountId)
-  if (!instance) {
-    instance = localforage.createInstance({
-      name: `FlockVault_SyncBatchDB_${accountId}`,
-      storeName: 'sync-batch-messages',
-    })
-    storageInstances.set(accountId, instance)
-  }
-  return instance
+  return createAccountStore('sync-batch-messages', accountId)
 }
 
 export function clearInstancesCacheForTesting(): void {
-  storageInstances.clear()
+  clearAccountStoreInstancesCacheForTesting()
 }
 
 const MAX_MESSAGES_PER_ITEM = 2000
@@ -180,7 +173,7 @@ export async function loadSyncBatch(account: string): Promise<[ItemId, QueuedMes
               return res.msg
             })
             if (needsSave) {
-              await storage.setItem(itemId, normalized)
+              await runStorageOperation(() => storage.setItem(itemId, normalized))
             }
             batchEntries.push([itemId as ItemId, normalized])
           }
@@ -212,9 +205,9 @@ export async function removeSentSyncMessages(
           const normalized = current.map(m => normalizeMessage(m).msg)
           const remaining = normalized.filter(m => !sentIds.has(m.id))
           if (remaining.length > 0) {
-            await storage.setItem(itemId, remaining)
+            await runStorageOperation(() => storage.setItem(itemId, remaining))
           } else {
-            await storage.removeItem(itemId)
+            await runStorageOperation(() => storage.removeItem(itemId))
           }
         }
       } catch (err) {
@@ -247,7 +240,7 @@ export async function clearSyncBatch(account: string): Promise<void> {
     await Promise.all(
       Array.from(allKeys).map(itemId => {
         const queueKey = `${account}:${itemId}`
-        return enqueue(queueKey, () => storage.removeItem(itemId))
+        return enqueue(queueKey, () => runStorageOperation(() => storage.removeItem(itemId)))
       })
     )
   } catch (err) {
@@ -276,7 +269,7 @@ export async function restoreSyncBatch(
             id: nanoid(),
             data: m,
           }))
-          await storage.setItem(itemId, wrapped)
+          await runStorageOperation(() => storage.setItem(itemId, wrapped))
         })
       })
     )

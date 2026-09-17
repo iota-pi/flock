@@ -6,6 +6,8 @@ import {
   getKeyring,
   updateKeyring,
   changePassword,
+  getMetadata,
+  updateMetadata,
 } from './AccountClient'
 import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
 import { getTrpcClient } from '../trpcClient'
@@ -19,6 +21,8 @@ const mockTrpcClient = {
     getKeyring: { query: vi.fn() },
     updateKeyring: { mutate: vi.fn() },
     changePassword: { mutate: vi.fn() },
+    getMetadata: { query: vi.fn() },
+    updateMetadata: { mutate: vi.fn() },
   },
 }
 
@@ -123,6 +127,20 @@ describe('AccountClient', () => {
     })
   })
 
+  it('passes expectedKeyringVersion and keyringVersion when updating keyring', async () => {
+    vi.mocked(getTrpcClient().accounts.updateKeyring.mutate).mockResolvedValue({
+      success: true,
+    })
+
+    await updateKeyring('acc-1', 'new-keyring-data', 1, 2)
+    expect(getTrpcClient().accounts.updateKeyring.mutate).toHaveBeenCalledWith({
+      account: 'acc-1',
+      keyring: 'new-keyring-data',
+      expectedKeyringVersion: 1,
+      keyringVersion: 2,
+    })
+  })
+
   it('calls changePassword with expected params', async () => {
     vi.mocked(getTrpcClient().accounts.changePassword.mutate).mockResolvedValue({
       success: true,
@@ -146,4 +164,32 @@ describe('AccountClient', () => {
       newKeyring: 'new-keyring',
     })
   })
+
+  it('fetches metadata for the active account', async () => {
+    const mockMetadata = { prayerGoal: 5 }
+    vi.mocked(getTrpcClient().accounts.getMetadata.query).mockResolvedValue({
+      success: true,
+      metadata: mockMetadata,
+    })
+
+    const metadata = await getMetadata('acc-1')
+    expect(metadata).toEqual(mockMetadata)
+    expect(getTrpcClient().accounts.getMetadata.query).toHaveBeenCalledWith({
+      account: 'acc-1',
+    })
+  })
+
+  it('updates metadata for the active account', async () => {
+    const mockMetadata = { prayerGoal: 10 }
+    vi.mocked(getTrpcClient().accounts.updateMetadata.mutate).mockResolvedValue({
+      success: true,
+    })
+
+    await updateMetadata('acc-1', mockMetadata)
+    expect(getTrpcClient().accounts.updateMetadata.mutate).toHaveBeenCalledWith({
+      account: 'acc-1',
+      metadata: mockMetadata,
+    })
+  })
 })
+

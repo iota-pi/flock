@@ -34,6 +34,7 @@ function reportQuotaExceeded(): void {
 
 export function resetQuotaExceededStatus(): void {
   isQuotaExceeded = false
+  lastReportedTime = 0
 }
 
 export function checkQuotaExceeded(): boolean {
@@ -44,14 +45,51 @@ export function checkQuotaExceeded(): boolean {
   return false
 }
 
+export type QuotaRecoveryHandler = () => Promise<boolean | number | void>
+
+let quotaRecoveryHandler: QuotaRecoveryHandler | null = null
+
+export function registerQuotaRecoveryHandler(handler: QuotaRecoveryHandler | null): () => void {
+  quotaRecoveryHandler = handler
+  return () => {
+    if (quotaRecoveryHandler === handler) {
+      quotaRecoveryHandler = null
+    }
+  }
+}
+
+export function clearQuotaRecoveryHandlerForTesting(): void {
+  quotaRecoveryHandler = null
+}
+
+export interface RunStorageOperationOptions {
+  retryOnQuotaError?: boolean
+}
+
 /**
  * Runs a storage operation, intercepts IndexedDB write/quota errors, and reports them centrally.
+ * If a QuotaRecoveryHandler is registered, attempts compaction/pruning and retries the operation once.
  */
-export async function runStorageOperation<T>(operation: () => Promise<T>): Promise<T> {
+export async function runStorageOperation<T>(
+  operation: () => Promise<T>,
+  options?: RunStorageOperationOptions
+): Promise<T> {
   try {
     return await operation()
   } catch (error) {
     if (isQuotaError(error)) {
+      if (options?.retryOnQuotaError !== false && quotaRecoveryHandler) {
+        try {
+          await quotaRecoveryHandler()
+          // Retry once after recovery/compaction attempt
+          return await operation()
+        } catch (retryError) {
+          if (isQuotaError(retryError)) {
+            reportQuotaExceeded()
+          }
+          throw retryError
+        }
+      }
       reportQuotaExceeded()
     }
     throw error

@@ -14,6 +14,7 @@ type PullSyncMessageInput = {
   account: string
   itemId: ItemId
   cursor?: number
+  lastEvaluatedKey?: Record<string, unknown>
 }
 
 type PullSyncBatchInput = {
@@ -21,6 +22,7 @@ type PullSyncBatchInput = {
   cursors: Array<{
     itemId: ItemId
     cursor?: number
+    lastEvaluatedKey?: Record<string, unknown>
   }>
 }
 
@@ -45,6 +47,8 @@ const SYNC_MESSAGE_PAGE_LIMIT = 200
 const TIMESTAMP_MULTIPLIER = 10_000_000
 const MAX_OFFSET = 9_999_000
 const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
+export const OVERLAP_WINDOW_SECONDS = 10
+export const OVERLAP_CURSOR_DELTA = OVERLAP_WINDOW_SECONDS * TIMESTAMP_MULTIPLIER
 
 export function createAutomergeSyncService({
   now = Date.now,
@@ -94,14 +98,16 @@ export function createAutomergeSyncService({
     nextCursor: number
     messages: StoredSyncMessage[]
     hasMore: boolean
+    lastEvaluatedKey?: Record<string, unknown>
   }> {
+    const isContinuation = !!input.lastEvaluatedKey
     const fromCursor = typeof input.cursor === 'number' ? input.cursor : 0
-    const overlapCursor = Math.max(0, fromCursor - TIMESTAMP_MULTIPLIER)
-    const { messages: storedMessages, hasMore } = await repository.getSyncMessages({
+    const { messages: storedMessages, hasMore, lastEvaluatedKey } = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
-      fromCursor: overlapCursor,
+      fromCursor: isContinuation ? undefined : fromCursor,
       limit: SYNC_MESSAGE_PAGE_LIMIT,
+      exclusiveStartKey: input.lastEvaluatedKey,
     })
     const messages = sortMessagesAscendingByCursor(storedMessages)
     const nextCursor = messages.length > 0
@@ -114,6 +120,7 @@ export function createAutomergeSyncService({
       nextCursor,
       messages,
       hasMore,
+      lastEvaluatedKey,
     }
   }
 
@@ -125,22 +132,29 @@ export function createAutomergeSyncService({
       nextCursor: number
       messages: StoredSyncMessage[]
       hasMore: boolean
+      lastEvaluatedKey?: Record<string, unknown>
     }>
   }> {
-    const dedupedCursorsByItemId = new Map<ItemId, number>()
+    const dedupedCursorsByItemId = new Map<ItemId, { cursor: number; lastEvaluatedKey?: Record<string, unknown> }>()
     for (const cursorInput of input.cursors) {
-      const existing = dedupedCursorsByItemId.get(cursorInput.itemId) || 0
-      const next = typeof cursorInput.cursor === 'number' ? cursorInput.cursor : 0
-      dedupedCursorsByItemId.set(cursorInput.itemId, Math.max(existing, next))
+      const nextCursor = typeof cursorInput.cursor === 'number' ? cursorInput.cursor : 0
+      const existing = dedupedCursorsByItemId.get(cursorInput.itemId)
+      if (!existing || nextCursor >= existing.cursor) {
+        dedupedCursorsByItemId.set(cursorInput.itemId, {
+          cursor: nextCursor,
+          lastEvaluatedKey: cursorInput.lastEvaluatedKey,
+        })
+      }
     }
 
     const results = await Promise.all(
       Array
         .from(dedupedCursorsByItemId.entries())
-        .map(([itemId, cursor]) => pullAutomergeSyncMessages({
+        .map(([itemId, { cursor, lastEvaluatedKey }]) => pullAutomergeSyncMessages({
           account: input.account,
           itemId,
           cursor,
+          lastEvaluatedKey,
         })),
     )
 
@@ -150,7 +164,11 @@ export function createAutomergeSyncService({
     }
   }
 
-  async function pullAutomergeSyncGlobal(input: { account: string; cursor: number }): Promise<{
+  async function pullAutomergeSyncGlobal(input: {
+    account: string
+    cursor: number
+    lastEvaluatedKey?: Record<string, unknown>
+  }): Promise<{
     success: true
     results: Array<{
       success: true
@@ -159,25 +177,28 @@ export function createAutomergeSyncService({
       messages: StoredSyncMessage[]
       hasMore: boolean
     }>
+    hasMore: boolean
+    lastEvaluatedKey?: Record<string, unknown>
   }> {
-    const overlapCursor = Math.max(0, input.cursor - TIMESTAMP_MULTIPLIER)
-    const { items, hasMore } = await repository.getGlobalSyncMessagesAfterCursor({
+    const isContinuation = !!input.lastEvaluatedKey
+    const { items, hasMore, lastEvaluatedKey } = await repository.getGlobalSyncMessagesAfterCursor({
       account: input.account,
-      cursor: overlapCursor,
+      cursor: isContinuation ? undefined : input.cursor,
+      exclusiveStartKey: input.lastEvaluatedKey,
     })
 
-    const results = items.map((item, index) => {
+    const results = items.map(item => {
       const messages = item.messages
       return {
         success: true as const,
         itemId: item.itemId,
         nextCursor: messages.length > 0 ? messages[messages.length - 1].cursor : input.cursor,
         messages,
-        hasMore: index === items.length - 1 ? hasMore : false,
+        hasMore: false,
       }
     })
 
-    return { success: true, results }
+    return { success: true, results, hasMore, lastEvaluatedKey }
   }
 
   return {

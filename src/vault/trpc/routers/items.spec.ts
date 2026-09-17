@@ -61,6 +61,70 @@ describe('itemsRouter.putSnapshots', () => {
       lastSnapshotAt: expect.any(Number),
     })
   })
+
+  it('returns success: false when one snapshot write fails', async () => {
+    const ctx = createContext()
+    ;(ctx.vault.set as any)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('DynamoDB put failed'))
+    const caller = itemsRouter.createCaller(ctx as any)
+
+    const input = {
+      account: 'acct-1',
+      snapshots: [
+        {
+          itemId: 'item-1',
+          type: 'todo',
+          modified: 12345,
+          snapshot: { iv: 'iv-1', cipher: 'cipher-1' },
+          snapshotCursor: 10,
+        },
+        {
+          itemId: 'item-2',
+          type: 'todo',
+          modified: 12346,
+          snapshot: { iv: 'iv-2', cipher: 'cipher-2' },
+          snapshotCursor: 20,
+        },
+      ],
+    }
+
+    const result = await caller.putSnapshots(input)
+
+    expect(result).toEqual({
+      success: false,
+      persisted: 1,
+      total: 2,
+    })
+  })
+
+  it('returns success: false and persisted: 0 when all snapshot writes fail', async () => {
+    const ctx = createContext()
+    ;(ctx.vault.set as any).mockRejectedValue(new Error('All writes fail'))
+    const caller = itemsRouter.createCaller(ctx as any)
+
+    const input = {
+      account: 'acct-1',
+      snapshots: [
+        {
+          itemId: 'item-1',
+          type: 'todo',
+          modified: 12345,
+          snapshot: { iv: 'iv-1', cipher: 'cipher-1' },
+          snapshotCursor: 10,
+        },
+      ],
+    }
+
+    const result = await caller.putSnapshots(input)
+
+    expect(result).toEqual({
+      success: false,
+      persisted: 0,
+      total: 1,
+    })
+    expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
+  })
 })
 
 describe('itemsRouter.fetchManifest', () => {

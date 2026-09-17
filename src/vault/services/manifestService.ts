@@ -8,12 +8,12 @@ type ManifestServiceContext = {
 export async function fetchManifest(
   ctx: ManifestServiceContext,
   input: { account: string },
-): Promise<{ manifest: Array<[string, number]>; serverTime: number }> {
+): Promise<{ manifest: Array<[string, number, boolean?]>; serverTime: number }> {
   const { account } = input
   const items = await ctx.vault.fetchManifest({ account })
 
   return {
-    manifest: items.map(entry => [entry.itemId, entry.modifiedAt]),
+    manifest: items.map(entry => (entry.deleted ? [entry.itemId, entry.modifiedAt, true] : [entry.itemId, entry.modifiedAt])),
     serverTime: Date.now(),
   }
 }

@@ -1,31 +1,57 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
 
-import { AutomergeDocStore } from './docStore'
+import { AutomergeDocStore, type DocHandleReplacedListener } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
+import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
+import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
-import { DeletionQueueManager } from './DeletionQueueManager'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
+import { RecoveryManager } from './RecoveryManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { AutomergeRepoManager } from './AutomergeRepoManager'
+import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
+import type { ItemId } from 'src/shared/schemas/items'
+import { ServiceLifecycleManager } from './ServiceLifecycleManager'
+import { SyncApiClient } from './SyncApiClient'
+import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
 
-export interface SyncWorkerContextDeps {
+export { QuotaExceededRetryError }
+
+/**
+ * Slim configuration for SyncWorkerContext.
+ * All stores and managers are constructed internally; only primitive inputs and
+ * optional callback bridges back to the Comlink layer are accepted here.
+ */
+export interface SyncWorkerContextConfig {
   accountId: string
-  repo: Repo
-  adapter: VaultNetworkAdapter
-  broker: SyncMessageBroker
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
-  indexStore: IndexStore
-  indexManager: AutomergeIndexManager
-  cursorStore: CursorStore
-  pullQueueManager: SyncPullQueueManager
+  /**
+   * Called when the Automerge repo receives a new document from the network,
+   * so the Comlink layer can subscribe to change events on that handle.
+   */
+  onDocumentReceived?: (itemId: ItemId) => void
+  /** Called when a doc handle is replaced (e.g. after compaction/import). */
+  onDocHandleReplaced?: DocHandleReplacedListener
+  /**
+   * Called when storage quota state changes (exceeded / resolved).
+   */
+  onQuotaStatusChange?: (isQuotaExceeded: boolean) => void
+  /**
+   * Called when an inbound item sync message has been parsed.
+   */
+  onItemMessageParsed?: (itemId: ItemId) => void
+  /** Optional override for testing. */
+  apiClient?: SyncApiClient
 }
 
 export class SyncWorkerContext {
@@ -33,135 +59,410 @@ export class SyncWorkerContext {
   public readonly repo: Repo
   public readonly adapter: VaultNetworkAdapter
   public readonly broker: SyncMessageBroker
+  public readonly repoManager: AutomergeRepoManager
   public readonly clientEventHub: ClientEventHub
   public readonly internalEventHub: WorkerInternalEventHub
+  public readonly apiClient: SyncApiClient
 
   public readonly indexStore: IndexStore
   public readonly cursorStore: CursorStore
   public readonly lastModifiedStore: LastModifiedStore
+  public readonly syncedHeadsStore: SyncedHeadsStore
+  public readonly wal: SyncWriteAheadLog
 
   public readonly docStore: AutomergeDocStore
   public readonly indexManager: AutomergeIndexManager
+  public readonly recoveryManager: RecoveryManager
   public readonly pullQueueManager: SyncPullQueueManager
   public readonly snapshotManager: SnapshotManager
   public readonly orchestrator: SyncOrchestrator
-  public readonly deletionQueueManager: DeletionQueueManager
   public readonly manifestSyncManager: ManifestSyncManager
   public readonly itemOperations: ItemOperations
+  public readonly storageRecoveryService: StorageRecoveryService
+  public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
-  constructor(deps: SyncWorkerContextDeps) {
-    this.accountId = deps.accountId
-    this.repo = deps.repo
-    this.adapter = deps.adapter
-    this.broker = deps.broker
-    this.clientEventHub = deps.clientEventHub
-    this.internalEventHub = deps.internalEventHub
+  public get storageRecovery(): StorageRecoveryService {
+    return this.storageRecoveryService
+  }
 
-    this.indexStore = deps.indexStore
-    this.indexManager = deps.indexManager
-    this.cursorStore = deps.cursorStore
-    this.pullQueueManager = deps.pullQueueManager
-    this.lastModifiedStore = new LastModifiedStore(deps.accountId)
+  private unregisterQuotaRecovery: (() => void) | null = null
+  private unsubscribers: Array<() => void> = []
 
-    this.docStore = new AutomergeDocStore(deps.repo)
+  constructor(config: SyncWorkerContextConfig) {
+    this.accountId = config.accountId
+    this.clientEventHub = config.clientEventHub
+    this.internalEventHub = config.internalEventHub
+    this.apiClient = config.apiClient ?? new SyncApiClient()
 
-    this.snapshotManager = new SnapshotManager(
+    const stores = this.createStores(config.accountId)
+    this.cursorStore = stores.cursorStore
+    this.indexStore = stores.indexStore
+    this.lastModifiedStore = stores.lastModifiedStore
+    this.syncedHeadsStore = stores.syncedHeadsStore
+    this.wal = stores.wal
+
+    const network = this.initNetworkAndRepo(config)
+    this.adapter = network.adapter
+    this.repoManager = network.repoManager
+    this.repo = network.repo
+
+    const core = this.createCoreServices(config)
+    this.docStore = core.docStore
+    this.indexManager = core.indexManager
+    this.pullQueueManager = core.pullQueueManager
+    this.broker = core.broker
+    this.recoveryManager = core.recoveryManager
+    this.snapshotManager = core.snapshotManager
+
+    const ops = this.createOrchestrationAndOperations(config)
+    this.orchestrator = ops.orchestrator
+    this.itemOperations = ops.itemOperations
+    this.manifestSyncManager = ops.manifestSyncManager
+    this.storageRecoveryService = ops.storageRecoveryService
+
+    this.wireCrossServiceDependencies()
+    this.registerLifecycleServices()
+  }
+
+  private createStores(accountId: string) {
+    return {
+      cursorStore: new CursorStore(accountId),
+      indexStore: new IndexStore(accountId),
+      lastModifiedStore: new LastModifiedStore(accountId),
+      syncedHeadsStore: new SyncedHeadsStore(accountId),
+      wal: new SyncWriteAheadLog(accountId, this.internalEventHub),
+    }
+  }
+
+  private initNetworkAndRepo(config: SyncWorkerContextConfig) {
+    const adapter = new VaultNetworkAdapter(this.internalEventHub)
+    const repoManager = new AutomergeRepoManager(config.accountId)
+    const repo = repoManager.init(adapter, {
+      onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onDocumentReceived: docId => {
+        const itemId = toVaultItemIdFromAutomergeId(docId)
+        if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+          config.onDocumentReceived?.(itemId)
+        }
+      },
+      onQuotaError: error => {
+        void this.storageRecoveryService?.handleQuotaExceeded(error)
+      },
+    })
+    adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
+    return { adapter, repoManager, repo }
+  }
+
+  private createCoreServices(config: SyncWorkerContextConfig) {
+    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub)
+    if (config.onDocHandleReplaced) {
+      docStore.onDocHandleReplaced = config.onDocHandleReplaced
+    }
+
+    const indexManager = new AutomergeIndexManager(
+      config.accountId,
+      this.indexStore,
+      itemIds => config.clientEventHub.emit({ type: 'indexUpdated', itemIds }),
+      metadata => config.clientEventHub.emit({ type: 'metadataUpdated', metadata })
+    )
+
+    const pullQueueManager = new SyncPullQueueManager(
+      this.cursorStore,
+      docStore,
+      this.internalEventHub
+    )
+
+    const broker = new SyncMessageBroker(
+      this.adapter,
+      config.clientEventHub,
+      config.internalEventHub,
+      indexManager,
+      pullQueueManager,
+      this.wal
+    )
+
+    const recoveryManager = new RecoveryManager({
+      accountId: config.accountId,
+      eventHub: config.clientEventHub,
+    })
+
+    const snapshotManager = new SnapshotManager(
       {
-        accountId: deps.accountId,
-        repo: deps.repo,
-        broker: deps.broker,
+        accountId: config.accountId,
+        repo: this.repo,
+        broker,
+        getLatestCursor: () => pullQueueManager.getGlobalLatestCursor(),
+        eventHub: config.clientEventHub,
+        recoveryManager,
+        apiClient: this.apiClient,
       },
       this.lastModifiedStore
     )
 
-    this.orchestrator = new SyncOrchestrator(
-      deps.accountId,
-      deps.broker,
-      deps.clientEventHub,
-      deps.internalEventHub
+    return { docStore, indexManager, pullQueueManager, broker, recoveryManager, snapshotManager }
+  }
+
+  private createOrchestrationAndOperations(config: SyncWorkerContextConfig) {
+    const orchestrator = new SyncOrchestrator(
+      config.accountId,
+      this.broker,
+      config.clientEventHub,
+      config.internalEventHub,
+      this.pullQueueManager
     )
 
-    this.deletionQueueManager = new DeletionQueueManager({
-      accountId: deps.accountId,
+    const itemOperations = new ItemOperations({
+      accountId: config.accountId,
       docStore: this.docStore,
       indexManager: this.indexManager,
-    })
-
-    this.itemOperations = new ItemOperations({
-      accountId: deps.accountId,
-      docStore: this.docStore,
-      indexManager: this.indexManager,
-      eventHub: deps.clientEventHub,
+      eventHub: config.clientEventHub,
       markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
+      recoveryManager: this.recoveryManager,
     })
 
-    this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
-      void this.itemOperations.reportDecryptionFailure(itemId, error)
-    }
-
-    this.broker.onItemMessageParsed = itemId => {
-      void this.itemOperations.clearManualRecoveryForItems([itemId])
-    }
-
-    this.manifestSyncManager = new ManifestSyncManager(
+    const manifestSyncManager = new ManifestSyncManager(
       {
-        accountId: deps.accountId,
+        accountId: config.accountId,
         docStore: this.docStore,
         indexManager: this.indexManager,
         snapshotManager: this.snapshotManager,
+        recoveryManager: this.recoveryManager,
+        apiClient: this.apiClient,
+        onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       },
-      items => this.itemOperations.storeItems(items),
-      changes => this.itemOperations.mutateMetadata(changes),
+      (items, options) => itemOperations.storeItems(items, options),
+      changes => itemOperations.mutateMetadata(changes),
+      (itemId, error) => {
+        void this.recoveryManager.reportDecryptionFailure(itemId, error)
+      },
+      (itemId, heads) => {
+        const docId = toDocumentIdFromItemId(itemId)
+        this.adapter.setSyncedHeads(docId, heads)
+      }
     )
+
+    const storageRecoveryService = new StorageRecoveryService({
+      accountId: config.accountId,
+      clientEventHub: config.clientEventHub,
+      wal: this.wal,
+      docStore: this.docStore,
+      snapshotManager: this.snapshotManager,
+      lastModifiedStore: this.lastModifiedStore,
+      broker: this.broker,
+      adapter: this.adapter,
+      orchestrator,
+      onQuotaStatusChange: config.onQuotaStatusChange,
+    })
+
+    return { orchestrator, itemOperations, manifestSyncManager, storageRecoveryService }
   }
 
-  async initialize() {
-    await Promise.all([
-      this.indexManager.ensureIndexDocument(),
-      this.snapshotManager.loadLastModified(),
-    ])
-    await this.orchestrator.start()
+  private wireCrossServiceDependencies(): void {
+    this.snapshotManager.setLeader(this.orchestrator.leader)
+    this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
+    this.broker.setStorageRecoveryService?.(this.storageRecoveryService)
+    this.subscribeInternalEvents()
+  }
+
+  private registerLifecycleServices(): void {
+    // Teardown runs in LIFO order (reverse registration order).
+    // Startup runs in FIFO order (registration order).
+    // Register items that should stop last first, and items that should stop first last.
+
+    // 1. Storage cleanup on logout/clearLocalData (runs last on teardown)
+    this.lifecycle.register({
+      name: 'StorageCleanup',
+      onStop: async options => {
+        if (options?.clearLocalData) {
+          await Promise.all([
+            clearSyncMetadataStorage(this.accountId),
+            this.indexStore.clear(),
+            this.cursorStore.clear(),
+            this.lastModifiedStore.clear(),
+            this.wal.clear(),
+            this.syncedHeadsStore.clear(),
+          ])
+        }
+      },
+    })
+
+    // 2. RepoManager — close IndexedDB last (after all doc operations)
+    this.lifecycle.register({
+      name: 'RepoManager',
+      onStop: async options => {
+        if (options?.clearLocalData) {
+          try {
+            await this.repoManager.clearLocalData()
+          } catch (err) {
+            console.error('[SyncWorkerContext] Error clearing Automerge DB', err)
+          }
+        }
+        await this.repoManager.close()
+      },
+    })
+
+    // 3. VaultNetworkAdapter
+    this.lifecycle.register({
+      name: 'VaultNetworkAdapter',
+      onStop: () => {
+        this.adapter.disconnect()
+      },
+    })
+
+    // 4. SyncMessageBroker
+    this.lifecycle.register({
+      name: 'SyncMessageBroker',
+      onStop: async () => {
+        await this.broker.shutdown()
+      },
+    })
+
+    // 5. StorageRecoveryService
+    this.lifecycle.register({
+      name: 'StorageRecoveryService',
+      onStart: () => {
+        this.storageRecoveryService.start()
+      },
+      onStop: () => {
+        this.storageRecoveryService.stop()
+        if (this.unregisterQuotaRecovery) {
+          this.unregisterQuotaRecovery()
+          this.unregisterQuotaRecovery = null
+        }
+      },
+    })
+
+    // 6. IndexManager
+    this.lifecycle.register({
+      name: 'IndexManager',
+      onStart: async () => {
+        await this.indexManager.ensureIndexDocument()
+      },
+      onStop: () => {
+        this.indexManager.close?.()
+      },
+    })
+
+    // 7. RecoveryManager
+    this.lifecycle.register({
+      name: 'RecoveryManager',
+      onStop: () => {
+        this.recoveryManager.resetRecoveryState()
+      },
+    })
+
+    // 8. DocStore
+    this.lifecycle.register({
+      name: 'DocStore',
+      onStop: async () => {
+        await this.docStore.shutdown()
+      },
+    })
+
+    // 9. SnapshotManager
+    this.lifecycle.register({
+      name: 'SnapshotManager',
+      onStart: async () => {
+        await this.snapshotManager.loadLastModified()
+      },
+      onStop: async options => {
+        await this.snapshotManager.shutdown(options)
+      },
+    })
+
+    // 10. SyncedHeads
+    this.lifecycle.register({
+      name: 'SyncedHeads',
+      onStart: async () => {
+        const storedHeads = await this.syncedHeadsStore.loadSyncedHeads()
+        if (storedHeads && storedHeads.length > 0) {
+          this.adapter.loadSyncedHeads(storedHeads)
+        }
+      },
+    })
+
+    // 11. PullQueueManager
+    this.lifecycle.register({
+      name: 'PullQueueManager',
+      onStop: async options => {
+        await this.pullQueueManager.shutdown(options)
+      },
+    })
+
+    // 12. ManifestSyncManager
+    this.lifecycle.register({
+      name: 'ManifestSyncManager',
+      onStop: () => {
+        this.manifestSyncManager.shutdown()
+      },
+    })
+
+    // 13. SyncOrchestrator (starts last, stops first)
+    this.lifecycle.register({
+      name: 'SyncOrchestrator',
+      onStart: async () => {
+        await this.orchestrator.start()
+      },
+      onStop: async () => {
+        await this.orchestrator.shutdown()
+      },
+    })
+  }
+
+  private subscribeInternalEvents(): void {
+    const unsub = this.internalEventHub.subscribe(event => {
+      switch (event.type) {
+        case 'leaderChange':
+          this.snapshotManager.setLeader(event.isLeader)
+          break
+        case 'decryptionFailure':
+          void this.recoveryManager.reportDecryptionFailure(event.itemId, event.error)
+          break
+        case 'itemMessageParsed':
+          void this.recoveryManager.unquarantineBatch([event.itemId])
+          break
+        case 'renegotiationTriggered': {
+          const itemId = toVaultItemIdFromAutomergeId(event.documentId)
+          this.snapshotManager.markItemDirty(itemId, 0)
+          break
+        }
+        case 'walAppendFailed':
+          this.snapshotManager.markItemDirty(event.itemId, 0)
+          break
+        case 'walEntriesPruned':
+          for (const itemId of event.itemIds) {
+            this.snapshotManager.markItemDirty(itemId, 0)
+          }
+          break
+      }
+    })
+    this.unsubscribers.push(unsub)
+  }
+
+  async initialize(): Promise<void> {
+    await this.lifecycle.start()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.orchestrator.shutdown()
-
-    try {
-      await this.pullQueueManager.shutdown()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down PullQueueManager', err)
+    await this.lifecycle.stop(options)
+    for (const unsub of this.unsubscribers) {
+      unsub()
     }
+    this.unsubscribers = []
+  }
 
-    try {
-      await this.deletionQueueManager.shutdown()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down DeletionQueueManager', err)
-    }
+  /**
+   * Reacts to quota exceeded: triggers emergency compaction and notifies client.
+   */
+  async handleQuotaExceeded(error?: unknown): Promise<void> {
+    return this.storageRecoveryService.handleQuotaExceeded(error)
+  }
 
-    try {
-      await this.snapshotManager.shutdown()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down SnapshotManager', err)
-    }
+  async retrySave(): Promise<{ success: boolean; error?: string }> {
+    return this.storageRecoveryService.retrySave()
+  }
 
-    try {
-      await this.docStore.shutdown()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error shutting down DocStore repo', err)
-    }
-
-    this.itemOperations.resetRecoveryState()
-
-    if (options?.clearLocalData) {
-      try {
-        await Promise.all([
-          this.indexStore.clear(),
-          this.cursorStore.clear(),
-          this.lastModifiedStore.clear(),
-        ])
-      } catch (err) {
-        console.error('[SyncWorkerContext] Error clearing metadata stores on logout', err)
-      }
-    }
+  claimLeader(): void {
+    this.orchestrator.claimLeader()
   }
 }

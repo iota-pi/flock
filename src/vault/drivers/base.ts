@@ -64,12 +64,13 @@ export default abstract class BaseDriver<T = unknown> {
     lastSnapshotCursor?: number,
     lastSnapshotAt?: number,
     lastSnapshotRequestedAt?: number,
-    latestSyncCursor?: number,
     keyring?: string,
     authToken?: string,
     salt?: string,
     iterations?: number,
     saltVersion?: number,
+    keyringVersion?: number,
+    expectedKeyringVersion?: number,
   }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
@@ -77,11 +78,8 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
-  abstract get(key: VaultKey): Promise<VaultItem>
-  abstract fetchAll(opts: Pick<VaultKey, 'account'>): Promise<VaultItem[]>
-  abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<{ itemId: string; modifiedAt: number }>>
+  abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<{ itemId: string; modifiedAt: number; deleted?: boolean }>>
   abstract fetchByIds(opts: { account: string; itemIds: string[] }): Promise<VaultItem[]>
-  abstract delete(key: VaultKey): Promise<void>
 
   // Sync message operations
   abstract appendSyncMessage(input: {
@@ -104,12 +102,14 @@ export default abstract class BaseDriver<T = unknown> {
     itemId: ItemId
     fromCursor?: number
     limit?: number
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
 
   abstract getGlobalSyncMessagesAfterCursor(input: {
     account: string
-    cursor: number
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }>
+    cursor?: number
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
 
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account

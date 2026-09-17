@@ -26,6 +26,7 @@ describe('DataRecoveryDialog', () => {
       handleRetryCorruptedItem: vi.fn(),
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
+      handleCompactItem: vi.fn(),
     })
 
     render(<DataRecoveryDialog open={true} onClose={onClose} />)
@@ -62,6 +63,7 @@ describe('DataRecoveryDialog', () => {
       handleRetryCorruptedItem: vi.fn(),
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
+      handleCompactItem: vi.fn(),
     })
 
     const deleteItemsSpy = vi.spyOn(itemMutations, 'deleteItems').mockResolvedValue(['error-item-1' as ItemId])
@@ -86,5 +88,35 @@ describe('DataRecoveryDialog', () => {
     })
 
     expect(deleteItemsSpy).toHaveBeenCalledWith('error-item-1')
+  })
+
+  it('renders oversized item with Compact History button and calls handleCompactItem', async () => {
+    const handleCompactItem = vi.fn()
+    vi.spyOn(dataRecoveryHook, 'useDataRecovery').mockReturnValue({
+      recoveryItems: [
+        {
+          id: 'rec-1',
+          itemId: 'item-oversized' as ItemId,
+          reason: 'Snapshot size (360 KB) exceeds 350 KB limit. History compaction is required to resume sync.',
+          createdAt: Date.now(),
+        },
+      ],
+      isRetrying: null,
+      handleDismissRecoveryItem: vi.fn(),
+      handleRetryCorruptedItem: vi.fn(),
+      handleForceOverwriteCorruptedItem: vi.fn(),
+      handleForceDeleteCorruptedItem: vi.fn(),
+      handleCompactItem,
+    })
+
+    render(<DataRecoveryDialog open={true} onClose={onClose} />)
+
+    expect(screen.getByText('Item edit history too large to sync')).toBeDefined()
+    expect(screen.getByText(/exceeds 350 KB limit/)).toBeDefined()
+
+    const compactButton = screen.getByRole('button', { name: /compact history/i })
+    fireEvent.click(compactButton)
+
+    expect(handleCompactItem).toHaveBeenCalledWith('item-oversized')
   })
 })

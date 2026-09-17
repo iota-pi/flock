@@ -33,6 +33,11 @@ export function toAutomergeUrlFromItemId(itemId: ItemId): AutomergeUrl {
   return stringifyAutomergeUrl(binary as BinaryDocumentId)
 }
 
+export function toDocumentIdFromItemId(itemId: ItemId): DocumentId {
+  const url = toAutomergeUrlFromItemId(itemId)
+  return url.replace(/^automerge:/, '') as DocumentId
+}
+
 export function toVaultItemIdFromAutomergeId(documentId: DocumentId): ItemId {
   if (documentId.length === 0) {
     return documentId as unknown as ItemId
@@ -48,4 +53,17 @@ export function toVaultItemIdFromAutomergeId(documentId: DocumentId): ItemId {
     // If decoding fails (e.g. legacy fallback or test mocks), return the normalized document ID
     return documentId as unknown as ItemId
   }
+}
+
+export function areHeadsEqual(a?: string[], b?: string[]): boolean {
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  if (a.length === 0) return true
+  if (a.length === 1) return a[0] === b[0]
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  for (let i = 0; i < sortedA.length; i++) {
+    if (sortedA[i] !== sortedB[i]) return false
+  }
+  return true
 }

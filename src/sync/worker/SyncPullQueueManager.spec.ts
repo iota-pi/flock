@@ -6,6 +6,7 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
+import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 
 // Create a robust MockLocalforage helper class
 class MockLocalforage {
@@ -46,8 +47,12 @@ vi.mock('localforage', () => ({
 
 // Mock other dependencies
 const mockDecryptBytes = vi.fn()
+const mockHasVaultKey = vi.fn().mockReturnValue(true)
+const mockWaitForKeyVersion = vi.fn().mockResolvedValue(true)
 vi.mock('src/api/vault', () => ({
   decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
+  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
+  waitForKeyVersion: (...args: any[]) => mockWaitForKeyVersion(...args),
 }))
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
@@ -98,12 +103,15 @@ describe('SyncPullQueueManager', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+    clearSyncMetadataInstancesCacheForTesting()
     activeStore = null
     cursorStore = new CursorStore('account-1')
     manager = new SyncPullQueueManager(cursorStore)
 
     // Default mock behavior
     mockDecryptBytes.mockImplementation(async (encrypted: any) => encrypted.cipher)
+    mockHasVaultKey.mockReturnValue(true)
+    mockWaitForKeyVersion.mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -114,7 +122,7 @@ describe('SyncPullQueueManager', () => {
     it('sets the account and loads cursors if set', async () => {
       await manager.setAccount('account-1')
       expect(activeStore).not.toBeNull()
-      expect(activeStore?.getItem).toHaveBeenCalledWith('cursorByItemId')
+      expect(activeStore?.getItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS)
     })
 
     it('clears maps and ignores store loading if account is null', async () => {
@@ -129,7 +137,7 @@ describe('SyncPullQueueManager', () => {
       // Setup legacy mock item store pre-loaded values
       const preLoadedCursors: [string, number][] = [['item-1', 42]]
       const lf = new MockLocalforage()
-      await lf.setItem('cursorByItemId', preLoadedCursors)
+      await lf.setItem(SYNC_METADATA_KEYS.CURSORS, preLoadedCursors)
 
       // Inject this store into createInstance
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
@@ -160,9 +168,9 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-1')
 
       // Add multiple cursors to internal state
-      manager.processPushResults([
-        { itemId: 'item-1' as ItemId, cursor: 10 },
-        { itemId: 'item-2' as ItemId, cursor: 20 },
+      await manager.importCursors([
+        ['item-1' as ItemId, 10],
+        ['item-2' as ItemId, 20],
       ])
 
       // Since none are pending yet, cursors should be empty
@@ -187,7 +195,9 @@ describe('SyncPullQueueManager', () => {
 
     it('parses single unbatched message', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
       mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -224,12 +234,14 @@ describe('SyncPullQueueManager', () => {
 
       // Check debounce persistence
       await vi.advanceTimersByTimeAsync(1000)
-      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', [['item-1', 5]])
+      expect(activeStore?.setItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS, expect.objectContaining({ globalCursor: 5 }))
     })
 
     it('parses batched v1.0 messages with DataView length prefixes', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       // Generate batched payload
       const msg1 = new Uint8Array([10, 20, 30])
@@ -291,10 +303,122 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(true) // because hasMore was true
     })
 
-    it('handles decryption failure by calling onDecryptionFailure without advancing cursor and removes item from pending pulls', async () => {
+    it('sets hasImmediatePendingPulls to true when hasMoreGlobal is true without adding healthy items to getCursors', async () => {
+      const msg = new Uint8Array([1, 2, 3])
+      mockDecryptBytes.mockResolvedValue(msg)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-global' as ItemId,
+          hasMore: false,
+          nextCursor: 100,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: {
+                iv: 'iv',
+                cipher: 'cipher',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults, true)
+
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.hasImmediatePendingPulls()).toBe(true)
+      // Healthy item has pending: false, so it is NOT added to getCursors()
+      expect(manager.getCursors()).toHaveLength(0)
+
+      // Next poll completes global backlog with hasMoreGlobal: false
+      await manager.processPullResults([], false)
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+    })
+
+    it('attaches lastEvaluatedKey to getCursors when hasMore is true, and clears it on completion', async () => {
+      const msg = new Uint8Array([1, 2, 3])
+      mockDecryptBytes.mockResolvedValue(msg)
+
+      const itemKey = { syncId: 'account#item-pagination', cursor: 200 }
+      const pullResultsWithKey: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-pagination' as ItemId,
+          hasMore: true,
+          lastEvaluatedKey: itemKey,
+          nextCursor: 200,
+          messages: [
+            {
+              cursor: 200,
+              encryptedMessage: {
+                iv: 'iv',
+                cipher: 'cipher',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResultsWithKey)
+
+      expect(manager.hasPendingPulls()).toBe(true)
+      const cursors = manager.getCursors()
+      expect(cursors).toHaveLength(1)
+      expect(cursors[0]).toEqual({
+        itemId: 'item-pagination',
+        cursor: 200,
+        lastEvaluatedKey: itemKey,
+      })
+
+      // Next page finishes with hasMore: false
+      const completionResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-pagination' as ItemId,
+          hasMore: false,
+          nextCursor: 250,
+          messages: [
+            {
+              cursor: 250,
+              encryptedMessage: {
+                iv: 'iv2',
+                cipher: 'cipher2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(completionResults)
+
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.getCursors()).toHaveLength(0)
+    })
+
+    it('stores globalLastEvaluatedKey when hasMoreGlobal is true, and clears it when false', async () => {
+      const sampleGlobalKey = { account: 'test-account', cursor: 500, syncId: 'test-account#item-1' }
+
+      await manager.processPullResults([], true, sampleGlobalKey)
+
+      expect(manager.hasImmediatePendingPulls()).toBe(true)
+      expect(manager.getGlobalLastEvaluatedKey()).toEqual(sampleGlobalKey)
+
+      // Completing global backlog clears globalLastEvaluatedKey
+      await manager.processPullResults([], false)
+
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+      expect(manager.getGlobalLastEvaluatedKey()).toBeUndefined()
+    })
+
+    it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.onDecryptionFailure = mockOnDecryptionFailure
-      mockDecryptBytes.mockRejectedValueOnce(new Error('Decryption failed'))
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -314,15 +438,373 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      // Attempts 1 to 4
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await manager.processPullResults(pullResults)
+        expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+        expect(manager.hasPendingPulls()).toBe(true)
+        expect(manager.getCursors()).toContainEqual({ itemId: 'item-fail', cursor: 0 })
+      }
+    })
 
+    it('removes item from queue and triggers onDecryptionFailure on 5th consecutive failure', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-fail-5' as ItemId,
+          hasMore: false,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-fail',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      // Run 5 attempts
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await manager.processPullResults(pullResults)
+      }
+
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(mockOnDecryptionFailure).toHaveBeenCalledWith(
-        'item-fail',
-        expect.any(Error)
+        'item-fail-5',
+        expect.objectContaining({
+          message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
+        })
       )
-      // Cursors should NOT advance on decryption failure and item should not stay pending to avoid infinite loop
-      expect(manager.exportCursors()).toEqual([['item-fail', 0]])
       expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.exportCursors()).toContainEqual(['item-fail-5', 10])
+    })
+
+    it('advances cursor past corrupted message on 5th failure and prevents infinite retry loop on subsequent polls', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-infinite-loop' as ItemId,
+          hasMore: false,
+          nextCursor: 10,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-fail',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      // Attempts 1 to 4: cursor remains 0, pending remains true
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await manager.processPullResults(pullResults)
+        expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 0])
+        expect(manager.hasPendingPulls()).toBe(true)
+        expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+      }
+
+      // Attempt 5: permanently fails, invokes onDecryptionFailure, advances cursor to 10
+      await manager.processPullResults(pullResults)
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
+      expect(manager.hasPendingPulls()).toBe(false)
+
+      // Subsequent poll (attempt 6) receives the same corrupted message (e.g. via overlap window query)
+      // The message is recognized as seen/skipped and does NOT re-trigger the 5-retry failure cycle
+      await manager.processPullResults(pullResults)
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
+    })
+
+    it('falls back to nextCursor when message cursor is omitted on 5th failure', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-no-msg-cursor' as ItemId,
+          hasMore: false,
+          nextCursor: 25,
+          messages: [
+            {
+              encryptedMessage: {
+                iv: 'iv-fail',
+                cipher: 'abc',
+              },
+            } as any,
+          ],
+        },
+      ]
+
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await manager.processPullResults(pullResults)
+      }
+
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-no-msg-cursor', 25])
+      expect(manager.hasPendingPulls()).toBe(false)
+    })
+
+    it('resets retry counter on successful message parse', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
+
+      const failResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-recover' as ItemId,
+          hasMore: false,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-fail',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      // Fail 3 times
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await manager.processPullResults(failResults)
+      }
+      expect(manager.hasPendingPulls()).toBe(true)
+
+      // 4th time succeeds
+      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      const successResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-recover' as ItemId,
+          hasMore: false,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-success',
+                cipher: 'xyz',
+              },
+            },
+          ],
+        },
+      ]
+      await manager.processPullResults(successResults)
+      expect(manager.hasPendingPulls()).toBe(false)
+
+      // Now failing again should start from attempt 1 (requiring 5 more failures to quarantine)
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed again'))
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await manager.processPullResults(failResults)
+        expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+      }
+    })
+
+    it('clears retry counter on shutdown and setAccount', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
+      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
+
+      const failResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-clear' as ItemId,
+          hasMore: false,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-fail',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      // Fail 4 times on account-1
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await manager.processPullResults(failResults)
+      }
+
+      // Switch account resets retry counts
+      await manager.setAccount('account-new')
+      expect(manager.hasPendingPulls()).toBe(false)
+
+      // 1 failure should not trigger max retry (5)
+      await manager.processPullResults(failResults)
+      expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+
+      // Shutdown also clears
+      await manager.shutdown()
+      await manager.setAccount('account-new')
+      await manager.processPullResults(failResults)
+      expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+    })
+
+    it('skips processing already seen messages (overlap window dedup)', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      const batch1: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-dedup' as ItemId,
+          hasMore: true,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'msg1',
+              },
+            },
+            {
+              cursor: 20,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'msg2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(batch1)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
+
+      // Batch 2 pulls overlap window starting before cursor 20
+      const batch2: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-dedup' as ItemId,
+          hasMore: false,
+          nextCursor: 30,
+          messages: [
+            {
+              cursor: 20, // Already seen!
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'msg2',
+              },
+            },
+            {
+              cursor: 30, // New!
+              encryptedMessage: {
+                iv: 'iv-3',
+                cipher: 'msg3',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(batch2)
+      // Only 1 additional message should be processed
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
+    })
+
+    it('advances cursor when batch consists entirely of seen messages and server omits nextCursor', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      // First, process messages with cursor 10 and 20 to populate seenMessageCursors
+      await manager.processPullResults([
+        {
+          success: true,
+          itemId: 'item-stagnate' as ItemId,
+          hasMore: false,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'msg1',
+              },
+            },
+            {
+              cursor: 20,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'msg2',
+              },
+            },
+          ],
+        },
+      ])
+
+      expect(manager.exportCursors()).toContainEqual(['item-stagnate', 20])
+
+      // Simulate state cursor being lower (e.g. from stored state or retry with lower cursor)
+      await manager.importCursors([['item-stagnate' as ItemId, 5]])
+      expect(manager.exportCursors()).toContainEqual(['item-stagnate', 5])
+
+      // Receive a batch consisting entirely of seen messages with nextCursor omitted
+      await manager.processPullResults([
+        {
+          success: true,
+          itemId: 'item-stagnate' as ItemId,
+          hasMore: false,
+          messages: [
+            {
+              cursor: 10, // already seen
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'msg1',
+              },
+            },
+            {
+              cursor: 20, // already seen
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'msg2',
+              },
+            },
+          ],
+        },
+      ])
+
+      // Cursor should have advanced to 20 instead of remaining at 5
+      expect(manager.exportCursors()).toContainEqual(['item-stagnate', 20])
     })
 
     it('re-queues pending items and clears them based on hasMore', async () => {
@@ -351,13 +833,16 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(false)
     })
 
-    it('handles message processing failure in a batch without dropping remaining messages and without advancing cursor', async () => {
+    it('halts on message processing failure in a batch to preserve causal order and preserves item for retry', async () => {
+      let failMessage1 = true
       const onMessageParsedSpy = vi.fn().mockImplementation((itemId, docId, msg) => {
-        if (msg[0] === 10) {
+        if (failMessage1 && msg[0] === 10) {
           throw new Error('Transient processing error for message 1')
         }
       })
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       const msg1 = new Uint8Array([10, 20, 30])
       const msg2 = new Uint8Array([40, 50])
@@ -374,7 +859,7 @@ describe('SyncPullQueueManager', () => {
       offset += 4
       combined.set(msg2, offset)
 
-      mockDecryptBytes.mockResolvedValueOnce(combined)
+      mockDecryptBytes.mockResolvedValue(combined)
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -395,34 +880,192 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
+      // Attempt 1: Message 1 throws, halts immediately so message 2 is not applied out-of-order
       await manager.processPullResults(pullResults)
 
       const expectedDocId = interpretAsDocumentId(
         toAutomergeUrlFromItemId('item-batch-error' as ItemId)
       )
-      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
         'item-batch-error',
         expectedDocId,
         msg1,
       )
+
+      expect(manager.exportCursors()).toEqual([['item-batch-error', 0]])
+      expect(manager.hasPendingPulls()).toBe(true)
+
+      // Attempt 2 (retry): Transient failure resolved; both messages applied sequentially in batch order
+      failMessage1 = false
+      await manager.processPullResults(pullResults)
+
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         2,
         'item-batch-error',
         expectedDocId,
+        msg1,
+      )
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
+        3,
+        'item-batch-error',
+        expectedDocId,
         msg2,
       )
-
-      expect(manager.exportCursors()).toEqual([['item-batch-error', 0]])
+      expect(manager.exportCursors()).toEqual([['item-batch-error', 15]])
       expect(manager.hasPendingPulls()).toBe(false)
     })
 
-    it('handles message processing error for non-batched message without advancing cursor', async () => {
+    it('prevents duplicate processing of already succeeded inner messages when retrying a partially failed batch', async () => {
+      let failMessage2 = true
+      const onMessageParsedSpy = vi.fn().mockImplementation((itemId, docId, msg) => {
+        if (failMessage2 && msg[0] === 40) {
+          throw new Error('Transient processing error for message 2')
+        }
+      })
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
+
+      const msg1 = new Uint8Array([10, 20, 30])
+      const msg2 = new Uint8Array([40, 50])
+      const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
+      const view = new DataView(combined.buffer)
+
+      let offset = 0
+      view.setUint32(offset, msg1.length, false)
+      offset += 4
+      combined.set(msg1, offset)
+      offset += msg1.length
+
+      view.setUint32(offset, msg2.length, false)
+      offset += 4
+      combined.set(msg2, offset)
+
+      mockDecryptBytes.mockResolvedValue(combined)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-partial-retry' as ItemId,
+          hasMore: false,
+          nextCursor: 15,
+          messages: [
+            {
+              cursor: 12,
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'abc',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ]
+
+      const expectedDocId = interpretAsDocumentId(
+        toAutomergeUrlFromItemId('item-partial-retry' as ItemId)
+      )
+
+      // Attempt 1: msg1 succeeds, msg2 fails
+      await manager.processPullResults(pullResults)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(1, 'item-partial-retry', expectedDocId, msg1)
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(2, 'item-partial-retry', expectedDocId, msg2)
+      expect(manager.exportCursors()).toEqual([['item-partial-retry', 0]])
+      expect(manager.hasPendingPulls()).toBe(true)
+
+      // Attempt 2 (retry): msg1 must NOT be re-applied; msg2 succeeds
+      failMessage2 = false
+      await manager.processPullResults(pullResults)
+      // Only 1 additional call for msg2! (3 total, NOT 4)
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(3, 'item-partial-retry', expectedDocId, msg2)
+      expect(manager.exportCursors()).toEqual([['item-partial-retry', 15]])
+      expect(manager.hasPendingPulls()).toBe(false)
+    })
+
+    it('does not re-apply succeeded inner messages across 5 failed retries until quarantine', async () => {
+      const onMessageParsedSpy = vi.fn().mockImplementation((itemId, docId, msg) => {
+        if (msg[0] === 40) {
+          throw new Error('Persistent failure for message 2')
+        }
+      })
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
+      const mockOnDecryptionFailure = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
+      })
+
+      const msg1 = new Uint8Array([10, 20, 30])
+      const msg2 = new Uint8Array([40, 50])
+      const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
+      const view = new DataView(combined.buffer)
+
+      let offset = 0
+      view.setUint32(offset, msg1.length, false)
+      offset += 4
+      combined.set(msg1, offset)
+      offset += msg1.length
+
+      view.setUint32(offset, msg2.length, false)
+      offset += 4
+      combined.set(msg2, offset)
+
+      mockDecryptBytes.mockResolvedValue(combined)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-5-retries' as ItemId,
+          hasMore: false,
+          nextCursor: 15,
+          messages: [
+            {
+              cursor: 12,
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'abc',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ]
+
+      // 5 attempts
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await manager.processPullResults(pullResults)
+      }
+
+      // msg1 was executed ONCE (on attempt 1) and never re-applied on attempts 2-5!
+      // msg2 was attempted 5 times (failed each time)
+      // Total calls = 1 + 5 = 6
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(6)
+      const msg1Calls = onMessageParsedSpy.mock.calls.filter(call => call[2] === msg1 || (call[2] && call[2][0] === 10))
+      expect(msg1Calls).toHaveLength(1)
+
+      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(mockOnDecryptionFailure).toHaveBeenCalledWith(
+        'item-5-retries',
+        expect.objectContaining({
+          message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
+        })
+      )
+      expect(manager.hasPendingPulls()).toBe(false)
+    })
+
+    it('handles message processing error for non-batched message and preserves item for retry', async () => {
       const onMessageParsedSpy = vi.fn().mockImplementation(() => {
         throw new Error('Processing failed')
       })
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
 
@@ -446,12 +1089,14 @@ describe('SyncPullQueueManager', () => {
 
       await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
       expect(manager.exportCursors()).toEqual([['item-1', 0]])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.hasPendingPulls()).toBe(true)
     })
 
-    it('stops processing messages and preserves cursor before failed message when a parse failure occurs mid-batch', async () => {
+    it('stops processing messages and preserves cursor before failed message when a parse failure occurs mid-batch and keeps item for retry', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       mockDecryptBytes
         .mockResolvedValueOnce(new Uint8Array([1]))
@@ -494,10 +1139,10 @@ describe('SyncPullQueueManager', () => {
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(mockDecryptBytes).toHaveBeenCalledTimes(2)
       expect(manager.exportCursors()).toEqual([['item-partial', 10]])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.hasPendingPulls()).toBe(true)
     })
 
-    it('does not re-queue pending pull item when parse failure occurs even if hasMore is true', async () => {
+    it('keeps pending pull item when parse failure occurs even if hasMore is true', async () => {
       mockDecryptBytes.mockRejectedValueOnce(new Error('Corrupt ciphertext'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -521,12 +1166,14 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults(pullResults)
 
       expect(manager.exportCursors()).toEqual([['item-corrupt-hasmore', 0]])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.hasPendingPulls()).toBe(true)
     })
 
     it('continues processing subsequent items if one item throws an error', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.onMessageParsed = onMessageParsedSpy
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
 
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
 
@@ -575,25 +1222,134 @@ describe('SyncPullQueueManager', () => {
       expect(manager.exportCursors()).toContainEqual(['item-success', 20])
       expect(manager.exportCursors()).not.toContainEqual(['item-throw-error', 10])
     })
-  })
 
-  describe('processPushResults', () => {
-    beforeEach(async () => {
-      await manager.setAccount('account-1')
+    it('does not advance cursor past failed message when batch contains out-of-order cursors', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
+
+      // cursor 2 will fail, cursor 3 would succeed if reached
+      mockDecryptBytes.mockImplementation(async (encrypted: any) => {
+        if (encrypted.cipher === 'fail-msg2') {
+          throw new Error('Decryption failed for cursor 2')
+        }
+        return new Uint8Array([3])
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-out-of-order' as ItemId,
+          hasMore: false,
+          nextCursor: 5,
+          messages: [
+            {
+              cursor: 3,
+              encryptedMessage: {
+                iv: 'iv-3',
+                cipher: 'ok-msg3',
+              },
+            },
+            {
+              cursor: 2,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'fail-msg2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      // Cursor 2 must be processed first due to ascending sort; it fails immediately.
+      // Cursor must NOT have advanced to 3, preserving cursor 0 for retry so cursor 2 is not skipped.
+      expect(manager.exportCursors()).toEqual([['item-out-of-order', 0]])
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-out-of-order', cursor: 0 }])
+      expect(onMessageParsedSpy).not.toHaveBeenCalled()
     })
 
-    it('updates cursor only if higher and clears matching pending pull', async () => {
-      manager.addPendingItem('item-y' as ItemId)
+    it('processes out-of-order messages in ascending cursor order', async () => {
+      const processedCursors: number[] = []
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') {
+          processedCursors.push(e.message[0])
+        }
+      })
 
-      // Push results with higher cursor
-      manager.processPushResults([{ itemId: 'item-y' as ItemId, cursor: 50 }])
+      mockDecryptBytes.mockImplementation(async (encrypted: any) => {
+        return new Uint8Array([encrypted.val])
+      })
 
-      expect(manager.exportCursors()).toContainEqual(['item-y', 50])
-      expect(manager.hasPendingPulls()).toBe(false) // should delete item-y from pending
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-sort-order' as ItemId,
+          hasMore: false,
+          nextCursor: 35,
+          messages: [
+            { cursor: 30, encryptedMessage: { iv: 'iv-3', cipher: 'c3', val: 30 } as any },
+            { cursor: 10, encryptedMessage: { iv: 'iv-1', cipher: 'c1', val: 10 } as any },
+            { cursor: 20, encryptedMessage: { iv: 'iv-2', cipher: 'c2', val: 20 } as any },
+          ],
+        },
+      ]
 
-      // Push results with lower cursor (should be ignored)
-      manager.processPushResults([{ itemId: 'item-y' as ItemId, cursor: 40 }])
-      expect(manager.exportCursors()).toContainEqual(['item-y', 50])
+      await manager.processPullResults(pullResults)
+
+      expect(processedCursors).toEqual([10, 20, 30])
+      expect(manager.exportCursors()).toContainEqual(['item-sort-order', 35])
+    })
+
+    it('advances cursor to earlier successful message when higher out-of-order message fails', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+      })
+
+      mockDecryptBytes.mockImplementation(async (encrypted: any) => {
+        if (encrypted.cipher === 'fail-msg30') {
+          throw new Error('Decryption failed for cursor 30')
+        }
+        return new Uint8Array([20])
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-partial-out-of-order' as ItemId,
+          hasMore: false,
+          nextCursor: 40,
+          messages: [
+            {
+              cursor: 30,
+              encryptedMessage: {
+                iv: 'iv-30',
+                cipher: 'fail-msg30',
+              },
+            },
+            {
+              cursor: 20,
+              encryptedMessage: {
+                iv: 'iv-20',
+                cipher: 'ok-msg20',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      // Cursor 20 succeeds, cursor 30 fails.
+      // Cursor should advance to 20, and item should remain pending to retry cursor 30.
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-partial-out-of-order', 20])
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-partial-out-of-order', cursor: 20 }])
     })
   })
 
@@ -603,10 +1359,10 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('handles storage quota error during persistCursors', async () => {
+      await manager.importCursors([['item-quota' as ItemId, 5]])
+
       const error = new DOMException('Quota Exceeded', 'QuotaExceededError')
       activeStore!.setItem.mockRejectedValueOnce(error)
-
-      manager.processPushResults([{ itemId: 'item-quota' as ItemId, cursor: 5 }])
 
       // Trigger immediate persist instead of debounced
       await expect(manager.persistCursors()).resolves.toBeUndefined()
@@ -614,10 +1370,48 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('persists cursors on shutdown and cancels debounced timer', async () => {
-      manager.processPushResults([{ itemId: 'item-z' as ItemId, cursor: 500 }])
+      await manager.importCursors([['item-z' as ItemId, 500]])
       await manager.shutdown()
 
-      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', expect.any(Array))
+      expect(activeStore?.setItem).toHaveBeenCalledWith(
+        SYNC_METADATA_KEYS.CURSORS,
+        expect.objectContaining({ globalCursor: 500 })
+      )
+    })
+
+    it('cancels debounced timer and skips persisting when clearLocalData is true', async () => {
+      await manager.importCursors([['item-z' as ItemId, 500]])
+      activeStore!.setItem.mockClear()
+
+      await manager.shutdown({ clearLocalData: true })
+
+      expect(activeStore?.setItem).not.toHaveBeenCalled()
+    })
+
+    it('is idempotent on multiple shutdown calls and does not wipe out data on second call', async () => {
+      await manager.importCursors([['item-z' as ItemId, 500]])
+      activeStore!.setItem.mockClear()
+
+      await manager.shutdown()
+      expect(activeStore?.setItem).toHaveBeenCalledTimes(1)
+      expect(activeStore?.setItem).toHaveBeenCalledWith(
+        SYNC_METADATA_KEYS.CURSORS,
+        expect.objectContaining({ globalCursor: 500 })
+      )
+
+      activeStore!.setItem.mockClear()
+      await manager.shutdown()
+      expect(activeStore?.setItem).not.toHaveBeenCalled()
+    })
+
+    it('ignores pull and push results after shutdown', async () => {
+      await manager.shutdown()
+      activeStore!.setItem.mockClear()
+
+      await manager.processPullResults([{ success: true, itemId: 'item-new' as ItemId, messages: [], hasMore: false }])
+
+      expect(activeStore?.setItem).not.toHaveBeenCalled()
+      expect(manager.exportCursors()).toEqual([])
     })
   })
 
@@ -628,7 +1422,267 @@ describe('SyncPullQueueManager', () => {
 
       await manager.importCursors(imported)
       expect(manager.exportCursors()).toEqual(imported)
-      expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', imported)
+      expect(activeStore?.setItem).toHaveBeenCalledWith(
+        SYNC_METADATA_KEYS.CURSORS,
+        expect.objectContaining({ globalCursor: 77 })
+      )
+    })
+  })
+
+  describe('loadCursors and reloadCursors', () => {
+    it('loads updated cursors from CursorStore when in-memory cursors are stale', async () => {
+      await manager.setAccount('account-reload')
+
+      // Initial in-memory state: item-1 at cursor 10
+      await manager.importCursors([['item-1' as ItemId, 10]])
+      expect(manager.getGlobalLatestCursor()).toBe(10)
+
+      // Another tab (previous leader) advanced cursors in CursorStore
+      activeStore?.getItem.mockResolvedValueOnce([
+        ['item-1', 100],
+        ['item-2', 250],
+      ])
+
+      // Promoted leader reloads cursors
+      await manager.loadCursors()
+
+      // Stored higher cursors must now be reflected in-memory
+      expect(manager.exportCursors()).toEqual(
+        expect.arrayContaining([
+          ['item-1', 100],
+          ['item-2', 250],
+        ])
+      )
+      expect(manager.getGlobalLatestCursor()).toBe(250)
+    })
+
+    it('does not regress in-memory cursors if in-memory is higher than stored', async () => {
+      await manager.setAccount('account-reload-monotonic')
+
+      await manager.importCursors([['item-1' as ItemId, 50]])
+
+      // CursorStore has a lower cursor (e.g. lagging read)
+      activeStore?.getItem.mockResolvedValueOnce([
+        ['item-1', 20],
+      ])
+
+      await manager.reloadCursors()
+
+      // In-memory cursor must not regress
+      expect(manager.exportCursors()).toEqual([['item-1', 50]])
+      expect(manager.getGlobalLatestCursor()).toBe(50)
+    })
+
+    it('preserves pending status when reloading cursors', async () => {
+      await manager.setAccount('account-reload-pending')
+
+      manager.addPendingItem('item-pending' as ItemId)
+      expect(manager.hasPendingPulls()).toBe(true)
+
+      // CursorStore has cursor 42 for item-pending
+      activeStore?.getItem.mockResolvedValueOnce([
+        ['item-pending', 42],
+      ])
+
+      await manager.loadCursors()
+
+      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-pending', cursor: 42 }])
+    })
+
+    it('ignores reload if manager is shutdown or account is null', async () => {
+      await manager.setAccount('account-reload-shutdown')
+      await manager.shutdown()
+
+      activeStore?.getItem.mockResolvedValueOnce([['item-1', 999]])
+      await manager.loadCursors()
+
+      expect(manager.exportCursors()).toEqual([])
+    })
+  })
+
+  describe('Missing Key Version Handling', () => {
+    it('pauses inline and decrypts when missing key version arrives within timeout', async () => {
+      await manager.setAccount('account-key-test')
+      const onKeyVersionMissingSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
+      })
+
+      // Initially key '2' is not in keyring
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockImplementation(async (kver: string) => {
+        if (kver === '2') {
+          // Key arrives during wait
+          mockHasVaultKey.mockImplementation(() => true)
+          return true
+        }
+        return false
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-key-rotate' as ItemId,
+          hasMore: false,
+          nextCursor: 100,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'cipher-100',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      expect(onKeyVersionMissingSpy).toHaveBeenCalledWith('2')
+      expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 5000)
+      expect(mockDecryptBytes).toHaveBeenCalled()
+      expect(manager.exportCursors()).toContainEqual(['item-key-rotate', 100])
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+    })
+
+    it('does not advance cursor, mark seen, or burn retries when key version times out', async () => {
+      await manager.setAccount('account-key-timeout')
+      const onKeyVersionMissingSpy = vi.fn()
+      const onDecryptionFailureSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
+        if (e.type === 'decryptionFailure') onDecryptionFailureSpy(e.itemId, e.error)
+      })
+
+      // Key '2' is missing and times out
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockResolvedValue(false)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-timeout' as ItemId,
+          hasMore: false,
+          nextCursor: 120,
+          messages: [
+            {
+              cursor: 100,
+              encryptedMessage: {
+                iv: 'iv-timeout',
+                cipher: 'cipher-timeout',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      // Even if processed 5 times (normally burning out 5 retries):
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await manager.processPullResults(pullResults)
+      }
+
+      // Cursor must NOT be advanced past the failing message or by nextCursor
+      expect(manager.exportCursors()).not.toContainEqual(['item-timeout', 100])
+      expect(manager.exportCursors()).not.toContainEqual(['item-timeout', 120])
+      // onDecryptionFailure must NEVER be called for missing key
+      expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
+      // hasImmediatePendingPulls must be false so orchestrator does not burn 0ms polls
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+      // getCursors must skip this item so it does not hammer the server without the key
+      expect(manager.getCursors()).toEqual([])
+    })
+
+    it('unblocks items and triggers onPendingPullsAvailable when onKeyringUpdated is called after key arrives', async () => {
+      await manager.setAccount('account-key-unblock')
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockResolvedValue(false)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-blocked' as ItemId,
+          hasMore: false,
+          nextCursor: 50,
+          messages: [
+            {
+              cursor: 50,
+              encryptedMessage: {
+                iv: 'iv-50',
+                cipher: 'cipher-50',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+      expect(manager.getCursors()).toEqual([])
+      expect(manager.hasImmediatePendingPulls()).toBe(false)
+
+      // Key arrives in keyring
+      mockHasVaultKey.mockImplementation(() => true)
+      const onPendingPullsAvailableSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'pendingPullsAvailable') onPendingPullsAvailableSpy()
+      })
+
+      manager.onKeyringUpdated()
+
+      expect(onPendingPullsAvailableSpy).toHaveBeenCalled()
+      expect(manager.hasImmediatePendingPulls()).toBe(true)
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-blocked', cursor: 0 }])
+    })
+
+    it('deduplicates waitForKeyVersion timeouts across items in the same batch', async () => {
+      await manager.setAccount('account-batch-dedup')
+      mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
+      mockWaitForKeyVersion.mockResolvedValue(false)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-batch-1' as ItemId,
+          hasMore: false,
+          nextCursor: 10,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'c-1',
+                kver: '2',
+              },
+            },
+          ],
+        },
+        {
+          success: true,
+          itemId: 'item-batch-2' as ItemId,
+          hasMore: false,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 20,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'c-2',
+                kver: '2',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      // waitForKeyVersion should be called only ONCE for key '2', not twice
+      expect(mockWaitForKeyVersion).toHaveBeenCalledTimes(1)
+      expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 5000)
     })
   })
 })

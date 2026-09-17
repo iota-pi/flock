@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { CryptoResultSchema } from './crypto'
 
 export const WebPushSubscriptionSchema = z.object({
   endpoint: z.string(),
@@ -39,11 +38,11 @@ export const VaultAccountSchema = z.object({
   lastSnapshotCursor: z.number().optional(),
   lastSnapshotAt: z.number().optional(),
   lastSnapshotRequestedAt: z.number().optional(),
-  latestSyncCursor: z.number().optional(),
   authToken: z.string(),
   salt: z.string(),
   iterations: z.number(),
   keyring: z.string().optional(),
+  keyringVersion: z.number().optional(),
   saltVersion: z.number().optional(),
 })
 
@@ -51,11 +50,18 @@ export const VaultAccountWithAuthSchema = VaultAccountSchema.extend({
   session: z.string(),
 })
 
+export const VaultItemSnapshotSchema = z.object({
+  iv: z.string(),
+  cipher: z.union([z.string(), z.instanceof(Uint8Array), z.any()]).optional(),
+  kver: z.string().optional(),
+})
+
 export const VaultItemSchema = VaultKeySchema.extend({
   metadata: VaultMetaDataSchema,
   cipher: z.string().optional(),
-  snapshot: CryptoResultSchema.optional(),
+  snapshot: VaultItemSnapshotSchema.optional(),
   ttl: z.number().optional(),
+  version: z.number().optional(),
 })
 
 export const StoredSyncMessageSchema = z.object({

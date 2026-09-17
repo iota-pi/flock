@@ -35,54 +35,58 @@ function createWorkerSyncClient(authToken: string) {
 }
 
 export type PullSyncMessagesResponse = {
-  success: boolean
+  success?: boolean
   itemId: ItemId
-  nextCursor: number
+  cursor?: number
+  nextCursor?: number
   messages: Array<{
     cursor: number
     encryptedMessage: SyncMessageEnvelope
   }>
   hasMore: boolean
+  lastEvaluatedKey?: Record<string, unknown>
+}
+
+export type PushResultItem = {
+  itemId: ItemId
+  cursor?: number
+  success?: boolean
+  error?: string
 }
 
 export type PollSyncBatchResponse = {
   success: boolean
-  pushResults: Array<{ itemId: ItemId; cursor: number }>
-  pullResults: Array<{
-    success: true
-    itemId: ItemId
-    nextCursor: number
-    messages: Array<{
-      cursor: number
-      encryptedMessage: SyncMessageEnvelope
-    }>
-    hasMore: boolean
-  }>
-  snapshotRequest?: {
-    requested: true
-    cursor: number
-    requestedAt: number
-  }
+  pushResults: Array<PushResultItem>
+  pullResults: Array<PullSyncMessagesResponse>
+  hasMore?: boolean
+  globalLastEvaluatedKey?: Record<string, unknown>
 }
 
 
 export async function pollSyncBatchWithToken(
-  input: z.infer<typeof SyncPollBatchSchema> & { authToken: string }
+  input: z.infer<typeof SyncPollBatchSchema> & { authToken: string },
+  options?: { signal?: AbortSignal }
 ): Promise<PollSyncBatchResponse> {
   const client = createWorkerSyncClient(input.authToken)
   const { authToken, ...rpcInput } = input
-  return client.sync.pollSync.mutate(rpcInput)
+  return client.sync.pollSync.mutate(rpcInput, options?.signal ? { signal: options.signal } : undefined)
 }
 
-export async function putSnapshotsWithToken(input: {
-  account: string
-  authToken: string
-  snapshots: VaultSnapshotInput[]
-}): Promise<{ success: boolean; persisted: number; total: number }> {
+export async function putSnapshotsWithToken(
+  input: {
+    account: string
+    authToken: string
+    snapshots: VaultSnapshotInput[]
+  },
+  options?: { signal?: AbortSignal }
+): Promise<{ success: boolean; persisted: number; total: number }> {
   const client = createWorkerSyncClient(input.authToken)
-  return client.items.putSnapshots.mutate({
-    account: input.account,
-    snapshots: input.snapshots,
-  })
+  return client.items.putSnapshots.mutate(
+    {
+      account: input.account,
+      snapshots: input.snapshots,
+    },
+    options?.signal ? { signal: options.signal } : undefined
+  )
 }
 

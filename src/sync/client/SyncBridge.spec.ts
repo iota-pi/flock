@@ -1,4 +1,4 @@
-import { SyncBridge } from './SyncBridge'
+import { SyncBridge, clearAutomergeIndexedDb, clearAccountLocalData } from './SyncBridge'
 import * as Comlink from 'comlink'
 import { useAppStore } from '../../state/store'
 import { VAULT_STORAGE_KEY } from '../../api/vault/util'
@@ -8,6 +8,12 @@ import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 vi.mock('src/api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
+  reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
+  hasVaultKey: vi.fn().mockReturnValue(true),
+  syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
+  lockVault: vi.fn().mockResolvedValue(undefined),
+  KEYRING_CACHE_KEY: 'FlockKeyringCache',
+  VAULT_EVENTS_CHANNEL: 'flock-vault-events',
 }))
 
 
@@ -33,8 +39,11 @@ const mockSyncApi = {
   forceDeleteRecoveryItem: vi.fn().mockResolvedValue(undefined),
   dismissRecoveryItem: vi.fn().mockResolvedValue(undefined),
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
-  reencryptAllItems: vi.fn().mockResolvedValue(undefined),
+  reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
   flushSync: vi.fn().mockReturnValue(undefined),
+  pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+  retrySave: vi.fn().mockResolvedValue({ success: true }),
+  claimLeader: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('comlink', () => {
@@ -44,11 +53,16 @@ vi.mock('comlink', () => {
   }
 })
 
+let lastEventPort: MessagePort | null = null
+
 class MockWorker {
   url: string
   options: any
   terminate = vi.fn()
   postMessage = vi.fn((data: any) => {
+    if (data && data.type === 'EVENT_PORT' && data.port) {
+      lastEventPort = data.port
+    }
     if (data && data.type === 'INIT_PING_PORT' && data.port) {
       const port = data.port
       const reply = () => {
@@ -101,6 +115,29 @@ describe('SyncBridge', () => {
     globalThis.Worker = MockWorker as any
     localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({ account: 'test-account', key: 'test-key' }))
     vi.clearAllMocks()
+    mockSyncApi.setOnlineState.mockResolvedValue(undefined)
+    mockSyncApi.initRepo.mockResolvedValue(undefined)
+    mockSyncApi.bootstrapItems.mockResolvedValue(undefined)
+    mockSyncApi.clearAutomergeDocStore.mockResolvedValue(undefined)
+    mockSyncApi.listRecoveryItems.mockResolvedValue([])
+    mockSyncApi.exportSyncState.mockResolvedValue({ cursors: [], pendingSync: [], lastModified: [] })
+    mockSyncApi.restoreSyncState.mockResolvedValue(undefined)
+    mockSyncApi.forceSync.mockResolvedValue(undefined)
+    mockSyncApi.fullResync.mockResolvedValue(undefined)
+    mockSyncApi.shutdown.mockResolvedValue(undefined)
+    mockSyncApi.mutateItem.mockResolvedValue(undefined)
+    mockSyncApi.createItem.mockResolvedValue(undefined)
+    mockSyncApi.storeItems.mockResolvedValue(undefined)
+    mockSyncApi.mutateMetadata.mockResolvedValue(undefined)
+    mockSyncApi.exportAllBinaries.mockResolvedValue({ documents: {}, skipped: [] })
+    mockSyncApi.restoreFromBinaries.mockResolvedValue(['doc-1'])
+    mockSyncApi.retryRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.forceOverwriteRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.forceDeleteRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.dismissRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.updateVaultKey.mockResolvedValue(undefined)
+    mockSyncApi.reencryptAllItems.mockResolvedValue(undefined)
+    mockSyncApi.flushSync.mockReturnValue(undefined)
     useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
   })
 
@@ -240,7 +277,11 @@ describe('SyncBridge', () => {
     const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
     await SyncBridge.initialize('test-account')
 
-    // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s)
+    // Move time forward by first timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s
+    await vi.advanceTimersByTimeAsync(45000)
+    expect(useAppStore.getState().syncWarning).toBe('Sync connection is slow. Checking...')
+
+    // Move time forward by second timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s -> total 90s
     await vi.advanceTimersByTimeAsync(45000)
 
     expect(useAppStore.getState().syncStatus).toBe('connecting')
@@ -282,7 +323,7 @@ describe('SyncBridge', () => {
 
     // No more restarts. Fatal error should be set.
     expect(useAppStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
-    expect(useAppStore.getState().syncStatus).toBe('offline')
+    expect(useAppStore.getState().syncStatus).toBe('dead')
     expect(initializeSpy).toHaveBeenCalledTimes(3) // should not have incremented
 
     vi.useRealTimers()
@@ -305,6 +346,188 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(true)
 
     onLineSpy.mockRestore()
+  })
+
+  it('removes online, offline, and visibility event listeners on shutdown', async () => {
+    const windowRemoveSpy = vi.spyOn(window, 'removeEventListener')
+    const documentRemoveSpy = vi.spyOn(document, 'removeEventListener')
+
+    await SyncBridge.initialize('test-account')
+    await SyncBridge.shutdown()
+
+    expect(windowRemoveSpy).toHaveBeenCalledWith('online', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('offline', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('pagehide', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('storage', expect.any(Function))
+    expect(documentRemoveSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
+
+    windowRemoveSpy.mockRestore()
+    documentRemoveSpy.mockRestore()
+  })
+
+  it('triggers pushSnapshots when document becomes hidden', async () => {
+    await SyncBridge.initialize('test-account')
+
+    const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(mockSyncApi.pushSnapshots).toHaveBeenCalledTimes(1)
+
+    visibilitySpy.mockRestore()
+  })
+
+  it('reloads keyring and updates worker on storage event for KEYRING_CACHE_KEY', async () => {
+    const { reloadKeyringFromStorage } = await import('src/api/vault')
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+      success: true,
+      keyringData: 'new-keyring-version-2',
+    })
+
+    await SyncBridge.initialize('test-account')
+
+    const storageEvent = new StorageEvent('storage', {
+      key: 'FlockKeyringCache',
+    })
+    window.dispatchEvent(storageEvent)
+
+    await vi.waitFor(() => {
+      expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-2')
+    })
+  })
+
+  it('locks vault when storage reload indicates passwordChanged', async () => {
+    const { reloadKeyringFromStorage, lockVault } = await import('src/api/vault')
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+      success: false,
+      passwordChanged: true,
+    })
+
+    await SyncBridge.initialize('test-account')
+
+    const storageEvent = new StorageEvent('storage', {
+      key: 'FlockKeyringCache',
+    })
+    window.dispatchEvent(storageEvent)
+
+    await vi.waitFor(() => {
+      expect(lockVault).toHaveBeenCalled()
+    })
+  })
+
+  it('reloads keyring and updates worker when keyVersionMissing event is received', async () => {
+    const { reloadKeyringFromStorage } = await import('src/api/vault')
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+      success: true,
+      keyringData: 'new-keyring-version-3',
+    })
+
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '3' })
+
+    await vi.waitFor(() => {
+      expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-3')
+    })
+  })
+
+  it('fetches keyring from server when keyVersionMissing references a key not in local storage', async () => {
+    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('src/api/vault')
+    vi.mocked(hasVaultKey).mockReturnValueOnce(false)
+    vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(undefined)
+    vi.mocked(reloadKeyringFromStorage)
+      .mockResolvedValueOnce({ success: true, keyringData: 'old-key' })
+      .mockResolvedValueOnce({ success: true, keyringData: 'server-fetched-keyring-version-5' })
+
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '5' })
+
+    await vi.waitFor(() => {
+      expect(syncKeyringFromServer).toHaveBeenCalledWith('test-account')
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('server-fetched-keyring-version-5')
+    })
+  })
+
+  it('updates syncStatus to degraded and sets syncWarning when snapshotFailed event is received', async () => {
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({
+      type: 'snapshotFailed',
+      itemId: 'item-1',
+      message: 'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
+    })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().syncStatus).toBe('degraded')
+      expect(useAppStore.getState().syncWarning).toBe(
+        'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
+      )
+    })
+  })
+
+  it('updates isQuotaExceeded on quotaExceeded event and clears on quotaResolved event', async () => {
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({
+      type: 'quotaExceeded',
+      message: 'Storage quota exceeded. Changes cannot be saved.',
+    })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().syncStatus).toBe('degraded')
+      expect(useAppStore.getState().isQuotaExceeded).toBe(true)
+    })
+
+    lastEventPort!.postMessage({
+      type: 'quotaResolved',
+    })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().isQuotaExceeded).toBe(false)
+    })
+  })
+
+  it('delegates retrySave to syncApi', async () => {
+    await SyncBridge.initialize('test-account')
+    mockSyncApi.retrySave.mockResolvedValueOnce({ success: true })
+
+    const res = await SyncBridge.retrySave()
+    expect(mockSyncApi.retrySave).toHaveBeenCalled()
+    expect(res).toEqual({ success: true })
+  })
+
+  it('handles leaderConflict events and updates store state', async () => {
+    await SyncBridge.initialize('test-account')
+
+    expect(useAppStore.getState().isLeaderConflict).toBe(false)
+
+    // Simulate leaderConflict true event from worker
+    lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: true })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().isLeaderConflict).toBe(true)
+    })
+
+    // Simulate leaderConflict false event from worker
+    lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: false })
+
+    await vi.waitFor(() => {
+      expect(useAppStore.getState().isLeaderConflict).toBe(false)
+    })
+  })
+
+  it('delegates claimLeader to syncApi', async () => {
+    await SyncBridge.initialize('test-account')
+    mockSyncApi.claimLeader.mockResolvedValueOnce(undefined)
+
+    await SyncBridge.claimLeader()
+    expect(mockSyncApi.claimLeader).toHaveBeenCalledTimes(1)
   })
 
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
@@ -445,11 +668,250 @@ describe('SyncBridge', () => {
     }
   })
 
-  it('re-throws error when initialization fails', async () => {
-    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed'))
+  it('closes MessagePorts from globalEventChannel and pingChannel when initialization is aborted', async () => {
+    const originalMessageChannel = globalThis.MessageChannel
+    const channelCloseSpies: any[] = []
+    class MockMessageChannel {
+      port1 = {
+        onmessage: null,
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
 
-    await expect(SyncBridge.initialize('fail-account')).rejects.toThrow('initRepo failed')
+      port2 = {
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
+
+      constructor() {
+        channelCloseSpies.push(this.port1.close)
+      }
+    }
+    globalThis.MessageChannel = MockMessageChannel as any
+
+    try {
+      let init1ResolveRepo: () => void = () => {}
+      mockSyncApi.initRepo.mockImplementation((accountId: string) => {
+        if (accountId === 'account-1') {
+          return new Promise<void>(resolve => {
+            init1ResolveRepo = resolve
+          })
+        }
+        return Promise.resolve()
+      })
+
+      const init1Promise = SyncBridge.initialize('account-1')
+      await new Promise(r => setTimeout(r, 10))
+
+      // Session 1 channels have been created (globalEventChannel and pingChannel)
+      expect(channelCloseSpies.length).toBe(2)
+      expect(channelCloseSpies[0]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[1]).not.toHaveBeenCalled()
+
+      // Concurrently start session 2, which supersedes session 1
+      const init2Promise = SyncBridge.initialize('account-2')
+      await new Promise(r => setTimeout(r, 10))
+
+      // Now complete initRepo for account-1 so it reaches the abort check
+      init1ResolveRepo()
+      await init1Promise
+      await init2Promise
+
+      // Session 1's ports (indices 0 and 1) must be closed because initialization aborted
+      expect(channelCloseSpies[0]).toHaveBeenCalled()
+      expect(channelCloseSpies[1]).toHaveBeenCalled()
+
+      // Session 2's ports (indices 2 and 3) must remain open
+      expect(channelCloseSpies.length).toBe(4)
+      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
+    } finally {
+      globalThis.MessageChannel = originalMessageChannel
+    }
+  })
+
+  it('does not close newer session MessagePorts in catch block if superseded by another init session', async () => {
+    const originalMessageChannel = globalThis.MessageChannel
+    const channelCloseSpies: any[] = []
+    class MockMessageChannel {
+      port1 = {
+        onmessage: null,
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
+
+      port2 = {
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
+
+      constructor() {
+        channelCloseSpies.push(this.port1.close)
+      }
+    }
+    globalThis.MessageChannel = MockMessageChannel as any
+
+    try {
+      let init1RejectRepo: (err: Error) => void = () => {}
+      mockSyncApi.initRepo.mockImplementation((accountId: string) => {
+        if (accountId === 'account-fail') {
+          return new Promise<void>((_, reject) => {
+            init1RejectRepo = reject
+          })
+        }
+        return Promise.resolve()
+      })
+
+      const init1Promise = SyncBridge.initialize('account-fail')
+      await new Promise(r => setTimeout(r, 10))
+
+      // Session 1 has created 2 channels
+      expect(channelCloseSpies.length).toBe(2)
+
+      // Session 2 starts and initializes successfully with account-success
+      const init2Promise = SyncBridge.initialize('account-success')
+      await init2Promise
+
+      // Session 2 created 2 new channels (indices 2 and 3)
+      expect(channelCloseSpies.length).toBe(4)
+      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
+
+      // Now reject session 1's initRepo to trigger its catch block
+      init1RejectRepo(new Error('Init 1 failed'))
+      await expect(init1Promise).rejects.toThrow('Init 1 failed')
+
+      // Session 1's own ports should be closed
+      expect(channelCloseSpies[0]).toHaveBeenCalled()
+      expect(channelCloseSpies[1]).toHaveBeenCalled()
+
+      // Session 2's ports must NOT have been closed by session 1's catch block
+      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
+      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
+
+      // And ensureReady should succeed because session 2 is active
+      await expect(SyncBridge.ensureReady()).resolves.toBeUndefined()
+    } finally {
+      globalThis.MessageChannel = originalMessageChannel
+    }
+  })
+
+  it('schedules retry with backoff on initialization failure and queues ensureReady callers', async () => {
+    vi.useFakeTimers()
+    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed transiently'))
+
+    const initPromise = SyncBridge.initialize('retry-account')
+    await expect(initPromise).rejects.toThrow('initRepo failed transiently')
+
+    // Warning is set
+    expect(useAppStore.getState().syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
+
+    // ensureReady callers wait on the retry
+    let ready = false
+    const ensureReadyPromise = SyncBridge.ensureReady().then(() => {
+      ready = true
+    })
+
+    // Advance 1s - still waiting
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ready).toBe(false)
+
+    // Advance remaining 1000ms - retry runs and succeeds
+    await vi.advanceTimersByTimeAsync(1000)
+    await ensureReadyPromise
+    expect(ready).toBe(true)
+    expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(2)
+    expect(useAppStore.getState().syncWarning).toBeNull()
+
+    vi.useRealTimers()
+  })
+
+  it('exhausts retries after 5 attempts and sets fatal error', async () => {
+    vi.useFakeTimers()
+    mockSyncApi.initRepo.mockRejectedValue(new Error('persistent failure'))
+
+    // Attempt 1 fails
+    await expect(SyncBridge.initialize('fail-account')).rejects.toThrow('persistent failure')
+
+    // Delays: 2000, 5000, 10000, 30000, 60000
+    const delays = [2000, 5000, 10000, 30000, 60000]
+    for (let i = 0; i < delays.length; i++) {
+      await vi.advanceTimersByTimeAsync(delays[i])
+    }
+
+    expect(useAppStore.getState().fatalError).toBe('Unable to start sync. Please refresh the page.')
     expect(useAppStore.getState().syncStatus).toBe('offline')
+
+    vi.useRealTimers()
+  })
+
+  it('cancels retry when account changes during retry delay', async () => {
+    vi.useFakeTimers()
+    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('account 1 failed'))
+
+    await expect(SyncBridge.initialize('account-fail')).rejects.toThrow('account 1 failed')
+    expect(useAppStore.getState().syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
+
+    // Switch account before retry timer fires
+    const initTwo = SyncBridge.initialize('account-success')
+    await initTwo
+
+    // Advance timer for old retry
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Should be initialized with account-success, not failed account
+    expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-success', 'test-key')
+
+    vi.useRealTimers()
+  })
+
+  it('queues mutations during worker crash and applies them after restart', async () => {
+    vi.useFakeTimers()
+    let capturedWorker: any = null
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        capturedWorker = this
+      }
+    } as any
+
+    await SyncBridge.initialize('test-account')
+    expect(capturedWorker).not.toBeNull()
+
+    // Crash the worker
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
+
+    // Issue mutation during restart gap
+    let mutationResolved = false
+    const mutatePromise = SyncBridge.mutateItem('item-1' as ItemId, { name: 'queued' }).then(() => {
+      mutationResolved = true
+    })
+
+    // Advance 500ms (still within 1000ms restart gap)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mutationResolved).toBe(false)
+
+    // Advance remaining 500ms to trigger auto-restart
+    await vi.advanceTimersByTimeAsync(500)
+    await mutatePromise
+
+    expect(mutationResolved).toBe(true)
+    expect(mockSyncApi.mutateItem).toHaveBeenCalledWith('item-1', { name: 'queued' })
+
+    vi.useRealTimers()
   })
 
   it('allows ensureReady to wait for initialization during re-initialization with a new account', async () => {
@@ -557,7 +1019,7 @@ describe('SyncBridge', () => {
       expect(mockSyncApi.storeItems).toHaveBeenCalledWith([person3])
 
       await SyncBridge.mutateMetadata({ prayerGoal: 10 })
-      expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 })
+      expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 }, undefined)
 
       await SyncBridge.flushSync()
       expect(mockSyncApi.flushSync).toHaveBeenCalledTimes(1)
@@ -619,6 +1081,177 @@ describe('SyncBridge', () => {
       expect(listResult).toEqual(entries)
     })
 
+    it('clears local data when shutdown({ clearLocalData: true }) is called after syncApi is already null', async () => {
+      await SyncBridge.initialize('test-account-cleared')
+      // Simulate unmount shutdown without args
+      await SyncBridge.shutdown()
+
+      // Now explicit logout occurs when syncApi is null
+      await expect(SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-cleared' })).resolves.not.toThrow()
+    })
+
+    it('preserves clearLocalData instruction when concurrent shutdown() is followed by shutdown({ clearLocalData: true })', async () => {
+      const { SyncWriteAheadLog } = await import('../worker/SyncWriteAheadLog')
+      const walClearSpy = vi.spyOn(SyncWriteAheadLog, 'clear')
+
+      await SyncBridge.initialize('test-account-race-1')
+
+      let resolveShutdown: () => void = () => {}
+      mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
+        resolveShutdown = resolve
+      }))
+
+      // Unmount starts shutdown without clearLocalData
+      const unmountShutdown = SyncBridge.shutdown()
+
+      // Logout thunk immediately calls shutdown with clearLocalData: true
+      const logoutShutdown = SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-race-1' })
+
+      resolveShutdown()
+      await unmountShutdown
+      await logoutShutdown
+
+      expect(walClearSpy).toHaveBeenCalledWith('test-account-race-1')
+      expect(SyncBridge.isClearingLocalData()).toBe(false)
+      walClearSpy.mockRestore()
+    })
+
+    it('preserves clearLocalData instruction when shutdown({ clearLocalData: true }) is followed by unmount shutdown()', async () => {
+      await SyncBridge.initialize('test-account-race-2')
+
+      let resolveShutdown: () => void = () => {}
+      mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
+        resolveShutdown = resolve
+      }))
+
+      // Logout thunk starts shutdown with clearLocalData: true
+      const logoutShutdown = SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-race-2' })
+
+      // Unmount effect fires shutdown without args while logout is in-flight
+      const unmountShutdown = SyncBridge.shutdown()
+
+      resolveShutdown()
+      await logoutShutdown
+      await unmountShutdown
+
+      expect(mockSyncApi.shutdown).toHaveBeenCalledWith(
+        expect.objectContaining({ clearLocalData: true })
+      )
+    })
+
+    it('executes clearLocalData if requestClearOnShutdown was called before unmount shutdown', async () => {
+      await SyncBridge.initialize('test-account-preempt')
+
+      SyncBridge.requestClearOnShutdown('test-account-preempt')
+      expect(SyncBridge.isClearingLocalData()).toBe(true)
+
+      await SyncBridge.shutdown()
+
+      expect(mockSyncApi.shutdown).toHaveBeenCalledWith(
+        expect.objectContaining({ clearLocalData: true })
+      )
+      expect(SyncBridge.isClearingLocalData()).toBe(false)
+    })
+
+  })
+
+  describe('clearAutomergeIndexedDb', () => {
+    const originalIndexedDB = globalThis.indexedDB
+    let mockReq: {
+      onsuccess: ((event?: any) => void) | null
+      onerror: ((event?: any) => void) | null
+      onblocked: ((event?: any) => void) | null
+      error?: Error | null
+    }
+
+    beforeEach(() => {
+      mockReq = {
+        onsuccess: null,
+        onerror: null,
+        onblocked: null,
+        error: null,
+      }
+      globalThis.indexedDB = {
+        deleteDatabase: vi.fn().mockImplementation(() => mockReq),
+      } as any
+    })
+
+    afterEach(() => {
+      globalThis.indexedDB = originalIndexedDB
+      vi.useRealTimers()
+    })
+
+    it('resolves when deleteDatabase succeeds immediately', async () => {
+      const clearPromise = clearAutomergeIndexedDb('acc-1')
+      expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith(expect.stringContaining('acc-1'))
+      mockReq.onsuccess?.()
+      await expect(clearPromise).resolves.toBeUndefined()
+    })
+
+    it('does NOT resolve when onblocked fires; waits for onsuccess and resolves when unblocked', async () => {
+      let resolved = false
+      const clearPromise = clearAutomergeIndexedDb('acc-1').then(() => {
+        resolved = true
+      })
+
+      // Simulate blocked event (e.g. open connections)
+      mockReq.onblocked?.()
+
+      // Must NOT have resolved yet
+      await new Promise(r => setTimeout(r, 10))
+      expect(resolved).toBe(false)
+
+      // Simulate connection closing and deletion completing
+      mockReq.onsuccess?.()
+      await clearPromise
+      expect(resolved).toBe(true)
+    })
+
+    it('rejects when blocked and timeout expires', async () => {
+      vi.useFakeTimers()
+      const clearPromise = clearAutomergeIndexedDb('acc-1', 1000)
+
+      mockReq.onblocked?.()
+
+      // Advance time past timeout
+      vi.advanceTimersByTime(1000)
+
+      await expect(clearPromise).rejects.toThrow(/deleteDatabase blocked and timed out after 1000ms/)
+    })
+
+    it('rejects when timeout expires without blocked event', async () => {
+      vi.useFakeTimers()
+      const clearPromise = clearAutomergeIndexedDb('acc-1', 1000)
+
+      // Advance time past timeout without any event
+      vi.advanceTimersByTime(1000)
+
+      await expect(clearPromise).rejects.toThrow(/deleteDatabase timed out after 1000ms/)
+    })
+
+    it('rejects when onerror is fired', async () => {
+      const clearPromise = clearAutomergeIndexedDb('acc-1')
+      mockReq.error = new Error('IDB delete failed')
+      mockReq.onerror?.()
+
+      await expect(clearPromise).rejects.toThrow('IDB delete failed')
+    })
+
+    it('resolves immediately when indexedDB is undefined', async () => {
+      globalThis.indexedDB = undefined as any
+      await expect(clearAutomergeIndexedDb('acc-1')).resolves.toBeUndefined()
+    })
+
+    it('clearAccountLocalData catches rejection from clearAutomergeIndexedDb gracefully', async () => {
+      vi.useFakeTimers()
+      const clearPromise = clearAccountLocalData('acc-1')
+
+      mockReq.onblocked?.()
+      vi.advanceTimersByTime(5000)
+
+      // clearAccountLocalData uses Promise.allSettled and does not throw uncaught error
+      await expect(clearPromise).resolves.toBeUndefined()
+    })
   })
 })
 

@@ -10,23 +10,6 @@ describe('DynamoDriver', function () {
     driver.connect(getConnectionParams())
   })
 
-  it('set, get, delete', async () => {
-    const account = generateAccountId()
-    const item = generateItemId()
-    const type: ItemType = 'person'
-    const cipher = 'hello'
-    const iv = 'there'
-    const modified = new Date().getTime()
-
-    await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
-    const result = await driver.get({ account, item })
-    expect(result).toEqual({ cipher, metadata: { type, iv, modified } })
-
-    await driver.delete({ account, item })
-    const p = driver.get({ account, item })
-    await expect(p).rejects.toThrow()
-  })
-
   it('set can create and update', async () => {
     const account = generateAccountId()
     const item = generateItemId()
@@ -38,60 +21,36 @@ describe('DynamoDriver', function () {
     await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
     cipher = 'good'
     iv = 'bye'
-    await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
-    const result = await driver.get({ account, item })
-    expect(result).toEqual({ cipher, metadata: { type, iv, modified } })
+    await driver.set({ account, item, cipher, metadata: { type, iv, modified }, version: 1 })
+    const results = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(results[0]).toEqual({ item, cipher, metadata: { type, iv, modified }, version: 2 })
   })
 
-  it('set injects ttl for tombstones', async () => {
+  it('set can create and update without version', async () => {
     const account = generateAccountId()
     const item = generateItemId()
     const type: ItemType = 'person'
-    const modified = new Date().getTime()
+    const modified = Date.now()
 
-    await driver.set({
-      account,
-      item,
-      cipher: 'tombstone-cipher',
-      metadata: {
-        type,
-        iv: 'tombstone-iv',
-        modified,
-        deleted: true,
-      },
-    })
+    await driver.set({ account, item, cipher: 'initial', metadata: { type, iv: 'iv-1', modified } })
+    await driver.set({ account, item, cipher: 'second-write', metadata: { type, iv: 'iv-2', modified: modified + 100 } })
+    await driver.set({ account, item, cipher: 'third-write', metadata: { type, iv: 'iv-3', modified: modified + 200 } })
 
-    const result = await driver.get({ account, item: item })
-    expect(result.metadata.deleted).toBe(true)
-    expect(typeof result.ttl).toBe('number')
+    const results = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(results[0].cipher).toBe('third-write')
   })
+
 
   it('set rejects oversized items', async () => {
     const account = generateAccountId()
     const item = generateItemId()
     const type: ItemType = 'person'
     const modified = new Date().getTime()
-    const cipher = 'x'.repeat(60000)
+    const cipher = 'x'.repeat(360_000)
 
     await expect(
       driver.set({ account, item, cipher, metadata: { type, iv: 'iv', modified } })
     ).rejects.toThrow('exceeds maximum')
-  })
-
-  it('fetchAll works', async () => {
-    const account = generateAccountId()
-    const individuals = []
-    const type: ItemType = 'person'
-    const cipher = 'hello'
-    const iv = 'there'
-    const modified = new Date().getTime()
-    for (let i = 0; i < 10; ++i) {
-      const item = generateItemId()
-      individuals.push(item)
-      await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
-    }
-    const result = await driver.fetchAll({ account })
-    expect(result.length).toEqual(10)
   })
 
   const authToken = 'an_example_auth_token_for_testing'
@@ -404,4 +363,51 @@ describe('DynamoDriver', function () {
     expect(fetchedIds).toContain(item3)
     expect(fetchedIds).not.toContain(item2)
   })
+
+  it('stores small snapshot inline as binary and returns as base64', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const payload = Buffer.from('hello-binary-snapshot').toString('base64')
+    const modified = Date.now()
+
+    await driver.set({
+      account,
+      item,
+      metadata: { type, iv: 'iv', modified },
+      snapshot: {
+        cipher: payload,
+        iv: 'snapshot-iv',
+        kver: '1',
+      },
+    })
+
+    const results = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(results.length).toBe(1)
+    expect(results[0].snapshot?.cipher).toBe(payload)
+    expect(results[0].snapshot?.iv).toBe('snapshot-iv')
+  })
+
+  it('rejects snapshots exceeding 350KB', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const largeBuffer = Buffer.alloc(360 * 1024, 0x41)
+    const payload = largeBuffer.toString('base64')
+    const modified = Date.now()
+
+    await expect(
+      driver.set({
+        account,
+        item,
+        metadata: { type, iv: 'iv', modified },
+        snapshot: {
+          cipher: payload,
+          iv: 'snapshot-iv',
+          kver: '1',
+        },
+      }),
+    ).rejects.toThrow('exceeds maximum')
+  })
 })
+

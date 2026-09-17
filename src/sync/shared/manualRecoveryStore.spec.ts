@@ -136,6 +136,65 @@ describe('manualRecoveryStore', () => {
     expect(stillLegacyVal).not.toBeNull()
   })
 
+  it('merges duplicate legacy entries for the same itemId without losing error context', async () => {
+    const legacyStorage = localforage.createInstance({
+      name: 'FlockVault_ManualRecoveryDB_test-account-id',
+      storeName: 'manual-recovery-items',
+    })
+    const metaStorage = localforage.createInstance({
+      name: 'FlockVault_ManualRecoveryDB_test-account-id',
+      storeName: 'manual-recovery-metadata',
+    })
+
+    const t1 = 100_000
+    const t2 = 200_000
+    const t3 = 300_000
+
+    // Add three entries for the same item: two different errors, one duplicate error
+    await legacyStorage.setItem('uuid-entry-1', {
+      id: 'uuid-entry-1',
+      itemId: 'duplicate-item-id',
+      reason: 'Decryption failed: corrupted cipher',
+      createdAt: t1,
+    })
+    await legacyStorage.setItem('uuid-entry-2', {
+      id: 'uuid-entry-2',
+      itemId: 'duplicate-item-id',
+      reason: 'Snapshot build failed: document missing',
+      createdAt: t3,
+    })
+    await legacyStorage.setItem('uuid-entry-3', {
+      id: 'uuid-entry-3',
+      itemId: 'duplicate-item-id',
+      reason: 'Decryption failed: corrupted cipher',
+      createdAt: t2,
+    })
+
+    await metaStorage.removeItem('__migrated_v2')
+    resetMigrationForTesting()
+
+    const entries = await readManualRecoveryEntries(accountId)
+    expect(entries).toHaveLength(1)
+
+    const entry = entries[0]
+    expect(entry.id).toBe('duplicate-item-id')
+    expect(entry.itemId).toBe('duplicate-item-id')
+    // Chronological combination of unique reasons
+    expect(entry.reason).toBe('Decryption failed: corrupted cipher; Snapshot build failed: document missing')
+    // Latest timestamp preserved
+    expect(entry.createdAt).toBe(t3)
+
+    // Old keys should be removed
+    expect(await legacyStorage.getItem('uuid-entry-1')).toBeNull()
+    expect(await legacyStorage.getItem('uuid-entry-2')).toBeNull()
+    expect(await legacyStorage.getItem('uuid-entry-3')).toBeNull()
+
+    // New key exists in storage
+    const stored = await legacyStorage.getItem<any>('duplicate-item-id')
+    expect(stored).not.toBeNull()
+    expect(stored.reason).toBe('Decryption failed: corrupted cipher; Snapshot build failed: document missing')
+  })
+
   it('sorts entries by createdAt descending, then by id lexicographically', async () => {
     const now = Date.now()
     const dateSpy = vi.spyOn(Date, 'now')

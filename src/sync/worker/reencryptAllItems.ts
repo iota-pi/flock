@@ -1,125 +1,381 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
+import { chunk } from 'lodash'
+
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
-import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
+import { isAuthError } from './utils/auth'
+import { isNetworkError } from './utils/network'
+import { isServerError } from './utils/server'
+import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
+import type { ItemId } from 'src/shared/schemas/items'
+import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 const MAX_BATCH_RETRIES = 3
+export const REENCRYPT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
+const reencryptRetryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
+
+let scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+export function cancelScheduledReencryption(): void {
+  if (scheduledRetryTimeoutId !== null) {
+    clearTimeout(scheduledRetryTimeoutId)
+    scheduledRetryTimeoutId = null
+  }
+  reencryptRetryStrategy.reset()
+}
+
+function scheduleReencryptRetry(
+  deps: ReencryptDeps,
+  onProgress?: (done: number, total: number) => void
+): number {
+  const delayMs = reencryptRetryStrategy.nextDelay()
+
+  console.warn(
+    `[reencryptAllItems] Scheduling re-encryption retry (attempt ${reencryptRetryStrategy.attempt}) in ${delayMs}ms`
+  )
+
+  if (deps.scheduleRetry) {
+    deps.scheduleRetry(delayMs)
+  } else {
+    if (scheduledRetryTimeoutId !== null) {
+      clearTimeout(scheduledRetryTimeoutId)
+    }
+    scheduledRetryTimeoutId = setTimeout(() => {
+      scheduledRetryTimeoutId = null
+      void reencryptAllItems(deps, onProgress).catch(err => {
+        console.warn('[reencryptAllItems] Scheduled retry failed:', err)
+      })
+    }, delayMs)
+  }
+
+  return delayMs
+}
+
+function toAuthExpiredError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err)
+  return new Error(`Re-encryption aborted: authentication session expired (${message})`, {
+    cause: err,
+  })
+}
+
+async function quarantineItem(
+  recoveryManager: RecoveryManager,
+  accountId: string,
+  itemId: ItemId,
+  reason: string
+): Promise<void> {
+  try {
+    await recoveryManager.quarantine(accountId, itemId, reason)
+  } catch (storageErr) {
+    console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
+  }
+}
+
+export class ReencryptAuthManager {
+  private currentToken: string | null = null
+  private readonly getAuth: () => Promise<string | null>
+  private readonly refreshAuth?: () => Promise<string | null>
+
+  constructor(deps: Pick<ReencryptDeps, 'getAuthToken' | 'refreshAuthToken'>) {
+    this.getAuth = deps.getAuthToken ?? getActiveSessionToken
+    this.refreshAuth = deps.refreshAuthToken
+  }
+
+  async getInitialToken(): Promise<string> {
+    this.currentToken = await this.getAuth()
+    if (!this.currentToken && this.refreshAuth) {
+      try {
+        this.currentToken = await this.refreshAuth()
+      } catch (refreshErr) {
+        console.warn('[reencryptAllItems] Initial token refresh callback failed:', refreshErr)
+      }
+    }
+    if (!this.currentToken) {
+      throw new Error('No active session token available')
+    }
+    return this.currentToken
+  }
+
+  async syncLatestToken(): Promise<string> {
+    const latest = await this.getAuth()
+    if (latest) {
+      this.currentToken = latest
+    }
+    return this.currentToken!
+  }
+
+  async tryRefresh(): Promise<string | null> {
+    let refreshedToken: string | null = null
+    if (this.refreshAuth) {
+      try {
+        refreshedToken = await this.refreshAuth()
+      } catch (refreshErr) {
+        console.warn('[reencryptAllItems] Token refresh callback failed:', refreshErr)
+      }
+    }
+    if (!refreshedToken) {
+      refreshedToken = await this.getAuth()
+    }
+
+    if (refreshedToken && refreshedToken !== this.currentToken) {
+      console.info('[reencryptAllItems] Acquired fresh auth token, retrying batch upload...')
+      this.currentToken = refreshedToken
+      return refreshedToken
+    }
+    return null
+  }
+
+  getToken(): string {
+    if (!this.currentToken) {
+      throw new Error('No active session token available')
+    }
+    return this.currentToken
+  }
+}
 
 export interface ReencryptDeps {
   accountId: string
   repo: Repo
   indexManager: AutomergeIndexManager
+  apiClient?: SyncApiClient
+  getAuthToken?: () => Promise<string | null>
+  refreshAuthToken?: () => Promise<string | null>
+  scheduleRetry?: (delayMs?: number) => void
+  recoveryManager?: RecoveryManager
+}
+
+export interface ReencryptResult {
+  succeeded: ItemId[]
+  failed: Array<{ itemId: ItemId; error: string }>
+}
+
+async function buildSingleSnapshotWithRetry(repo: Repo, itemId: ItemId) {
+  let retries = 0
+  let lastError: Error | null = null
+  while (retries < MAX_BATCH_RETRIES) {
+    try {
+      return await buildSnapshot(repo, itemId, 0)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      retries += 1
+      console.warn(
+        `[reencryptAllItems] Retry ${retries}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
+        err
+      )
+    }
+  }
+  throw lastError
+}
+
+async function buildSnapshotsForChunk(
+  repo: Repo,
+  chunkIds: ItemId[]
+): Promise<{
+  readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
+  failureDetails: Array<{ itemId: ItemId; errorMsg: string; rawError?: unknown }>
+}> {
+  const settled = await Promise.allSettled(
+    chunkIds.map(itemId => buildSingleSnapshotWithRetry(repo, itemId))
+  )
+
+  const readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }> = []
+  const failureDetails: Array<{ itemId: ItemId; errorMsg: string; rawError?: unknown }> = []
+
+  for (const [index, result] of settled.entries()) {
+    const itemId = chunkIds[index]
+    if (result.status === 'fulfilled') {
+      if (result.value.type === 'success') {
+        readySnapshots.push({ itemId, snapshot: result.value.snapshot })
+      } else if (result.value.type === 'not-ready') {
+        console.warn(`[reencryptAllItems] Item ${itemId} was not ready. Skipping.`)
+      } else if (result.value.type === 'error') {
+        const errorMsg = result.value.reason
+          ? `Failed to build snapshot for item ${itemId}: ${result.value.reason}`
+          : `Failed to build snapshot for item ${itemId}`
+        failureDetails.push({ itemId, errorMsg })
+      }
+    } else {
+      const errorDetail =
+        result.reason instanceof Error ? result.reason.message : String(result.reason)
+      failureDetails.push({
+        itemId,
+        errorMsg: `Failed to build snapshot for item ${itemId}: ${errorDetail}`,
+        rawError: result.reason,
+      })
+    }
+  }
+
+  return { readySnapshots, failureDetails }
+}
+
+async function uploadSnapshotBatchWithRetry(
+  apiClient: SyncApiClient,
+  accountId: string,
+  readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
+): Promise<{ uploadSuccess: boolean; lastError: unknown }> {
+  let uploadSuccess = false
+  let lastError: unknown = null
+
+  for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
+    try {
+      const response = await apiClient.putSnapshots({
+        account: accountId,
+        snapshots: readySnapshots.map(r => r.snapshot),
+      })
+
+      if (
+        response?.success &&
+        (response.persisted === undefined || response.persisted === readySnapshots.length)
+      ) {
+        uploadSuccess = true
+        break
+      }
+    } catch (err) {
+      lastError = err
+      console.warn(
+        `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
+        err
+      )
+
+      if (isAuthError(err)) {
+        throw toAuthExpiredError(err)
+      }
+
+      if (isNetworkError(err) || isServerError(err)) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          break
+        }
+      }
+    }
+  }
+
+  return { uploadSuccess, lastError }
+}
+
+function handleBatchUploadFailure(
+  lastError: unknown,
+  deps: ReencryptDeps,
+  onProgress?: (done: number, total: number) => void
+): string {
+  if (isAuthError(lastError)) {
+    throw toAuthExpiredError(lastError)
+  }
+
+  if (isNetworkError(lastError) || isServerError(lastError)) {
+    const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
+    const errorType = isServerError(lastError) ? 'server error' : 'network error'
+    console.warn(
+      `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
+    )
+    scheduleReencryptRetry(deps, onProgress)
+    throw new Error(
+      `Re-encryption aborted: ${errorType} (${errMsg})`,
+      { cause: lastError }
+    )
+  }
+
+  return (
+    `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
+    (lastError instanceof Error ? `: ${lastError.message}` : '')
+  )
 }
 
 export async function reencryptAllItems(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
-): Promise<void> {
-  if (!deps.accountId || !deps.repo || !deps.indexManager) {
+): Promise<ReencryptResult> {
+  if (!deps?.accountId || !deps?.repo || !deps?.indexManager) {
     throw new Error('SyncWorker not initialized')
   }
-  const authToken = await getActiveSessionToken()
-  if (!authToken) {
+
+  const { accountId, repo, indexManager } = deps
+  const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
+  const apiClient = deps.apiClient ?? new SyncApiClient({
+    getAuthToken: deps.getAuthToken,
+    refreshAuthToken: deps.refreshAuthToken,
+  })
+  const initialToken = await apiClient.getValidToken()
+  if (!initialToken) {
     throw new Error('No active session token available')
   }
 
-  const itemIds = await deps.indexManager.listAutomergeItemIds()
-  const total = itemIds.length
+  const allItemIds = await indexManager.listAutomergeItemIds()
+  const total = allItemIds.length
   if (total === 0) {
     if (onProgress) {
       onProgress(0, 0)
     }
-    return
+    reencryptRetryStrategy.reset()
+    return { succeeded: [], failed: [] }
   }
 
-  const snapshotCursor = Date.now()
-  const batchSize = 10
-  const errors: Error[] = []
+  let processed = 0
+  const succeeded: ItemId[] = []
+  const failed: Array<{ itemId: ItemId; error: string }> = []
 
-  for (let start = 0; start < total; start += batchSize) {
-    const chunkIds = itemIds.slice(start, start + batchSize)
-    const snapshotPromises = chunkIds.map(async itemId => {
-      let lastError: unknown = null
-      for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
-        try {
-          return await buildSnapshot(deps.repo, itemId, snapshotCursor)
-        } catch (err) {
-          lastError = err
-          console.warn(
-            `[reencryptAllItems] Attempt ${attempt} failed to build snapshot for item ${itemId}:`,
-            err
-          )
-        }
+  const itemChunks = chunk(allItemIds, 10)
+
+  for (const chunkIds of itemChunks) {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const errMsg = 'Network is offline'
+      console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
+      scheduleReencryptRetry(deps, onProgress)
+      throw new Error(`Re-encryption aborted: network error (${errMsg})`)
+    }
+
+    await apiClient.syncLatestToken()
+
+    const { readySnapshots, failureDetails } = await buildSnapshotsForChunk(repo, chunkIds)
+    for (const failure of failureDetails) {
+      if (failure.rawError !== undefined) {
+        console.error(`[reencryptAllItems] ${failure.errorMsg}`, failure.rawError)
+      } else {
+        console.error(`[reencryptAllItems] ${failure.errorMsg}`)
       }
-      throw lastError
-    })
-    const settled = await Promise.allSettled(snapshotPromises)
+      failed.push({ itemId: failure.itemId, error: failure.errorMsg })
+      await quarantineItem(
+        recoveryManager,
+        accountId,
+        failure.itemId,
+        `Re-encryption snapshot build failed: ${failure.errorMsg}`
+      )
+    }
 
-    const snapshots = []
-    for (const [index, result] of settled.entries()) {
-      if (result.status === 'fulfilled') {
-        if (result.value.type === 'success') {
-          snapshots.push(result.value.snapshot)
-        } else if (result.value.type === 'not-ready') {
-          console.warn(`[reencryptAllItems] Item ${chunkIds[index]} was not ready. Skipping.`)
-        } else if (result.value.type === 'error') {
-          const errMsg = `Failed to build snapshot for item ${chunkIds[index]}`
-          console.error(`[reencryptAllItems] ${errMsg}`)
-          errors.push(new Error(errMsg))
+    if (readySnapshots.length > 0) {
+      const { uploadSuccess, lastError } = await uploadSnapshotBatchWithRetry(
+        apiClient,
+        accountId,
+        readySnapshots
+      )
+
+      if (uploadSuccess) {
+        for (const item of readySnapshots) {
+          succeeded.push(item.itemId)
         }
       } else {
-        const errMsg = `Failed to build snapshot for item ${chunkIds[index]}: ${
-          result.reason instanceof Error ? result.reason.message : String(result.reason)
-        }`
-        console.error(`[reencryptAllItems] ${errMsg}`, result.reason)
-        errors.push(result.reason instanceof Error ? result.reason : new Error(errMsg))
-      }
-    }
-
-    if (snapshots.length > 0) {
-      let uploadSuccess = false
-      let lastError: unknown = null
-
-      for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
-        try {
-          const response = await putSnapshotsWithToken({
-            account: deps.accountId,
-            authToken,
-            snapshots,
-          })
-
-          if (response?.success) {
-            uploadSuccess = true
-            break
-          }
-        } catch (err) {
-          lastError = err
-          console.warn(
-            `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch at index ${start}:`,
-            err
+        const errMsg = handleBatchUploadFailure(lastError, deps, onProgress)
+        console.error(`[reencryptAllItems] ${errMsg}`)
+        for (const item of readySnapshots) {
+          failed.push({ itemId: item.itemId, error: errMsg })
+          await quarantineItem(
+            recoveryManager,
+            accountId,
+            item.itemId,
+            `Re-encryption upload failed: ${errMsg}`
           )
         }
       }
-
-      if (!uploadSuccess) {
-        const errMsg =
-          `Failed to upload snapshots for batch starting at index ${start} after ${MAX_BATCH_RETRIES} attempts` +
-            (lastError instanceof Error ? `: ${lastError.message}` : '')
-        console.error(`[reencryptAllItems] ${errMsg}`)
-        errors.push(new Error(errMsg))
-      }
     }
 
+    processed += chunkIds.length
     if (onProgress) {
-      const done = Math.min(start + batchSize, total)
-      onProgress(done, total)
+      onProgress(Math.min(processed, total), total)
     }
   }
 
-  if (errors.length > 0) {
-    throw new Error(
-      `Re-encryption completed with ${errors.length} error(s). First error: ${errors[0].message}`
-    )
-  }
+  reencryptRetryStrategy.reset()
+  return { succeeded, failed }
 }

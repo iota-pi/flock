@@ -1,5 +1,4 @@
 import {
-  ConditionalCheckFailedException,
   CreateTableCommand,
   CreateTableCommandInput,
   DynamoDBClient,
@@ -10,7 +9,6 @@ import {
   BatchGetCommandInput,
   BatchWriteCommand,
   BatchWriteCommandInput,
-  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -33,43 +31,63 @@ import BaseDriver, {
   VaultAccount,
   VaultAccountWithAuth,
   VaultItem,
-  VaultKey,
   VaultSessionRecord,
 } from './base'
 import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
 import { VersionConflictError } from '../../shared/syncErrors'
 import type { ItemId } from 'src/shared/schemas/items'
+import {
+  isConditionalCheckFailure,
+  isResourceInUseError,
+  isTransientDynamoError,
+  TRANSIENT_DYNAMO_ERROR_NAMES,
+  TRANSIENT_HTTP_STATUS_CODES,
+} from './dynamoErrors'
+
+export {
+  isConditionalCheckFailure,
+  isResourceInUseError,
+  isTransientDynamoError,
+  TRANSIENT_DYNAMO_ERROR_NAMES,
+  TRANSIENT_HTTP_STATUS_CODES,
+}
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
 
-const SYNC_MESSAGE_TTL = 7 * 24 * 60 * 60
+const SYNC_MESSAGE_TTL = 90 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
 const DEFAULT_SYNC_MESSAGE_LIMIT = 200
 
-const DATA_ATTRIBUTES = ['#metadata', '#cipher', '#snapshot']
+const DATA_ATTRIBUTES = [
+  '#metadata',
+  '#cipher',
+  '#snapshot',
+  '#version',
+]
 const DATA_ATTRIBUTE_NAMES = {
   '#metadata': 'metadata',
   '#cipher': 'cipher',
   '#snapshot': 'snapshot',
+  '#version': 'version',
 }
 
-const MAX_ITEM_SIZE = 50_000
+export const MAX_ITEM_SIZE = 350 * 1024
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
-const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 type PersistedVaultItem = VaultItem & {
   modifiedAt?: number
+  version?: number
 }
 
 /**
  * Validates a VaultItem.
  * Supports both legacy cipher and snapshot format
  * - Legacy: must have cipher and iv
- * - Snapshot: must have snapshot payload
+ * - Snapshot: must have snapshot payload or external storage pointer
  * - Tombstone: needs only metadata.type
  */
 function validateItem(item: VaultItem) {
@@ -87,7 +105,23 @@ function validateItem(item: VaultItem) {
     )
   }
 
-  const itemLength = JSON.stringify(item).length
+  // Calculate item length without expanding binary Buffers into huge JSON arrays
+  let itemLength: number
+  const cipher = item.snapshot?.cipher
+  if (cipher && (Buffer.isBuffer(cipher) || cipher instanceof Uint8Array)) {
+    const cipherLength = cipher.byteLength
+    const itemWithoutCipher = {
+      ...item,
+      snapshot: {
+        ...item.snapshot,
+        cipher: undefined,
+      },
+    }
+    itemLength = JSON.stringify(itemWithoutCipher).length + cipherLength
+  } else {
+    itemLength = JSON.stringify(item).length
+  }
+
   if (itemLength > MAX_ITEM_SIZE) {
     throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
   }
@@ -97,13 +131,12 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
   validateItem(item)
 
   const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
-  const shouldSetTtl = item.metadata?.deleted === true && typeof item.ttl !== 'number'
-  const ttl = shouldSetTtl
-    ? Math.floor(Date.now() / 1000) + TOMBSTONE_TTL_SECONDS
-    : item.ttl
+  const ttl = item.ttl
 
+  const nextVersion = (item.version ?? 0) + 1
   const persistedItem: PersistedVaultItem = {
     ...item,
+    version: nextVersion,
     ...(modifiedAt !== undefined ? { modifiedAt } : {}),
     ...(ttl !== undefined ? { ttl } : {}),
   }
@@ -111,25 +144,15 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
   const params: PutCommandInput = {
     TableName: ITEM_TABLE_NAME,
     Item: persistedItem,
+    ConditionExpression: typeof item.version === 'number'
+      ? 'attribute_not_exists(account) OR version = :expectedVersion'
+      : undefined,
+    ExpressionAttributeValues: typeof item.version === 'number'
+      ? { ':expectedVersion': item.version }
+      : undefined,
   }
 
   return params
-}
-
-function isConditionalCheckFailure(error: unknown): boolean {
-  if (error instanceof ConditionalCheckFailedException) {
-    return true
-  }
-
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  return (
-    error.name === 'ConditionalCheckFailedException'
-    || error.message.includes('ConditionalCheckFailed')
-    || error.message.includes('conditional request failed')
-  )
 }
 
 function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSessionRecord[] {
@@ -182,22 +205,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async init(_: T | undefined = undefined) {
-    const isResourceInUseError = (err: unknown) => {
-      if (!err || typeof err !== 'object') {
-        return false
-      }
-
-      const typed = err as {
-        name?: unknown
-        code?: unknown
-        __type?: unknown
-      }
-
-      return typed.name === 'ResourceInUseException'
-        || typed.code === 'ResourceInUseException'
-        || (typeof typed.__type === 'string' && typed.__type.includes('ResourceInUseException'))
-    }
-
     const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions'>[] = [
       {
         TableName: ITEM_TABLE_NAME,
@@ -292,6 +299,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         iterations,
         saltVersion,
         sessions: [],
+        keyringVersion: 1,
       },
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
@@ -400,12 +408,13 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor,
       lastSnapshotAt,
       lastSnapshotRequestedAt,
-      latestSyncCursor,
       keyring,
       authToken,
       salt,
       iterations,
       saltVersion,
+      keyringVersion,
+      expectedKeyringVersion,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -417,12 +426,13 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor?: number,
       lastSnapshotAt?: number,
       lastSnapshotRequestedAt?: number,
-      latestSyncCursor?: number,
       keyring?: string,
       authToken?: string,
       salt?: string,
       iterations?: number,
       saltVersion?: number,
+      keyringVersion?: number,
+      expectedKeyringVersion?: number,
     },
   ): Promise<void> {
     const updateExpressions: string[] = []
@@ -435,7 +445,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       expressionAttributeValues[':sessions'] = normalizeSessionRecords(sessions)
     }
 
-    if (metadata && Object.keys(metadata).length > 0) {
+    if (metadata !== undefined && metadata !== null) {
       updateExpressions.push('metadata=:metadata')
       expressionAttributeValues[':metadata'] = metadata
     }
@@ -472,10 +482,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       updateExpressions.push('lastSnapshotRequestedAt = :lastSnapshotRequestedAt')
       expressionAttributeValues[':lastSnapshotRequestedAt'] = lastSnapshotRequestedAt
     }
-    if (typeof latestSyncCursor === 'number') {
-      updateExpressions.push('latestSyncCursor = :latestSyncCursor')
-      expressionAttributeValues[':latestSyncCursor'] = latestSyncCursor
-    }
     if (typeof keyring === 'string') {
       updateExpressions.push('keyring = :keyring')
       expressionAttributeValues[':keyring'] = keyring
@@ -495,6 +501,14 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof saltVersion === 'number') {
       updateExpressions.push('saltVersion = :saltVersion')
       expressionAttributeValues[':saltVersion'] = saltVersion
+    }
+    if (typeof keyringVersion === 'number') {
+      updateExpressions.push('keyringVersion = :keyringVersion')
+      expressionAttributeValues[':keyringVersion'] = keyringVersion
+    }
+    if (typeof expectedKeyringVersion === 'number') {
+      conditionExpressions.push('(keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))')
+      expressionAttributeValues[':expectedKeyringVersion'] = expectedKeyringVersion
     }
 
     if (updateExpressions.length === 0) {
@@ -572,7 +586,32 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async set(item: VaultItem) {
-    const params = getItemPutParams(item)
+    let itemToPersist = item
+
+    if (item.snapshot?.cipher) {
+      let cipherBytes: Buffer
+      if (Buffer.isBuffer(item.snapshot.cipher)) {
+        cipherBytes = item.snapshot.cipher
+      } else if (item.snapshot.cipher instanceof Uint8Array) {
+        cipherBytes = Buffer.from(item.snapshot.cipher)
+      } else if (typeof item.snapshot.cipher === 'string') {
+        cipherBytes = Buffer.from(item.snapshot.cipher, 'base64')
+      } else {
+        cipherBytes = Buffer.from([])
+      }
+
+      // Store inline in DynamoDB as binary Buffer (DynamoDB type 'B')
+      itemToPersist = {
+        ...item,
+        snapshot: {
+          iv: item.snapshot.iv,
+          kver: item.snapshot.kver,
+          cipher: cipherBytes,
+        },
+      }
+    }
+
+    const params = getItemPutParams(itemToPersist)
 
     try {
       await this.client.send(new PutCommand(params))
@@ -584,67 +623,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  async get({ account, item }: VaultKey) {
-    const response = await this.client.send(new GetCommand(
-      {
-        TableName: ITEM_TABLE_NAME,
-        Key: { account, item },
-        ProjectionExpression: [...DATA_ATTRIBUTES, '#ttl'].join(', '),
-        ExpressionAttributeNames: {
-          ...DATA_ATTRIBUTE_NAMES,
-          '#ttl': 'ttl',
-        },
-      },
-    ))
-    if (response?.Item) {
-      return response.Item as VaultItem
-    } else {
-      throw new Error(`Could not find item (${item}) for this account (${account})`)
-    }
-  }
-
-  // fetchAll is used only for legacy migration
-  async fetchAll(
-    { account }: { account: string },
-  ): Promise<VaultItem[]> {
-    const items: VaultItem[] = []
-    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
-
-    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES].join(',')
-
-    while (true) {
-      const queryInput: QueryCommandInput = {
-        TableName: ITEM_TABLE_NAME,
-        KeyConditionExpression: 'account = :accountid',
-        ExpressionAttributeNames: {
-          '#itemKey': 'item',
-          ...DATA_ATTRIBUTE_NAMES,
-        },
-        ExpressionAttributeValues: {
-          ':accountid': account,
-        },
-        ProjectionExpression: projectionExpression,
-        ExclusiveStartKey: lastEvaluatedKey,
-      }
-
-      const response = await this.client.send(new QueryCommand(queryInput))
-
-      if (response?.Items) {
-        items.push(...response?.Items as VaultItem[])
-      }
-      lastEvaluatedKey = response?.LastEvaluatedKey
-      if (!lastEvaluatedKey) {
-        break
-      }
-    }
-
-    return items
-  }
-
   async fetchManifest(
     { account }: { account: string },
-  ): Promise<Array<{ itemId: string; modifiedAt: number }>> {
-    const manifest: Array<{ itemId: string; modifiedAt: number }> = []
+  ): Promise<Array<{ itemId: string; modifiedAt: number; deleted?: boolean }>> {
+    const manifest: Array<{ itemId: string; modifiedAt: number; deleted?: boolean }> = []
     let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
 
     while (true) {
@@ -655,11 +637,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           '#itemKey': 'item',
           '#modifiedAt': 'modifiedAt',
           '#metadata': 'metadata',
+          '#deleted': 'deleted',
         },
         ExpressionAttributeValues: {
           ':accountid': account,
         },
-        ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified',
+        ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
         ExclusiveStartKey: lastEvaluatedKey,
       }
 
@@ -669,10 +652,15 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         for (const record of response.Items) {
           const itemId = record.item as string
           if (!itemId) continue
+          const isDeleted = record.metadata?.deleted === true || (record as Record<string, unknown>).deleted === true
           const modifiedAt = typeof record.modifiedAt === 'number'
             ? record.modifiedAt
             : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
-          manifest.push({ itemId, modifiedAt })
+          manifest.push({
+            itemId,
+            modifiedAt,
+            ...(isDeleted ? { deleted: true } : {}),
+          })
         }
       }
       lastEvaluatedKey = response?.LastEvaluatedKey
@@ -694,9 +682,27 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const accumulatedResponses: Record<string, Record<string, unknown>[]> = {}
 
     while (true) {
-      const response = await this.client.send(new BatchGetCommand({
-        RequestItems: currentRequestItems,
-      }))
+      let response
+      try {
+        response = await this.client.send(new BatchGetCommand({
+          RequestItems: currentRequestItems,
+        }))
+      } catch (error) {
+        if (!isTransientDynamoError(error)) {
+          throw error
+        }
+
+        attempt += 1
+        if (attempt > maxRetries) {
+          throw error
+        }
+
+        const jitter = Math.random() * 50
+        await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
+        delayMs = Math.min(delayMs * 2, 5000)
+
+        continue
+      }
 
       if (response.Responses) {
         for (const [tableName, items] of Object.entries(response.Responses)) {
@@ -719,7 +725,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const jitter = Math.random() * 50
       await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-      delayMs *= 2
+      delayMs = Math.min(delayMs * 2, 5000)
 
       currentRequestItems = unprocessed
     }
@@ -738,11 +744,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const batches = chunk(uniqueItemIds, 100)
     const results: VaultItem[] = []
 
-    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES, '#ttl'].join(',')
+    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES].join(',')
     const expressionAttributeNames = {
       '#itemKey': 'item',
       ...DATA_ATTRIBUTE_NAMES,
-      '#ttl': 'ttl',
     }
 
     for (const batch of batches) {
@@ -756,7 +761,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ExpressionAttributeNames: expressionAttributeNames,
         },
       }
-
       const responses = await this.executeBatchGetWithRetry(requestItems)
       const items = responses[ITEM_TABLE_NAME] as VaultItem[] | undefined
       if (items) {
@@ -764,14 +768,20 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
-    return results
-  }
+    for (const record of results) {
+      if (record.snapshot?.cipher) {
+        if (
+          Buffer.isBuffer(record.snapshot.cipher) ||
+          record.snapshot.cipher instanceof Uint8Array
+        ) {
+          record.snapshot.cipher = Buffer.from(record.snapshot.cipher).toString(
+            'base64',
+          )
+        }
+      }
+    }
 
-  async delete({ account, item }: VaultKey) {
-    await this.client.send(new DeleteCommand({
-      TableName: ITEM_TABLE_NAME,
-      Key: { account, item },
-    }))
+    return results
   }
 
   private async executeBatchWriteWithRetry(
@@ -783,9 +793,27 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     let delayMs = 100
 
     while (true) {
-      const response = await this.client.send(new BatchWriteCommand({
-        RequestItems: currentRequestItems,
-      }))
+      let response
+      try {
+        response = await this.client.send(new BatchWriteCommand({
+          RequestItems: currentRequestItems,
+        }))
+      } catch (error) {
+        if (!isTransientDynamoError(error)) {
+          throw error
+        }
+
+        attempt += 1
+        if (attempt > maxRetries) {
+          throw error
+        }
+
+        const jitter = Math.random() * 50
+        await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
+        delayMs = Math.min(delayMs * 2, 5000)
+
+        continue
+      }
 
       const unprocessed = response.UnprocessedItems
       if (!unprocessed || Object.keys(unprocessed).length === 0) {
@@ -799,7 +827,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const jitter = Math.random() * 50
       await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-      delayMs *= 2
+      delayMs = Math.min(delayMs * 2, 5000)
 
       currentRequestItems = unprocessed
     }
@@ -860,7 +888,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     itemId: ItemId
     fromCursor?: number
     limit?: number
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }> {
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
     const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
     const hasCursor = typeof fromCursor === 'number'
     const response = await this.client.send(new QueryCommand({
@@ -876,38 +905,45 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ...(hasCursor ? { ':fromCursor': fromCursor } : undefined),
       },
       Limit: input.limit ?? DEFAULT_SYNC_MESSAGE_LIMIT,
+      ExclusiveStartKey: input.exclusiveStartKey,
     }))
 
     return {
       messages: (response.Items as StoredSyncMessage[]) || [],
       hasMore: !!response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey,
     }
   }
 
   async getGlobalSyncMessagesAfterCursor(input: {
     account: string
-    cursor: number
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }> {
+    cursor?: number
+    exclusiveStartKey?: Record<string, unknown>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
+    const hasCursor = typeof input.cursor === 'number'
 
     const response = await this.client.send(new QueryCommand({
       TableName: SYNC_MESSAGES_TABLE_NAME,
       IndexName: 'AccountCursorIndex',
-      KeyConditionExpression: 'account = :account AND #c > :cursor',
-      ExpressionAttributeNames: {
-        '#c': 'cursor',
-      },
+      KeyConditionExpression: hasCursor
+        ? 'account = :account AND #c > :cursor'
+        : 'account = :account',
+      ExpressionAttributeNames: hasCursor
+        ? { '#c': 'cursor' }
+        : undefined,
       ExpressionAttributeValues: {
         ':account': input.account,
-        ':cursor': input.cursor,
+        ...(hasCursor ? { ':cursor': input.cursor } : undefined),
       },
       Limit: 1000,
+      ExclusiveStartKey: input.exclusiveStartKey,
     }))
 
     for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
       const itemId = item.syncId.split('#')[1] as ItemId
       if (!itemId) continue
-      
+
       let messages = messagesByItem.get(itemId)
       if (!messages) {
         messages = []
@@ -926,6 +962,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         messages: messages.sort((a, b) => a.cursor - b.cursor),
       })),
       hasMore: !!response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey,
     }
   }
 }

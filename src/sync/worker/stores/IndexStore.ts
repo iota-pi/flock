@@ -1,28 +1,27 @@
-import localforage from 'localforage'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
-import { runStorageOperation } from 'src/utils/storageManager'
+import {
+  ScopedMetadataStore,
+  SYNC_METADATA_KEYS,
+  LEGACY_DB_NAMES,
+  LEGACY_KEYS,
+} from './syncMetadataStorage'
 
-export class IndexStore {
-  private readonly store: LocalForage
-  private readonly storeName: string
-
-  constructor(accountId: string) {
-    this.storeName = `index-${accountId}`
-    this.store = localforage.createInstance({
-      name: 'flock-item-metadata',
-      storeName: this.storeName,
+export class IndexStore extends ScopedMetadataStore<AutomergeIndexDocument> {
+  constructor(accountIdOrStore: string | LocalForage) {
+    super(accountIdOrStore, {
+      metadataKey: SYNC_METADATA_KEYS.INDEX_DOC,
+      legacyKey: LEGACY_KEYS.INDEX_DOC,
+      legacyDbName: LEGACY_DB_NAMES.INDEX_DOC,
+      legacyStorePrefix: 'index',
+      storeLabel: 'IndexStore',
     })
   }
 
   async getIndex(): Promise<AutomergeIndexDocument | null> {
-    return this.store.getItem<AutomergeIndexDocument>('indexDoc')
+    return this.getScopedData()
   }
 
   async saveIndex(indexDoc: AutomergeIndexDocument): Promise<void> {
-    await runStorageOperation(() => this.store.setItem('indexDoc', indexDoc))
-  }
-
-  async clear(): Promise<void> {
-    await this.store.clear()
+    await this.setScopedData(indexDoc)
   }
 }

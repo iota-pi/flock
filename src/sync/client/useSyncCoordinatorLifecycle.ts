@@ -33,13 +33,17 @@ export default function useSyncCoordinatorLifecycle(
           useAppStore.getState().clearSyncWarning()
           SyncBridge.flushSync().catch(console.error)
         }
+        void resumePendingReencryption(account)
       }
 
       window.addEventListener('online', handleOnline)
 
       return () => {
         window.removeEventListener('online', handleOnline)
-        void SyncBridge.shutdown().catch(error => {
+        if (SyncBridge.isClearingLocalData?.()) {
+          return
+        }
+        void SyncBridge.shutdown({ accountId: account }).catch(error => {
           console.error('[useSyncCoordinatorLifecycle] shutdown failed', error)
         })
       }

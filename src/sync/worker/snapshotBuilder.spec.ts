@@ -1,17 +1,25 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { buildSnapshot } from './snapshotBuilder'
+import { buildSnapshot, isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './snapshotBuilder'
+import { VaultNotInitializedError } from '../../api/vault'
 
 const mockEncryptBytes = vi.fn()
 const mockNormalizeItemSnapshot = vi.fn()
 const mockSave = vi.fn()
 const mockToAutomergeUrlFromItemId = vi.fn()
 
-vi.mock('../../api/vault', () => ({
-  encryptBytes: (...args: any[]) => mockEncryptBytes(...args),
-}))
+vi.mock('../../api/vault', () => {
+  class MockVaultNotInitializedError extends Error {
+    name = 'VaultNotInitializedError'
+  }
+  return {
+    encryptBytes: (...args: any[]) => mockEncryptBytes(...args),
+    VaultNotInitializedError: MockVaultNotInitializedError,
+  }
+})
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: (...args: any[]) => mockSave(...args),
+  getHeads: vi.fn().mockReturnValue(['mock-head']),
 }))
 
 vi.mock('./docStore', () => ({
@@ -63,6 +71,7 @@ describe('buildSnapshot helper function', () => {
         modified: expect.any(Number),
         deleted: undefined,
       },
+      heads: ['mock-head'],
     })
 
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
@@ -72,14 +81,33 @@ describe('buildSnapshot helper function', () => {
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' })
   })
 
+  it('captures snapshot timestamp prior to async encryption to prevent stale timestamp masking', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1000)
+      mockEncryptBytes.mockImplementation(async () => {
+        // Simulate async encryption delay where time advances to T3
+        vi.setSystemTime(3000)
+        return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
+      })
+
+      const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+      expect(result.type).toBe('success')
+      // Timestamp must be T1 (1000), not T3 (3000)
+      expect((result as Extract<typeof result, { type: 'success' }>).snapshot.modified).toBe(1000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('returns error if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
     let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
 
     mockRepo.find.mockResolvedValue(undefined)
     result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
   })
 
   it('returns not-ready if document handle is not ready', async () => {
@@ -91,18 +119,18 @@ describe('buildSnapshot helper function', () => {
   it('returns error if doc is missing or saving binary is empty', async () => {
     mockHandle.doc.mockReturnValue(undefined)
     let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Document data not available' })
 
     mockHandle.doc.mockReturnValue({ id: 'item-1' })
     mockSave.mockReturnValue(new Uint8Array([]))
     result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Failed to serialize document binary' })
   })
 
   it('returns error if normalizeItemSnapshot returns null', async () => {
     mockNormalizeItemSnapshot.mockReturnValue(null)
     const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'error' })
+    expect(result).toEqual({ type: 'error', reason: 'Failed to normalize item snapshot' })
   })
 
   it('correctly reports deleted status if document is deleted', async () => {
@@ -117,13 +145,53 @@ describe('buildSnapshot helper function', () => {
       snapshot: expect.objectContaining({
         deleted: true,
       }),
+      heads: ['mock-head'],
     })
   })
 
-  it('propagates encryptBytes exception (caller handles it)', async () => {
+  it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
+    mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
+
+    mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
+  })
+
+  it('propagates non-transient encryptBytes exception (caller handles it)', async () => {
     const error = new Error('Crypto error')
     mockEncryptBytes.mockRejectedValue(error)
 
     await expect(buildSnapshot(mockRepo, 'item-1' as ItemId, 42)).rejects.toThrow('Crypto error')
   })
 })
+
+describe('isTransientVaultError', () => {
+  it('returns false for falsy values', () => {
+    expect(isTransientVaultError(null)).toBe(false)
+    expect(isTransientVaultError(undefined)).toBe(false)
+    expect(isTransientVaultError('')).toBe(false)
+  })
+
+  it('returns true for VaultNotInitializedError instance or error with that name', () => {
+    expect(isTransientVaultError(new VaultNotInitializedError())).toBe(true)
+    const err = new Error('Some message')
+    err.name = 'VaultNotInitializedError'
+    expect(isTransientVaultError(err)).toBe(true)
+  })
+
+  it('returns true for each substring in TRANSIENT_VAULT_ERROR_SUBSTRINGS', () => {
+    for (const substring of TRANSIENT_VAULT_ERROR_SUBSTRINGS) {
+      expect(isTransientVaultError(new Error(`Prefix ${substring.toUpperCase()} suffix`))).toBe(true)
+      expect(isTransientVaultError(`Raw string containing ${substring}`)).toBe(true)
+    }
+  })
+
+  it('returns false for non-transient errors', () => {
+    expect(isTransientVaultError(new Error('Corrupt block detected'))).toBe(false)
+    expect(isTransientVaultError(new Error('Permission denied'))).toBe(false)
+    expect(isTransientVaultError('Unexpected EOF')).toBe(false)
+  })
+})
+

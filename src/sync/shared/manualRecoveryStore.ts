@@ -1,8 +1,9 @@
-import localforage from 'localforage'
-
 import { runStorageOperation } from '../../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
-
+import {
+  createAccountStore,
+  clearAccountStoreInstancesCacheForTesting,
+} from './createAccountStore'
 
 const STORE_NAME = 'manual-recovery-items'
 
@@ -13,31 +14,12 @@ export type ManualRecoveryEntry = {
   createdAt: number
 }
 
-const storageInstances = new Map<string, LocalForage>()
-const metaStorageInstances = new Map<string, LocalForage>()
-
 function getManualRecoveryStorage(accountId: string) {
-  let instance = storageInstances.get(accountId)
-  if (!instance) {
-    instance = localforage.createInstance({
-      name: `FlockVault_ManualRecoveryDB_${accountId}`,
-      storeName: STORE_NAME,
-    })
-    storageInstances.set(accountId, instance)
-  }
-  return instance
+  return createAccountStore(STORE_NAME, accountId)
 }
 
 function getManualRecoveryMetaStorage(accountId: string) {
-  let instance = metaStorageInstances.get(accountId)
-  if (!instance) {
-    instance = localforage.createInstance({
-      name: `FlockVault_ManualRecoveryDB_${accountId}`,
-      storeName: 'manual-recovery-metadata',
-    })
-    metaStorageInstances.set(accountId, instance)
-  }
-  return instance
+  return createAccountStore('manual-recovery-metadata', accountId)
 }
 
 const migrationPromisesByAccount = new Map<string, Promise<void>>()
@@ -47,8 +29,7 @@ export function resetMigrationForTesting(): void {
 }
 
 export function clearInstancesCacheForTesting(): void {
-  storageInstances.clear()
-  metaStorageInstances.clear()
+  clearAccountStoreInstancesCacheForTesting()
 }
 
 async function runMigration(accountId: string): Promise<void> {
@@ -61,22 +42,61 @@ async function runMigration(accountId: string): Promise<void> {
     }
 
     const keys = await storage.keys()
+    const entriesByItemId = new Map<ItemId, ManualRecoveryEntry[]>()
+    const keysToRemove = new Set<string>()
+
     for (const key of keys) {
       const value = await storage.getItem<ManualRecoveryEntry>(key)
       if (value && typeof value === 'object' && typeof value.itemId === 'string') {
-        const newItem: ManualRecoveryEntry = {
-          ...value,
-          id: value.itemId,
-        }
-        await storage.setItem(value.itemId, newItem)
+        const list = entriesByItemId.get(value.itemId) ?? []
+        list.push(value)
+        entriesByItemId.set(value.itemId, list)
         if (key !== value.itemId) {
-          await storage.removeItem(key)
+          keysToRemove.add(key)
         }
       } else {
-        await storage.removeItem(key)
+        keysToRemove.add(key)
       }
     }
-    await metaStorage.setItem('__migrated_v2', true)
+
+    for (const [itemId, entries] of entriesByItemId.entries()) {
+      if (entries.length === 1) {
+        const single = entries[0]
+        const newItem: ManualRecoveryEntry = {
+          ...single,
+          id: itemId,
+        }
+        await runStorageOperation(() => storage.setItem(itemId, newItem))
+      } else {
+        // Sort chronologically ascending to preserve order of reasons
+        entries.sort((a, b) => a.createdAt - b.createdAt)
+        const uniqueReasons: string[] = []
+        for (const entry of entries) {
+          if (entry.reason && typeof entry.reason === 'string') {
+            const trimmed = entry.reason.trim()
+            if (trimmed && !uniqueReasons.includes(trimmed)) {
+              uniqueReasons.push(trimmed)
+            }
+          }
+        }
+        const combinedReason = uniqueReasons.join('; ') || 'Manual recovery required'
+        const latestCreatedAt = Math.max(...entries.map(e => e.createdAt || 0))
+
+        const mergedEntry: ManualRecoveryEntry = {
+          id: itemId,
+          itemId,
+          reason: combinedReason,
+          createdAt: latestCreatedAt > 0 ? latestCreatedAt : Date.now(),
+        }
+        await runStorageOperation(() => storage.setItem(itemId, mergedEntry))
+      }
+    }
+
+    for (const key of keysToRemove) {
+      await runStorageOperation(() => storage.removeItem(key))
+    }
+
+    await runStorageOperation(() => metaStorage.setItem('__migrated_v2', true))
   } catch (error) {
     console.error('[ManualRecoveryStore] Migration failed', error)
     throw error
@@ -164,19 +184,19 @@ export async function removeManualRecoveryEntryByItemId(accountId: string, itemI
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await storage.removeItem(itemId)
+  await runStorageOperation(() => storage.removeItem(itemId))
 }
 
 export async function removeManualRecoveryEntryById(accountId: string, id: string): Promise<void> {
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await storage.removeItem(id)
+  await runStorageOperation(() => storage.removeItem(id))
 }
 
 export async function clearManualRecoveryEntries(accountId: string): Promise<void> {
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await storage.clear()
+  await runStorageOperation(() => storage.clear())
 }

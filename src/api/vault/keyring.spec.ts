@@ -16,6 +16,9 @@ import {
   handleSessionExpired,
   readCachedKeyring,
   KEYRING_CACHE_KEY,
+  hasVaultKey,
+  waitForKeyVersion,
+  reloadKeyringFromStorage,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
@@ -188,6 +191,9 @@ describe('Vault Keyring Integration', () => {
     expect(getVaultKey('1')).toBeDefined()
     expect(() => getVaultKey('2')).toThrow()
 
+    const cachedBefore = readCachedKeyring()
+    expect(cachedBefore).not.toBeNull()
+
     vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network offline'))
 
     await expect(rotateVaultKey('test-account')).rejects.toThrow(
@@ -207,6 +213,41 @@ describe('Vault Keyring Integration', () => {
     // Subsequent encryption should still use key version 1
     const enc = await encrypt('still on version 1')
     expect(enc.kver).toBe('1')
+
+    // LocalStorage cached keyring must NOT have been updated with the uncommitted key
+    expect(readCachedKeyring()).toBe(cachedBefore)
+  })
+
+  it('does not encrypt with uncommitted key during rotation network call, and activates only after upload succeeds', async () => {
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    expect(getVaultKey('1')).toBeDefined()
+    expect(() => getVaultKey('2')).toThrow()
+
+    let concurrentEncryptionKver: string | undefined
+    let hasKey2DuringUpload: boolean | undefined
+
+    vi.mocked(updateKeyring).mockImplementationOnce(async () => {
+      // Simulate concurrent encryption while the keyring is being uploaded to the server
+      const midFlightEnc = await encrypt('encrypted during upload')
+      concurrentEncryptionKver = midFlightEnc.kver
+      hasKey2DuringUpload = hasVaultKey('2')
+    })
+
+    await rotateVaultKey('test-account')
+
+    // During network call: key 2 was in keyring for decryption, but activeKeyVersion was still 1
+    expect(hasKey2DuringUpload).toBe(true)
+    expect(concurrentEncryptionKver).toBe('1')
+
+    // After rotation completes: activeKeyVersion is 2
+    const postRotationEnc = await encrypt('encrypted after rotation')
+    expect(postRotationEnc.kver).toBe('2')
   })
 
   it('locks vault without clearing stored metadata and clears active session token', async () => {
@@ -458,5 +499,131 @@ describe('Vault Keyring Integration', () => {
     ).rejects.toThrow(/Incorrect password/)
 
     expect(() => getVaultKey('1')).toThrow()
+  })
+
+  describe('Cross-tab key version utilities & storage reload', () => {
+    it('correctly reports hasVaultKey for existing and missing versions', async () => {
+      await initialiseVault({ password: 'password123', salt: 'salt123', iterations: 1000 })
+      expect(hasVaultKey('1')).toBe(true)
+      expect(hasVaultKey()).toBe(true)
+      expect(hasVaultKey('2')).toBe(false)
+      expect(hasVaultKey('99')).toBe(false)
+    })
+
+    it('resolves waitForKeyVersion when key is imported via initWorkerVault', async () => {
+      await initialiseVault({ password: 'password123', salt: 'salt123', iterations: 1000 })
+      const exported = await exportKeyringData()
+
+      // Reset keyring
+      await removeVaultFromDevice()
+      expect(hasVaultKey('1')).toBe(false)
+
+      // Start waiting for version 1
+      const waitPromise = waitForKeyVersion('1', 2000)
+
+      // Now worker receives and imports the key
+      await initWorkerVault(exported)
+
+      const result = await waitPromise
+      expect(result).toBe(true)
+      expect(hasVaultKey('1')).toBe(true)
+    })
+
+    it('returns false from waitForKeyVersion on timeout', async () => {
+      const result = await waitForKeyVersion('nonexistent-ver', 50)
+      expect(result).toBe(false)
+    })
+
+    it('reloadKeyringFromStorage successfully decrypts and returns keyringData', async () => {
+      await loginVault({
+        account: 'test-account',
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+      await storeVault('test-account')
+
+      const result = await reloadKeyringFromStorage()
+      expect(result.success).toBe(true)
+      expect(result.passwordChanged).toBeUndefined()
+      expect(result.keyringData).toBeDefined()
+    })
+
+    it('reloadKeyringFromStorage detects passwordChanged when cached keyring cannot be decrypted', async () => {
+      await loginVault({
+        account: 'test-account',
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+
+      // Corrupt the cached keyring
+      localStorage.setItem(KEYRING_CACHE_KEY, JSON.stringify({
+        iv: 'invalid',
+        cipher: 'invalid-cipher-data',
+        kver: '1',
+        version: '1.0',
+      }))
+
+      const result = await reloadKeyringFromStorage()
+      expect(result.success).toBe(false)
+      expect(result.passwordChanged).toBe(true)
+    })
+  })
+
+  describe('initWorkerVault async tick safety', () => {
+    it('does not leave keyring empty during async ticks in initWorkerVault when updating keys', async () => {
+      await initialiseVault({
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+      const exported1 = await exportKeyringData()
+      await initWorkerVault(exported1)
+      expect(hasVaultKey('1')).toBe(true)
+
+      // Rotate to version 2
+      await rotateVaultKey('test-account')
+      const exported2 = await exportKeyringData()
+
+      // Reset to only have version 1 loaded
+      await removeVaultFromDevice()
+      await initWorkerVault(exported1)
+      expect(hasVaultKey('1')).toBe(true)
+      expect(hasVaultKey('2')).toBe(false)
+
+      // Trigger initWorkerVault with exported2 without awaiting immediately
+      const initPromise = initWorkerVault(exported2)
+
+      // In the synchronous turn and subsequent microtasks before init completes,
+      // version 1 MUST remain available (no empty keyring window)
+      expect(hasVaultKey('1')).toBe(true)
+      expect(() => getVaultKey('1')).not.toThrow()
+
+      await Promise.resolve()
+      expect(hasVaultKey('1')).toBe(true)
+      expect(() => getVaultKey('1')).not.toThrow()
+
+      await initPromise
+      expect(hasVaultKey('1')).toBe(true)
+      expect(hasVaultKey('2')).toBe(true)
+      expect(getVaultKey('2')).toBeDefined()
+    })
+
+    it('preserves existing keyring when initWorkerVault fails with invalid key', async () => {
+      await initialiseVault({
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+      expect(hasVaultKey('1')).toBe(true)
+
+      // Calling initWorkerVault with corrupt/invalid key should throw
+      await expect(initWorkerVault('not-a-valid-key')).rejects.toThrow()
+
+      // The pre-existing keyring should remain intact
+      expect(hasVaultKey('1')).toBe(true)
+      expect(() => getVaultKey('1')).not.toThrow()
+    })
   })
 })

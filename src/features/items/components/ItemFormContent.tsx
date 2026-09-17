@@ -14,6 +14,7 @@ import ItemFormDuplicateAlertSection from './ItemFormDuplicateAlertSection'
 import ItemFormNotesSection from './ItemFormNotesSection'
 import ItemFormFrequencySection from './ItemFormFrequencySection'
 import ItemFormRelationshipsSection from './ItemFormRelationshipsSection'
+import { ITEM_LIMITS } from 'src/shared/constants/limits'
 import type { GroupItem } from 'src/shared/schemas/items'
 
 
@@ -21,7 +22,6 @@ type FrequencyUpdate = Partial<Pick<Item, 'prayerFrequency'>>
   & Partial<Pick<GroupItem, 'memberPrayerFrequency' | 'memberPrayerTarget'>>
 
 const NAME_REQUIRED_MESSAGE = 'Name is required'
-const DESCRIPTION_MAX_LENGTH = 500
 
 interface ItemFormContentProps {
   item: Item,
@@ -57,8 +57,26 @@ function ItemFormContent({
     [handleChange],
   )
   const notesValue = Array.isArray(item.notes) ? item.notes : []
-  const nameError = nameValue.trim().length === 0
-  const descriptionError = descriptionValue.length > DESCRIPTION_MAX_LENGTH
+  const nameEmpty = nameValue.trim().length === 0
+  const nameTooLong = nameValue.length > ITEM_LIMITS.NAME_MAX
+  const nameWarning = nameValue.length >= ITEM_LIMITS.NAME_WARN && !nameTooLong
+  const nameError = nameEmpty || nameTooLong
+  const nameHelperText = nameEmpty
+    ? NAME_REQUIRED_MESSAGE
+    : nameTooLong
+      ? `Name must be ${ITEM_LIMITS.NAME_MAX} characters or less (${nameValue.length}/${ITEM_LIMITS.NAME_MAX})`
+      : nameWarning
+        ? `${nameValue.length}/${ITEM_LIMITS.NAME_MAX} characters (approaching limit)`
+        : ' '
+
+  const descriptionTooLong = descriptionValue.length > ITEM_LIMITS.DESCRIPTION_MAX
+  const descriptionWarning = descriptionValue.length >= ITEM_LIMITS.DESCRIPTION_WARN && !descriptionTooLong
+  const descriptionError = descriptionTooLong
+  const descriptionHelperText = descriptionTooLong
+    ? `Description must be ${ITEM_LIMITS.DESCRIPTION_MAX} characters or less (${descriptionValue.length}/${ITEM_LIMITS.DESCRIPTION_MAX})`
+    : descriptionWarning
+      ? `${descriptionValue.length}/${ITEM_LIMITS.DESCRIPTION_MAX} characters (approaching limit)`
+      : ' '
 
   const handleNotesChange = useCallback(
     (notes: Item['notes']) => {
@@ -126,7 +144,7 @@ function ItemFormContent({
           debounceMs={1000}
           error={nameError}
           fullWidth
-          helperText={nameError ? NAME_REQUIRED_MESSAGE : ' '}
+          helperText={nameHelperText}
           label="Name"
           onCommit={handleNameCommit}
           onValueChange={setNameValue}
@@ -136,11 +154,14 @@ function ItemFormContent({
           slotProps={{
             htmlInput: { 'data-cy': 'name' },
             input: nameInputProps,
+            formHelperText: {
+              sx: { color: nameWarning ? 'warning.main' : undefined },
+            },
           }}
         />
       </Grid>
     ),
-    [handleNameCommit, item.name, nameError, nameInputProps],
+    [handleNameCommit, item.name, nameError, nameHelperText, nameInputProps, nameWarning],
   )
 
   const descriptionField = useMemo(
@@ -152,12 +173,15 @@ function ItemFormContent({
             debounceMs={1000}
             error={descriptionError}
             fullWidth
-            helperText={descriptionError ? `Description must be ${DESCRIPTION_MAX_LENGTH} characters or less` : ' '}
+            helperText={descriptionHelperText}
             label="Short Description"
             onCommit={handleDescriptionCommit}
             onValueChange={setDescriptionValue}
             slotProps={{
               htmlInput: { 'data-cy': 'description' },
+              formHelperText: {
+                sx: { color: descriptionWarning ? 'warning.main' : undefined },
+              },
               input: {
                 endAdornment: (
                   <InputAdornment position="end">
@@ -180,7 +204,7 @@ function ItemFormContent({
           />
         </Grid>
       ),
-    [descriptionError, handleDescriptionCommit, handleRemoveDescription, item.description, showDescription],
+    [descriptionError, descriptionHelperText, descriptionWarning, handleDescriptionCommit, handleRemoveDescription, item.description, showDescription],
   )
 
 

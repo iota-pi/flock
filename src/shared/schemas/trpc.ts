@@ -44,6 +44,8 @@ export const UpdateMetadataBodySchema = z.object({
 export const UpdateKeyringBodySchema = z.object({
   account: z.string().min(1),
   keyring: z.string().min(1),
+  keyringVersion: z.number().int().min(1).optional(),
+  expectedKeyringVersion: z.number().int().min(1).optional(),
 })
 
 export const ChangePasswordBodySchema = z.object({
@@ -54,6 +56,8 @@ export const ChangePasswordBodySchema = z.object({
   newIterations: z.number().int().min(1),
   newKeyring: z.string().min(1),
   saltVersion: z.number().int().min(1).optional(),
+  keyringVersion: z.number().int().min(1).optional(),
+  expectedKeyringVersion: z.number().int().min(1).optional(),
 })
 
 export const FetchItemsInputSchema = z.object({
@@ -105,6 +109,7 @@ export const SyncPushBatchSchema = z.object({
 export const SyncPollBatchSchema = z.object({
   account: z.string().min(1),
   clientLatestCursor: z.number().int().min(0).optional(),
+  globalLastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
   pushMessages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
@@ -112,6 +117,7 @@ export const SyncPollBatchSchema = z.object({
   pullCursors: z.array(z.object({
     itemId: ItemIdSchema,
     cursor: z.number().int().min(0).optional(),
+    lastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
   })).default([]),
 })
 

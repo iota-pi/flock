@@ -71,9 +71,9 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@aws-sdk/client-dynamodb": "^3.958.0",
-    "@aws-sdk/client-sqs": "^3.1010.0",
-    "@aws-sdk/lib-dynamodb": "^3.958.0",
+    "@aws-sdk/client-dynamodb": "3.1121.0",
+    "@aws-sdk/client-sqs": "3.1121.0",
+    "@aws-sdk/lib-dynamodb": "3.1121.0",
     "@eslint/js": "^10.0.1",
     "@sentry/vite-plugin": "^5.1.1",
     "@stylistic/eslint-plugin": "^5.5.0",

@@ -74,7 +74,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@aws-sdk/client-dynamodb@npm:^3.958.0":
+"@aws-sdk/client-dynamodb@npm:3.1121.0":
   version: 3.1121.0
   resolution: "@aws-sdk/client-dynamodb@npm:3.1121.0"
   dependencies:
@@ -108,7 +108,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@aws-sdk/client-sqs@npm:^3.1010.0":
+"@aws-sdk/client-sqs@npm:3.1121.0":
   version: 3.1121.0
   resolution: "@aws-sdk/client-sqs@npm:3.1121.0"
   dependencies:
@@ -287,7 +287,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@aws-sdk/lib-dynamodb@npm:^3.958.0":
+"@aws-sdk/lib-dynamodb@npm:3.1121.0":
   version: 3.1121.0
   resolution: "@aws-sdk/lib-dynamodb@npm:3.1121.0"
   dependencies:
@@ -7040,9 +7040,9 @@ __metadata:
     "@automerge/automerge-repo": "npm:2.6.0-alpha.2"
     "@automerge/automerge-repo-network-broadcastchannel": "npm:^2.5.5"
     "@automerge/automerge-repo-storage-indexeddb": "npm:^2.5.5"
-    "@aws-sdk/client-dynamodb": "npm:^3.958.0"
-    "@aws-sdk/client-sqs": "npm:^3.1010.0"
-    "@aws-sdk/lib-dynamodb": "npm:^3.958.0"
+    "@aws-sdk/client-dynamodb": "npm:3.1121.0"
+    "@aws-sdk/client-sqs": "npm:3.1121.0"
+    "@aws-sdk/lib-dynamodb": "npm:3.1121.0"
     "@emotion/react": "npm:^11.11.1"
     "@emotion/styled": "npm:^11.11.0"
     "@eslint/js": "npm:^10.0.1"
