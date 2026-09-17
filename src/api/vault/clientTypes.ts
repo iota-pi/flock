@@ -3,7 +3,7 @@ import {
   StandardItemEnvelopeSchema,
   TombstoneItemEnvelopeSchema,
 } from '../../shared/schemas/items'
-import { LegacyItemEnvelopeSchema } from '../../sync/shared/legacyTypes'
+import { LegacyItemEnvelopeSchema } from '../../shared/schemas/legacyTypes'
 import {
   CreateAccountBodySchema,
   AccountCreationResponseSchema,
