@@ -4,6 +4,12 @@ import {
   createAccountStore,
   clearAccountStoreInstancesCacheForTesting,
 } from './createAccountStore'
+import {
+  getSyncMetadataStorage,
+  SYNC_METADATA_KEYS,
+  LEGACY_KEYS,
+  clearSyncMetadataInstancesCacheForTesting,
+} from '../worker/stores/syncMetadataStorage'
 
 const STORE_NAME = 'manual-recovery-items'
 
@@ -18,7 +24,7 @@ function getManualRecoveryStorage(accountId: string) {
   return createAccountStore(STORE_NAME, accountId)
 }
 
-function getManualRecoveryMetaStorage(accountId: string) {
+function getLegacyManualRecoveryMetaStorage(accountId: string) {
   return createAccountStore('manual-recovery-metadata', accountId)
 }
 
@@ -30,15 +36,29 @@ export function resetMigrationForTesting(): void {
 
 export function clearInstancesCacheForTesting(): void {
   clearAccountStoreInstancesCacheForTesting()
+  clearSyncMetadataInstancesCacheForTesting()
 }
 
 async function runMigration(accountId: string): Promise<void> {
   const storage = getManualRecoveryStorage(accountId)
-  const metaStorage = getManualRecoveryMetaStorage(accountId)
+  const metaStorage = getSyncMetadataStorage(accountId)
   try {
-    const migrated = await metaStorage.getItem<boolean>('__migrated_v2')
+    const migrated = await metaStorage.getItem<boolean>(SYNC_METADATA_KEYS.MANUAL_RECOVERY_MIGRATED)
     if (migrated) {
       return
+    }
+
+    // Check legacy manual-recovery-metadata store for backward compatibility
+    try {
+      const legacyMetaStorage = getLegacyManualRecoveryMetaStorage(accountId)
+      const legacyMigrated = await legacyMetaStorage.getItem<boolean>(LEGACY_KEYS.MANUAL_RECOVERY_MIGRATED)
+      if (legacyMigrated) {
+        await runStorageOperation(() => metaStorage.setItem(SYNC_METADATA_KEYS.MANUAL_RECOVERY_MIGRATED, true))
+        await runStorageOperation(() => legacyMetaStorage.clear()).catch(() => {})
+        return
+      }
+    } catch {
+      // Ignore legacy metadata store lookup errors
     }
 
     const keys = await storage.keys()
@@ -96,7 +116,15 @@ async function runMigration(accountId: string): Promise<void> {
       await runStorageOperation(() => storage.removeItem(key))
     }
 
-    await runStorageOperation(() => metaStorage.setItem('__migrated_v2', true))
+    await runStorageOperation(() => metaStorage.setItem(SYNC_METADATA_KEYS.MANUAL_RECOVERY_MIGRATED, true))
+
+    // Clean up legacy metadata store if it exists
+    try {
+      const legacyMetaStorage = getLegacyManualRecoveryMetaStorage(accountId)
+      await runStorageOperation(() => legacyMetaStorage.clear()).catch(() => {})
+    } catch {
+      // Ignore cleanup error
+    }
   } catch (error) {
     console.error('[ManualRecoveryStore] Migration failed', error)
     throw error

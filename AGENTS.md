@@ -157,7 +157,8 @@ Flock consolidates all local sync metadata into a single dedicated IndexedDB dat
   - `indexDoc` — Automerge account item index document (`AutomergeIndexDocument`)
   - `lastModified` — timestamps of local modifications and snapshots (`[ItemId, ItemSyncTimestamps][]`)
   - `syncedHeads` — tracked Automerge heads for the network sync adapter (`[DocumentId, string[]][]`)
-- **Seamless legacy migration**: On read, each store checks for the consolidated key first. If absent, it lazily migrates legacy entries from earlier keys or legacy singleton databases (`flock-sync-cursors`, `flock-item-metadata`, `flock-sync-last-modified`, `flock-sync-synced-heads`) if they exist on disk, avoiding phantom database creation.
+  - `manualRecoveryMigrated` — migration flag for manual recovery store v2 (`boolean`)
+- **Seamless legacy migration**: On read, each store checks for the consolidated key first. If absent, it lazily migrates legacy entries from earlier keys or legacy singleton databases (`flock-sync-cursors`, `flock-item-metadata`, `flock-sync-last-modified`, `flock-sync-synced-heads`, or legacy `manual-recovery-metadata`) if they exist on disk, avoiding phantom database creation.
 - **Simplified account data wiping**: Account logout or reset wipes the entire consolidated database in one step via `clearSyncMetadataStorage(accountId)` in `clearAccountLocalData`. Store-level `.clear()` calls remain isolated to their respective key.
 
 #### Encryption

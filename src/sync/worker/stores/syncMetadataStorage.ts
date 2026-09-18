@@ -9,6 +9,7 @@ export const SYNC_METADATA_KEYS = {
   INDEX_DOC: 'indexDoc',
   LAST_MODIFIED: 'lastModified',
   SYNCED_HEADS: 'syncedHeads',
+  MANUAL_RECOVERY_MIGRATED: 'manualRecoveryMigrated',
 } as const
 
 export const LEGACY_DB_NAMES = {
@@ -23,6 +24,7 @@ export const LEGACY_KEYS = {
   INDEX_DOC: 'indexDoc',
   LAST_MODIFIED: 'lastModifiedByItemId',
   SYNCED_HEADS: 'syncedHeadsByDocId',
+  MANUAL_RECOVERY_MIGRATED: '__migrated_v2',
 } as const
 
 const metadataStoreInstances = new Map<string, LocalForage>()
