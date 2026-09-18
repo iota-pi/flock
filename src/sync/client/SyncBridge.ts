@@ -30,6 +30,9 @@ class SyncBridgeService {
       onKeyVersionMissing: kver => {
         void this.handleKeyringUpdate(kver)
       },
+      onActivity: () => {
+        this.lifecycleManager.recordWorkerActivity()
+      },
     })
 
     this.domListeners = new SyncDOMListeners()

@@ -1,7 +1,7 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { chunk } from 'lodash'
 
-import { AutomergeIndexManager } from './docStore'
+import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { buildSnapshot } from './snapshotBuilder'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
@@ -14,44 +14,6 @@ import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 const MAX_BATCH_RETRIES = 3
 export const REENCRYPT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
-const reencryptRetryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
-
-let scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-export function cancelScheduledReencryption(): void {
-  if (scheduledRetryTimeoutId !== null) {
-    clearTimeout(scheduledRetryTimeoutId)
-    scheduledRetryTimeoutId = null
-  }
-  reencryptRetryStrategy.reset()
-}
-
-function scheduleReencryptRetry(
-  deps: ReencryptDeps,
-  onProgress?: (done: number, total: number) => void
-): number {
-  const delayMs = reencryptRetryStrategy.nextDelay()
-
-  console.warn(
-    `[reencryptAllItems] Scheduling re-encryption retry (attempt ${reencryptRetryStrategy.attempt}) in ${delayMs}ms`
-  )
-
-  if (deps.scheduleRetry) {
-    deps.scheduleRetry(delayMs)
-  } else {
-    if (scheduledRetryTimeoutId !== null) {
-      clearTimeout(scheduledRetryTimeoutId)
-    }
-    scheduledRetryTimeoutId = setTimeout(() => {
-      scheduledRetryTimeoutId = null
-      void reencryptAllItems(deps, onProgress).catch(err => {
-        console.warn('[reencryptAllItems] Scheduled retry failed:', err)
-      })
-    }, delayMs)
-  }
-
-  return delayMs
-}
 
 function toAuthExpiredError(err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err)
@@ -83,6 +45,7 @@ export interface ReencryptDeps {
   refreshAuthToken?: () => Promise<string | null>
   scheduleRetry?: (delayMs?: number) => void
   recoveryManager?: RecoveryManager
+  reencryptor?: ItemReencryptor
 }
 
 export interface ReencryptResult {
@@ -193,130 +156,192 @@ async function uploadSnapshotBatchWithRetry(
   return { uploadSuccess, lastError }
 }
 
-function handleBatchUploadFailure(
-  lastError: unknown,
-  deps: ReencryptDeps,
-  onProgress?: (done: number, total: number) => void
-): string {
-  if (isAuthError(lastError)) {
-    throw toAuthExpiredError(lastError)
-  }
-
-  if (isNetworkError(lastError) || isServerError(lastError)) {
-    const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
-    const errorType = isServerError(lastError) ? 'server error' : 'network error'
-    console.warn(
-      `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
-    )
-    scheduleReencryptRetry(deps, onProgress)
-    throw new Error(
-      `Re-encryption aborted: ${errorType} (${errMsg})`,
-      { cause: lastError }
-    )
-  }
-
-  return (
-    `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
-    (lastError instanceof Error ? `: ${lastError.message}` : '')
-  )
-}
-
 // Use a slightly smaller upload chunk size than in SnapshotManager to improve progress reporting granularity
 const REENCRYPT_CHUNK_SIZE = 10
+
+export class ItemReencryptor {
+  private readonly retryStrategy: RetryStrategy
+  private scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+  constructor(options?: { retryDelays?: number[] }) {
+    this.retryStrategy = new RetryStrategy({ delays: options?.retryDelays ?? DEFAULT_RETRY_DELAYS })
+  }
+
+  get retryAttempt(): number {
+    return this.retryStrategy.attempt
+  }
+
+  cancelScheduled(): void {
+    if (this.scheduledRetryTimeoutId !== null) {
+      clearTimeout(this.scheduledRetryTimeoutId)
+      this.scheduledRetryTimeoutId = null
+    }
+    this.retryStrategy.reset()
+  }
+
+  scheduleRetry(
+    deps: ReencryptDeps,
+    onProgress?: (done: number, total: number) => void
+  ): number {
+    const delayMs = this.retryStrategy.nextDelay()
+
+    console.warn(
+      `[reencryptAllItems] Scheduling re-encryption retry (attempt ${this.retryStrategy.attempt}) in ${delayMs}ms`
+    )
+
+    if (deps.scheduleRetry) {
+      deps.scheduleRetry(delayMs)
+    } else {
+      if (this.scheduledRetryTimeoutId !== null) {
+        clearTimeout(this.scheduledRetryTimeoutId)
+      }
+      this.scheduledRetryTimeoutId = setTimeout(() => {
+        this.scheduledRetryTimeoutId = null
+        void this.reencryptAllItems(deps, onProgress).catch(err => {
+          console.warn('[reencryptAllItems] Scheduled retry failed:', err)
+        })
+      }, delayMs)
+    }
+
+    return delayMs
+  }
+
+  private handleBatchUploadFailure(
+    lastError: unknown,
+    deps: ReencryptDeps,
+    onProgress?: (done: number, total: number) => void
+  ): string {
+    if (isAuthError(lastError)) {
+      throw toAuthExpiredError(lastError)
+    }
+
+    if (isNetworkError(lastError) || isServerError(lastError)) {
+      const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
+      const errorType = isServerError(lastError) ? 'server error' : 'network error'
+      console.warn(
+        `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
+      )
+      this.scheduleRetry(deps, onProgress)
+      throw new Error(
+        `Re-encryption aborted: ${errorType} (${errMsg})`,
+        { cause: lastError }
+      )
+    }
+
+    return (
+      `Failed to upload snapshots for batch after ${MAX_BATCH_RETRIES} attempts` +
+      (lastError instanceof Error ? `: ${lastError.message}` : '')
+    )
+  }
+
+  async reencryptAllItems(
+    deps: ReencryptDeps,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<ReencryptResult> {
+    if (!deps?.accountId || !deps?.repo || !deps?.indexManager) {
+      throw new Error('SyncWorker not initialized')
+    }
+
+    const { accountId, repo, indexManager } = deps
+    const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
+    const apiClient = deps.apiClient ?? new SyncApiClient({
+      getAuthToken: deps.getAuthToken,
+      refreshAuthToken: deps.refreshAuthToken,
+    })
+    const initialToken = await apiClient.getValidToken()
+    if (!initialToken) {
+      throw new Error('No active session token available')
+    }
+
+    const allItemIds = await indexManager.listAutomergeItemIds()
+    const total = allItemIds.length
+    if (total === 0) {
+      if (onProgress) {
+        onProgress(0, 0)
+      }
+      this.retryStrategy.reset()
+      return { succeeded: [], failed: [] }
+    }
+
+    let processed = 0
+    const succeeded: ItemId[] = []
+    const failed: Array<{ itemId: ItemId; error: string }> = []
+
+    const itemChunks = chunk(allItemIds, REENCRYPT_CHUNK_SIZE)
+
+    for (const chunkIds of itemChunks) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const errMsg = 'Network is offline'
+        console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
+        this.scheduleRetry(deps, onProgress)
+        throw new Error(`Re-encryption aborted: network error (${errMsg})`)
+      }
+
+      await apiClient.syncLatestToken()
+
+      const { readySnapshots, failureDetails } = await buildSnapshotsForChunk(repo, chunkIds)
+      for (const failure of failureDetails) {
+        if (failure.rawError !== undefined) {
+          console.error(`[reencryptAllItems] ${failure.errorMsg}`, failure.rawError)
+        } else {
+          console.error(`[reencryptAllItems] ${failure.errorMsg}`)
+        }
+        failed.push({ itemId: failure.itemId, error: failure.errorMsg })
+        await quarantineItem(
+          recoveryManager,
+          accountId,
+          failure.itemId,
+          `Re-encryption snapshot build failed: ${failure.errorMsg}`
+        )
+      }
+
+      if (readySnapshots.length > 0) {
+        const { uploadSuccess, lastError } = await uploadSnapshotBatchWithRetry(
+          apiClient,
+          accountId,
+          readySnapshots
+        )
+
+        if (uploadSuccess) {
+          for (const item of readySnapshots) {
+            succeeded.push(item.itemId)
+          }
+        } else {
+          const errMsg = this.handleBatchUploadFailure(lastError, deps, onProgress)
+          console.error(`[reencryptAllItems] ${errMsg}`)
+          for (const item of readySnapshots) {
+            failed.push({ itemId: item.itemId, error: errMsg })
+            await quarantineItem(
+              recoveryManager,
+              accountId,
+              item.itemId,
+              `Re-encryption upload failed: ${errMsg}`
+            )
+          }
+        }
+      }
+
+      processed += chunkIds.length
+      if (onProgress) {
+        onProgress(Math.min(processed, total), total)
+      }
+    }
+
+    this.retryStrategy.reset()
+    return { succeeded, failed }
+  }
+}
+
+export const defaultItemReencryptor = new ItemReencryptor()
+
+export function cancelScheduledReencryption(): void {
+  defaultItemReencryptor.cancelScheduled()
+}
 
 export async function reencryptAllItems(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
 ): Promise<ReencryptResult> {
-  if (!deps?.accountId || !deps?.repo || !deps?.indexManager) {
-    throw new Error('SyncWorker not initialized')
-  }
-
-  const { accountId, repo, indexManager } = deps
-  const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
-  const apiClient = deps.apiClient ?? new SyncApiClient({
-    getAuthToken: deps.getAuthToken,
-    refreshAuthToken: deps.refreshAuthToken,
-  })
-  const initialToken = await apiClient.getValidToken()
-  if (!initialToken) {
-    throw new Error('No active session token available')
-  }
-
-  const allItemIds = await indexManager.listAutomergeItemIds()
-  const total = allItemIds.length
-  if (total === 0) {
-    if (onProgress) {
-      onProgress(0, 0)
-    }
-    reencryptRetryStrategy.reset()
-    return { succeeded: [], failed: [] }
-  }
-
-  let processed = 0
-  const succeeded: ItemId[] = []
-  const failed: Array<{ itemId: ItemId; error: string }> = []
-
-  const itemChunks = chunk(allItemIds, REENCRYPT_CHUNK_SIZE)
-
-  for (const chunkIds of itemChunks) {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      const errMsg = 'Network is offline'
-      console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
-      scheduleReencryptRetry(deps, onProgress)
-      throw new Error(`Re-encryption aborted: network error (${errMsg})`)
-    }
-
-    await apiClient.syncLatestToken()
-
-    const { readySnapshots, failureDetails } = await buildSnapshotsForChunk(repo, chunkIds)
-    for (const failure of failureDetails) {
-      if (failure.rawError !== undefined) {
-        console.error(`[reencryptAllItems] ${failure.errorMsg}`, failure.rawError)
-      } else {
-        console.error(`[reencryptAllItems] ${failure.errorMsg}`)
-      }
-      failed.push({ itemId: failure.itemId, error: failure.errorMsg })
-      await quarantineItem(
-        recoveryManager,
-        accountId,
-        failure.itemId,
-        `Re-encryption snapshot build failed: ${failure.errorMsg}`
-      )
-    }
-
-    if (readySnapshots.length > 0) {
-      const { uploadSuccess, lastError } = await uploadSnapshotBatchWithRetry(
-        apiClient,
-        accountId,
-        readySnapshots
-      )
-
-      if (uploadSuccess) {
-        for (const item of readySnapshots) {
-          succeeded.push(item.itemId)
-        }
-      } else {
-        const errMsg = handleBatchUploadFailure(lastError, deps, onProgress)
-        console.error(`[reencryptAllItems] ${errMsg}`)
-        for (const item of readySnapshots) {
-          failed.push({ itemId: item.itemId, error: errMsg })
-          await quarantineItem(
-            recoveryManager,
-            accountId,
-            item.itemId,
-            `Re-encryption upload failed: ${errMsg}`
-          )
-        }
-      }
-    }
-
-    processed += chunkIds.length
-    if (onProgress) {
-      onProgress(Math.min(processed, total), total)
-    }
-  }
-
-  reencryptRetryStrategy.reset()
-  return { succeeded, failed }
+  const coordinator = deps.reencryptor ?? defaultItemReencryptor
+  return coordinator.reencryptAllItems(deps, onProgress)
 }

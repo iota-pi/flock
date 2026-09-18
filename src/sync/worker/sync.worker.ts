@@ -444,13 +444,14 @@ export class SyncWorker implements SyncApi {
     refreshAuthToken?: () => Promise<string | null>
   ) {
     const context = await this.ensureReady()
-    return await reencryptAllItems({
+    return await context.itemReencryptor.reencryptAllItems({
       accountId: context.accountId,
       repo: context.repo,
       indexManager: context.indexManager,
       refreshAuthToken,
       recoveryManager: context.recoveryManager,
       apiClient: context.apiClient,
+      reencryptor: context.itemReencryptor,
     }, onProgress)
   }
 

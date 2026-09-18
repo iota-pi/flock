@@ -6,6 +6,7 @@ import {
   recordWorkerActivity,
   MAX_CONSECUTIVE_CRASHES,
   MAX_CONSECUTIVE_TIMEOUTS,
+  SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
 import { useAppStore } from '../../state/store'
 
@@ -558,5 +559,72 @@ describe('syncWorkerHealth', () => {
     expect(useAppStore.getState().fatalError).toContain('became unresponsive')
     finalChannel.port1.close()
     finalChannel.port2.close()
+  })
+})
+
+describe('SyncWorkerHealthMonitor class', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('maintains independent mutable state across instances', () => {
+    const monitor1 = new SyncWorkerHealthMonitor()
+    const monitor2 = new SyncWorkerHealthMonitor()
+
+    expect(monitor1.getLastWorkerActivityTime()).toBe(0)
+    expect(monitor2.getLastWorkerActivityTime()).toBe(0)
+
+    monitor1.recordActivity()
+    expect(monitor1.getLastWorkerActivityTime()).toBeGreaterThan(0)
+    expect(monitor2.getLastWorkerActivityTime()).toBe(0)
+
+    monitor2.resetCrashMetrics()
+    expect(monitor2.getLastWorkerActivityTime()).toBeGreaterThan(0)
+  })
+
+  it('stops and cleans up instance heartbeat without affecting other instances', () => {
+    const monitor1 = new SyncWorkerHealthMonitor()
+    const monitor2 = new SyncWorkerHealthMonitor()
+
+    const channel1 = new MessageChannel()
+    const channel2 = new MessageChannel()
+
+    const mockWorker = {
+      terminate: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as any
+
+    monitor1.setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel1.port1,
+      isCurrentWorker: () => true,
+      onCrash: vi.fn(),
+      onRestart: vi.fn(),
+    })
+
+    monitor2.setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel2.port1,
+      isCurrentWorker: () => true,
+      onCrash: vi.fn(),
+      onRestart: vi.fn(),
+    })
+
+    // Stopping monitor1 should clean up monitor1 listeners without touching monitor2
+    monitor1.stopWorkerHeartbeat()
+    expect(mockWorker.removeEventListener).toHaveBeenCalledTimes(2)
+
+    monitor2.stopWorkerHeartbeat()
+    expect(mockWorker.removeEventListener).toHaveBeenCalledTimes(4)
+
+    channel1.port1.close()
+    channel1.port2.close()
+    channel2.port1.close()
+    channel2.port2.close()
   })
 })

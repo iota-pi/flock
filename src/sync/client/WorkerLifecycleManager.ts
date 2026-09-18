@@ -5,10 +5,7 @@ import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
 import { exportKeyringData, handleSessionExpired, getVaultSession } from 'src/api/vault'
 import {
-  setupWorkerHealthCheck,
-  stopWorkerHeartbeat,
-  resetCrashMetrics,
-  recordWorkerActivity,
+  SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
@@ -51,7 +48,17 @@ export class WorkerLifecycleManager {
 
   private _restartResolve: (() => void) | null = null
 
+  private readonly healthMonitor = new SyncWorkerHealthMonitor()
+
   constructor(private callbacks: WorkerLifecycleCallbacks) {}
+
+  getHealthMonitor(): SyncWorkerHealthMonitor {
+    return this.healthMonitor
+  }
+
+  recordWorkerActivity(): void {
+    this.healthMonitor.recordActivity()
+  }
 
   getSyncApi(): Comlink.Remote<SyncApi> | null {
     return this.syncApi
@@ -199,7 +206,7 @@ export class WorkerLifecycleManager {
         }
 
         await wrappedApi.bootstrapItems()
-        recordWorkerActivity()
+        this.healthMonitor.recordActivity()
 
         if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
@@ -214,7 +221,7 @@ export class WorkerLifecycleManager {
 
         this.initRetryCount = 0
         useAppStore.getState().clearSyncWarning()
-        setupWorkerHealthCheck({
+        this.healthMonitor.setupWorkerHealthCheck({
           worker,
           pingPort: pingChannel.port1,
           isCurrentWorker: () => this.workerInstance === worker && !!this.syncApi,
@@ -349,8 +356,8 @@ export class WorkerLifecycleManager {
       this._restartResolve()
       this._restartResolve = null
     }
-    stopWorkerHeartbeat()
-    resetCrashMetrics()
+    this.healthMonitor.stopWorkerHeartbeat()
+    this.healthMonitor.resetCrashMetrics()
 
     const oldWorker = this.workerInstance
     const oldSyncApi = this.syncApi

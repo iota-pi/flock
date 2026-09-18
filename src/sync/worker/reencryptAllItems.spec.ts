@@ -1,4 +1,4 @@
-import { reencryptAllItems, cancelScheduledReencryption } from './reencryptAllItems'
+import { reencryptAllItems, cancelScheduledReencryption, ItemReencryptor } from './reencryptAllItems'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 const mockPutSnapshotsWithToken = vi.fn()
@@ -580,5 +580,32 @@ describe('reencryptAllItems', () => {
 
       consoleWarnSpy.mockRestore()
     })
+  })
+})
+
+describe('ItemReencryptor class', () => {
+  it('maintains independent retry state across instances', () => {
+    const r1 = new ItemReencryptor({ retryDelays: [100, 200] })
+    const r2 = new ItemReencryptor({ retryDelays: [500, 1000] })
+
+    expect(r1.retryAttempt).toBe(0)
+    expect(r2.retryAttempt).toBe(0)
+
+    const scheduleRetry1 = vi.fn()
+    const scheduleRetry2 = vi.fn()
+
+    r1.scheduleRetry({ scheduleRetry: scheduleRetry1 } as any)
+    expect(r1.retryAttempt).toBe(1)
+    expect(r2.retryAttempt).toBe(0)
+    expect(scheduleRetry1).toHaveBeenCalledWith(100)
+
+    r2.scheduleRetry({ scheduleRetry: scheduleRetry2 } as any)
+    expect(r1.retryAttempt).toBe(1)
+    expect(r2.retryAttempt).toBe(1)
+    expect(scheduleRetry2).toHaveBeenCalledWith(500)
+
+    r1.cancelScheduled()
+    expect(r1.retryAttempt).toBe(0)
+    expect(r2.retryAttempt).toBe(1)
   })
 })

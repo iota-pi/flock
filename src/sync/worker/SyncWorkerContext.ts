@@ -22,6 +22,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { ServiceLifecycleManager } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
+import { ItemReencryptor } from './reencryptAllItems'
 
 export { QuotaExceededRetryError }
 
@@ -80,6 +81,7 @@ export class SyncWorkerContext {
   public manifestSyncManager!: ManifestSyncManager
   public itemOperations!: ItemOperations
   public storageRecoveryService!: StorageRecoveryService
+  public itemReencryptor!: ItemReencryptor
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unsubscribers: Array<() => void> = []
@@ -124,6 +126,7 @@ export class SyncWorkerContext {
     this.itemOperations = ops.itemOperations
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
+    this.itemReencryptor = new ItemReencryptor()
   }
 
   private wireEvents(): void {
@@ -440,6 +443,7 @@ export class SyncWorkerContext {
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
+    this.itemReencryptor?.cancelScheduled()
     await this.lifecycle.stop(options)
     for (const unsub of this.unsubscribers) {
       unsub()

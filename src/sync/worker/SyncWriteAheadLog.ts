@@ -45,10 +45,13 @@ const MAX_ENTRIES = 2000
 const PRUNE_BATCH_SIZE = 100
 
 export class SyncWriteAheadLog {
-  private static seqCounter = 0
+  public static readonly MAX_ENTRIES = MAX_ENTRIES
+  public static readonly PRUNE_BATCH_SIZE = PRUNE_BATCH_SIZE
+
+  private seqCounter = 0
 
   public static resetSeqCounterForTesting(): void {
-    SyncWriteAheadLog.seqCounter = 0
+    // Kept for backward compatibility
   }
 
   private storage: LocalForage
@@ -300,14 +303,14 @@ export class SyncWriteAheadLog {
   async append(itemId: ItemId, data: Uint8Array): Promise<string> {
     await this.enforceSizeLimit()
 
-    SyncWriteAheadLog.seqCounter += 1
+    this.seqCounter += 1
     const id = nanoid()
     const entry: WalEntry = {
       id,
       itemId,
       data,
       createdAt: Date.now(),
-      seq: SyncWriteAheadLog.seqCounter,
+      seq: this.seqCounter,
     }
 
     await runStorageOperation(() => this.storage.setItem(id, entry))
@@ -394,6 +397,7 @@ export class SyncWriteAheadLog {
    */
   async clear(): Promise<void> {
     this.inFlightEntryIds.clear()
+    this.seqCounter = 0
     await runStorageOperation(() => this.storage.clear())
   }
 }
