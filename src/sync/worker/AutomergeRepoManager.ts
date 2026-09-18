@@ -132,7 +132,7 @@ export class AutomergeRepoManager {
 
     if (this.indexedDbAdapter) {
       try {
-        this.indexedDbAdapter.close()
+        await this.indexedDbAdapter.close()
       } catch (err) {
         console.error(`[AutomergeRepoManager] Error closing IndexedDB connection for ${this.accountId}:`, err)
       }

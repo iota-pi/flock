@@ -506,11 +506,6 @@ export class SyncWorker implements SyncApi {
     }
     await this._context?.shutdown(options)
     this._context = null
-
-    // Give the browser event loop a moment to finish closing the IndexedDB connection
-    if (typeof process === 'undefined' || process.env.NODE_ENV !== 'test') {
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
   }
 }
 
