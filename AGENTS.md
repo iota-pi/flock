@@ -134,6 +134,9 @@ The system has two complementary server sync mechanisms:
 
 **Important**: The local Automerge document (in IndexedDB) always holds the complete, authoritative state of each item, regardless of what is queued in the WAL or snapshot pipeline. The WAL and snapshots are delivery mechanisms, not the source of truth.
 
+#### AutomergeDocStore
+- The AutomergeDocStore class intentionally tightly couples with the Automerge Repo to ensure handle safety to prevent data loss
+
 #### Leader Election and Multi-Tab
 
 Only one tab performs server sync at a time. `LeaderElection` uses `navigator.locks` to elect a leader. The leader tab runs the `SyncOrchestrator` polling loop; follower tabs still have a running Automerge Repo but rely on the `EncryptedBroadcastChannelNetworkAdapter` for cross-tab document sync.
