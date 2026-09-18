@@ -22,6 +22,10 @@ interface ProcessItemMessagesResult {
   hasParsedMessages: boolean
 }
 
+const BATCH_PROGRESS_CACHE_MAX = 500
+const KEY_WAIT_TIMEOUT_MS = 5000
+const PROTOCOL_VERSION = '1.0'
+
 export class SyncPullQueueManager {
   private isShutdown = false
   private account: string | null = null
@@ -30,14 +34,12 @@ export class SyncPullQueueManager {
   private globalLastEvaluatedKey?: Record<string, unknown>
   public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
 
-  private static readonly BATCH_PROGRESS_CACHE_MAX = 500
-  private readonly batchProgress = new BoundedMap<string, number>(SyncPullQueueManager.BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
+  private readonly batchProgress = new BoundedMap<string, number>(BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
 
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
   private lockCoordinator?: ItemLockCoordinator
   private internalEventHub: WorkerInternalEventHub
-  public keyWaitTimeoutMs = 5000
 
   constructor(
     private readonly cursorStore: CursorStore,
@@ -163,7 +165,7 @@ export class SyncPullQueueManager {
     let decrypted: Uint8Array
     try {
       decrypted = await decryptWithKeyResolution(entry.encryptedMessage, {
-        timeoutMs: this.keyWaitTimeoutMs,
+        timeoutMs: KEY_WAIT_TIMEOUT_MS,
         timedOutKeys,
         onKeyVersionMissing: missingKver => {
           this.internalEventHub.emit({ type: 'keyVersionMissing', kver: missingKver })
@@ -177,7 +179,7 @@ export class SyncPullQueueManager {
     }
 
     try {
-      const isBatched = entry.encryptedMessage.version === '1.0'
+      const isBatched = entry.encryptedMessage.version === PROTOCOL_VERSION
       let hasError = false
       if (isBatched) {
         const startIndex = Number.isFinite(entry.cursor)

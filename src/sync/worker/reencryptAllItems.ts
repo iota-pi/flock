@@ -2,7 +2,6 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import { chunk } from 'lodash'
 
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { buildSnapshot } from './snapshotBuilder'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
@@ -222,6 +221,9 @@ function handleBatchUploadFailure(
   )
 }
 
+// Use a slightly smaller upload chunk size than in SnapshotManager to improve progress reporting granularity
+const REENCRYPT_CHUNK_SIZE = 10
+
 export async function reencryptAllItems(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
@@ -255,7 +257,7 @@ export async function reencryptAllItems(
   const succeeded: ItemId[] = []
   const failed: Array<{ itemId: ItemId; error: string }> = []
 
-  const itemChunks = chunk(allItemIds, 10)
+  const itemChunks = chunk(allItemIds, REENCRYPT_CHUNK_SIZE)
 
   for (const chunkIds of itemChunks) {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {

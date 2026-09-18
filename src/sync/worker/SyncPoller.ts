@@ -28,6 +28,9 @@ function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
   return last
 }
 
+const POLL_CHUNK_SIZE = 5
+const PROTOCOL_VERSION = '1.0'
+
 export class SyncPoller {
   private account: string | null = null
   private isOnline = true
@@ -101,7 +104,7 @@ export class SyncPoller {
         return 'failure'
       }
 
-      const chunks = batchEntries.length > 0 ? chunk(batchEntries, 5) : [[]]
+      const chunks = batchEntries.length > 0 ? chunk(batchEntries, POLL_CHUNK_SIZE) : [[]]
 
       for (const chunkEntry of chunks) {
         await this.processChunk(chunkEntry, signal)
@@ -166,7 +169,7 @@ export class SyncPoller {
             iv: encryptedMessage.iv,
             cipher: encryptedMessage.cipher,
             kver: encryptedMessage.kver,
-            version: '1.0' as const,
+            version: PROTOCOL_VERSION,
           },
         }
       })

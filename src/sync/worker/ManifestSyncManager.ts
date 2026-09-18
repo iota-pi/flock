@@ -22,6 +22,7 @@ const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
 const BATCH_SIZE = 50
 const SKEW_BUFFER_MS = 60 * 1000
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
+const KEY_WAIT_TIMEOUT_MS = 3000
 
 export type ManifestEntry = [itemId: string, serverTime: number, isDeleted?: boolean]
 
@@ -737,7 +738,7 @@ export class ManifestSyncManager {
       if (this.deps.onKeyVersionMissing) {
         this.deps.onKeyVersionMissing(kver)
       }
-      await waitForKeyVersion(kver, 3000)
+      await waitForKeyVersion(kver, KEY_WAIT_TIMEOUT_MS)
     }
     return decryptObject({
       iv: item.metadata.iv,
@@ -751,7 +752,7 @@ export class ManifestSyncManager {
   ): Promise<Uint8Array | null> {
     try {
       return await decryptWithKeyResolution(encryptedAutomergeDoc, {
-        timeoutMs: 3000,
+        timeoutMs: KEY_WAIT_TIMEOUT_MS,
         onKeyVersionMissing: this.deps.onKeyVersionMissing,
       })
     } catch {
