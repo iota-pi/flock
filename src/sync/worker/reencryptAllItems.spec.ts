@@ -31,17 +31,14 @@ vi.mock('@automerge/automerge/slim', () => ({
   getHeads: vi.fn().mockReturnValue(['mock-head']),
 }))
 
-vi.mock('./docStore/AutomergeIndexManager', () => ({
-  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
-    listAutomergeItemIds: () => mockListAutomergeItemIds(),
-  })),
-}))
-
 vi.mock('./docStore', () => ({
   normalizeItemSnapshot: vi.fn().mockReturnValue({
     type: 'note',
     deleted: false,
   }),
+  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
+    listAutomergeItemIds: () => mockListAutomergeItemIds(),
+  })),
 }))
 
 vi.mock('./utils/automerge', () => ({

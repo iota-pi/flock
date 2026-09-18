@@ -15,9 +15,6 @@ vi.mock('./docStore', () => ({
   AutomergeDocStore: vi.fn().mockImplementation(() => ({
     hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,
   })),
-}))
-
-vi.mock('./docStore/AutomergeIndexManager', () => ({
   AutomergeIndexManager: vi.fn().mockImplementation(() => ({
     listAutomergeItemIds: mockListAutomergeItemIds,
     listAutomergeTombstoneIds: mockListAutomergeTombstoneIds,

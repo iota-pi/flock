@@ -3,7 +3,7 @@ import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/s
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { AutomergeIndexManager } from './docStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'

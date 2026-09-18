@@ -1,7 +1,7 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { chunk } from 'lodash'
 
-import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { AutomergeIndexManager } from './docStore'
 import { buildSnapshot } from './snapshotBuilder'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'

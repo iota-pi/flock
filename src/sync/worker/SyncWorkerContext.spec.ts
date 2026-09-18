@@ -26,7 +26,7 @@ vi.mock('./SyncWriteAheadLog', () => ({
   },
 }))
 
-vi.mock('./docStore/AutomergeIndexManager', () => ({
+vi.mock('./docStore', () => ({
   AutomergeIndexManager: class MockAutomergeIndexManager {
     ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
     addAutomergeItemIdsToIndex = vi.fn()

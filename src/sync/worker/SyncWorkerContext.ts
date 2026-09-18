@@ -1,7 +1,6 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
 
-import { AutomergeDocStore, type DocHandleReplacedListener } from './docStore'
-import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { AutomergeDocStore, AutomergeIndexManager, type DocHandleReplacedListener } from './docStore'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
