@@ -1,7 +1,7 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'

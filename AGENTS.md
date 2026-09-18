@@ -94,7 +94,7 @@ src/sync/
 │   ├── ManifestSyncManager.ts        # Full-state sync via server manifest comparison
 │   ├── ItemOperations.ts             # CRUD on Automerge documents + manual recovery
 │   ├── AutomergeRepoManager.ts       # Creates/configures the Automerge Repo instance
-│   ├── VaultEncryptedNetworkAdapter.ts    # Automerge network adapter for server sync
+│   ├── VaultNetworkAdapter.ts    # Automerge network adapter for server sync
 │   ├── EncryptedBroadcastChannelNetworkAdapter.ts  # Encrypted cross-tab sync adapter
 │   ├── FlockIndexedDBStorageAdapter.ts    # Custom IndexedDB storage for Automerge
 │   ├── reencryptAllItems.ts          # Key rotation: re-encrypt all items

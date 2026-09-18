@@ -51,7 +51,7 @@ vi.mock('./SyncMessageBroker', () => ({
   },
 }))
 
-vi.mock('./VaultEncryptedNetworkAdapter', () => ({
+vi.mock('./VaultNetworkAdapter', () => ({
   VaultNetworkAdapter: class MockVaultNetworkAdapter {
     triggerReNegotiation = vi.fn()
     setSyncedHeadsStore = vi.fn()

@@ -1,5 +1,5 @@
 import { AutomergeRepoManager } from './AutomergeRepoManager'
-import type { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import * as storageManager from '../../utils/storageManager'
 
 vi.mock('@automerge/automerge-repo/slim', () => {

@@ -9,7 +9,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
 import { clearSyncMetadataInstancesCacheForTesting } from './stores/syncMetadataStorage'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
 

@@ -1,7 +1,7 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncPoller } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'

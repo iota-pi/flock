@@ -1,6 +1,6 @@
 import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from '@automerge/automerge-repo/slim'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
 import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
