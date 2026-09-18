@@ -6,8 +6,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { hasApiAuthToken } from '../../api/runtime'
-import { getTrpcClient } from '../../api/trpcClient'
+import { SyncApiClient } from './SyncApiClient'
 import { extractSyncableMetadata, hasSyncableChanges } from './utils/metadataSync'
 import { RecoveryManager, RECOVERY_RETRY_COOLDOWN_MS } from './RecoveryManager'
 
@@ -20,6 +19,7 @@ export interface ItemOperationsDeps {
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
   recoveryManager?: RecoveryManager
+  apiClient?: SyncApiClient
 }
 
 export interface StoreItemsOptions {
@@ -28,12 +28,14 @@ export interface StoreItemsOptions {
 
 export class ItemOperations {
   public readonly recoveryManager: RecoveryManager
+  private readonly apiClient: SyncApiClient
 
   constructor(private deps: ItemOperationsDeps) {
     this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
       accountId: deps.accountId,
       eventHub: deps.eventHub,
     })
+    this.apiClient = deps.apiClient ?? new SyncApiClient()
   }
 
   private async applyDocumentChange(
@@ -164,12 +166,12 @@ export class ItemOperations {
       const updated = await this.deps.indexManager.updateAutomergeMetadata(nextChanges)
 
       const shouldPush = (options?.pushRemote ?? true) && isSyncable
-      if (shouldPush && hasApiAuthToken() && this.deps.accountId) {
+      if (shouldPush && (await this.apiClient.hasAuthToken()) && this.deps.accountId) {
         const syncablePayload = extractSyncableMetadata(updated)
         try {
-          await getTrpcClient().accounts.updateMetadata.mutate({
+          await this.apiClient.updateAccountMetadata({
             account: this.deps.accountId,
-            metadata: syncablePayload,
+            metadata: syncablePayload as AccountMetadata,
           })
         } catch (pushErr) {
           console.warn('[ItemOperations] Failed to push metadata to server (will retry on next sync):', pushErr)

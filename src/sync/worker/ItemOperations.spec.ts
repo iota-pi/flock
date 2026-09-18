@@ -1,27 +1,11 @@
 import { ItemOperations, ItemOperationsDeps } from './ItemOperations'
+import { SyncApiClient } from './SyncApiClient'
 import type { Item } from '../../state/items'
 import type { ItemId } from 'src/shared/schemas/items'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({
   publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-}))
-
-const mockUpdateMetadataMutate = vi.fn().mockResolvedValue({ success: true })
-const mockHasApiAuthToken = vi.fn().mockReturnValue(true)
-
-vi.mock('../../api/runtime', () => ({
-  hasApiAuthToken: () => mockHasApiAuthToken(),
-}))
-
-vi.mock('../../api/trpcClient', () => ({
-  getTrpcClient: () => ({
-    accounts: {
-      updateMetadata: {
-        mutate: mockUpdateMetadataMutate,
-      },
-    },
-  }),
 }))
 
 const mockReadManualRecoveryEntries = vi.fn()
@@ -41,6 +25,10 @@ vi.mock('../shared/manualRecoveryStore', () => ({
 describe('ItemOperations', () => {
   let deps: ItemOperationsDeps
   let operations: ItemOperations
+  let mockApiClient: {
+    hasAuthToken: ReturnType<typeof vi.fn>
+    updateAccountMetadata: ReturnType<typeof vi.fn>
+  }
   let emitMock: any
   let changeDocumentMock: any
   let compactDocumentMock: any
@@ -52,8 +40,10 @@ describe('ItemOperations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPublishRealtimeBusSyncPing.mockClear()
-    mockUpdateMetadataMutate.mockClear()
-    mockHasApiAuthToken.mockReturnValue(true)
+    mockApiClient = {
+      hasAuthToken: vi.fn().mockResolvedValue(true),
+      updateAccountMetadata: vi.fn().mockResolvedValue(undefined),
+    }
     mockReadManualRecoveryEntries.mockResolvedValue([])
     mockReadManualRecoveryCount.mockResolvedValue(0)
     mockRemoveManualRecoveryEntryById.mockResolvedValue(undefined)
@@ -86,6 +76,7 @@ describe('ItemOperations', () => {
         emit: emitMock,
       } as any,
       markDocumentDirty: markDocumentDirtyMock,
+      apiClient: mockApiClient as unknown as SyncApiClient,
     }
 
     operations = new ItemOperations(deps)
@@ -350,7 +341,7 @@ describe('ItemOperations', () => {
   })
 
   describe('mutateMetadata', () => {
-    it('updates index manager and pushes syncable metadata to server when authenticated', async () => {
+    it('updates index manager and pushes syncable metadata to server via apiClient when authenticated', async () => {
       const updatedMetadata = {
         prayerGoal: 10,
         defaultPrayerFrequency: { person: 'daily' as const },
@@ -367,7 +358,8 @@ describe('ItemOperations', () => {
           updatedAt: expect.any(Number),
         }),
       )
-      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
+      expect(mockApiClient.hasAuthToken).toHaveBeenCalled()
+      expect(mockApiClient.updateAccountMetadata).toHaveBeenCalledWith({
         account: 'account-1',
         metadata: {
           prayerGoal: 10,
@@ -388,7 +380,7 @@ describe('ItemOperations', () => {
       expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalledWith({
         sortCriteria: [{ type: 'name', reverse: false }],
       })
-      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
     })
 
     it('does not push to server when pushRemote is false', async () => {
@@ -398,12 +390,24 @@ describe('ItemOperations', () => {
       await operations.mutateMetadata({ prayerGoal: 20 }, { pushRemote: false })
 
       expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalled()
-      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
     })
 
-    it('catches and warns on server push error without throwing', async () => {
+    it('does not push to server when apiClient reports no auth token', async () => {
+      mockApiClient.hasAuthToken.mockResolvedValue(false)
+      const updatedMetadata = { prayerGoal: 20, updatedAt: 555 }
+      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
+
+      await operations.mutateMetadata({ prayerGoal: 20 })
+
+      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalled()
+      expect(mockApiClient.hasAuthToken).toHaveBeenCalled()
+      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
+    })
+
+    it('catches and warns on server push error from apiClient without throwing', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockUpdateMetadataMutate.mockRejectedValueOnce(new Error('Network error'))
+      mockApiClient.updateAccountMetadata.mockRejectedValueOnce(new Error('Network error'))
       deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue({ prayerGoal: 5 })
 
       await expect(operations.mutateMetadata({ prayerGoal: 5 })).resolves.not.toThrow()
@@ -429,7 +433,15 @@ describe('ItemOperations', () => {
         type: 'metadataUpdated',
         metadata: { prayerGoal: 3 },
       })
-      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
+    })
+
+    it('defaults to constructing SyncApiClient when not provided in deps', () => {
+      const ops = new ItemOperations({
+        ...deps,
+        apiClient: undefined,
+      })
+      expect((ops as any).apiClient).toBeInstanceOf(SyncApiClient)
     })
   })
 

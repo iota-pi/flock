@@ -217,6 +217,7 @@ export class SyncWorkerContext {
       eventHub: config.clientEventHub,
       markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
       recoveryManager: this.recoveryManager,
+      apiClient: this.apiClient,
     })
 
     const manifestSyncManager = new ManifestSyncManager(

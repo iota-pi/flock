@@ -27,6 +27,10 @@ vi.mock('./SyncWriteAheadLog', () => ({
 }))
 
 vi.mock('./docStore', () => ({
+  AutomergeDocStore: class MockAutomergeDocStore {
+    shutdown = vi.fn().mockResolvedValue(undefined)
+    saveDocToStorage = vi.fn().mockResolvedValue(undefined)
+  },
   AutomergeIndexManager: class MockAutomergeIndexManager {
     ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
     addAutomergeItemIdsToIndex = vi.fn()
@@ -109,13 +113,6 @@ vi.mock('./stores/SyncedHeadsStore', () => ({
     loadSyncedHeads = vi.fn().mockResolvedValue([])
     saveSyncedHeads = vi.fn().mockResolvedValue(undefined)
     clear = vi.fn().mockResolvedValue(undefined)
-  },
-}))
-
-vi.mock('./docStore', () => ({
-  AutomergeDocStore: class MockDocStore {
-    shutdown = vi.fn().mockResolvedValue(undefined)
-    saveDocToStorage = vi.fn().mockResolvedValue(true)
   },
 }))
 
