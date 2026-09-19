@@ -21,7 +21,6 @@ import { toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/aut
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
-import { reencryptAllItems } from './reencryptAllItems'
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {

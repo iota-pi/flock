@@ -749,5 +749,3 @@ describe('SyncPoller', () => {
     })
   })
 })
-
-

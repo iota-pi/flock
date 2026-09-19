@@ -1,5 +1,7 @@
 import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
 
+type Callback = (_: any) => void
+
 describe('FlockIndexedDBStorageAdapter', () => {
   const originalIndexedDB = globalThis.indexedDB
   let mockOpenRequest: any
@@ -24,15 +26,15 @@ describe('FlockIndexedDBStorageAdapter', () => {
       error: null,
     }
 
-    const listeners: Record<string, Function[]> = {}
+    const listeners: Record<string, Callback[]> = {}
     mockDb = {
       transaction: vi.fn().mockReturnValue(mockTransaction),
       createObjectStore: vi.fn(),
-      addEventListener: vi.fn((event: string, cb: Function) => {
+      addEventListener: vi.fn((event: string, cb: Callback) => {
         listeners[event] = listeners[event] || []
         listeners[event].push(cb)
       }),
-      removeEventListener: vi.fn((event: string, cb: Function) => {
+      removeEventListener: vi.fn((event: string, cb: Callback) => {
         if (listeners[event]) {
           listeners[event] = listeners[event].filter(fn => fn !== cb)
         }
@@ -369,7 +371,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('closes database connection on versionchange event', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      new FlockIndexedDBStorageAdapter('test-db', 'documents')
       // Wait for connect
       await new Promise(r => setTimeout(r, 10))
 

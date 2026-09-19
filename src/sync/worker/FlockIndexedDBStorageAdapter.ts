@@ -109,7 +109,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       throw new Error('Database is closed')
     }
 
-    this.activeTransactions++
+    this.activeTransactions += 1
     try {
       const db = await this.getDB()
       return await new Promise<T>((resolve, reject) => {
@@ -163,7 +163,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
         }
       })
     } finally {
-      this.activeTransactions--
+      this.activeTransactions -= 1
       if (this.activeTransactions === 0 && this.drainResolve) {
         this.drainResolve()
         this.drainResolve = null

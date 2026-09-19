@@ -370,22 +370,22 @@ export class SyncWorkerHealthMonitor {
 
 export const defaultHealthMonitor = new SyncWorkerHealthMonitor()
 
-export const recordWorkerActivity = (): void => {
+export function recordWorkerActivity(): void {
   defaultHealthMonitor.recordActivity()
 }
 
-export const getLastWorkerActivityTime = (): number => {
+export function getLastWorkerActivityTime(): number {
   return defaultHealthMonitor.getLastWorkerActivityTime()
 }
 
-export const stopWorkerHeartbeat = (): void => {
+export function stopWorkerHeartbeat(): void {
   defaultHealthMonitor.stopWorkerHeartbeat()
 }
 
-export const resetCrashMetrics = (): void => {
+export function resetCrashMetrics(): void {
   defaultHealthMonitor.resetCrashMetrics()
 }
 
-export const setupWorkerHealthCheck = (options: HealthCheckOptions): void => {
+export function setupWorkerHealthCheck(options: HealthCheckOptions): void {
   defaultHealthMonitor.setupWorkerHealthCheck(options)
 }
