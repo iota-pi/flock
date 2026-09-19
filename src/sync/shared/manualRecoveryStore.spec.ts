@@ -1,4 +1,5 @@
 import localforage from 'localforage'
+import { getSyncMetadataStorage } from '../worker/stores/syncMetadataStorage'
 
 // Intercept created instances before importing manualRecoveryStore
 const createdInstances: any[] = []
@@ -52,12 +53,14 @@ describe('manualRecoveryStore', () => {
     }
     resetMigrationForTesting()
     await clearManualRecoveryEntries(accountId)
-    // Also clean up metadata store
-    const metaStorage = localforage.createInstance({
+    // Also clean up consolidated metadata store and legacy metadata store
+    const metaStorage = getSyncMetadataStorage(accountId)
+    await metaStorage.clear()
+    const legacyMetaStorage = localforage.createInstance({
       name: 'FlockVault_ManualRecoveryDB_test-account-id',
       storeName: 'manual-recovery-metadata',
     })
-    await metaStorage.clear()
+    await legacyMetaStorage.clear()
   })
 
   it('upserts entries by item id and updates count', async () => {
@@ -96,14 +99,14 @@ describe('manualRecoveryStore', () => {
       storeName: 'manual-recovery-items',
     })
     const metaStorage = localforage.createInstance({
-      name: 'FlockVault_ManualRecoveryDB_test-account-id',
-      storeName: 'manual-recovery-metadata',
+      name: 'flock-sync-metadata-test-account-id',
+      storeName: 'sync-metadata',
     })
 
     // Write a legacy entry directly to bypass ensureMigrated
     await legacyStorage.setItem(legacyKey, legacyEntry)
     // Clear migration flag and reset cached promise
-    await metaStorage.removeItem('__migrated_v2')
+    await metaStorage.removeItem('manualRecoveryMigrated')
     resetMigrationForTesting()
 
     // Trigger migration by doing an operation
@@ -113,6 +116,7 @@ describe('manualRecoveryStore', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('legacy-item-id')
     expect(entries[0].itemId).toBe('legacy-item-id')
+    expect(await metaStorage.getItem('manualRecoveryMigrated')).toBe(true)
 
     // Assert legacy key is deleted, new key exists
     const oldVal = await legacyStorage.getItem(legacyKey)
@@ -136,14 +140,51 @@ describe('manualRecoveryStore', () => {
     expect(stillLegacyVal).not.toBeNull()
   })
 
+  it('migrates legacy __migrated_v2 flag from manual-recovery-metadata into syncMetadataStorage without re-running migration', async () => {
+    const legacyStorage = localforage.createInstance({
+      name: 'FlockVault_ManualRecoveryDB_test-account-id',
+      storeName: 'manual-recovery-items',
+    })
+    const legacyMetaStorage = localforage.createInstance({
+      name: 'FlockVault_ManualRecoveryDB_test-account-id',
+      storeName: 'manual-recovery-metadata',
+    })
+    const metaStorage = localforage.createInstance({
+      name: 'flock-sync-metadata-test-account-id',
+      storeName: 'sync-metadata',
+    })
+
+    // Legacy flag set in legacy meta store
+    await legacyMetaStorage.setItem('__migrated_v2', true)
+    await metaStorage.removeItem('manualRecoveryMigrated')
+    resetMigrationForTesting()
+
+    // Add an entry with mismatched key that would have been migrated if migration ran
+    await legacyStorage.setItem('unmigrated-uuid', {
+      id: 'unmigrated-uuid',
+      itemId: 'item-x',
+      reason: 'test',
+      createdAt: Date.now(),
+    })
+
+    await readManualRecoveryEntries(accountId)
+
+    // Migration flag should now be adopted in syncMetadataStorage
+    expect(await metaStorage.getItem('manualRecoveryMigrated')).toBe(true)
+    // Legacy store cleared
+    expect(await legacyMetaStorage.getItem('__migrated_v2')).toBeNull()
+    // unmigrated-uuid should still be present because migration was bypassed via legacy flag
+    expect(await legacyStorage.getItem('unmigrated-uuid')).not.toBeNull()
+  })
+
   it('merges duplicate legacy entries for the same itemId without losing error context', async () => {
     const legacyStorage = localforage.createInstance({
       name: 'FlockVault_ManualRecoveryDB_test-account-id',
       storeName: 'manual-recovery-items',
     })
     const metaStorage = localforage.createInstance({
-      name: 'FlockVault_ManualRecoveryDB_test-account-id',
-      storeName: 'manual-recovery-metadata',
+      name: 'flock-sync-metadata-test-account-id',
+      storeName: 'sync-metadata',
     })
 
     const t1 = 100_000
@@ -170,7 +211,7 @@ describe('manualRecoveryStore', () => {
       createdAt: t2,
     })
 
-    await metaStorage.removeItem('__migrated_v2')
+    await metaStorage.removeItem('manualRecoveryMigrated')
     resetMigrationForTesting()
 
     const entries = await readManualRecoveryEntries(accountId)
@@ -232,7 +273,7 @@ describe('manualRecoveryStore', () => {
   })
 
   it('re-throws errors during migration and allows retrying on next call without stale caching', async () => {
-    const metaStorage = createdInstances.find(i => i.config?.().name === 'FlockVault_ManualRecoveryDB_test-account-id' && i.config?.().storeName === 'manual-recovery-metadata')
+    const metaStorage = getSyncMetadataStorage(accountId)
     const getItemSpy = vi.spyOn(metaStorage, 'getItem').mockRejectedValueOnce(new Error('Migration read failed'))
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 

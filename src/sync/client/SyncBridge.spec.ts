@@ -12,6 +12,8 @@ vi.mock('src/api/vault', () => ({
   hasVaultKey: vi.fn().mockReturnValue(true),
   syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
   lockVault: vi.fn().mockResolvedValue(undefined),
+  getVaultSession: vi.fn().mockReturnValue(null),
+  getKeyHash: vi.fn().mockReturnValue(null),
   KEYRING_CACHE_KEY: 'FlockKeyringCache',
   VAULT_EVENTS_CHANNEL: 'flock-vault-events',
 }))
@@ -158,6 +160,7 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
       'test-account',
       'test-key',
+      expect.any(Function),
     )
     expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
   })
@@ -872,7 +875,11 @@ describe('SyncBridge', () => {
     await vi.advanceTimersByTimeAsync(2000)
 
     // Should be initialized with account-success, not failed account
-    expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-success', 'test-key')
+    expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith(
+      'account-success',
+      'test-key',
+      expect.any(Function),
+    )
 
     vi.useRealTimers()
   })

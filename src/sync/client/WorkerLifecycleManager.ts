@@ -3,12 +3,9 @@ import * as Comlink from 'comlink'
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
-import { exportKeyringData } from 'src/api/vault'
+import { exportKeyringData, handleSessionExpired, getVaultSession } from 'src/api/vault'
 import {
-  setupWorkerHealthCheck,
-  stopWorkerHeartbeat,
-  resetCrashMetrics,
-  recordWorkerActivity,
+  SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
@@ -51,7 +48,17 @@ export class WorkerLifecycleManager {
 
   private _restartResolve: (() => void) | null = null
 
+  private readonly healthMonitor = new SyncWorkerHealthMonitor()
+
   constructor(private callbacks: WorkerLifecycleCallbacks) {}
+
+  getHealthMonitor(): SyncWorkerHealthMonitor {
+    return this.healthMonitor
+  }
+
+  recordWorkerActivity(): void {
+    this.healthMonitor.recordActivity()
+  }
 
   getSyncApi(): Comlink.Remote<SyncApi> | null {
     return this.syncApi
@@ -179,7 +186,12 @@ export class WorkerLifecycleManager {
         pingChannel.port1.start()
         worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
-        await wrappedApi.initRepo(accountId, vaultKey)
+        const refreshAuthToken = Comlink.proxy(async () => {
+          await handleSessionExpired()
+          return getVaultSession() || null
+        })
+
+        await wrappedApi.initRepo(accountId, vaultKey, refreshAuthToken)
         if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
@@ -194,7 +206,7 @@ export class WorkerLifecycleManager {
         }
 
         await wrappedApi.bootstrapItems()
-        recordWorkerActivity()
+        this.healthMonitor.recordActivity()
 
         if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
@@ -209,7 +221,7 @@ export class WorkerLifecycleManager {
 
         this.initRetryCount = 0
         useAppStore.getState().clearSyncWarning()
-        setupWorkerHealthCheck({
+        this.healthMonitor.setupWorkerHealthCheck({
           worker,
           pingPort: pingChannel.port1,
           isCurrentWorker: () => this.workerInstance === worker && !!this.syncApi,
@@ -344,8 +356,8 @@ export class WorkerLifecycleManager {
       this._restartResolve()
       this._restartResolve = null
     }
-    stopWorkerHeartbeat()
-    resetCrashMetrics()
+    this.healthMonitor.stopWorkerHeartbeat()
+    this.healthMonitor.resetCrashMetrics()
 
     const oldWorker = this.workerInstance
     const oldSyncApi = this.syncApi

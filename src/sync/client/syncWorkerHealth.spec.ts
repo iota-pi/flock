@@ -6,6 +6,7 @@ import {
   recordWorkerActivity,
   MAX_CONSECUTIVE_CRASHES,
   MAX_CONSECUTIVE_TIMEOUTS,
+  SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
 import { useAppStore } from '../../state/store'
 
@@ -231,31 +232,14 @@ describe('syncWorkerHealth', () => {
     channel.port2.close()
   })
 
-  it('supports pingFn as fallback', async () => {
-    const onCrash = vi.fn()
-    const onRestart = vi.fn()
-    const pingFn = vi.fn().mockResolvedValue(undefined)
-
-    setupWorkerHealthCheck({
-      worker: mockWorker,
-      pingFn,
-      isCurrentWorker: () => true,
-      onCrash,
-      onRestart,
-    })
-
-    await vi.advanceTimersByTimeAsync(15000)
-    expect(pingFn).toHaveBeenCalledTimes(1)
-    expect(onCrash).not.toHaveBeenCalled()
-  })
-
   it('handles worker error events as crash', async () => {
     const onCrash = vi.fn()
     const onRestart = vi.fn()
+    const channel = new MessageChannel()
 
     setupWorkerHealthCheck({
       worker: mockWorker,
-      pingFn: vi.fn(),
+      pingPort: channel.port1,
       isCurrentWorker: () => true,
       onCrash,
       onRestart,
@@ -265,6 +249,9 @@ describe('syncWorkerHealth', () => {
     expect(onCrash).toHaveBeenCalledTimes(1)
     expect(mockWorker.terminate).toHaveBeenCalledTimes(1)
     expect(onRestart).toHaveBeenCalledTimes(1)
+
+    channel.port1.close()
+    channel.port2.close()
   })
 
   it('aborts in-flight ping and prevents secondary crash handling when worker crashes during ping', async () => {
@@ -505,8 +492,10 @@ describe('syncWorkerHealth', () => {
     for (let i = 1; i < MAX_CONSECUTIVE_CRASHES; i++) {
       const onCrash = vi.fn()
       const onRestart = vi.fn()
+      const channel = new MessageChannel()
       setupWorkerHealthCheck({
         worker: mockWorker,
+        pingPort: channel.port1,
         isCurrentWorker: () => true,
         onCrash,
         onRestart,
@@ -514,11 +503,15 @@ describe('syncWorkerHealth', () => {
       mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Explicit crash' }))
       expect(onCrash).toHaveBeenCalledWith(true)
       expect(onRestart).toHaveBeenCalled()
+      channel.port1.close()
+      channel.port2.close()
     }
     const finalOnCrash = vi.fn()
     const finalOnRestart = vi.fn()
+    const finalErrorChannel = new MessageChannel()
     setupWorkerHealthCheck({
       worker: mockWorker,
+      pingPort: finalErrorChannel.port1,
       isCurrentWorker: () => true,
       onCrash: finalOnCrash,
       onRestart: finalOnRestart,
@@ -526,6 +519,8 @@ describe('syncWorkerHealth', () => {
     mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Explicit crash' }))
     expect(finalOnCrash).toHaveBeenCalledWith(false)
     expect(useAppStore.getState().syncStatus).toBe('dead')
+    finalErrorChannel.port1.close()
+    finalErrorChannel.port2.close()
 
     // 2. Timeouts allow up to MAX_CONSECUTIVE_TIMEOUTS (5)
     resetCrashMetrics()
@@ -564,5 +559,72 @@ describe('syncWorkerHealth', () => {
     expect(useAppStore.getState().fatalError).toContain('became unresponsive')
     finalChannel.port1.close()
     finalChannel.port2.close()
+  })
+})
+
+describe('SyncWorkerHealthMonitor class', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('maintains independent mutable state across instances', () => {
+    const monitor1 = new SyncWorkerHealthMonitor()
+    const monitor2 = new SyncWorkerHealthMonitor()
+
+    expect(monitor1.getLastWorkerActivityTime()).toBe(0)
+    expect(monitor2.getLastWorkerActivityTime()).toBe(0)
+
+    monitor1.recordActivity()
+    expect(monitor1.getLastWorkerActivityTime()).toBeGreaterThan(0)
+    expect(monitor2.getLastWorkerActivityTime()).toBe(0)
+
+    monitor2.resetCrashMetrics()
+    expect(monitor2.getLastWorkerActivityTime()).toBeGreaterThan(0)
+  })
+
+  it('stops and cleans up instance heartbeat without affecting other instances', () => {
+    const monitor1 = new SyncWorkerHealthMonitor()
+    const monitor2 = new SyncWorkerHealthMonitor()
+
+    const channel1 = new MessageChannel()
+    const channel2 = new MessageChannel()
+
+    const mockWorker = {
+      terminate: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as any
+
+    monitor1.setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel1.port1,
+      isCurrentWorker: () => true,
+      onCrash: vi.fn(),
+      onRestart: vi.fn(),
+    })
+
+    monitor2.setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel2.port1,
+      isCurrentWorker: () => true,
+      onCrash: vi.fn(),
+      onRestart: vi.fn(),
+    })
+
+    // Stopping monitor1 should clean up monitor1 listeners without touching monitor2
+    monitor1.stopWorkerHeartbeat()
+    expect(mockWorker.removeEventListener).toHaveBeenCalledTimes(2)
+
+    monitor2.stopWorkerHeartbeat()
+    expect(mockWorker.removeEventListener).toHaveBeenCalledTimes(4)
+
+    channel1.port1.close()
+    channel1.port2.close()
+    channel2.port1.close()
+    channel2.port2.close()
   })
 })

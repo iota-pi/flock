@@ -6,6 +6,8 @@ import {
   lockVault,
   reloadKeyringFromStorage,
   syncKeyringFromServer,
+  handleSessionExpired,
+  getVaultSession,
 } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
@@ -28,6 +30,9 @@ class SyncBridgeService {
       onKeyVersionMissing: kver => {
         void this.handleKeyringUpdate(kver)
       },
+      onActivity: () => {
+        this.lifecycleManager.recordWorkerActivity()
+      },
     })
 
     this.domListeners = new SyncDOMListeners()
@@ -38,9 +43,14 @@ class SyncBridgeService {
       },
       onReady: () => {
         this.domListeners.start({
-          onOnlineChange: isOnline => {
+          setOnlineState: async isOnline => {
             const api = this.lifecycleManager.getSyncApi()
-            if (api) void api.setOnlineState(isOnline)
+            if (api) await api.setOnlineState(isOnline)
+          },
+          getAccountId: () => this.lifecycleManager.getCurrentAccountId(),
+          flushSync: async () => {
+            const api = this.lifecycleManager.getSyncApi()
+            if (api) await api.flushSync()
           },
           onVisibilityHidden: () => {
             const api = this.lifecycleManager.getSyncApi()
@@ -131,7 +141,11 @@ class SyncBridgeService {
 
   async initRepo(accountId: string, vaultKey: string): Promise<void> {
     const api = await this.lifecycleManager.ensureReady()
-    return api.initRepo(accountId, vaultKey)
+    const refreshAuthToken = Comlink.proxy(async () => {
+      await handleSessionExpired()
+      return getVaultSession() || null
+    })
+    return api.initRepo(accountId, vaultKey, refreshAuthToken)
   }
 
   async setOnlineState(isOnline: boolean): Promise<void> {
@@ -225,7 +239,6 @@ class SyncBridgeService {
   }> {
     const api = await this.lifecycleManager.ensureReady()
     const refreshAuthToken = Comlink.proxy(async () => {
-      const { handleSessionExpired, getVaultSession } = await import('src/api/vault')
       await handleSessionExpired()
       return getVaultSession() || null
     })

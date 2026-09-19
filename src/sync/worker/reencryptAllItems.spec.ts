@@ -1,4 +1,4 @@
-import { reencryptAllItems, cancelScheduledReencryption, ReencryptAuthManager } from './reencryptAllItems'
+import { reencryptAllItems, cancelScheduledReencryption, ItemReencryptor } from './reencryptAllItems'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 const mockPutSnapshotsWithToken = vi.fn()
@@ -31,17 +31,14 @@ vi.mock('@automerge/automerge/slim', () => ({
   getHeads: vi.fn().mockReturnValue(['mock-head']),
 }))
 
-vi.mock('./docStore/AutomergeIndexManager', () => ({
-  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
-    listAutomergeItemIds: () => mockListAutomergeItemIds(),
-  })),
-}))
-
 vi.mock('./docStore', () => ({
   normalizeItemSnapshot: vi.fn().mockReturnValue({
     type: 'note',
     deleted: false,
   }),
+  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
+    listAutomergeItemIds: () => mockListAutomergeItemIds(),
+  })),
 }))
 
 vi.mock('./utils/automerge', () => ({
@@ -586,142 +583,29 @@ describe('reencryptAllItems', () => {
   })
 })
 
-describe('ReencryptAuthManager', () => {
-  it('retrieves initial token via getAuthToken', async () => {
-    const getAuthToken = vi.fn().mockResolvedValue('initial-token')
-    const manager = new ReencryptAuthManager({ getAuthToken })
+describe('ItemReencryptor class', () => {
+  it('maintains independent retry state across instances', () => {
+    const r1 = new ItemReencryptor({ retryDelays: [100, 200] })
+    const r2 = new ItemReencryptor({ retryDelays: [500, 1000] })
 
-    const token = await manager.getInitialToken()
-    expect(token).toBe('initial-token')
-    expect(manager.getToken()).toBe('initial-token')
-    expect(getAuthToken).toHaveBeenCalledTimes(1)
-  })
+    expect(r1.retryAttempt).toBe(0)
+    expect(r2.retryAttempt).toBe(0)
 
-  it('falls back to refreshAuthToken when getAuthToken returns null initially', async () => {
-    const getAuthToken = vi.fn().mockResolvedValue(null)
-    const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-token')
-    const manager = new ReencryptAuthManager({ getAuthToken, refreshAuthToken })
+    const scheduleRetry1 = vi.fn()
+    const scheduleRetry2 = vi.fn()
 
-    const token = await manager.getInitialToken()
-    expect(token).toBe('refreshed-token')
-    expect(manager.getToken()).toBe('refreshed-token')
-    expect(refreshAuthToken).toHaveBeenCalledTimes(1)
-  })
+    r1.scheduleRetry({ scheduleRetry: scheduleRetry1 } as any)
+    expect(r1.retryAttempt).toBe(1)
+    expect(r2.retryAttempt).toBe(0)
+    expect(scheduleRetry1).toHaveBeenCalledWith(100)
 
-  it('throws an error if no active session token is available on initial get', async () => {
-    const getAuthToken = vi.fn().mockResolvedValue(null)
-    const manager = new ReencryptAuthManager({ getAuthToken })
+    r2.scheduleRetry({ scheduleRetry: scheduleRetry2 } as any)
+    expect(r1.retryAttempt).toBe(1)
+    expect(r2.retryAttempt).toBe(1)
+    expect(scheduleRetry2).toHaveBeenCalledWith(500)
 
-    await expect(manager.getInitialToken()).rejects.toThrow('No active session token available')
-  })
-
-  it('catches and logs warning if refreshAuthToken throws during getInitialToken', async () => {
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const getAuthToken = vi.fn().mockResolvedValue(null)
-    const refreshAuthToken = vi.fn().mockRejectedValue(new Error('Network offline'))
-    const manager = new ReencryptAuthManager({ getAuthToken, refreshAuthToken })
-
-    await expect(manager.getInitialToken()).rejects.toThrow('No active session token available')
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
-      '[reencryptAllItems] Initial token refresh callback failed:',
-      expect.any(Error)
-    )
-    consoleWarnSpy.mockRestore()
-  })
-
-  it('updates token when syncLatestToken detects a newer token in store', async () => {
-    const getAuthToken = vi
-      .fn()
-      .mockResolvedValueOnce('token-v1')
-      .mockResolvedValueOnce('token-v2')
-    const manager = new ReencryptAuthManager({ getAuthToken })
-
-    await manager.getInitialToken()
-    expect(manager.getToken()).toBe('token-v1')
-
-    const synced = await manager.syncLatestToken()
-    expect(synced).toBe('token-v2')
-    expect(manager.getToken()).toBe('token-v2')
-  })
-
-  it('preserves current token when syncLatestToken returns null', async () => {
-    const getAuthToken = vi
-      .fn()
-      .mockResolvedValueOnce('token-v1')
-      .mockResolvedValueOnce(null)
-    const manager = new ReencryptAuthManager({ getAuthToken })
-
-    await manager.getInitialToken()
-    const synced = await manager.syncLatestToken()
-    expect(synced).toBe('token-v1')
-    expect(manager.getToken()).toBe('token-v1')
-  })
-
-  it('tryRefresh returns new token when refreshAuthToken succeeds with a fresh token', async () => {
-    const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const getAuthToken = vi.fn().mockResolvedValue('old-token')
-    const refreshAuthToken = vi.fn().mockResolvedValue('fresh-token')
-    const manager = new ReencryptAuthManager({ getAuthToken, refreshAuthToken })
-
-    await manager.getInitialToken()
-    const refreshed = await manager.tryRefresh()
-
-    expect(refreshed).toBe('fresh-token')
-    expect(manager.getToken()).toBe('fresh-token')
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      '[reencryptAllItems] Acquired fresh auth token, retrying batch upload...'
-    )
-    consoleInfoSpy.mockRestore()
-  })
-
-  it('tryRefresh falls back to getAuthToken if refreshAuthToken is not provided', async () => {
-    const getAuthToken = vi
-      .fn()
-      .mockResolvedValueOnce('old-token')
-      .mockResolvedValueOnce('new-store-token')
-    const manager = new ReencryptAuthManager({ getAuthToken })
-
-    await manager.getInitialToken()
-    const refreshed = await manager.tryRefresh()
-
-    expect(refreshed).toBe('new-store-token')
-    expect(manager.getToken()).toBe('new-store-token')
-  })
-
-  it('tryRefresh returns null if acquired token is identical to current token', async () => {
-    const getAuthToken = vi.fn().mockResolvedValue('same-token')
-    const manager = new ReencryptAuthManager({ getAuthToken })
-
-    await manager.getInitialToken()
-    const refreshed = await manager.tryRefresh()
-
-    expect(refreshed).toBeNull()
-    expect(manager.getToken()).toBe('same-token')
-  })
-
-  it('tryRefresh catches warning when refreshAuthToken throws and falls back to getAuthToken', async () => {
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const getAuthToken = vi
-      .fn()
-      .mockResolvedValueOnce('old-token')
-      .mockResolvedValueOnce('new-fallback-token')
-    const refreshAuthToken = vi.fn().mockRejectedValue(new Error('Refresh failed'))
-    const manager = new ReencryptAuthManager({ getAuthToken, refreshAuthToken })
-
-    await manager.getInitialToken()
-    const refreshed = await manager.tryRefresh()
-
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
-      '[reencryptAllItems] Token refresh callback failed:',
-      expect.any(Error)
-    )
-    expect(refreshed).toBe('new-fallback-token')
-    expect(manager.getToken()).toBe('new-fallback-token')
-    consoleWarnSpy.mockRestore()
-  })
-
-  it('getToken throws if called before token is initialized', () => {
-    const manager = new ReencryptAuthManager({ getAuthToken: vi.fn() })
-    expect(() => manager.getToken()).toThrow('No active session token available')
+    r1.cancelScheduled()
+    expect(r1.retryAttempt).toBe(0)
+    expect(r2.retryAttempt).toBe(1)
   })
 })

@@ -1,5 +1,6 @@
 import { SyncDOMListeners, type SyncDOMListenersCallbacks } from './SyncDOMListeners'
 import { KEYRING_CACHE_KEY, VAULT_EVENTS_CHANNEL } from 'src/api/vault'
+import { useAppStore } from 'src/state/store'
 
 describe('SyncDOMListeners', () => {
   let listeners: SyncDOMListeners
@@ -18,6 +19,7 @@ describe('SyncDOMListeners', () => {
       onVisibilityHidden,
       onKeyringChange,
     }
+    useAppStore.setState({ syncWarning: null })
   })
 
   afterEach(() => {
@@ -25,16 +27,20 @@ describe('SyncDOMListeners', () => {
     vi.restoreAllMocks()
   })
 
-  it('handles online and offline events', () => {
+  it('handles online and offline events', async () => {
     listeners.start(callbacks)
 
     const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     window.dispatchEvent(new Event('offline'))
-    expect(callbacks.onOnlineChange).toHaveBeenCalledWith(false)
+    await vi.waitFor(() => {
+      expect(callbacks.onOnlineChange).toHaveBeenCalledWith(false)
+    })
 
     onLineSpy.mockReturnValue(true)
     window.dispatchEvent(new Event('online'))
-    expect(callbacks.onOnlineChange).toHaveBeenCalledWith(true)
+    await vi.waitFor(() => {
+      expect(callbacks.onOnlineChange).toHaveBeenCalledWith(true)
+    })
   })
 
   it('handles visibility change to hidden', () => {
@@ -98,5 +104,153 @@ describe('SyncDOMListeners', () => {
     // Dispatched events after stop should not trigger callbacks
     window.dispatchEvent(new Event('online'))
     expect(callbacks.onOnlineChange).not.toHaveBeenCalled()
+  })
+
+  describe('online pipeline sequencing', () => {
+    it('executes in strict order: setOnlineState -> attemptSessionRecovery -> flushSync -> resumePendingReencryption', async () => {
+      const callOrder: string[] = []
+      let resolveSetOnlineState!: () => void
+      const setOnlineStatePromise = new Promise<void>(resolve => {
+        resolveSetOnlineState = resolve
+      })
+
+      const setOnlineState = vi.fn().mockImplementation(async (isOnline: boolean) => {
+        callOrder.push(`setOnlineState:${isOnline}`)
+        if (isOnline) {
+          await setOnlineStatePromise
+        }
+      })
+
+      const attemptSessionRecovery = vi.fn().mockImplementation(async (account: string) => {
+        callOrder.push(`attemptSessionRecovery:${account}`)
+        return true
+      })
+
+      const flushSync = vi.fn().mockImplementation(async () => {
+        callOrder.push('flushSync')
+      })
+
+      const resumePendingReencryption = vi.fn().mockImplementation(async (account: string) => {
+        callOrder.push(`resumePendingReencryption:${account}`)
+      })
+
+      useAppStore.setState({ syncWarning: 'Warning before reconnect' })
+
+      listeners.start({
+        setOnlineState,
+        getAccountId: () => 'acc-123',
+        attemptSessionRecovery,
+        flushSync,
+        resumePendingReencryption,
+        onVisibilityHidden: vi.fn(),
+        onKeyringChange: vi.fn(),
+      })
+
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+      window.dispatchEvent(new Event('online'))
+
+      // setOnlineState has been initiated, but has not resolved yet
+      await vi.waitFor(() => {
+        expect(setOnlineState).toHaveBeenCalledWith(true)
+      })
+      expect(callOrder).toEqual(['setOnlineState:true'])
+      expect(attemptSessionRecovery).not.toHaveBeenCalled()
+      expect(flushSync).not.toHaveBeenCalled()
+
+      // Resolve setOnlineState
+      resolveSetOnlineState()
+
+      await vi.waitFor(() => {
+        expect(flushSync).toHaveBeenCalledTimes(1)
+      })
+
+      expect(callOrder).toEqual([
+        'setOnlineState:true',
+        'attemptSessionRecovery:acc-123',
+        'flushSync',
+        'resumePendingReencryption:acc-123',
+      ])
+      expect(useAppStore.getState().syncWarning).toBeNull()
+    })
+
+    it('does not flush or clear warning if session recovery returns false', async () => {
+      const setOnlineState = vi.fn().mockResolvedValue(undefined)
+      const attemptSessionRecovery = vi.fn().mockResolvedValue(false)
+      const flushSync = vi.fn().mockResolvedValue(undefined)
+      const resumePendingReencryption = vi.fn().mockResolvedValue(undefined)
+
+      useAppStore.setState({ syncWarning: 'Persistent sync warning' })
+
+      listeners.start({
+        setOnlineState,
+        getAccountId: () => 'acc-unrecovered',
+        attemptSessionRecovery,
+        flushSync,
+        resumePendingReencryption,
+        onVisibilityHidden: vi.fn(),
+        onKeyringChange: vi.fn(),
+      })
+
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+      window.dispatchEvent(new Event('online'))
+
+      await vi.waitFor(() => {
+        expect(attemptSessionRecovery).toHaveBeenCalledWith('acc-unrecovered')
+      })
+
+      expect(flushSync).not.toHaveBeenCalled()
+      expect(useAppStore.getState().syncWarning).toBe('Persistent sync warning')
+      expect(resumePendingReencryption).toHaveBeenCalledWith('acc-unrecovered')
+    })
+
+    it('does not attempt session recovery or flush on offline event', async () => {
+      const setOnlineState = vi.fn().mockResolvedValue(undefined)
+      const attemptSessionRecovery = vi.fn().mockResolvedValue(true)
+      const flushSync = vi.fn().mockResolvedValue(undefined)
+
+      listeners.start({
+        setOnlineState,
+        getAccountId: () => 'acc-123',
+        attemptSessionRecovery,
+        flushSync,
+        onVisibilityHidden: vi.fn(),
+        onKeyringChange: vi.fn(),
+      })
+
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+      window.dispatchEvent(new Event('offline'))
+
+      await vi.waitFor(() => {
+        expect(setOnlineState).toHaveBeenCalledWith(false)
+      })
+
+      expect(attemptSessionRecovery).not.toHaveBeenCalled()
+      expect(flushSync).not.toHaveBeenCalled()
+    })
+
+    it('skips session recovery if no account id is available', async () => {
+      const setOnlineState = vi.fn().mockResolvedValue(undefined)
+      const attemptSessionRecovery = vi.fn().mockResolvedValue(true)
+      const flushSync = vi.fn().mockResolvedValue(undefined)
+
+      listeners.start({
+        setOnlineState,
+        getAccountId: () => null,
+        attemptSessionRecovery,
+        flushSync,
+        onVisibilityHidden: vi.fn(),
+        onKeyringChange: vi.fn(),
+      })
+
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+      window.dispatchEvent(new Event('online'))
+
+      await vi.waitFor(() => {
+        expect(setOnlineState).toHaveBeenCalledWith(true)
+      })
+
+      expect(attemptSessionRecovery).not.toHaveBeenCalled()
+      expect(flushSync).not.toHaveBeenCalled()
+    })
   })
 })

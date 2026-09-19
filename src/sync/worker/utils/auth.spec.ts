@@ -1,4 +1,4 @@
-﻿import { isAuthError } from './auth'
+import { isAuthError } from './auth'
 
 describe('isAuthError', () => {
   it('returns false for null, undefined, and non-object inputs', () => {
@@ -47,6 +47,10 @@ describe('isAuthError', () => {
     const forbiddenErr = new Error('Forbidden')
     forbiddenErr.name = 'ForbiddenError'
     expect(isAuthError(forbiddenErr)).toBe(true)
+
+    const authExpiredErr = new Error('Session expired')
+    authExpiredErr.name = 'AuthExpiredError'
+    expect(isAuthError(authExpiredErr)).toBe(true)
 
     const otherErr = new Error('Generic')
     otherErr.name = 'Error'

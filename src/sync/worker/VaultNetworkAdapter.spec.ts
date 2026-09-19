@@ -2,12 +2,8 @@ import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/aut
 import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import {
-  clearInstancesCacheForTesting,
-  resetQuotaExceededStatus,
-} from '../shared/VaultPersistence'
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -54,9 +50,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   beforeEach(async () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
-    clearInstancesCacheForTesting()
     clearWalInstancesCacheForTesting()
-    resetQuotaExceededStatus()
 
     mockDocStore = {
       getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [] }),
@@ -302,7 +296,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('detects and reports QuotaExceededError when persisting pending writes', async () => {
-    resetQuotaExceededStatus()
     const mockReporter = vi.fn()
     registerQuotaReporter(mockReporter)
 
@@ -869,7 +862,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultEncryptedNetworkAdapter')
+    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
@@ -968,7 +961,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('triggers re-negotiation for documents evicted from outbound queue', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultEncryptedNetworkAdapter')
+    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
@@ -1050,7 +1043,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultEncryptedNetworkAdapter')
+    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')

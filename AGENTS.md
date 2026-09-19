@@ -73,10 +73,8 @@ src/sync/
 ├── client/                           # Main-thread side
 │   ├── SyncBridge.ts                 # Main-thread ↔ Worker bridge (Comlink wrapper)
 │   ├── useSyncCoordinatorLifecycle.ts # React hook managing worker lifecycle
-│   ├── syncWorkerHealth.ts           # Heartbeat + crash detection + auto-restart
-│   └── realtimeBus.ts                # BroadcastChannel for cross-tab item update pings
+│   └── syncWorkerHealth.ts           # Heartbeat + crash detection + auto-restart
 ├── shared/                           # Shared between main thread and worker
-│   ├── VaultPersistence.ts           # Legacy sync batch persistence (IndexedDB)
 │   ├── manualRecoveryStore.ts        # Quarantine store for items that fail decryption
 │   ├── workerAuthStore.ts            # Auth token accessor for the worker
 │   └── legacyTypes.ts                # Legacy type definitions
@@ -96,10 +94,11 @@ src/sync/
 │   ├── ManifestSyncManager.ts        # Full-state sync via server manifest comparison
 │   ├── ItemOperations.ts             # CRUD on Automerge documents + manual recovery
 │   ├── AutomergeRepoManager.ts       # Creates/configures the Automerge Repo instance
-│   ├── VaultEncryptedNetworkAdapter.ts    # Automerge network adapter for server sync
+│   ├── VaultNetworkAdapter.ts    # Automerge network adapter for server sync
 │   ├── EncryptedBroadcastChannelNetworkAdapter.ts  # Encrypted cross-tab sync adapter
 │   ├── FlockIndexedDBStorageAdapter.ts    # Custom IndexedDB storage for Automerge
 │   ├── reencryptAllItems.ts          # Key rotation: re-encrypt all items
+│   ├── realtimeBus.ts                # Account-scoped BroadcastChannel for cross-tab item update pings
 │   ├── docStore/                     # Automerge document management
 │   │   ├── AutomergeDocStore.ts      # Find/create/change/hydrate Automerge documents
 │   │   ├── AutomergeIndexManager.ts  # Account-level item index document
@@ -135,6 +134,9 @@ The system has two complementary server sync mechanisms:
 
 **Important**: The local Automerge document (in IndexedDB) always holds the complete, authoritative state of each item, regardless of what is queued in the WAL or snapshot pipeline. The WAL and snapshots are delivery mechanisms, not the source of truth.
 
+#### AutomergeDocStore
+- The AutomergeDocStore class intentionally tightly couples with the Automerge Repo to ensure handle safety to prevent data loss
+
 #### Leader Election and Multi-Tab
 
 Only one tab performs server sync at a time. `LeaderElection` uses `navigator.locks` to elect a leader. The leader tab runs the `SyncOrchestrator` polling loop; follower tabs still have a running Automerge Repo but rely on the `EncryptedBroadcastChannelNetworkAdapter` for cross-tab document sync.
@@ -155,7 +157,8 @@ Flock consolidates all local sync metadata into a single dedicated IndexedDB dat
   - `indexDoc` — Automerge account item index document (`AutomergeIndexDocument`)
   - `lastModified` — timestamps of local modifications and snapshots (`[ItemId, ItemSyncTimestamps][]`)
   - `syncedHeads` — tracked Automerge heads for the network sync adapter (`[DocumentId, string[]][]`)
-- **Seamless legacy migration**: On read, each store checks for the consolidated key first. If absent, it lazily migrates legacy entries from earlier keys or legacy singleton databases (`flock-sync-cursors`, `flock-item-metadata`, `flock-sync-last-modified`, `flock-sync-synced-heads`) if they exist on disk, avoiding phantom database creation.
+  - `manualRecoveryMigrated` — migration flag for manual recovery store v2 (`boolean`)
+- **Seamless legacy migration**: On read, each store checks for the consolidated key first. If absent, it lazily migrates legacy entries from earlier keys or legacy singleton databases (`flock-sync-cursors`, `flock-item-metadata`, `flock-sync-last-modified`, `flock-sync-synced-heads`, or legacy `manual-recovery-metadata`) if they exist on disk, avoiding phantom database creation.
 - **Simplified account data wiping**: Account logout or reset wipes the entire consolidated database in one step via `clearSyncMetadataStorage(accountId)` in `clearAccountLocalData`. Store-level `.clear()` calls remain isolated to their respective key.
 
 #### Encryption

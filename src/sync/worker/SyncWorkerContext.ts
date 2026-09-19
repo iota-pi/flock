@@ -1,7 +1,6 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
 
-import { AutomergeDocStore, type DocHandleReplacedListener } from './docStore'
-import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { AutomergeDocStore, AutomergeIndexManager, type DocHandleReplacedListener } from './docStore'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
@@ -13,7 +12,7 @@ import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
@@ -23,6 +22,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { ServiceLifecycleManager } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
+import { ItemReencryptor } from './reencryptAllItems'
 
 export { QuotaExceededRetryError }
 
@@ -50,57 +50,64 @@ export interface SyncWorkerContextConfig {
    * Called when an inbound item sync message has been parsed.
    */
   onItemMessageParsed?: (itemId: ItemId) => void
+  /** Optional callback to refresh the authentication token with the main thread. */
+  refreshAuthToken?: () => Promise<string | null>
   /** Optional override for testing. */
   apiClient?: SyncApiClient
 }
 
 export class SyncWorkerContext {
   public readonly accountId: string
-  public readonly repo: Repo
-  public readonly adapter: VaultNetworkAdapter
-  public readonly broker: SyncMessageBroker
-  public readonly repoManager: AutomergeRepoManager
+  public repo!: Repo
+  public adapter!: VaultNetworkAdapter
+  public broker!: SyncMessageBroker
+  public repoManager!: AutomergeRepoManager
   public readonly clientEventHub: ClientEventHub
   public readonly internalEventHub: WorkerInternalEventHub
   public readonly apiClient: SyncApiClient
 
-  public readonly indexStore: IndexStore
-  public readonly cursorStore: CursorStore
-  public readonly lastModifiedStore: LastModifiedStore
-  public readonly syncedHeadsStore: SyncedHeadsStore
-  public readonly wal: SyncWriteAheadLog
+  public indexStore!: IndexStore
+  public cursorStore!: CursorStore
+  public lastModifiedStore!: LastModifiedStore
+  public syncedHeadsStore!: SyncedHeadsStore
+  public wal!: SyncWriteAheadLog
 
-  public readonly docStore: AutomergeDocStore
-  public readonly indexManager: AutomergeIndexManager
-  public readonly recoveryManager: RecoveryManager
-  public readonly pullQueueManager: SyncPullQueueManager
-  public readonly snapshotManager: SnapshotManager
-  public readonly orchestrator: SyncOrchestrator
-  public readonly manifestSyncManager: ManifestSyncManager
-  public readonly itemOperations: ItemOperations
-  public readonly storageRecoveryService: StorageRecoveryService
+  public docStore!: AutomergeDocStore
+  public indexManager!: AutomergeIndexManager
+  public recoveryManager!: RecoveryManager
+  public pullQueueManager!: SyncPullQueueManager
+  public snapshotManager!: SnapshotManager
+  public orchestrator!: SyncOrchestrator
+  public manifestSyncManager!: ManifestSyncManager
+  public itemOperations!: ItemOperations
+  public storageRecoveryService!: StorageRecoveryService
+  public itemReencryptor!: ItemReencryptor
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
-  public get storageRecovery(): StorageRecoveryService {
-    return this.storageRecoveryService
-  }
-
-  private unregisterQuotaRecovery: (() => void) | null = null
   private unsubscribers: Array<() => void> = []
 
   constructor(config: SyncWorkerContextConfig) {
     this.accountId = config.accountId
     this.clientEventHub = config.clientEventHub
     this.internalEventHub = config.internalEventHub
-    this.apiClient = config.apiClient ?? new SyncApiClient()
+    this.apiClient = config.apiClient ?? new SyncApiClient({
+      refreshAuthToken: config.refreshAuthToken,
+    })
 
-    const stores = this.createStores(config.accountId)
-    this.cursorStore = stores.cursorStore
-    this.indexStore = stores.indexStore
-    this.lastModifiedStore = stores.lastModifiedStore
-    this.syncedHeadsStore = stores.syncedHeadsStore
-    this.wal = stores.wal
+    this.initStores(config.accountId)
+    this.initServices(config)
+    this.wireEvents()
+  }
 
+  private initStores(accountId: string): void {
+    this.cursorStore = new CursorStore(accountId)
+    this.indexStore = new IndexStore(accountId)
+    this.lastModifiedStore = new LastModifiedStore(accountId)
+    this.syncedHeadsStore = new SyncedHeadsStore(accountId)
+    this.wal = new SyncWriteAheadLog(accountId, this.internalEventHub)
+  }
+
+  private initServices(config: SyncWorkerContextConfig): void {
     const network = this.initNetworkAndRepo(config)
     this.adapter = network.adapter
     this.repoManager = network.repoManager
@@ -119,19 +126,12 @@ export class SyncWorkerContext {
     this.itemOperations = ops.itemOperations
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
-
-    this.wireCrossServiceDependencies()
-    this.registerLifecycleServices()
+    this.itemReencryptor = new ItemReencryptor()
   }
 
-  private createStores(accountId: string) {
-    return {
-      cursorStore: new CursorStore(accountId),
-      indexStore: new IndexStore(accountId),
-      lastModifiedStore: new LastModifiedStore(accountId),
-      syncedHeadsStore: new SyncedHeadsStore(accountId),
-      wal: new SyncWriteAheadLog(accountId, this.internalEventHub),
-    }
+  private wireEvents(): void {
+    this.wireCrossServiceDependencies()
+    this.registerLifecycleServices()
   }
 
   private initNetworkAndRepo(config: SyncWorkerContextConfig) {
@@ -178,7 +178,9 @@ export class SyncWorkerContext {
       config.internalEventHub,
       indexManager,
       pullQueueManager,
-      this.wal
+      this.wal,
+      null,
+      this.apiClient,
     )
 
     const recoveryManager = new RecoveryManager({
@@ -218,6 +220,7 @@ export class SyncWorkerContext {
       eventHub: config.clientEventHub,
       markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
       recoveryManager: this.recoveryManager,
+      apiClient: this.apiClient,
     })
 
     const manifestSyncManager = new ManifestSyncManager(
@@ -325,10 +328,6 @@ export class SyncWorkerContext {
       },
       onStop: () => {
         this.storageRecoveryService.stop()
-        if (this.unregisterQuotaRecovery) {
-          this.unregisterQuotaRecovery()
-          this.unregisterQuotaRecovery = null
-        }
       },
     })
 
@@ -444,6 +443,7 @@ export class SyncWorkerContext {
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
+    this.itemReencryptor?.cancelScheduled()
     await this.lifecycle.stop(options)
     for (const unsub of this.unsubscribers) {
       unsub()

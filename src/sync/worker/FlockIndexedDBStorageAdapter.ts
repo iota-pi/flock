@@ -4,6 +4,10 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   private db: IDBDatabase | null = null
   private dbPromise: Promise<IDBDatabase> | null = null
   private isExplicitlyClosed = false
+  private isClosing = false
+  private activeTransactions = 0
+  private drainResolve: (() => void) | null = null
+  private closePromise: Promise<void> | null = null
 
   constructor(
     private readonly databaseName: string,
@@ -22,7 +26,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
         this.db = db
         db.addEventListener('versionchange', () => {
           console.warn(`[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection.`)
-          this.disconnect()
+          void this.close()
         })
         resolve(db)
       }
@@ -34,25 +38,66 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   }
 
   private async getDB(): Promise<IDBDatabase> {
+    if (this.isExplicitlyClosed || this.isClosing) throw new Error('Database is closed')
     if (this.db) return this.db
     if (this.dbPromise) return this.dbPromise
-    if (this.isExplicitlyClosed) throw new Error('Database is closed')
 
     this.dbPromise = this.connect()
     return this.dbPromise
   }
 
-  close(): void {
-    this.isExplicitlyClosed = true
-    this.disconnect()
-  }
-
-  private disconnect(): void {
-    if (this.db) {
-      this.db.close()
-      this.db = null
+  close(): Promise<void> {
+    if (this.closePromise) {
+      return this.closePromise
     }
-    this.dbPromise = null
+
+    this.closePromise = (async () => {
+      this.isClosing = true
+      this.isExplicitlyClosed = true
+
+      // If connection is in progress, wait for it to settle
+      if (this.dbPromise) {
+        try {
+          await this.dbPromise
+        } catch {
+          // Open failed, nothing open to close
+        }
+      }
+
+      // Wait for any active in-flight transactions to drain
+      if (this.activeTransactions > 0) {
+        await new Promise<void>(resolve => {
+          this.drainResolve = resolve
+        })
+      }
+
+      const db = this.db
+      this.db = null
+      this.dbPromise = null
+
+      if (db) {
+        await new Promise<void>(resolve => {
+          let settled = false
+          const done = () => {
+            if (settled) return
+            settled = true
+            db.removeEventListener('close', done)
+            resolve()
+          }
+          db.addEventListener('close', done, { once: true })
+          try {
+            db.close()
+          } catch {
+            done()
+            return
+          }
+          // Fallback timer in case the runtime/browser doesn't fire 'close' on explicit close()
+          setTimeout(done, 25)
+        })
+      }
+    })()
+
+    return this.closePromise
   }
 
   private async withTransaction<T = void>(
@@ -60,57 +105,70 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
     mode: IDBTransactionMode,
     callback: (store: IDBObjectStore, transaction: IDBTransaction) => Promise<T> | T | void
   ): Promise<T> {
-    const db = await this.getDB()
-    return new Promise<T>((resolve, reject) => {
-      let isSettled = false
-      let result: T | undefined
+    if (this.isExplicitlyClosed || this.isClosing) {
+      throw new Error('Database is closed')
+    }
 
-      const safeResolve = (val: T) => {
-        if (!isSettled) {
-          isSettled = true
-          resolve(val)
-        }
-      }
+    this.activeTransactions += 1
+    try {
+      const db = await this.getDB()
+      return await new Promise<T>((resolve, reject) => {
+        let isSettled = false
+        let result: T | undefined
 
-      const safeReject = (err: unknown) => {
-        if (!isSettled) {
-          isSettled = true
-          reject(err)
-        }
-      }
-
-      const transaction = db.transaction(storeName, mode)
-      const store = transaction.objectStore(storeName)
-
-      transaction.onerror = () => safeReject(transaction.error)
-      transaction.onabort = () =>
-        safeReject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
-      transaction.oncomplete = () => {
-        safeResolve(result as T)
-      }
-
-      try {
-        const cbResult = callback(store, transaction)
-        if (cbResult instanceof Promise) {
-          cbResult.then(
-            res => {
-              result = res
-              if (mode === 'readonly') {
-                safeResolve(res)
-              }
-            },
-            err => safeReject(err)
-          )
-        } else if (cbResult !== undefined) {
-          result = cbResult
-          if (mode === 'readonly') {
-            safeResolve(cbResult)
+        const safeResolve = (val: T) => {
+          if (!isSettled) {
+            isSettled = true
+            resolve(val)
           }
         }
-      } catch (err) {
-        safeReject(err)
+
+        const safeReject = (err: unknown) => {
+          if (!isSettled) {
+            isSettled = true
+            reject(err)
+          }
+        }
+
+        const transaction = db.transaction(storeName, mode)
+        const store = transaction.objectStore(storeName)
+
+        transaction.onerror = () => safeReject(transaction.error)
+        transaction.onabort = () =>
+          safeReject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
+        transaction.oncomplete = () => {
+          safeResolve(result as T)
+        }
+
+        try {
+          const cbResult = callback(store, transaction)
+          if (cbResult instanceof Promise) {
+            cbResult.then(
+              res => {
+                result = res
+                if (mode === 'readonly') {
+                  safeResolve(res)
+                }
+              },
+              err => safeReject(err)
+            )
+          } else if (cbResult !== undefined) {
+            result = cbResult
+            if (mode === 'readonly') {
+              safeResolve(cbResult)
+            }
+          }
+        } catch (err) {
+          safeReject(err)
+        }
+      })
+    } finally {
+      this.activeTransactions -= 1
+      if (this.activeTransactions === 0 && this.drainResolve) {
+        this.drainResolve()
+        this.drainResolve = null
       }
-    })
+    }
   }
 
   async clear(): Promise<void> {

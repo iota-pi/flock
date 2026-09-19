@@ -1,6 +1,6 @@
 import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from '@automerge/automerge-repo/slim'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
-import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
 import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
@@ -66,6 +66,7 @@ export class AutomergeRepoManager {
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       channelName: `flock-automerge-broadcast-${this.accountId}`,
+      accountId: this.accountId,
       onKeyVersionMissing: options?.onKeyVersionMissing,
       onDocumentReceived: options?.onDocumentReceived,
     })
@@ -131,7 +132,7 @@ export class AutomergeRepoManager {
 
     if (this.indexedDbAdapter) {
       try {
-        this.indexedDbAdapter.close()
+        await this.indexedDbAdapter.close()
       } catch (err) {
         console.error(`[AutomergeRepoManager] Error closing IndexedDB connection for ${this.accountId}:`, err)
       }
