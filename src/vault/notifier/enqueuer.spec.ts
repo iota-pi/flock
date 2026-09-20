@@ -1,4 +1,4 @@
-import { isReminderTimeMatch } from './enqueuer'
+import { isReminderSnoozed, isReminderTimeMatch } from './enqueuer'
 
 describe('isReminderTimeMatch', () => {
   it('returns true when current local time exactly matches reminder time', () => {
@@ -57,5 +57,47 @@ describe('isReminderTimeMatch', () => {
     const nowUtc = new Date('2026-08-05T08:00:00Z')
     expect(isReminderTimeMatch(nowUtc, 'invalid', 'UTC')).toBe(false)
     expect(isReminderTimeMatch(nowUtc, '08:00', 'Invalid/Timezone')).toBe(false)
+  })
+})
+
+describe('isReminderSnoozed', () => {
+  it('returns true when current local date is strictly before snoozeRemindersUntil', () => {
+    // 2026-09-20 08:00 UTC, snoozed until 2026-09-21
+    const nowUtc = new Date('2026-09-20T08:00:00Z')
+    expect(isReminderSnoozed(nowUtc, 'UTC', '2026-09-21')).toBe(true)
+  })
+
+  it('returns false when current local date matches or exceeds snoozeRemindersUntil', () => {
+    // 2026-09-21 08:00 UTC, snoozed until 2026-09-21
+    const nowUtc = new Date('2026-09-21T08:00:00Z')
+    expect(isReminderSnoozed(nowUtc, 'UTC', '2026-09-21')).toBe(false)
+
+    // 2026-09-22 08:00 UTC, snoozed until 2026-09-21
+    const laterUtc = new Date('2026-09-22T08:00:00Z')
+    expect(isReminderSnoozed(laterUtc, 'UTC', '2026-09-21')).toBe(false)
+  })
+
+  it('returns false when snoozeRemindersUntil is undefined or null', () => {
+    const nowUtc = new Date('2026-09-20T08:00:00Z')
+    expect(isReminderSnoozed(nowUtc, 'UTC', undefined)).toBe(false)
+  })
+
+  it('correctly respects timezone boundaries', () => {
+    // 2026-09-19 23:00:00Z is 2026-09-20 09:00:00 AEST (UTC+10)
+    const nowUtc = new Date('2026-09-19T23:00:00Z')
+
+    // In UTC, today is 2026-09-19. If snoozed until 2026-09-20, in UTC today < 2026-09-20 is true
+    expect(isReminderSnoozed(nowUtc, 'UTC', '2026-09-20')).toBe(true)
+
+    // But in Australia/Sydney, today is 2026-09-20. So 2026-09-20 < 2026-09-20 is false (snooze expired!)
+    expect(isReminderSnoozed(nowUtc, 'Australia/Sydney', '2026-09-20')).toBe(false)
+
+    // And in Australia/Sydney, if snoozed until 2026-09-21, 2026-09-20 < 2026-09-21 is true
+    expect(isReminderSnoozed(nowUtc, 'Australia/Sydney', '2026-09-21')).toBe(true)
+  })
+
+  it('returns false gracefully for invalid timezone', () => {
+    const nowUtc = new Date('2026-09-20T08:00:00Z')
+    expect(isReminderSnoozed(nowUtc, 'Invalid/Timezone', '2026-09-21')).toBe(false)
   })
 })

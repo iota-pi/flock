@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
 import { Item } from 'src/state/items'
 import { useEventCallback } from 'src/hooks/useEventCallback'
-import { recordPrayerCompletion } from 'src/api/vault'
+import { snoozeReminders } from 'src/api/vault'
 import { isSameDay } from 'src/utils'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import { type FlowState } from 'src/state/slices/prayerFlowSlice'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
 import { useAppStore } from 'src/state/store'
+import { useMetadata } from 'src/state/selectors'
 
 export type PrayerFlowActions = {
   handleBack: () => void
@@ -68,6 +69,7 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
   } = params
 
   const account = useAppStore(state => state.account)
+  const [autoSnoozeWhenCompleted = true] = useMetadata('autoSnoozeWhenCompleted', true)
 
   const startAtIndex = (fromIndex: number) => {
     if (!visibleSchedule[fromIndex]) {
@@ -167,7 +169,9 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
 
     const nextIndex = flow.index + 1
     if (nextIndex >= visibleSchedule.length) {
-      recordPrayerCompletion(account, Date.now()).catch(() => {})
+      if (autoSnoozeWhenCompleted && account) {
+        void snoozeReminders(account).catch(() => {})
+      }
       finish(completed + (prayerUpdate.addedPrayer ? 1 : 0))
       void SyncBridge.flushSync().catch(err => {
         console.error('Failed to trigger forceSync after finishing prayer schedule:', err)

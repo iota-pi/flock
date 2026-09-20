@@ -60,7 +60,7 @@ export default abstract class BaseDriver<T = unknown> {
     reminderEnabled?: boolean,
     reminderTime?: string,
     reminderTimezone?: string,
-    lastPrayerCompletedAt?: number,
+    snoozeRemindersUntil?: string | null,
     lastSnapshotCursor?: number,
     lastSnapshotAt?: number,
     lastSnapshotRequestedAt?: number,

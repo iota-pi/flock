@@ -38,12 +38,12 @@ export async function getSession(account: string, authToken: string): Promise<st
   return response.session
 }
 
-export async function recordPrayerCompletion(account: string, completedAt: number): Promise<void> {
-  const response = await getTrpcClient().accounts.recordPrayerCompletion.mutate({
+export async function snoozeReminders(account: string, snoozeUntilDate?: string | null): Promise<void> {
+  const response = await getTrpcClient().accounts.snoozeReminders.mutate({
     account,
-    completedAt,
+    snoozeUntilDate,
   })
-  assertSuccess(response, 'recordPrayerCompletion')
+  assertSuccess(response, 'snoozeReminders')
 }
 
 export async function getKeyring(account: string): Promise<string | undefined> {

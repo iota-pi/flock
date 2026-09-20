@@ -295,4 +295,40 @@ describe('accountsRouter security contracts', () => {
       message: 'Concurrent credential update detected: keyringVersion conflict',
     })
   })
+
+  it('updates snoozeRemindersUntil with specified date', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.snoozeReminders({
+      account: 'acct-1',
+      snoozeUntilDate: '2026-09-25',
+    })
+
+    expect(result).toEqual({ success: true, snoozeRemindersUntil: '2026-09-25' })
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+      account: 'acct-1',
+      snoozeRemindersUntil: '2026-09-25',
+    })
+  })
+
+  it('derives tomorrow date in account timezone when snoozeUntilDate is omitted', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccount.mockResolvedValueOnce({
+      account: 'acct-1',
+      reminderTimezone: 'Australia/Sydney',
+    } as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.snoozeReminders({
+      account: 'acct-1',
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.snoozeRemindersUntil).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+      account: 'acct-1',
+      snoozeRemindersUntil: result.snoozeRemindersUntil,
+    })
+  })
 })

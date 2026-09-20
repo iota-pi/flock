@@ -2,7 +2,7 @@ export {
   createAccount,
   getSecurityParams,
   getSession,
-  recordPrayerCompletion,
+  snoozeReminders,
   getKeyring,
   updateKeyring,
   changePassword,
