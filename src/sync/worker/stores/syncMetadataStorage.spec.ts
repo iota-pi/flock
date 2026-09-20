@@ -5,7 +5,9 @@ import {
   clearSyncMetadataStorage,
   clearLegacySyncDatabases,
   SYNC_METADATA_STORE_NAME,
+  SYNC_METADATA_KEYS,
   LEGACY_DB_NAMES,
+  LEGACY_KEYS,
   ScopedMetadataStore,
   type ScopedMetadataStoreOptions,
 } from './syncMetadataStorage'
@@ -70,6 +72,11 @@ describe('syncMetadataStorage', () => {
 
   it('generates consistent database name for account', () => {
     expect(getSyncMetadataDBName('acc-123')).toBe('flock-sync-metadata-acc-123')
+  })
+
+  it('defines expected metadata and legacy keys including manual recovery migration', () => {
+    expect(SYNC_METADATA_KEYS.MANUAL_RECOVERY_MIGRATED).toBe('manualRecoveryMigrated')
+    expect(LEGACY_KEYS.MANUAL_RECOVERY_MIGRATED).toBe('__migrated_v2')
   })
 
   it('reuses same LocalForage instance for the same accountId', () => {

@@ -6,6 +6,7 @@ import { recordWorkerActivity } from './syncWorkerHealth'
 
 export interface SyncEventProcessorCallbacks {
   onKeyVersionMissing?: (kver?: string) => void
+  onActivity?: () => void
 }
 
 export class SyncEventProcessor {
@@ -57,7 +58,11 @@ export class SyncEventProcessor {
   }
 
   handleSyncEvent = (event: ClientEvent): void => {
-    recordWorkerActivity()
+    if (this.callbacks.onActivity) {
+      this.callbacks.onActivity()
+    } else {
+      recordWorkerActivity()
+    }
     switch (event.type) {
       case 'ready':
         break

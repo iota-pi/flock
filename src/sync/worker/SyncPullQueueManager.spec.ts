@@ -56,7 +56,7 @@ vi.mock('src/api/vault', () => ({
 }))
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('../client/realtimeBus', () => ({
+vi.mock('./realtimeBus', () => ({
   publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
 }))
 
@@ -230,7 +230,7 @@ describe('SyncPullQueueManager', () => {
       )
 
       expect(manager.exportCursors()).toContainEqual(['item-1', 5])
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-1'])
 
       // Check debounce persistence
       await vi.advanceTimersByTimeAsync(1000)

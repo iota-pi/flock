@@ -1,5 +1,7 @@
 import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
 
+type Callback = (_: any) => void
+
 describe('FlockIndexedDBStorageAdapter', () => {
   const originalIndexedDB = globalThis.indexedDB
   let mockOpenRequest: any
@@ -24,11 +26,27 @@ describe('FlockIndexedDBStorageAdapter', () => {
       error: null,
     }
 
+    const listeners: Record<string, Callback[]> = {}
     mockDb = {
       transaction: vi.fn().mockReturnValue(mockTransaction),
       createObjectStore: vi.fn(),
-      addEventListener: vi.fn(),
+      addEventListener: vi.fn((event: string, cb: Callback) => {
+        listeners[event] = listeners[event] || []
+        listeners[event].push(cb)
+      }),
+      removeEventListener: vi.fn((event: string, cb: Callback) => {
+        if (listeners[event]) {
+          listeners[event] = listeners[event].filter(fn => fn !== cb)
+        }
+      }),
       close: vi.fn(),
+      _emit: (event: string, arg?: any) => {
+        if (listeners[event]) {
+          for (const fn of [...listeners[event]]) {
+            fn(arg)
+          }
+        }
+      },
     }
 
     mockOpenRequest = {
@@ -261,6 +279,107 @@ describe('FlockIndexedDBStorageAdapter', () => {
 
       mockRequest.onerror()
       await expect(rangePromise).rejects.toThrow('Cursor failed')
+    })
+  })
+
+  describe('close()', () => {
+    it('awaits in-flight transactions before closing db', async () => {
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      let clearFinished = false
+      const clearPromise = adapter.clear().then(() => {
+        clearFinished = true
+      })
+
+      // Wait for transaction to initiate
+      await new Promise(r => setTimeout(r, 10))
+      expect(mockDb.transaction).toHaveBeenCalledWith('documents', 'readwrite')
+
+      let closeResolved = false
+      const closePromise = adapter.close().then(() => {
+        closeResolved = true
+      })
+
+      // Ensure close is waiting for active transaction
+      await new Promise(r => setTimeout(r, 10))
+      expect(mockDb.close).not.toHaveBeenCalled()
+      expect(closeResolved).toBe(false)
+      expect(clearFinished).toBe(false)
+
+      // Complete in-flight transaction
+      mockTransaction.oncomplete()
+      await clearPromise
+      expect(clearFinished).toBe(true)
+
+      // Emit close event on database
+      mockDb._emit('close')
+      await closePromise
+      expect(mockDb.close).toHaveBeenCalledTimes(1)
+      expect(closeResolved).toBe(true)
+    })
+
+    it('rejects new transactions while closing or once closed', async () => {
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const clearPromise = adapter.clear()
+      await new Promise(r => setTimeout(r, 10))
+
+      const closePromise = adapter.close()
+
+      // Attempting a new transaction while closing should immediately reject
+      await expect(adapter.load(['doc-1'])).rejects.toThrow('Database is closed')
+
+      mockTransaction.oncomplete()
+      await clearPromise
+      mockDb._emit('close')
+      await closePromise
+
+      // Attempting a new transaction after closed should also reject
+      await expect(adapter.save(['doc-1'], new Uint8Array([1, 2, 3]))).rejects.toThrow('Database is closed')
+    })
+
+    it('resolves when IDBDatabase emits close event', async () => {
+      mockDb.close.mockImplementation(() => {
+        mockDb._emit('close')
+      })
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      await adapter.close()
+
+      expect(mockDb.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('resolves safely via fallback timer if close event is not emitted', async () => {
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      // mockDb.close does not emit 'close' event
+      await adapter.close()
+
+      expect(mockDb.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('is idempotent on repeated calls to close()', async () => {
+      mockDb.close.mockImplementation(() => {
+        mockDb._emit('close')
+      })
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const p1 = adapter.close()
+      const p2 = adapter.close()
+
+      expect(p1).toBe(p2)
+      await Promise.all([p1, p2])
+
+      expect(mockDb.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('closes database connection on versionchange event', async () => {
+      new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      // Wait for connect
+      await new Promise(r => setTimeout(r, 10))
+
+      mockDb._emit('versionchange')
+
+      // Let microtasks and close logic run
+      await new Promise(r => setTimeout(r, 10))
+      expect(mockDb.close).toHaveBeenCalled()
     })
   })
 })

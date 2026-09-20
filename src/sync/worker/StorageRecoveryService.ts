@@ -12,7 +12,7 @@ import type { AutomergeDocStore } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
 import type { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
-import type { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { SyncOrchestrator } from './SyncOrchestrator'
 
 export class QuotaExceededRetryError extends Error {

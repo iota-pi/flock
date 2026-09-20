@@ -17,7 +17,7 @@ import {
   type CryptoResult,
 } from 'src/api/vault'
 import { decryptWithKeyResolution, MissingKeyError } from './utils/decryptWithKeyResolution'
-import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
+import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import { AsyncQueue } from './utils/AsyncQueue'
 import { BoundedQueue } from '../utils/boundedCollections'
@@ -26,6 +26,7 @@ export const DEFAULT_MAX_CRYPTO_RETRIES = 3
 export const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
 
 export interface EncryptedBroadcastChannelOptions extends Partial<BroadcastChannelNetworkAdapterOptions> {
+  accountId?: string
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
   maxPendingMessagesPerKey?: number
@@ -43,6 +44,7 @@ interface QueuedMessage {
 
 export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private options?: EncryptedBroadcastChannelOptions
+  private accountId?: string
   private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: AsyncQueue<QueuedMessage>
   private receiveQueue: AsyncQueue<QueuedMessage>
@@ -57,6 +59,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   constructor(options?: EncryptedBroadcastChannelOptions) {
     super()
     this.options = options
+    this.accountId = options?.accountId ?? (options?.channelName?.startsWith('flock-automerge-broadcast-') ? options.channelName.slice('flock-automerge-broadcast-'.length) : undefined)
     this.maxPendingMessagesPerKey = options?.maxPendingMessagesPerKey ?? 1000
     this.maxCryptoRetries = options?.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
     const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'
@@ -134,10 +137,10 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           const jsonString = JSON.stringify(cryptoResult)
           const encodedData = new TextEncoder().encode(jsonString)
           this.inner.send({ ...item.message, data: encodedData })
-          if (item.message.documentId) {
+          if (item.message.documentId && this.accountId) {
             const itemId = toVaultItemIdFromAutomergeId(item.message.documentId)
             if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-              publishRealtimeBusSyncPing([itemId])
+              publishRealtimeBusSyncPing(this.accountId, [itemId])
             }
           }
         } else {

@@ -5,7 +5,11 @@ import type { BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
 
 export interface SyncApi {
-  initRepo: (accountId: string, vaultKey: string) => Promise<void>
+  initRepo: (
+    accountId: string,
+    vaultKey: string,
+    refreshAuthToken?: () => Promise<string | null>
+  ) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
   bootstrapItems: () => Promise<void>
   mutateItem: (id: ItemId, changes: Partial<Item>) => Promise<void>

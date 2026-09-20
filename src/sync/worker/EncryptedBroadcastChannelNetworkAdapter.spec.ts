@@ -5,7 +5,7 @@ import { toDocumentIdFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/autom
 import type { ItemId } from 'src/shared/schemas/items'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('../client/realtimeBus', () => ({
+vi.mock('./realtimeBus', () => ({
   publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
 }))
 
@@ -73,7 +73,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
     vi.mocked(hasVaultKey).mockReturnValue(true)
     vi.mocked(waitForKeyVersion).mockResolvedValue(true)
-    adapter = new EncryptedBroadcastChannelNetworkAdapter()
+    adapter = new EncryptedBroadcastChannelNetworkAdapter({ accountId: 'account-1' })
     innerAdapterMock = (adapter as any).inner
   })
 
@@ -866,7 +866,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       adapter.send(message)
 
       await vi.waitFor(() => {
-        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-abc'])
+        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-abc'])
       })
     })
 

@@ -7,53 +7,6 @@ export const MAX_CONSECUTIVE_TIMEOUTS = 5
 export const CRASH_RESET_WINDOW_MS = 60000
 export const DEFAULT_MAX_MISSED_PINGS = 2
 
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null
-let crashCount = 0
-let timeoutCrashCount = 0
-let lastCrashTime = 0
-let isPinging = false
-let activePingAbortController: AbortController | null = null
-let cleanupCurrentWorkerListeners: (() => void) | null = null
-let lastWorkerActivityTime = 0
-let consecutiveMissedPings = 0
-let lastTickTime = 0
-
-export const recordWorkerActivity = () => {
-  lastWorkerActivityTime = Date.now()
-  if (consecutiveMissedPings > 0) {
-    consecutiveMissedPings = 0
-    useAppStore.getState().clearSyncWarning()
-  }
-}
-
-export const getLastWorkerActivityTime = (): number => lastWorkerActivityTime
-
-export const stopWorkerHeartbeat = () => {
-  if (heartbeatTimer !== null) {
-    clearInterval(heartbeatTimer)
-    heartbeatTimer = null
-  }
-  if (activePingAbortController !== null) {
-    activePingAbortController.abort(new Error('Heartbeat stopped'))
-    activePingAbortController = null
-  }
-  if (cleanupCurrentWorkerListeners !== null) {
-    cleanupCurrentWorkerListeners()
-    cleanupCurrentWorkerListeners = null
-  }
-  isPinging = false
-  consecutiveMissedPings = 0
-}
-
-export const resetCrashMetrics = () => {
-  crashCount = 0
-  timeoutCrashCount = 0
-  lastCrashTime = 0
-  consecutiveMissedPings = 0
-  lastWorkerActivityTime = Date.now()
-  lastTickTime = 0
-}
-
 export interface SendPingOptions {
   signal?: AbortSignal
   timeoutMs?: number
@@ -61,8 +14,7 @@ export interface SendPingOptions {
 
 export interface HealthCheckOptions {
   worker: Worker
-  pingPort?: MessagePort
-  pingFn?: (signal?: AbortSignal) => Promise<void>
+  pingPort: MessagePort
   isCurrentWorker: () => boolean
   onCrash: (willRestart?: boolean) => void
   onRestart: () => void
@@ -76,57 +28,6 @@ interface CrashDetails {
   onCrash: (willRestart?: boolean) => void
   onRestart: () => void
   isTimeout?: boolean
-}
-
-function handleWorkerCrash({
-  worker,
-  onCrash,
-  onRestart,
-  isTimeout = false,
-}: CrashDetails) {
-  stopWorkerHeartbeat()
-
-  try {
-    worker.terminate()
-  } catch (err) {
-    console.error('[SyncBridge] Error terminating crashed worker:', err)
-  }
-
-  const now = Date.now()
-  if (now - lastCrashTime > CRASH_RESET_WINDOW_MS) {
-    crashCount = 1
-    timeoutCrashCount = isTimeout ? 1 : 0
-  } else {
-    crashCount += 1
-    if (isTimeout) {
-      timeoutCrashCount += 1
-    }
-  }
-  lastCrashTime = now
-
-  const maxAllowed = isTimeout ? MAX_CONSECUTIVE_TIMEOUTS : MAX_CONSECUTIVE_CRASHES
-  const currentCount = isTimeout ? timeoutCrashCount : crashCount
-  const willRestart = currentCount < maxAllowed
-
-  onCrash(willRestart)
-
-  if (!willRestart) {
-    console.error(
-      `[SyncBridge] Worker halted after ${currentCount} consecutive ${isTimeout ? 'timeouts' : 'crashes'}. Halting auto-restart.`
-    )
-    const errorMsg = isTimeout
-      ? 'Sync worker became unresponsive repeatedly. Please refresh the page to try again.'
-      : 'Sync worker crashed repeatedly. Please refresh the page to try again.'
-    useAppStore.getState().setFatalError(errorMsg)
-    useAppStore.getState().setSyncStatus('dead')
-  } else {
-    console.warn(
-      `[SyncBridge] Attempting automatic restart (${isTimeout ? 'timeout' : 'crash'} count: ${currentCount}/${maxAllowed})...`
-    )
-    useAppStore.getState().setSyncStatus('connecting')
-    useAppStore.getState().setSyncWarning('Sync connection lost. Reconnecting...')
-    onRestart()
-  }
 }
 
 export const sendPing = (
@@ -229,160 +130,262 @@ function isExternalAbort(signal: AbortSignal): boolean {
   return msg !== 'Heartbeat timeout'
 }
 
-export const setupWorkerHealthCheck = ({
-  worker,
-  pingPort,
-  pingFn,
-  isCurrentWorker,
-  onCrash,
-  onRestart,
-  heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
-  heartbeatTimeoutMs = HEARTBEAT_TIMEOUT_MS,
-  maxMissedPings = DEFAULT_MAX_MISSED_PINGS,
-}: HealthCheckOptions) => {
-  stopWorkerHeartbeat()
+export class SyncWorkerHealthMonitor {
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private crashCount = 0
+  private timeoutCrashCount = 0
+  private lastCrashTime = 0
+  private isPinging = false
+  private activePingAbortController: AbortController | null = null
+  private cleanupCurrentWorkerListeners: (() => void) | null = null
+  private lastWorkerActivityTime = 0
+  private consecutiveMissedPings = 0
+  private lastTickTime = 0
 
-  const handleCrash = (isTimeout = false) => {
-    if (!isCurrentWorker()) return
-    handleWorkerCrash({ worker, onCrash, onRestart, isTimeout })
-  }
-
-  const handleError = (event: Event) => {
-    console.error('[SyncBridge] Web worker error:', event)
-    handleCrash(false)
-  }
-
-  const handleMsgError = (event: Event) => {
-    console.error('[SyncBridge] Web worker message error:', event)
-    handleCrash(false)
-  }
-
-  const handleVisibilityChange = () => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      lastTickTime = Date.now()
+  recordActivity = (): void => {
+    this.lastWorkerActivityTime = Date.now()
+    if (this.consecutiveMissedPings > 0) {
+      this.consecutiveMissedPings = 0
+      useAppStore.getState().clearSyncWarning()
     }
   }
 
-  worker.addEventListener('error', handleError)
-  worker.addEventListener('messageerror', handleMsgError)
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', handleVisibilityChange)
+  getLastWorkerActivityTime = (): number => {
+    return this.lastWorkerActivityTime
   }
 
-  cleanupCurrentWorkerListeners = () => {
-    worker.removeEventListener('error', handleError)
-    worker.removeEventListener('messageerror', handleMsgError)
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
+  stopWorkerHeartbeat = (): void => {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
     }
+    if (this.activePingAbortController !== null) {
+      this.activePingAbortController.abort(new Error('Heartbeat stopped'))
+      this.activePingAbortController = null
+    }
+    if (this.cleanupCurrentWorkerListeners !== null) {
+      this.cleanupCurrentWorkerListeners()
+      this.cleanupCurrentWorkerListeners = null
+    }
+    this.isPinging = false
+    this.consecutiveMissedPings = 0
   }
 
-  lastTickTime = Date.now()
-  lastWorkerActivityTime = Date.now()
-  consecutiveMissedPings = 0
+  resetCrashMetrics = (): void => {
+    this.crashCount = 0
+    this.timeoutCrashCount = 0
+    this.lastCrashTime = 0
+    this.consecutiveMissedPings = 0
+    this.lastWorkerActivityTime = Date.now()
+    this.lastTickTime = 0
+  }
 
-  heartbeatTimer = setInterval(async () => {
-    if (!isCurrentWorker()) {
-      stopWorkerHeartbeat()
-      return
-    }
-
-    // 1. Tab visibility: skip heartbeat initiation if tab is backgrounded/hidden
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-      return
-    }
-
-    // 2. Sleep-wake / clock jump detection: if interval was delayed significantly, system slept or was throttled
-    const now = Date.now()
-    const timeSinceLastTick = now - lastTickTime
-    lastTickTime = now
-
-    if (timeSinceLastTick > heartbeatIntervalMs * 2.5) {
-      console.warn(`[SyncBridge] Sleep/throttle detected (${timeSinceLastTick}ms elapsed since last tick). Discarding stale ping.`)
-      if (isPinging && activePingAbortController) {
-        activePingAbortController.abort(new Error('System sleep detected'))
-      }
-      isPinging = false
-      consecutiveMissedPings = 0
-      return
-    }
-
-    if (isPinging) {
-      return
-    }
-
-    isPinging = true
-    const abortController = new AbortController()
-    activePingAbortController = abortController
+  handleWorkerCrash({
+    worker,
+    onCrash,
+    onRestart,
+    isTimeout = false,
+  }: CrashDetails): void {
+    this.stopWorkerHeartbeat()
 
     try {
-      if (pingPort) {
+      worker.terminate()
+    } catch (err) {
+      console.error('[SyncBridge] Error terminating crashed worker:', err)
+    }
+
+    const now = Date.now()
+    if (now - this.lastCrashTime > CRASH_RESET_WINDOW_MS) {
+      this.crashCount = 1
+      this.timeoutCrashCount = isTimeout ? 1 : 0
+    } else {
+      this.crashCount += 1
+      if (isTimeout) {
+        this.timeoutCrashCount += 1
+      }
+    }
+    this.lastCrashTime = now
+
+    const maxAllowed = isTimeout ? MAX_CONSECUTIVE_TIMEOUTS : MAX_CONSECUTIVE_CRASHES
+    const currentCount = isTimeout ? this.timeoutCrashCount : this.crashCount
+    const willRestart = currentCount < maxAllowed
+
+    onCrash(willRestart)
+
+    if (!willRestart) {
+      console.error(
+        `[SyncBridge] Worker halted after ${currentCount} consecutive ${isTimeout ? 'timeouts' : 'crashes'}. Halting auto-restart.`
+      )
+      const errorMsg = isTimeout
+        ? 'Sync worker became unresponsive repeatedly. Please refresh the page to try again.'
+        : 'Sync worker crashed repeatedly. Please refresh the page to try again.'
+      useAppStore.getState().setFatalError(errorMsg)
+      useAppStore.getState().setSyncStatus('dead')
+    } else {
+      console.warn(
+        `[SyncBridge] Attempting automatic restart (${isTimeout ? 'timeout' : 'crash'} count: ${currentCount}/${maxAllowed})...`
+      )
+      useAppStore.getState().setSyncStatus('connecting')
+      useAppStore.getState().setSyncWarning('Sync connection lost. Reconnecting...')
+      onRestart()
+    }
+  }
+
+  setupWorkerHealthCheck = ({
+    worker,
+    pingPort,
+    isCurrentWorker,
+    onCrash,
+    onRestart,
+    heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
+    heartbeatTimeoutMs = HEARTBEAT_TIMEOUT_MS,
+    maxMissedPings = DEFAULT_MAX_MISSED_PINGS,
+  }: HealthCheckOptions): void => {
+    this.stopWorkerHeartbeat()
+
+    const handleCrash = (isTimeout = false) => {
+      if (!isCurrentWorker()) return
+      this.handleWorkerCrash({ worker, onCrash, onRestart, isTimeout })
+    }
+
+    const handleError = (event: Event) => {
+      console.error('[SyncBridge] Web worker error:', event)
+      handleCrash(false)
+    }
+
+    const handleMsgError = (event: Event) => {
+      console.error('[SyncBridge] Web worker message error:', event)
+      handleCrash(false)
+    }
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        this.lastTickTime = Date.now()
+      }
+    }
+
+    worker.addEventListener('error', handleError)
+    worker.addEventListener('messageerror', handleMsgError)
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+    }
+
+    this.cleanupCurrentWorkerListeners = () => {
+      worker.removeEventListener('error', handleError)
+      worker.removeEventListener('messageerror', handleMsgError)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+      }
+    }
+
+    this.lastTickTime = Date.now()
+    this.lastWorkerActivityTime = Date.now()
+    this.consecutiveMissedPings = 0
+
+    this.heartbeatTimer = setInterval(async () => {
+      if (!isCurrentWorker()) {
+        this.stopWorkerHeartbeat()
+        return
+      }
+
+      // 1. Tab visibility: skip heartbeat initiation if tab is backgrounded/hidden
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return
+      }
+
+      // 2. Sleep-wake / clock jump detection: if interval was delayed significantly, system slept or was throttled
+      const now = Date.now()
+      const timeSinceLastTick = now - this.lastTickTime
+      this.lastTickTime = now
+
+      if (timeSinceLastTick > heartbeatIntervalMs * 2.5) {
+        console.warn(`[SyncBridge] Sleep/throttle detected (${timeSinceLastTick}ms elapsed since last tick). Discarding stale ping.`)
+        if (this.isPinging && this.activePingAbortController) {
+          this.activePingAbortController.abort(new Error('System sleep detected'))
+        }
+        this.isPinging = false
+        this.consecutiveMissedPings = 0
+        return
+      }
+
+      if (this.isPinging) {
+        return
+      }
+
+      this.isPinging = true
+      const abortController = new AbortController()
+      this.activePingAbortController = abortController
+
+      try {
         await sendPing(pingPort, {
           signal: abortController.signal,
           timeoutMs: heartbeatTimeoutMs,
         })
-      } else if (pingFn) {
-        let timeoutId: ReturnType<typeof setTimeout> | null = null
-        try {
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => {
-              const err = new Error('Heartbeat timeout')
-              abortController.abort(err)
-              reject(err)
-            }, heartbeatTimeoutMs)
-          })
-          const pingPromise = pingFn(abortController.signal)
-          pingPromise.catch(() => {})
-          timeoutPromise.catch(() => {})
-          await Promise.race([pingPromise, timeoutPromise])
-        } finally {
-          if (timeoutId !== null) {
-            clearTimeout(timeoutId)
-          }
+
+        // Ping succeeded
+        this.consecutiveMissedPings = 0
+        this.recordActivity()
+      } catch (error) {
+        if (!isCurrentWorker() || isExternalAbort(abortController.signal)) {
+          return
         }
-      }
 
-      // Ping succeeded
-      consecutiveMissedPings = 0
-      recordWorkerActivity()
-    } catch (error) {
-      if (!isCurrentWorker() || isExternalAbort(abortController.signal)) {
-        return
-      }
+        // Check if system sleep / clock jump occurred while ping was in flight
+        const nowAfterPing = Date.now()
+        if (nowAfterPing - this.lastTickTime > heartbeatIntervalMs * 2.5) {
+          console.warn('[SyncBridge] Sleep/throttle detected during ping. Discarding timeout.')
+          this.consecutiveMissedPings = 0
+          return
+        }
 
-      // Check if system sleep / clock jump occurred while ping was in flight
-      const nowAfterPing = Date.now()
-      if (nowAfterPing - lastTickTime > heartbeatIntervalMs * 2.5) {
-        console.warn('[SyncBridge] Sleep/throttle detected during ping. Discarding timeout.')
-        consecutiveMissedPings = 0
-        return
-      }
+        // 3. Activity awareness: if worker emitted events recently, it is alive and functional
+        const timeSinceActivity = Date.now() - this.lastWorkerActivityTime
+        if (timeSinceActivity < heartbeatTimeoutMs) {
+          console.info(`[SyncBridge] Worker ping timed out but activity was observed ${timeSinceActivity}ms ago. Skipping crash.`)
+          this.consecutiveMissedPings = 0
+          return
+        }
 
-      // 3. Activity awareness: if worker emitted events recently, it is alive and functional
-      const timeSinceActivity = Date.now() - lastWorkerActivityTime
-      if (timeSinceActivity < heartbeatTimeoutMs) {
-        console.info(`[SyncBridge] Worker ping timed out but activity was observed ${timeSinceActivity}ms ago. Skipping crash.`)
-        consecutiveMissedPings = 0
-        return
-      }
+        // 4. Progressive confirmation before termination
+        this.consecutiveMissedPings += 1
+        if (this.consecutiveMissedPings < maxMissedPings) {
+          console.warn(
+            `[SyncBridge] Worker heartbeat missed (attempt ${this.consecutiveMissedPings}/${maxMissedPings}). Probing before termination...`
+          )
+          useAppStore.getState().setSyncWarning('Sync connection is slow. Checking...')
+          return
+        }
 
-      // 4. Progressive confirmation before termination
-      consecutiveMissedPings += 1
-      if (consecutiveMissedPings < maxMissedPings) {
-        console.warn(
-          `[SyncBridge] Worker heartbeat missed (attempt ${consecutiveMissedPings}/${maxMissedPings}). Probing before termination...`
-        )
-        useAppStore.getState().setSyncWarning('Sync connection is slow. Checking...')
-        return
+        console.error(`[SyncBridge] Worker heartbeat failed after ${this.consecutiveMissedPings} missed pings:`, error)
+        handleCrash(true)
+      } finally {
+        if (this.activePingAbortController === abortController) {
+          this.activePingAbortController = null
+        }
+        this.isPinging = false
       }
+    }, heartbeatIntervalMs)
+  }
+}
 
-      console.error(`[SyncBridge] Worker heartbeat failed after ${consecutiveMissedPings} missed pings:`, error)
-      handleCrash(true)
-    } finally {
-      if (activePingAbortController === abortController) {
-        activePingAbortController = null
-      }
-      isPinging = false
-    }
-  }, heartbeatIntervalMs)
+export const defaultHealthMonitor = new SyncWorkerHealthMonitor()
+
+export function recordWorkerActivity(): void {
+  defaultHealthMonitor.recordActivity()
+}
+
+export function getLastWorkerActivityTime(): number {
+  return defaultHealthMonitor.getLastWorkerActivityTime()
+}
+
+export function stopWorkerHeartbeat(): void {
+  defaultHealthMonitor.stopWorkerHeartbeat()
+}
+
+export function resetCrashMetrics(): void {
+  defaultHealthMonitor.resetCrashMetrics()
+}
+
+export function setupWorkerHealthCheck(options: HealthCheckOptions): void {
+  defaultHealthMonitor.setupWorkerHealthCheck(options)
 }

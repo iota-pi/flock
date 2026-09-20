@@ -523,8 +523,6 @@ export async function removeVaultFromDevice() {
     } catch (error) {
       console.error('Failed to unsubscribe from notifications', error)
     }
-    const { clearSyncBatch } = await import('src/sync/shared/VaultPersistence')
-    await clearSyncBatch(account).catch(console.error)
     await SyncWriteAheadLog.clear(account)
     await clearManualRecoveryEntries(account)
   }

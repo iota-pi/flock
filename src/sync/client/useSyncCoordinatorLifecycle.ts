@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from './SyncBridge'
 import { resumePendingReencryption } from '../../api/vault/reencrypt'
-import { attemptSessionRecovery } from '../../api/vault/sessionRecovery'
 
 export default function useSyncCoordinatorLifecycle(
   account: string | null | undefined,
@@ -27,19 +26,7 @@ export default function useSyncCoordinatorLifecycle(
           console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
         })
 
-      const handleOnline = async () => {
-        const recovered = await attemptSessionRecovery(account)
-        if (recovered) {
-          useAppStore.getState().clearSyncWarning()
-          SyncBridge.flushSync().catch(console.error)
-        }
-        void resumePendingReencryption(account)
-      }
-
-      window.addEventListener('online', handleOnline)
-
       return () => {
-        window.removeEventListener('online', handleOnline)
         if (SyncBridge.isClearingLocalData?.()) {
           return
         }

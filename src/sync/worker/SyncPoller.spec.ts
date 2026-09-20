@@ -1,7 +1,8 @@
 import { SyncPoller } from './SyncPoller'
+import { SyncApiClient } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from 'src/shared/schemas/items'
@@ -665,5 +666,86 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
     })
   })
-})
 
+  describe('Auth and SyncApiClient integration', () => {
+    it('returns no-poll when apiClient reports no auth token', async () => {
+      const mockApiClient = {
+        hasAuthToken: vi.fn().mockResolvedValue(false),
+        pollSyncBatch: vi.fn(),
+      } as unknown as SyncApiClient
+
+      const authPoller = new SyncPoller(
+        pullQueueManager,
+        clientEventHub,
+        internalEventHub,
+        indexManager,
+        mockWal,
+        mockApiClient,
+      )
+      authPoller.setAccount('test-account')
+      authPoller.setOnlineState(true)
+
+      const outcome = await authPoller.executePoll()
+      expect(outcome).toBe('no-poll')
+      expect(mockApiClient.pollSyncBatch).not.toHaveBeenCalled()
+    })
+
+    it('recovers transparently and succeeds when initial poll fails with 401 but refresh succeeds', async () => {
+      const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-session-token')
+      const apiClient = new SyncApiClient({ refreshAuthToken })
+
+      mockPollSyncBatchWithToken
+        .mockRejectedValueOnce({ httpStatus: 401, message: 'Session expired' })
+        .mockResolvedValueOnce({
+          success: true,
+          pushResults: [],
+          pullResults: [],
+        })
+
+      const authPoller = new SyncPoller(
+        pullQueueManager,
+        clientEventHub,
+        internalEventHub,
+        indexManager,
+        mockWal,
+        apiClient,
+      )
+      authPoller.setAccount('test-account')
+      authPoller.setOnlineState(true)
+
+      const outcome = await authPoller.executePoll()
+      expect(outcome).toBe('success')
+      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+      expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+      expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
+        expect.objectContaining({ authToken: 'refreshed-session-token' }),
+        expect.any(Object)
+      )
+    })
+
+    it('returns auth-failure when poll fails with 401 and token cannot be refreshed', async () => {
+      const refreshAuthToken = vi.fn().mockResolvedValue(null)
+      const apiClient = new SyncApiClient({
+        getAuthToken: vi.fn().mockResolvedValue('expired-token'),
+        refreshAuthToken,
+      })
+
+      mockPollSyncBatchWithToken.mockRejectedValue({ httpStatus: 401, message: 'Unauthorized' })
+
+      const authPoller = new SyncPoller(
+        pullQueueManager,
+        clientEventHub,
+        internalEventHub,
+        indexManager,
+        mockWal,
+        apiClient,
+      )
+      authPoller.setAccount('test-account')
+      authPoller.setOnlineState(true)
+
+      const outcome = await authPoller.executePoll()
+      expect(outcome).toBe('auth-failure')
+      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+    })
+  })
+})

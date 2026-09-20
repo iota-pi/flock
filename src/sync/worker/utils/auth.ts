@@ -21,7 +21,7 @@ function matchesAuthError(parsed: ParsedError): boolean {
   }
 
   const name = parsed.name
-  if (name === 'UnauthorizedError' || name === 'ForbiddenError') {
+  if (name === 'UnauthorizedError' || name === 'ForbiddenError' || name === 'AuthExpiredError') {
     return true
   }
 

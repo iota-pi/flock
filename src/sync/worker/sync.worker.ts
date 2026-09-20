@@ -8,7 +8,7 @@ import type { SyncApi } from './syncProtocol'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
-import { subscribeRealtimeBusSyncPing } from '../client/realtimeBus'
+import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
 import { initWorkerVault } from '../../api/vault'
 import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../../utils/storageManager'
@@ -21,7 +21,6 @@ import { toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/aut
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
-import { reencryptAllItems } from './reencryptAllItems'
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {
@@ -86,10 +85,14 @@ export class SyncWorker implements SyncApi {
   }
 
   private async teardownSession(): Promise<void> {
+    const accountId = this._context?.accountId
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
+    }
+    if (accountId) {
+      teardownRealtimeBus(accountId)
     }
     await this._context?.shutdown()
     this._context = null
@@ -186,8 +189,8 @@ export class SyncWorker implements SyncApi {
     this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
   }
 
-  private setupRealtimeBus(): void {
-    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
+  private setupRealtimeBus(accountId: string): void {
+    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(accountId, itemIds => {
       this.subscribeToItems(itemIds)
       if (this._context) {
         this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
@@ -196,7 +199,7 @@ export class SyncWorker implements SyncApi {
     })
   }
 
-  async initRepo(accountId: string, vaultKey: string) {
+  async initRepo(accountId: string, vaultKey: string, refreshAuthToken?: () => Promise<string | null>) {
     this.isShutDown = false
     if (this.isReady || !this.readyPromise) {
       this.isReady = false
@@ -213,6 +216,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
+        refreshAuthToken,
         onDocumentReceived: itemId => this.subscribeToItems([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
@@ -223,7 +227,7 @@ export class SyncWorker implements SyncApi {
       this.subscribeInternalEvents()
 
       await this.initializeAccountSession(context, accountId)
-      this.setupRealtimeBus()
+      this.setupRealtimeBus(accountId)
 
       this.clientEventHub.emit({ type: 'ready' })
       this.syncStatusManager.reset(this.isOnline)
@@ -439,12 +443,14 @@ export class SyncWorker implements SyncApi {
     refreshAuthToken?: () => Promise<string | null>
   ) {
     const context = await this.ensureReady()
-    return await reencryptAllItems({
+    return await context.itemReencryptor.reencryptAllItems({
       accountId: context.accountId,
       repo: context.repo,
       indexManager: context.indexManager,
       refreshAuthToken,
       recoveryManager: context.recoveryManager,
+      apiClient: context.apiClient,
+      reencryptor: context.itemReencryptor,
     }, onProgress)
   }
 
@@ -487,18 +493,19 @@ export class SyncWorker implements SyncApi {
     }
     this.initReadyPromise()
 
+    const accountId = this._context?.accountId
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
     }
+    if (accountId) {
+      teardownRealtimeBus(accountId)
+    } else {
+      teardownRealtimeBus()
+    }
     await this._context?.shutdown(options)
     this._context = null
-
-    // Give the browser event loop a moment to finish closing the IndexedDB connection
-    if (typeof process === 'undefined' || process.env.NODE_ENV !== 'test') {
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
   }
 }
 

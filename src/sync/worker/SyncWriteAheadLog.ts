@@ -41,13 +41,17 @@ function toUint8Array(data: unknown): Uint8Array {
   return new Uint8Array()
 }
 
+const MAX_ENTRIES = 2000
+const PRUNE_BATCH_SIZE = 100
+
 export class SyncWriteAheadLog {
-  public static readonly MAX_ENTRIES = 2000
-  private static readonly PRUNE_BATCH_SIZE = 100
-  private static seqCounter = 0
+  public static readonly MAX_ENTRIES = MAX_ENTRIES
+  public static readonly PRUNE_BATCH_SIZE = PRUNE_BATCH_SIZE
+
+  private seqCounter = 0
 
   public static resetSeqCounterForTesting(): void {
-    SyncWriteAheadLog.seqCounter = 0
+    // Kept for backward compatibility
   }
 
   private storage: LocalForage
@@ -251,17 +255,17 @@ export class SyncWriteAheadLog {
   private async performEnforceSizeLimit(): Promise<void> {
     try {
       const currentLength = await this.storage.length()
-      if (currentLength >= SyncWriteAheadLog.MAX_ENTRIES) {
+      if (currentLength >= MAX_ENTRIES) {
         console.warn(
-          `[SyncWriteAheadLog] WAL entry count (${currentLength}) reached threshold (${SyncWriteAheadLog.MAX_ENTRIES}). Compacting entries by item...`
+          `[SyncWriteAheadLog] WAL entry count (${currentLength}) reached threshold (${MAX_ENTRIES}). Compacting entries by item...`
         )
         // Step 1: Compact multiple entries per item
         await this.compact()
 
         const newLength = await this.storage.length()
         // Step 2: If still over limit (e.g. >2,000 unique items), prune oldest
-        if (newLength >= SyncWriteAheadLog.MAX_ENTRIES) {
-          const overflow = newLength - SyncWriteAheadLog.MAX_ENTRIES + SyncWriteAheadLog.PRUNE_BATCH_SIZE
+        if (newLength >= MAX_ENTRIES) {
+          const overflow = newLength - MAX_ENTRIES + PRUNE_BATCH_SIZE
           console.warn(
             `[SyncWriteAheadLog] WAL still at ${newLength} entries after compaction. Pruning ${overflow} oldest entries.`
           )
@@ -283,8 +287,8 @@ export class SyncWriteAheadLog {
     try {
       reduced = await this.compact()
       if (reduced === 0) {
-        console.warn(`[SyncWriteAheadLog] Compaction freed 0 entries. Emergency pruning oldest ${SyncWriteAheadLog.PRUNE_BATCH_SIZE} entries...`)
-        await this.pruneOldest(SyncWriteAheadLog.PRUNE_BATCH_SIZE)
+        console.warn(`[SyncWriteAheadLog] Compaction freed 0 entries. Emergency pruning oldest ${PRUNE_BATCH_SIZE} entries...`)
+        await this.pruneOldest(PRUNE_BATCH_SIZE)
       }
     } catch (err) {
       console.error('[SyncWriteAheadLog] Error during emergency compaction/prune:', err)
@@ -299,14 +303,14 @@ export class SyncWriteAheadLog {
   async append(itemId: ItemId, data: Uint8Array): Promise<string> {
     await this.enforceSizeLimit()
 
-    SyncWriteAheadLog.seqCounter += 1
+    this.seqCounter += 1
     const id = nanoid()
     const entry: WalEntry = {
       id,
       itemId,
       data,
       createdAt: Date.now(),
-      seq: SyncWriteAheadLog.seqCounter,
+      seq: this.seqCounter,
     }
 
     await runStorageOperation(() => this.storage.setItem(id, entry))
@@ -393,6 +397,7 @@ export class SyncWriteAheadLog {
    */
   async clear(): Promise<void> {
     this.inFlightEntryIds.clear()
+    this.seqCounter = 0
     await runStorageOperation(() => this.storage.clear())
   }
 }

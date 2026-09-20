@@ -1,5 +1,5 @@
 import { AutomergeRepoManager } from './AutomergeRepoManager'
-import type { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import * as storageManager from '../../utils/storageManager'
 
 vi.mock('@automerge/automerge-repo/slim', () => {
@@ -37,7 +37,7 @@ vi.mock('./FlockIndexedDBStorageAdapter', () => {
       loadRange = vi.fn().mockResolvedValue([])
       removeRange = vi.fn().mockResolvedValue(undefined)
       clear = vi.fn().mockResolvedValue(undefined)
-      close = vi.fn()
+      close = vi.fn().mockResolvedValue(undefined)
     },
   }
 })
@@ -85,5 +85,14 @@ describe('AutomergeRepoManager', () => {
 
     await manager.clearLocalData()
     expect(runStorageSpy).toHaveBeenCalled()
+  })
+
+  it('awaits indexedDbAdapter.close() during manager.close()', async () => {
+    manager.init(mockVaultAdapter)
+    // @ts-expect-error accessing private adapter
+    const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close')
+
+    await manager.close()
+    expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
 })

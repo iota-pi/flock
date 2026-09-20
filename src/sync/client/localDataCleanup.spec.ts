@@ -1,7 +1,6 @@
 import { clearAccountLocalData } from './localDataCleanup'
 import * as syncMetadataStorage from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
-import * as vaultPersistence from '../shared/VaultPersistence'
 import * as manualRecoveryStore from '../shared/manualRecoveryStore'
 
 vi.mock('../worker/stores/syncMetadataStorage', () => ({
@@ -13,10 +12,6 @@ vi.mock('../worker/SyncWriteAheadLog', () => ({
   SyncWriteAheadLog: {
     clear: vi.fn().mockResolvedValue(undefined),
   },
-}))
-
-vi.mock('../shared/VaultPersistence', () => ({
-  clearSyncBatch: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../shared/manualRecoveryStore', () => ({
@@ -42,7 +37,6 @@ describe('localDataCleanup', () => {
     expect(syncMetadataStorage.clearSyncMetadataStorage).toHaveBeenCalledWith('test-account')
     expect(syncMetadataStorage.clearLegacySyncDatabases).toHaveBeenCalledWith('test-account')
     expect(SyncWriteAheadLog.clear).toHaveBeenCalledWith('test-account')
-    expect(vaultPersistence.clearSyncBatch).toHaveBeenCalledWith('test-account')
     expect(manualRecoveryStore.clearManualRecoveryEntries).toHaveBeenCalledWith('test-account')
   })
 })

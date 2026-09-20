@@ -1,14 +1,12 @@
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { ClientEventHub } from './SyncEventHub'
-import { AutomergeDocStore } from './docStore'
-import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { ItemId } from 'src/shared/schemas/items'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
-import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
-import { hasApiAuthToken } from '../../api/runtime'
-import { getTrpcClient } from '../../api/trpcClient'
+import { publishRealtimeBusSyncPing } from './realtimeBus'
+import { SyncApiClient } from './SyncApiClient'
 import { extractSyncableMetadata, hasSyncableChanges } from './utils/metadataSync'
 import { RecoveryManager, RECOVERY_RETRY_COOLDOWN_MS } from './RecoveryManager'
 
@@ -21,6 +19,7 @@ export interface ItemOperationsDeps {
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
   recoveryManager?: RecoveryManager
+  apiClient?: SyncApiClient
 }
 
 export interface StoreItemsOptions {
@@ -29,12 +28,14 @@ export interface StoreItemsOptions {
 
 export class ItemOperations {
   public readonly recoveryManager: RecoveryManager
+  private readonly apiClient: SyncApiClient
 
   constructor(private deps: ItemOperationsDeps) {
     this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
       accountId: deps.accountId,
       eventHub: deps.eventHub,
     })
+    this.apiClient = deps.apiClient ?? new SyncApiClient()
   }
 
   private async applyDocumentChange(
@@ -99,7 +100,7 @@ export class ItemOperations {
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
-        publishRealtimeBusSyncPing([item.id])
+        publishRealtimeBusSyncPing(this.deps.accountId, [item.id])
       } else {
         await this.handleMutationFailure(item.id, 'create', `Failed to create document ${item.id}`)
       }
@@ -144,7 +145,7 @@ export class ItemOperations {
 
     if (succeededActiveIds.length > 0) {
       await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededActiveIds)
-      publishRealtimeBusSyncPing(succeededActiveIds)
+      publishRealtimeBusSyncPing(this.deps.accountId, succeededActiveIds)
     }
 
     for (const item of failedItems) {
@@ -165,12 +166,12 @@ export class ItemOperations {
       const updated = await this.deps.indexManager.updateAutomergeMetadata(nextChanges)
 
       const shouldPush = (options?.pushRemote ?? true) && isSyncable
-      if (shouldPush && hasApiAuthToken() && this.deps.accountId) {
+      if (shouldPush && (await this.apiClient.hasAuthToken()) && this.deps.accountId) {
         const syncablePayload = extractSyncableMetadata(updated)
         try {
-          await getTrpcClient().accounts.updateMetadata.mutate({
+          await this.apiClient.updateAccountMetadata({
             account: this.deps.accountId,
-            metadata: syncablePayload,
+            metadata: syncablePayload as AccountMetadata,
           })
         } catch (pushErr) {
           console.warn('[ItemOperations] Failed to push metadata to server (will retry on next sync):', pushErr)
@@ -211,7 +212,7 @@ export class ItemOperations {
     await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
-    publishRealtimeBusSyncPing([itemId])
+    publishRealtimeBusSyncPing(this.deps.accountId, [itemId])
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 

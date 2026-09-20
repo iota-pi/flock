@@ -26,7 +26,11 @@ vi.mock('./SyncWriteAheadLog', () => ({
   },
 }))
 
-vi.mock('./docStore/AutomergeIndexManager', () => ({
+vi.mock('./docStore', () => ({
+  AutomergeDocStore: class MockAutomergeDocStore {
+    shutdown = vi.fn().mockResolvedValue(undefined)
+    saveDocToStorage = vi.fn().mockResolvedValue(undefined)
+  },
   AutomergeIndexManager: class MockAutomergeIndexManager {
     ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
     addAutomergeItemIdsToIndex = vi.fn()
@@ -51,7 +55,7 @@ vi.mock('./SyncMessageBroker', () => ({
   },
 }))
 
-vi.mock('./VaultEncryptedNetworkAdapter', () => ({
+vi.mock('./VaultNetworkAdapter', () => ({
   VaultNetworkAdapter: class MockVaultNetworkAdapter {
     triggerReNegotiation = vi.fn()
     setSyncedHeadsStore = vi.fn()
@@ -109,13 +113,6 @@ vi.mock('./stores/SyncedHeadsStore', () => ({
     loadSyncedHeads = vi.fn().mockResolvedValue([])
     saveSyncedHeads = vi.fn().mockResolvedValue(undefined)
     clear = vi.fn().mockResolvedValue(undefined)
-  },
-}))
-
-vi.mock('./docStore', () => ({
-  AutomergeDocStore: class MockDocStore {
-    shutdown = vi.fn().mockResolvedValue(undefined)
-    saveDocToStorage = vi.fn().mockResolvedValue(true)
   },
 }))
 
@@ -267,15 +264,6 @@ describe('SyncWorkerContext', () => {
     )
   })
 
-  it('cleans up quota recovery handler on shutdown', async () => {
-    const unregisterSpy = vi.fn()
-    // @ts-expect-error accessing private field for test
-    context.unregisterQuotaRecovery = unregisterSpy
-
-    await context.shutdown()
-    expect(unregisterSpy).toHaveBeenCalledTimes(1)
-  })
-
   it('delegates initialize and shutdown to lifecycle manager', async () => {
     const startSpy = vi.spyOn(context.lifecycle, 'start')
     const stopSpy = vi.spyOn(context.lifecycle, 'stop')
@@ -305,4 +293,17 @@ describe('SyncWorkerContext', () => {
       'SyncOrchestrator',
     ])
   })
+
+  it('initializes apiClient with refreshAuthToken when provided in config', async () => {
+    const mockRefresh = vi.fn().mockResolvedValue('token-123')
+    const ctx = new SyncWorkerContext({
+      accountId: 'test-account-refresh',
+      clientEventHub,
+      internalEventHub,
+      refreshAuthToken: mockRefresh,
+    })
+
+    expect((ctx.apiClient as any).refreshAuth).toBe(mockRefresh)
+  })
 })
+

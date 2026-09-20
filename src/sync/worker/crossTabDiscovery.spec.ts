@@ -1,4 +1,4 @@
-﻿import { toDocumentIdFromItemId } from './utils/automerge'
+import { toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { Item } from 'src/state/items'
 import { ItemOperations } from './ItemOperations'
@@ -6,7 +6,7 @@ import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastCha
 import type { Message, PeerId } from '@automerge/automerge-repo/slim'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('../client/realtimeBus', () => ({
+vi.mock('./realtimeBus', () => ({
   publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
   subscribeRealtimeBusSyncPing: vi.fn(),
 }))
@@ -100,11 +100,11 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
     )
     expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['offline-item-123'])
     expect(markDocumentDirtyMock).toHaveBeenCalledWith('offline-item-123')
-    expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['offline-item-123'])
+    expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['offline-item-123'])
   })
 
   it('Tab 1 transmits sync message: EncryptedBroadcastChannelNetworkAdapter notifies peer tabs via realtimeBus', async () => {
-    const adapter = new EncryptedBroadcastChannelNetworkAdapter()
+    const adapter = new EncryptedBroadcastChannelNetworkAdapter({ accountId: 'account-1' })
     const docId = toDocumentIdFromItemId('offline-item-456' as ItemId)
 
     const syncMessage: Message = {
@@ -118,7 +118,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
     adapter.send(syncMessage)
 
     await vi.waitFor(() => {
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['offline-item-456'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['offline-item-456'])
     })
   })
 
