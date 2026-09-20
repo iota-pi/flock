@@ -5,7 +5,7 @@ import {
   AccountInputSchema,
   CreateAccountBodySchema,
   LoginBodySchema,
-  PrayerCompletionBodySchema,
+  SnoozeRemindersBodySchema,
   PushSubscriptionBodySchema,
   PushSubscriptionDeleteBodySchema,
   ReminderSettingsBodySchema,
@@ -13,6 +13,7 @@ import {
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
 } from 'src/shared/schemas/trpc'
+import { toZonedTime } from 'date-fns-tz'
 import { hashString } from '../../api/util'
 
 
@@ -177,6 +178,7 @@ export const accountsRouter = router({
         reminderEnabled: existingAccount.reminderEnabled ?? false,
         reminderTime: existingAccount.reminderTime ?? '08:00',
         reminderTimezone: existingAccount.reminderTimezone ?? 'UTC',
+        snoozeRemindersUntil: existingAccount.snoozeRemindersUntil,
       }
     }),
 
@@ -193,15 +195,30 @@ export const accountsRouter = router({
       return { success: true }
     }),
 
-  recordPrayerCompletion: protectedProcedure
-    .input(PrayerCompletionBodySchema)
+  snoozeReminders: protectedProcedure
+    .input(SnoozeRemindersBodySchema)
     .mutation(async ({ ctx, input }) => {
+      let targetDate = input.snoozeUntilDate
+      if (targetDate === undefined) {
+        const existingAccount = await ctx.vault.getAccount({
+          account: input.account,
+          session: ctx.authToken,
+        })
+        const timezone = existingAccount.reminderTimezone ?? 'UTC'
+        const zoned = toZonedTime(new Date(), timezone)
+        const tomorrow = new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate() + 1)
+        const year = tomorrow.getFullYear()
+        const month = String(tomorrow.getMonth() + 1).padStart(2, '0')
+        const day = String(tomorrow.getDate()).padStart(2, '0')
+        targetDate = `${year}-${month}-${day}`
+      }
+
       await ctx.vault.updateAccountData({
         account: input.account,
-        lastPrayerCompletedAt: input.completedAt,
+        snoozeRemindersUntil: targetDate,
       })
 
-      return { success: true }
+      return { success: true, snoozeRemindersUntil: targetDate }
     }),
 
   getKeyring: protectedProcedure

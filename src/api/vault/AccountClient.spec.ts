@@ -2,7 +2,7 @@ import {
   createAccount,
   getSecurityParams,
   getSession,
-  recordPrayerCompletion,
+  snoozeReminders,
   getKeyring,
   updateKeyring,
   changePassword,
@@ -17,7 +17,7 @@ const mockTrpcClient = {
     createAccount: { mutate: vi.fn() },
     getSecurityParams: { query: vi.fn() },
     login: { mutate: vi.fn() },
-    recordPrayerCompletion: { mutate: vi.fn() },
+    snoozeReminders: { mutate: vi.fn() },
     getKeyring: { query: vi.fn() },
     updateKeyring: { mutate: vi.fn() },
     changePassword: { mutate: vi.fn() },
@@ -89,16 +89,17 @@ describe('AccountClient', () => {
     await expect(getSession('acc-1', 'auth-2')).rejects.toThrow('missing session')
   })
 
-  it('records prayer completion for the active account', async () => {
-    vi.mocked(getTrpcClient().accounts.recordPrayerCompletion.mutate).mockResolvedValue({
+  it('snoozes reminders for the active account', async () => {
+    vi.mocked(getTrpcClient().accounts.snoozeReminders.mutate).mockResolvedValue({
       success: true,
+      snoozeRemindersUntil: '2026-09-21',
     })
 
-    await recordPrayerCompletion('acc-1', 123)
+    await snoozeReminders('acc-1', '2026-09-21')
 
-    expect(getTrpcClient().accounts.recordPrayerCompletion.mutate).toHaveBeenCalledWith({
+    expect(getTrpcClient().accounts.snoozeReminders.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
-      completedAt: 123,
+      snoozeUntilDate: '2026-09-21',
     })
   })
 

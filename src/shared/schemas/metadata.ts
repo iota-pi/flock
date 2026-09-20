@@ -25,12 +25,14 @@ export const accountMetadataSchema = z.looseObject({
   prayerGoal: z.number().optional(),
   sortCriteria: z.array(sortCriterionSchema).optional(),
   defaultPrayerFrequency: defaultPrayerFrequencySchema.optional(),
+  autoSnoozeWhenCompleted: z.boolean().optional(),
   updatedAt: z.number().optional(),
 })
 
 export const SYNCABLE_METADATA_KEYS = [
   'defaultPrayerFrequency',
   'prayerGoal',
+  'autoSnoozeWhenCompleted',
   'completedMigrations',
   'updatedAt',
 ] as const

@@ -34,7 +34,7 @@ export const VaultAccountSchema = z.object({
   reminderEnabled: z.boolean().optional(),
   reminderTime: z.string().optional(),
   reminderTimezone: z.string().optional(),
-  lastPrayerCompletedAt: z.number().optional(),
+  snoozeRemindersUntil: z.string().optional(),
   lastSnapshotCursor: z.number().optional(),
   lastSnapshotAt: z.number().optional(),
   lastSnapshotRequestedAt: z.number().optional(),

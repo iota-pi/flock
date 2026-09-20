@@ -87,9 +87,9 @@ export const ReminderSettingsBodySchema = z.object({
   reminderTimezone: z.string().min(1),
 })
 
-export const PrayerCompletionBodySchema = z.object({
+export const SnoozeRemindersBodySchema = z.object({
   account: z.string().min(1),
-  completedAt: z.number(),
+  snoozeUntilDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 })
 
 const SyncEncryptedMessageSchema = (

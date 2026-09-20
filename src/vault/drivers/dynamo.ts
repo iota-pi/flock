@@ -404,7 +404,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       reminderTime,
       sessions,
       reminderTimezone,
-      lastPrayerCompletedAt,
+      snoozeRemindersUntil,
       lastSnapshotCursor,
       lastSnapshotAt,
       lastSnapshotRequestedAt,
@@ -422,7 +422,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       reminderTime?: string,
       sessions?: VaultSessionRecord[],
       reminderTimezone?: string,
-      lastPrayerCompletedAt?: number,
+      snoozeRemindersUntil?: string | null,
       lastSnapshotCursor?: number,
       lastSnapshotAt?: number,
       lastSnapshotRequestedAt?: number,
@@ -466,9 +466,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       updateExpressions.push('reminderTimezone = :reminderTimezone')
       expressionAttributeValues[':reminderTimezone'] = reminderTimezone
     }
-    if (typeof lastPrayerCompletedAt === 'number') {
-      updateExpressions.push('lastPrayerCompletedAt = :lastPrayerCompletedAt')
-      expressionAttributeValues[':lastPrayerCompletedAt'] = lastPrayerCompletedAt
+    if (typeof snoozeRemindersUntil === 'string' || snoozeRemindersUntil === null) {
+      updateExpressions.push('snoozeRemindersUntil = :snoozeRemindersUntil')
+      expressionAttributeValues[':snoozeRemindersUntil'] = snoozeRemindersUntil
     }
     if (typeof lastSnapshotCursor === 'number') {
       updateExpressions.push('lastSnapshotCursor = :lastSnapshotCursor')

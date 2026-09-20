@@ -9,7 +9,7 @@ import {
   createAccount,
   getSecurityParams,
   getSession,
-  recordPrayerCompletion as recordPrayerCompletionClient,
+  snoozeReminders as snoozeRemindersClient,
   getKeyring,
   updateKeyring,
   changePassword as changePasswordClient,
@@ -565,8 +565,8 @@ export async function decryptBytes(data: CryptoResult): Promise<Uint8Array> {
   return decryptBytesWithKey(getVaultKey(kver), data)
 }
 
-export async function recordPrayerCompletion(account: string, completedAt = Date.now()): Promise<void> {
-  await recordPrayerCompletionClient(account, completedAt)
+export async function snoozeReminders(account: string, snoozeUntilDate?: string | null): Promise<void> {
+  await snoozeRemindersClient(account, snoozeUntilDate)
 }
 
 export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {

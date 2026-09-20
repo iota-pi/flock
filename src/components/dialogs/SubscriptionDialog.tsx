@@ -8,12 +8,14 @@ import Stack from '@mui/material/Stack'
 import MenuItem from '@mui/material/MenuItem'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Switch from '@mui/material/Switch'
+import Checkbox from '@mui/material/Checkbox'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
 import { styled } from '@mui/material/styles'
 
 import { checkSubscription } from '../../utils/pushNotifications'
 import { useAppStore } from 'src/state/store'
+import { useMetadata } from 'src/state/selectors'
 
 interface Props {
   onClose: () => void,
@@ -61,6 +63,16 @@ function SubscriptionDialog({
   const [enabled, setEnabled] = useState(false)
   const [hour, setHour] = useState(8)
   const [saving, setSaving] = useState(false)
+  const [autoSnoozePref = true, setAutoSnoozePref] = useMetadata('autoSnoozeWhenCompleted', true)
+  const [autoSnooze, setAutoSnooze] = useState(autoSnoozePref ?? true)
+  const [prevOpen, setPrevOpen] = useState(open)
+
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (open) {
+      setAutoSnooze(autoSnoozePref ?? true)
+    }
+  }
 
   useEffect(
     () => {
@@ -90,6 +102,9 @@ function SubscriptionDialog({
     async () => {
       setSaving(true)
       try {
+        if (autoSnooze !== autoSnoozePref) {
+          void setAutoSnoozePref(autoSnooze)
+        }
         if (enabled) {
           await onSave([hour])
         } else {
@@ -99,7 +114,7 @@ function SubscriptionDialog({
         setSaving(false)
       }
     },
-    [enabled, hour, onSave],
+    [autoSnooze, autoSnoozePref, enabled, hour, onSave, setAutoSnoozePref],
   )
 
   const handleToggleEnabled = useCallback(
@@ -164,6 +179,21 @@ function SubscriptionDialog({
                 </MenuItem>
               ))}
             </TextField>
+          )}
+
+          {enabled && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={autoSnooze}
+                  disabled={saving}
+                  onChange={e => setAutoSnooze(e.target.checked)}
+                  color="primary"
+                  data-cy="subscription-auto-snooze"
+                />
+              }
+              label="Mute reminder if prayer schedule is finished for the day"
+            />
           )}
         </Stack>
 

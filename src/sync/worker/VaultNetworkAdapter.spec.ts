@@ -2,7 +2,7 @@ import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/aut
 import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
-import { VaultNetworkAdapter } from './VaultNetworkAdapter'
+import { VaultNetworkAdapter, MAX_OUTBOUND_QUEUE_SIZE } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
@@ -862,7 +862,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
@@ -961,7 +960,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('triggers re-negotiation for documents evicted from outbound queue', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
@@ -1043,17 +1041,22 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
+    let targetDocId: DocumentId | null = null
     const outgoingMessages: Message[] = []
     testAdapter.eventHub.subscribe(e => {
       if (e.type === 'messageToSend') {
         const msg = e.message
         outgoingMessages.push(msg)
-        if (msg.type === 'sync' && msg.data instanceof Uint8Array && msg.documentId) {
+        if (
+          targetDocId &&
+          msg.documentId === targetDocId &&
+          msg.type === 'sync' &&
+          msg.data instanceof Uint8Array
+        ) {
           const decoded = decodeSyncMessage(msg.data)
           if (decoded.changes && decoded.changes.length > 0) {
             const ack = encodeSyncMessage({
@@ -1074,12 +1077,16 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // 1. Initial doc creation and sync handshake
     const handle = repo.create<{ count: number }>()
+    targetDocId = handle.documentId
     handle.change(doc => {
       doc.count = 1
     })
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
+
+    expect(outgoingMessages.some(m => m.documentId === handle.documentId)).toBe(true)
+    outgoingMessages.length = 0
 
     // 2. Disconnect adapter temporarily so messages are queued
     testAdapter.setSendEnabled(false)
@@ -1121,8 +1128,16 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.setSendEnabled(true)
     expect(testAdapter.getPendingReNegotiationCount()).toBe(0)
 
-    // Allow re-negotiation handshake microtasks and timers to execute
-    await vi.advanceTimersByTimeAsync(500)
+    // Wait for re-negotiation sync message for handle to be produced and ACKed
+    for (let i = 0; i < 20; i++) {
+      await vi.advanceTimersByTimeAsync(50)
+      await Promise.resolve()
+      if (outgoingMessages.some(m => m.documentId === handle.documentId)) break
+    }
+    expect(outgoingMessages.some(m => m.documentId === handle.documentId)).toBe(true)
+
+    // Allow ACK processing microtasks and timer debounce to settle
+    await vi.advanceTimersByTimeAsync(150)
     await Promise.resolve()
 
     outgoingMessages.length = 0
@@ -1132,7 +1147,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       doc.count = 3
     })
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       await vi.advanceTimersByTimeAsync(50)
       await Promise.resolve()
       if (outgoingMessages.some(m => m.documentId === handle.documentId)) break

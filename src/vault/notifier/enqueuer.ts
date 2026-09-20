@@ -22,6 +22,7 @@ type ReminderAccount = {
   reminderEnabled?: boolean,
   reminderTime?: string,
   reminderTimezone?: string,
+  snoozeRemindersUntil?: string,
 }
 
 type QueuePayload = {
@@ -61,6 +62,26 @@ export function isReminderTimeMatch(
   }
 }
 
+export function isReminderSnoozed(
+  nowUtc: Date,
+  timezone: string,
+  snoozeRemindersUntil?: string,
+): boolean {
+  if (!snoozeRemindersUntil) {
+    return false
+  }
+  try {
+    const zoned = utcToZonedTime(nowUtc, timezone)
+    const year = zoned.getFullYear()
+    const month = String(zoned.getMonth() + 1).padStart(2, '0')
+    const day = String(zoned.getDate()).padStart(2, '0')
+    const todayDateStr = `${year}-${month}-${day}`
+    return todayDateStr < snoozeRemindersUntil
+  } catch {
+    return false
+  }
+}
+
 function toQueueEntries(payloads: QueuePayload[], startIndex: number) {
   return payloads.map((payload, offset) => ({
     Id: String(startIndex + offset),
@@ -80,7 +101,7 @@ async function getEnabledReminderAccounts() {
       ExpressionAttributeValues: {
         ':enabled': true,
       },
-      ProjectionExpression: 'account, pushSubscriptions, reminderEnabled, reminderTime, reminderTimezone',
+      ProjectionExpression: 'account, pushSubscriptions, reminderEnabled, reminderTime, reminderTimezone, snoozeRemindersUntil',
     }))
 
     if (response.Items) {
@@ -114,6 +135,10 @@ export const handler = async () => {
       }
 
       if (!isReminderTimeMatch(nowUtc, reminderTime, timezone, intervalMinutes)) {
+        return null
+      }
+
+      if (isReminderSnoozed(nowUtc, timezone, account.snoozeRemindersUntil)) {
         return null
       }
 

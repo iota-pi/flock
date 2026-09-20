@@ -30,7 +30,7 @@ vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
   createAccount: vi.fn(),
   getSecurityParams: vi.fn(),
-  recordPrayerCompletion: vi.fn(),
+  snoozeReminders: vi.fn(),
   getKeyring: vi.fn().mockResolvedValue(undefined),
   updateKeyring: vi.fn().mockResolvedValue(undefined),
 }))
