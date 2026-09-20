@@ -2,7 +2,7 @@ import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/aut
 import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
-import { VaultNetworkAdapter } from './VaultNetworkAdapter'
+import { VaultNetworkAdapter, MAX_OUTBOUND_QUEUE_SIZE } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
@@ -862,7 +862,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
@@ -961,7 +960,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('triggers re-negotiation for documents evicted from outbound queue', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
@@ -1043,7 +1041,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
-    const { MAX_OUTBOUND_QUEUE_SIZE } = await import('./VaultNetworkAdapter')
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
