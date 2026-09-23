@@ -182,6 +182,7 @@ export class ManifestSyncManager {
     const { signal } = abortController
 
     let hasKnownItems = false
+    let added: ItemId[] = []
 
     try {
       checkAlive(signal, isAlive)
@@ -193,23 +194,22 @@ export class ManifestSyncManager {
       const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
 
       if (this.shouldSkipSync(force, hasKnownItems, timeSinceLastSync)) {
-        return { added: [] }
+        return { added }
       }
 
       const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems, outerSignal)
       if (!remoteData) {
-        return { added: [] }
+        return { added }
       }
-
       checkAlive(signal, isAlive)
+
       try {
         await this.deps.snapshotManager.flushPendingSnapshots()
       } catch (flushErr) {
-        if (signal.aborted || isAbortError(flushErr)) throw flushErr
         console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
       }
-
       checkAlive(signal, isAlive)
+
       const { tombstoneItemIds, localLastModifiedMap, quarantinedMap } =
         await this.collectLocalSyncState(signal, isAlive)
       checkAlive(signal, isAlive)
@@ -226,16 +226,13 @@ export class ManifestSyncManager {
       })
 
       // Step 2: Push local updates (apply discovered local tombstones, update tombstone timestamps, mark upstream items dirty)
-      checkAlive(signal, isAlive)
       await this.pushLocalUpdates(deltas)
       checkAlive(signal, isAlive)
 
-      let added: ItemId[] = []
       let hasFailures = false
 
       // Step 3: Fetch and hydrate remote items (if any missing items need to be pulled)
       if (deltas.missingIds.length > 0) {
-        checkAlive(signal, isAlive)
         const hydrationResult = await this.fetchAndHydrateRemoteItems({
           missingIds: deltas.missingIds,
           manifest: remoteData.manifest,
@@ -245,9 +242,9 @@ export class ManifestSyncManager {
         }, outerSignal ? signal : undefined)
         added = hydrationResult.added
         hasFailures = hydrationResult.hasFailures
+        checkAlive(signal, isAlive)
       }
 
-      checkAlive(signal, isAlive)
       await this.syncMetadata()
       checkAlive(signal, isAlive)
 
@@ -262,11 +259,11 @@ export class ManifestSyncManager {
       return { added }
     } catch (e) {
       if (signal.aborted || isAbortError(e) || !isAlive()) {
-        return { added: [] }
+        return { added }
       }
       if (hasKnownItems) {
         console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
-        return { added: [] }
+        return { added }
       }
       console.error('[ManifestSyncManager] Failed to fetch manifest', e)
       throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
