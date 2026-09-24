@@ -381,8 +381,11 @@ export class SyncWorker implements SyncApi {
 
   async fullResync() {
     const context = await this.ensureReady()
-    await context.manifestSyncManager.sync(true)
-    context.orchestrator.flush()
+    const result = await context.manifestSyncManager.sync(true)
+    if (result.success) {
+      context.orchestrator.flush()
+    }
+    return result.success
   }
 
   async pushSnapshots() {

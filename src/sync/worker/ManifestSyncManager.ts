@@ -53,6 +53,8 @@ export type HydrateItemResult =
     error: unknown
   }
 
+type SyncResult = { added: ItemId[], success: boolean }
+
 export class ManifestSyncManager {
   private recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
@@ -90,10 +92,10 @@ export class ManifestSyncManager {
     this.abort()
   }
 
-  private readonly syncGuard = new SingleFlightGuard<{ added: ItemId[] }>()
+  private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 
-  async sync(force = false, signal?: AbortSignal): Promise<{ added: ItemId[] }> {
-    if (this.isShutdown || !this.deps.accountId) return { added: [] }
+  async sync(force = false, signal?: AbortSignal): Promise<SyncResult> {
+    if (this.isShutdown || !this.deps.accountId) return { added: [], success: false }
     return this.syncGuard.run(() => this.executeSync(force, signal))
   }
 
@@ -169,7 +171,7 @@ export class ManifestSyncManager {
     return { tombstoneItemIds, localLastModifiedMap, quarantinedMap }
   }
 
-  private async executeSync(force = false, outerSignal?: AbortSignal): Promise<{ added: ItemId[] }> {
+  private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {
     const abortController = new AbortController()
     this.abortController = abortController
     const isAlive = () => !this.isShutdown && (!outerSignal || !outerSignal.aborted)
@@ -194,12 +196,12 @@ export class ManifestSyncManager {
       const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
 
       if (this.shouldSkipSync(force, hasKnownItems, timeSinceLastSync)) {
-        return { added }
+        return { added, success: true }
       }
 
       const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems, outerSignal)
       if (!remoteData) {
-        return { added }
+        return { added, success: false }
       }
       checkAlive(signal, isAlive)
 
@@ -256,14 +258,14 @@ export class ManifestSyncManager {
         )
       }
 
-      return { added }
+      return { added, success: !hasFailures }
     } catch (e) {
       if (signal.aborted || isAbortError(e) || !isAlive()) {
-        return { added }
+        return { added, success: false }
       }
       if (hasKnownItems) {
         console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
-        return { added }
+        return { added, success: false }
       }
       console.error('[ManifestSyncManager] Failed to fetch manifest', e)
       throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })

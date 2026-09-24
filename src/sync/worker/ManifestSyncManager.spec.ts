@@ -130,7 +130,7 @@ describe('ManifestSyncManager', () => {
 
       const result = await manifestSyncManager.sync()
 
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: false })
       expect(mockListAutomergeItemIds).not.toHaveBeenCalled()
     })
 
@@ -140,7 +140,7 @@ describe('ManifestSyncManager', () => {
 
       const result = await manifestSyncManager.sync(false)
 
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
       expect(mockFetchManifest).not.toHaveBeenCalled()
     })
 
@@ -182,8 +182,8 @@ describe('ManifestSyncManager', () => {
       resolveManifest({ manifest: [], serverTime: Date.now() })
 
       const [res1, res2] = await Promise.all([syncPromise1, syncPromise2])
-      expect(res1).toEqual({ added: [] })
-      expect(res2).toEqual({ added: [] })
+      expect(res1).toEqual({ added: [], success: true })
+      expect(res2).toEqual({ added: [], success: true })
       expect(mockFetchManifest).toHaveBeenCalledTimes(1)
     })
 
@@ -194,7 +194,7 @@ describe('ManifestSyncManager', () => {
 
       const result = await manifestSyncManager.sync()
 
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: false })
       expect(mockFetchManifest).not.toHaveBeenCalled()
     })
 
@@ -204,7 +204,7 @@ describe('ManifestSyncManager', () => {
 
       const result = await manifestSyncManager.sync()
 
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: false })
       expect(mockFetchManifest).not.toHaveBeenCalled()
     })
   })
@@ -265,7 +265,7 @@ describe('ManifestSyncManager', () => {
       )
 
       expect(mockUpdateLastManifestSyncTime).toHaveBeenCalled()
-      expect(result).toEqual({ added: ['item-snap'] })
+      expect(result).toEqual({ added: ['item-snap'], success: true })
     })
 
     it('performs warm path: fetches missing items and outdated known items', async () => {
@@ -301,7 +301,7 @@ describe('ManifestSyncManager', () => {
       })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-3', new Uint8Array([9, 9]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-3'])
-      expect(result).toEqual({ added: ['item-3'] })
+      expect(result).toEqual({ added: ['item-3'], success: true })
     })
 
     it('is a no-op when all manifest items are already known and up to date', async () => {
@@ -320,7 +320,7 @@ describe('ManifestSyncManager', () => {
 
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
       expect(mockUpdateLastManifestSyncTime).toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('is a no-op when manifest contains an already-synced deleted item not in knownSet', async () => {
@@ -344,7 +344,7 @@ describe('ManifestSyncManager', () => {
 
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
       expect(mockUpdateLastManifestSyncTime).toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('batches missing snapshot fetches in chunks of 50', async () => {
@@ -385,7 +385,7 @@ describe('ManifestSyncManager', () => {
 
       const result = await manifestSyncManager.sync()
 
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: false })
       expect(consoleSpy).toHaveBeenCalled()
       consoleSpy.mockRestore()
     })
@@ -512,7 +512,7 @@ describe('ManifestSyncManager', () => {
       mockGetAutomergeMetadata.mockResolvedValue({})
       mockGetMetadataQuery.mockRejectedValue(new Error('TRPC error'))
 
-      await expect(manifestSyncManager.sync()).resolves.toEqual({ added: [] })
+      await expect(manifestSyncManager.sync()).resolves.toEqual({ added: [], success: true })
       expect(mutateMetadataSpy).not.toHaveBeenCalled()
       warnSpy.mockRestore()
     })
@@ -574,7 +574,7 @@ describe('ManifestSyncManager', () => {
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
       expect(mockAddAutomergeItemIdsToIndex).not.toHaveBeenCalled()
       expect(depsObj.snapshotManager.importLastModified).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: false })
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Some batches or items failed to sync; lastManifestSyncTime not updated')
       )
@@ -623,7 +623,7 @@ describe('ManifestSyncManager', () => {
       expect(depsObj.snapshotManager.importLastModified).not.toHaveBeenCalled()
       // Hydration failure prevents updating lastManifestSyncTime
       expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: false })
 
       warnSpy.mockRestore()
     })
@@ -641,7 +641,7 @@ describe('ManifestSyncManager', () => {
       const result = await manifestSyncManager.sync(false)
 
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('retries quarantined items when force=true even without newer server timestamps', async () => {
@@ -670,7 +670,7 @@ describe('ManifestSyncManager', () => {
         account: 'acc-123',
         itemIds: ['item-quarantined'],
       })
-      expect(result).toEqual({ added: ['item-quarantined'] })
+      expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
 
     it('retries quarantined items when server has a newer timestamp than quarantine time', async () => {
@@ -699,7 +699,7 @@ describe('ManifestSyncManager', () => {
         account: 'acc-123',
         itemIds: ['item-quarantined'],
       })
-      expect(result).toEqual({ added: ['item-quarantined'] })
+      expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
 
     it('waits for missing key version before attempting snapshot decryption', async () => {
@@ -732,7 +732,7 @@ describe('ManifestSyncManager', () => {
 
       expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 3000)
       expect(mockDecryptBytes).toHaveBeenCalled()
-      expect(result).toEqual({ added: ['item-kver'] })
+      expect(result).toEqual({ added: ['item-kver'], success: true })
     })
   })
 
@@ -763,7 +763,7 @@ describe('ManifestSyncManager', () => {
         serverTime: Date.now(),
       })
 
-      await expect(manifestSyncManager.sync()).resolves.toEqual({ added: [] })
+      await expect(manifestSyncManager.sync()).resolves.toEqual({ added: [], success: true })
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Failed to flush pending snapshots before sync'),
         expect.any(Error)
@@ -783,7 +783,7 @@ describe('ManifestSyncManager', () => {
       const result = await manifestSyncManager.sync()
 
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('pulls valid server update when client clock is ahead of server (fast client clock)', async () => {
@@ -824,7 +824,7 @@ describe('ManifestSyncManager', () => {
         itemIds: ['item-1'],
       })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
-      expect(result).toEqual({ added: ['item-1'] })
+      expect(result).toEqual({ added: ['item-1'], success: true })
 
       dateNowSpy.mockRestore()
     })
@@ -861,7 +861,7 @@ describe('ManifestSyncManager', () => {
         account: 'acc-123',
         itemIds: ['item-1'],
       })
-      expect(result).toEqual({ added: ['item-1'] })
+      expect(result).toEqual({ added: ['item-1'], success: true })
 
       dateNowSpy.mockRestore()
     })
@@ -885,7 +885,7 @@ describe('ManifestSyncManager', () => {
 
       // Should NOT fetch snapshot since local item is newer in server timeline (980k > 900k)
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
       // Local is newer so upstream reconciliation should queue it for push
       expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1', 2000)
 
@@ -906,7 +906,7 @@ describe('ManifestSyncManager', () => {
       const result = await manifestSyncManager.sync()
 
       expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-local-only', 2000)
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('marks item dirty with 2s debounce when local item is newer than server snapshot', async () => {
@@ -925,7 +925,7 @@ describe('ManifestSyncManager', () => {
       const result = await manifestSyncManager.sync()
 
       expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-newer', 2000)
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('does not mark item dirty when local item is equal to or older than server snapshot', async () => {
@@ -942,7 +942,7 @@ describe('ManifestSyncManager', () => {
       const result = await manifestSyncManager.sync()
 
       expect(depsObj.snapshotManager.markItemDirty).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('does not mark item dirty upstream if it is currently being pulled downstream in missingIds', async () => {
@@ -1030,7 +1030,7 @@ describe('ManifestSyncManager', () => {
 
       expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-merged', 2000)
       expect(depsObj.snapshotManager.importLastModified).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: ['item-merged'] })
+      expect(result).toEqual({ added: ['item-merged'], success: true })
     })
 
     it('does not mark item dirty and includes in lastModifiedUpdates when hydration has no local edits (hasLocalChanges is false)', async () => {
@@ -1062,7 +1062,7 @@ describe('ManifestSyncManager', () => {
       expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith([
         ['item-clean', 2000],
       ])
-      expect(result).toEqual({ added: ['item-clean'] })
+      expect(result).toEqual({ added: ['item-clean'], success: true })
     })
 
     it('on initial login, skips snapshot downloads for tombstoned items and imports their timestamps', async () => {
@@ -1112,7 +1112,7 @@ describe('ManifestSyncManager', () => {
       )
 
       expect(storeItemsSpy).not.toHaveBeenCalled()
-      expect(result).toEqual({ added: ['item-active-1'] })
+      expect(result).toEqual({ added: ['item-active-1'], success: true })
     })
 
     it('tombstones local active item when server manifest marks it deleted, without snapshot download or upstream resurrection', async () => {
@@ -1147,7 +1147,7 @@ describe('ManifestSyncManager', () => {
         ['item-local', 2000],
       ])
 
-      expect(result).toEqual({ added: [] })
+      expect(result).toEqual({ added: [], success: true })
     })
 
     it('does NOT fetch or resurrect locally tombstoned items during forced sync when server has older active snapshot (C5 fix)', async () => {
@@ -1481,7 +1481,7 @@ describe('ManifestSyncManager', () => {
 
         const result = await manifestSyncManager.sync(true, controller.signal)
 
-        expect(result).toEqual({ added: [] })
+        expect(result).toEqual({ added: [], success: false })
         expect(mockFetchManifest).not.toHaveBeenCalled()
       })
 
@@ -1490,7 +1490,7 @@ describe('ManifestSyncManager', () => {
 
         const result = await manifestSyncManager.sync(true)
 
-        expect(result).toEqual({ added: [] })
+        expect(result).toEqual({ added: [], success: false })
         expect(mockFetchManifest).not.toHaveBeenCalled()
       })
 
@@ -1512,7 +1512,7 @@ describe('ManifestSyncManager', () => {
         controller.abort()
 
         const result = await syncPromise
-        expect(result).toEqual({ added: [] })
+        expect(result).toEqual({ added: [], success: false })
       })
 
       it('aborts in-flight sync when abort() is called on the manager', async () => {
@@ -1525,7 +1525,7 @@ describe('ManifestSyncManager', () => {
         })
 
         const result = await manifestSyncManager.sync(true)
-        expect(result).toEqual({ added: [] })
+        expect(result).toEqual({ added: [], success: false })
         expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
       })
     })

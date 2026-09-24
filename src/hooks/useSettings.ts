@@ -113,10 +113,12 @@ export default function useSettings(items: Item[]) {
 
   const handleForceFullSync = useCallback(async () => {
     try {
-      await SyncBridge.fullResync()
-      setMessage({ message: 'Full sync started', severity: 'success' })
+      const success = await SyncBridge.fullResync()
+      if (success) {
+        setMessage({ message: 'Full sync started', severity: 'success' })
+      }
     } catch (err) {
-      console.error('Manual sync failed', err)
+      console.error('Sync failed', err)
       setMessage({ message: 'Sync failed', severity: 'error' })
     }
   }, [setMessage])
