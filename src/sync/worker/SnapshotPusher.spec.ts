@@ -89,7 +89,7 @@ describe('SnapshotPusher', () => {
     expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-1', ['head-1'])
     expect(mockBroker.clearSnapshotOnlyItem).toHaveBeenCalledWith('item-1')
     expect(mockBroker.unblockItem).toHaveBeenCalledWith('item-1')
-    expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('test-acc', 'item-1')
+    expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
 
   it('handles oversized item by quarantining and emitting quotaExceeded', async () => {
@@ -104,7 +104,6 @@ describe('SnapshotPusher', () => {
       expect.objectContaining({ type: 'quotaExceeded' }),
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
-      'test-acc',
       'item-1',
       expect.stringContaining('exceeds 350 KB limit'),
     )
@@ -132,7 +131,6 @@ describe('SnapshotPusher', () => {
       expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
-      'test-acc',
       'item-1',
       expect.stringContaining('Snapshot failure'),
     )

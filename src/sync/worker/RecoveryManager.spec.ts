@@ -45,7 +45,7 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'bad decrypt', createdAt: 12345 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.quarantine('account-123', 'item-1' as ItemId, new Error('bad decrypt'))
+      await recoveryManager.quarantine('item-1' as ItemId, new Error('bad decrypt'))
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
@@ -69,7 +69,7 @@ describe('RecoveryManager', () => {
     })
 
     it('formats branch hints when failedBranches are provided', async () => {
-      await recoveryManager.quarantine('account-123', 'item-3' as ItemId, new Error('fail'), {
+      await recoveryManager.quarantine('item-3' as ItemId, new Error('fail'), {
         failedBranches: ['branch-a', 'branch-b'],
       })
 
@@ -82,7 +82,7 @@ describe('RecoveryManager', () => {
     it('respects checkCooldown option when in cooldown', async () => {
       recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 10000)
 
-      await recoveryManager.quarantine('account-123', 'item-1' as ItemId, 'another fail', {
+      await recoveryManager.quarantine('item-1' as ItemId, 'another fail', {
         checkCooldown: true,
       })
 
@@ -92,7 +92,7 @@ describe('RecoveryManager', () => {
     it('respects in-flight protection', async () => {
       recoveryManager.setInFlight('item-1' as ItemId, true)
 
-      await recoveryManager.quarantine('account-123', 'item-1' as ItemId, 'fail')
+      await recoveryManager.quarantine('item-1' as ItemId, 'fail')
 
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
@@ -102,11 +102,17 @@ describe('RecoveryManager', () => {
       mockUpsertManualRecoveryEntry.mockRejectedValueOnce(new Error('Storage failure'))
 
       await expect(
-        recoveryManager.quarantine('account-123', 'item-fail' as ItemId, 'fail')
+        recoveryManager.quarantine('item-fail' as ItemId, 'fail')
       ).rejects.toThrow('Storage failure')
 
       expect(recoveryManager.isInFlight('item-fail' as ItemId)).toBe(false)
       consoleSpy.mockRestore()
+    })
+
+    it('no-ops if accountId is missing', async () => {
+      recoveryManager.setAccountId(null)
+      await recoveryManager.quarantine('item-1' as ItemId, 'fail')
+      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
   })
 
@@ -116,7 +122,7 @@ describe('RecoveryManager', () => {
       recoveryManager.setInFlight('item-1' as ItemId, true)
       mockReadManualRecoveryEntries.mockResolvedValue([])
 
-      await recoveryManager.unquarantine('account-123', 'item-1' as ItemId)
+      await recoveryManager.unquarantine('item-1' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-1')
       expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
@@ -127,10 +133,11 @@ describe('RecoveryManager', () => {
       })
     })
 
-    it('works when called with single itemId argument using constructor accountId', async () => {
+    it('no-ops if accountId is missing', async () => {
+      recoveryManager.setAccountId(null)
       await recoveryManager.unquarantine('item-2' as ItemId)
 
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-2')
+      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
     })
   })
 
@@ -140,7 +147,7 @@ describe('RecoveryManager', () => {
       recoveryManager.setInFlight('item-1' as ItemId, true)
       mockReadManualRecoveryCount.mockResolvedValue(0)
 
-      await recoveryManager.unquarantineBatch('account-123', ['item-1' as ItemId])
+      await recoveryManager.unquarantineBatch(['item-1' as ItemId])
 
       expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
@@ -153,11 +160,18 @@ describe('RecoveryManager', () => {
         .mockResolvedValueOnce(2) // previous count
         .mockResolvedValueOnce(0) // next count
 
-      await recoveryManager.unquarantineBatch('account-123', ['item-1' as ItemId, 'item-2' as ItemId])
+      await recoveryManager.unquarantineBatch(['item-1' as ItemId, 'item-2' as ItemId])
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-1')
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-2')
       expect(onEventMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('no-ops if accountId is missing', async () => {
+      recoveryManager.setAccountId(null)
+      await recoveryManager.unquarantineBatch(['item-1' as ItemId])
+
+      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
     })
   })
 

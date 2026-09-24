@@ -29,12 +29,11 @@ function toAuthExpiredError(err: unknown): Error {
 
 async function quarantineItem(
   recoveryManager: RecoveryManager,
-  accountId: string,
   itemId: ItemId,
   reason: string
 ): Promise<void> {
   try {
-    await recoveryManager.quarantine(accountId, itemId, reason)
+    await recoveryManager.quarantine(itemId, reason)
   } catch (storageErr) {
     console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
   }
@@ -365,7 +364,6 @@ export class ItemReencryptor {
         failed.push({ itemId: failure.itemId, error: failure.errorMsg })
         await quarantineItem(
           recoveryManager,
-          accountId,
           failure.itemId,
           `Re-encryption snapshot build failed: ${failure.errorMsg}`
         )
@@ -398,7 +396,6 @@ export class ItemReencryptor {
               failed.push({ itemId: item.itemId, error: errMsg })
               await quarantineItem(
                 recoveryManager,
-                accountId,
                 item.itemId,
                 `Re-encryption upload failed: ${errMsg}`
               )

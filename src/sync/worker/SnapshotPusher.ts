@@ -233,7 +233,6 @@ export class SnapshotPusher {
       if (this.accountId) {
         try {
           await this.recoveryManager.quarantine(
-            this.accountId,
             itemId,
             `Snapshot failure: ${detailedReason}`,
           )
@@ -267,7 +266,6 @@ export class SnapshotPusher {
       })
       void this.recoveryManager
         .quarantine(
-          accountId,
           itemId,
           `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
         )
@@ -325,7 +323,7 @@ export class SnapshotPusher {
       }
       this.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
       this.broker.unblockItem?.(item.snapshot.itemId)
-      void this.recoveryManager.unquarantine(accountId, item.snapshot.itemId).catch(() => {})
+      void this.recoveryManager.unquarantine(item.snapshot.itemId).catch(() => {})
     }
   }
 

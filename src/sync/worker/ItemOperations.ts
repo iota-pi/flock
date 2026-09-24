@@ -209,7 +209,7 @@ export class ItemOperations {
       { createIfMissing: true },
     )
 
-    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
+    await this.recoveryManager.unquarantine(itemId)
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
     publishRealtimeBusSyncPing(this.deps.accountId, [itemId])
@@ -230,7 +230,7 @@ export class ItemOperations {
       { createIfMissing: true },
     )
 
-    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
+    await this.recoveryManager.unquarantine(itemId)
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
@@ -245,7 +245,7 @@ export class ItemOperations {
 
     await this.deps.docStore.compactDocument(itemId, localItem)
 
-    await this.recoveryManager.unquarantine(this.deps.accountId, itemId)
+    await this.recoveryManager.unquarantine(itemId)
 
     this.deps.markDocumentDirty(itemId)
     this.deps.eventHub.emit({ type: 'itemUpdated', id: itemId, item: localItem })
