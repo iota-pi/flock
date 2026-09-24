@@ -16,6 +16,10 @@ const DEFAULT_DB_PREFIX_BY_STORE: Record<string, string> = {
   'sync-metadata': 'flock-sync-metadata-',
 }
 
+const DEFAULT_DESCRIPTION_BY_STORE: Record<string, string> = {
+  'sync-metadata': 'Consolidated sync metadata for Flock account',
+}
+
 export function getAccountDatabaseName(storeName: string, accountId: string): string {
   const prefix = DEFAULT_DB_PREFIX_BY_STORE[storeName]
   if (prefix) {
@@ -34,8 +38,9 @@ export function resolveAccountStoreConfig(
     name,
     storeName,
   }
-  if (options?.description) {
-    config.description = options.description
+  const description = options?.description ?? DEFAULT_DESCRIPTION_BY_STORE[storeName]
+  if (description) {
+    config.description = description
   }
   if (options?.driver) {
     config.driver = options.driver

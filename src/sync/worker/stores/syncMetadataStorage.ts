@@ -1,5 +1,11 @@
 import localforage from 'localforage'
 import { runStorageOperation, type RunStorageOperationOptions } from '../../../utils/storageManager'
+import {
+  createAccountStore,
+  clearAccountStore,
+  clearAccountStoreInstancesCacheForTesting,
+  getAccountDatabaseName,
+} from '../../shared/createAccountStore'
 import { BaseLocalForageStore } from './BaseLocalForageStore'
 
 export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
@@ -27,10 +33,8 @@ export const LEGACY_KEYS = {
   MANUAL_RECOVERY_MIGRATED: '__migrated_v2',
 } as const
 
-const metadataStoreInstances = new Map<string, LocalForage>()
-
 export function getSyncMetadataDBName(accountId: string): string {
-  return `flock-sync-metadata-${accountId}`
+  return getAccountDatabaseName(SYNC_METADATA_STORE_NAME, accountId)
 }
 
 /**
@@ -54,32 +58,19 @@ export async function hasLegacyDatabase(dbName: string): Promise<boolean> {
  * This ensures only a single IndexedDB connection pool is maintained across all 4 metadata stores.
  */
 export function getSyncMetadataStorage(accountId: string): LocalForage {
-  let instance = metadataStoreInstances.get(accountId)
-  if (!instance) {
-    instance = localforage.createInstance({
-      name: getSyncMetadataDBName(accountId),
-      storeName: SYNC_METADATA_STORE_NAME,
-      description: 'Consolidated sync metadata for Flock account',
-    })
-    metadataStoreInstances.set(accountId, instance)
-  }
-  return instance
+  return createAccountStore(SYNC_METADATA_STORE_NAME, accountId)
 }
 
 /**
  * Clears the in-memory cache of LocalForage instances. Useful for testing.
  */
-export function clearSyncMetadataInstancesCacheForTesting(): void {
-  metadataStoreInstances.clear()
-}
+export const clearSyncMetadataInstancesCacheForTesting = clearAccountStoreInstancesCacheForTesting
 
 /**
  * Clears the consolidated sync metadata database for an account.
  */
 export async function clearSyncMetadataStorage(accountId: string): Promise<void> {
-  if (!accountId) return
-  const instance = getSyncMetadataStorage(accountId)
-  await runStorageOperation(() => instance.clear())
+  await clearAccountStore(SYNC_METADATA_STORE_NAME, accountId)
 }
 
 /**

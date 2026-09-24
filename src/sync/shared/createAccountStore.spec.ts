@@ -76,6 +76,11 @@ describe('createAccountStore', () => {
       const config2 = resolveAccountStoreConfig('wal-entries', 'acc-1', { name: 'custom-db-2' })
       expect(config2.name).toBe('custom-db-2')
     })
+
+    it('resolves default description for sync-metadata', () => {
+      const config = resolveAccountStoreConfig('sync-metadata', 'acc-1')
+      expect(config.description).toBe('Consolidated sync metadata for Flock account')
+    })
   })
 
   describe('caching and isolation', () => {
