@@ -40,6 +40,14 @@ function safeGetApiAuthToken(): string {
   }
 }
 
+export class AuthError extends Error {
+  readonly code = 'UNAUTHORIZED' as const
+  constructor(message = 'No active session token available', options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'AuthError'
+  }
+}
+
 export class AuthExpiredError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options)
@@ -190,7 +198,7 @@ export class SyncApiClient {
 
   getToken(): string {
     if (!this.currentToken) {
-      throw new Error('No active session token available')
+      throw new AuthError('No active session token available')
     }
     return this.currentToken
   }
@@ -203,7 +211,7 @@ export class SyncApiClient {
   async executeWithAuth<T>(operation: (authToken: string) => Promise<T>): Promise<T> {
     const token = await this.getValidToken()
     if (!token) {
-      throw new Error('No active session token available')
+      throw new AuthError('No active session token available')
     }
 
     try {

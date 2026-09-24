@@ -3,6 +3,7 @@ import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
+import { AuthError } from './SyncApiClient'
 
 describe('SnapshotPusher', () => {
   let pusher: SnapshotPusher
@@ -150,11 +151,11 @@ describe('SnapshotPusher', () => {
     expect(pusher.retryTimeoutId).toBeNull()
   })
 
-  it('skips push if no auth token is present', async () => {
-    mockApiClient.hasAuthToken.mockResolvedValue(false)
+  it('handles push gracefully if no auth token is present (AuthError)', async () => {
+    mockApiClient.putSnapshots.mockRejectedValue(new AuthError('No active session token available'))
 
     const result = await pusher.pushSnapshots()
     expect(result).toEqual({ persisted: 0, total: 0 })
-    expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
+    expect(mockApiClient.putSnapshots).toHaveBeenCalled()
   })
 })

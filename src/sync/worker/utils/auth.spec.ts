@@ -52,6 +52,10 @@ describe('isAuthError', () => {
     authExpiredErr.name = 'AuthExpiredError'
     expect(isAuthError(authExpiredErr)).toBe(true)
 
+    const authErr = new Error('No active session token available')
+    authErr.name = 'AuthError'
+    expect(isAuthError(authErr)).toBe(true)
+
     const otherErr = new Error('Generic')
     otherErr.name = 'Error'
     expect(isAuthError(otherErr)).toBe(false)

@@ -93,9 +93,6 @@ export class SyncPoller {
     this.clientEventHub.emit({ type: 'startRequest' })
     const inFlightWalIds: string[] = []
     try {
-      const hasToken = await this.apiClient.hasAuthToken()
-      if (!hasToken) return 'no-poll'
-
       let batchEntries: ChunkEntry
       try {
         batchEntries = await this.loadWalEntries(inFlightWalIds)

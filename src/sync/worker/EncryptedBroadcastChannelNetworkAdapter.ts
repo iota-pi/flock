@@ -23,7 +23,7 @@ import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from './utils/errorClassifier'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
-import { AsyncQueue } from './utils/AsyncQueue'
+import { AsyncQueue } from '../utils/AsyncQueue'
 import { BoundedQueue } from '../utils/boundedCollections'
 
 export const DEFAULT_MAX_CRYPTO_RETRIES = 3

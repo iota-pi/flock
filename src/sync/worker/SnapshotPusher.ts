@@ -154,23 +154,17 @@ export class SnapshotPusher {
     }, delayMs)
   }
 
-  private async preparePushContext(): Promise<{
+  private preparePushContext(): {
     accountId: string
     dirtyItemIds: ItemId[]
     snapshotCursor: number
-  } | null> {
+  } | null {
     if (!this.tracker.isOperational) {
       return null
     }
     const dirtyItemIds = this.tracker.getDirtyItemIds()
     if (dirtyItemIds.length === 0) {
       this.snapshotRequestCursor = null
-      return null
-    }
-
-    const hasToken = await this.apiClient.hasAuthToken()
-    if (!hasToken) {
-      console.warn('[SnapshotPusher] Cannot push snapshots: missing active session token')
       return null
     }
 
@@ -205,7 +199,7 @@ export class SnapshotPusher {
       }
       return { success: false, persisted: response?.persisted ?? 0 }
     } catch (error) {
-      if (signal?.aborted || isAbortError(error)) {
+      if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
         throw error
       }
       console.error('[SnapshotPusher] Failed to put snapshots', error)
@@ -455,7 +449,7 @@ export class SnapshotPusher {
 
     try {
       checkAlive(signal, () => this.tracker.isOperational)
-      const context = await this.preparePushContext()
+      const context = this.preparePushContext()
       if (!context) {
         if (this.tracker.dirtyCount > 0) {
           success = false
@@ -482,6 +476,11 @@ export class SnapshotPusher {
       const classified = classifySyncError(error)
       if (signal.aborted || classified.isAbort || !this.tracker.isOperational) {
         return { persisted, total, success: false }
+      }
+      if (classified.isAuth) {
+        console.warn('[SnapshotPusher] Cannot push snapshots: auth failure', error)
+        success = false
+        return { persisted, total, success }
       }
       console.error('[SnapshotPusher] Error during pushSnapshots', error)
       success = false

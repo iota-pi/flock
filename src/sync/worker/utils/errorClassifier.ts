@@ -84,6 +84,7 @@ const AUTH_ERROR_NAMES = new Set([
   'UnauthorizedError',
   'ForbiddenError',
   'AuthExpiredError',
+  'AuthError',
 ])
 
 /**

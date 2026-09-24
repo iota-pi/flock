@@ -1,4 +1,5 @@
-import { SyncApiClient, AuthExpiredError } from './SyncApiClient'
+import { SyncApiClient, AuthError, AuthExpiredError } from './SyncApiClient'
+import { isAuthError } from './utils/auth'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockPollSyncBatchWithToken = vi.fn()
@@ -77,7 +78,14 @@ describe('SyncApiClient', () => {
       const token = await client.getValidToken()
       expect(token).toBeNull()
       expect(await client.hasAuthToken()).toBe(false)
-      expect(() => client.getToken()).toThrow('No active session token available')
+      expect(() => client.getToken()).toThrow(AuthError)
+
+      await expect(client.putSnapshots({ account: 'acc-1', snapshots: [] })).rejects.toThrow(AuthError)
+      try {
+        await client.putSnapshots({ account: 'acc-1', snapshots: [] })
+      } catch (err) {
+        expect(isAuthError(err)).toBe(true)
+      }
     })
   })
 

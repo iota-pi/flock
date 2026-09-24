@@ -1,5 +1,5 @@
 import { SyncPoller } from './SyncPoller'
-import { SyncApiClient } from './SyncApiClient'
+import { SyncApiClient, AuthError } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore'
@@ -668,10 +668,9 @@ describe('SyncPoller', () => {
   })
 
   describe('Auth and SyncApiClient integration', () => {
-    it('returns no-poll when apiClient reports no auth token', async () => {
+    it('returns auth-failure when apiClient reports no auth token', async () => {
       const mockApiClient = {
-        hasAuthToken: vi.fn().mockResolvedValue(false),
-        pollSyncBatch: vi.fn(),
+        pollSyncBatch: vi.fn().mockRejectedValue(new AuthError('No active session token available')),
       } as unknown as SyncApiClient
 
       const authPoller = new SyncPoller(
@@ -686,8 +685,8 @@ describe('SyncPoller', () => {
       authPoller.setOnlineState(true)
 
       const outcome = await authPoller.executePoll()
-      expect(outcome).toBe('no-poll')
-      expect(mockApiClient.pollSyncBatch).not.toHaveBeenCalled()
+      expect(outcome).toBe('auth-failure')
+      expect(mockApiClient.pollSyncBatch).toHaveBeenCalled()
     })
 
     it('recovers transparently and succeeds when initial poll fails with 401 but refresh succeeds', async () => {
