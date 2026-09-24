@@ -8,9 +8,10 @@ import { encryptBytes } from '../../api/vault'
 import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'
 import {
+  classifySyncError,
   isTransientVaultError,
   TRANSIENT_VAULT_ERROR_SUBSTRINGS,
-} from './utils/vaultErrors'
+} from './utils/errorClassifier'
 
 export { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS }
 
@@ -50,7 +51,7 @@ export async function buildSnapshot(
   try {
     encryptedDoc = await encryptBytes(binary)
   } catch (error) {
-    if (isTransientVaultError(error)) {
+    if (classifySyncError(error).isTransientVault) {
       return { type: 'not-ready' }
     }
     throw error

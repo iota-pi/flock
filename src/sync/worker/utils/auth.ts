@@ -1,33 +1,6 @@
-import { parseError, type ParsedError } from './errorParser'
+import { classifySyncError } from './errorClassifier'
 
 export function isAuthError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false
-  }
-
-  const parsed = parseError(error)
-  return matchesAuthError(parsed)
+  return classifySyncError(error).isAuth
 }
 
-function matchesAuthError(parsed: ParsedError): boolean {
-  const httpStatus = parsed.status
-  if (httpStatus === 401 || httpStatus === 403) {
-    return true
-  }
-
-  const code = parsed.code
-  if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') {
-    return true
-  }
-
-  const name = parsed.name
-  if (name === 'UnauthorizedError' || name === 'ForbiddenError' || name === 'AuthExpiredError') {
-    return true
-  }
-
-  if (parsed.cause) {
-    return matchesAuthError(parsed.cause)
-  }
-
-  return false
-}

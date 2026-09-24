@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import * as runtime from '../../api/runtime'
-import { isAuthError } from './utils/auth'
+import { classifySyncError } from './utils/errorClassifier'
 import {
   putSnapshotsWithToken,
   pollSyncBatchWithToken,
@@ -209,7 +209,7 @@ export class SyncApiClient {
     try {
       return await operation(token)
     } catch (err) {
-      if (!isAuthError(err)) {
+      if (!classifySyncError(err).isAuth) {
         throw err
       }
 
@@ -222,7 +222,7 @@ export class SyncApiClient {
       try {
         return await operation(refreshedToken)
       } catch (retryErr) {
-        if (isAuthError(retryErr)) {
+        if (classifySyncError(retryErr).isAuth) {
           throw toAuthExpiredError(retryErr)
         }
         throw retryErr

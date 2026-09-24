@@ -32,24 +32,28 @@ vi.mock('@automerge/automerge-repo-network-broadcastchannel', () => {
   }
 })
 
-vi.mock('src/api/vault', () => ({
-  encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => {
-    return {
-      iv: 'mock-iv',
-      cipher: 'mock-cipher-' + Array.from(bytes).join(','),
-      kver: '1',
-      version: '1.0',
-    }
-  }),
-  decryptBytes: vi.fn().mockImplementation(async (payload: any) => {
-    // extract digits from cipher to mock decryption
-    const suffix = payload.cipher.replace('mock-cipher-', '')
-    if (suffix === '') return new Uint8Array([])
-    return new Uint8Array(suffix.split(',').map((x: string) => parseInt(x, 10)))
-  }),
-  hasVaultKey: vi.fn().mockReturnValue(true),
-  waitForKeyVersion: vi.fn().mockResolvedValue(true),
-}))
+vi.mock('src/api/vault', async importOriginal => {
+  const actual = await importOriginal<typeof import('src/api/vault')>()
+  return {
+    ...actual,
+    encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => {
+      return {
+        iv: 'mock-iv',
+        cipher: 'mock-cipher-' + Array.from(bytes).join(','),
+        kver: '1',
+        version: '1.0',
+      }
+    }),
+    decryptBytes: vi.fn().mockImplementation(async (payload: any) => {
+      // extract digits from cipher to mock decryption
+      const suffix = payload.cipher.replace('mock-cipher-', '')
+      if (suffix === '') return new Uint8Array([])
+      return new Uint8Array(suffix.split(',').map((x: string) => parseInt(x, 10)))
+    }),
+    hasVaultKey: vi.fn().mockReturnValue(true),
+    waitForKeyVersion: vi.fn().mockResolvedValue(true),
+  }
+})
 
 describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   let adapter: EncryptedBroadcastChannelNetworkAdapter

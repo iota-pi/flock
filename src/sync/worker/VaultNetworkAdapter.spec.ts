@@ -15,20 +15,24 @@ import type { ItemId } from 'src/shared/schemas/items'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
-vi.mock('src/api/vault', () => ({
-  encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => {
-    return {
-      iv: 'mock-iv',
-      cipher: 'mock-cipher-' + bytes.length,
-      kver: '1',
-    }
-  }),
-  decryptBytes: vi.fn().mockImplementation(async () => {
-    return new Uint8Array([1, 2, 3])
-  }),
-  hasVaultKey: vi.fn().mockReturnValue(true),
-  waitForKeyVersion: vi.fn().mockResolvedValue(true),
-}))
+vi.mock('src/api/vault', async importOriginal => {
+  const actual = await importOriginal<typeof import('src/api/vault')>()
+  return {
+    ...actual,
+    encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => {
+      return {
+        iv: 'mock-iv',
+        cipher: 'mock-cipher-' + bytes.length,
+        kver: '1',
+      }
+    }),
+    decryptBytes: vi.fn().mockImplementation(async () => {
+      return new Uint8Array([1, 2, 3])
+    }),
+    hasVaultKey: vi.fn().mockReturnValue(true),
+    waitForKeyVersion: vi.fn().mockResolvedValue(true),
+  }
+})
 
 vi.mock('../../api/vault/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),

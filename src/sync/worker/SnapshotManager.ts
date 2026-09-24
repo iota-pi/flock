@@ -5,7 +5,7 @@ import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { buildSnapshot, type BuildSnapshotResult } from './snapshotBuilder'
-import { isTransientVaultError } from './utils/vaultErrors'
+import { classifySyncError } from './utils/errorClassifier'
 import { ItemId } from 'src/shared/schemas/items'
 import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import type { ClientEventHub } from './SyncEventHub'
@@ -13,8 +13,8 @@ import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from './utils/abort'
+import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import {
-  SnapshotBatchAccumulator,
   estimateSnapshotSize,
   type PreparedSnapshotItem,
 } from './SnapshotBatchAccumulator'
@@ -637,9 +637,10 @@ export class SnapshotManager {
     let success = true
     let sendFailed = false
 
-    const accumulator = new SnapshotBatchAccumulator({
+    const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({
       maxBatchCount: 25,
       maxBatchBytes: this.maxPayloadBytes,
+      calculateSize: item => estimateSnapshotSize(item.snapshot),
     })
 
     for (const itemId of dirtyItemIds) {
@@ -747,7 +748,8 @@ export class SnapshotManager {
 
       return { persisted, total, success }
     } catch (error) {
-      if (signal.aborted || isAbortError(error) || !this.isOperational) {
+      const classified = classifySyncError(error)
+      if (signal.aborted || classified.isAbort || !this.isOperational) {
         return { persisted, total, success: false }
       }
       console.error('[SnapshotManager] Error during pushSnapshots', error)
@@ -777,7 +779,8 @@ export class SnapshotManager {
     try {
       return await buildSnapshot(this.deps.repo, itemId, snapshotCursor)
     } catch (error: unknown) {
-      if (isTransientVaultError(error)) {
+      const classified = classifySyncError(error)
+      if (classified.isTransientVault) {
         console.warn('[SnapshotManager] Vault is locked or uninitialized during snapshot build, waiting', error)
         return { type: 'not-ready' }
       }

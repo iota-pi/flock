@@ -4,7 +4,8 @@ import { debounce } from 'lodash-es'
 import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { decryptWithKeyResolution, MissingKeyError } from './utils/decryptWithKeyResolution'
+import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
+import { classifySyncError } from './utils/errorClassifier'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
@@ -172,8 +173,9 @@ export class SyncPullQueueManager {
         },
       })
     } catch (error) {
-      if (error instanceof MissingKeyError) {
-        return { parsed: false, missingKey: true, kver: error.kver }
+      const classified = classifySyncError(error)
+      if (classified.isMissingKey) {
+        return { parsed: false, missingKey: true, kver: classified.kver }
       }
       return { parsed: false }
     }

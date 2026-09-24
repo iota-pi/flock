@@ -10,10 +10,10 @@ import { decodeSyncMessage } from '@automerge/automerge/slim'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { parseBatchedMessages } from './utils/messageParser'
 import { packBatchedMessages } from './utils/binaryFraming'
-import { isAuthError } from './utils/auth'
+import { classifySyncError } from './utils/errorClassifier'
 import type { PushResultItem, PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
 import { SyncApiClient } from './SyncApiClient'
-import { checkAlive, isAbortError } from './utils/abort'
+import { checkAlive } from './utils/abort'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 type ChunkEntry = [ItemId, WalEntry[]][]
@@ -113,11 +113,12 @@ export class SyncPoller {
       await this.indexManager?.updateLastSyncTime(Date.now())
       return 'success'
     } catch (error) {
-      if (isAbortError(error) || signal.aborted || !this.isOperational) {
+      const classified = classifySyncError(error)
+      if (classified.isAbort || signal.aborted || !this.isOperational) {
         return 'no-poll'
       }
 
-      if (this.isAuthError(error)) {
+      if (classified.isAuth) {
         console.error('[SyncPoller] Auth failure during polling', error)
         return 'auth-failure'
       }
@@ -275,10 +276,6 @@ export class SyncPoller {
     } catch (pullErr) {
       console.error('[SyncPoller] Error processing pull results', pullErr)
     }
-  }
-
-  private isAuthError(error: unknown): boolean {
-    return isAuthError(error)
   }
 
   private isPushResultSuccessful(result: PushResultItem): boolean {

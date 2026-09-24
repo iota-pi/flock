@@ -1,5 +1,4 @@
 import {
-  NetworkAdapter,
   type Message,
   type PeerId,
   type PeerMetadata,
@@ -9,14 +8,18 @@ import {
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 import { debounce } from 'lodash-es'
 
+import {
+  BaseSyncNetworkAdapter,
+  DEFAULT_MAX_OUTBOUND_QUEUE_SIZE,
+} from './BaseSyncNetworkAdapter'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
 import { WorkerInternalEventHub } from './SyncEventHub'
-import { BoundedQueue, BoundedSet } from '../utils/boundedCollections'
+import { BoundedSet } from '../utils/boundedCollections'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
-export const MAX_OUTBOUND_QUEUE_SIZE = 1000
+export const MAX_OUTBOUND_QUEUE_SIZE = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
 export const MAX_RENEGOTIATION_ATTEMPTS = 3
 export const RENEGOTIATION_WINDOW_MS = 5000
 export const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
@@ -26,24 +29,10 @@ interface RenegotiationCircuitState {
   circuitOpenUntil?: number
 }
 
-export class VaultNetworkAdapter extends NetworkAdapter {
+export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   private account: string | null = null
-  private connected = false
-  private ready = false
-  private readyPromiseResolver: (() => void) | null = null
-  private readonly readyPromise: Promise<void>
   private sendEnabled = false
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
-  private outboundQueue = new BoundedQueue<Message>(MAX_OUTBOUND_QUEUE_SIZE, {
-    onEvict: evicted => {
-      console.warn(
-        `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
-      )
-      if (evicted?.documentId) {
-        this.triggerReNegotiation(evicted.documentId)
-      }
-    },
-  })
 
   private pendingReNegotiations = new Set<DocumentId>()
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
@@ -52,11 +41,10 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private internalEventHub: WorkerInternalEventHub
 
   constructor(internalEventHub?: WorkerInternalEventHub) {
-    super()
-    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
-    this.readyPromise = new Promise<void>(resolve => {
-      this.readyPromiseResolver = resolve
+    super({
+      maxOutboundQueueSize: MAX_OUTBOUND_QUEUE_SIZE,
     })
+    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
   public get eventHub(): WorkerInternalEventHub {
@@ -67,8 +55,8 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.internalEventHub = hub
   }
 
-  private canSend(): boolean {
-    return this.connected && Boolean(this.account) && this.sendEnabled
+  protected override canSend(): boolean {
+    return super.canSend() && this.connected && Boolean(this.account) && this.sendEnabled
   }
 
   setSendEnabled(sendEnabled: boolean): void {
@@ -124,25 +112,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  isReady(): boolean {
-    return this.ready
-  }
-
-  whenReady(): Promise<void> {
-    return this.readyPromise
-  }
-
-  connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
-    this.peerId = peerId
-    this.peerMetadata = peerMetadata
-    this.connected = true
+  override connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
+    super.connect(peerId, peerMetadata)
     this.clearSeededDocuments()
-
-    if (!this.ready) {
-      this.ready = true
-      this.readyPromiseResolver?.()
-      this.readyPromiseResolver = null
-    }
 
     if (this.canSend()) {
       this.flushOutboundQueue()
@@ -167,7 +139,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.processMessage(message)
   }
 
-  private enqueueOutboundMessage(message: Message): void {
+  protected override enqueueOutboundMessage(message: Message): void {
     if (message.type === 'sync' && message.data instanceof Uint8Array) {
       try {
         const decoded = decodeSyncMessage(message.data)
@@ -183,7 +155,20 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       }
     }
 
-    this.outboundQueue.push(message)
+    super.enqueueOutboundMessage(message)
+  }
+
+  protected override onOutboundQueueEvict(evicted: Message): void {
+    console.warn(
+      `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
+    )
+    if (evicted?.documentId) {
+      this.triggerReNegotiation(evicted.documentId)
+    }
+  }
+
+  protected override processOutboundMessage(message: Message): void {
+    this.processMessage(message)
   }
 
   triggerReNegotiation(documentId: DocumentId): boolean {
@@ -252,17 +237,6 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  private flushOutboundQueue(): void {
-    if (!this.canSend()) {
-      return
-    }
-
-    while (this.outboundQueue.length > 0) {
-      const message = this.outboundQueue.shift()!
-      this.processMessage(message)
-    }
-  }
-
   private processMessage(message: Message): void {
     if (message.type === 'sync' && message.data instanceof Uint8Array) {
       try {
@@ -305,7 +279,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   }
 
   receiveMessage(documentId: DocumentId, message: Uint8Array): void {
-    this.emit('message', {
+    this.dispatchMessage({
       type: 'sync',
       senderId: VAULT_PEER_ID,
       targetId: this.peerId!,
@@ -314,14 +288,13 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     })
   }
 
-  disconnect(): void {
-    this.connected = false
+  override disconnect(): void {
     this.seededDocuments.clear()
     this.pendingReNegotiations.clear()
     this.clearSyncedHeads()
     this.resetReNegotiationCircuit()
     this.disconnectPeer()
-    this.emit('close')
+    super.disconnect()
   }
 
   isReNegotiationCircuitOpen(documentId: DocumentId): boolean {
@@ -388,14 +361,10 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     this.seededDocuments.delete(documentId)
   }
 
-  clearOutboundQueue(): void {
-    this.outboundQueue.clear()
+  override clearOutboundQueue(): void {
+    super.clearOutboundQueue()
     this.pendingReNegotiations.clear()
     this.resetReNegotiationCircuit()
-  }
-
-  getPendingOutboundCount(): number {
-    return this.outboundQueue.length
   }
 
   getPendingReNegotiationCount(): number {
@@ -404,12 +373,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
 
   private connectPeer(): void {
     if (this.account && this.connected && this.sendEnabled) {
-      this.emit('peer-candidate', {
-        peerId: VAULT_PEER_ID,
-        peerMetadata: {
-          storageId: `vault:${this.account}` as StorageId,
-          isEphemeral: false,
-        },
+      this.dispatchPeerCandidate(VAULT_PEER_ID, {
+        storageId: `vault:${this.account}` as StorageId,
+        isEphemeral: false,
       })
     }
   }
@@ -417,8 +383,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private disconnectPeer(): void {
     this.clearSeededDocuments()
     if (this.peerId) {
-      this.emit('peer-disconnected', { peerId: VAULT_PEER_ID })
+      this.dispatchPeerDisconnected(VAULT_PEER_ID)
     }
   }
 }
-

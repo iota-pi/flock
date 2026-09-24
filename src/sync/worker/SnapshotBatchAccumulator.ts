@@ -1,3 +1,9 @@
+import {
+  SizeAwareBatchAccumulator,
+  type SizeAwareBatchAccumulatorOptions,
+  DEFAULT_MAX_BATCH_COUNT,
+  DEFAULT_MAX_PAYLOAD_LIMIT,
+} from '../utils/SizeAwareBatchAccumulator'
 import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 
 export interface PreparedSnapshotItem {
@@ -6,13 +12,11 @@ export interface PreparedSnapshotItem {
   heads?: string[]
 }
 
-export interface SnapshotBatchAccumulatorOptions {
-  maxBatchCount?: number
-  maxBatchBytes?: number
-}
+export type SnapshotBatchAccumulatorOptions =
+  SizeAwareBatchAccumulatorOptions<PreparedSnapshotItem>
 
-export const DEFAULT_MAX_SNAPSHOT_BATCH_COUNT = 25
-export const DEFAULT_MAX_SNAPSHOT_PAYLOAD_LIMIT = 2 * 1024 * 1024 // 2MB
+export const DEFAULT_MAX_SNAPSHOT_BATCH_COUNT = DEFAULT_MAX_BATCH_COUNT
+export const DEFAULT_MAX_SNAPSHOT_PAYLOAD_LIMIT = DEFAULT_MAX_PAYLOAD_LIMIT
 
 /**
  * Direct ciphertext length estimation.
@@ -27,54 +31,11 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
   return cipherBytes + ivBytes + idBytes + BASE_OVERHEAD_BYTES
 }
 
-export class SnapshotBatchAccumulator {
-  private currentBatch: PreparedSnapshotItem[] = []
-  private currentBatchBytes = 0
-  public readonly maxBatchCount: number
-  public readonly maxBatchBytes: number
-
+export class SnapshotBatchAccumulator extends SizeAwareBatchAccumulator<PreparedSnapshotItem> {
   constructor(options?: SnapshotBatchAccumulatorOptions) {
-    this.maxBatchCount = options?.maxBatchCount ?? DEFAULT_MAX_SNAPSHOT_BATCH_COUNT
-    const requestedMax = options?.maxBatchBytes ?? 350 * 1024
-    this.maxBatchBytes = Math.min(requestedMax, DEFAULT_MAX_SNAPSHOT_PAYLOAD_LIMIT)
-  }
-
-  get items(): readonly PreparedSnapshotItem[] {
-    return this.currentBatch
-  }
-
-  get size(): number {
-    return this.currentBatch.length
-  }
-
-  get bytes(): number {
-    return this.currentBatchBytes
-  }
-
-  get isEmpty(): boolean {
-    return this.currentBatch.length === 0
-  }
-
-  wouldExceed(itemSizeBytes: number): boolean {
-    const wouldExceedCount = this.currentBatch.length >= this.maxBatchCount
-    const wouldExceedBytes = this.currentBatchBytes + itemSizeBytes > this.maxBatchBytes
-    return wouldExceedCount || wouldExceedBytes
-  }
-
-  push(item: PreparedSnapshotItem, itemSizeBytes: number): void {
-    this.currentBatch.push(item)
-    this.currentBatchBytes += itemSizeBytes
-  }
-
-  drain(): PreparedSnapshotItem[] {
-    const batch = this.currentBatch
-    this.currentBatch = []
-    this.currentBatchBytes = 0
-    return batch
-  }
-
-  clear(): void {
-    this.currentBatch = []
-    this.currentBatchBytes = 0
+    super({
+      ...options,
+      calculateSize: options?.calculateSize ?? (item => estimateSnapshotSize(item.snapshot)),
+    })
   }
 }

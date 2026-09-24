@@ -1,9 +1,10 @@
-﻿export interface ParsedError {
+export interface ParsedError {
   status?: number
   httpStatus?: number
   code?: string
   name?: string
   message?: string
+  kver?: string
   cause?: ParsedError
 }
 
@@ -58,6 +59,9 @@ export function parseError(error: unknown, seen = new WeakSet<object>()): Parsed
   const rawCode = data?.code ?? anyError.code
   const code = typeof rawCode === 'string' ? rawCode : undefined
 
+  const rawKver = (anyError as { kver?: unknown })?.kver
+  const kver = typeof rawKver === 'string' ? rawKver : undefined
+
   const cause = anyError.cause != null ? parseError(anyError.cause, seen) : undefined
 
   return {
@@ -66,6 +70,7 @@ export function parseError(error: unknown, seen = new WeakSet<object>()): Parsed
     code,
     name,
     message,
+    kver,
     cause,
   }
 }

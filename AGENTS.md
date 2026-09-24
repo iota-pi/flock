@@ -94,6 +94,7 @@ src/sync/
 │   ├── ManifestSyncManager.ts        # Full-state sync via server manifest comparison
 │   ├── ItemOperations.ts             # CRUD on Automerge documents + manual recovery
 │   ├── AutomergeRepoManager.ts       # Creates/configures the Automerge Repo instance
+│   ├── BaseSyncNetworkAdapter.ts     # Abstract base NetworkAdapter encapsulating peer connection & dispatch
 │   ├── VaultNetworkAdapter.ts    # Automerge network adapter for server sync
 │   ├── EncryptedBroadcastChannelNetworkAdapter.ts  # Encrypted cross-tab sync adapter
 │   ├── FlockIndexedDBStorageAdapter.ts    # Custom IndexedDB storage for Automerge
@@ -114,12 +115,14 @@ src/sync/
 │       ├── LeaderElection.ts         # navigator.locks-based leader election
 │       ├── automerge.ts              # URL/ID conversion helpers
 │       ├── binaryFraming.ts          # Length-prefixed batched message framing & packing
+│       ├── errorClassifier.ts        # Centralized single-pass error classification (ErrorClassifier)
 │       ├── messageParser.ts          # Length-prefixed batched message parser
 │       └── snapshot.ts               # Snapshot type normalization
 └── utils/
     ├── AsyncMutex.ts                 # Sequential FIFO mutual exclusion (AsyncMutex & KeyedAsyncMutex)
     ├── RetryStrategy.ts              # Configurable delay schedules, jitter, and max attempts
-    └── SingleFlightGuard.ts          # Concurrency deduplicator for async operations (SingleFlightGuard & KeyedSingleFlightGuard)
+    ├── SingleFlightGuard.ts          # Concurrency deduplicator for async operations (SingleFlightGuard & KeyedSingleFlightGuard)
+    └── SizeAwareBatchAccumulator.ts  # Generic size- and count-aware batch accumulator
 ```
 
 ### Key Sync Concepts

@@ -1,5 +1,4 @@
 import {
-  NetworkAdapter,
   type DocumentId,
   type Message,
   type PeerId,
@@ -16,7 +15,12 @@ import {
   waitForKeyVersion,
   type CryptoResult,
 } from 'src/api/vault'
-import { decryptWithKeyResolution, MissingKeyError } from './utils/decryptWithKeyResolution'
+import {
+  BaseSyncNetworkAdapter,
+  type BaseSyncNetworkAdapterOptions,
+} from './BaseSyncNetworkAdapter'
+import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
+import { classifySyncError } from './utils/errorClassifier'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import { AsyncQueue } from './utils/AsyncQueue'
@@ -25,7 +29,9 @@ import { BoundedQueue } from '../utils/boundedCollections'
 export const DEFAULT_MAX_CRYPTO_RETRIES = 3
 export const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
 
-export interface EncryptedBroadcastChannelOptions extends Partial<BroadcastChannelNetworkAdapterOptions> {
+export interface EncryptedBroadcastChannelOptions
+  extends Partial<BroadcastChannelNetworkAdapterOptions>,
+  BaseSyncNetworkAdapterOptions {
   accountId?: string
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
@@ -42,7 +48,7 @@ interface QueuedMessage {
   retries: number
 }
 
-export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
+export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdapter {
   private options?: EncryptedBroadcastChannelOptions
   private accountId?: string
   private inner!: BroadcastChannelNetworkAdapter
@@ -50,14 +56,12 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private receiveQueue: AsyncQueue<QueuedMessage>
   private pendingKeyMessages = new Map<string, BoundedQueue<Message>>()
   private activeKeyWaiters = new Set<string>()
-  private isDisconnected = false
-  private isPaused = false
   private maxPendingMessagesPerKey: number
   private maxCryptoRetries: number
   private cryptoRetryDelayMs: number
 
   constructor(options?: EncryptedBroadcastChannelOptions) {
-    super()
+    super(options)
     this.options = options
     this.accountId = options?.accountId ?? (options?.channelName?.startsWith('flock-automerge-broadcast-') ? options.channelName.slice('flock-automerge-broadcast-'.length) : undefined)
     this.maxPendingMessagesPerKey = options?.maxPendingMessagesPerKey ?? 1000
@@ -71,33 +75,35 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.setupInner()
   }
 
-  private setupInner() {
+  private setupInner(): void {
     this.inner = new BroadcastChannelNetworkAdapter(this.options as BroadcastChannelNetworkAdapterOptions | undefined)
 
-    // Forward events
-    this.inner.on('peer-candidate', payload => this.emit('peer-candidate', payload))
-    this.inner.on('peer-disconnected', payload => this.emit('peer-disconnected', payload))
+    // Forward events via base dispatcher methods
+    this.inner.on('peer-candidate', payload => this.dispatchPeerCandidate(payload.peerId, payload.peerMetadata))
+    this.inner.on('peer-disconnected', payload => this.dispatchPeerDisconnected(payload.peerId))
     this.inner.on('message', message => this.handleIncomingMessage(message))
-    this.inner.on('close', () => this.emit('close'))
+    this.inner.on('close', () => {
+      if (!this.isDisconnected) {
+        this.dispatchClose()
+      }
+    })
   }
 
-  isReady(): boolean {
+  override isReady(): boolean {
     return this.inner.isReady()
   }
 
-  whenReady(): Promise<void> {
+  override whenReady(): Promise<void> {
     return this.inner.whenReady()
   }
 
-  connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
-    this.isDisconnected = false
-    this.peerId = peerId
-    this.peerMetadata = peerMetadata
+  override connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
+    super.connect(peerId, peerMetadata)
     this.inner.connect(peerId, peerMetadata)
   }
 
-  disconnect() {
-    this.isDisconnected = true
+  override disconnect(): void {
+    super.disconnect()
     this.pendingKeyMessages.clear()
     this.activeKeyWaiters.clear()
     this.receiveQueue.clear()
@@ -105,22 +111,18 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.inner.disconnect()
   }
 
-  pause(): void {
-    this.isPaused = true
+  override pause(): void {
+    super.pause()
     this.sendQueue.clear()
     this.receiveQueue.clear()
   }
 
-  resume(): void {
-    this.isPaused = false
+  override resume(): void {
+    super.resume()
   }
 
-  isSyncPaused(): boolean {
-    return this.isPaused
-  }
-
-  send(message: Message) {
-    if (this.isDisconnected || this.isPaused) {
+  send(message: Message): void {
+    if (!this.canSend()) {
       return
     }
     this.sendQueue.push({ message, retries: 0 })
@@ -128,7 +130,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
 
   private async processSendItem(item: QueuedMessage): Promise<void> {
     while (item.retries < this.maxCryptoRetries) {
-      if (this.isDisconnected || this.isPaused) {
+      if (!this.canSend()) {
         return
       }
       try {
@@ -165,8 +167,8 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  private handleIncomingMessage(message: Message) {
-    if (this.isDisconnected || this.isPaused) {
+  private handleIncomingMessage(message: Message): void {
+    if (!this.canSend()) {
       return
     }
     this.receiveQueue.push({ message, retries: 0 })
@@ -177,7 +179,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     return Boolean(pending && pending.length > 0)
   }
 
-  private bufferPendingMessage(kver: string, message: Message) {
+  private bufferPendingMessage(kver: string, message: Message): void {
     const pending = this.pendingKeyMessages.getOrInsertComputed(
       kver,
       () => new BoundedQueue<Message>(
@@ -194,13 +196,13 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     pending.push(message)
   }
 
-  private ensureKeyWaiter(kver: string) {
+  private ensureKeyWaiter(kver: string): void {
     if (this.activeKeyWaiters.has(kver)) return
     this.activeKeyWaiters.add(kver)
     void this.waitForKeyAndDrain(kver)
   }
 
-  private async waitForKeyAndDrain(kver: string) {
+  private async waitForKeyAndDrain(kver: string): Promise<void> {
     try {
       while (this.hasPendingMessages(kver) && !this.isDisconnected) {
         if (hasVaultKey(kver)) {
@@ -226,7 +228,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  private requeuePendingMessages(kver: string) {
+  private requeuePendingMessages(kver: string): void {
     const pending = this.pendingKeyMessages.get(kver)
     if (!pending || pending.length === 0) {
       this.pendingKeyMessages.delete(kver)
@@ -238,7 +240,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
 
   private async processReceiveItem(item: QueuedMessage): Promise<void> {
     while (item.retries < this.maxCryptoRetries) {
-      if (this.isDisconnected || this.isPaused) {
+      if (!this.canSend()) {
         return
       }
       const message = item.message
@@ -261,23 +263,25 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
               onKeyVersionMissing: this.options?.onKeyVersionMissing,
             })
           } catch (err) {
-            if (err instanceof MissingKeyError) {
+            const classified = classifySyncError(err)
+            if (classified.isMissingKey) {
+              const kver = classified.kver ?? '1'
               console.warn(
-                `[EncryptedBroadcastChannel] Timed out waiting for key version ${err.kver}. Buffering message until key arrives.`
+                `[EncryptedBroadcastChannel] Timed out waiting for key version ${kver}. Buffering message until key arrives.`
               )
-              this.bufferPendingMessage(err.kver, message)
-              this.ensureKeyWaiter(err.kver)
+              this.bufferPendingMessage(kver, message)
+              this.ensureKeyWaiter(kver)
               return
             }
             throw err
           }
 
-          this.emit('message', { ...message, data: decryptedData })
+          this.dispatchMessage({ ...message, data: decryptedData })
           if (message.documentId && this.options?.onDocumentReceived) {
             this.options.onDocumentReceived(message.documentId)
           }
         } else {
-          this.emit('message', message)
+          this.dispatchMessage(message)
         }
         return
       } catch (err) {

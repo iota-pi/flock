@@ -17,14 +17,20 @@ vi.mock('../shared/manualRecoveryStore', () => ({
   upsertManualRecoveryEntry: vi.fn().mockResolvedValue({ id: 'mock-entry' }),
 }))
 
-vi.mock('../../api/vault', () => ({
-  encryptBytes: vi.fn().mockResolvedValue({
-    iv: 'mock-iv',
-    cipher: 'mock-cipher',
-    kver: '1',
-  }),
-  initWorkerVault: vi.fn(),
-}))
+vi.mock('../../api/vault', () => {
+  class MockVaultNotInitializedError extends Error {
+    name = 'VaultNotInitializedError'
+  }
+  return {
+    encryptBytes: vi.fn().mockResolvedValue({
+      iv: 'mock-iv',
+      cipher: 'mock-cipher',
+      kver: '1',
+    }),
+    initWorkerVault: vi.fn(),
+    VaultNotInitializedError: MockVaultNotInitializedError,
+  }
+})
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
@@ -579,6 +585,62 @@ describe('reencryptAllItems', () => {
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
 
       consoleWarnSpy.mockRestore()
+    })
+
+    it('splits ready snapshots into multiple upload batches when payload exceeds maxBatchBytes', async () => {
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2', 'item-3'])
+      mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+
+      // Each snapshot is ~150 bytes in mock (cipher 11 + iv 7 + id 6 + base 128 = 152 bytes)
+      // Setting maxBatchBytes to 200 ensures each batch holds at most 1 item!
+      const customReencryptor = new ItemReencryptor({
+        maxBatchBytes: 200,
+      })
+
+      const onProgress = vi.fn()
+      const result = await reencryptAllItems(
+        { ...context, reencryptor: customReencryptor } as any,
+        onProgress,
+      )
+
+      expect(result).toEqual({
+        succeeded: ['item-1', 'item-2', 'item-3'],
+        failed: [],
+      })
+      // 3 items each exceeding maxBatchBytes when combined -> 3 upload calls instead of 1
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[1][0].snapshots).toHaveLength(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[2][0].snapshots).toHaveLength(1)
+    })
+
+    it('handles failure of one size-partitioned batch while allowing another to succeed', async () => {
+      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
+
+      // Batch 1 fails, Batch 2 succeeds
+      mockPutSnapshotsWithToken
+        .mockResolvedValueOnce({ success: false })
+        .mockResolvedValueOnce({ success: false })
+        .mockResolvedValueOnce({ success: false })
+        .mockResolvedValueOnce({ success: true })
+
+      const customReencryptor = new ItemReencryptor({
+        maxBatchBytes: 200,
+      })
+
+      const result = await reencryptAllItems(
+        { ...context, reencryptor: customReencryptor } as any,
+      )
+
+      expect(result.succeeded).toEqual(['item-2'])
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].itemId).toBe('item-1')
+      expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
+        itemId: 'item-1',
+        reason: expect.stringContaining('Re-encryption upload failed'),
+      })
     })
   })
 })

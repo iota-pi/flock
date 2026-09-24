@@ -5,10 +5,13 @@ import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { buildSnapshot } from './snapshotBuilder'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
-import { isAuthError } from './utils/auth'
-import { isNetworkError } from './utils/network'
-import { isServerError } from './utils/server'
+import { classifySyncError } from './utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
+import {
+  SizeAwareBatchAccumulator,
+  DEFAULT_MAX_BATCH_BYTES,
+} from '../utils/SizeAwareBatchAccumulator'
+import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
@@ -141,11 +144,12 @@ async function uploadSnapshotBatchWithRetry(
         err
       )
 
-      if (isAuthError(err)) {
+      const classified = classifySyncError(err)
+      if (classified.isAuth) {
         throw toAuthExpiredError(err)
       }
 
-      if (isNetworkError(err) || isServerError(err)) {
+      if (classified.isNetwork || classified.isServerError) {
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
           break
         }
@@ -159,12 +163,22 @@ async function uploadSnapshotBatchWithRetry(
 // Use a slightly smaller upload chunk size than in SnapshotManager to improve progress reporting granularity
 const REENCRYPT_CHUNK_SIZE = 10
 
+export interface ItemReencryptorOptions {
+  retryDelays?: number[]
+  maxBatchCount?: number
+  maxBatchBytes?: number
+}
+
 export class ItemReencryptor {
   private readonly retryStrategy: RetryStrategy
   private scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
+  public readonly maxBatchCount: number
+  public readonly maxBatchBytes: number
 
-  constructor(options?: { retryDelays?: number[] }) {
+  constructor(options?: ItemReencryptorOptions) {
     this.retryStrategy = new RetryStrategy({ delays: options?.retryDelays ?? DEFAULT_RETRY_DELAYS })
+    this.maxBatchCount = options?.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
+    this.maxBatchBytes = options?.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
   }
 
   get retryAttempt(): number {
@@ -211,13 +225,14 @@ export class ItemReencryptor {
     deps: ReencryptDeps,
     onProgress?: (done: number, total: number) => void
   ): string {
-    if (isAuthError(lastError)) {
+    const classified = classifySyncError(lastError)
+    if (classified.isAuth) {
       throw toAuthExpiredError(lastError)
     }
 
-    if (isNetworkError(lastError) || isServerError(lastError)) {
-      const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
-      const errorType = isServerError(lastError) ? 'server error' : 'network error'
+    if (classified.isNetwork || classified.isServerError) {
+      const errMsg = classified.message || (lastError instanceof Error ? lastError.message : String(lastError))
+      const errorType = classified.isServerError ? 'server error' : 'network error'
       console.warn(
         `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
       )
@@ -296,27 +311,35 @@ export class ItemReencryptor {
       }
 
       if (readySnapshots.length > 0) {
-        const { uploadSuccess, lastError } = await uploadSnapshotBatchWithRetry(
-          apiClient,
-          accountId,
-          readySnapshots
-        )
+        const snapshotBatches = SizeAwareBatchAccumulator.batch(readySnapshots, {
+          maxBatchCount: this.maxBatchCount,
+          maxBatchBytes: this.maxBatchBytes,
+          calculateSize: item => estimateSnapshotSize(item.snapshot),
+        })
 
-        if (uploadSuccess) {
-          for (const item of readySnapshots) {
-            succeeded.push(item.itemId)
-          }
-        } else {
-          const errMsg = this.handleBatchUploadFailure(lastError, deps, onProgress)
-          console.error(`[reencryptAllItems] ${errMsg}`)
-          for (const item of readySnapshots) {
-            failed.push({ itemId: item.itemId, error: errMsg })
-            await quarantineItem(
-              recoveryManager,
-              accountId,
-              item.itemId,
-              `Re-encryption upload failed: ${errMsg}`
-            )
+        for (const batch of snapshotBatches) {
+          const { uploadSuccess, lastError } = await uploadSnapshotBatchWithRetry(
+            apiClient,
+            accountId,
+            batch
+          )
+
+          if (uploadSuccess) {
+            for (const item of batch) {
+              succeeded.push(item.itemId)
+            }
+          } else {
+            const errMsg = this.handleBatchUploadFailure(lastError, deps, onProgress)
+            console.error(`[reencryptAllItems] ${errMsg}`)
+            for (const item of batch) {
+              failed.push({ itemId: item.itemId, error: errMsg })
+              await quarantineItem(
+                recoveryManager,
+                accountId,
+                item.itemId,
+                `Re-encryption upload failed: ${errMsg}`
+              )
+            }
           }
         }
       }
