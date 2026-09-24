@@ -55,7 +55,7 @@ export {
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
+export const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
 
 const SYNC_MESSAGE_TTL = 90 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
@@ -205,7 +205,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async init(_: T | undefined = undefined) {
-    const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions'>[] = [
+    const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions' | 'GlobalSecondaryIndexes'>[] = [
       {
         TableName: ITEM_TABLE_NAME,
         KeySchema: [
@@ -235,6 +235,17 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         AttributeDefinitions: [
           { AttributeName: 'syncId', AttributeType: 'S' },
           { AttributeName: 'cursor', AttributeType: 'N' },
+          { AttributeName: 'account', AttributeType: 'S' },
+        ],
+        GlobalSecondaryIndexes: [
+          {
+            IndexName: 'AccountCursorIndex',
+            KeySchema: [
+              { AttributeName: 'account', KeyType: 'HASH' },
+              { AttributeName: 'cursor', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
         ],
       },
     ]
@@ -247,6 +258,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
             TableName: table.TableName,
             KeySchema: table.KeySchema,
             AttributeDefinitions: table.AttributeDefinitions,
+            GlobalSecondaryIndexes: table.GlobalSecondaryIndexes,
             BillingMode: 'PAY_PER_REQUEST',
           },
         ))
