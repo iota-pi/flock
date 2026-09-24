@@ -1,12 +1,7 @@
-import { chunk } from 'lodash-es'
-import * as Automerge from '@automerge/automerge/slim'
-
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
-import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
+import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import { decryptObject, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
-import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import type { ItemId } from 'src/shared/schemas/items'
 import { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
@@ -15,69 +10,89 @@ import { RecoveryManager } from './RecoveryManager'
 import { reconcileAccountMetadata, extractSyncableMetadata } from './utils/metadataSync'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from './utils/abort'
+import { isAuthError } from './utils/auth'
+import {
+  ManifestDeltaCalculator,
+  type ManifestEntry,
+  type SyncDeltas,
+  type CalculateSyncDeltasParams,
+} from './ManifestDeltaCalculator'
+import {
+  ManifestHydrator,
+  type HydrateItemResult,
+  type FetchAndHydrateParams,
+} from './ManifestHydrator'
+
+export type { ManifestEntry, SyncDeltas, CalculateSyncDeltasParams }
+export type { HydrateItemResult, FetchAndHydrateParams }
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
-const BATCH_SIZE = 50
-const SKEW_BUFFER_MS = 60 * 1000
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
-const KEY_WAIT_TIMEOUT_MS = 3000
 
-export type ManifestEntry = [itemId: string, serverTime: number, isDeleted?: boolean]
-
-export interface SyncDeltas {
-  missingIds: ItemId[]
-  upstreamIds: ItemId[]
-  locallyTombstonedSnapshots: Item[]
-  deletedLastModifiedUpdates: [ItemId, number][]
-  knownSet: Set<ItemId>
-  tombstoneSet: Set<ItemId>
+export interface ManifestSyncManagerDeps {
+  accountId: string
+  docStore: AutomergeDocStore
+  indexManager: AutomergeIndexManager
+  snapshotManager: SnapshotManager
+  recoveryManager?: RecoveryManager
+  apiClient?: SyncApiClient
+  onKeyVersionMissing?: (kver: string) => void
+  storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>
+  mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>
+  onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
+  onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
 }
 
-export type HydrateItemResult =
-  | {
-    status: 'success'
-    itemId: ItemId
-    hydratedId?: ItemId
-    snapshot?: Item
-    lastModifiedUpdate?: [ItemId, number]
-  }
-  | {
-    status: 'decryption_failure'
-    itemId: ItemId
-    error: Error
-  }
-  | {
-    status: 'error'
-    itemId: ItemId
-    error: unknown
-  }
+export type ManifestSyncManagerLegacyDeps = Omit<
+  ManifestSyncManagerDeps,
+  'storeItems' | 'mutateMetadata' | 'onDecryptionFailure' | 'onItemSnapshotHydrated'
+>
 
-type SyncResult = { added: ItemId[], success: boolean }
+export type SyncResult = { added: ItemId[], success: boolean }
 
 export class ManifestSyncManager {
-  private recoveryManager: RecoveryManager
+  private readonly deps: ManifestSyncManagerDeps
+  private readonly hydrator: ManifestHydrator
+  private readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
   private isShutdown = false
   private abortController: AbortController | null = null
+  private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 
   constructor(
-    private deps: {
-      accountId: string
-      docStore: AutomergeDocStore
-      indexManager: AutomergeIndexManager
-      snapshotManager: SnapshotManager
-      recoveryManager?: RecoveryManager
-      apiClient?: SyncApiClient
-      onKeyVersionMissing?: (kver: string) => void
-    },
-    private storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
-    private mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
-    private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
-    private onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
+    deps: ManifestSyncManagerDeps | ManifestSyncManagerLegacyDeps,
+    storeItems?: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
+    mutateMetadata?: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
+    onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
+    onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {
-    this.apiClient = deps.apiClient ?? new SyncApiClient()
-    this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId: deps.accountId })
+    if (typeof storeItems === 'function') {
+      this.deps = {
+        ...deps,
+        storeItems,
+        mutateMetadata: mutateMetadata!,
+        onDecryptionFailure,
+        onItemSnapshotHydrated,
+      } as ManifestSyncManagerDeps
+    } else {
+      this.deps = deps as ManifestSyncManagerDeps
+    }
+
+    this.apiClient = this.deps.apiClient ?? new SyncApiClient()
+    this.recoveryManager = this.deps.recoveryManager ?? new RecoveryManager({ accountId: this.deps.accountId })
+    this.hydrator = new ManifestHydrator({
+      accountId: this.deps.accountId,
+      apiClient: this.apiClient,
+      docStore: this.deps.docStore,
+      indexManager: this.deps.indexManager,
+      snapshotManager: this.deps.snapshotManager,
+      storeItems: this.deps.storeItems,
+      onDecryptionFailure: this.deps.onDecryptionFailure,
+      onItemSnapshotHydrated: this.deps.onItemSnapshotHydrated,
+      onKeyVersionMissing: this.deps.onKeyVersionMissing,
+      isShutdown: () => this.isShutdown,
+    })
   }
 
   abort(): void {
@@ -91,8 +106,6 @@ export class ManifestSyncManager {
     this.isShutdown = true
     this.abort()
   }
-
-  private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 
   async sync(force = false, signal?: AbortSignal): Promise<SyncResult> {
     if (this.isShutdown || !this.deps.accountId) return { added: [], success: false }
@@ -111,16 +124,7 @@ export class ManifestSyncManager {
     hasKnownItems: boolean,
     outerSignal?: AbortSignal,
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number; clockSkew: number } | null> {
-    const hasToken = await this.apiClient.hasAuthToken()
     checkAlive(signal, isAlive)
-    if (!hasToken) {
-      if (hasKnownItems) {
-        console.info('[ManifestSyncManager] No auth token, using local data only')
-      } else {
-        console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
-      }
-      return null
-    }
 
     try {
       const requestStartTime = Date.now()
@@ -138,6 +142,14 @@ export class ManifestSyncManager {
       }
     } catch (e) {
       if (signal.aborted || isAbortError(e) || !isAlive()) {
+        return null
+      }
+      if (isAuthError(e)) {
+        if (hasKnownItems) {
+          console.info('[ManifestSyncManager] No auth token, using local data only')
+        } else {
+          console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
+        }
         return null
       }
       if (hasKnownItems) {
@@ -171,9 +183,8 @@ export class ManifestSyncManager {
     return { tombstoneItemIds, localLastModifiedMap, quarantinedMap }
   }
 
-  private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {
+  private createSyncAbortContext(outerSignal?: AbortSignal) {
     const abortController = new AbortController()
-    this.abortController = abortController
     const isAlive = () => !this.isShutdown && (!outerSignal || !outerSignal.aborted)
 
     if (outerSignal?.aborted) {
@@ -181,67 +192,116 @@ export class ManifestSyncManager {
     } else if (outerSignal) {
       outerSignal.addEventListener('abort', () => abortController.abort(outerSignal.reason), { once: true })
     }
-    const { signal } = abortController
+
+    return { abortController, signal: abortController.signal, isAlive }
+  }
+
+  private async checkGating(
+    force: boolean,
+    signal: AbortSignal,
+    isAlive: () => boolean,
+  ): Promise<{ skip: boolean; hasKnownItems: boolean; knownItemIds: ItemId[] }> {
+    checkAlive(signal, isAlive)
+    const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
+    const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
+    checkAlive(signal, isAlive)
+
+    const hasKnownItems = knownItemIds.length > 0
+    const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
+    const skip = this.shouldSkipSync(force, hasKnownItems, timeSinceLastSync)
+
+    return { skip, hasKnownItems, knownItemIds }
+  }
+
+  private async flushPendingSnapshotsSafely(): Promise<void> {
+    try {
+      await this.deps.snapshotManager.flushPendingSnapshots()
+    } catch (flushErr) {
+      console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
+    }
+  }
+
+  private async recordSyncCompletion(hasFailures: boolean): Promise<void> {
+    if (!hasFailures) {
+      await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
+    } else {
+      console.warn(
+        '[ManifestSyncManager] Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry',
+      )
+    }
+  }
+
+  private handleSyncError(
+    e: unknown,
+    signal: AbortSignal,
+    isAlive: () => boolean,
+    hasKnownItems: boolean,
+  ): SyncResult {
+    if (signal.aborted || isAbortError(e) || !isAlive()) {
+      return { added: [], success: false }
+    }
+    if (hasKnownItems) {
+      console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
+      return { added: [], success: false }
+    }
+    console.error('[ManifestSyncManager] Failed to fetch manifest', e)
+    throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
+  }
+
+  private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {
+    const { abortController, signal, isAlive } = this.createSyncAbortContext(outerSignal)
+    this.abortController = abortController
 
     let hasKnownItems = false
-    let added: ItemId[] = []
-
     try {
-      checkAlive(signal, isAlive)
-      const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
-      const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
-      checkAlive(signal, isAlive)
-
-      hasKnownItems = knownItemIds.length > 0
-      const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
-
-      if (this.shouldSkipSync(force, hasKnownItems, timeSinceLastSync)) {
-        return { added, success: true }
+      const gating = await this.checkGating(force, signal, isAlive)
+      hasKnownItems = gating.hasKnownItems
+      if (gating.skip) {
+        return { added: [], success: true }
       }
 
       const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems, outerSignal)
       if (!remoteData) {
-        return { added, success: false }
+        return { added: [], success: false }
       }
       checkAlive(signal, isAlive)
 
-      try {
-        await this.deps.snapshotManager.flushPendingSnapshots()
-      } catch (flushErr) {
-        console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
-      }
+      await this.flushPendingSnapshotsSafely()
       checkAlive(signal, isAlive)
 
-      const { tombstoneItemIds, localLastModifiedMap, quarantinedMap } =
-        await this.collectLocalSyncState(signal, isAlive)
+      const localState = await this.collectLocalSyncState(signal, isAlive)
       checkAlive(signal, isAlive)
 
       // Step 1: Calculate sync deltas
-      const deltas = this.calculateSyncDeltas({
+      const deltas = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: remoteData.manifest,
         clockSkew: remoteData.clockSkew,
         force,
-        knownItemIds,
-        tombstoneItemIds,
-        localLastModifiedMap,
-        quarantinedMap,
+        knownItemIds: gating.knownItemIds,
+        tombstoneItemIds: localState.tombstoneItemIds,
+        localLastModifiedMap: localState.localLastModifiedMap,
+        quarantinedMap: localState.quarantinedMap,
       })
 
-      // Step 2: Push local updates (apply discovered local tombstones, update tombstone timestamps, mark upstream items dirty)
+      // Step 2: Push local updates
       await this.pushLocalUpdates(deltas)
       checkAlive(signal, isAlive)
 
+      let added: ItemId[] = []
       let hasFailures = false
 
-      // Step 3: Fetch and hydrate remote items (if any missing items need to be pulled)
+      // Step 3: Fetch and hydrate remote items
       if (deltas.missingIds.length > 0) {
-        const hydrationResult = await this.fetchAndHydrateRemoteItems({
-          missingIds: deltas.missingIds,
-          manifest: remoteData.manifest,
-          serverTime: remoteData.serverTime,
-          knownSet: deltas.knownSet,
-          tombstoneSet: deltas.tombstoneSet,
-        }, outerSignal ? signal : undefined)
+        const hydrationResult = await this.hydrator.fetchAndHydrateRemoteItems(
+          {
+            missingIds: deltas.missingIds,
+            manifest: remoteData.manifest,
+            serverTime: remoteData.serverTime,
+            knownSet: deltas.knownSet,
+            tombstoneSet: deltas.tombstoneSet,
+          },
+          outerSignal ? signal : undefined,
+        )
         added = hydrationResult.added
         hasFailures = hydrationResult.hasFailures
         checkAlive(signal, isAlive)
@@ -250,25 +310,11 @@ export class ManifestSyncManager {
       await this.syncMetadata()
       checkAlive(signal, isAlive)
 
-      if (!hasFailures) {
-        await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
-      } else {
-        console.warn(
-          '[ManifestSyncManager] Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry'
-        )
-      }
+      await this.recordSyncCompletion(hasFailures)
 
       return { added, success: !hasFailures }
     } catch (e) {
-      if (signal.aborted || isAbortError(e) || !isAlive()) {
-        return { added, success: false }
-      }
-      if (hasKnownItems) {
-        console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
-        return { added, success: false }
-      }
-      console.error('[ManifestSyncManager] Failed to fetch manifest', e)
-      throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
+      return this.handleSyncError(e, signal, isAlive, hasKnownItems)
     } finally {
       if (this.abortController === abortController) {
         this.abortController = null
@@ -276,174 +322,8 @@ export class ManifestSyncManager {
     }
   }
 
-  private calculateInboundDeltas(params: {
-    manifest: ManifestEntry[]
-    activeSet: Set<ItemId>
-    tombstoneSet: Set<ItemId>
-    knownSet: Set<ItemId>
-    quarantinedMap: Map<ItemId, number>
-    localLastModifiedMap: Map<string, number>
-    clockSkew: number
-    force: boolean
-  }) {
-    const locallyTombstonedSnapshots: Item[] = []
-    const deletedLastModifiedUpdates: [ItemId, number][] = []
-    const missingIds: ItemId[] = []
-
-    for (const [itemId, serverTime, isDeleted] of params.manifest) {
-      const id = itemId as ItemId
-      if (!id) continue
-
-      // If not forced and item is currently quarantined in manual recovery:
-      // skip unless the server has a newer snapshot timestamp than when it was quarantined
-      if (!params.force && params.quarantinedMap.has(id)) {
-        const quarantinedAt = params.quarantinedMap.get(id) ?? 0
-        if (serverTime <= quarantinedAt) {
-          continue
-        }
-      }
-
-      const localTime = params.localLastModifiedMap.get(id) ?? 0
-
-      if (isDeleted) {
-        if (params.activeSet.has(id)) {
-          // Item exists locally and is active, but the server manifest indicates it is deleted.
-          // Apply tombstone locally and record timestamp to prevent resurrection.
-          locallyTombstonedSnapshots.push({ id, deleted: true } as unknown as Item)
-          deletedLastModifiedUpdates.push([id, serverTime])
-        } else if (serverTime > localTime) {
-          // Item is deleted on server and client does not have it active (e.g. fresh login or already deleted).
-          // Track that this item exists and is deleted at serverTime without fetching snapshot.
-          deletedLastModifiedUpdates.push([id, serverTime])
-        }
-        continue
-      }
-
-      // If the item is already tombstoned locally, the local tombstone is terminal and authoritative.
-      // Do NOT fetch older or concurrent active snapshot from server, which would cause resurrection.
-      if (params.tombstoneSet.has(id)) {
-        continue
-      }
-
-      if (localTime === 0) {
-        missingIds.push(id)
-        continue
-      }
-      if (params.force && !params.knownSet.has(id)) {
-        missingIds.push(id)
-        continue
-      }
-      if (serverTime === localTime) continue
-      if (serverTime > localTime) {
-        missingIds.push(id)
-        continue
-      }
-
-      // Clock skew + buffer compensation for cases where client clock was ahead
-      const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
-      if (serverTime > adjustedLocalTime) {
-        missingIds.push(id)
-        continue
-      }
-    }
-
-    return { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates }
-  }
-
-  private calculateUpstreamDeltas(params: {
-    allLocalIds: Set<ItemId>
-    missingSet: Set<ItemId>
-    locallyTombstonedSet: Set<ItemId>
-    tombstoneSet: Set<ItemId>
-    serverManifestMap: Map<string, number>
-    serverDeletedSet: Set<string>
-    localLastModifiedMap: Map<string, number>
-    clockSkew: number
-  }): ItemId[] {
-    const upstreamIds: ItemId[] = []
-    for (const localId of params.allLocalIds) {
-      if (params.missingSet.has(localId) || params.locallyTombstonedSet.has(localId)) continue
-      const serverTime = params.serverManifestMap.get(localId)
-      const localTime = params.localLastModifiedMap.get(localId) ?? 0
-
-      if (serverTime === undefined) {
-        // Item exists locally but is completely missing from server manifest
-        upstreamIds.push(localId)
-      } else if (params.tombstoneSet.has(localId) && !params.serverDeletedSet.has(localId)) {
-        // Item is tombstoned locally, but server still has an active snapshot: push tombstone upstream
-        upstreamIds.push(localId)
-      } else {
-        // Clock skew + buffer compensation: if local time exceeds server time
-        const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
-        if (adjustedLocalTime > serverTime) {
-          upstreamIds.push(localId)
-        }
-      }
-    }
-    return upstreamIds
-  }
-
-  calculateSyncDeltas(params: {
-    manifest: ManifestEntry[]
-    clockSkew: number
-    force: boolean
-    knownItemIds: ItemId[]
-    tombstoneItemIds: ItemId[]
-    localLastModifiedMap: Map<string, number>
-    quarantinedMap: Map<ItemId, number>
-  }): SyncDeltas {
-    const activeSet = new Set(params.knownItemIds)
-    const serverManifestMap = new Map<string, number>(
-      params.manifest.map(([itemId, serverTime]) => [itemId, serverTime]),
-    )
-    const serverDeletedSet = new Set<string>(
-      params.manifest
-        .filter(([, , isDeleted]) => isDeleted === true)
-        .map(([itemId]) => itemId),
-    )
-
-    const tombstoneSet = new Set(params.tombstoneItemIds)
-    for (const [id] of params.localLastModifiedMap) {
-      if (!activeSet.has(id as ItemId)) {
-        tombstoneSet.add(id as ItemId)
-      }
-    }
-    const knownSet = new Set([...activeSet, ...tombstoneSet])
-
-    const { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates } =
-      this.calculateInboundDeltas({
-        manifest: params.manifest,
-        activeSet,
-        tombstoneSet,
-        knownSet,
-        quarantinedMap: params.quarantinedMap,
-        localLastModifiedMap: params.localLastModifiedMap,
-        clockSkew: params.clockSkew,
-        force: params.force,
-      })
-
-    // Two-Way Manifest Reconciliation (Upstream):
-    // Identify local items that need to be pushed as snapshots to the server.
-    // Exclude items that were just locally tombstoned.
-    const upstreamIds = this.calculateUpstreamDeltas({
-      allLocalIds: new Set([...params.knownItemIds, ...tombstoneSet]),
-      missingSet: new Set(missingIds),
-      locallyTombstonedSet: new Set(locallyTombstonedSnapshots.map(s => s.id as ItemId)),
-      tombstoneSet,
-      serverManifestMap,
-      serverDeletedSet,
-      localLastModifiedMap: params.localLastModifiedMap,
-      clockSkew: params.clockSkew,
-    })
-
-    return {
-      missingIds,
-      upstreamIds,
-      locallyTombstonedSnapshots,
-      deletedLastModifiedUpdates,
-      knownSet,
-      tombstoneSet,
-    }
+  calculateSyncDeltas(params: CalculateSyncDeltasParams): SyncDeltas {
+    return ManifestDeltaCalculator.calculateSyncDeltas(params)
   }
 
   async pushLocalUpdates(
@@ -464,7 +344,7 @@ export class ManifestSyncManager {
       deltasOrUpstreamIds.locallyTombstonedSnapshots &&
       deltasOrUpstreamIds.locallyTombstonedSnapshots.length > 0
     ) {
-      await this.storeItems(deltasOrUpstreamIds.locallyTombstonedSnapshots, { markDirty: false })
+      await this.deps.storeItems(deltasOrUpstreamIds.locallyTombstonedSnapshots, { markDirty: false })
     }
 
     if (
@@ -482,196 +362,10 @@ export class ManifestSyncManager {
   }
 
   async fetchAndHydrateRemoteItems(
-    params: {
-      missingIds: ItemId[]
-      manifest: ManifestEntry[]
-      serverTime: number
-      knownSet: Set<ItemId>
-      tombstoneSet: Set<ItemId>
-    },
+    params: FetchAndHydrateParams,
     signal?: AbortSignal,
   ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
-    const batches = chunk(params.missingIds, BATCH_SIZE)
-    const fetchedItems: VaultItem[] = []
-    let hasBatchFailures = false
-
-    for (const batch of batches) {
-      checkAlive(signal, () => !this.isShutdown)
-      try {
-        const response = await this.apiClient.fetchSnapshotsByIds(
-          {
-            account: this.deps.accountId,
-            itemIds: batch,
-          },
-          signal ? { signal } : undefined,
-        )
-        if (response?.items && Array.isArray(response.items)) {
-          fetchedItems.push(...response.items)
-        } else {
-          hasBatchFailures = true
-        }
-      } catch (error) {
-        if (signal?.aborted || isAbortError(error)) {
-          throw error
-        }
-        hasBatchFailures = true
-        console.error('[ManifestSyncManager] Failed to fetch snapshot batch', {
-          batch,
-          error,
-        })
-      }
-    }
-
-    checkAlive(signal, () => !this.isShutdown)
-
-    const validFetchedItems = fetchedItems.filter(
-      entry =>
-        entry &&
-        typeof entry === 'object' &&
-        typeof entry.item === 'string' &&
-        entry.item.length > 0,
-    )
-
-    const snapshots: Item[] = []
-    const hydratedIds: ItemId[] = []
-    const lastModifiedUpdates: [ItemId, number][] = []
-    let hasHydrationFailures = false
-
-    const results = await Promise.allSettled(
-      validFetchedItems.map(item =>
-        this.hydrateRemoteItem(
-          item,
-          params.manifest,
-          params.knownSet,
-          params.tombstoneSet,
-          params.serverTime,
-        ),
-      ),
-    )
-
-    for (const settled of results) {
-      if (settled.status === 'rejected') {
-        hasHydrationFailures = true
-        console.error('[ManifestSyncManager] Unexpected error hydrating item', settled.reason)
-        continue
-      }
-
-      const result = settled.value
-      switch (result.status) {
-        case 'success':
-          if (result.hydratedId) {
-            hydratedIds.push(result.hydratedId)
-          }
-          if (result.snapshot) {
-            snapshots.push(result.snapshot)
-          }
-          if (result.lastModifiedUpdate) {
-            lastModifiedUpdates.push(result.lastModifiedUpdate)
-          }
-          break
-        case 'decryption_failure':
-          hasHydrationFailures = true
-          console.warn(
-            `[ManifestSyncManager] Item ${result.itemId} could not be decrypted; quarantining to manual recovery`,
-          )
-          this.onDecryptionFailure?.(result.itemId, result.error)
-          break
-        case 'error':
-          hasHydrationFailures = true
-          console.error('[ManifestSyncManager] Failed to hydrate fetched item envelope', {
-            itemId: result.itemId,
-            error: result.error,
-          })
-          break
-      }
-    }
-
-    if (hydratedIds.length > 0) {
-      await this.deps.indexManager.addAutomergeItemIdsToIndex(hydratedIds)
-    }
-
-    if (snapshots.length > 0) {
-      await this.storeItems(snapshots, { markDirty: false })
-    }
-
-    if (lastModifiedUpdates.length > 0) {
-      await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
-    }
-
-    return {
-      added: hydratedIds,
-      hasFailures: hasBatchFailures || hasHydrationFailures,
-    }
-  }
-
-  private async hydrateSnapshotBinary(
-    itemId: ItemId,
-    item: VaultItem,
-    serverTime: number,
-    knownSet: Set<ItemId>,
-    tombstoneSet: Set<ItemId>,
-  ): Promise<HydrateItemResult | null> {
-    if (!item.snapshot) return null
-    const binary = await this.decryptSnapshotBinary(item.snapshot)
-    if (!binary) return null
-
-    const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
-      knownToExist: knownSet.has(itemId),
-    })
-    try {
-      const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
-      this.onItemSnapshotHydrated?.(itemId, heads)
-    } catch {
-      // Best-effort heads notification; ignore failure if binary cannot be inspected
-    }
-
-    const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))
-    if (isDeleted) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
-    }
-
-    if (hydrationResult?.hasLocalChanges) {
-      this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
-    }
-
-    return {
-      status: 'success',
-      itemId,
-      hydratedId: isDeleted ? undefined : itemId,
-      lastModifiedUpdate: hydrationResult?.hasLocalChanges ? undefined : [itemId, serverTime],
-    }
-  }
-
-  private async hydrateLegacyCipher(
-    itemId: ItemId,
-    item: VaultItem,
-    serverTime: number,
-    tombstoneSet: Set<ItemId>,
-  ): Promise<HydrateItemResult | null> {
-    const decryptedLegacy = await this.decryptLegacyCipher(item)
-    if (!decryptedLegacy || typeof decryptedLegacy !== 'object' || Array.isArray(decryptedLegacy)) {
-      return null
-    }
-
-    const snapshot = { ...(decryptedLegacy as Record<string, unknown>) }
-    if (!snapshot.id || typeof snapshot.id !== 'string') {
-      snapshot.id = item.item
-    }
-    const snapshotId = snapshot.id as ItemId
-    if (tombstoneSet.has(snapshotId) && snapshot.deleted !== true) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([snapshotId])
-      this.deps.snapshotManager.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
-      return {
-        status: 'success',
-        itemId,
-      }
-    }
-    return {
-      status: 'success',
-      itemId,
-      snapshot: snapshot as Item,
-      lastModifiedUpdate: [snapshotId, serverTime],
-    }
+    return this.hydrator.fetchAndHydrateRemoteItems(params, signal)
   }
 
   async hydrateRemoteItem(
@@ -681,87 +375,11 @@ export class ManifestSyncManager {
     tombstoneSet: Set<ItemId> = new Set(),
     serverTimeFallback: number = Date.now(),
   ): Promise<HydrateItemResult> {
-    const itemId = item.item as ItemId
-    try {
-      const manifestEntry = manifest.find(([id]) => id === item.item)
-      const serverTime = manifestEntry ? manifestEntry[1] : serverTimeFallback
-
-      if (item.metadata?.deleted === true) {
-        return {
-          status: 'success',
-          itemId,
-          snapshot: { id: item.item, deleted: true } as unknown as Item,
-          lastModifiedUpdate: [itemId, serverTime],
-        }
-      }
-
-      if (item.snapshot) {
-        const binaryResult = await this.hydrateSnapshotBinary(itemId, item, serverTime, knownSet, tombstoneSet)
-        if (binaryResult) {
-          return binaryResult
-        }
-      }
-
-      const legacyResult = await this.hydrateLegacyCipher(itemId, item, serverTime, tombstoneSet)
-      if (legacyResult) {
-        return legacyResult
-      }
-
-      return {
-        status: 'decryption_failure',
-        itemId,
-        error: new Error('Failed to decrypt snapshot binary or legacy cipher'),
-      }
-    } catch (error) {
-      return {
-        status: 'error',
-        itemId,
-        error,
-      }
-    }
-  }
-
-  private async decryptLegacyCipher(item: VaultItem): Promise<unknown> {
-    if (
-      typeof item.cipher !== 'string' ||
-      item.cipher.length === 0 ||
-      typeof item.metadata?.iv !== 'string' ||
-      item.metadata.iv.length === 0
-    ) {
-      return null
-    }
-
-    const kver = (item.metadata as Record<string, unknown> | undefined)?.kver as string | undefined
-    if (kver && !hasVaultKey(kver)) {
-      if (this.deps.onKeyVersionMissing) {
-        this.deps.onKeyVersionMissing(kver)
-      }
-      await waitForKeyVersion(kver, KEY_WAIT_TIMEOUT_MS)
-    }
-    return decryptObject({
-      iv: item.metadata.iv,
-      cipher: item.cipher,
-      kver,
-    }).catch(() => null)
-  }
-
-  private async decryptSnapshotBinary(
-    encryptedAutomergeDoc: CryptoResult,
-  ): Promise<Uint8Array | null> {
-    try {
-      return await decryptWithKeyResolution(encryptedAutomergeDoc, {
-        timeoutMs: KEY_WAIT_TIMEOUT_MS,
-        onKeyVersionMissing: this.deps.onKeyVersionMissing,
-      })
-    } catch {
-      return null
-    }
+    return this.hydrator.hydrateRemoteItem(item, manifest, knownSet, tombstoneSet, serverTimeFallback)
   }
 
   private async syncMetadata() {
     if (!this.deps.accountId) return
-    const hasToken = await this.apiClient.hasAuthToken()
-    if (!hasToken) return
 
     let remoteMetadata: AccountMetadata | null
     try {
@@ -781,7 +399,7 @@ export class ManifestSyncManager {
       )
 
       if (hasLocalChanges) {
-        await this.mutateMetadata(merged, { pushRemote: false })
+        await this.deps.mutateMetadata(merged, { pushRemote: false })
       }
 
       if (needsRemotePush) {

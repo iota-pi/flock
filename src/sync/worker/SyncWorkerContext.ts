@@ -224,26 +224,24 @@ export class SyncWorkerContext {
       apiClient: this.apiClient,
     })
 
-    const manifestSyncManager = new ManifestSyncManager(
-      {
-        accountId: config.accountId,
-        docStore: this.docStore,
-        indexManager: this.indexManager,
-        snapshotManager: this.snapshotManager,
-        recoveryManager: this.recoveryManager,
-        apiClient: this.apiClient,
-        onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
-      },
-      (items, options) => itemOperations.storeItems(items, options),
-      changes => itemOperations.mutateMetadata(changes),
-      (itemId, error) => {
+    const manifestSyncManager = new ManifestSyncManager({
+      accountId: config.accountId,
+      docStore: this.docStore,
+      indexManager: this.indexManager,
+      snapshotManager: this.snapshotManager,
+      recoveryManager: this.recoveryManager,
+      apiClient: this.apiClient,
+      onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      storeItems: (items, options) => itemOperations.storeItems(items, options),
+      mutateMetadata: changes => itemOperations.mutateMetadata(changes),
+      onDecryptionFailure: (itemId, error) => {
         void this.recoveryManager.reportDecryptionFailure(itemId, error)
       },
-      (itemId, heads) => {
+      onItemSnapshotHydrated: (itemId, heads) => {
         const docId = toDocumentIdFromItemId(itemId)
         this.adapter.setSyncedHeads(docId, heads)
-      }
-    )
+      },
+    })
 
     const storageRecoveryService = new StorageRecoveryService({
       accountId: config.accountId,
