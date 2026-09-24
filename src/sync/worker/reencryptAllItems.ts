@@ -7,6 +7,7 @@ import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { classifySyncError } from './utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
+import { AbortError, isAbortError } from '../utils/abort'
 import {
   SizeAwareBatchAccumulator,
   DEFAULT_MAX_BATCH_BYTES,
@@ -17,6 +18,7 @@ import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 const MAX_BATCH_RETRIES = 3
 export const REENCRYPT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
+export const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
 
 function toAuthExpiredError(err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err)
@@ -49,6 +51,8 @@ export interface ReencryptDeps {
   scheduleRetry?: (delayMs?: number) => void
   recoveryManager?: RecoveryManager
   reencryptor?: ItemReencryptor
+  signal?: AbortSignal
+  batchRetryDelays?: readonly number[]
 }
 
 export interface ReencryptResult {
@@ -56,33 +60,39 @@ export interface ReencryptResult {
   failed: Array<{ itemId: ItemId; error: string }>
 }
 
-async function buildSingleSnapshotWithRetry(repo: Repo, itemId: ItemId) {
-  let retries = 0
-  let lastError: Error | null = null
-  while (retries < MAX_BATCH_RETRIES) {
-    try {
-      return await buildSnapshot(repo, itemId, 0)
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
-      retries += 1
-      console.warn(
-        `[reencryptAllItems] Retry ${retries}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
-        err
-      )
+async function buildSingleSnapshotWithRetry(
+  repo: Repo,
+  itemId: ItemId,
+  signal?: AbortSignal,
+  batchRetryDelays?: readonly number[]
+) {
+  return await RetryStrategy.executeWithRetry(
+    async () => buildSnapshot(repo, itemId, 0),
+    {
+      maxAttempts: MAX_BATCH_RETRIES,
+      delays: batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS,
+      signal,
+      onRetry: (err, attempt) => {
+        console.warn(
+          `[reencryptAllItems] Retry ${attempt}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
+          err
+        )
+      },
     }
-  }
-  throw lastError
+  )
 }
 
 async function buildSnapshotsForChunk(
   repo: Repo,
-  chunkIds: ItemId[]
+  chunkIds: ItemId[],
+  signal?: AbortSignal,
+  batchRetryDelays?: readonly number[]
 ): Promise<{
   readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
   failureDetails: Array<{ itemId: ItemId; errorMsg: string; rawError?: unknown }>
 }> {
   const settled = await Promise.allSettled(
-    chunkIds.map(itemId => buildSingleSnapshotWithRetry(repo, itemId))
+    chunkIds.map(itemId => buildSingleSnapshotWithRetry(repo, itemId, signal, batchRetryDelays))
   )
 
   const readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }> = []
@@ -102,6 +112,9 @@ async function buildSnapshotsForChunk(
         failureDetails.push({ itemId, errorMsg })
       }
     } else {
+      if (signal?.aborted || isAbortError(result.reason)) {
+        throw result.reason
+      }
       const errorDetail =
         result.reason instanceof Error ? result.reason.message : String(result.reason)
       failureDetails.push({
@@ -118,46 +131,79 @@ async function buildSnapshotsForChunk(
 async function uploadSnapshotBatchWithRetry(
   apiClient: SyncApiClient,
   accountId: string,
-  readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
+  readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
+  signal?: AbortSignal,
+  batchRetryDelays?: readonly number[]
 ): Promise<{ uploadSuccess: boolean; lastError: unknown }> {
-  let uploadSuccess = false
-  let lastError: unknown = null
+  try {
+    return await RetryStrategy.executeWithRetry(
+      async attempt => {
+        try {
+          const response = await apiClient.putSnapshots(
+            {
+              account: accountId,
+              snapshots: readySnapshots.map(r => r.snapshot),
+            },
+            signal ? { signal } : undefined
+          )
 
-  for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
-    try {
-      const response = await apiClient.putSnapshots({
-        account: accountId,
-        snapshots: readySnapshots.map(r => r.snapshot),
-      })
+          if (
+            response?.success &&
+            (response.persisted === undefined || response.persisted === readySnapshots.length)
+          ) {
+            return { uploadSuccess: true, lastError: null }
+          }
 
-      if (
-        response?.success &&
-        (response.persisted === undefined || response.persisted === readySnapshots.length)
-      ) {
-        uploadSuccess = true
-        break
-      }
-    } catch (err) {
-      lastError = err
-      console.warn(
-        `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
-        err
-      )
+          throw new Error(
+            `Upload unconfirmed: response success=${response?.success}, persisted=${response?.persisted}/${readySnapshots.length}`
+          )
+        } catch (err) {
+          console.warn(
+            `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
+            err
+          )
 
-      const classified = classifySyncError(err)
-      if (classified.isAuth) {
-        throw toAuthExpiredError(err)
-      }
+          const classified = classifySyncError(err)
+          if (classified.isAuth) {
+            throw toAuthExpiredError(err)
+          }
 
-      if (classified.isNetwork || classified.isServerError) {
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          break
+          throw err
         }
+      },
+      {
+        maxAttempts: MAX_BATCH_RETRIES,
+        delays: batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS,
+        signal,
+        shouldRetry: err => {
+          const classified = classifySyncError(err)
+          if (classified.isAuth) {
+            return false
+          }
+          if (classified.isNetwork || classified.isServerError) {
+            if (typeof navigator !== 'undefined' && !navigator.onLine) {
+              return false
+            }
+          }
+          return true
+        },
       }
+    )
+  } catch (err) {
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Re-encryption aborted')
     }
+    if (isAbortError(err)) {
+      throw err
+    }
+    const classified = classifySyncError(err)
+    if (classified.isAuth) {
+      throw toAuthExpiredError(err)
+    }
+    return { uploadSuccess: false, lastError: err }
   }
-
-  return { uploadSuccess, lastError }
 }
 
 // Use a slightly smaller upload chunk size than in SnapshotManager to improve progress reporting granularity
@@ -165,6 +211,7 @@ const REENCRYPT_CHUNK_SIZE = 10
 
 export interface ItemReencryptorOptions {
   retryDelays?: number[]
+  batchRetryDelays?: readonly number[]
   maxBatchCount?: number
   maxBatchBytes?: number
 }
@@ -174,9 +221,11 @@ export class ItemReencryptor {
   private scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
   public readonly maxBatchCount: number
   public readonly maxBatchBytes: number
+  public readonly batchRetryDelays: readonly number[]
 
   constructor(options?: ItemReencryptorOptions) {
     this.retryStrategy = new RetryStrategy({ delays: options?.retryDelays ?? DEFAULT_RETRY_DELAYS })
+    this.batchRetryDelays = options?.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
     this.maxBatchCount = options?.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
     this.maxBatchBytes = options?.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
   }
@@ -283,8 +332,15 @@ export class ItemReencryptor {
     const failed: Array<{ itemId: ItemId; error: string }> = []
 
     const itemChunks = chunk(allItemIds, REENCRYPT_CHUNK_SIZE)
+    const batchRetryDelays = deps.batchRetryDelays ?? this.batchRetryDelays
 
     for (const chunkIds of itemChunks) {
+      if (deps.signal?.aborted) {
+        throw deps.signal.reason instanceof Error
+          ? deps.signal.reason
+          : new AbortError(typeof deps.signal.reason === 'string' ? deps.signal.reason : 'Re-encryption aborted')
+      }
+
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         const errMsg = 'Network is offline'
         console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
@@ -294,7 +350,12 @@ export class ItemReencryptor {
 
       await apiClient.syncLatestToken()
 
-      const { readySnapshots, failureDetails } = await buildSnapshotsForChunk(repo, chunkIds)
+      const { readySnapshots, failureDetails } = await buildSnapshotsForChunk(
+        repo,
+        chunkIds,
+        deps.signal,
+        batchRetryDelays
+      )
       for (const failure of failureDetails) {
         if (failure.rawError !== undefined) {
           console.error(`[reencryptAllItems] ${failure.errorMsg}`, failure.rawError)
@@ -321,7 +382,9 @@ export class ItemReencryptor {
           const { uploadSuccess, lastError } = await uploadSnapshotBatchWithRetry(
             apiClient,
             accountId,
-            batch
+            batch,
+            deps.signal,
+            batchRetryDelays
           )
 
           if (uploadSuccess) {

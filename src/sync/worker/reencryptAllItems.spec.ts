@@ -670,4 +670,97 @@ describe('ItemReencryptor class', () => {
     expect(r1.retryAttempt).toBe(0)
     expect(r2.retryAttempt).toBe(1)
   })
+
+  it('supports custom batchRetryDelays configuration', () => {
+    const r = new ItemReencryptor({ batchRetryDelays: [50, 100] })
+    expect(r.batchRetryDelays).toEqual([50, 100])
+  })
 })
+
+describe('reencryptAllItems cancellation and event loop yielding', () => {
+  let mockRepo: any
+  let mockHandle: any
+  let context: any
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
+
+    mockHandle = {
+      isReady: vi.fn().mockReturnValue(true),
+      doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
+    }
+
+    mockRepo = {
+      find: vi.fn().mockResolvedValue(mockHandle),
+    }
+
+    const mockIndexManager = {
+      listAutomergeItemIds: () => mockListAutomergeItemIds(),
+    }
+
+    context = {
+      accountId: 'test-account',
+      repo: mockRepo,
+      indexManager: mockIndexManager,
+    }
+  })
+
+  it('aborts immediately and does NOT quarantine items when signal is pre-aborted', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('User cancelled'))
+
+    await expect(
+      reencryptAllItems({
+        ...context,
+        signal: controller.signal,
+      })
+    ).rejects.toThrow('User cancelled')
+
+    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+  })
+
+  it('aborts during batch upload retry and does NOT quarantine items', async () => {
+    const controller = new AbortController()
+
+    mockPutSnapshotsWithToken.mockImplementation(async () => {
+      // Abort after first failed attempt
+      controller.abort(new Error('Operation cancelled'))
+      throw new Error('Upload failed')
+    })
+
+    await expect(
+      reencryptAllItems({
+        ...context,
+        signal: controller.signal,
+      })
+    ).rejects.toThrow('Operation cancelled')
+
+    expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+  })
+
+  it('yields to the event loop macrotask queue during upload retries', async () => {
+    let macrotaskRun = false
+    setTimeout(() => {
+      macrotaskRun = true
+    }, 0)
+
+    mockPutSnapshotsWithToken
+      .mockRejectedValueOnce(new Error('transient network glitch'))
+      .mockImplementationOnce(async () => {
+        expect(macrotaskRun).toBe(true)
+        return { success: true }
+      })
+
+    const result = await reencryptAllItems({
+      ...context,
+      batchRetryDelays: [0, 0],
+    })
+
+    expect(result.succeeded).toEqual(['item-1', 'item-2'])
+    expect(macrotaskRun).toBe(true)
+  })
+})
+
