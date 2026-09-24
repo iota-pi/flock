@@ -1,5 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { buildSnapshot, isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './snapshotBuilder'
+import { buildSnapshot, isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS, SnapshotBuilder } from './snapshotBuilder'
 import { VaultNotInitializedError } from '../../api/vault'
 
 const mockEncryptBytes = vi.fn()
@@ -194,4 +194,69 @@ describe('isTransientVaultError', () => {
     expect(isTransientVaultError('Unexpected EOF')).toBe(false)
   })
 })
+
+describe('SnapshotBuilder class', () => {
+  let mockRepo: any
+  let mockHandle: any
+  let builder: SnapshotBuilder
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    mockHandle = {
+      isReady: vi.fn().mockReturnValue(true),
+      doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'topic' }),
+    }
+
+    mockRepo = {
+      find: vi.fn().mockResolvedValue(mockHandle),
+    }
+
+    mockToAutomergeUrlFromItemId.mockReturnValue('automerge:item-1')
+    mockSave.mockReturnValue(new Uint8Array([1, 2, 3]))
+    mockEncryptBytes.mockResolvedValue({
+      iv: 'mock-iv',
+      cipher: 'mock-cipher',
+      kver: '1',
+    })
+    mockNormalizeItemSnapshot.mockReturnValue({
+      type: 'topic',
+    })
+
+    builder = new SnapshotBuilder(mockRepo)
+  })
+
+  it('builds snapshot successfully', async () => {
+    const result = await builder.build('item-1' as ItemId, 42)
+    expect(result.type).toBe('success')
+  })
+
+  it('handles transient vault error by returning not-ready', async () => {
+    mockEncryptBytes.mockRejectedValue(new VaultNotInitializedError())
+    const result = await builder.build('item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
+  })
+
+  it('handles non-transient error by returning error result with reason', async () => {
+    mockEncryptBytes.mockRejectedValue(new Error('Non-transient encryption error'))
+    const result = await builder.build('item-1' as ItemId, 42)
+    expect(result).toEqual({
+      type: 'error',
+      reason: 'Non-transient encryption error',
+    })
+  })
+
+  it('estimates snapshot size properly', () => {
+    const snapshot = {
+      itemId: 'item-1' as ItemId,
+      snapshot: { cipher: '1234567890', iv: '1234', kver: '1' },
+      snapshotCursor: 10,
+      type: 'note',
+      modified: 12345,
+    }
+    const size = builder.estimateSize(snapshot)
+    expect(size).toBe(10 + 4 + 6 + 128)
+  })
+})
+
 

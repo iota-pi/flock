@@ -13,7 +13,9 @@ import {
   TRANSIENT_VAULT_ERROR_SUBSTRINGS,
 } from './utils/errorClassifier'
 
-export { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS }
+import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
+
+export { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS, estimateSnapshotSize }
 
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
@@ -80,3 +82,29 @@ export async function buildSnapshot(
     heads,
   }
 }
+
+export class SnapshotBuilder {
+  constructor(private readonly repo: Repo) {}
+
+  async build(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
+    try {
+      return await buildSnapshot(this.repo, itemId, snapshotCursor)
+    } catch (error: unknown) {
+      const classified = classifySyncError(error)
+      if (classified.isTransientVault) {
+        console.warn('[SnapshotBuilder] Vault is locked or uninitialized during snapshot build, waiting', error)
+        return { type: 'not-ready' }
+      }
+      console.error('[SnapshotBuilder] failed to encrypt snapshot binary', error)
+      return {
+        type: 'error',
+        reason: error instanceof Error ? error.message : 'Failed to encrypt snapshot binary',
+      }
+    }
+  }
+
+  estimateSize(snapshot: VaultSnapshotInput): number {
+    return estimateSnapshotSize(snapshot)
+  }
+}
+
