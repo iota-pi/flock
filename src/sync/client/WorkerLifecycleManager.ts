@@ -2,7 +2,7 @@ import * as Comlink from 'comlink'
 
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
-import { useAppStore } from 'src/state/store'
+import type { SyncStatus } from 'src/state/slices/syncSlice'
 import { exportKeyringData, handleSessionExpired, getVaultSession } from 'src/api/vault'
 import {
   SyncWorkerHealthMonitor,
@@ -16,6 +16,14 @@ export interface WorkerLifecycleCallbacks {
   onReady?: () => void
   onRestart: (accountId: string) => Promise<void>
   onShutdownCleanup?: (options?: { internalRestart?: boolean }) => void
+  onStatusChange: (status: SyncStatus) => void
+  onSyncWarning?: (message: string | null) => void
+  onFatalError?: (message: string) => void
+  getAccountId?: () => string | null
+}
+
+export interface WorkerInitOptions {
+  clearLocalData?: boolean
 }
 
 export class WorkerLifecycleManager {
@@ -23,14 +31,14 @@ export class WorkerLifecycleManager {
   private workerInstance: Worker | null = null
   private currentAccountId: string | null = null
   private lastKnownAccountId: string | null = null
-  private pendingClearLocalData = false
+  private readonly pendingShutdownClearAccounts = new Set<string>()
   private activeShutdownPromise: Promise<void> | null = null
 
   private globalEventChannel: MessageChannel | null = null
   private pingChannel: MessageChannel | null = null
 
   private initializationPromise: Promise<void> | null = null
-  private currentInitSession = 0
+  private initAbortController: AbortController | null = null
   private static readonly MAX_INIT_RETRIES = 5
   private static readonly INIT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
   private readonly initRetryStrategy = new RetryStrategy({
@@ -73,18 +81,22 @@ export class WorkerLifecycleManager {
   }
 
   requestClearOnShutdown(accountId?: string): void {
-    this.pendingClearLocalData = true
-    if (accountId) {
-      this.lastKnownAccountId = accountId
+    const target = accountId || this.currentAccountId || this.lastKnownAccountId || this.callbacks.getAccountId?.()
+    if (target) {
+      this.pendingShutdownClearAccounts.add(target)
+      this.lastKnownAccountId = target
     }
   }
 
-  isClearingLocalData(): boolean {
-    return this.pendingClearLocalData
+  isClearingLocalData(accountId?: string): boolean {
+    if (accountId) {
+      return this.pendingShutdownClearAccounts.has(accountId)
+    }
+    return this.pendingShutdownClearAccounts.size > 0
   }
 
-  hasPendingClear(): boolean {
-    return this.pendingClearLocalData
+  hasPendingClear(accountId?: string): boolean {
+    return this.isClearingLocalData(accountId)
   }
 
   async ensureReady(): Promise<Comlink.Remote<SyncApi>> {
@@ -97,27 +109,45 @@ export class WorkerLifecycleManager {
     return this.syncApi
   }
 
-  initialize(accountId: string): Promise<void> {
-    if (this.syncApi && this.currentAccountId === accountId) return Promise.resolve()
-    if (this.initializationPromise && this.currentAccountId === accountId) {
+  init(accountId: string, options?: WorkerInitOptions): Promise<void> {
+    return this.initialize(accountId, options)
+  }
+
+  initialize(accountId: string, options?: WorkerInitOptions): Promise<void> {
+    if (this.syncApi && this.currentAccountId === accountId && !options?.clearLocalData) {
+      return Promise.resolve()
+    }
+    if (this.initializationPromise && this.currentAccountId === accountId && !options?.clearLocalData) {
       return this.initializationPromise
     }
 
     this.lastKnownAccountId = accountId
-    this.pendingClearLocalData = false
     this.currentAccountId = accountId
-    this.currentInitSession += 1
-    const initSession = this.currentInitSession
+
+    this.initAbortController?.abort()
+    const abortController = new AbortController()
+    this.initAbortController = abortController
+    const { signal } = abortController
 
     this.initializationPromise = (async () => {
       if (this.activeShutdownPromise) {
         await this.activeShutdownPromise
       }
-      if (this.syncApi || this.workerInstance) {
-        await this.shutdown({ internalRestart: true })
+      if (signal.aborted || this.currentAccountId !== accountId) {
+        return
       }
 
-      useAppStore.getState().setSyncStatus('connecting')
+      if (this.syncApi || this.workerInstance) {
+        await this.shutdown({ internalRestart: true, clearLocalData: options?.clearLocalData, accountId })
+      } else if (options?.clearLocalData) {
+        await clearAccountLocalData(accountId)
+      }
+
+      if (signal.aborted || this.currentAccountId !== accountId) {
+        return
+      }
+
+      this.callbacks.onStatusChange?.('connecting')
       const initialOnlineState = getOnlineState()
 
       let worker: Worker | null = null
@@ -155,7 +185,7 @@ export class WorkerLifecycleManager {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
-        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
+        if (signal.aborted || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
@@ -192,14 +222,14 @@ export class WorkerLifecycleManager {
         })
 
         await wrappedApi.initRepo(accountId, vaultKey, refreshAuthToken)
-        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
+        if (signal.aborted || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
         }
 
         await wrappedApi.setOnlineState(initialOnlineState)
-        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
+        if (signal.aborted || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
@@ -208,7 +238,7 @@ export class WorkerLifecycleManager {
         await wrappedApi.bootstrapItems()
         this.healthMonitor.recordActivity()
 
-        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
+        if (signal.aborted || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
@@ -220,7 +250,7 @@ export class WorkerLifecycleManager {
         this.callbacks.onReady?.()
 
         this.initRetryCount = 0
-        useAppStore.getState().clearSyncWarning()
+        this.callbacks.onSyncWarning?.(null)
         this.healthMonitor.setupWorkerHealthCheck({
           worker,
           pingPort: pingChannel.port1,
@@ -279,25 +309,37 @@ export class WorkerLifecycleManager {
         console.error('Failed to initialize SyncBridge:', error)
         cleanupSessionResources()
 
-        if (initSession === this.currentInitSession && this.initRetryStrategy.canRetry) {
+        if (!signal.aborted && this.initRetryStrategy.canRetry) {
           const delay = this.initRetryStrategy.nextDelay()
-          useAppStore.getState().setSyncWarning(`Sync initialization failed. Retrying in ${delay / 1000}s...`)
+          this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${delay / 1000}s...`)
 
           // Keep initializationPromise alive so ensureReady() callers wait
           const retryPromise = new Promise<void>((resolve, reject) => {
-            setTimeout(() => {
-              if (this.currentInitSession !== initSession) return reject(new Error('Aborted'))
+            const onAbort = () => {
+              if (timer !== null) {
+                clearTimeout(timer)
+                timer = null
+              }
+              reject(new Error('Aborted'))
+            }
+
+            let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+              timer = null
+              signal.removeEventListener('abort', onAbort)
+              if (signal.aborted) return reject(new Error('Aborted'))
               this.initializationPromise = null
-              this.initialize(accountId).then(resolve).catch(reject)
+              this.initialize(accountId, options).then(resolve).catch(reject)
             }, delay)
+
+            signal.addEventListener('abort', onAbort, { once: true })
           })
           retryPromise.catch(() => {})
           this.initializationPromise = retryPromise
         } else {
           // Exhausted retries — surface to user
-          if (initSession === this.currentInitSession) {
-            useAppStore.getState().setFatalError('Unable to start sync. Please refresh the page.')
-            useAppStore.getState().setSyncStatus('offline')
+          if (!signal.aborted) {
+            this.callbacks.onFatalError?.('Unable to start sync. Please refresh the page.')
+            this.callbacks.onStatusChange?.('offline')
             this.currentAccountId = null
             this.initializationPromise = null
           }
@@ -310,8 +352,15 @@ export class WorkerLifecycleManager {
   }
 
   async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
-    if (options?.clearLocalData) {
-      this.pendingClearLocalData = true
+    const targetAccountId =
+      options?.accountId ||
+      this.currentAccountId ||
+      this.lastKnownAccountId ||
+      this.callbacks.getAccountId?.() ||
+      null
+
+    if (options?.clearLocalData && targetAccountId) {
+      this.pendingShutdownClearAccounts.add(targetAccountId)
     }
     if (options?.accountId) {
       this.lastKnownAccountId = options.accountId
@@ -321,12 +370,9 @@ export class WorkerLifecycleManager {
 
     if (this.activeShutdownPromise) {
       await this.activeShutdownPromise
-      if (this.pendingClearLocalData) {
-        const targetAccountId = this.lastKnownAccountId || useAppStore.getState().account
-        if (targetAccountId) {
-          await clearAccountLocalData(targetAccountId)
-        }
-        this.pendingClearLocalData = false
+      if (targetAccountId && (options?.clearLocalData || this.pendingShutdownClearAccounts.has(targetAccountId))) {
+        await clearAccountLocalData(targetAccountId)
+        this.pendingShutdownClearAccounts.delete(targetAccountId)
       }
       return
     }
@@ -343,11 +389,20 @@ export class WorkerLifecycleManager {
   }
 
   private async _performShutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
-    const shouldClearLocalData = Boolean(options?.clearLocalData || this.pendingClearLocalData)
-    const targetAccountId = options?.accountId || this.currentAccountId || this.lastKnownAccountId || useAppStore.getState().account
+    const targetAccountId =
+      options?.accountId ||
+      this.currentAccountId ||
+      this.lastKnownAccountId ||
+      this.callbacks.getAccountId?.() ||
+      null
+
+    const shouldClearLocalData = Boolean(
+      options?.clearLocalData || (targetAccountId && this.pendingShutdownClearAccounts.has(targetAccountId))
+    )
 
     if (!options?.internalRestart) {
-      this.currentInitSession += 1
+      this.initAbortController?.abort()
+      this.initAbortController = null
       this.initializationPromise = null
       this.currentAccountId = null
     }
@@ -396,12 +451,12 @@ export class WorkerLifecycleManager {
       oldPingChannel.port1.close()
     }
     if (!this.initializationPromise) {
-      useAppStore.getState().setSyncStatus('offline')
+      this.callbacks.onStatusChange?.('offline')
     }
 
     if (shouldClearLocalData && targetAccountId) {
       await clearAccountLocalData(targetAccountId)
-      this.pendingClearLocalData = false
+      this.pendingShutdownClearAccounts.delete(targetAccountId)
     }
   }
 }

@@ -41,6 +41,20 @@ class SyncBridgeService {
       onEvent: event => {
         this.eventProcessor.handleSyncEvent(event)
       },
+      onStatusChange: status => {
+        useAppStore.getState().setSyncStatus(status)
+      },
+      onSyncWarning: warning => {
+        if (warning) {
+          useAppStore.getState().setSyncWarning(warning)
+        } else {
+          useAppStore.getState().clearSyncWarning()
+        }
+      },
+      onFatalError: error => {
+        useAppStore.getState().setFatalError(error)
+      },
+      getAccountId: () => useAppStore.getState().account,
       onReady: () => {
         this.domListeners.start({
           setOnlineState: async isOnline => {
@@ -113,8 +127,12 @@ class SyncBridgeService {
     await this.lifecycleManager.ensureReady()
   }
 
-  initialize(accountId: string): Promise<void> {
-    return this.lifecycleManager.initialize(accountId)
+  init(accountId: string, options?: { clearLocalData?: boolean }): Promise<void> {
+    return this.lifecycleManager.init(accountId, options)
+  }
+
+  initialize(accountId: string, options?: { clearLocalData?: boolean }): Promise<void> {
+    return this.lifecycleManager.initialize(accountId, options)
   }
 
   shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }): Promise<void> {
