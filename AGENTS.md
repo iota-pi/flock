@@ -204,12 +204,17 @@ Flock intentionally uses **soft-deletes (tombstones)** across both client and se
   - `AutomergeDocStore.findOrCreateHandle` explicitly refuses to create a blank document if data already exists in storage (`hasDataInStorage(itemId)`). This is a vital **data loss prevention safety guard** to ensure transient handle lookup timeouts never overwrite an existing local document.
   - Accidental ID collisions between new items and soft-deleted items are statistically impossible ($< 10^{-18}$ probability).
 
-#### DynamoDB Cursor Generation & Collision Safety
+#### DynamoDB Cursor Generation, Collision Safety & Monotonic Pull Progress
 
 Incremental sync cursors in `automergeSyncService` are generated as `relativeTimestampSeconds * 10_000_000 + random(0, 9_999_000)`:
 - **Partition isolation**: The `FlockSyncMessages` primary key is `syncId` (`${account}#${itemId}`) + `cursor`. Pushes for different items or accounts never collide, even if they share the exact same cursor value.
 - **Negligible collision probability**: A collision requires two devices on the *same* account editing the *exact same item* within the *exact same 1-second window* and choosing the exact same random offset ($P \approx 10^{-7}$, $\sim 1\text{ in }10,000,000$).
-- **Non-monotonic pull safety**: Random offsets mean cursors within a 1-second bucket are not strictly chronological. Pull queries apply an intentional lookback buffer (`OVERLAP_WINDOW_SECONDS = 10` / `OVERLAP_CURSOR_DELTA = 100_000_000`) so clients never skip out-of-order cursors.
+- **Strict monotonic cursor progress and removal of OVERLAP_CURSOR_DELTA**:
+  - Previously, an artificial 10-second lookback buffer (`OVERLAP_WINDOW_SECONDS = 10` / `OVERLAP_CURSOR_DELTA = 100_000_000`) was applied to pull queries to catch non-chronological offsets within the same 1-second epoch bucket. However, this caused a critical infinite re-download loop: whenever no newer messages arrived, `nextCursor` remained within the lookback window, causing all active clients to perpetually re-download the same batch of messages on every poll interval and burn DynamoDB RCUs (which previously required an in-memory LRU `seenMessageCursors` cache to suppress duplicate CRDT applications).
+  - The lookback buffer and client-side LRU cache were completely removed in favor of strict monotonic progression (`#c > :fromCursor` / `:cursor`) and a simple scalar skip in `SyncPullQueueManager` (`cursor <= initialCursor`).
+  - **Why strict monotonic queries are safe without lookback**:
+    - **Ascending query sorting**: DynamoDB queries return records in ascending cursor order, and the service explicitly sorts messages ascending. All messages available at query time are retrieved in order up to the batch limit, and `nextCursor` advances to the highest cursor returned.
+    - **Dual-path snapshot recovery**: In the vanishingly narrow race where a concurrent write with a lower random offset commits *after* a pull query reads a higher offset in the same second, Automerge CRDTs and `ManifestSyncManager` provide the durable recovery baseline. Full document snapshots capture the complete merged state and self-heal any missed incremental messages without requiring artificial query lookbacks in high-frequency polling.
 - **Snapshot recovery safety**: In the negligible event of an overwrite during `BatchWriteCommand`, permanent data loss is prevented because local Automerge documents in IndexedDB are authoritative and `SnapshotManager` periodically syncs full document snapshots to `FlockItems`.
 
 #### Snapshot Uploads: Intentional LWW and Absence of OCC
@@ -221,6 +226,21 @@ In `itemsRouter.putSnapshots`, snapshot writes to `FlockItems` omit `item.versio
   - **Non-destructive CRDT hydration**: When any client pulls a snapshot (`AutomergeDocStore.hydrateAutomergeDocumentBinary`), it performs a CRDT merge (`existingHandle.merge(incomingHandle)` or `Automerge.merge(localDoc, incomingDoc)`), not a raw overwrite. Because CRDT merges are monotonic semilattices ($\text{merge}(A+B, A) = A+B$), an older snapshot cannot clobber newer edits.
   - **Automatic baseline self-healing**: If a client receives an older snapshot during `ManifestSyncManager` reconciliation, `hydrationResult.hasLocalChanges` evaluates to `true`. This immediately triggers `markItemDirty`, causing the client to upload a fresh snapshot with the merged state back to DynamoDB.
   - **Why OCC on snapshots would be harmful**: The server is a zero-knowledge relay and cannot decrypt or merge CRDTs. If OCC (`ConditionalCheckFailedException`) were enforced on snapshot writes, concurrent/offline snapshot flushes would conflict, causing retry churn and eventually false-quarantining healthy items into `manualRecoveryStore`. (Flock reserves OCC strictly for centralized, non-CRDT operations like `keyringVersion` during key rotation.)
+
+#### SyncEventHub Non-Blocking Dispatch & Async Listener Concurrency
+
+`SyncEventHub` (`EventHub`, `ClientEventHub`, and `WorkerInternalEventHub`) implements a synchronous, non-blocking fire-and-forget dispatch pattern:
+- **Non-blocking emit**: In `emit(event)`, listeners returning a `Promise` are executed immediately without being awaited. Unhandled promise rejections are caught and logged asynchronously via `.catch()`.
+- **Why this design is intentional**:
+  - **Unblocks event producers**: Core internal pipelines (such as Automerge Repo network events, WAL appends, pull queue message processing, and heartbeat monitors) are never blocked or throttled by listener I/O latency.
+  - **Decoupled latency**: Prevents slow operations (like IndexedDB writes or React main-thread bridge dispatch) from cascading back pressure into sync pipelines.
+- **Listener Concurrency Contract**:
+  - Because async listeners run concurrently without being awaited by the emitter, listeners must assume that multiple event instances can be in-flight at the same time.
+  - Listeners that mutate shared state or require sequential execution are responsible for their own internal synchronization. The codebase uses dedicated concurrency primitives for this purpose:
+    - `SingleFlightGuard` / `KeyedSingleFlightGuard` (e.g. `SyncOrchestrator` poll loops, `SnapshotManager` pushes)
+    - `AsyncMutex` / `KeyedAsyncMutex` and `ItemLockCoordinator` (e.g. `SyncPullQueueManager.withItemLock`)
+    - `AsyncQueue` for sequential FIFO processing
+    - Monotonic version/tick counters (e.g. `SnapshotManager.dirtyItemsTick` to invalidate superseded flushes)
 
 ## Server-Side Architecture
 
