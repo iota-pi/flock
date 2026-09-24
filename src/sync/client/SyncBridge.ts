@@ -14,6 +14,7 @@ import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
 import type { BackupSyncState } from 'src/types/backup'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
+import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'
@@ -139,143 +140,132 @@ class SyncBridgeService {
     return this.lifecycleManager.shutdown(options)
   }
 
-  async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
+  private async execute<T>(fn: (api: Comlink.Remote<SyncApi>) => Promise<T>): Promise<T> {
     const api = await this.lifecycleManager.ensureReady()
-    const entries = await api.listRecoveryItems()
-    this.eventProcessor.setRecoveryEntries(entries)
-    return entries
+    return fn(api)
+  }
+
+  listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
+    return this.execute(async api => {
+      const entries = await api.listRecoveryItems()
+      this.eventProcessor.setRecoveryEntries(entries)
+      return entries
+    })
   }
 
   subscribeRecoveryItems(listener: (entries: ManualRecoveryEntry[]) => void): () => void {
     return this.eventProcessor.subscribeRecoveryItems(listener)
   }
 
-  async restoreFromBinaries(documents: Partial<Record<string, string>>) {
-    const api = await this.lifecycleManager.ensureReady()
-    const result = await api.restoreFromBinaries(documents)
-    useAppStore.getState().incrementGeneration()
-    return result
-  }
-
-  async initRepo(accountId: string, vaultKey: string): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    const refreshAuthToken = Comlink.proxy(async () => {
-      await handleSessionExpired()
-      return getVaultSession() || null
+  restoreFromBinaries(documents: Partial<Record<string, string>>): Promise<string[]> {
+    return this.execute(async api => {
+      const result = await api.restoreFromBinaries(documents)
+      useAppStore.getState().incrementGeneration()
+      return result
     })
-    return api.initRepo(accountId, vaultKey, refreshAuthToken)
   }
 
-  async setOnlineState(isOnline: boolean): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.setOnlineState(isOnline)
+  initRepo(accountId: string, vaultKey: string): Promise<void> {
+    return this.execute(api => {
+      const refreshAuthToken = Comlink.proxy(async () => {
+        await handleSessionExpired()
+        return getVaultSession() || null
+      })
+      return api.initRepo(accountId, vaultKey, refreshAuthToken)
+    })
   }
 
-  async bootstrapItems(): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.bootstrapItems()
+  setOnlineState(isOnline: boolean): Promise<void> {
+    return this.execute(api => api.setOnlineState(isOnline))
   }
 
-  async mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.mutateItem(id, changes)
+  bootstrapItems(): Promise<void> {
+    return this.execute(api => api.bootstrapItems())
   }
 
-  async createItem(item: Item): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.createItem(item)
+  mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
+    return this.execute(api => api.mutateItem(id, changes))
   }
 
-  async storeItems(items: Item[]): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.storeItems(items)
+  createItem(item: Item): Promise<void> {
+    return this.execute(api => api.createItem(item))
   }
 
-  async mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.mutateMetadata(changes, options)
+  storeItems(items: Item[]): Promise<void> {
+    return this.execute(api => api.storeItems(items))
   }
 
-  async exportAllBinaries(): Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.exportAllBinaries()
+  mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }): Promise<void> {
+    return this.execute(api => api.mutateMetadata(changes, options))
   }
 
-  async flushSync(): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.flushSync()
+  exportAllBinaries(): Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }> {
+    return this.execute(api => api.exportAllBinaries())
   }
 
-  async fullResync(): Promise<boolean> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.fullResync()
+  flushSync(): Promise<void> {
+    return this.execute(api => api.flushSync())
   }
 
-  async pushSnapshots(): Promise<{ persisted: number; total: number }> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.pushSnapshots()
+  fullResync(): Promise<boolean> {
+    return this.execute(api => api.fullResync())
   }
 
-  async retrySave(): Promise<{ success: boolean; error?: string }> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.retrySave()
+  pushSnapshots(): Promise<{ persisted: number; total: number }> {
+    return this.execute(api => api.pushSnapshots())
   }
 
-  async retryRecoveryItem(itemId: ItemId): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.retryRecoveryItem(itemId)
+  retrySave(): Promise<{ success: boolean; error?: string }> {
+    return this.execute(api => api.retrySave())
   }
 
-  async forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.forceOverwriteRecoveryItem(itemId)
+  retryRecoveryItem(itemId: ItemId): Promise<void> {
+    return this.execute(api => api.retryRecoveryItem(itemId))
   }
 
-  async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.forceDeleteRecoveryItem(itemId)
+  forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
+    return this.execute(api => api.forceOverwriteRecoveryItem(itemId))
   }
 
-  async compactItem(itemId: ItemId): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.compactItem(itemId)
+  forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
+    return this.execute(api => api.forceDeleteRecoveryItem(itemId))
   }
 
-  async dismissRecoveryItem(entryId: string): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.dismissRecoveryItem(entryId)
+  compactItem(itemId: ItemId): Promise<void> {
+    return this.execute(api => api.compactItem(itemId))
   }
 
-  async updateVaultKey(vaultKey: string): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.updateVaultKey(vaultKey)
+  dismissRecoveryItem(entryId: string): Promise<void> {
+    return this.execute(api => api.dismissRecoveryItem(entryId))
   }
 
-  async reencryptAllItems(onProgress: (done: number, total: number) => void): Promise<{
+  updateVaultKey(vaultKey: string): Promise<void> {
+    return this.execute(api => api.updateVaultKey(vaultKey))
+  }
+
+  reencryptAllItems(onProgress: (done: number, total: number) => void): Promise<{
     succeeded: ItemId[]
     failed: Array<{ itemId: ItemId; error: string }>
   }> {
-    const api = await this.lifecycleManager.ensureReady()
-    const refreshAuthToken = Comlink.proxy(async () => {
-      await handleSessionExpired()
-      return getVaultSession() || null
+    return this.execute(api => {
+      const refreshAuthToken = Comlink.proxy(async () => {
+        await handleSessionExpired()
+        return getVaultSession() || null
+      })
+      return api.reencryptAllItems(Comlink.proxy(onProgress), refreshAuthToken)
     })
-    return api.reencryptAllItems(Comlink.proxy(onProgress), refreshAuthToken)
   }
 
-  async exportSyncState(): Promise<BackupSyncState> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.exportSyncState()
+  exportSyncState(): Promise<BackupSyncState> {
+    return this.execute(api => api.exportSyncState())
   }
 
-  async restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.restoreSyncState(state)
+  restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
+    return this.execute(api => api.restoreSyncState(state))
   }
 
-  async claimLeader(): Promise<void> {
-    const api = await this.lifecycleManager.ensureReady()
-    return api.claimLeader()
+  claimLeader(): Promise<void> {
+    return this.execute(api => api.claimLeader())
   }
 }
 
