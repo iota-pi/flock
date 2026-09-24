@@ -188,7 +188,7 @@ class SyncBridgeService {
     return api.flushSync()
   }
 
-  async fullResync(): Promise<void> {
+  async fullResync(): Promise<boolean> {
     const api = await this.lifecycleManager.ensureReady()
     return api.fullResync()
   }

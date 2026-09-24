@@ -19,7 +19,7 @@ export interface SyncApi {
   exportAllBinaries: () => Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   flushSync: () => void,
-  fullResync: () => Promise<void>,
+  fullResync: () => Promise<boolean>,
   pushSnapshots: () => Promise<{ persisted: number; total: number }>
   retrySave: () => Promise<{ success: boolean; error?: string }>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>

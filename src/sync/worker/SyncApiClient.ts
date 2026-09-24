@@ -239,34 +239,27 @@ export class SyncApiClient {
   ): Promise<{ success: boolean; persisted: number; total?: number }> {
     return this.executeWithAuth(async authToken => {
       safeSetApiAuthToken(authToken)
-      return options !== undefined
-        ? putSnapshotsWithToken(
-          {
-            account: input.account,
-            authToken,
-            snapshots: input.snapshots,
-          },
-          options
-        )
-        : putSnapshotsWithToken({
+      return putSnapshotsWithToken(
+        {
           account: input.account,
           authToken,
           snapshots: input.snapshots,
-        })
+        },
+        ...(options ? [options] : []),
+      )
     })
   }
 
   async fetchManifest(
-    input: {
-      account: string
-    },
-    options?: { signal?: AbortSignal }
+    input: { account: string },
+    options?: { signal?: AbortSignal },
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
     return this.executeWithAuth(async authToken => {
       safeSetApiAuthToken(authToken)
-      return options !== undefined
-        ? fetchManifest({ account: input.account }, options)
-        : fetchManifest({ account: input.account })
+      return fetchManifest(
+        { account: input.account },
+        ...(options ? [options] : []),
+      )
     })
   }
 
@@ -279,9 +272,10 @@ export class SyncApiClient {
   ): Promise<{ items: VaultItem[]; serverTime: number }> {
     return this.executeWithAuth(async authToken => {
       safeSetApiAuthToken(authToken)
-      return options !== undefined
-        ? fetchSnapshotsByIds({ account: input.account, itemIds: input.itemIds }, options)
-        : fetchSnapshotsByIds({ account: input.account, itemIds: input.itemIds })
+      return fetchSnapshotsByIds(
+        { account: input.account, itemIds: input.itemIds },
+        ...(options ? [options] : []),
+      )
     })
   }
 
