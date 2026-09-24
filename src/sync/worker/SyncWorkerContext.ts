@@ -154,7 +154,8 @@ export class SyncWorkerContext {
   }
 
   private createCoreServices(config: SyncWorkerContextConfig) {
-    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub)
+    const storage = this.repoManager.getStorage()
+    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub, storage)
     if (config.onDocHandleReplaced) {
       docStore.onDocHandleReplaced = config.onDocHandleReplaced
     }

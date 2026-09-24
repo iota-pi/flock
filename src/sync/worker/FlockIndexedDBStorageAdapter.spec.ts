@@ -16,6 +16,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       delete: vi.fn(),
       get: vi.fn(),
       openCursor: vi.fn(),
+      openKeyCursor: vi.fn(),
     }
 
     mockTransaction = {
@@ -279,6 +280,115 @@ describe('FlockIndexedDBStorageAdapter', () => {
 
       mockRequest.onerror()
       await expect(rangePromise).rejects.toThrow('Cursor failed')
+    })
+  })
+
+  describe('has()', () => {
+    beforeEach(() => {
+      if (typeof globalThis.IDBKeyRange === 'undefined') {
+        globalThis.IDBKeyRange = {
+          bound: vi.fn((lower, upper) => ({ lower, upper })),
+        } as any
+      }
+    })
+
+    it('returns true when openKeyCursor finds a matching record without calling continue', async () => {
+      const mockRequest: any = {
+        onsuccess: null,
+        onerror: null,
+      }
+      const mockCursor = {
+        key: ['doc-prefix', 'snapshot', 'hash'],
+        continue: vi.fn(),
+      }
+      mockRequest.result = mockCursor
+      mockStore.openKeyCursor.mockReturnValue(mockRequest)
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const hasPromise = adapter.has(['doc-prefix'])
+      await new Promise(r => setTimeout(r, 10))
+
+      mockRequest.onsuccess()
+      const result = await hasPromise
+      expect(result).toBe(true)
+      expect(mockStore.openKeyCursor).toHaveBeenCalled()
+      expect(mockCursor.continue).not.toHaveBeenCalled()
+    })
+
+    it('returns false when openKeyCursor finds no matching records (null cursor)', async () => {
+      const mockRequest: any = {
+        onsuccess: null,
+        onerror: null,
+        result: null,
+      }
+      mockStore.openKeyCursor.mockReturnValue(mockRequest)
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const hasPromise = adapter.has(['non-existent-doc'])
+      await new Promise(r => setTimeout(r, 10))
+
+      mockRequest.onsuccess()
+      const result = await hasPromise
+      expect(result).toBe(false)
+      expect(mockStore.openKeyCursor).toHaveBeenCalled()
+    })
+
+    it('falls back to openCursor when openKeyCursor is not defined on store', async () => {
+      delete mockStore.openKeyCursor
+      const mockRequest: any = {
+        onsuccess: null,
+        onerror: null,
+      }
+      const mockCursor = {
+        key: ['doc-prefix', '1'],
+        continue: vi.fn(),
+      }
+      mockRequest.result = mockCursor
+      mockStore.openCursor.mockReturnValue(mockRequest)
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const hasPromise = adapter.has(['doc-prefix'])
+      await new Promise(r => setTimeout(r, 10))
+
+      mockRequest.onsuccess()
+      const result = await hasPromise
+      expect(result).toBe(true)
+      expect(mockStore.openCursor).toHaveBeenCalled()
+      expect(mockCursor.continue).not.toHaveBeenCalled()
+    })
+
+    it('handles empty keyPrefix by querying without range', async () => {
+      const mockRequest: any = {
+        onsuccess: null,
+        onerror: null,
+        result: { key: ['first-key'] },
+      }
+      mockStore.openKeyCursor.mockReturnValue(mockRequest)
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const hasPromise = adapter.has([])
+      await new Promise(r => setTimeout(r, 10))
+
+      mockRequest.onsuccess()
+      const result = await hasPromise
+      expect(result).toBe(true)
+      expect(mockStore.openKeyCursor).toHaveBeenCalledWith(undefined)
+    })
+
+    it('rejects when cursor request encounters an error', async () => {
+      const mockRequest: any = {
+        onsuccess: null,
+        onerror: null,
+        error: new Error('KeyCursor failed'),
+      }
+      mockStore.openKeyCursor.mockReturnValue(mockRequest)
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const hasPromise = adapter.has(['doc-prefix'])
+      await new Promise(r => setTimeout(r, 10))
+
+      mockRequest.onerror()
+      await expect(hasPromise).rejects.toThrow('KeyCursor failed')
     })
   })
 

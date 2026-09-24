@@ -72,6 +72,8 @@ vi.mock('./AutomergeRepoManager', () => ({
     init = vi.fn().mockReturnValue({} /* mock Repo */)
     clearLocalData = vi.fn().mockResolvedValue(undefined)
     close = vi.fn().mockResolvedValue(undefined)
+    getStorage = vi.fn().mockReturnValue(undefined)
+    getStorageAdapter = vi.fn().mockReturnValue(undefined)
   },
 }))
 

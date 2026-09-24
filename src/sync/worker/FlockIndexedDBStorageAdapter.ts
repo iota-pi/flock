@@ -242,4 +242,24 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       store.delete(range)
     })
   }
+
+  async has(keyPrefix: string[]): Promise<boolean> {
+    const range = keyPrefix.length > 0
+      ? IDBKeyRange.bound(keyPrefix, [...keyPrefix, '\uffff'])
+      : undefined
+
+    return this.withTransaction(this.storeName, 'readonly', store => {
+      return new Promise((resolve, reject) => {
+        const request = typeof store.openKeyCursor === 'function'
+          ? store.openKeyCursor(range)
+          : store.openCursor(range)
+
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => {
+          resolve(request.result != null)
+        }
+      })
+    })
+  }
 }
+

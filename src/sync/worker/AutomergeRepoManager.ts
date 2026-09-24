@@ -1,13 +1,18 @@
 import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from '@automerge/automerge-repo/slim'
+
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
 import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
 
-class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
+export interface AutomergeStorageAdapter extends StorageAdapterInterface {
+  has(key: string[]): Promise<boolean>
+}
+
+class QuotaHandlingStorageAdapter implements AutomergeStorageAdapter {
   constructor(
-    private delegate: StorageAdapterInterface,
+    private delegate: AutomergeStorageAdapter,
     private onQuotaError?: (error: unknown) => void
   ) {}
 
@@ -37,6 +42,10 @@ class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
   async removeRange(keyPrefix: string[]): Promise<void> {
     return runStorageOperation(() => this.delegate.removeRange(keyPrefix))
   }
+
+  async has(key: string[]): Promise<boolean> {
+    return runStorageOperation(() => this.delegate.has(key))
+  }
 }
 
 export function getAutomergeDBName(accountId: string): string {
@@ -52,6 +61,7 @@ export interface AutomergeRepoManagerOptions {
 export class AutomergeRepoManager {
   private repo: Repo | null = null
   private indexedDbAdapter: FlockIndexedDBStorageAdapter | null = null
+  private quotaAdapter: QuotaHandlingStorageAdapter | null = null
   private broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter | null = null
 
   constructor(private readonly accountId: string) {}
@@ -63,6 +73,7 @@ export class AutomergeRepoManager {
 
     const dbName = getAutomergeDBName(this.accountId)
     this.indexedDbAdapter = new FlockIndexedDBStorageAdapter(dbName)
+    this.quotaAdapter = new QuotaHandlingStorageAdapter(this.indexedDbAdapter, options?.onQuotaError)
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       channelName: `flock-automerge-broadcast-${this.accountId}`,
@@ -72,7 +83,7 @@ export class AutomergeRepoManager {
     })
 
     this.repo = new Repo({
-      storage: new QuotaHandlingStorageAdapter(this.indexedDbAdapter, options?.onQuotaError),
+      storage: this.quotaAdapter,
       network: [
         this.broadcastAdapter,
         vaultNetworkAdapter,
@@ -80,6 +91,10 @@ export class AutomergeRepoManager {
     })
 
     return this.repo
+  }
+
+  getStorage(): AutomergeStorageAdapter | null {
+    return this.quotaAdapter
   }
 
   pauseBroadcastSync(): void {

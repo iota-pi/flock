@@ -94,17 +94,28 @@ export interface ItemLockCoordinator {
   withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T>
 }
 
+export interface DocStorageChecker {
+  has(key: string[]): Promise<boolean>
+}
+
 export class AutomergeDocStore implements ItemLockCoordinator {
   private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private internalEventHub: WorkerInternalEventHub
+  private storageAdapter?: DocStorageChecker | null
   public onDocHandleReplaced?: DocHandleReplacedListener
 
   constructor(
     private readonly repo: Repo,
     internalEventHub?: WorkerInternalEventHub,
+    storageAdapter?: DocStorageChecker | null,
   ) {
     this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
+    this.storageAdapter = storageAdapter
+  }
+
+  public setStorageAdapter(storageAdapter: DocStorageChecker | null): void {
+    this.storageAdapter = storageAdapter
   }
 
   public setInternalEventHub(hub: WorkerInternalEventHub): void {
@@ -129,6 +140,25 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     return { url, documentId: interpretAsDocumentId(url) }
   }
 
+  private getStorageChecker(): DocStorageChecker | undefined {
+    if (this.storageAdapter && typeof this.storageAdapter.has === 'function') {
+      return this.storageAdapter
+    }
+    const repoStorage = (this.repo as any).storage
+    if (repoStorage && typeof repoStorage.has === 'function') {
+      return repoStorage
+    }
+    const storageSubsystem = this.repo.storageSubsystem as any
+    if (storageSubsystem && typeof storageSubsystem.has === 'function') {
+      return {
+        has: async (key: string[]) => {
+          return (await storageSubsystem.has(key)) ?? (await storageSubsystem.has(key[0]))
+        },
+      }
+    }
+    return undefined
+  }
+
   async loadDocDataFromStorage(itemId: ItemId): Promise<Uint8Array | undefined> {
     if (!this.repo.storageSubsystem) return undefined
     const { documentId } = this.resolveDocumentId(itemId)
@@ -142,9 +172,21 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   async hasDataInStorage(itemId: ItemId): Promise<boolean> {
+    const { documentId } = this.resolveDocumentId(itemId)
+    const storageChecker = this.getStorageChecker()
+    if (storageChecker) {
+      try {
+        return await storageChecker.has([documentId])
+      } catch (error) {
+        console.error(`[AutomergeDocStore] Storage error checking document existence for ${itemId}:`, error)
+        throw error
+      }
+    }
+
     const data = await this.loadDocDataFromStorage(itemId)
     return !!data
   }
+
 
   async saveDocToStorage(itemId: ItemId): Promise<boolean> {
     if (!this.repo.storageSubsystem) return false
