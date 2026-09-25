@@ -147,25 +147,6 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     return { url, documentId: interpretAsDocumentId(url) }
   }
 
-  private getStorageChecker(): DocStorageChecker | undefined {
-    if (this.storageAdapter && typeof this.storageAdapter.has === 'function') {
-      return this.storageAdapter
-    }
-    const repoStorage = (this.repo as any).storage
-    if (repoStorage && typeof repoStorage.has === 'function') {
-      return repoStorage
-    }
-    const storageSubsystem = this.repo.storageSubsystem as any
-    if (storageSubsystem && typeof storageSubsystem.has === 'function') {
-      return {
-        has: async (key: string[]) => {
-          return (await storageSubsystem.has(key)) ?? (await storageSubsystem.has(key[0]))
-        },
-      }
-    }
-    return undefined
-  }
-
   async loadDocDataFromStorage(itemId: ItemId): Promise<Uint8Array | undefined> {
     if (!this.repo.storageSubsystem) return undefined
     const { documentId } = this.resolveDocumentId(itemId)
@@ -180,10 +161,9 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
 
   async hasDataInStorage(itemId: ItemId): Promise<boolean> {
     const { documentId } = this.resolveDocumentId(itemId)
-    const storageChecker = this.getStorageChecker()
-    if (storageChecker) {
+    if (this.storageAdapter) {
       try {
-        return await storageChecker.has([documentId])
+        return await this.storageAdapter.has([documentId])
       } catch (error) {
         console.error(`[AutomergeDocStore] Storage error checking document existence for ${itemId}:`, error)
         throw error
