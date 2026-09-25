@@ -454,11 +454,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
         if (existingHandle && existingHandle.isReady()) {
           this.applyMerge(existingHandle, binary)
-          const doc = existingHandle.doc()
-          const postMergeHeads = doc ? Automerge.getHeads(doc) : []
-          const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-          const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
-          return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+          return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
         } else {
           // Document handle was not available or not ready within timeout.
           // Check whether document exists in storage to avoid clobbering local edits.
@@ -470,11 +466,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
           const inMemoryHandle = this.repo.handles[documentId]
           if (inMemoryHandle && inMemoryHandle.isReady()) {
             this.applyMerge(inMemoryHandle, binary)
-            const doc = inMemoryHandle.doc()
-            const postMergeHeads = doc ? Automerge.getHeads(doc) : []
-            const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-            const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
-            return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+            return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
           }
 
           if (existsInStorage) {
@@ -486,10 +478,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
                 const mergedDoc = Automerge.merge(localDoc, incomingDoc)
                 const mergedBinary = Automerge.save(mergedDoc)
                 await this.seedImportedDocument(normalizedItemId, mergedBinary)
-                const postMergeHeads = Automerge.getHeads(mergedDoc)
-                const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-                const isDeleted = (mergedDoc as Record<string, unknown> | undefined)?.deleted === true
-                return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+                return this.buildHydrateResult(mergedDoc, incomingHeads)
               } catch (mergeError) {
                 console.error('[AutomergeDocStore] Non-destructive direct merge failed', {
                   itemId: normalizedItemId,
@@ -509,9 +498,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
           // Genuinely new document - safe to seed
           const handle = await this.seedImportedDocument(normalizedItemId, binary)
-          const doc = handle.doc()
-          const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
-          return { hasLocalChanges: false, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+          return this.buildHydrateResult(handle.doc(), incomingHeads)
         }
       } catch (error) {
         console.error('[automerge] failed to hydrate document', {
@@ -521,6 +508,18 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         throw error
       }
     })
+  }
+
+  private buildHydrateResult(
+    doc: RepoDoc | undefined,
+    incomingHeads: string[],
+  ): HydrateDocumentResult {
+    const postMergeHeads = doc ? Automerge.getHeads(doc) : []
+    return {
+      hasLocalChanges: !areHeadsEqual(postMergeHeads, incomingHeads),
+      incomingHeads,
+      isDeleted: (doc as Record<string, unknown>)?.deleted === true || undefined,
+    }
   }
 
   async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<DocHandle<RepoDoc>> {
