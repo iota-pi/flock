@@ -1,46 +1,47 @@
 import * as Automerge from '@automerge/automerge'
 import {
-  reconcilePrimitiveArray,
-  reconcileKeyedArray,
+  reconcileAutomergeList,
   applyItemUpdatesToDraft,
+  getElementKey,
+  updateObjectInPlace,
 } from './crdtReconcile'
 import type { Note, ItemId } from 'src/shared/schemas/items'
 
 describe('crdtReconcile', () => {
-  describe('reconcilePrimitiveArray', () => {
+  describe('reconcileAutomergeList - primitive values', () => {
     it('appends elements cleanly', () => {
       const list = [1, 2, 3]
-      reconcilePrimitiveArray(list, [1, 2, 3, 4, 5])
+      reconcileAutomergeList(list, [1, 2, 3, 4, 5])
       expect(list).toEqual([1, 2, 3, 4, 5])
     })
 
     it('prepends elements cleanly', () => {
       const list = [3, 4, 5]
-      reconcilePrimitiveArray(list, [1, 2, 3, 4, 5])
+      reconcileAutomergeList(list, [1, 2, 3, 4, 5])
       expect(list).toEqual([1, 2, 3, 4, 5])
     })
 
     it('removes elements in the middle cleanly', () => {
       const list = ['a', 'b', 'c', 'd']
-      reconcilePrimitiveArray(list, ['a', 'd'])
+      reconcileAutomergeList(list, ['a', 'd'])
       expect(list).toEqual(['a', 'd'])
     })
 
     it('handles replacement in the middle', () => {
       const list = ['a', 'b', 'c']
-      reconcilePrimitiveArray(list, ['a', 'x', 'c'])
+      reconcileAutomergeList(list, ['a', 'x', 'c'])
       expect(list).toEqual(['a', 'x', 'c'])
     })
 
     it('handles multiple non-trivial edits via LCS', () => {
       const list = [1, 2, 3, 4, 5, 6]
-      reconcilePrimitiveArray(list, [1, 9, 3, 5, 10])
+      reconcileAutomergeList(list, [1, 9, 3, 5, 10])
       expect(list).toEqual([1, 9, 3, 5, 10])
     })
 
     it('handles clearing the list', () => {
       const list = [1, 2, 3]
-      reconcilePrimitiveArray(list, [])
+      reconcileAutomergeList(list, [])
       expect(list).toEqual([])
     })
 
@@ -48,20 +49,20 @@ describe('crdtReconcile', () => {
       const list = ['x', 'y', 'z']
       const spy = vi.spyOn(list, 'splice')
 
-      reconcilePrimitiveArray(list, ['x', 'y', 'z'])
+      reconcileAutomergeList(list, ['x', 'y', 'z'])
       expect(spy).not.toHaveBeenCalled()
       expect(list).toEqual(['x', 'y', 'z'])
     })
   })
 
-  describe('reconcileKeyedArray', () => {
+  describe('reconcileAutomergeList - keyed objects', () => {
     it('preserves existing object references while updating fields in place', () => {
       const note1: Note = { id: 'n1', text: 'original', archived: false, time: 100 }
       const note2: Note = { id: 'n2', text: 'second', archived: false, time: 200 }
       const list = [note1, note2]
 
       const updatedNote1: Note = { id: 'n1', text: 'updated text', archived: true, time: 150 }
-      reconcileKeyedArray(list, [updatedNote1, note2])
+      reconcileAutomergeList(list, [updatedNote1, note2])
 
       // The object in list[0] must be the exact same reference mutated in place!
       expect(list[0]).toBe(note1)
@@ -74,7 +75,7 @@ describe('crdtReconcile', () => {
       const list = [note1]
 
       const newNote: Note = { id: 'n0', text: 'new prepended note', archived: false, time: 50 }
-      reconcileKeyedArray(list, [newNote, note1])
+      reconcileAutomergeList(list, [newNote, note1])
 
       expect(list.length).toBe(2)
       expect(list[0]).toEqual(newNote)
@@ -86,10 +87,37 @@ describe('crdtReconcile', () => {
       const note2: Note = { id: 'n2', text: 'second', archived: false, time: 200 }
       const list = [note1, note2]
 
-      reconcileKeyedArray(list, [note2])
+      reconcileAutomergeList(list, [note2])
 
       expect(list.length).toBe(1)
       expect(list[0]).toBe(note2)
+    })
+
+    it('correctly reorders existing keyed notes', () => {
+      const note1: Note = { id: 'n1', text: 'first', archived: false, time: 100 }
+      const note2: Note = { id: 'n2', text: 'second', archived: false, time: 200 }
+      const list = [note1, note2]
+
+      reconcileAutomergeList(list, [note2, note1])
+
+      expect(list.length).toBe(2)
+      expect(list[0].id).toBe('n2')
+      expect(list[1].id).toBe('n1')
+    })
+
+    it('reorders keyed notes while updating their fields in place', () => {
+      const note1: Note = { id: 'n1', text: 'first', archived: false, time: 100 }
+      const note2: Note = { id: 'n2', text: 'second', archived: false, time: 200 }
+      const list = [note1, note2]
+
+      const updatedNote2: Note = { id: 'n2', text: 'second updated', archived: true, time: 250 }
+      reconcileAutomergeList(list, [updatedNote2, note1])
+
+      expect(list.length).toBe(2)
+      expect(list[0].id).toBe('n2')
+      expect(list[0].text).toBe('second updated')
+      expect(list[0].archived).toBe(true)
+      expect(list[1]).toBe(note1)
     })
   })
 
@@ -132,6 +160,40 @@ describe('crdtReconcile', () => {
       expect(foundNote1).toBe(existingNoteObjRef)
       expect(foundNote1.text).toBe('hello edited')
       expect(foundNote1.archived).toBe(true)
+    })
+
+    it('handles non-array inputs gracefully without throwing', () => {
+      expect(() => reconcileAutomergeList(null as any, [1, 2])).not.toThrow()
+      expect(() => reconcileAutomergeList([1, 2], null as any)).not.toThrow()
+    })
+
+    it('correctly resolves element keys via getElementKey', () => {
+      expect(getElementKey('foo')).toBe('foo')
+      expect(getElementKey(123)).toBe(123)
+      expect(getElementKey({ id: 'item-1', name: 'Test' })).toBe('item-1')
+      const unkeyed = { name: 'No ID' }
+      expect(getElementKey(unkeyed)).toBe(unkeyed)
+      expect(getElementKey(null)).toBe(null)
+    })
+
+    it('updates object fields in place without replacing references via updateObjectInPlace', () => {
+      const existing = { a: 0, d: 4 }
+      const target = { a: 1, b: 2, c: undefined }
+      updateObjectInPlace(existing as any, target as any)
+      expect(existing).toEqual({ a: 1, b: 2 })
+    })
+
+    it('handles single replacement with matching key in-place', () => {
+      const note1: Note = { id: 'n1', text: 'original', archived: false, time: 100 }
+      const list = [note1]
+      const updatedNote1: Note = { id: 'n1', text: 'modified', archived: true, time: 200 }
+
+      reconcileAutomergeList(list, [updatedNote1])
+
+      expect(list.length).toBe(1)
+      expect(list[0]).toBe(note1)
+      expect(list[0].text).toBe('modified')
+      expect(list[0].archived).toBe(true)
     })
   })
 
