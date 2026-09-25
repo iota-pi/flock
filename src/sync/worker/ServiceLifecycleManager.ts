@@ -7,6 +7,12 @@ export interface ServiceRegistration<TOptions = unknown> {
   onStop?: LifecycleStopHook<TOptions>
 }
 
+export interface LifecycleAware<TOptions = unknown> {
+  readonly lifecycleName: string
+  onLifecycleStart?(): Promise<void> | void
+  onLifecycleStop?(options?: TOptions): Promise<void> | void
+}
+
 export type LifecycleStatus = 'uninitialized' | 'starting' | 'running' | 'stopping' | 'stopped' | 'errored'
 
 /**
@@ -32,20 +38,28 @@ export class ServiceLifecycleManager<TOptions = unknown> {
     return `[ServiceLifecycleManager${this.contextName ? `:${this.contextName}` : ''}]`
   }
 
-  public register(service: ServiceRegistration<TOptions>): this
+  public register(service: ServiceRegistration<TOptions> | LifecycleAware<TOptions>): this
   public register(
     name: string,
     hooks: { onStart?: LifecycleHook; onStop?: LifecycleStopHook<TOptions> }
   ): this
 
   public register(
-    serviceOrName: string | ServiceRegistration<TOptions>,
+    serviceOrName: string | ServiceRegistration<TOptions> | LifecycleAware<TOptions>,
     hooks?: { onStart?: LifecycleHook; onStop?: LifecycleStopHook<TOptions> }
   ): this {
-    const registration: ServiceRegistration<TOptions> =
-      typeof serviceOrName === 'string'
-        ? { name: serviceOrName, onStart: hooks?.onStart, onStop: hooks?.onStop }
-        : serviceOrName
+    let registration: ServiceRegistration<TOptions>
+    if (typeof serviceOrName === 'string') {
+      registration = { name: serviceOrName, onStart: hooks?.onStart, onStop: hooks?.onStop }
+    } else if ('lifecycleName' in serviceOrName) {
+      registration = {
+        name: serviceOrName.lifecycleName,
+        onStart: serviceOrName.onLifecycleStart?.bind(serviceOrName),
+        onStop: serviceOrName.onLifecycleStop?.bind(serviceOrName),
+      }
+    } else {
+      registration = serviceOrName
+    }
 
     const existing = this.services.find(s => s.name === registration.name)
     if (existing) {

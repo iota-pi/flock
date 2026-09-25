@@ -14,6 +14,7 @@ import { PullRetryTracker } from './PullRetryTracker'
 import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap } from '../utils/boundedCollections'
 import { SYNC_TIMEOUTS } from '../syncConfig'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 interface ProcessItemMessagesResult {
   highestCursor: number
@@ -28,9 +29,14 @@ const BATCH_PROGRESS_CACHE_MAX = 500
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
 const PROTOCOL_VERSION = '1.0'
 
-export class SyncPullQueueManager {
+export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: boolean }> {
+  readonly lifecycleName = 'PullQueueManager'
   private isShutdown = false
   private account: string | null = null
+
+  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
+    await this.shutdown(options)
+  }
   private readonly retryTracker = new PullRetryTracker()
   private hasMoreGlobal = false
   private globalLastEvaluatedKey?: Record<string, unknown>

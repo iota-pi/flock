@@ -8,6 +8,7 @@ import { SyncApiClient } from './SyncApiClient'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import { SnapshotPusher } from './SnapshotPusher'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 export { SnapshotTracker, SnapshotBuilder, SnapshotPusher }
 
@@ -18,10 +19,19 @@ export interface SnapshotManagerOptions {
   isLeader?: boolean
 }
 
-export class SnapshotManager {
+export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolean }> {
+  readonly lifecycleName = 'SnapshotManager'
   private readonly tracker: SnapshotTracker
   private readonly builder: SnapshotBuilder
   private readonly pusher: SnapshotPusher
+
+  async onLifecycleStart(): Promise<void> {
+    await this.loadLastModified()
+  }
+
+  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
+    await this.shutdown(options)
+  }
 
   constructor(
     deps: {

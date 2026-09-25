@@ -10,16 +10,22 @@ import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../../utils/storageQuota'
 import type { StorageRecoveryService } from './StorageRecoveryService'
 import type { SyncApiClient } from './SyncApiClient'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 export interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
   setSendEnabled(sendEnabled: boolean): void
 }
 
-export class SyncMessageBroker implements SyncBrokerControl {
+export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
+  readonly lifecycleName = 'SyncMessageBroker'
   private account: string | null = null
   private isOnline = true
   private sendEnabled = false
+
+  async onLifecycleStop(): Promise<void> {
+    await this.shutdown()
+  }
 
   private syncPoller: SyncPoller
   private wal: SyncWriteAheadLog | null = null

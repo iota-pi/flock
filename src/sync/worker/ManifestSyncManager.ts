@@ -22,6 +22,7 @@ import {
   type HydrateItemResult,
   type FetchAndHydrateParams,
 } from './ManifestHydrator'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 export type { ManifestEntry, SyncDeltas, CalculateSyncDeltasParams }
 export type { HydrateItemResult, FetchAndHydrateParams }
@@ -51,12 +52,17 @@ export type ManifestSyncManagerLegacyDeps = Omit<
 
 export type SyncResult = { added: ItemId[], success: boolean }
 
-export class ManifestSyncManager {
+export class ManifestSyncManager implements LifecycleAware {
+  readonly lifecycleName = 'ManifestSyncManager'
   private readonly deps: ManifestSyncManagerDeps
   private readonly hydrator: ManifestHydrator
   private readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
   private isShutdown = false
+
+  onLifecycleStop(): void {
+    this.shutdown()
+  }
   private abortController: AbortController | null = null
   private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 

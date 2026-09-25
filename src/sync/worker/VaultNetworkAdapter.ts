@@ -16,6 +16,7 @@ import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
 import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedSet } from '../utils/boundedCollections'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 export const MAX_SEEDED_DOCUMENTS = 5000
@@ -29,7 +30,8 @@ interface RenegotiationCircuitState {
   circuitOpenUntil?: number
 }
 
-export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
+export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements LifecycleAware {
+  readonly lifecycleName = 'VaultNetworkAdapter'
   private account: string | null = null
   private sendEnabled = false
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
@@ -53,6 +55,10 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
 
   setInternalEventHub(hub: WorkerInternalEventHub): void {
     this.internalEventHub = hub
+  }
+
+  onLifecycleStop(): void {
+    this.disconnect()
   }
 
   protected override canSend(): boolean {

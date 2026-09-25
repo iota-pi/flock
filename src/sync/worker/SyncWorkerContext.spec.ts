@@ -28,35 +28,55 @@ vi.mock('./SyncWriteAheadLog', () => ({
 
 vi.mock('./docStore', () => ({
   AutomergeDocStore: class MockAutomergeDocStore {
+    readonly lifecycleName = 'DocStore'
     shutdown = vi.fn().mockResolvedValue(undefined)
     saveDocToStorage = vi.fn().mockResolvedValue(undefined)
+    onLifecycleStop = vi.fn().mockImplementation(async () => {
+      await this.shutdown()
+    })
   },
   AutomergeIndexManager: class MockAutomergeIndexManager {
+    readonly lifecycleName = 'IndexManager'
     ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
     addAutomergeItemIdsToIndex = vi.fn()
     close = vi.fn()
+    onLifecycleStart = vi.fn().mockImplementation(async () => {
+      await this.ensureIndexDocument()
+    })
+    onLifecycleStop = vi.fn().mockImplementation(() => {
+      this.close()
+    })
   },
 }))
 
 vi.mock('./SyncPullQueueManager', () => ({
   SyncPullQueueManager: class MockSyncPullQueueManager {
+    readonly lifecycleName = 'PullQueueManager'
     setLockCoordinator = vi.fn()
     getGlobalLatestCursor = vi.fn().mockReturnValue(0)
     shutdown = vi.fn().mockResolvedValue(undefined)
+    onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
+      await this.shutdown(options)
+    })
   },
 }))
 
 vi.mock('./SyncMessageBroker', () => ({
   SyncMessageBroker: class MockSyncMessageBroker {
+    readonly lifecycleName = 'SyncMessageBroker'
     unblockAllItems = vi.fn()
     setStorageRecoveryService = vi.fn()
     poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
     shutdown = vi.fn().mockResolvedValue(undefined)
+    onLifecycleStop = vi.fn().mockImplementation(async () => {
+      await this.shutdown()
+    })
   },
 }))
 
 vi.mock('./VaultNetworkAdapter', () => ({
   VaultNetworkAdapter: class MockVaultNetworkAdapter {
+    readonly lifecycleName = 'VaultNetworkAdapter'
     triggerReNegotiation = vi.fn()
     setSyncedHeadsStore = vi.fn()
     setSyncedHeads = vi.fn()
@@ -64,16 +84,26 @@ vi.mock('./VaultNetworkAdapter', () => ({
     resetReNegotiationCircuit = vi.fn()
     disconnect = vi.fn()
     setAccount = vi.fn()
+    onLifecycleStop = vi.fn().mockImplementation(() => {
+      this.disconnect()
+    })
   },
 }))
 
 vi.mock('./AutomergeRepoManager', () => ({
   AutomergeRepoManager: class MockAutomergeRepoManager {
+    readonly lifecycleName = 'RepoManager'
     init = vi.fn().mockReturnValue({} /* mock Repo */)
     clearLocalData = vi.fn().mockResolvedValue(undefined)
     close = vi.fn().mockResolvedValue(undefined)
     getStorage = vi.fn().mockReturnValue(undefined)
     getStorageAdapter = vi.fn().mockReturnValue(undefined)
+    onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
+      if (options?.clearLocalData) {
+        await this.clearLocalData()
+      }
+      await this.close()
+    })
   },
 }))
 
@@ -81,6 +111,7 @@ vi.mock('./AutomergeRepoManager', () => ({
 
 vi.mock('./SnapshotManager', () => ({
   SnapshotManager: class MockSnapshotManager {
+    readonly lifecycleName = 'SnapshotManager'
     markItemDirty = vi.fn()
     loadLastModified = vi.fn().mockResolvedValue(undefined)
     shutdown = vi.fn().mockResolvedValue(undefined)
@@ -88,11 +119,18 @@ vi.mock('./SnapshotManager', () => ({
     setLeader = vi.fn()
     getDirtyItemIds = vi.fn().mockReturnValue([])
     persistLastModified = vi.fn().mockResolvedValue(undefined)
+    onLifecycleStart = vi.fn().mockImplementation(async () => {
+      await this.loadLastModified()
+    })
+    onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
+      await this.shutdown(options)
+    })
   },
 }))
 
 vi.mock('./SyncOrchestrator', () => ({
   SyncOrchestrator: class MockOrchestrator {
+    readonly lifecycleName = 'SyncOrchestrator'
     start = vi.fn().mockResolvedValue(undefined)
     shutdown = vi.fn().mockResolvedValue(undefined)
     setOnlineState = vi.fn()
@@ -100,6 +138,12 @@ vi.mock('./SyncOrchestrator', () => ({
     claimLeader = vi.fn()
     online = true
     flush = vi.fn()
+    onLifecycleStart = vi.fn().mockImplementation(async () => {
+      await this.start()
+    })
+    onLifecycleStop = vi.fn().mockImplementation(async () => {
+      await this.shutdown()
+    })
   },
 }))
 
@@ -124,15 +168,23 @@ vi.mock('./ItemOperations', () => ({
 
 vi.mock('./RecoveryManager', () => ({
   RecoveryManager: class MockRecoveryManager {
+    readonly lifecycleName = 'RecoveryManager'
     resetRecoveryState = vi.fn()
     unquarantineBatch = vi.fn().mockResolvedValue(undefined)
     reportDecryptionFailure = vi.fn().mockResolvedValue(undefined)
+    onLifecycleStop = vi.fn().mockImplementation(() => {
+      this.resetRecoveryState()
+    })
   },
 }))
 
 vi.mock('./ManifestSyncManager', () => ({
   ManifestSyncManager: class MockManifestSyncManager {
+    readonly lifecycleName = 'ManifestSyncManager'
     shutdown = vi.fn()
+    onLifecycleStop = vi.fn().mockImplementation(() => {
+      this.shutdown()
+    })
   },
 }))
 

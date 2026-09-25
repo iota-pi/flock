@@ -10,6 +10,7 @@ import {
 } from '../shared/manualRecoveryStore'
 import { normalizeSyncError } from 'src/shared/syncErrors'
 import { SYNC_TIMEOUTS } from '../syncConfig'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 export const RECOVERY_RETRY_COOLDOWN_MS = SYNC_TIMEOUTS.recoveryCooldown
 
@@ -24,11 +25,16 @@ export interface QuarantineOptions {
   failedBranches?: string[]
 }
 
-export class RecoveryManager {
+export class RecoveryManager implements LifecycleAware {
+  readonly lifecycleName = 'RecoveryManager'
   private accountId: string | null = null
   private eventHub?: ClientEventHub
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
+
+  onLifecycleStop(): void {
+    this.resetRecoveryState()
+  }
 
   constructor(deps?: RecoveryManagerDeps) {
     this.accountId = deps?.accountId ?? null

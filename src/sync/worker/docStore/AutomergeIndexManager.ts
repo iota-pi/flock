@@ -3,6 +3,7 @@ import type { AccountMetadata } from '../../../state/metadata'
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import { AsyncMutex } from '../../utils/AsyncMutex'
+import type { LifecycleAware } from '../ServiceLifecycleManager'
 
 interface IndexBroadcastMessage {
   type: 'indexUpdated' | 'metadataUpdated'
@@ -12,11 +13,20 @@ interface IndexBroadcastMessage {
 
 const INDEX_LOCK_TIMEOUT_MS = 10000
 
-export class AutomergeIndexManager {
+export class AutomergeIndexManager implements LifecycleAware {
+  readonly lifecycleName = 'IndexManager'
   private mutex = new AsyncMutex()
   private broadcastChannel: BroadcastChannel | null = null
   private lastEmittedItemIds: string[] | null = null
   private isClosed = false
+
+  async onLifecycleStart(): Promise<void> {
+    await this.ensureIndexDocument()
+  }
+
+  onLifecycleStop(): void {
+    this.close()
+  }
 
   constructor(
     private readonly accountId: string,

@@ -5,6 +5,7 @@ import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../../utils/storageManager'
 import { isQuotaError } from '../../utils/storageQuota'
 import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 export interface AutomergeStorageAdapter extends StorageAdapterInterface {
   has(key: string[]): Promise<boolean>
@@ -58,13 +59,25 @@ export interface AutomergeRepoManagerOptions {
   onQuotaError?: (error: unknown) => void
 }
 
-export class AutomergeRepoManager {
+export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: boolean }> {
+  readonly lifecycleName = 'RepoManager'
   private repo: Repo | null = null
   private indexedDbAdapter: FlockIndexedDBStorageAdapter | null = null
   private quotaAdapter: QuotaHandlingStorageAdapter | null = null
   private broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter | null = null
 
   constructor(private readonly accountId: string) {}
+
+  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
+    if (options?.clearLocalData) {
+      try {
+        await this.clearLocalData()
+      } catch (err) {
+        console.error('[AutomergeRepoManager] Error clearing Automerge DB', err)
+      }
+    }
+    await this.close()
+  }
 
   init(vaultNetworkAdapter: VaultNetworkAdapter, options?: AutomergeRepoManagerOptions): Repo {
     if (this.repo) {

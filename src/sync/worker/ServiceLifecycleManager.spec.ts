@@ -194,4 +194,27 @@ describe('ServiceLifecycleManager', () => {
     expect(lifecycle.getRegisteredServiceNames()).toEqual([])
     expect(lifecycle.getStatus()).toBe('uninitialized')
   })
+
+  it('supports registering LifecycleAware objects directly', async () => {
+    const events: string[] = []
+    const awareService = {
+      lifecycleName: 'AwareService',
+      onLifecycleStart: () => {
+        events.push('start:aware')
+      },
+      onLifecycleStop: (options?: { clearLocalData?: boolean }) => {
+        events.push(`stop:aware:${options?.clearLocalData}`)
+      },
+    }
+
+    lifecycle.register(awareService)
+
+    expect(lifecycle.getRegisteredServiceNames()).toEqual(['AwareService'])
+
+    await lifecycle.start()
+    expect(events).toEqual(['start:aware'])
+
+    await lifecycle.stop({ clearLocalData: true })
+    expect(events).toEqual(['start:aware', 'stop:aware:true'])
+  })
 })

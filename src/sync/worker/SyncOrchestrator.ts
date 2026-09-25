@@ -7,6 +7,7 @@ import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrate
 import { checkAlive, isAbortError } from './utils/abort'
 import type { ItemId } from 'src/shared/schemas/items'
 import { SYNC_TIMEOUTS } from '../syncConfig'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 export interface SyncPollerLike {
   executePoll: () => Promise<PollOutcome>
@@ -30,12 +31,21 @@ export interface SyncOrchestratorOptions {
 
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 
-export class SyncOrchestrator {
+export class SyncOrchestrator implements LifecycleAware {
+  readonly lifecycleName = 'SyncOrchestrator'
   private leaderElection: LeaderElection | null = null
   private isOnline = true
   private isLeader = false
   private pollingPausedForAuth = false
   private isShutdown = false
+
+  async onLifecycleStart(): Promise<void> {
+    await this.start()
+  }
+
+  async onLifecycleStop(): Promise<void> {
+    await this.shutdown()
+  }
 
   private pendingFlush = false
   private readonly pollGuard = new SingleFlightGuard<void>()

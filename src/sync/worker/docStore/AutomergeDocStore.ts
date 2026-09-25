@@ -16,6 +16,7 @@ import { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
 import { SYNC_TIMEOUTS } from '../../syncConfig'
+import type { LifecycleAware } from '../ServiceLifecycleManager'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -99,12 +100,17 @@ export interface DocStorageChecker {
   has(key: string[]): Promise<boolean>
 }
 
-export class AutomergeDocStore implements ItemLockCoordinator {
+export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
+  readonly lifecycleName = 'DocStore'
   private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private internalEventHub: WorkerInternalEventHub
   private storageAdapter?: DocStorageChecker | null
   public onDocHandleReplaced?: DocHandleReplacedListener
+
+  async onLifecycleStop(): Promise<void> {
+    await this.shutdown()
+  }
 
   constructor(
     private readonly repo: Repo,
