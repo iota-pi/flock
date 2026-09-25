@@ -1,5 +1,5 @@
 import { SyncApiClient, AuthError, AuthExpiredError } from './SyncApiClient'
-import { isAuthError } from './utils/auth'
+import { isAuthError } from './utils/errorClassifier'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockPollSyncBatchWithToken = vi.fn()

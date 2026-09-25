@@ -10,7 +10,7 @@ import { RecoveryManager } from './RecoveryManager'
 import { reconcileAccountMetadata, extractSyncableMetadata } from './utils/metadataSync'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from './utils/abort'
-import { isAuthError } from './utils/auth'
+import { isAuthError } from './utils/errorClassifier'
 import {
   ManifestDeltaCalculator,
   type ManifestEntry,
