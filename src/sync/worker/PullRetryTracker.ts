@@ -34,6 +34,28 @@ export interface PersistedSyncCursors {
   retries?: [ItemId, number][]
 }
 
+export type PullOutcomeKind =
+  | 'key-failure'
+  | 'partial-success'
+  | 'parse-failure-retry'
+  | 'parse-failure-exhausted'
+  | 'terminal-success'
+
+export interface PullStateTransition {
+  kind: PullOutcomeKind
+  targetCursor: number
+  effectiveHighestCursor: number
+  pending: boolean
+  retryCount: number
+  blockedOnKey?: string
+  lastEvaluatedKey?: Record<string, unknown>
+  permanentlyFailed: boolean
+  advanceCursor?: number
+  cursorUpdated: boolean
+  removeFromRetryQueue: boolean
+  updateGlobalCursor: boolean
+}
+
 export class PullRetryTracker {
   public static readonly MAX_PULL_RETRIES = 5
 
@@ -261,9 +283,12 @@ export class PullRetryTracker {
     this.itemCursors.clear()
   }
 
-  recordPullOutcome(params: RecordPullOutcomeParams): RecordPullOutcomeResult {
+  computeTransition(
+    state: Readonly<ItemPullState>,
+    outcome: RecordPullOutcomeParams,
+    maxRetries: number = this.maxRetries
+  ): PullStateTransition {
     const {
-      itemId,
       initialCursor,
       isNewItem,
       hasKeyFailure,
@@ -273,35 +298,45 @@ export class PullRetryTracker {
       hasMore,
       nextCursor,
       lastEvaluatedKey,
-    } = params
+    } = outcome
 
-    const state = this.getOrCreateState(itemId)
-    let highestCursor = params.highestCursor
+    let highestCursor = outcome.highestCursor
+    let kind: PullOutcomeKind
+    let pending: boolean
+    let retryCount = state.retryCount
+    let nextBlockedOnKey = state.blockedOnKey
+    let nextLastEvaluatedKey: Record<string, unknown> | undefined
     let permanentlyFailed = false
     let advanceCursor: number | undefined
+    let removeFromRetryQueue = false
+    let updateGlobalCursor = false
+    let targetCursor = state.cursor
 
     if (hasKeyFailure) {
-      state.pending = true
-      state.lastEvaluatedKey = undefined
+      kind = 'key-failure'
+      pending = true
+      nextLastEvaluatedKey = undefined
       if (blockedOnKey) {
-        state.blockedOnKey = blockedOnKey
+        nextBlockedOnKey = blockedOnKey
       }
     } else if (hasMore && !hasParseFailure) {
-      state.pending = true
-      state.retryCount = 0
-      state.blockedOnKey = undefined
-      state.lastEvaluatedKey = lastEvaluatedKey
-      if (highestCursor > state.cursor) {
-        state.cursor = highestCursor
+      kind = 'partial-success'
+      pending = true
+      retryCount = 0
+      nextBlockedOnKey = undefined
+      nextLastEvaluatedKey = lastEvaluatedKey
+      if (highestCursor > targetCursor) {
+        targetCursor = highestCursor
       }
-      this.setGlobalCursor(highestCursor)
+      updateGlobalCursor = true
     } else if (hasParseFailure) {
-      state.lastEvaluatedKey = undefined
-      state.retryCount += 1
+      nextLastEvaluatedKey = undefined
+      const nextRetries = state.retryCount + 1
 
-      if (state.retryCount >= this.maxRetries) {
-        state.pending = false
-        state.retryCount = 0
+      if (nextRetries >= maxRetries) {
+        kind = 'parse-failure-exhausted'
+        pending = false
+        retryCount = 0
         permanentlyFailed = true
 
         advanceCursor = Number.isFinite(failingCursor)
@@ -313,41 +348,95 @@ export class PullRetryTracker {
         if (typeof advanceCursor === 'number') {
           highestCursor = Math.max(highestCursor, advanceCursor)
         }
-        state.cursor = highestCursor
-        this.retryQueue.delete(itemId)
-        this.setGlobalCursor(highestCursor)
+        targetCursor = highestCursor
+        removeFromRetryQueue = true
+        updateGlobalCursor = true
       } else {
-        state.pending = true
-        if (highestCursor > state.cursor) {
-          state.cursor = highestCursor
+        kind = 'parse-failure-retry'
+        pending = true
+        retryCount = nextRetries
+        if (highestCursor > targetCursor) {
+          targetCursor = highestCursor
         }
       }
     } else {
       // Terminal success (hasMore: false, no failure)
-      state.pending = false
-      state.retryCount = 0
-      state.blockedOnKey = undefined
-      state.lastEvaluatedKey = undefined
-      state.cursor = highestCursor
-      this.retryQueue.delete(itemId)
-      this.setGlobalCursor(highestCursor)
+      kind = 'terminal-success'
+      pending = false
+      retryCount = 0
+      nextBlockedOnKey = undefined
+      nextLastEvaluatedKey = undefined
+      targetCursor = highestCursor
+      removeFromRetryQueue = true
+      updateGlobalCursor = true
     }
 
     let cursorUpdated = false
     if (highestCursor > initialCursor) {
-      state.cursor = highestCursor
-      this.itemCursors.set(itemId, highestCursor)
+      targetCursor = highestCursor
       cursorUpdated = true
     } else if (isNewItem && highestCursor >= 0) {
-      state.cursor = highestCursor
-      this.itemCursors.set(itemId, highestCursor)
+      targetCursor = highestCursor
       cursorUpdated = true
     }
 
     return {
-      cursorUpdated,
+      kind,
+      targetCursor,
+      effectiveHighestCursor: highestCursor,
+      pending,
+      retryCount,
+      blockedOnKey: nextBlockedOnKey,
+      lastEvaluatedKey: nextLastEvaluatedKey,
       permanentlyFailed,
       advanceCursor,
+      cursorUpdated,
+      removeFromRetryQueue,
+      updateGlobalCursor,
+    }
+  }
+
+  applyTransition(state: ItemPullState, transition: PullStateTransition): void {
+    state.cursor = transition.targetCursor
+    state.pending = transition.pending
+    state.retryCount = transition.retryCount
+    state.blockedOnKey = transition.blockedOnKey
+    state.lastEvaluatedKey = transition.lastEvaluatedKey
+  }
+
+  advanceGlobalCursor(itemId: ItemId, transition: PullStateTransition): void {
+    if (transition.cursorUpdated) {
+      this.itemCursors.set(itemId, transition.targetCursor)
+    }
+    if (transition.removeFromRetryQueue) {
+      this.retryQueue.delete(itemId)
+    }
+    if (transition.updateGlobalCursor) {
+      this.setGlobalCursor(transition.effectiveHighestCursor)
+    }
+  }
+
+  recordPullOutcome(params: RecordPullOutcomeParams): RecordPullOutcomeResult
+  recordPullOutcome(itemId: ItemId, outcome: Omit<RecordPullOutcomeParams, 'itemId'>): RecordPullOutcomeResult
+  recordPullOutcome(
+    itemIdOrParams: ItemId | RecordPullOutcomeParams,
+    outcome?: Omit<RecordPullOutcomeParams, 'itemId'>
+  ): RecordPullOutcomeResult {
+    const params: RecordPullOutcomeParams =
+      typeof itemIdOrParams === 'string'
+        ? { itemId: itemIdOrParams, ...outcome! }
+        : itemIdOrParams
+
+    const { itemId } = params
+    const state = this.getOrCreateState(itemId)
+    const transition = this.computeTransition(state, params)
+    this.applyTransition(state, transition)
+    this.advanceGlobalCursor(itemId, transition)
+
+    return {
+      cursorUpdated: transition.cursorUpdated,
+      permanentlyFailed: transition.permanentlyFailed,
+      advanceCursor: transition.advanceCursor,
     }
   }
 }
