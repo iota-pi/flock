@@ -9,6 +9,7 @@ import {
   createAccountStore,
   clearAccountStoreInstancesCacheForTesting,
 } from '../shared/createAccountStore'
+import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 export { packBatchedMessages, type BatchableMessage, WalEntryQuery, type WalEntryDescriptor }
 
@@ -41,8 +42,8 @@ function toUint8Array(data: unknown): Uint8Array {
   return new Uint8Array()
 }
 
-const MAX_ENTRIES = 2000
-const PRUNE_BATCH_SIZE = 100
+const MAX_ENTRIES = SYNC_BATCH_SIZES.walMax
+const PRUNE_BATCH_SIZE = SYNC_BATCH_SIZES.walPrune
 
 export class SyncWriteAheadLog {
   public static readonly MAX_ENTRIES = MAX_ENTRIES

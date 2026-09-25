@@ -15,6 +15,7 @@ import {
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
+import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 const MAX_BATCH_RETRIES = 3
 export const REENCRYPT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
@@ -206,7 +207,7 @@ async function uploadSnapshotBatchWithRetry(
 }
 
 // Use a slightly smaller upload chunk size than in SnapshotManager to improve progress reporting granularity
-const REENCRYPT_CHUNK_SIZE = 10
+const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
 
 export interface ItemReencryptorOptions {
   retryDelays?: number[]

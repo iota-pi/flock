@@ -10,6 +10,7 @@ import {
 import { getOnlineState } from 'src/utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
+import { SYNC_TIMEOUTS } from '../syncConfig'
 
 export interface WorkerLifecycleCallbacks {
   onEvent: (event: ClientEvent) => void
@@ -302,7 +303,7 @@ export class WorkerLifecycleManager {
                 this._restartResolve?.()
                 this._restartResolve = null
               }
-            }, 1000)
+            }, SYNC_TIMEOUTS.workerRestartDelay)
           },
         })
       } catch (error) {
@@ -433,7 +434,7 @@ export class WorkerLifecycleManager {
             clearLocalData: shouldClearLocalData,
           }),
           new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error('Sync worker shutdown timed out')), 1000)
+            setTimeout(() => reject(new Error('Sync worker shutdown timed out')), SYNC_TIMEOUTS.workerShutdown)
           ),
         ])
       } catch (err) {

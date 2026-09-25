@@ -13,6 +13,7 @@ import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
 import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap } from '../utils/boundedCollections'
+import { SYNC_TIMEOUTS } from '../syncConfig'
 
 interface ProcessItemMessagesResult {
   highestCursor: number
@@ -24,7 +25,7 @@ interface ProcessItemMessagesResult {
 }
 
 const BATCH_PROGRESS_CACHE_MAX = 500
-const KEY_WAIT_TIMEOUT_MS = 5000
+const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
 const PROTOCOL_VERSION = '1.0'
 
 export class SyncPullQueueManager {

@@ -15,6 +15,7 @@ import type { AutomergeIndexManager } from './AutomergeIndexManager'
 import { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
+import { SYNC_TIMEOUTS } from '../../syncConfig'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -259,7 +260,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     if (!existsInStorage) return undefined
 
     // 3. Fast-path attempt (2s)
-    handle = await this.timedFind(url, 2000)
+    handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreFastPath)
     if (handle && handle.isReady()) return handle
 
     // 4. Extended attempt for confirmed-to-exist documents (8s)
@@ -270,7 +271,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     console.warn(
       `[AutomergeDocStore] Document ${itemId} exists in storage but fast-path timed out. Retrying with extended timeout.`
     )
-    handle = await this.timedFind(url, 8000)
+    handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreExtended)
 
     // Final cache check — strictly require readiness before returning
     const finalHandle = handle ?? this.repo.handles[documentId]

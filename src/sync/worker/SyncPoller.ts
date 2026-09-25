@@ -14,6 +14,7 @@ import { classifySyncError } from './utils/errorClassifier'
 import type { PushResultItem, PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
 import { SyncApiClient } from './SyncApiClient'
 import { checkAlive } from './utils/abort'
+import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 type ChunkEntry = [ItemId, WalEntry[]][]
@@ -28,7 +29,7 @@ function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
   return last
 }
 
-const POLL_CHUNK_SIZE = 5
+const POLL_CHUNK_SIZE = SYNC_BATCH_SIZES.pollChunk
 const PROTOCOL_VERSION = '1.0'
 
 export class SyncPoller {

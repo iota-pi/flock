@@ -6,6 +6,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from './utils/abort'
 import type { ItemId } from 'src/shared/schemas/items'
+import { SYNC_TIMEOUTS } from '../syncConfig'
 
 export interface SyncPollerLike {
   executePoll: () => Promise<PollOutcome>
@@ -27,7 +28,7 @@ export interface SyncOrchestratorOptions {
   manifestSyncIntervalMs?: number
 }
 
-const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = 60 * 60 * 1000
+const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 
 export class SyncOrchestrator {
   private leaderElection: LeaderElection | null = null

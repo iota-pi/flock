@@ -9,8 +9,9 @@ import {
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
 import { normalizeSyncError } from 'src/shared/syncErrors'
+import { SYNC_TIMEOUTS } from '../syncConfig'
 
-export const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
+export const RECOVERY_RETRY_COOLDOWN_MS = SYNC_TIMEOUTS.recoveryCooldown
 
 export interface RecoveryManagerDeps {
   accountId?: string | null
