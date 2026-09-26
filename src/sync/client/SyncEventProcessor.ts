@@ -2,7 +2,6 @@ import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
-import { recordWorkerActivity } from './syncWorkerHealth'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 export interface SyncEventProcessorCallbacks {
@@ -59,11 +58,7 @@ export class SyncEventProcessor {
   }
 
   handleSyncEvent = (event: ClientEvent): void => {
-    if (this.callbacks.onActivity) {
-      this.callbacks.onActivity()
-    } else {
-      recordWorkerActivity()
-    }
+    this.callbacks.onActivity?.()
     switch (event.type) {
       case 'ready':
         break

@@ -53,7 +53,6 @@ export const sendPing = (
     const handleMessage = (event: MessageEvent) => {
       if (event.data === 'pong') {
         cleanup()
-        recordWorkerActivity()
         resolve()
       }
     }
@@ -323,7 +322,6 @@ export class SyncWorkerHealthMonitor {
         })
 
         // Ping succeeded
-        this.consecutiveMissedPings = 0
         this.recordActivity()
       } catch (error) {
         if (!isCurrentWorker() || isExternalAbort(abortController.signal)) {
@@ -366,26 +364,4 @@ export class SyncWorkerHealthMonitor {
       }
     }, heartbeatIntervalMs)
   }
-}
-
-export const defaultHealthMonitor = new SyncWorkerHealthMonitor()
-
-export function recordWorkerActivity(): void {
-  defaultHealthMonitor.recordActivity()
-}
-
-export function getLastWorkerActivityTime(): number {
-  return defaultHealthMonitor.getLastWorkerActivityTime()
-}
-
-export function stopWorkerHeartbeat(): void {
-  defaultHealthMonitor.stopWorkerHeartbeat()
-}
-
-export function resetCrashMetrics(): void {
-  defaultHealthMonitor.resetCrashMetrics()
-}
-
-export function setupWorkerHealthCheck(options: HealthCheckOptions): void {
-  defaultHealthMonitor.setupWorkerHealthCheck(options)
 }
