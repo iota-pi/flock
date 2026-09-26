@@ -5,6 +5,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from './utils/abort'
+import { classifySyncError } from './utils/errorClassifier'
 import type { ItemId } from 'src/shared/schemas/items'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -239,7 +240,7 @@ export class SyncOrchestrator implements LifecycleAware {
 
     if (this.pollBackoffIndex > 0) {
       if (this.pollIntervalId === null) {
-        this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+        this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
       }
       return
     }
@@ -264,7 +265,7 @@ export class SyncOrchestrator implements LifecycleAware {
         this.pendingFlush = true
       }
     } else {
-      this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+      this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
     }
   }
 
@@ -282,7 +283,7 @@ export class SyncOrchestrator implements LifecycleAware {
     }
   }
 
-  private scheduleNextPoll(delayMs: number): void {
+  private schedulePollTimer(delayMs: number): void {
     if (!this.canPoll()) {
       return
     }
@@ -296,6 +297,55 @@ export class SyncOrchestrator implements LifecycleAware {
       this.pollIntervalId = null
       void this.executeWrappedPoll()
     }, jitteredDelayMs)
+  }
+
+  private scheduleNextPoll(outcome: PollOutcome): void {
+    const wasFlushPending = this.pendingFlush
+    this.pendingFlush = false
+
+    if (outcome === 'failure') {
+      this.increasePollBackoff()
+    } else {
+      this.resetPollBackoff()
+      this.pollingPausedForAuth = false
+    }
+
+    this.internalEventHub.emit({ type: 'pollResult', outcome })
+
+    const hasMorePulls = this.pullQueueManager.hasImmediatePendingPulls
+      ? this.pullQueueManager.hasImmediatePendingPulls()
+      : Boolean(this.pullQueueManager.hasPendingPulls?.())
+
+    if (outcome === 'failure') {
+      this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
+    } else if (
+      wasFlushPending ||
+      (outcome === 'success' && hasMorePulls)
+    ) {
+      this.schedulePollTimer(0)
+    } else {
+      this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
+    }
+  }
+
+  private handlePollError(error: unknown): void {
+    if (isAbortError(error) || !this.isOperational) {
+      return
+    }
+
+    const isAuth = error === 'auth-failure' || classifySyncError(error).isAuth
+    if (isAuth) {
+      this.pollingPausedForAuth = true
+      this.stopPolling()
+      this.clientEventHub.emit({
+        type: 'authFailure',
+        message: 'Sync paused: your session has expired. Please sign in again.',
+      })
+      this.internalEventHub.emit({ type: 'pollResult', outcome: 'auth-failure' })
+      return
+    }
+
+    this.scheduleNextPoll('failure')
   }
 
   private applyBackoffJitter(delayMs: number): number {
@@ -313,7 +363,7 @@ export class SyncOrchestrator implements LifecycleAware {
   private async executeWrappedPoll(force = false): Promise<void> {
     if (!this.canPoll(force) || this.pollGuard.isRunning) return
 
-    const pollTask = async () => {
+    await this.pollGuard.run(async () => {
       const abortController = new AbortController()
       this.pollAbortController = abortController
       const { signal } = abortController
@@ -328,10 +378,11 @@ export class SyncOrchestrator implements LifecycleAware {
         outcome = await this.poller.executePoll()
         checkAlive(signal, () => this.isOperational)
       } catch (err) {
-        if (signal.aborted || isAbortError(err)) {
+        if (signal.aborted || isAbortError(err) || !this.isOperational) {
           return
         }
-        outcome = 'failure'
+        this.handlePollError(err)
+        return
       } finally {
         if (this.pollAbortController === abortController) {
           this.pollAbortController = null
@@ -343,42 +394,12 @@ export class SyncOrchestrator implements LifecycleAware {
       }
 
       if (outcome === 'auth-failure') {
-        this.pollingPausedForAuth = true
-        this.stopPolling()
-        this.clientEventHub.emit({ type: 'authFailure', message: 'Sync paused: your session has expired. Please sign in again.' })
-        this.internalEventHub.emit({ type: 'pollResult', outcome })
+        this.handlePollError(outcome)
         return
       }
 
-      const wasFlushPending = this.pendingFlush
-      this.pendingFlush = false
-
-      if (outcome === 'failure') {
-        this.increasePollBackoff()
-      } else {
-        this.resetPollBackoff()
-        this.pollingPausedForAuth = false
-      }
-
-      this.internalEventHub.emit({ type: 'pollResult', outcome })
-
-      const hasMorePulls = this.pullQueueManager.hasImmediatePendingPulls
-        ? this.pullQueueManager.hasImmediatePendingPulls()
-        : Boolean(this.pullQueueManager.hasPendingPulls?.())
-
-      if (outcome === 'failure') {
-        this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
-      } else if (
-        wasFlushPending ||
-        (outcome === 'success' && hasMorePulls)
-      ) {
-        this.scheduleNextPoll(0)
-      } else {
-        this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
-      }
-    }
-
-    await this.pollGuard.run(pollTask, {
+      this.scheduleNextPoll(outcome)
+    }, {
       onCoalesce: () => {
         this.pendingFlush = true
       },

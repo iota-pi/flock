@@ -1086,5 +1086,74 @@ describe('SyncOrchestrator', () => {
       expect(mockManifest.abort).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('executeWrappedPoll error handling and scheduling (SRP)', () => {
+    it('handles thrown error in executePoll by delegating to handlePollError and increasing backoff', async () => {
+      const internalPollResultSpy = vi.fn()
+      internalEventHub.subscribe(internalPollResultSpy)
+
+      mockBroker.executePoll.mockRejectedValueOnce(new Error('Network error'))
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      expect(internalPollResultSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'pollResult', outcome: 'failure' })
+      )
+
+      // Next poll should be delayed by backoff
+      await vi.advanceTimersByTimeAsync(10)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+      mockBroker.executePoll.mockResolvedValueOnce('success')
+      await vi.advanceTimersByTimeAsync(75000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('detects auth error thrown in executePoll and pauses polling via handlePollError', async () => {
+      const authFailureSpy = vi.fn()
+      clientEventHub.subscribe(authFailureSpy)
+      const internalPollResultSpy = vi.fn()
+      internalEventHub.subscribe(internalPollResultSpy)
+
+      mockBroker.executePoll.mockRejectedValueOnce({ status: 401, message: 'Unauthorized' })
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      expect(authFailureSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'authFailure', message: expect.stringContaining('session has expired') })
+      )
+      expect(internalPollResultSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'pollResult', outcome: 'auth-failure' })
+      )
+
+      // Polling should be stopped/paused
+      await vi.advanceTimersByTimeAsync(100000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores AbortError thrown in executePoll without emitting failure or altering backoff', async () => {
+      const internalPollResultSpy = vi.fn()
+      internalEventHub.subscribe(internalPollResultSpy)
+
+      const abortError = new Error('Aborted')
+      abortError.name = 'AbortError'
+      mockBroker.executePoll.mockRejectedValueOnce(abortError)
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      expect(internalPollResultSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'failure' })
+      )
+    })
+  })
 })
 
