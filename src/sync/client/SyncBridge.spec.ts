@@ -5,6 +5,8 @@ import { VAULT_STORAGE_KEY } from '../../api/vault/util'
 import type { ItemId } from 'src/shared/schemas/items'
 import { getBlankPerson } from '../../state/items'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import { attemptSessionRecovery } from 'src/api/vault/sessionRecovery'
+import { resumePendingReencryption } from 'src/api/vault/reencrypt'
 
 vi.mock('src/api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
@@ -16,6 +18,14 @@ vi.mock('src/api/vault', () => ({
   getKeyHash: vi.fn().mockReturnValue(null),
   KEYRING_CACHE_KEY: 'FlockKeyringCache',
   VAULT_EVENTS_CHANNEL: 'flock-vault-events',
+}))
+
+vi.mock('src/api/vault/sessionRecovery', () => ({
+  attemptSessionRecovery: vi.fn().mockResolvedValue(true),
+}))
+
+vi.mock('src/api/vault/reencrypt', () => ({
+  resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
 }))
 
 
@@ -349,6 +359,105 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(true)
 
     onLineSpy.mockRestore()
+  })
+
+  describe('reconnect coordination', () => {
+    it('coordinates session recovery, warning clearing, sync flush, and reencryption on reconnect', async () => {
+      vi.mocked(attemptSessionRecovery).mockResolvedValue(true)
+      vi.mocked(resumePendingReencryption).mockResolvedValue(undefined)
+      const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+
+      await SyncBridge.initialize('test-reconnect-account')
+      useAppStore.setState({ syncWarning: 'Warning to be cleared' })
+      vi.clearAllMocks()
+
+      window.dispatchEvent(new Event('online'))
+
+      await vi.waitFor(() => {
+        expect(attemptSessionRecovery).toHaveBeenCalledWith('test-reconnect-account')
+        expect(mockSyncApi.flushSync).toHaveBeenCalledTimes(1)
+      })
+
+      expect(useAppStore.getState().syncWarning).toBeNull()
+      expect(resumePendingReencryption).toHaveBeenCalledWith('test-reconnect-account')
+
+      onLineSpy.mockRestore()
+    })
+
+    it('does not clear sync warning or flush sync when session recovery fails', async () => {
+      vi.mocked(attemptSessionRecovery).mockResolvedValue(false)
+      vi.mocked(resumePendingReencryption).mockResolvedValue(undefined)
+      const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+
+      await SyncBridge.initialize('test-failed-recovery-account')
+      useAppStore.setState({ syncWarning: 'Persistent sync warning' })
+      vi.clearAllMocks()
+
+      window.dispatchEvent(new Event('online'))
+
+      await vi.waitFor(() => {
+        expect(attemptSessionRecovery).toHaveBeenCalledWith('test-failed-recovery-account')
+        expect(resumePendingReencryption).toHaveBeenCalledWith('test-failed-recovery-account')
+      })
+
+      expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
+      expect(useAppStore.getState().syncWarning).toBe('Persistent sync warning')
+
+      onLineSpy.mockRestore()
+    })
+
+    it('does not trigger session recovery or flush on offline event', async () => {
+      const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+
+      await SyncBridge.initialize('test-offline-account')
+      vi.clearAllMocks()
+
+      window.dispatchEvent(new Event('offline'))
+
+      await vi.waitFor(() => {
+        expect(mockSyncApi.setOnlineState).toHaveBeenCalledWith(false)
+      })
+
+      expect(attemptSessionRecovery).not.toHaveBeenCalled()
+      expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
+      expect(resumePendingReencryption).not.toHaveBeenCalled()
+
+      onLineSpy.mockRestore()
+    })
+
+    it('aborts reconnect pipeline if network goes offline while attempting session recovery', async () => {
+      let resolveRecovery!: (val: boolean) => void
+      const recoveryPromise = new Promise<boolean>(resolve => {
+        resolveRecovery = resolve
+      })
+      vi.mocked(attemptSessionRecovery).mockImplementation(() => recoveryPromise)
+      vi.mocked(resumePendingReencryption).mockResolvedValue(undefined)
+
+      const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+      await SyncBridge.initialize('test-abort-account')
+      vi.clearAllMocks()
+
+      window.dispatchEvent(new Event('online'))
+
+      await vi.waitFor(() => {
+        expect(attemptSessionRecovery).toHaveBeenCalledWith('test-abort-account')
+      })
+
+      // Network goes offline before session recovery finishes
+      onLineSpy.mockReturnValue(false)
+      window.dispatchEvent(new Event('offline'))
+
+      // Resolve recovery now that we're offline
+      resolveRecovery(true)
+
+      // Microtasks delay
+      await new Promise(r => setTimeout(r, 20))
+
+      expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
+      expect(resumePendingReencryption).not.toHaveBeenCalled()
+
+      onLineSpy.mockRestore()
+    })
   })
 
   it('removes online, offline, and visibility event listeners on shutdown', async () => {

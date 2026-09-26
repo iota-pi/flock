@@ -18,6 +18,9 @@ import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'
+import { attemptSessionRecovery } from 'src/api/vault/sessionRecovery'
+import { resumePendingReencryption } from 'src/api/vault/reencrypt'
+import { getOnlineState } from 'src/utils/onlineStatus'
 
 export { clearAutomergeIndexedDb, clearAccountLocalData } from './localDataCleanup'
 
@@ -62,10 +65,8 @@ class SyncBridgeService {
             const api = this.lifecycleManager.getSyncApi()
             if (api) await api.setOnlineState(isOnline)
           },
-          getAccountId: () => this.lifecycleManager.getCurrentAccountId(),
-          flushSync: async () => {
-            const api = this.lifecycleManager.getSyncApi()
-            if (api) await api.flushSync()
+          onReconnect: async () => {
+            await this.handleReconnect()
           },
           onVisibilityHidden: () => {
             const api = this.lifecycleManager.getSyncApi()
@@ -87,6 +88,47 @@ class SyncBridgeService {
         }
       },
     })
+  }
+
+  private reconnectSequence = 0
+
+  private handleReconnect = async (): Promise<void> => {
+    const currentSeq = ++this.reconnectSequence
+    const account = this.lifecycleManager.getCurrentAccountId()
+    if (!account) return
+
+    let recovered = false
+    try {
+      recovered = await attemptSessionRecovery(account)
+    } catch (err) {
+      console.warn('[SyncBridge] Failed to attempt session recovery on reconnect:', err)
+    }
+
+    if (
+      currentSeq !== this.reconnectSequence ||
+      !getOnlineState() ||
+      this.lifecycleManager.getCurrentAccountId() !== account
+    ) {
+      return
+    }
+
+    if (recovered) {
+      useAppStore.getState().clearSyncWarning()
+      const api = this.lifecycleManager.getSyncApi()
+      if (api) {
+        try {
+          await api.flushSync()
+        } catch (error) {
+          console.error('[SyncBridge] flushSync failed on reconnect:', error)
+        }
+      }
+    }
+
+    try {
+      await resumePendingReencryption(account)
+    } catch (error) {
+      console.warn('[SyncBridge] resumePendingReencryption failed on reconnect:', error)
+    }
   }
 
   private handleKeyringUpdate = async (kver?: string) => {

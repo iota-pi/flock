@@ -4,16 +4,11 @@ import {
   VAULT_EVENTS_CHANNEL,
   type VaultBroadcastEvent,
 } from 'src/api/vault'
-import { attemptSessionRecovery } from 'src/api/vault/sessionRecovery'
-import { useAppStore } from 'src/state/store'
 
 export interface SyncDOMListenersCallbacks {
   setOnlineState?: (isOnline: boolean) => Promise<void> | void
   onOnlineChange?: (isOnline: boolean) => Promise<void> | void
-  getAccountId?: () => string | null
-  attemptSessionRecovery?: (account: string) => Promise<boolean>
-  flushSync?: () => Promise<void>
-  resumePendingReencryption?: (account: string) => Promise<void>
+  onReconnect?: () => Promise<void> | void
   onVisibilityHidden: () => void
   onKeyringChange: () => void
 }
@@ -103,47 +98,13 @@ export class SyncDOMListeners {
       return
     }
 
-    // Step 2: Session recovery
-    const account = currentCallbacks.getAccountId ? currentCallbacks.getAccountId() : null
-    if (!account) {
-      return
-    }
-
-    const recoverSession = currentCallbacks.attemptSessionRecovery ?? attemptSessionRecovery
-    let recovered = false
-    try {
-      recovered = await recoverSession(account)
-    } catch (err) {
-      console.warn('[SyncDOMListeners] Failed to attempt session recovery on reconnect:', err)
-    }
-
-    // If a newer event arrived while recovering session, or if offline / stopped, abort
-    if (seq !== this.eventSequence || !getOnlineState() || !this.callbacks) {
-      return
-    }
-
-    // Step 3: Flush sync if session recovered
-    if (recovered) {
-      useAppStore.getState().clearSyncWarning()
-      if (currentCallbacks.flushSync) {
-        try {
-          await currentCallbacks.flushSync()
-        } catch (error) {
-          console.error('[SyncDOMListeners] flushSync failed on reconnect:', error)
-        }
+    // Step 2: Trigger onReconnect callback
+    if (currentCallbacks.onReconnect) {
+      try {
+        await currentCallbacks.onReconnect()
+      } catch (error) {
+        console.error('[SyncDOMListeners] onReconnect callback failed:', error)
       }
-    }
-
-    // Resume pending re-encryption
-    const resumeReencryptionFn = currentCallbacks.resumePendingReencryption ?? (async (acc: string) => {
-      const { resumePendingReencryption } = await import('src/api/vault/reencrypt')
-      await resumePendingReencryption(acc)
-    })
-
-    try {
-      await resumeReencryptionFn(account)
-    } catch (error) {
-      console.warn('[SyncDOMListeners] resumePendingReencryption failed on reconnect:', error)
     }
   }
 
