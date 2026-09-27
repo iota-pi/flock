@@ -37,8 +37,8 @@ export const SYNCABLE_METADATA_KEYS = [
   'updatedAt',
 ] as const satisfies readonly (keyof z.infer<typeof accountMetadataSchema>)[]
 
-export type SyncableMetadataKey = (typeof SYNCABLE_METADATA_KEYS)[number]
-export type SyncableMetadata = Partial<Record<SyncableMetadataKey, unknown>>
+type SyncableMetadataKey = (typeof SYNCABLE_METADATA_KEYS)[number]
+type SyncableMetadata = Partial<Record<SyncableMetadataKey, unknown>>
 
 export function extractSyncableMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -52,4 +52,3 @@ export function extractSyncableMetadata(
   }
   return result
 }
-
