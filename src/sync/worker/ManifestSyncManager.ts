@@ -61,6 +61,7 @@ export class ManifestSyncManager implements LifecycleAware {
   onLifecycleStop(): void {
     this.shutdown()
   }
+
   private abortController: AbortController | null = null
   private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 

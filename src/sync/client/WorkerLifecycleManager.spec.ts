@@ -1,5 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import * as Comlink from 'comlink'
 import { WorkerLifecycleManager, WorkerLifecycleCallbacks } from './WorkerLifecycleManager'
 import * as localDataCleanup from './localDataCleanup'
 
@@ -32,6 +30,7 @@ class MockWorker {
       port.onmessage?.({ data: 'ping' })
     }
   })
+
   private listeners: Record<string, ((event: any) => void)[]> = {}
 
   addEventListener = vi.fn((event: string, handler: (event: any) => void) => {

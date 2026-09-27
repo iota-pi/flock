@@ -43,6 +43,7 @@ vi.mock('./docStore', () => ({
     onLifecycleStart = vi.fn().mockImplementation(async () => {
       await this.ensureIndexDocument()
     })
+
     onLifecycleStop = vi.fn().mockImplementation(() => {
       this.close()
     })
@@ -122,6 +123,7 @@ vi.mock('./SnapshotManager', () => ({
     onLifecycleStart = vi.fn().mockImplementation(async () => {
       await this.loadLastModified()
     })
+
     onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
       await this.shutdown(options)
     })
@@ -141,6 +143,7 @@ vi.mock('./SyncOrchestrator', () => ({
     onLifecycleStart = vi.fn().mockImplementation(async () => {
       await this.start()
     })
+
     onLifecycleStop = vi.fn().mockImplementation(async () => {
       await this.shutdown()
     })

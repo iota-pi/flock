@@ -1,5 +1,4 @@
 import { SyncApiClient, AuthError, AuthExpiredError } from './SyncApiClient'
-import { isAuthError } from './utils/errorClassifier'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockPollSyncBatchWithToken = vi.fn()
@@ -81,11 +80,6 @@ describe('SyncApiClient', () => {
       expect(() => client.getToken()).toThrow(AuthError)
 
       await expect(client.putSnapshots({ account: 'acc-1', snapshots: [] })).rejects.toThrow(AuthError)
-      try {
-        await client.putSnapshots({ account: 'acc-1', snapshots: [] })
-      } catch (err) {
-        expect(isAuthError(err)).toBe(true)
-      }
     })
   })
 

@@ -37,6 +37,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
     await this.shutdown(options)
   }
+
   private readonly retryTracker = new PullRetryTracker()
   private hasMoreGlobal = false
   private globalLastEvaluatedKey?: Record<string, unknown>

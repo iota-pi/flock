@@ -1,5 +1,6 @@
 import { reencryptAllItems, cancelScheduledReencryption, ItemReencryptor } from './reencryptAllItems'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import { BuildSnapshotResult } from './snapshotBuilder'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockGetActiveSessionToken = vi.fn()
@@ -700,9 +701,8 @@ describe('ItemReencryptor class', () => {
 
       const result = await reencryptor.buildSnapshot('item-1' as any, mockRepo as any)
       expect(result.type).toBe('success')
-      if (result.type === 'success') {
-        expect(result.snapshot.itemId).toBe('item-1')
-      }
+      const typedResult = result as BuildSnapshotResult & { type: 'success' }
+      expect(typedResult.snapshot.itemId).toBe('item-1')
     })
 
     it('uploadBatch is a pure operation that uploads snapshots and verifies confirmation', async () => {

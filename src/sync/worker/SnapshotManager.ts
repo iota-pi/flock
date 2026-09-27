@@ -245,11 +245,11 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   }
 
   get isOnline(): boolean {
-    return this.tracker['isOnline']
+    return this.tracker.isOnline
   }
 
   get isShutdown(): boolean {
-    return this.tracker['isShutdown']
+    return this.tracker.isShutdown
   }
 
   get pushGuard() {
@@ -257,6 +257,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   }
 
   get loadGuard() {
-    return this.tracker['loadGuard']
+    return this.tracker.loadGuard
   }
 }

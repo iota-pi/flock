@@ -1,4 +1,4 @@
-import { PullRetryTracker, PullStateTransition, PullOutcomeKind } from './PullRetryTracker'
+import { PullRetryTracker, PullStateTransition } from './PullRetryTracker'
 import { ItemId } from 'src/shared/schemas/items'
 
 const mockHasVaultKey = vi.fn().mockReturnValue(true)

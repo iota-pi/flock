@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { ManifestDeltaCalculator, SKEW_BUFFER_MS } from './ManifestDeltaCalculator'
 import type { ItemId } from '../../shared/schemas/items'
 

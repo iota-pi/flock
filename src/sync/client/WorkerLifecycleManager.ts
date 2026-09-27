@@ -316,6 +316,7 @@ export class WorkerLifecycleManager {
 
           // Keep initializationPromise alive so ensureReady() callers wait
           const retryPromise = new Promise<void>((resolve, reject) => {
+            let timer: ReturnType<typeof setTimeout> | null = null
             const onAbort = () => {
               if (timer !== null) {
                 clearTimeout(timer)
@@ -324,7 +325,7 @@ export class WorkerLifecycleManager {
               reject(new Error('Aborted'))
             }
 
-            let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+            timer = setTimeout(() => {
               timer = null
               signal.removeEventListener('abort', onAbort)
               if (signal.aborted) return reject(new Error('Aborted'))

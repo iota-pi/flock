@@ -445,8 +445,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         } else {
           // Document handle was not available or not ready within timeout.
           // Check whether document exists in storage to avoid clobbering local edits.
-          let localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-          let existsInStorage = options.knownToExist || !!localBinary
+          const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+          const existsInStorage = options.knownToExist || !!localBinary
 
           // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
           const { documentId } = this.resolveDocumentId(normalizedItemId)

@@ -227,12 +227,14 @@ export class ItemReencryptor {
     snapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     options?: { apiClient?: SyncApiClient; accountId?: string; signal?: AbortSignal }
   ): Promise<void>
+
   async uploadBatch(
     apiClient: SyncApiClient,
     accountId: string,
     snapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     signal?: AbortSignal
   ): Promise<void>
+
   async uploadBatch(
     arg1: SyncApiClient | VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     arg2?: string | { apiClient?: SyncApiClient; accountId?: string; signal?: AbortSignal },

@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { SYNC_TIMEOUTS, SYNC_BATCH_SIZES } from './syncConfig'
 
 describe('syncConfig', () => {

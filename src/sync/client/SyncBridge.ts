@@ -91,7 +91,8 @@ class SyncBridgeService {
   private reconnectSequence = 0
 
   private handleReconnect = async (): Promise<void> => {
-    const currentSeq = ++this.reconnectSequence
+    this.reconnectSequence += 1
+    const currentSeq = this.reconnectSequence
     const account = this.lifecycleManager.getCurrentAccountId()
     if (!account) return
 

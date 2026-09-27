@@ -155,7 +155,6 @@ export class SnapshotPusher {
   }
 
   private preparePushContext(): {
-    accountId: string
     dirtyItemIds: ItemId[]
     snapshotCursor: number
   } | null {
@@ -171,14 +170,12 @@ export class SnapshotPusher {
     const snapshotCursor = this.snapshotRequestCursor ?? (this.getLatestCursor ? this.getLatestCursor() : 0)
 
     return {
-      accountId: this.accountId,
       dirtyItemIds,
       snapshotCursor,
     }
   }
 
   private async sendSnapshotBatch(
-    accountId: string,
     batch: VaultSnapshotInput[],
     signal?: AbortSignal,
   ): Promise<{ success: boolean; persisted: number }> {
@@ -188,7 +185,7 @@ export class SnapshotPusher {
     try {
       const response = await this.apiClient.putSnapshots(
         {
-          account: accountId,
+          account: this.accountId,
           snapshots: batch,
         },
         signal ? { signal } : undefined,
@@ -249,7 +246,6 @@ export class SnapshotPusher {
     itemId: ItemId,
     snapshotSize: number,
     modified: number,
-    accountId: string,
   ): void {
     const isAlreadyOversized = this.oversizedItems.has(itemId)
     this.oversizedItems.add(itemId)
@@ -276,7 +272,6 @@ export class SnapshotPusher {
   private async prepareItemForPush(
     itemId: ItemId,
     snapshotCursor: number,
-    accountId: string,
   ): Promise<ItemPreparationResult> {
     const tick = this.tracker.getDirtyTick(itemId)
     if (tick === undefined) {
@@ -299,7 +294,7 @@ export class SnapshotPusher {
     const snapshotSize = this.builder.estimateSize(snapshot)
 
     if (snapshotSize > this.maxPayloadBytes) {
-      this.handleOversizedItem(itemId, snapshotSize, snapshot.modified, accountId)
+      this.handleOversizedItem(itemId, snapshotSize, snapshot.modified)
       return { type: 'oversized' }
     }
 
@@ -314,7 +309,6 @@ export class SnapshotPusher {
 
   private finalizeSuccessfulBatch(
     batch: PreparedSnapshotItem[],
-    accountId: string,
   ): void {
     for (const item of batch) {
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick)
@@ -329,32 +323,29 @@ export class SnapshotPusher {
 
   private async flushBatch(
     batch: PreparedSnapshotItem[],
-    accountId: string,
     signal?: AbortSignal,
   ): Promise<{ success: boolean; persisted: number }> {
     if (batch.length === 0) {
       return { success: true, persisted: 0 }
     }
     const result = await this.sendSnapshotBatch(
-      accountId,
       batch.map(b => b.snapshot),
       signal,
     )
     if (result.success) {
-      this.finalizeSuccessfulBatch(batch, accountId)
+      this.finalizeSuccessfulBatch(batch)
     }
     return result
   }
 
   private async processSnapshotPush(
     context: {
-      accountId: string
       dirtyItemIds: ItemId[]
       snapshotCursor: number
     },
     signal?: AbortSignal,
   ): Promise<{ persisted: number; total: number; success: boolean }> {
-    const { accountId, dirtyItemIds, snapshotCursor } = context
+    const { dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
     let success = true
@@ -368,7 +359,7 @@ export class SnapshotPusher {
 
     for (const itemId of dirtyItemIds) {
       checkAlive(signal, () => this.tracker.isOperational)
-      const prepared = await this.prepareItemForPush(itemId, snapshotCursor, accountId)
+      const prepared = await this.prepareItemForPush(itemId, snapshotCursor)
       if (prepared.type === 'skipped') {
         continue
       }
@@ -384,7 +375,7 @@ export class SnapshotPusher {
         const batch = accumulator.drain()
         total += batch.length
         checkAlive(signal, () => this.tracker.isOperational)
-        const result = await this.flushBatch(batch, accountId, signal)
+        const result = await this.flushBatch(batch, signal)
         persisted += result.persisted
         if (!result.success) {
           success = false
@@ -401,7 +392,7 @@ export class SnapshotPusher {
       const batch = accumulator.drain()
       total += batch.length
       checkAlive(signal, () => this.tracker.isOperational)
-      const result = await this.flushBatch(batch, accountId, signal)
+      const result = await this.flushBatch(batch, signal)
       persisted += result.persisted
       if (!result.success) {
         success = false
