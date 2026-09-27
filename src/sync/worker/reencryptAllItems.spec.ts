@@ -371,7 +371,7 @@ describe('reencryptAllItems', () => {
     })
 
     await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow(
-      /Re-encryption aborted: authentication session expired/
+      /session expired.*UNAUTHORIZED/i
     )
 
     // CRITICAL: Items must NOT be quarantined into manualRecoveryStore

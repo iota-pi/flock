@@ -4,7 +4,7 @@ import { chunk } from 'lodash-es'
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { buildSnapshot as buildSnapshotFromBuilder, type BuildSnapshotResult } from './snapshotBuilder'
 import { RecoveryManager } from './RecoveryManager'
-import { SyncApiClient } from './SyncApiClient'
+import { SyncApiClient, toAuthExpiredError } from './SyncApiClient'
 import { classifySyncError } from './utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { AbortError, isAbortError } from '../utils/abort'
@@ -20,17 +20,6 @@ import { SYNC_BATCH_SIZES } from '../syncConfig'
 const MAX_BATCH_RETRIES = 3
 const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
 const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
-
-function toAuthExpiredError(err: unknown): Error {
-  const message = err instanceof Error
-    ? err.message
-    : typeof (err as { message?: unknown })?.message === 'string'
-      ? (err as { message: string }).message
-      : String(err)
-  return new Error(`Re-encryption aborted: authentication session expired (${message})`, {
-    cause: err,
-  })
-}
 
 async function quarantineItem(
   recoveryManager: RecoveryManager,

@@ -55,6 +55,9 @@ export class AuthExpiredError extends Error {
 }
 
 export function toAuthExpiredError(err: unknown): AuthExpiredError {
+  if (err instanceof AuthExpiredError) {
+    return err
+  }
   const message = err instanceof Error
     ? err.message
     : typeof (err as { message?: unknown })?.message === 'string'
