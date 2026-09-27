@@ -68,6 +68,7 @@ export interface ProcessChunkContext {
   repo: Repo
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
+  signal?: AbortSignal
   batchRetryDelays?: readonly number[]
   deps?: ReencryptDeps
   onProgress?: (done: number, total: number) => void
@@ -138,11 +139,7 @@ export class ItemReencryptor {
     return delayMs
   }
 
-  handleBatchUploadFailure(
-    lastError: unknown,
-    deps: ReencryptDeps,
-    onProgress?: (done: number, total: number) => void
-  ): string {
+  handleBatchUploadFailure(lastError: unknown): string {
     const classified = classifySyncError(lastError)
     if (classified.isAuth) {
       throw toAuthExpiredError(lastError)
@@ -152,9 +149,8 @@ export class ItemReencryptor {
       const errMsg = classified.message || (lastError instanceof Error ? lastError.message : String(lastError))
       const errorType = classified.isServerError ? 'server error' : 'network error'
       console.warn(
-        `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation and scheduling retry.`
+        `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation.`
       )
-      this.scheduleRetry(deps, onProgress)
       throw new Error(
         `Re-encryption aborted: ${errorType} (${errMsg})`,
         { cause: lastError }
@@ -255,7 +251,7 @@ export class ItemReencryptor {
       const opts = typeof arg2 === 'object' ? arg2 : undefined
       apiClient = opts?.apiClient ?? this.activeContext?.apiClient
       accountId = opts?.accountId ?? this.activeContext?.accountId
-      signal = opts?.signal ?? this.activeContext?.deps?.signal
+      signal = opts?.signal ?? this.activeContext?.signal ?? this.activeContext?.deps?.signal
     } else {
       apiClient = arg1 as SyncApiClient
       accountId = arg2 as string
@@ -415,7 +411,7 @@ export class ItemReencryptor {
     if (!ctx) {
       throw new Error('SyncWorker not initialized')
     }
-    signal = signal ?? ctx.deps?.signal
+    signal = signal ?? ctx.signal ?? ctx.deps?.signal
 
     if (signal?.aborted) {
       throw signal.reason instanceof Error
@@ -426,9 +422,6 @@ export class ItemReencryptor {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       const errMsg = 'Network is offline'
       console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
-      if (ctx.deps) {
-        this.scheduleRetry(ctx.deps, ctx.onProgress)
-      }
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
     }
 
@@ -509,11 +502,7 @@ export class ItemReencryptor {
             succeeded.push(item.itemId)
           }
         } else {
-          const errMsg = this.handleBatchUploadFailure(
-            lastError,
-            ctx.deps ?? { accountId: ctx.accountId, repo: ctx.repo, indexManager: null as any },
-            ctx.onProgress
-          )
+          const errMsg = this.handleBatchUploadFailure(lastError)
           console.error(`[reencryptAllItems] ${errMsg}`)
           for (const item of batch) {
             failed.push({ itemId: item.itemId, error: errMsg })
@@ -576,6 +565,7 @@ export class ItemReencryptor {
       repo,
       apiClient,
       recoveryManager,
+      signal: deps.signal,
       batchRetryDelays,
       deps,
       onProgress,
@@ -595,6 +585,14 @@ export class ItemReencryptor {
 
       this.retryStrategy.reset()
       return { succeeded, failed }
+    } catch (err) {
+      if (!isAbortError(err)) {
+        const classified = classifySyncError(err)
+        if (classified.isNetwork || classified.isServerError) {
+          this.scheduleRetry(deps, onProgress)
+        }
+      }
+      throw err
     } finally {
       this.activeContext = undefined
       this.activeProgressCallback = undefined

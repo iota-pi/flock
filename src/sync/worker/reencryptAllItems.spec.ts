@@ -802,6 +802,47 @@ describe('ItemReencryptor class', () => {
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(onProgress).toHaveBeenCalledWith(1, 1)
     })
+
+    it('processChunk throws transient errors without requiring deps', async () => {
+      const reencryptor = new ItemReencryptor()
+      const mockHandle = {
+        isReady: vi.fn().mockReturnValue(true),
+        doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
+      }
+      const mockRepo = {
+        find: vi.fn().mockResolvedValue(mockHandle),
+      }
+      const mockApiClient = {
+        putSnapshots: vi.fn().mockRejectedValue(new Error('The network connection was lost.')),
+        syncLatestToken: vi.fn().mockResolvedValue(undefined),
+      }
+      const mockRecoveryManager = {
+        quarantine: vi.fn().mockResolvedValue(undefined),
+      }
+
+      const context = {
+        accountId: 'test-acc',
+        repo: mockRepo as any,
+        apiClient: mockApiClient as any,
+        recoveryManager: mockRecoveryManager as any,
+      }
+
+      await expect(reencryptor.processChunk(['item-1' as any], undefined, context)).rejects.toThrow(
+        /Re-encryption aborted: network error/
+      )
+    })
+
+    it('handleBatchUploadFailure classifies errors without needing deps', () => {
+      const reencryptor = new ItemReencryptor()
+      // Network error throws
+      expect(() =>
+        reencryptor.handleBatchUploadFailure(new Error('network error'))
+      ).toThrow(/Re-encryption aborted: network error/)
+
+      // Permanent error returns string
+      const msg = reencryptor.handleBatchUploadFailure(new Error('400 Bad Request'))
+      expect(msg).toContain('Failed to upload snapshots for batch')
+    })
   })
 })
 
