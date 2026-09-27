@@ -1,5 +1,5 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { chunk } from 'lodash'
+import { chunk } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { buildSnapshot as buildSnapshotFromBuilder, type BuildSnapshotResult } from './snapshotBuilder'
@@ -18,11 +18,15 @@ import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 const MAX_BATCH_RETRIES = 3
-export const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
-export const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
+const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
+const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
 
 function toAuthExpiredError(err: unknown): Error {
-  const message = err instanceof Error ? err.message : String(err)
+  const message = err instanceof Error
+    ? err.message
+    : typeof (err as { message?: unknown })?.message === 'string'
+      ? (err as { message: string }).message
+      : String(err)
   return new Error(`Re-encryption aborted: authentication session expired (${message})`, {
     cause: err,
   })
@@ -596,18 +600,4 @@ export class ItemReencryptor {
       this.activeProgressCallback = undefined
     }
   }
-}
-
-export const defaultItemReencryptor = new ItemReencryptor()
-
-export function cancelScheduledReencryption(): void {
-  defaultItemReencryptor.cancelScheduled()
-}
-
-export async function reencryptAllItems(
-  deps: ReencryptDeps,
-  onProgress?: (done: number, total: number) => void
-): Promise<ReencryptResult> {
-  const coordinator = deps.reencryptor ?? defaultItemReencryptor
-  return coordinator.reencryptAllItems(deps, onProgress)
 }

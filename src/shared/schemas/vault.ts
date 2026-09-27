@@ -13,7 +13,7 @@ export const VaultKeySchema = z.object({
   item: z.string(),
 })
 
-export const VaultMetaDataSchema = z.object({
+const VaultMetaDataSchema = z.object({
   type: z.enum(['person', 'group', 'topic']),
   iv: z.string(),
   modified: z.number(),
@@ -50,7 +50,7 @@ export const VaultAccountWithAuthSchema = VaultAccountSchema.extend({
   session: z.string(),
 })
 
-export const VaultItemSnapshotSchema = z.object({
+const VaultItemSnapshotSchema = z.object({
   iv: z.string(),
   cipher: z.union([z.string(), z.instanceof(Uint8Array), z.any()]).optional(),
   kver: z.string().optional(),

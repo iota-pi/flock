@@ -18,12 +18,12 @@ import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedSet } from '../utils/boundedCollections'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 
-const VAULT_PEER_ID = 'vault' as PeerId
-export const MAX_SEEDED_DOCUMENTS = 5000
 export const MAX_OUTBOUND_QUEUE_SIZE = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
-export const MAX_RENEGOTIATION_ATTEMPTS = 3
-export const RENEGOTIATION_WINDOW_MS = 5000
-export const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
+const MAX_SEEDED_DOCUMENTS = 5000
+const MAX_RENEGOTIATION_ATTEMPTS = 3
+const RENEGOTIATION_WINDOW_MS = 5000
+const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
+const VAULT_PEER_ID = 'vault' as PeerId
 
 interface RenegotiationCircuitState {
   timestamps: number[]

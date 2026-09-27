@@ -1,11 +1,11 @@
 import { useAppStore } from '../../state/store'
 
-export const HEARTBEAT_INTERVAL_MS = 15000
-export const HEARTBEAT_TIMEOUT_MS = 30000
-export const MAX_CONSECUTIVE_CRASHES = 3
+const HEARTBEAT_INTERVAL_MS = 15000
+const HEARTBEAT_TIMEOUT_MS = 30000
+const CRASH_RESET_WINDOW_MS = 60000
 export const MAX_CONSECUTIVE_TIMEOUTS = 5
-export const CRASH_RESET_WINDOW_MS = 60000
-export const DEFAULT_MAX_MISSED_PINGS = 2
+export const MAX_CONSECUTIVE_CRASHES = 3
+const DEFAULT_MAX_MISSED_PINGS = 2
 
 export interface SendPingOptions {
   signal?: AbortSignal

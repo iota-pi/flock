@@ -34,7 +34,7 @@ export interface PersistedSyncCursors {
   retries?: [ItemId, number][]
 }
 
-export type PullOutcomeKind =
+type PullOutcomeKind =
   | 'key-failure'
   | 'partial-success'
   | 'parse-failure-retry'

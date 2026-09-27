@@ -26,15 +26,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@automerge/automerge-repo-storage-indexeddb@npm:^2.5.5":
-  version: 2.5.6
-  resolution: "@automerge/automerge-repo-storage-indexeddb@npm:2.5.6"
-  dependencies:
-    "@automerge/automerge-repo": "npm:2.5.6"
-  checksum: 10c0/90030b7c47da2bd656977a80f2a2c25e8b63f6697e4396670fd1b603d77a455485a6ca08baf1cb45b48a763caa56023e2a663bff487f0e6bd0cc3334c65aa213
-  languageName: node
-  linkType: hard
-
 "@automerge/automerge-repo@npm:2.5.6":
   version: 2.5.6
   resolution: "@automerge/automerge-repo@npm:2.5.6"
@@ -7039,7 +7030,6 @@ __metadata:
     "@automerge/automerge": "npm:^3.2.6"
     "@automerge/automerge-repo": "npm:2.6.0-alpha.2"
     "@automerge/automerge-repo-network-broadcastchannel": "npm:^2.5.5"
-    "@automerge/automerge-repo-storage-indexeddb": "npm:^2.5.5"
     "@aws-sdk/client-dynamodb": "npm:3.1121.0"
     "@aws-sdk/client-sqs": "npm:3.1121.0"
     "@aws-sdk/lib-dynamodb": "npm:3.1121.0"

@@ -37,14 +37,6 @@ export function resetQuotaExceededStatus(): void {
   lastReportedTime = 0
 }
 
-export function checkQuotaExceeded(): boolean {
-  if (isQuotaExceeded) {
-    reportQuotaExceeded()
-    return true
-  }
-  return false
-}
-
 export type QuotaRecoveryHandler = () => Promise<boolean | number | void>
 
 let quotaRecoveryHandler: QuotaRecoveryHandler | null = null

@@ -35,15 +35,16 @@ export const SYNCABLE_METADATA_KEYS = [
   'autoSnoozeWhenCompleted',
   'completedMigrations',
   'updatedAt',
-] as const
+] as const satisfies readonly (keyof z.infer<typeof accountMetadataSchema>)[]
 
 export type SyncableMetadataKey = (typeof SYNCABLE_METADATA_KEYS)[number]
+export type SyncableMetadata = Partial<Record<SyncableMetadataKey, unknown>>
 
 export function extractSyncableMetadata(
   metadata: Record<string, unknown> | undefined,
-): Record<string, unknown> {
+): SyncableMetadata {
   if (!metadata || typeof metadata !== 'object') return {}
-  const result: Record<string, unknown> = {}
+  const result: SyncableMetadata = {}
   for (const key of SYNCABLE_METADATA_KEYS) {
     if (metadata[key] !== undefined) {
       result[key] = metadata[key]

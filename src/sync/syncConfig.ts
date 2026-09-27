@@ -34,6 +34,3 @@ export const SYNC_BATCH_SIZES = {
   /** Maximum number of pending item updates to buffer before flushing to store */
   itemUpdateBatchMax: 50,
 } as const
-
-export type SyncTimeouts = typeof SYNC_TIMEOUTS
-export type SyncBatchSizes = typeof SYNC_BATCH_SIZES

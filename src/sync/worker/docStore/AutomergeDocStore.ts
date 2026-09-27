@@ -41,7 +41,7 @@ export type AutomergeIndexDocument = {
   lastManifestSyncTime?: number
 }
 
-export function normalizeItemId(raw: unknown): ItemId | null {
+function normalizeItemId(raw: unknown): ItemId | null {
   const result = ItemIdSchema.safeParse(raw)
   return result.success ? result.data : null
 }

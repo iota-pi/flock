@@ -12,7 +12,7 @@ import type { StorageRecoveryService } from './StorageRecoveryService'
 import type { SyncApiClient } from './SyncApiClient'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 
-export interface SyncBrokerControl {
+interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
   setSendEnabled(sendEnabled: boolean): void
 }

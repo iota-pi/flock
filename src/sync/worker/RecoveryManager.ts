@@ -12,7 +12,6 @@ import { normalizeSyncError } from 'src/shared/syncErrors'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 
-export const RECOVERY_RETRY_COOLDOWN_MS = SYNC_TIMEOUTS.recoveryCooldown
 
 export interface RecoveryManagerDeps {
   accountId?: string | null
@@ -144,7 +143,7 @@ export class RecoveryManager implements LifecycleAware {
       await upsertManualRecoveryEntry(accountId, { itemId, reason })
       await this.pushRecoveryItems(accountId)
 
-      const cooldownMs = options?.cooldownMs ?? RECOVERY_RETRY_COOLDOWN_MS
+      const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
       this.setRecoveryCooldown(itemId, Date.now() + cooldownMs)
     } catch (err) {
       console.error(`[RecoveryManager] Failed to quarantine item ${itemId}:`, err)

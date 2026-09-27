@@ -2,7 +2,7 @@ import { ItemId } from "src/shared/schemas/items"
 
 export type SyncPingListener = (itemIds: ItemId[]) => void
 
-export const SYNC_PING_CHANNEL_PREFIX = 'flock-sync-ping-bus-'
+const SYNC_PING_CHANNEL_PREFIX = 'flock-sync-ping-bus-'
 
 export function getSyncPingChannelName(accountId: string): string {
   return `${SYNC_PING_CHANNEL_PREFIX}${accountId}`

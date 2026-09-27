@@ -55,7 +55,11 @@ export class AuthExpiredError extends Error {
 }
 
 export function toAuthExpiredError(err: unknown): AuthExpiredError {
-  const message = err instanceof Error ? err.message : String(err)
+  const message = err instanceof Error
+    ? err.message
+    : typeof (err as { message?: unknown })?.message === 'string'
+      ? (err as { message: string }).message
+      : String(err)
   return new AuthExpiredError(
     `Authentication session expired (${message})`,
     { cause: err }

@@ -83,12 +83,6 @@ export class SingleFlightGuard<T = void> {
 }
 
 /**
- * Alias for SingleFlightGuard.
- */
-export const TaskDeduplicator = SingleFlightGuard
-export type TaskDeduplicator<T = void> = SingleFlightGuard<T>
-
-/**
  * KeyedSingleFlightGuard guarantees that only one instance of an asynchronous
  * operation for a given key is in flight at any given time. Concurrent invocations
  * with the same key coalesce onto the single running promise.

@@ -45,5 +45,3 @@ export function useDebouncedSyncIndicator(
 
   return debouncedState
 }
-
-export default useDebouncedSyncIndicator

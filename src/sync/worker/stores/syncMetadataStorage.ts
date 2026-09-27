@@ -41,7 +41,7 @@ export function getSyncMetadataDBName(accountId: string): string {
  * Checks if a legacy database exists in IndexedDB before attempting to open it,
  * preventing accidental creation of legacy databases.
  */
-export async function hasLegacyDatabase(dbName: string): Promise<boolean> {
+async function hasLegacyDatabase(dbName: string): Promise<boolean> {
   if (typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function') {
     try {
       const dbs = await indexedDB.databases()

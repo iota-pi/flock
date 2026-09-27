@@ -1,5 +1,4 @@
 export const BIOMETRIC_STORAGE_KEY = 'FlockBiometricData'
-export const BIOMETRICS_CHANGED_EVENT = 'flock-biometrics-changed'
 
 export type BiometricStoredData = {
   account?: string
@@ -21,9 +20,6 @@ function notifyBiometricsChanged(): void {
       console.error('[biometricStore] listener error', e)
     }
   })
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(BIOMETRICS_CHANGED_EVENT))
-  }
 }
 
 export function subscribeBiometrics(callback: () => void): () => void {

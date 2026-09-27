@@ -26,8 +26,8 @@ import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils
 import { AsyncQueue } from '../utils/AsyncQueue'
 import { BoundedQueue } from '../utils/boundedCollections'
 
-export const DEFAULT_MAX_CRYPTO_RETRIES = 3
-export const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
+const DEFAULT_MAX_CRYPTO_RETRIES = 3
+const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
 
 export interface EncryptedBroadcastChannelOptions
   extends Partial<BroadcastChannelNetworkAdapterOptions>,
