@@ -41,17 +41,7 @@ import {
   isConditionalCheckFailure,
   isResourceInUseError,
   isTransientDynamoError,
-  TRANSIENT_DYNAMO_ERROR_NAMES,
-  TRANSIENT_HTTP_STATUS_CODES,
 } from './dynamoErrors'
-
-export {
-  isConditionalCheckFailure,
-  isResourceInUseError,
-  isTransientDynamoError,
-  TRANSIENT_DYNAMO_ERROR_NAMES,
-  TRANSIENT_HTTP_STATUS_CODES,
-}
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'

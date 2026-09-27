@@ -10,7 +10,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import type { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
-import { checkAlive, isAbortError } from './utils/abort'
+import { checkAlive, isAbortError } from '../utils/abort'
 import type { ManifestEntry } from './ManifestDeltaCalculator'
 
 const BATCH_SIZE = 50

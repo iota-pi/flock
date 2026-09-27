@@ -7,7 +7,7 @@ import {
   isServerError,
   isTransientVaultError,
 } from './errorClassifier'
-import { AbortError } from './abort'
+import { AbortError } from '../../utils/abort'
 import { MissingKeyError } from './decryptWithKeyResolution'
 import { VaultNotInitializedError } from 'src/api/vault'
 

@@ -10,8 +10,6 @@ import { SnapshotBuilder } from './snapshotBuilder'
 import { SnapshotPusher } from './SnapshotPusher'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 
-export { SnapshotTracker, SnapshotBuilder, SnapshotPusher }
-
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
   debounceDelayMs?: number

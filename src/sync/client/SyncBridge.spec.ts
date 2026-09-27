@@ -1,4 +1,5 @@
-import { SyncBridge, clearAutomergeIndexedDb, clearAccountLocalData } from './SyncBridge'
+import { SyncBridge } from './SyncBridge'
+import { clearAutomergeIndexedDb, clearAccountLocalData } from './localDataCleanup'
 import * as Comlink from 'comlink'
 import { useAppStore } from '../../state/store'
 import { VAULT_STORAGE_KEY } from '../../api/vault/util'

@@ -1,8 +1,6 @@
 import {
   SizeAwareBatchAccumulator,
   type SizeAwareBatchAccumulatorOptions,
-  DEFAULT_MAX_BATCH_COUNT,
-  DEFAULT_MAX_PAYLOAD_LIMIT,
 } from '../utils/SizeAwareBatchAccumulator'
 import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 
@@ -14,9 +12,6 @@ export interface PreparedSnapshotItem {
 
 export type SnapshotBatchAccumulatorOptions =
   SizeAwareBatchAccumulatorOptions<PreparedSnapshotItem>
-
-export const DEFAULT_MAX_SNAPSHOT_BATCH_COUNT = DEFAULT_MAX_BATCH_COUNT
-export const DEFAULT_MAX_SNAPSHOT_PAYLOAD_LIMIT = DEFAULT_MAX_PAYLOAD_LIMIT
 
 /**
  * Direct ciphertext length estimation.

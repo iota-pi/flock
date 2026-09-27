@@ -1,4 +1,5 @@
-import { SyncWriteAheadLog, packBatchedMessages, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
+import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from 'src/shared/schemas/items'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../../utils/storageManager'
 

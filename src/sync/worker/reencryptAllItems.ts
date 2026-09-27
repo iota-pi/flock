@@ -18,7 +18,6 @@ import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 const MAX_BATCH_RETRIES = 3
-export const REENCRYPT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
 export const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
 export const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
 

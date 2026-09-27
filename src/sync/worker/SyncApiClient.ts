@@ -7,14 +7,13 @@ import {
   pollSyncBatchWithToken,
   type PollSyncBatchResponse,
 } from '../../api/vault/SyncWorkerClient'
-import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
+import { fetchManifest, fetchSnapshotsByIds, type ManifestEntry } from '../../api/vault/ItemClient'
 import { getTrpcClient } from 'src/api/trpcClient'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { AccountMetadata } from '../../state/metadata'
 import type { SyncPollBatchSchema } from 'src/shared/schemas/trpc'
-import type { ManifestEntry } from './ManifestSyncManager'
 
 function safeSetApiAuthToken(token: string) {
   try {

@@ -13,7 +13,7 @@ import { packBatchedMessages } from './utils/binaryFraming'
 import { classifySyncError } from './utils/errorClassifier'
 import type { PushResultItem, PollSyncBatchResponse } from '../../api/vault/SyncWorkerClient'
 import { SyncApiClient } from './SyncApiClient'
-import { checkAlive } from './utils/abort'
+import { checkAlive } from '../utils/abort'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'

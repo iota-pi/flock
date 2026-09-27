@@ -2,7 +2,7 @@ import { debounce } from 'lodash-es'
 import { ItemId } from 'src/shared/schemas/items'
 import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { checkAlive, isAbortError } from './utils/abort'
+import { checkAlive, isAbortError } from '../utils/abort'
 import { RecoveryManager } from './RecoveryManager'
 
 export interface SnapshotTrackerOptions {

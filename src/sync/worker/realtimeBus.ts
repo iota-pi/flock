@@ -130,5 +130,3 @@ export function teardownRealtimeBus(accountId?: string): void {
     busStateByAccount.clear()
   }
 }
-
-export const closeRealtimeBus = teardownRealtimeBus

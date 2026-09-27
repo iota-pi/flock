@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import type { ItemId } from 'src/shared/schemas/items'
 import { runStorageOperation } from '../../utils/storageManager'
-import { packBatchedMessages, type BatchableMessage } from './utils/binaryFraming'
+import { packBatchedMessages } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { WorkerInternalEventHub } from './SyncEventHub'
@@ -10,8 +10,6 @@ import {
   clearAccountStoreInstancesCacheForTesting,
 } from '../shared/createAccountStore'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
-
-export { packBatchedMessages, type BatchableMessage, WalEntryQuery, type WalEntryDescriptor }
 
 export interface WalEntry extends WalEntryDescriptor {
   id: string

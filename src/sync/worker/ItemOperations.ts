@@ -7,10 +7,9 @@ import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { SyncApiClient } from './SyncApiClient'
-import { extractSyncableMetadata, hasSyncableChanges } from './utils/metadataSync'
-import { RecoveryManager, RECOVERY_RETRY_COOLDOWN_MS } from './RecoveryManager'
-
-export { RECOVERY_RETRY_COOLDOWN_MS }
+import { extractSyncableMetadata } from '../../shared/schemas/metadata'
+import { hasSyncableChanges } from './utils/metadataSync'
+import { RecoveryManager } from './RecoveryManager'
 
 export interface ItemOperationsDeps {
   accountId: string

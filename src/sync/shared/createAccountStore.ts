@@ -69,16 +69,12 @@ export function createAccountStore(
   return instance
 }
 
-export const getAccountStore = createAccountStore
-
 /**
  * Clears the in-memory cache of LocalForage instances.
  */
 export function clearAccountStoreInstancesCacheForTesting(): void {
   storageInstances.clear()
 }
-
-export const clearInstancesCacheForTesting = clearAccountStoreInstancesCacheForTesting
 
 /**
  * Clears the underlying storage data for a specific account store.

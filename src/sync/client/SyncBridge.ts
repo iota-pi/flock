@@ -22,8 +22,6 @@ import { attemptSessionRecovery } from 'src/api/vault/sessionRecovery'
 import { resumePendingReencryption } from 'src/api/vault/reencrypt'
 import { getOnlineState } from 'src/utils/onlineStatus'
 
-export { clearAutomergeIndexedDb, clearAccountLocalData } from './localDataCleanup'
-
 class SyncBridgeService {
   private eventProcessor: SyncEventProcessor
   private domListeners: SyncDOMListeners

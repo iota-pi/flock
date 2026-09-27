@@ -1,5 +1,6 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { buildSnapshot, isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS, SnapshotBuilder } from './snapshotBuilder'
+import { buildSnapshot, SnapshotBuilder } from './snapshotBuilder'
+import { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/vault'
 
 const mockEncryptBytes = vi.fn()

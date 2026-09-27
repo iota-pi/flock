@@ -1,4 +1,4 @@
-import { isAbortError } from './abort'
+import { isAbortError } from '../../utils/abort'
 import { MissingKeyError } from './decryptWithKeyResolution'
 import { parseError, type ParsedError } from './errorParser'
 

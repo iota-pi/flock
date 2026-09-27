@@ -21,10 +21,8 @@ import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOC
 import type { ItemId } from 'src/shared/schemas/items'
 import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
-import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
+import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
-
-export { QuotaExceededRetryError }
 
 /**
  * Slim configuration for SyncWorkerContext.

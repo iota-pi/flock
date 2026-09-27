@@ -7,9 +7,10 @@ import { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { RecoveryManager } from './RecoveryManager'
-import { reconcileAccountMetadata, extractSyncableMetadata } from './utils/metadataSync'
+import { reconcileAccountMetadata } from './utils/metadataSync'
+import { extractSyncableMetadata } from '../../shared/schemas/metadata'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { checkAlive, isAbortError } from './utils/abort'
+import { checkAlive, isAbortError } from '../utils/abort'
 import { isAuthError } from './utils/errorClassifier'
 import {
   ManifestDeltaCalculator,
@@ -23,9 +24,6 @@ import {
   type FetchAndHydrateParams,
 } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
-
-export type { ManifestEntry, SyncDeltas, CalculateSyncDeltasParams }
-export type { HydrateItemResult, FetchAndHydrateParams }
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000

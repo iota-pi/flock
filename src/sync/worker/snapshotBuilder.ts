@@ -7,15 +7,8 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { encryptBytes } from '../../api/vault'
 import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'
-import {
-  classifySyncError,
-  isTransientVaultError,
-  TRANSIENT_VAULT_ERROR_SUBSTRINGS,
-} from './utils/errorClassifier'
-
+import { classifySyncError } from './utils/errorClassifier'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
-
-export { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS, estimateSnapshotSize }
 
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
