@@ -53,8 +53,8 @@ describe('notifier worker', () => {
         title: 'Prayer reminder',
         body: 'Time to pray for your flock.',
         url: '/',
-        icon: '/flock.png',
-        badge: '/flock.png',
+        icon: '/android-chrome-192x192.png',
+        badge: '/badge-96x96.png',
       },
     )
   })
