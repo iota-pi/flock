@@ -30,6 +30,28 @@ export interface AuthData extends BaseData {
 }
 
 
+export type UpdateAccountDataParams = Partial<AuthData> & {
+  metadata?: Record<string, unknown>,
+  session?: string,
+  sessions?: VaultSessionRecord[],
+  pushSubscriptions?: WebPushSubscription[],
+  reminderEnabled?: boolean,
+  reminderTime?: string,
+  reminderTimezone?: string,
+  snoozeRemindersUntil?: string | null,
+  lastSnapshotCursor?: number,
+  lastSnapshotAt?: number,
+  lastSnapshotRequestedAt?: number,
+  keyring?: string,
+  authToken?: string,
+  salt?: string,
+  iterations?: number,
+  saltVersion?: number,
+  keyringVersion?: number,
+  expectedKeyringVersion?: number,
+}
+
+
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
@@ -50,26 +72,7 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Update account-level data. Accepts partial auth data so callers can update
   // either `metadata` or `session` independently.
-  abstract updateAccountData(data: Partial<AuthData> & {
-    metadata?: Record<string, unknown>,
-    session?: string,
-    sessions?: VaultSessionRecord[],
-    pushSubscriptions?: WebPushSubscription[],
-    reminderEnabled?: boolean,
-    reminderTime?: string,
-    reminderTimezone?: string,
-    snoozeRemindersUntil?: string | null,
-    lastSnapshotCursor?: number,
-    lastSnapshotAt?: number,
-    lastSnapshotRequestedAt?: number,
-    keyring?: string,
-    authToken?: string,
-    salt?: string,
-    iterations?: number,
-    saltVersion?: number,
-    keyringVersion?: number,
-    expectedKeyringVersion?: number,
-  }): Promise<void>
+  abstract updateAccountData(data: UpdateAccountDataParams): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
   abstract extendSession(data: AuthData): Promise<void>

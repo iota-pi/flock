@@ -28,12 +28,12 @@ import BaseDriver, {
   AuthData,
   BaseData,
   StoredSyncMessage,
+  UpdateAccountDataParams,
   VaultAccount,
   VaultAccountWithAuth,
   VaultItem,
   VaultSessionRecord,
 } from './base'
-import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
 import { VersionConflictError } from '../../shared/syncErrors'
 import type { ItemId } from 'src/shared/schemas/items'
@@ -172,6 +172,23 @@ function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSession
   return Array.from(deduped.values())
     .sort((left, right) => left.expiry - right.expiry)
     .slice(-MAX_ACTIVE_SESSIONS)
+}
+
+export function buildDynamoUpdate(fields: Record<string, unknown>): {
+  expression: string
+  values: Record<string, unknown>
+} {
+  const entries = Object.entries(fields).filter(([, v]) => v !== undefined)
+  if (entries.length === 0) {
+    return {
+      expression: '',
+      values: {},
+    }
+  }
+  return {
+    expression: `SET ${entries.map(([k]) => `${k} = :${k}`).join(', ')}`,
+    values: Object.fromEntries(entries.map(([k, v]) => [`:${k}`, v])),
+  }
 }
 
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
@@ -397,139 +414,36 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error('Could not generate new account ID')
   }
 
-  async updateAccountData(
-    {
-      account,
-      metadata,
-      pushSubscriptions,
-      reminderEnabled,
-      reminderTime,
-      sessions,
-      reminderTimezone,
-      snoozeRemindersUntil,
-      lastSnapshotCursor,
-      lastSnapshotAt,
-      lastSnapshotRequestedAt,
-      keyring,
-      authToken,
-      salt,
-      iterations,
-      saltVersion,
-      keyringVersion,
-      expectedKeyringVersion,
-    }: Partial<AuthData> & {
-      metadata?: Record<string, unknown>,
-      pushSubscriptions?: WebPushSubscription[],
-      reminderEnabled?: boolean,
-      reminderTime?: string,
-      sessions?: VaultSessionRecord[],
-      reminderTimezone?: string,
-      snoozeRemindersUntil?: string | null,
-      lastSnapshotCursor?: number,
-      lastSnapshotAt?: number,
-      lastSnapshotRequestedAt?: number,
-      keyring?: string,
-      authToken?: string,
-      salt?: string,
-      iterations?: number,
-      saltVersion?: number,
-      keyringVersion?: number,
-      expectedKeyringVersion?: number,
-    },
-  ): Promise<void> {
-    const updateExpressions: string[] = []
-    const expressionAttributeValues: Record<string, unknown> = {}
-    const expressionAttributeNames: Record<string, string> = {}
-    const conditionExpressions: string[] = []
-
-    if (sessions) {
-      updateExpressions.push('sessions = :sessions')
-      expressionAttributeValues[':sessions'] = normalizeSessionRecords(sessions)
+  async updateAccountData({
+    account,
+    expectedKeyringVersion,
+    sessions,
+    session,
+    ...rest
+  }: UpdateAccountDataParams): Promise<void> {
+    const updateFields: Record<string, unknown> = {
+      ...rest,
+      ...(sessions !== undefined ? { sessions: normalizeSessionRecords(sessions) } : {}),
+    }
+    if (updateFields.metadata === null) {
+      delete updateFields.metadata
     }
 
-    if (metadata !== undefined && metadata !== null) {
-      updateExpressions.push('metadata=:metadata')
-      expressionAttributeValues[':metadata'] = metadata
-    }
-
-    if (pushSubscriptions) {
-      updateExpressions.push('pushSubscriptions = :pushSubscriptions')
-      expressionAttributeValues[':pushSubscriptions'] = pushSubscriptions
-    }
-    if (typeof reminderEnabled === 'boolean') {
-      updateExpressions.push('reminderEnabled = :reminderEnabled')
-      expressionAttributeValues[':reminderEnabled'] = reminderEnabled
-    }
-    if (typeof reminderTime === 'string') {
-      updateExpressions.push('reminderTime = :reminderTime')
-      expressionAttributeValues[':reminderTime'] = reminderTime
-    }
-    if (typeof reminderTimezone === 'string') {
-      updateExpressions.push('reminderTimezone = :reminderTimezone')
-      expressionAttributeValues[':reminderTimezone'] = reminderTimezone
-    }
-    if (typeof snoozeRemindersUntil === 'string' || snoozeRemindersUntil === null) {
-      updateExpressions.push('snoozeRemindersUntil = :snoozeRemindersUntil')
-      expressionAttributeValues[':snoozeRemindersUntil'] = snoozeRemindersUntil
-    }
-    if (typeof lastSnapshotCursor === 'number') {
-      updateExpressions.push('lastSnapshotCursor = :lastSnapshotCursor')
-      expressionAttributeValues[':lastSnapshotCursor'] = lastSnapshotCursor
-    }
-    if (typeof lastSnapshotAt === 'number') {
-      updateExpressions.push('lastSnapshotAt = :lastSnapshotAt')
-      expressionAttributeValues[':lastSnapshotAt'] = lastSnapshotAt
-    }
-    if (typeof lastSnapshotRequestedAt === 'number') {
-      updateExpressions.push('lastSnapshotRequestedAt = :lastSnapshotRequestedAt')
-      expressionAttributeValues[':lastSnapshotRequestedAt'] = lastSnapshotRequestedAt
-    }
-    if (typeof keyring === 'string') {
-      updateExpressions.push('keyring = :keyring')
-      expressionAttributeValues[':keyring'] = keyring
-    }
-    if (typeof authToken === 'string') {
-      updateExpressions.push('authToken = :authToken')
-      expressionAttributeValues[':authToken'] = authToken
-    }
-    if (typeof salt === 'string') {
-      updateExpressions.push('salt = :salt')
-      expressionAttributeValues[':salt'] = salt
-    }
-    if (typeof iterations === 'number') {
-      updateExpressions.push('iterations = :iterations')
-      expressionAttributeValues[':iterations'] = iterations
-    }
-    if (typeof saltVersion === 'number') {
-      updateExpressions.push('saltVersion = :saltVersion')
-      expressionAttributeValues[':saltVersion'] = saltVersion
-    }
-    if (typeof keyringVersion === 'number') {
-      updateExpressions.push('keyringVersion = :keyringVersion')
-      expressionAttributeValues[':keyringVersion'] = keyringVersion
-    }
-    if (typeof expectedKeyringVersion === 'number') {
-      conditionExpressions.push('(keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))')
-      expressionAttributeValues[':expectedKeyringVersion'] = expectedKeyringVersion
-    }
-
-    if (updateExpressions.length === 0) {
+    const { expression, values } = buildDynamoUpdate(updateFields)
+    if (!expression) {
       return
     }
 
     const params: UpdateCommandInput = {
       TableName: ACCOUNT_TABLE_NAME,
       Key: { account },
-      UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-      ExpressionAttributeValues: expressionAttributeValues,
+      UpdateExpression: expression,
+      ExpressionAttributeValues: values,
     }
 
-    if (Object.keys(expressionAttributeNames).length > 0) {
-      params.ExpressionAttributeNames = expressionAttributeNames
-    }
-
-    if (conditionExpressions.length > 0) {
-      params.ConditionExpression = conditionExpressions.join(' AND ')
+    if (typeof expectedKeyringVersion === 'number') {
+      values[':expectedKeyringVersion'] = expectedKeyringVersion
+      params.ConditionExpression = '(keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))'
     }
 
     await this.client.send(new UpdateCommand(params))

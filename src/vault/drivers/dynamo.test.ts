@@ -1,4 +1,4 @@
-import DynamoDriver, { getConnectionParams } from './dynamo'
+import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
 import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
@@ -408,6 +408,94 @@ describe('DynamoDriver', function () {
         },
       }),
     ).rejects.toThrow('exceeds maximum')
+  })
+
+  it('updateAccountData returns early without throwing when no update fields are provided', async () => {
+    const account = generateAccountId()
+    await expect(driver.updateAccountData({ account })).resolves.toBeUndefined()
+  })
+
+  it('updateAccountData updates arbitrary fields including reminder settings and clears snooze with null', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      metadata: {},
+      salt,
+      iterations,
+    })
+
+    await driver.updateAccountData({
+      account,
+      reminderEnabled: true,
+      reminderTime: '09:30',
+      reminderTimezone: 'America/New_York',
+      snoozeRemindersUntil: '2026-10-01T00:00:00Z',
+    })
+
+    let stored = await driver.getAccount({ account, session: authToken, isLogin: true })
+    expect(stored.reminderEnabled).toBe(true)
+    expect(stored.reminderTime).toBe('09:30')
+    expect(stored.reminderTimezone).toBe('America/New_York')
+    expect(stored.snoozeRemindersUntil).toBe('2026-10-01T00:00:00Z')
+
+    // Now clear snooze with null
+    await driver.updateAccountData({
+      account,
+      snoozeRemindersUntil: null,
+    })
+
+    stored = await driver.getAccount({ account, session: authToken, isLogin: true })
+    expect(stored.snoozeRemindersUntil).toBeNull()
+  })
+})
+
+describe('buildDynamoUpdate', () => {
+  it('builds SET expression and mapped values for provided fields', () => {
+    const result = buildDynamoUpdate({
+      reminderEnabled: true,
+      reminderTime: '08:00',
+      iterations: 5000,
+    })
+
+    expect(result.expression).toBe('SET reminderEnabled = :reminderEnabled, reminderTime = :reminderTime, iterations = :iterations')
+    expect(result.values).toEqual({
+      ':reminderEnabled': true,
+      ':reminderTime': '08:00',
+      ':iterations': 5000,
+    })
+  })
+
+  it('filters out undefined values while preserving null, false, 0, and empty string', () => {
+    const result = buildDynamoUpdate({
+      definedString: 'flock',
+      emptyString: '',
+      nullValue: null,
+      falseValue: false,
+      zeroValue: 0,
+      undefinedValue: undefined,
+    })
+
+    expect(result.expression).toBe('SET definedString = :definedString, emptyString = :emptyString, nullValue = :nullValue, falseValue = :falseValue, zeroValue = :zeroValue')
+    expect(result.values).toEqual({
+      ':definedString': 'flock',
+      ':emptyString': '',
+      ':nullValue': null,
+      ':falseValue': false,
+      ':zeroValue': 0,
+    })
+  })
+
+  it('returns empty expression and empty values when given an empty object or all-undefined fields', () => {
+    expect(buildDynamoUpdate({})).toEqual({
+      expression: '',
+      values: {},
+    })
+
+    expect(buildDynamoUpdate({ a: undefined, b: undefined })).toEqual({
+      expression: '',
+      values: {},
+    })
   })
 })
 
