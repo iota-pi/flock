@@ -79,6 +79,11 @@ export class SyncWorker implements SyncApi {
     throw new Error("SyncWorker not initialized. Call initRepo first.")
   }
 
+  private async withContext<T>(fn: (ctx: SyncWorkerContext) => Promise<T> | T): Promise<T> {
+    const context = await this.ensureReady()
+    return fn(context)
+  }
+
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
     return this._context
@@ -242,13 +247,13 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  async setOnlineState(isOnline: boolean) {
+  setOnlineState = (isOnline: boolean) => {
     this.isOnline = isOnline
-
-    const context = await this.ensureReady()
-    context.orchestrator.setOnlineState(isOnline)
-    context.snapshotManager.onOnlineStateChange(isOnline)
-    this.syncStatusManager.setOnlineState(isOnline)
+    return this.withContext(ctx => {
+      ctx.orchestrator.setOnlineState(isOnline)
+      ctx.snapshotManager.onOnlineStateChange(isOnline)
+      this.syncStatusManager.setOnlineState(isOnline)
+    })
   }
 
   handlePollResult(outcome: PollOutcome) {
@@ -338,155 +343,126 @@ export class SyncWorker implements SyncApi {
   }
 
   // Sync API Pass-through Delegation
-  async bootstrapItems() {
-    const context = await this.ensureReady()
-    await context.manifestSyncManager.sync()
-  }
+  bootstrapItems = () =>
+    this.withContext(async ctx => {
+      await ctx.manifestSyncManager.sync()
+    })
 
-  async mutateItem(id: ItemId, changes: Partial<Item>) {
-    const context = await this.ensureReady()
-    await context.itemOperations.mutateItem(id, changes)
-  }
+  mutateItem = (id: ItemId, changes: Partial<Item>) =>
+    this.withContext(ctx => ctx.itemOperations.mutateItem(id, changes))
 
-  async createItem(item: Item) {
-    const context = await this.ensureReady()
-    await context.itemOperations.createItem(item)
-  }
+  createItem = (item: Item) =>
+    this.withContext(ctx => ctx.itemOperations.createItem(item))
 
-  async storeItems(items: Item[]) {
-    const context = await this.ensureReady()
-    await context.itemOperations.storeItems(items)
-  }
+  storeItems = (items: Item[]) =>
+    this.withContext(ctx => ctx.itemOperations.storeItems(items))
 
-  async mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) {
-    const context = await this.ensureReady()
-    await context.itemOperations.mutateMetadata(changes, options)
-  }
+  mutateMetadata = (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) =>
+    this.withContext(ctx => ctx.itemOperations.mutateMetadata(changes, options))
 
-  async exportAllBinaries() {
-    const context = await this.ensureReady()
-    return context.docStore.exportAllBinaries(context.indexManager)
-  }
+  exportAllBinaries = () =>
+    this.withContext(ctx => ctx.docStore.exportAllBinaries(ctx.indexManager))
 
-  async restoreFromBinaries(documents: Partial<Record<string, string>>) {
-    const context = await this.ensureReady()
-    const restored = await context.docStore.restoreFromBinaries(documents, context.indexManager)
-    return restored
-  }
+  restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
+    this.withContext(ctx => ctx.docStore.restoreFromBinaries(documents, ctx.indexManager))
 
-  async flushSync() {
-    const context = await this.ensureReady()
-    context.orchestrator.flush()
-  }
+  flushSync = () =>
+    this.withContext(ctx => ctx.orchestrator.flush())
 
-  async fullResync() {
-    const context = await this.ensureReady()
-    const result = await context.manifestSyncManager.sync(true)
-    if (result.success) {
-      context.orchestrator.flush()
-    }
-    return result.success
-  }
+  fullResync = () =>
+    this.withContext(async ctx => {
+      const result = await ctx.manifestSyncManager.sync(true)
+      if (result.success) {
+        ctx.orchestrator.flush()
+      }
+      return result.success
+    })
 
-  async pushSnapshots() {
-    const context = await this.ensureReady()
-    return context.snapshotManager.flushPendingSnapshots()
-  }
+  pushSnapshots = () =>
+    this.withContext(ctx => ctx.snapshotManager.flushPendingSnapshots())
 
-  async retrySave() {
-    try {
-      const context = await this.ensureReady()
-      return context.retrySave()
-    } catch {
-      return { success: false, error: 'Sync worker not initialized' }
-    }
-  }
+  retrySave = () =>
+    this.withContext(ctx => ctx.retrySave()).catch(() => ({
+      success: false,
+      error: 'Sync worker not initialized',
+    }))
 
-  async retryRecoveryItem(itemId: ItemId) {
-    const context = await this.ensureReady()
-    await context.recoveryManager.unquarantine(itemId)
-    context.snapshotManager.markItemDirty(itemId)
-    void context.snapshotManager.flushPendingSnapshots()
-  }
+  retryRecoveryItem = (itemId: ItemId) =>
+    this.withContext(async ctx => {
+      await ctx.recoveryManager.unquarantine(itemId)
+      ctx.snapshotManager.markItemDirty(itemId)
+      void ctx.snapshotManager.flushPendingSnapshots()
+    })
 
-  async forceOverwriteRecoveryItem(itemId: ItemId) {
-    const context = await this.ensureReady()
-    await context.itemOperations.forceOverwriteRecoveryItem(itemId)
-  }
+  forceOverwriteRecoveryItem = (itemId: ItemId) =>
+    this.withContext(ctx => ctx.itemOperations.forceOverwriteRecoveryItem(itemId))
 
-  async forceDeleteRecoveryItem(itemId: ItemId) {
-    const context = await this.ensureReady()
-    await context.itemOperations.forceDeleteRecoveryItem(itemId)
-  }
+  forceDeleteRecoveryItem = (itemId: ItemId) =>
+    this.withContext(ctx => ctx.itemOperations.forceDeleteRecoveryItem(itemId))
 
-  async compactItem(itemId: ItemId) {
-    const context = await this.ensureReady()
-    await context.itemOperations.compactItem(itemId)
-    void context.snapshotManager.flushPendingSnapshots()
-  }
+  compactItem = (itemId: ItemId) =>
+    this.withContext(async ctx => {
+      await ctx.itemOperations.compactItem(itemId)
+      void ctx.snapshotManager.flushPendingSnapshots()
+    })
 
-  async dismissRecoveryItem(entryId: string) {
-    const context = await this.ensureReady()
-    await context.recoveryManager.dismissEntry(entryId)
-  }
+  dismissRecoveryItem = (entryId: string) =>
+    this.withContext(ctx => ctx.recoveryManager.dismissEntry(entryId))
 
-  async listRecoveryItems() {
-    const context = await this.ensureReady()
-    return context.recoveryManager.listRecoveryItems()
-  }
+  listRecoveryItems = () =>
+    this.withContext(ctx => ctx.recoveryManager.listRecoveryItems())
 
-  async updateVaultKey(vaultKey: string) {
+  updateVaultKey = async (vaultKey: string) => {
     await initWorkerVault(vaultKey)
-    const context = await this.ensureReady()
-    context.pullQueueManager?.onKeyringUpdated()
+    return this.withContext(ctx => {
+      ctx.pullQueueManager?.onKeyringUpdated()
+    })
   }
 
-  async reencryptAllItems(
+  reencryptAllItems = (
     onProgress: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>
-  ) {
-    const context = await this.ensureReady()
-    return await context.itemReencryptor.reencryptAllItems({
-      accountId: context.accountId,
-      repo: context.repo,
-      indexManager: context.indexManager,
-      refreshAuthToken,
-      recoveryManager: context.recoveryManager,
-      apiClient: context.apiClient,
-      reencryptor: context.itemReencryptor,
-    }, onProgress)
-  }
+  ) =>
+    this.withContext(ctx =>
+      ctx.itemReencryptor.reencryptAllItems({
+        accountId: ctx.accountId,
+        repo: ctx.repo,
+        indexManager: ctx.indexManager,
+        refreshAuthToken,
+        recoveryManager: ctx.recoveryManager,
+        apiClient: ctx.apiClient,
+        reencryptor: ctx.itemReencryptor,
+      }, onProgress)
+    )
 
-  async exportSyncState(): Promise<BackupSyncState> {
-    const context = await this.ensureReady()
-    const cursors = context.pullQueueManager.exportCursors()
-    const walMap = context.wal ? await context.wal.readAll() : new Map<ItemId, WalEntry[]>()
-    const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
-      itemId,
-      entries.map((e: WalEntry) => e.data.toBase64()),
-    ])
-    const lastModified = context.snapshotManager.exportLastModified()
+  exportSyncState = (): Promise<BackupSyncState> =>
+    this.withContext(async ctx => {
+      const cursors = ctx.pullQueueManager.exportCursors()
+      const walMap = ctx.wal ? await ctx.wal.readAll() : new Map<ItemId, WalEntry[]>()
+      const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
+        itemId,
+        entries.map((e: WalEntry) => e.data.toBase64()),
+      ])
+      const lastModified = ctx.snapshotManager.exportLastModified()
 
-    return { cursors, pendingSync, lastModified }
-  }
+      return { cursors, pendingSync, lastModified }
+    })
 
-  async restoreSyncState(state: Partial<BackupSyncState>) {
-    const context = await this.ensureReady()
-    if (state.cursors) await context.pullQueueManager.importCursors(state.cursors)
-    if (state.pendingSync && context.wal) {
-      for (const [itemId, base64Msgs] of state.pendingSync) {
-        for (const msg of base64Msgs) {
-          await context.wal.append(itemId, Uint8Array.fromBase64(msg))
+  restoreSyncState = (state: Partial<BackupSyncState>) =>
+    this.withContext(async ctx => {
+      if (state.cursors) await ctx.pullQueueManager.importCursors(state.cursors)
+      if (state.pendingSync && ctx.wal) {
+        for (const [itemId, base64Msgs] of state.pendingSync) {
+          for (const msg of base64Msgs) {
+            await ctx.wal.append(itemId, Uint8Array.fromBase64(msg))
+          }
         }
       }
-    }
-    if (state.lastModified) await context.snapshotManager.importLastModified(state.lastModified)
-  }
+      if (state.lastModified) await ctx.snapshotManager.importLastModified(state.lastModified)
+    })
 
-  async claimLeader() {
-    const context = await this.ensureReady()
-    context.claimLeader()
-  }
+  claimLeader = () =>
+    this.withContext(ctx => ctx.claimLeader())
 
   async shutdown(options?: { clearLocalData?: boolean }) {
     this.isShutDown = true
