@@ -45,9 +45,7 @@ export type WorkerInternalEvent =
   | { type: 'messageToSend'; message: Message }
   | { type: 'docHandleReplaced'; itemId: ItemId; handle: DocHandle<RepoDoc> }
 
-export type EventListener<T> = (event: T) => void | Promise<void>
-export type ClientEventListener = EventListener<ClientEvent>
-export type WorkerInternalEventListener = EventListener<WorkerInternalEvent>
+type EventListener<T> = (event: T) => void | Promise<void>
 
 export class EventHub<T> {
   protected listeners = new Set<EventListener<T>>()

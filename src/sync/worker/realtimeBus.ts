@@ -2,7 +2,7 @@ import { ItemId } from "src/shared/schemas/items"
 
 export type SyncPingListener = (itemIds: ItemId[]) => void
 
-export const SYNC_PING_CHANNEL_PREFIX = 'flock-sync-ping-bus-'
+const SYNC_PING_CHANNEL_PREFIX = 'flock-sync-ping-bus-'
 
 export function getSyncPingChannelName(accountId: string): string {
   return `${SYNC_PING_CHANNEL_PREFIX}${accountId}`
@@ -99,33 +99,34 @@ export function publishRealtimeBusSyncPing(
   }
 }
 
+function closeAccountBus(state: AccountBusState): void {
+  try {
+    state.channel?.close()
+  } catch {
+    // Ignore close errors
+  }
+  state.listeners.forEach(l => {
+    try {
+      state.channel?.removeEventListener?.('message', l as unknown as EventListener)
+    } catch {
+      // Ignore
+    }
+  })
+  state.listeners.clear()
+  state.channel = null
+}
+
 export function teardownRealtimeBus(accountId?: string): void {
   if (accountId) {
     const state = busStateByAccount.get(accountId)
     if (state) {
-      if (state.channel) {
-        try {
-          state.channel.close()
-        } catch {
-          // Ignore close errors
-        }
-      }
-      state.listeners.clear()
+      closeAccountBus(state)
       busStateByAccount.delete(accountId)
     }
   } else {
     for (const state of busStateByAccount.values()) {
-      if (state.channel) {
-        try {
-          state.channel.close()
-        } catch {
-          // Ignore close errors
-        }
-      }
-      state.listeners.clear()
+      closeAccountBus(state)
     }
     busStateByAccount.clear()
   }
 }
-
-export const closeRealtimeBus = teardownRealtimeBus

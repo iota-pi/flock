@@ -58,10 +58,12 @@ self.addEventListener('push', event => {
         return
       }
 
+      const icon = new URL(payload.icon || '/android-chrome-192x192.png', self.location.origin).href
+      const badge = new URL(payload.badge || '/badge-96x96.png', self.location.origin).href
       await self.registration.showNotification(title, {
         body,
-        icon: payload.icon || '/flock.png',
-        badge: payload.badge || '/flock.png',
+        icon,
+        badge,
         tag: payload.tag || 'prayer-reminder',
         data: {
           url: payload.url || '/',

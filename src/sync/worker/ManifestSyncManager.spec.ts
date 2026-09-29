@@ -99,15 +99,19 @@ describe('ManifestSyncManager', () => {
       markItemDirty: vi.fn(),
     } as any
 
-    depsObj = { accountId: 'acc-123', docStore: mockDocStore, indexManager: mockIndexManager, snapshotManager: mockSnapshotManager }
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
     mutateMetadataSpy = vi.fn().mockResolvedValue(undefined)
 
-    manifestSyncManager = new ManifestSyncManager(
-      depsObj as any,
-      storeItemsSpy,
-      mutateMetadataSpy
-    )
+    depsObj = {
+      accountId: 'acc-123',
+      docStore: mockDocStore,
+      indexManager: mockIndexManager,
+      snapshotManager: mockSnapshotManager,
+      storeItems: storeItemsSpy,
+      mutateMetadata: mutateMetadataSpy,
+    } as any
+
+    manifestSyncManager = new ManifestSyncManager(depsObj as any)
 
     // Default mock behaviors
     mockListAutomergeItemIds.mockResolvedValue([])
@@ -125,6 +129,22 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('gating & lifecycle', () => {
+    it('supports both unified ManifestSyncManagerDeps and legacy positional constructor arguments', () => {
+      const unifiedManager = new ManifestSyncManager({
+        ...(depsObj as any),
+        storeItems: storeItemsSpy,
+        mutateMetadata: mutateMetadataSpy,
+      })
+      expect(unifiedManager).toBeInstanceOf(ManifestSyncManager)
+
+      const legacyManager = new ManifestSyncManager(
+        depsObj as any,
+        storeItemsSpy,
+        mutateMetadataSpy,
+      )
+      expect(legacyManager).toBeInstanceOf(ManifestSyncManager)
+    })
+
     it('returns early if accountId is null', async () => {
       depsObj.accountId = null
 
@@ -587,12 +607,12 @@ describe('ManifestSyncManager', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const onDecryptionFailure = vi.fn()
 
-      const manager = new ManifestSyncManager(
-        depsObj as any,
-        storeItemsSpy,
-        mutateMetadataSpy,
-        onDecryptionFailure
-      )
+      const manager = new ManifestSyncManager({
+        ...(depsObj as any),
+        storeItems: storeItemsSpy,
+        mutateMetadata: mutateMetadataSpy,
+        onDecryptionFailure,
+      })
 
       mockListAutomergeItemIds.mockResolvedValue([])
       mockFetchManifest.mockResolvedValue({

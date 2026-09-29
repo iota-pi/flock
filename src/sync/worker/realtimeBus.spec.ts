@@ -7,6 +7,8 @@ class MockBroadcastChannel {
   onmessageerror: ((ev: MessageEvent) => any) | null = null
   postMessage = vi.fn()
   close = vi.fn()
+  addEventListener = vi.fn()
+  removeEventListener = vi.fn()
 
   static instances: MockBroadcastChannel[] = []
 
@@ -165,7 +167,9 @@ describe('realtimeBus', () => {
     teardownRealtimeBus('acc-1')
 
     expect(channel1.close).toHaveBeenCalledTimes(1)
+    expect(channel1.removeEventListener).toHaveBeenCalledWith('message', listener1)
     expect(channel2.close).not.toHaveBeenCalled()
+    expect(channel2.removeEventListener).not.toHaveBeenCalled()
 
     // Message sent to channel1 should no longer trigger listener1
     channel1.onmessage?.({

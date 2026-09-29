@@ -1,11 +1,11 @@
 import { useAppStore } from '../../state/store'
 
-export const HEARTBEAT_INTERVAL_MS = 15000
-export const HEARTBEAT_TIMEOUT_MS = 30000
-export const MAX_CONSECUTIVE_CRASHES = 3
+const HEARTBEAT_INTERVAL_MS = 15000
+const HEARTBEAT_TIMEOUT_MS = 30000
+const CRASH_RESET_WINDOW_MS = 60000
 export const MAX_CONSECUTIVE_TIMEOUTS = 5
-export const CRASH_RESET_WINDOW_MS = 60000
-export const DEFAULT_MAX_MISSED_PINGS = 2
+export const MAX_CONSECUTIVE_CRASHES = 3
+const DEFAULT_MAX_MISSED_PINGS = 2
 
 export interface SendPingOptions {
   signal?: AbortSignal
@@ -53,7 +53,6 @@ export const sendPing = (
     const handleMessage = (event: MessageEvent) => {
       if (event.data === 'pong') {
         cleanup()
-        recordWorkerActivity()
         resolve()
       }
     }
@@ -323,7 +322,6 @@ export class SyncWorkerHealthMonitor {
         })
 
         // Ping succeeded
-        this.consecutiveMissedPings = 0
         this.recordActivity()
       } catch (error) {
         if (!isCurrentWorker() || isExternalAbort(abortController.signal)) {
@@ -366,26 +364,4 @@ export class SyncWorkerHealthMonitor {
       }
     }, heartbeatIntervalMs)
   }
-}
-
-export const defaultHealthMonitor = new SyncWorkerHealthMonitor()
-
-export function recordWorkerActivity(): void {
-  defaultHealthMonitor.recordActivity()
-}
-
-export function getLastWorkerActivityTime(): number {
-  return defaultHealthMonitor.getLastWorkerActivityTime()
-}
-
-export function stopWorkerHeartbeat(): void {
-  defaultHealthMonitor.stopWorkerHeartbeat()
-}
-
-export function resetCrashMetrics(): void {
-  defaultHealthMonitor.resetCrashMetrics()
-}
-
-export function setupWorkerHealthCheck(options: HealthCheckOptions): void {
-  defaultHealthMonitor.setupWorkerHealthCheck(options)
 }

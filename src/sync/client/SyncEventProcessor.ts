@@ -2,7 +2,7 @@ import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
-import { recordWorkerActivity } from './syncWorkerHealth'
+import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 export interface SyncEventProcessorCallbacks {
   onKeyVersionMissing?: (kver?: string) => void
@@ -10,7 +10,7 @@ export interface SyncEventProcessorCallbacks {
 }
 
 export class SyncEventProcessor {
-  private readonly ITEM_UPDATE_BATCH_MAX = 50
+  private readonly ITEM_UPDATE_BATCH_MAX = SYNC_BATCH_SIZES.itemUpdateBatchMax
   private pendingItemUpdates = new Map<string, Item | null>()
   private itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
 
@@ -58,11 +58,7 @@ export class SyncEventProcessor {
   }
 
   handleSyncEvent = (event: ClientEvent): void => {
-    if (this.callbacks.onActivity) {
-      this.callbacks.onActivity()
-    } else {
-      recordWorkerActivity()
-    }
+    this.callbacks.onActivity?.()
     switch (event.type) {
       case 'ready':
         break

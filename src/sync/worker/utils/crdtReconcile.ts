@@ -3,14 +3,56 @@ import type { Item } from 'src/state/items'
 export type AutomergeListItem = { id?: string; [key: string]: unknown }
 
 /**
- * Reconciles an Automerge list of primitive values (strings, numbers, booleans)
- * using prefix/suffix optimization and LCS sequence diffing.
- * Applies in-place mutations (splice) to preserve unchanged elements and their CRDT identity.
+ * Resolves the reconciliation key for a list element.
+ * If the element is an object with an `id` string (e.g. Note), returns that `id`.
+ * Otherwise returns the item itself (value identity for primitives).
  */
-export function reconcilePrimitiveArray<T>(
+export function getElementKey(item: unknown): unknown {
+  if (item != null && typeof item === 'object' && 'id' in item && typeof (item as { id: unknown }).id === 'string') {
+    return (item as { id: string }).id
+  }
+  return item
+}
+
+/**
+ * Updates properties on an existing Automerge object proxy in place.
+ * Avoids replacing the object proxy to preserve Automerge Map CRDT identity and concurrent field merges.
+ */
+export function updateObjectInPlace(
+  existingObj: Record<string, unknown>,
+  targetObj: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(targetObj)) {
+    if (existingObj[key] !== value) {
+      if (value === undefined) {
+        delete existingObj[key]
+      } else {
+        existingObj[key] = value
+      }
+    }
+  }
+  for (const key of Object.keys(existingObj)) {
+    if (!(key in targetObj)) {
+      delete existingObj[key]
+    }
+  }
+}
+
+/**
+ * Reconciles an Automerge list proxy in place from an incoming target array.
+ * Works for both primitive lists (prayedFor, members) and keyed object lists (notes):
+ * - Uses common prefix/suffix optimization and key-based LCS sequence diffing.
+ * - Preserves existing Automerge Map proxies by updating properties in place.
+ * - Applies splices to insert, delete, or reorder elements.
+ */
+export function reconcileAutomergeList<T = unknown>(
   currentList: T[],
   targetArray: T[],
 ): void {
+  if (!Array.isArray(currentList) || !Array.isArray(targetArray)) {
+    return
+  }
+
   // 1. Common prefix
   let prefix = 0
   const currentLen = currentList.length
@@ -19,8 +61,13 @@ export function reconcilePrimitiveArray<T>(
   while (
     prefix < currentLen &&
     prefix < targetLen &&
-    currentList[prefix] === targetArray[prefix]
+    getElementKey(currentList[prefix]) === getElementKey(targetArray[prefix])
   ) {
+    const curr = currentList[prefix]
+    const tgt = targetArray[prefix]
+    if (curr != null && typeof curr === 'object' && tgt != null && typeof tgt === 'object') {
+      updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+    }
     prefix += 1
   }
 
@@ -31,8 +78,13 @@ export function reconcilePrimitiveArray<T>(
   while (
     currentSuffix >= prefix &&
     targetSuffix >= prefix &&
-    currentList[currentSuffix] === targetArray[targetSuffix]
+    getElementKey(currentList[currentSuffix]) === getElementKey(targetArray[targetSuffix])
   ) {
+    const curr = currentList[currentSuffix]
+    const tgt = targetArray[targetSuffix]
+    if (curr != null && typeof curr === 'object' && tgt != null && typeof tgt === 'object') {
+      updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+    }
     currentSuffix -= 1
     targetSuffix -= 1
   }
@@ -46,7 +98,21 @@ export function reconcilePrimitiveArray<T>(
   }
 
   // If middle is simple (pure insert, pure delete, or single replacement)
-  if (deleteCount <= 1 || insertItems.length <= 1) {
+  if (deleteCount <= 1 && insertItems.length <= 1) {
+    if (deleteCount === 1 && insertItems.length === 1) {
+      const curr = currentList[prefix]
+      const tgt = insertItems[0]
+      if (
+        getElementKey(curr) === getElementKey(tgt) &&
+        curr != null &&
+        typeof curr === 'object' &&
+        tgt != null &&
+        typeof tgt === 'object'
+      ) {
+        updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+        return
+      }
+    }
     currentList.splice(prefix, Math.max(0, deleteCount), ...insertItems)
     return
   }
@@ -58,11 +124,12 @@ export function reconcilePrimitiveArray<T>(
   const m = currentMiddle.length
   const n = incomingMiddle.length
 
-  // Build LCS matrix
+  // Build LCS matrix based on element key equality
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
   for (let i = 0; i < m; i++) {
+    const keyCurrent = getElementKey(currentMiddle[i])
     for (let j = 0; j < n; j++) {
-      if (currentMiddle[i] === incomingMiddle[j]) {
+      if (keyCurrent === getElementKey(incomingMiddle[j])) {
         dp[i + 1][j + 1] = dp[i][j] + 1
       } else {
         dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1])
@@ -71,13 +138,17 @@ export function reconcilePrimitiveArray<T>(
   }
 
   // Backtrack to find edit operations
-  type Op = { type: 'keep' } | { type: 'delete'; oldIdx: number } | { type: 'insert'; oldIdx: number; item: T }
+  type Op =
+    | { type: 'keep'; oldIdx: number; newIdx: number }
+    | { type: 'delete'; oldIdx: number }
+    | { type: 'insert'; oldIdx: number; item: T }
+
   const ops: Op[] = []
   let i = m
   let j = n
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && currentMiddle[i - 1] === incomingMiddle[j - 1]) {
-      ops.push({ type: 'keep' })
+    if (i > 0 && j > 0 && getElementKey(currentMiddle[i - 1]) === getElementKey(incomingMiddle[j - 1])) {
+      ops.push({ type: 'keep', oldIdx: i - 1, newIdx: j - 1 })
       i -= 1
       j -= 1
     } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
@@ -86,6 +157,17 @@ export function reconcilePrimitiveArray<T>(
     } else if (i > 0) {
       ops.push({ type: 'delete', oldIdx: i - 1 })
       i -= 1
+    }
+  }
+
+  // For kept items in the middle, update properties in place on the object proxy
+  for (const op of ops) {
+    if (op.type === 'keep') {
+      const curr = currentMiddle[op.oldIdx]
+      const tgt = incomingMiddle[op.newIdx]
+      if (curr != null && typeof curr === 'object' && tgt != null && typeof tgt === 'object') {
+        updateObjectInPlace(curr as Record<string, unknown>, tgt as Record<string, unknown>)
+      }
     }
   }
 
@@ -112,102 +194,6 @@ export function reconcilePrimitiveArray<T>(
 }
 
 /**
- * Reconciles an Automerge list of keyed objects (e.g. Note with an `id` field).
- * - Identifies deleted items and removes them backwards via .splice()
- * - Updates existing items in-place on the Automerge object proxy
- * - Inserts brand new items at their respective target positions
- */
-export function reconcileKeyedArray(
-  currentList: AutomergeListItem[],
-  targetArray: AutomergeListItem[],
-): void {
-  const targetIdSet = new Set(
-    targetArray
-      .filter(item => item != null && typeof item === 'object' && typeof item.id === 'string')
-      .map(item => item.id)
-  )
-
-  // 1. Delete removed items backwards to keep indices stable
-  for (let i = currentList.length - 1; i >= 0; i--) {
-    const item = currentList[i]
-    if (item != null && typeof item === 'object' && typeof item.id === 'string') {
-      if (!targetIdSet.has(item.id)) {
-        currentList.splice(i, 1)
-      }
-    }
-  }
-
-  // 2. Map existing items by id
-  const existingMap = new Map<string, AutomergeListItem>()
-  for (let i = 0; i < currentList.length; i++) {
-    const item = currentList[i]
-    if (item?.id) {
-      existingMap.set(item.id, item)
-    }
-  }
-
-  // 3. Update existing items in place or insert new items
-  for (let i = 0; i < targetArray.length; i++) {
-    const targetItem = targetArray[i]
-    if (targetItem == null || typeof targetItem !== 'object') {
-      continue
-    }
-
-    const existingItem = targetItem.id ? existingMap.get(targetItem.id) : undefined
-    if (existingItem) {
-      const existingObj = existingItem as Record<string, unknown>
-      // Update properties in place on the existing Automerge object proxy
-      for (const [key, value] of Object.entries(targetItem)) {
-        if (existingObj[key] !== value) {
-          if (value === undefined) {
-            delete existingObj[key]
-          } else {
-            existingObj[key] = value
-          }
-        }
-      }
-      for (const key of Object.keys(existingObj)) {
-        if (!(key in targetItem)) {
-          delete existingObj[key]
-        }
-      }
-    } else {
-      // New item: insert at index i
-      if (i < currentList.length) {
-        currentList.splice(i, 0, targetItem)
-      } else {
-        currentList.push(targetItem)
-      }
-      if (targetItem.id) {
-        existingMap.set(targetItem.id, currentList[i])
-      }
-    }
-  }
-}
-
-/**
- * Reconciles an Automerge list proxy in place from an incoming target array.
- */
-export function reconcileAutomergeList(
-  currentList: AutomergeListItem[],
-  targetArray: AutomergeListItem[],
-): void {
-  if (!Array.isArray(currentList) || !Array.isArray(targetArray)) {
-    return
-  }
-
-  const isKeyed =
-    targetArray.some(item => item != null && typeof item === 'object' && typeof item.id === 'string') ||
-    currentList.some(item => item != null && typeof item === 'object' && typeof item.id === 'string')
-
-  if (isKeyed) {
-    reconcileKeyedArray(currentList, targetArray)
-  } else {
-    reconcilePrimitiveArray(currentList, targetArray)
-  }
-}
-
-/**
  * Applies updates to an Automerge document draft in place.
  * Ensures array fields (notes, members, prayedFor) are reconciled in place
  * on existing Automerge list proxies rather than replaced with new objects.
@@ -222,7 +208,7 @@ export function applyItemUpdatesToDraft(
     } else if (Array.isArray(value)) {
       if (Array.isArray(draft[key])) {
         // Reconcile existing Automerge list proxy in place
-        reconcileAutomergeList(draft[key], value)
+        reconcileAutomergeList(draft[key] as unknown[], value)
       } else {
         // Initialize list
         draft[key] = value

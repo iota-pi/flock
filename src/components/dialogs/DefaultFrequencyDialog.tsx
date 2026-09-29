@@ -12,7 +12,7 @@ import { Frequency } from '../../utils/frequencies'
 import { PersonIcon, GroupIcon, TopicIcon } from '../Icons'
 
 
-export interface Defaults {
+interface Defaults {
   person?: Frequency,
   group?: Frequency,
   topic?: Frequency,

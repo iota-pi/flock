@@ -15,6 +15,8 @@ import type { AutomergeIndexManager } from './AutomergeIndexManager'
 import { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
+import { SYNC_TIMEOUTS } from '../../syncConfig'
+import type { LifecycleAware } from '../ServiceLifecycleManager'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -39,7 +41,7 @@ export type AutomergeIndexDocument = {
   lastManifestSyncTime?: number
 }
 
-export function normalizeItemId(raw: unknown): ItemId | null {
+function normalizeItemId(raw: unknown): ItemId | null {
   const result = ItemIdSchema.safeParse(raw)
   return result.success ? result.data : null
 }
@@ -94,17 +96,33 @@ export interface ItemLockCoordinator {
   withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T>
 }
 
-export class AutomergeDocStore implements ItemLockCoordinator {
+export interface DocStorageChecker {
+  has(key: string[]): Promise<boolean>
+}
+
+export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
+  readonly lifecycleName = 'DocStore'
   private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private internalEventHub: WorkerInternalEventHub
+  private storageAdapter?: DocStorageChecker | null
   public onDocHandleReplaced?: DocHandleReplacedListener
+
+  async onLifecycleStop(): Promise<void> {
+    await this.shutdown()
+  }
 
   constructor(
     private readonly repo: Repo,
     internalEventHub?: WorkerInternalEventHub,
+    storageAdapter?: DocStorageChecker | null,
   ) {
     this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
+    this.storageAdapter = storageAdapter
+  }
+
+  public setStorageAdapter(storageAdapter: DocStorageChecker | null): void {
+    this.storageAdapter = storageAdapter
   }
 
   public setInternalEventHub(hub: WorkerInternalEventHub): void {
@@ -142,9 +160,20 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   async hasDataInStorage(itemId: ItemId): Promise<boolean> {
+    const { documentId } = this.resolveDocumentId(itemId)
+    if (this.storageAdapter) {
+      try {
+        return await this.storageAdapter.has([documentId])
+      } catch (error) {
+        console.error(`[AutomergeDocStore] Storage error checking document existence for ${itemId}:`, error)
+        throw error
+      }
+    }
+
     const data = await this.loadDocDataFromStorage(itemId)
     return !!data
   }
+
 
   async saveDocToStorage(itemId: ItemId): Promise<boolean> {
     if (!this.repo.storageSubsystem) return false
@@ -217,7 +246,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     if (!existsInStorage) return undefined
 
     // 3. Fast-path attempt (2s)
-    handle = await this.timedFind(url, 2000)
+    handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreFastPath)
     if (handle && handle.isReady()) return handle
 
     // 4. Extended attempt for confirmed-to-exist documents (8s)
@@ -228,7 +257,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     console.warn(
       `[AutomergeDocStore] Document ${itemId} exists in storage but fast-path timed out. Retrying with extended timeout.`
     )
-    handle = await this.timedFind(url, 8000)
+    handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreExtended)
 
     // Final cache check — strictly require readiness before returning
     const finalHandle = handle ?? this.repo.handles[documentId]
@@ -412,34 +441,19 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
         if (existingHandle && existingHandle.isReady()) {
           this.applyMerge(existingHandle, binary)
-          const doc = existingHandle.doc()
-          const postMergeHeads = doc ? Automerge.getHeads(doc) : []
-          const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-          const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
-          return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+          return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
         } else {
           // Document handle was not available or not ready within timeout.
           // Check whether document exists in storage to avoid clobbering local edits.
-          let existsInStorage = options.knownToExist
-          let localBinary: Uint8Array | undefined
-
-          if (existsInStorage) {
-            localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-          } else {
-            localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-            existsInStorage = !!localBinary
-          }
+          const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+          const existsInStorage = options.knownToExist || !!localBinary
 
           // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
           const { documentId } = this.resolveDocumentId(normalizedItemId)
           const inMemoryHandle = this.repo.handles[documentId]
           if (inMemoryHandle && inMemoryHandle.isReady()) {
             this.applyMerge(inMemoryHandle, binary)
-            const doc = inMemoryHandle.doc()
-            const postMergeHeads = doc ? Automerge.getHeads(doc) : []
-            const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-            const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
-            return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+            return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
           }
 
           if (existsInStorage) {
@@ -451,10 +465,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
                 const mergedDoc = Automerge.merge(localDoc, incomingDoc)
                 const mergedBinary = Automerge.save(mergedDoc)
                 await this.seedImportedDocument(normalizedItemId, mergedBinary)
-                const postMergeHeads = Automerge.getHeads(mergedDoc)
-                const hasLocalChanges = !areHeadsEqual(postMergeHeads, incomingHeads)
-                const isDeleted = (mergedDoc as Record<string, unknown> | undefined)?.deleted === true
-                return { hasLocalChanges, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+                return this.buildHydrateResult(mergedDoc, incomingHeads)
               } catch (mergeError) {
                 console.error('[AutomergeDocStore] Non-destructive direct merge failed', {
                   itemId: normalizedItemId,
@@ -474,9 +485,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
           // Genuinely new document - safe to seed
           const handle = await this.seedImportedDocument(normalizedItemId, binary)
-          const doc = handle.doc()
-          const isDeleted = (doc as Record<string, unknown> | undefined)?.deleted === true
-          return { hasLocalChanges: false, incomingHeads, ...(isDeleted ? { isDeleted: true } : {}) }
+          return this.buildHydrateResult(handle.doc(), incomingHeads)
         }
       } catch (error) {
         console.error('[automerge] failed to hydrate document', {
@@ -486,6 +495,18 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         throw error
       }
     })
+  }
+
+  private buildHydrateResult(
+    doc: RepoDoc | undefined,
+    incomingHeads: string[],
+  ): HydrateDocumentResult {
+    const postMergeHeads = doc ? Automerge.getHeads(doc) : []
+    return {
+      hasLocalChanges: !areHeadsEqual(postMergeHeads, incomingHeads),
+      incomingHeads,
+      isDeleted: (doc as Record<string, unknown>)?.deleted === true || undefined,
+    }
   }
 
   async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<DocHandle<RepoDoc>> {

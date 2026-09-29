@@ -256,6 +256,77 @@ describe('items operations', () => {
     expect(deleteSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('should use storageAdapter.has() without calling loadDocData or loading binary payload', async () => {
+    const customRepo = new Repo()
+    const mockStorageAdapter = {
+      has: vi.fn().mockResolvedValue(true),
+    }
+    const mockStorageSubsystem = {
+      loadDocData: vi.fn(),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorageSubsystem
+
+    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+
+    const exists = await customDocStore.hasDataInStorage('check-item' as ItemId)
+
+    expect(exists).toBe(true)
+    expect(mockStorageAdapter.has).toHaveBeenCalledTimes(1)
+    expect(mockStorageSubsystem.loadDocData).not.toHaveBeenCalled()
+  })
+
+  it('should rethrow storage errors from storageAdapter.has and abort document creation safely', async () => {
+    const customRepo = new Repo()
+    const mockStorageAdapter = {
+      has: vi.fn().mockRejectedValue(new Error('IndexedDB cursor read error')),
+    }
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+
+    await expect(
+      customDocStore.hasDataInStorage('error-item' as ItemId)
+    ).rejects.toThrow('IndexedDB cursor read error')
+
+    const result = await customDocStore.changeDocument(
+      'error-item' as ItemId,
+      draft => { draft.name = 'Test' },
+      { createIfMissing: true }
+    )
+
+    expect(result).toBe(false)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should safely refuse to overwrite existing document when storageAdapter.has returns true', async () => {
+    const customRepo = new Repo()
+    const mockStorageAdapter = {
+      has: vi.fn().mockResolvedValue(true),
+    }
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+
+    const result = await customDocStore.changeDocument(
+      'existing-doc' as ItemId,
+      draft => { draft.name = 'Test' },
+      { createIfMissing: true }
+    )
+
+    expect(result).toBe(false)
+    expect(mockStorageAdapter.has).toHaveBeenCalled()
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
   it('should cleanly import snapshot when document does not exist locally', async () => {
     const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
       doc.id = 'imported-item-1' as ItemId

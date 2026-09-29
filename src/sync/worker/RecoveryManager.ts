@@ -9,8 +9,9 @@ import {
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
 import { normalizeSyncError } from 'src/shared/syncErrors'
+import { SYNC_TIMEOUTS } from '../syncConfig'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
-export const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 
 export interface RecoveryManagerDeps {
   accountId?: string | null
@@ -23,11 +24,16 @@ export interface QuarantineOptions {
   failedBranches?: string[]
 }
 
-export class RecoveryManager {
+export class RecoveryManager implements LifecycleAware {
+  readonly lifecycleName = 'RecoveryManager'
   private accountId: string | null = null
   private eventHub?: ClientEventHub
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
+
+  onLifecycleStop(): void {
+    this.resetRecoveryState()
+  }
 
   constructor(deps?: RecoveryManagerDeps) {
     this.accountId = deps?.accountId ?? null
@@ -104,33 +110,11 @@ export class RecoveryManager {
   }
 
   async quarantine(
-    accountIdOrItemId: string | null,
-    itemIdOrError?: ItemId | unknown,
-    maybeErrorOrOptions?: unknown | QuarantineOptions,
-    maybeOptions?: QuarantineOptions,
+    itemId: ItemId,
+    error?: unknown,
+    options?: QuarantineOptions,
   ): Promise<void> {
-    let accountId: string | null
-    let itemId: ItemId
-    let errorOrReason: unknown
-    let options: QuarantineOptions | undefined
-
-    if (
-      typeof itemIdOrError === 'string' &&
-      (typeof maybeErrorOrOptions !== 'undefined' || typeof maybeOptions !== 'undefined')
-    ) {
-      // Called as: quarantine(accountId, itemId, errorOrReason, options)
-      accountId = accountIdOrItemId
-      itemId = itemIdOrError as ItemId
-      errorOrReason = maybeErrorOrOptions
-      options = maybeOptions
-    } else {
-      // Called as: quarantine(itemId, errorOrReason, options)
-      accountId = this.accountId
-      itemId = accountIdOrItemId as ItemId
-      errorOrReason = itemIdOrError
-      options = maybeErrorOrOptions as QuarantineOptions | undefined
-    }
-
+    const accountId = this.accountId
     if (!accountId || !itemId) return
 
     const now = Date.now()
@@ -147,10 +131,10 @@ export class RecoveryManager {
       let reason: string
       if (options?.failedBranches && options.failedBranches.length > 0) {
         reason = `Corrupted branches: ${options.failedBranches.join(', ')}`
-      } else if (typeof errorOrReason === 'string') {
-        reason = errorOrReason
-      } else if (errorOrReason) {
-        const normalized = normalizeSyncError(errorOrReason)
+      } else if (typeof error === 'string') {
+        reason = error
+      } else if (error) {
+        const normalized = normalizeSyncError(error)
         reason = normalized.message || 'Automated recovery is unavailable for this revision'
       } else {
         reason = 'Automated recovery is unavailable for this revision'
@@ -159,28 +143,18 @@ export class RecoveryManager {
       await upsertManualRecoveryEntry(accountId, { itemId, reason })
       await this.pushRecoveryItems(accountId)
 
-      const cooldownMs = options?.cooldownMs ?? RECOVERY_RETRY_COOLDOWN_MS
+      const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
       this.setRecoveryCooldown(itemId, Date.now() + cooldownMs)
-    } catch (error) {
-      console.error(`[RecoveryManager] Failed to quarantine item ${itemId}:`, error)
-      throw error
+    } catch (err) {
+      console.error(`[RecoveryManager] Failed to quarantine item ${itemId}:`, err)
+      throw err
     } finally {
       this.setInFlight(itemId, false)
     }
   }
 
-  async unquarantine(accountIdOrItemId: string | null, maybeItemId?: ItemId): Promise<void> {
-    let accountId: string | null
-    let itemId: ItemId
-
-    if (maybeItemId !== undefined) {
-      accountId = accountIdOrItemId
-      itemId = maybeItemId
-    } else {
-      accountId = this.accountId
-      itemId = accountIdOrItemId as ItemId
-    }
-
+  async unquarantine(itemId: ItemId): Promise<void> {
+    const accountId = this.accountId
     if (!accountId || !itemId) return
 
     try {
@@ -196,18 +170,8 @@ export class RecoveryManager {
     await this.pushRecoveryItems(accountId)
   }
 
-  async unquarantineBatch(accountIdOrItemIds: string | null | ItemId[], maybeItemIds?: ItemId[]): Promise<void> {
-    let accountId: string | null
-    let itemIds: ItemId[]
-
-    if (Array.isArray(accountIdOrItemIds)) {
-      accountId = this.accountId
-      itemIds = accountIdOrItemIds
-    } else {
-      accountId = accountIdOrItemIds
-      itemIds = maybeItemIds ?? []
-    }
-
+  async unquarantineBatch(itemIds: ItemId[]): Promise<void> {
+    const accountId = this.accountId
     if (!accountId) return
     const uniqueItemIds = Array.from(new Set(itemIds.filter(id => Boolean(id))))
     if (uniqueItemIds.length === 0) return
@@ -255,7 +219,6 @@ export class RecoveryManager {
     if (!this.accountId) return
     try {
       await this.quarantine(
-        this.accountId,
         itemId,
         null,
         { checkCooldown: true, failedBranches },

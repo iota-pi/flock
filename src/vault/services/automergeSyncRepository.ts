@@ -2,8 +2,6 @@ import type BaseDriver from '../drivers/base'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { StoredSyncMessage } from '../drivers/base'
 
-export type { StoredSyncMessage }
-
 type AppendSyncMessageInput = {
   account: string
   itemId: ItemId

@@ -1,8 +1,8 @@
-export function bufferToBase64(buf: ArrayBuffer): string {
+function bufferToBase64(buf: ArrayBuffer): string {
   return new Uint8Array(buf).toBase64()
 }
 
-export function base64ToBuffer(base64: string): ArrayBuffer {
+function base64ToBuffer(base64: string): ArrayBuffer {
   return Uint8Array.fromBase64(base64).buffer
 }
 

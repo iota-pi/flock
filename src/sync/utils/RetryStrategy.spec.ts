@@ -207,4 +207,177 @@ describe('RetryStrategy', () => {
       expect(jittered).toBeLessThanOrEqual(67500)
     })
   })
+
+  describe('executeWithRetry', () => {
+    it('executes operation successfully on initial attempt without retrying', async () => {
+      const op = vi.fn().mockResolvedValue('success')
+      const onRetry = vi.fn()
+
+      const result = await RetryStrategy.executeWithRetry(op, {
+        delays: [10, 20],
+        onRetry,
+      })
+
+      expect(result).toBe('success')
+      expect(op).toHaveBeenCalledTimes(1)
+      expect(op).toHaveBeenCalledWith(1)
+      expect(onRetry).not.toHaveBeenCalled()
+    })
+
+    it('retries on failure and returns successful result on subsequent attempt', async () => {
+      const op = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('fail 1'))
+        .mockRejectedValueOnce(new Error('fail 2'))
+        .mockResolvedValueOnce('success on 3')
+
+      const onRetry = vi.fn()
+      const result = await RetryStrategy.executeWithRetry(op, {
+        delays: [0, 0, 0],
+        maxAttempts: 3,
+        onRetry,
+      })
+
+      expect(result).toBe('success on 3')
+      expect(op).toHaveBeenCalledTimes(3)
+      expect(op).toHaveBeenNthCalledWith(1, 1)
+      expect(op).toHaveBeenNthCalledWith(2, 2)
+      expect(op).toHaveBeenNthCalledWith(3, 3)
+      expect(onRetry).toHaveBeenCalledTimes(2)
+      expect(onRetry).toHaveBeenNthCalledWith(1, expect.any(Error), 1, 0)
+      expect(onRetry).toHaveBeenNthCalledWith(2, expect.any(Error), 2, 0)
+    })
+
+    it('exhausts maxAttempts and throws the last error', async () => {
+      const op = vi.fn().mockImplementation(attempt => {
+        throw new Error(`Attempt ${attempt} failed`)
+      })
+
+      await expect(
+        RetryStrategy.executeWithRetry(op, {
+          delays: [0, 0],
+          maxAttempts: 3,
+        })
+      ).rejects.toThrow('Attempt 3 failed')
+
+      expect(op).toHaveBeenCalledTimes(3)
+    })
+
+    it('stops retrying immediately if shouldRetry returns false', async () => {
+      class FatalError extends Error {
+        isFatal = true
+      }
+
+      const op = vi.fn().mockRejectedValue(new FatalError('Fatal error'))
+      const shouldRetry = vi.fn().mockImplementation(err => !(err instanceof FatalError))
+
+      await expect(
+        RetryStrategy.executeWithRetry(op, {
+          delays: [0, 0],
+          maxAttempts: 3,
+          shouldRetry,
+        })
+      ).rejects.toThrow('Fatal error')
+
+      expect(op).toHaveBeenCalledTimes(1)
+      expect(shouldRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('supports async shouldRetry predicate', async () => {
+      const op = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('transient'))
+        .mockResolvedValueOnce('recovered')
+
+      const shouldRetry = vi.fn().mockResolvedValue(true)
+
+      const result = await RetryStrategy.executeWithRetry(op, {
+        delays: [0],
+        maxAttempts: 2,
+        shouldRetry,
+      })
+
+      expect(result).toBe('recovered')
+      expect(op).toHaveBeenCalledTimes(2)
+      expect(shouldRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects immediately without executing operation if AbortSignal is already aborted', async () => {
+      const controller = new AbortController()
+      controller.abort(new Error('Pre-aborted'))
+
+      const op = vi.fn().mockResolvedValue('ok')
+
+      await expect(
+        RetryStrategy.executeWithRetry(op, {
+          delays: [0],
+          signal: controller.signal,
+        })
+      ).rejects.toThrow('Pre-aborted')
+
+      expect(op).not.toHaveBeenCalled()
+    })
+
+    it('cancels delay and rejects immediately when AbortSignal fires during retry delay', async () => {
+      const controller = new AbortController()
+      const op = vi.fn().mockRejectedValue(new Error('Fail'))
+
+      const retryPromise = RetryStrategy.executeWithRetry(op, {
+        delays: [5000],
+        maxAttempts: 3,
+        signal: controller.signal,
+      })
+
+      // Allow attempt 1 to fail and enter delay
+      await new Promise(r => setTimeout(r, 10))
+      expect(op).toHaveBeenCalledTimes(1)
+
+      controller.abort(new Error('Aborted during delay'))
+
+      await expect(retryPromise).rejects.toThrow('Aborted during delay')
+      expect(op).toHaveBeenCalledTimes(1)
+    })
+
+    it('works as an instance method on a RetryStrategy instance', async () => {
+      const strategy = new RetryStrategy({
+        delays: [0, 0],
+        maxAttempts: 2,
+      })
+
+      const op = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('first fail'))
+        .mockResolvedValueOnce('instance ok')
+
+      const result = await strategy.executeWithRetry(op)
+
+      expect(result).toBe('instance ok')
+      expect(op).toHaveBeenCalledTimes(2)
+      expect(strategy.attempt).toBe(1)
+    })
+
+    it('yields to the event loop macrotask queue even when delay is 0ms', async () => {
+      let macrotaskExecuted = false
+      setTimeout(() => {
+        macrotaskExecuted = true
+      }, 0)
+
+      const op = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('try again'))
+        .mockImplementationOnce(() => {
+          expect(macrotaskExecuted).toBe(true)
+          return 'ok'
+        })
+
+      const result = await RetryStrategy.executeWithRetry(op, {
+        delays: [0],
+        maxAttempts: 2,
+      })
+
+      expect(result).toBe('ok')
+      expect(macrotaskExecuted).toBe(true)
+    })
+  })
 })
+

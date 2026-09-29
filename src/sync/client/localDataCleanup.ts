@@ -2,8 +2,9 @@ import { getAutomergeDBName } from '../worker/AutomergeRepoManager'
 import { clearSyncMetadataStorage, clearLegacySyncDatabases } from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
 import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
+import { SYNC_TIMEOUTS } from '../syncConfig'
 
-export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: number = 5000): Promise<void> {
+export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: number = SYNC_TIMEOUTS.localDataCleanup): Promise<void> {
   const dbName = getAutomergeDBName(accountId)
   if (typeof indexedDB === 'undefined') {
     return

@@ -2,8 +2,6 @@ import deepEqual from 'fast-deep-equal'
 import type { AccountMetadata } from '../../../state/metadata'
 import { extractSyncableMetadata, SYNCABLE_METADATA_KEYS } from '../../../shared/schemas/metadata'
 
-export { extractSyncableMetadata, SYNCABLE_METADATA_KEYS }
-
 export interface ReconcileMetadataResult {
   merged: AccountMetadata
   needsRemotePush: boolean

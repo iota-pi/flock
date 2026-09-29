@@ -1,20 +1,19 @@
 import type { z } from 'zod'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import * as runtime from '../../api/runtime'
-import { isAuthError } from './utils/auth'
+import { classifySyncError } from './utils/errorClassifier'
 import {
   putSnapshotsWithToken,
   pollSyncBatchWithToken,
   type PollSyncBatchResponse,
 } from '../../api/vault/SyncWorkerClient'
-import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
+import { fetchManifest, fetchSnapshotsByIds, type ManifestEntry } from '../../api/vault/ItemClient'
 import { getTrpcClient } from 'src/api/trpcClient'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { AccountMetadata } from '../../state/metadata'
 import type { SyncPollBatchSchema } from 'src/shared/schemas/trpc'
-import type { ManifestEntry } from './ManifestSyncManager'
 
 function safeSetApiAuthToken(token: string) {
   try {
@@ -40,6 +39,14 @@ function safeGetApiAuthToken(): string {
   }
 }
 
+export class AuthError extends Error {
+  readonly code = 'UNAUTHORIZED' as const
+  constructor(message = 'No active session token available', options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'AuthError'
+  }
+}
+
 export class AuthExpiredError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options)
@@ -48,7 +55,14 @@ export class AuthExpiredError extends Error {
 }
 
 export function toAuthExpiredError(err: unknown): AuthExpiredError {
-  const message = err instanceof Error ? err.message : String(err)
+  if (err instanceof AuthExpiredError) {
+    return err
+  }
+  const message = err instanceof Error
+    ? err.message
+    : typeof (err as { message?: unknown })?.message === 'string'
+      ? (err as { message: string }).message
+      : String(err)
   return new AuthExpiredError(
     `Authentication session expired (${message})`,
     { cause: err }
@@ -190,7 +204,7 @@ export class SyncApiClient {
 
   getToken(): string {
     if (!this.currentToken) {
-      throw new Error('No active session token available')
+      throw new AuthError('No active session token available')
     }
     return this.currentToken
   }
@@ -203,13 +217,13 @@ export class SyncApiClient {
   async executeWithAuth<T>(operation: (authToken: string) => Promise<T>): Promise<T> {
     const token = await this.getValidToken()
     if (!token) {
-      throw new Error('No active session token available')
+      throw new AuthError('No active session token available')
     }
 
     try {
       return await operation(token)
     } catch (err) {
-      if (!isAuthError(err)) {
+      if (!classifySyncError(err).isAuth) {
         throw err
       }
 
@@ -222,7 +236,7 @@ export class SyncApiClient {
       try {
         return await operation(refreshedToken)
       } catch (retryErr) {
-        if (isAuthError(retryErr)) {
+        if (classifySyncError(retryErr).isAuth) {
           throw toAuthExpiredError(retryErr)
         }
         throw retryErr

@@ -7,12 +7,8 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { encryptBytes } from '../../api/vault'
 import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'
-import {
-  isTransientVaultError,
-  TRANSIENT_VAULT_ERROR_SUBSTRINGS,
-} from './utils/vaultErrors'
-
-export { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS }
+import { classifySyncError } from './utils/errorClassifier'
+import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
@@ -50,7 +46,7 @@ export async function buildSnapshot(
   try {
     encryptedDoc = await encryptBytes(binary)
   } catch (error) {
-    if (isTransientVaultError(error)) {
+    if (classifySyncError(error).isTransientVault) {
       return { type: 'not-ready' }
     }
     throw error
@@ -79,3 +75,29 @@ export async function buildSnapshot(
     heads,
   }
 }
+
+export class SnapshotBuilder {
+  constructor(private readonly repo: Repo) {}
+
+  async build(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
+    try {
+      return await buildSnapshot(this.repo, itemId, snapshotCursor)
+    } catch (error: unknown) {
+      const classified = classifySyncError(error)
+      if (classified.isTransientVault) {
+        console.warn('[SnapshotBuilder] Vault is locked or uninitialized during snapshot build, waiting', error)
+        return { type: 'not-ready' }
+      }
+      console.error('[SnapshotBuilder] failed to encrypt snapshot binary', error)
+      return {
+        type: 'error',
+        reason: error instanceof Error ? error.message : 'Failed to encrypt snapshot binary',
+      }
+    }
+  }
+
+  estimateSize(snapshot: VaultSnapshotInput): number {
+    return estimateSnapshotSize(snapshot)
+  }
+}
+

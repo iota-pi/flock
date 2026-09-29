@@ -1,8 +1,6 @@
 import type { ItemId } from 'src/shared/schemas/items'
-import {
-  type AutomergeSyncRepository,
-  type StoredSyncMessage,
-} from './automergeSyncRepository'
+import type { AutomergeSyncRepository } from './automergeSyncRepository'
+import type { StoredSyncMessage } from '../drivers/base'
 
 type SyncMessagePayload = {
   iv: string

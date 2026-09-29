@@ -19,12 +19,10 @@ import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
-import { ServiceLifecycleManager } from './ServiceLifecycleManager'
+import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
-import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
+import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
-
-export { QuotaExceededRetryError }
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -154,7 +152,8 @@ export class SyncWorkerContext {
   }
 
   private createCoreServices(config: SyncWorkerContextConfig) {
-    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub)
+    const storage = this.repoManager.getStorage()
+    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub, storage)
     if (config.onDocHandleReplaced) {
       docStore.onDocHandleReplaced = config.onDocHandleReplaced
     }
@@ -223,26 +222,24 @@ export class SyncWorkerContext {
       apiClient: this.apiClient,
     })
 
-    const manifestSyncManager = new ManifestSyncManager(
-      {
-        accountId: config.accountId,
-        docStore: this.docStore,
-        indexManager: this.indexManager,
-        snapshotManager: this.snapshotManager,
-        recoveryManager: this.recoveryManager,
-        apiClient: this.apiClient,
-        onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
-      },
-      (items, options) => itemOperations.storeItems(items, options),
-      changes => itemOperations.mutateMetadata(changes),
-      (itemId, error) => {
+    const manifestSyncManager = new ManifestSyncManager({
+      accountId: config.accountId,
+      docStore: this.docStore,
+      indexManager: this.indexManager,
+      snapshotManager: this.snapshotManager,
+      recoveryManager: this.recoveryManager,
+      apiClient: this.apiClient,
+      onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      storeItems: (items, options) => itemOperations.storeItems(items, options),
+      mutateMetadata: changes => itemOperations.mutateMetadata(changes),
+      onDecryptionFailure: (itemId, error) => {
         void this.recoveryManager.reportDecryptionFailure(itemId, error)
       },
-      (itemId, heads) => {
+      onItemSnapshotHydrated: (itemId, heads) => {
         const docId = toDocumentIdFromItemId(itemId)
         this.adapter.setSyncedHeads(docId, heads)
-      }
-    )
+      },
+    })
 
     const storageRecoveryService = new StorageRecoveryService({
       accountId: config.accountId,
@@ -267,15 +264,10 @@ export class SyncWorkerContext {
     this.subscribeInternalEvents()
   }
 
-  private registerLifecycleServices(): void {
-    // Teardown runs in LIFO order (reverse registration order).
-    // Startup runs in FIFO order (registration order).
-    // Register items that should stop last first, and items that should stop first last.
-
-    // 1. Storage cleanup on logout/clearLocalData (runs last on teardown)
-    this.lifecycle.register({
-      name: 'StorageCleanup',
-      onStop: async options => {
+  private get storageCleanupService(): LifecycleAware<{ clearLocalData?: boolean }> {
+    return {
+      lifecycleName: 'StorageCleanup',
+      onLifecycleStop: async options => {
         if (options?.clearLocalData) {
           await Promise.all([
             clearSyncMetadataStorage(this.accountId),
@@ -287,125 +279,48 @@ export class SyncWorkerContext {
           ])
         }
       },
-    })
+    }
+  }
 
-    // 2. RepoManager — close IndexedDB last (after all doc operations)
-    this.lifecycle.register({
-      name: 'RepoManager',
-      onStop: async options => {
-        if (options?.clearLocalData) {
-          try {
-            await this.repoManager.clearLocalData()
-          } catch (err) {
-            console.error('[SyncWorkerContext] Error clearing Automerge DB', err)
-          }
-        }
-        await this.repoManager.close()
-      },
-    })
-
-    // 3. VaultNetworkAdapter
-    this.lifecycle.register({
-      name: 'VaultNetworkAdapter',
-      onStop: () => {
-        this.adapter.disconnect()
-      },
-    })
-
-    // 4. SyncMessageBroker
-    this.lifecycle.register({
-      name: 'SyncMessageBroker',
-      onStop: async () => {
-        await this.broker.shutdown()
-      },
-    })
-
-    // 5. StorageRecoveryService
-    this.lifecycle.register({
-      name: 'StorageRecoveryService',
-      onStart: () => {
-        this.storageRecoveryService.start()
-      },
-      onStop: () => {
-        this.storageRecoveryService.stop()
-      },
-    })
-
-    // 6. IndexManager
-    this.lifecycle.register({
-      name: 'IndexManager',
-      onStart: async () => {
-        await this.indexManager.ensureIndexDocument()
-      },
-      onStop: () => {
-        this.indexManager.close?.()
-      },
-    })
-
-    // 7. RecoveryManager
-    this.lifecycle.register({
-      name: 'RecoveryManager',
-      onStop: () => {
-        this.recoveryManager.resetRecoveryState()
-      },
-    })
-
-    // 8. DocStore
-    this.lifecycle.register({
-      name: 'DocStore',
-      onStop: async () => {
-        await this.docStore.shutdown()
-      },
-    })
-
-    // 9. SnapshotManager
-    this.lifecycle.register({
-      name: 'SnapshotManager',
-      onStart: async () => {
-        await this.snapshotManager.loadLastModified()
-      },
-      onStop: async options => {
-        await this.snapshotManager.shutdown(options)
-      },
-    })
-
-    // 10. SyncedHeads
-    this.lifecycle.register({
-      name: 'SyncedHeads',
-      onStart: async () => {
+  private get syncedHeadsService(): LifecycleAware {
+    return {
+      lifecycleName: 'SyncedHeads',
+      onLifecycleStart: async () => {
         const storedHeads = await this.syncedHeadsStore.loadSyncedHeads()
         if (storedHeads && storedHeads.length > 0) {
           this.adapter.loadSyncedHeads(storedHeads)
         }
       },
-    })
+    }
+  }
 
-    // 11. PullQueueManager
-    this.lifecycle.register({
-      name: 'PullQueueManager',
-      onStop: async options => {
-        await this.pullQueueManager.shutdown(options)
-      },
-    })
+  private registerLifecycleServices(): void {
+    // Teardown runs in LIFO order (reverse registration order).
+    // Startup runs in FIFO order (registration order).
+    // Register items that should stop last first, and items that should stop first last.
+    const services: LifecycleAware<{ clearLocalData?: boolean }>[] = [
+      this.storageCleanupService,
+      this.repoManager,
+      this.adapter,
+      this.broker,
+      this.storageRecoveryService,
+      this.indexManager,
+      this.recoveryManager,
+      this.docStore,
+      this.snapshotManager,
+      this.syncedHeadsService,
+      this.pullQueueManager,
+      this.manifestSyncManager,
+      this.orchestrator,
+    ]
 
-    // 12. ManifestSyncManager
-    this.lifecycle.register({
-      name: 'ManifestSyncManager',
-      onStop: () => {
-        this.manifestSyncManager.shutdown()
-      },
-    })
-
-    // 13. SyncOrchestrator (starts last, stops first)
-    this.lifecycle.register({
-      name: 'SyncOrchestrator',
-      onStart: async () => {
-        await this.orchestrator.start()
-      },
-      onStop: async () => {
-        await this.orchestrator.shutdown()
-      },
-    })
+    for (const svc of services) {
+      this.lifecycle.register({
+        name: svc.lifecycleName,
+        onStart: svc.onLifecycleStart?.bind(svc),
+        onStop: svc.onLifecycleStop?.bind(svc),
+      })
+    }
   }
 
   private subscribeInternalEvents(): void {

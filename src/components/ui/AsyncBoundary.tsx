@@ -20,7 +20,7 @@ type AsyncErrorBoundaryState = {
   error: Error | null
 }
 
-export function isChunkLoadError(error: Error): boolean {
+function isChunkLoadError(error: Error): boolean {
   const message = error.message || ''
   return (
     message.includes('Failed to fetch dynamically imported module') ||

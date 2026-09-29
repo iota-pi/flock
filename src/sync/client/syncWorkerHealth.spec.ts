@@ -1,9 +1,5 @@
 import {
-  setupWorkerHealthCheck,
-  stopWorkerHeartbeat,
-  resetCrashMetrics,
   sendPing,
-  recordWorkerActivity,
   MAX_CONSECUTIVE_CRASHES,
   MAX_CONSECUTIVE_TIMEOUTS,
   SyncWorkerHealthMonitor,
@@ -131,10 +127,12 @@ describe('sendPing', () => {
 
 describe('syncWorkerHealth', () => {
   let mockWorker: any
+  let healthMonitor: SyncWorkerHealthMonitor
 
   beforeEach(() => {
     vi.useFakeTimers()
-    resetCrashMetrics()
+    healthMonitor = new SyncWorkerHealthMonitor()
+    healthMonitor.resetCrashMetrics()
     useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
     const listeners: Record<string, ((ev: any) => void)[]> = {}
     mockWorker = {
@@ -157,7 +155,7 @@ describe('syncWorkerHealth', () => {
   })
 
   afterEach(() => {
-    stopWorkerHeartbeat()
+    healthMonitor.stopWorkerHeartbeat()
     vi.useRealTimers()
   })
 
@@ -172,7 +170,7 @@ describe('syncWorkerHealth', () => {
       }
     }
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -201,7 +199,7 @@ describe('syncWorkerHealth', () => {
     const channel = new MessageChannel()
     // Intentionally do not respond to ping
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -237,7 +235,7 @@ describe('syncWorkerHealth', () => {
     const onRestart = vi.fn()
     const channel = new MessageChannel()
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -261,7 +259,7 @@ describe('syncWorkerHealth', () => {
     const channel = new MessageChannel()
     const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -298,7 +296,7 @@ describe('syncWorkerHealth', () => {
     const channel = new MessageChannel()
     const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -310,7 +308,7 @@ describe('syncWorkerHealth', () => {
     await vi.advanceTimersByTimeAsync(15000)
 
     // Stop heartbeat while ping is in flight
-    stopWorkerHeartbeat()
+    healthMonitor.stopWorkerHeartbeat()
 
     // Verify listeners were cleaned up
     expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
@@ -330,7 +328,7 @@ describe('syncWorkerHealth', () => {
 
     const channel = new MessageChannel()
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -355,7 +353,7 @@ describe('syncWorkerHealth', () => {
 
     const channel = new MessageChannel()
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -369,7 +367,7 @@ describe('syncWorkerHealth', () => {
 
     // Advance 25s (total 40s). Worker emits an event (activity observed)
     await vi.advanceTimersByTimeAsync(25000)
-    recordWorkerActivity()
+    healthMonitor.recordActivity()
 
     // Advance remaining 5s (total 45s, ping times out)
     await vi.advanceTimersByTimeAsync(5000)
@@ -388,7 +386,7 @@ describe('syncWorkerHealth', () => {
 
     const channel = new MessageChannel()
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -434,7 +432,7 @@ describe('syncWorkerHealth', () => {
     })
 
     try {
-      setupWorkerHealthCheck({
+      healthMonitor.setupWorkerHealthCheck({
         worker: mockWorker,
         pingPort: channel.port1,
         isCurrentWorker: () => true,
@@ -462,7 +460,7 @@ describe('syncWorkerHealth', () => {
 
     const channel = new MessageChannel()
 
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: channel.port1,
       isCurrentWorker: () => true,
@@ -488,12 +486,12 @@ describe('syncWorkerHealth', () => {
 
   it('differentiates explicit error vs timeout in crash limits', async () => {
     // 1. Explicit errors halt after MAX_CONSECUTIVE_CRASHES (3)
-    resetCrashMetrics()
+    healthMonitor.resetCrashMetrics()
     for (let i = 1; i < MAX_CONSECUTIVE_CRASHES; i++) {
       const onCrash = vi.fn()
       const onRestart = vi.fn()
       const channel = new MessageChannel()
-      setupWorkerHealthCheck({
+      healthMonitor.setupWorkerHealthCheck({
         worker: mockWorker,
         pingPort: channel.port1,
         isCurrentWorker: () => true,
@@ -509,7 +507,7 @@ describe('syncWorkerHealth', () => {
     const finalOnCrash = vi.fn()
     const finalOnRestart = vi.fn()
     const finalErrorChannel = new MessageChannel()
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: finalErrorChannel.port1,
       isCurrentWorker: () => true,
@@ -523,13 +521,13 @@ describe('syncWorkerHealth', () => {
     finalErrorChannel.port2.close()
 
     // 2. Timeouts allow up to MAX_CONSECUTIVE_TIMEOUTS (5)
-    resetCrashMetrics()
+    healthMonitor.resetCrashMetrics()
     useAppStore.setState({ syncStatus: 'idle', fatalError: null })
     for (let i = 1; i < MAX_CONSECUTIVE_TIMEOUTS; i++) {
       const onCrash = vi.fn()
       const onRestart = vi.fn()
       const channel = new MessageChannel()
-      setupWorkerHealthCheck({
+      healthMonitor.setupWorkerHealthCheck({
         worker: mockWorker,
         pingPort: channel.port1,
         isCurrentWorker: () => true,
@@ -545,7 +543,7 @@ describe('syncWorkerHealth', () => {
     const finalTimeoutCrash = vi.fn()
     const finalTimeoutRestart = vi.fn()
     const finalChannel = new MessageChannel()
-    setupWorkerHealthCheck({
+    healthMonitor.setupWorkerHealthCheck({
       worker: mockWorker,
       pingPort: finalChannel.port1,
       isCurrentWorker: () => true,

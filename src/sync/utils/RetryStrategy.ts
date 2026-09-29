@@ -1,3 +1,5 @@
+import { AbortError, isAbortError } from './abort'
+
 export interface JitterOptions {
   /**
    * Proportion of delay to use for jitter window (e.g., 0.25 means ±25%).
@@ -31,8 +33,81 @@ export interface RetryStrategyOptions {
   jitter?: boolean | JitterOptions
 }
 
+export interface ExecuteWithRetryOptions {
+  /**
+   * Pre-existing RetryStrategy instance to use. If provided, delays/maxAttempts/jitter
+   * on options are ignored in favor of the strategy's configuration.
+   */
+  strategy?: RetryStrategy
+  /**
+   * Delays schedule to use if no strategy is provided.
+   * Defaults to DEFAULT_RETRY_DELAYS or strategy.delays.
+   */
+  delays?: readonly number[]
+  /**
+   * Maximum number of attempts (including the first attempt).
+   * Defaults to strategy.maxAttempts, or delays.length + 1, or 3.
+   */
+  maxAttempts?: number
+  /**
+   * Whether to apply jitter.
+   */
+  jitter?: boolean | JitterOptions
+  /**
+   * Optional AbortSignal to cancel retry delays and abort execution.
+   */
+  signal?: AbortSignal
+  /**
+   * Optional predicate to determine if a retry should be attempted after an error.
+   * If it returns false, executeWithRetry immediately re-throws the error.
+   */
+  shouldRetry?: (error: unknown, attempt: number) => boolean | Promise<boolean>
+  /**
+   * Callback invoked before each retry attempt delay.
+   */
+  onRetry?: (error: unknown, attempt: number, delayMs: number) => void
+}
+
 export const DEFAULT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000] as const
 export const DEFAULT_POLL_BACKOFF_DELAYS = [30000, 60000, 120000, 300000] as const
+
+function delayWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      const reason =
+        signal.reason instanceof Error
+          ? signal.reason
+          : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Operation aborted')
+      return reject(reason)
+    }
+
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const onAbort = () => {
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+      const reason =
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new AbortError(typeof signal?.reason === 'string' ? signal.reason : 'Operation aborted')
+      reject(reason)
+    }
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    timer = setTimeout(() => {
+      timer = null
+      if (signal) {
+        signal.removeEventListener('abort', onAbort)
+      }
+      resolve()
+    }, ms)
+  })
+}
 
 /**
  * Reusable retry strategy encapsulating backoff schedules, symmetric jitter,
@@ -184,5 +259,83 @@ export class RetryStrategy {
       return RetryStrategy.applyJitter(base, jitterOpts)
     }
     return base
+  }
+
+  /**
+   * Executes an async operation with retries according to the retry strategy options,
+   * yielding to the JavaScript event loop via setTimeout between retry attempts and
+   * respecting AbortSignal cancellation.
+   */
+  static async executeWithRetry<T>(
+    operation: (attempt: number) => Promise<T> | T,
+    options: ExecuteWithRetryOptions = {}
+  ): Promise<T> {
+    const strategy =
+      options.strategy ??
+      new RetryStrategy({
+        delays: options.delays,
+        maxAttempts: options.maxAttempts,
+        jitter: options.jitter,
+      })
+
+    const maxAttempts =
+      options.maxAttempts ??
+      strategy.maxAttempts ??
+      (strategy.delays.length > 0 ? strategy.delays.length + 1 : 1)
+
+    const signal = options.signal
+    let attempt = 0
+
+    while (true) {
+      attempt += 1
+
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error
+          ? signal.reason
+          : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Operation aborted')
+      }
+
+      try {
+        return await operation(attempt)
+      } catch (error) {
+        if (signal?.aborted) {
+          throw signal.reason instanceof Error
+            ? signal.reason
+            : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Operation aborted')
+        }
+
+        if (isAbortError(error)) {
+          throw error
+        }
+
+        const canRetryByStrategy = attempt < maxAttempts && strategy.canRetry
+        let shouldRetry = canRetryByStrategy
+        if (shouldRetry && options.shouldRetry) {
+          shouldRetry = await options.shouldRetry(error, attempt)
+        }
+
+        if (!shouldRetry) {
+          throw error
+        }
+
+        const delayMs = strategy.nextDelay()
+        options.onRetry?.(error, attempt, delayMs)
+
+        await delayWithSignal(delayMs, signal)
+      }
+    }
+  }
+
+  /**
+   * Executes an async operation using this RetryStrategy instance.
+   */
+  async executeWithRetry<T>(
+    operation: (attempt: number) => Promise<T> | T,
+    options?: Omit<ExecuteWithRetryOptions, 'strategy'>
+  ): Promise<T> {
+    return RetryStrategy.executeWithRetry(operation, {
+      ...options,
+      strategy: this,
+    })
   }
 }

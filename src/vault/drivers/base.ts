@@ -7,7 +7,6 @@ import { HttpError } from '../api/errors'
 import type { ItemId } from 'src/shared/schemas/items'
 import {
   VaultKeySchema,
-  VaultMetaDataSchema,
   VaultSessionRecordSchema,
   VaultAccountSchema,
   VaultAccountWithAuthSchema,
@@ -16,7 +15,6 @@ import {
 } from '../../shared/schemas/vault'
 
 export type VaultKey = z.infer<typeof VaultKeySchema>
-export type VaultMetaData = z.infer<typeof VaultMetaDataSchema>
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
 export type VaultAccount = z.infer<typeof VaultAccountSchema>
 export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>

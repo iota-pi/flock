@@ -3,7 +3,6 @@ import { isQuotaError } from './storageQuota'
 type QuotaExceededListener = (message: string) => void
 
 const listeners = new Set<QuotaExceededListener>()
-let isQuotaExceeded = false
 let lastReportedTime = 0
 const REPORT_THROTTLE_MS = 10000 // 10 seconds
 
@@ -15,7 +14,6 @@ export function registerQuotaReporter(reporter: QuotaExceededListener): () => vo
 }
 
 function reportQuotaExceeded(): void {
-  isQuotaExceeded = true
   const now = Date.now()
   if (now - lastReportedTime < REPORT_THROTTLE_MS) {
     return
@@ -33,16 +31,7 @@ function reportQuotaExceeded(): void {
 }
 
 export function resetQuotaExceededStatus(): void {
-  isQuotaExceeded = false
   lastReportedTime = 0
-}
-
-export function checkQuotaExceeded(): boolean {
-  if (isQuotaExceeded) {
-    reportQuotaExceeded()
-    return true
-  }
-  return false
 }
 
 export type QuotaRecoveryHandler = () => Promise<boolean | number | void>

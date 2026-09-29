@@ -4,7 +4,8 @@ import { debounce } from 'lodash-es'
 import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { decryptWithKeyResolution, MissingKeyError } from './utils/decryptWithKeyResolution'
+import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
+import { classifySyncError } from './utils/errorClassifier'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
@@ -12,6 +13,8 @@ import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
 import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap } from '../utils/boundedCollections'
+import { SYNC_TIMEOUTS } from '../syncConfig'
+import type { LifecycleAware } from './ServiceLifecycleManager'
 
 interface ProcessItemMessagesResult {
   highestCursor: number
@@ -23,12 +26,18 @@ interface ProcessItemMessagesResult {
 }
 
 const BATCH_PROGRESS_CACHE_MAX = 500
-const KEY_WAIT_TIMEOUT_MS = 5000
+const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
 const PROTOCOL_VERSION = '1.0'
 
-export class SyncPullQueueManager {
+export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: boolean }> {
+  readonly lifecycleName = 'PullQueueManager'
   private isShutdown = false
   private account: string | null = null
+
+  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
+    await this.shutdown(options)
+  }
+
   private readonly retryTracker = new PullRetryTracker()
   private hasMoreGlobal = false
   private globalLastEvaluatedKey?: Record<string, unknown>
@@ -172,8 +181,9 @@ export class SyncPullQueueManager {
         },
       })
     } catch (error) {
-      if (error instanceof MissingKeyError) {
-        return { parsed: false, missingKey: true, kver: error.kver }
+      const classified = classifySyncError(error)
+      if (classified.isMissingKey) {
+        return { parsed: false, missingKey: true, kver: classified.kver }
       }
       return { parsed: false }
     }

@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import type { ItemId } from 'src/shared/schemas/items'
 import { runStorageOperation } from '../../utils/storageManager'
-import { packBatchedMessages, type BatchableMessage } from './utils/binaryFraming'
+import { packBatchedMessages } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { WorkerInternalEventHub } from './SyncEventHub'
@@ -9,8 +9,7 @@ import {
   createAccountStore,
   clearAccountStoreInstancesCacheForTesting,
 } from '../shared/createAccountStore'
-
-export { packBatchedMessages, type BatchableMessage, WalEntryQuery, type WalEntryDescriptor }
+import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 export interface WalEntry extends WalEntryDescriptor {
   id: string
@@ -41,8 +40,8 @@ function toUint8Array(data: unknown): Uint8Array {
   return new Uint8Array()
 }
 
-const MAX_ENTRIES = 2000
-const PRUNE_BATCH_SIZE = 100
+const MAX_ENTRIES = SYNC_BATCH_SIZES.walMax
+const PRUNE_BATCH_SIZE = SYNC_BATCH_SIZES.walPrune
 
 export class SyncWriteAheadLog {
   public static readonly MAX_ENTRIES = MAX_ENTRIES

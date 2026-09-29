@@ -38,6 +38,7 @@ vi.mock('./FlockIndexedDBStorageAdapter', () => {
       removeRange = vi.fn().mockResolvedValue(undefined)
       clear = vi.fn().mockResolvedValue(undefined)
       close = vi.fn().mockResolvedValue(undefined)
+      has = vi.fn().mockResolvedValue(false)
     },
   }
 })
@@ -95,4 +96,23 @@ describe('AutomergeRepoManager', () => {
     await manager.close()
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('delegates has through runStorageOperation', async () => {
+    const repo = manager.init(mockVaultAdapter) as any
+    const runStorageSpy = vi.spyOn(storageManager, 'runStorageOperation')
+
+    // @ts-expect-error accessing private adapter
+    vi.spyOn(manager.indexedDbAdapter, 'has').mockResolvedValueOnce(true)
+
+    const result = await repo.storage.has(['doc-1'])
+    expect(result).toBe(true)
+    expect(runStorageSpy).toHaveBeenCalled()
+  })
+
+  it('exposes wrapped storage via getters', () => {
+    manager.init(mockVaultAdapter)
+    expect(manager.getStorage()).toBeDefined()
+    expect(typeof manager.getStorage()?.has).toBe('function')
+  })
 })
+

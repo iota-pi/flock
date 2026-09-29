@@ -4,7 +4,6 @@ import type { OverridableComponent } from '@mui/material/OverridableComponent'
 import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Archive'
 import BackIcon from '@mui/icons-material/ChevronLeft'
-import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CollapseIcon from '@mui/icons-material/ExpandLess'
 import DeleteIcon from '@mui/icons-material/DeleteOutlineOutlined'
@@ -56,7 +55,6 @@ export {
   ArchiveIcon,
   BackIcon,
   BackIcon as ContractMenuIcon,
-  CloudDoneIcon,
   CloudOffIcon,
   CollapseIcon,
   DeleteIcon,

@@ -98,9 +98,6 @@ const FILTER_CRITERIA_ORDER: FilterCriterionType[] = [
   'lastPrayedFor',
   'groups',
 ]
-export const FILTER_CRITERIA_DISPLAY = (
-  FILTER_CRITERIA_ORDER.map(fc => fc)
-)
 
 export function getAvailableFilterCriteria(itemType?: ItemType): FilterCriterionType[] {
   if (itemType === 'group') {
@@ -229,7 +226,7 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
   throw new Error(`Unknown data type ${dataType}`)
 }
 
-export function isDefaultNoArchivedItemsFilter(criterion: FilterCriterion): boolean {
+function isDefaultNoArchivedItemsFilter(criterion: FilterCriterion): boolean {
   return (
     (criterion as unknown as { type: string }).type === 'archived'
     && criterion.baseOperator === 'is'

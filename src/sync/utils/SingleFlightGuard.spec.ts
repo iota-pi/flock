@@ -1,10 +1,6 @@
-import { SingleFlightGuard, TaskDeduplicator, KeyedSingleFlightGuard } from './SingleFlightGuard'
+import { SingleFlightGuard, KeyedSingleFlightGuard } from './SingleFlightGuard'
 
 describe('SingleFlightGuard', () => {
-  it('exports TaskDeduplicator as an alias for SingleFlightGuard', () => {
-    expect(TaskDeduplicator).toBe(SingleFlightGuard)
-  })
-
   it('runs an asynchronous function and returns its result', async () => {
     const guard = new SingleFlightGuard<number>()
     const fn = vi.fn().mockResolvedValue(42)
