@@ -1,9 +1,6 @@
-import { FastifyRequest } from 'fastify'
 import { z } from 'zod'
 
 import type { WebPushSubscription } from '../types'
-import { getAuthToken } from '../api/util'
-import { HttpError } from '../api/errors'
 import type { ItemId } from 'src/shared/schemas/items'
 import {
   VaultKeySchema,
@@ -60,11 +57,8 @@ export default abstract class BaseDriver<T = unknown> {
   // pre-populated `session` for immediate login.
   abstract createAccount(data: VaultAccount): Promise<boolean>
 
-  // Check session/authentication. `isLogin` instructs the implementation to
-  // validate against `authToken` instead of session hash.
-  abstract checkSession(data: AuthData & { isLogin?: boolean }): Promise<{ success: boolean, reason?: string }>
-
-  // Retrieve account data; `isLogin` optional as in `checkSession`.
+  // Retrieve account data and validate session; `isLogin` instructs implementation
+  // to validate against `authToken` instead of session hash.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
   abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }>
@@ -111,15 +105,4 @@ export default abstract class BaseDriver<T = unknown> {
     cursor?: number
     exclusiveStartKey?: Record<string, unknown>
   }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
-
-  async auth(request: FastifyRequest) {
-    const account = (request.params as { account: string }).account
-    const authToken = getAuthToken(request)
-    const valid = await this.checkSession({ account, session: authToken })
-    if (!valid) {
-      throw new HttpError(403, 'Unauthorized')
-    }
-    // Extend session expiry on successful authentication (fire-and-forget)
-    this.extendSession({ account, session: authToken }).catch(() => {})
-  }
 }

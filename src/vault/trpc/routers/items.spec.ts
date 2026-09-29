@@ -1,9 +1,14 @@
 import { itemsRouter } from './items'
 
-function createContext(overrides?: { authToken?: string, checkSessionSuccess?: boolean }) {
-  const checkSessionSuccess = overrides?.checkSessionSuccess ?? true
+function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
+  const sessionValid = overrides?.sessionValid ?? true
   const vault = {
-    checkSession: vi.fn(async () => ({ success: checkSessionSuccess })),
+    getAccount: vi.fn(async () => {
+      if (!sessionValid) {
+        throw new Error('Unauthorized')
+      }
+      return { account: 'acct-1', metadata: {} } as any
+    }),
     extendSession: vi.fn(async () => undefined),
     set: vi.fn(async () => undefined),
     updateAccountData: vi.fn(async () => undefined),

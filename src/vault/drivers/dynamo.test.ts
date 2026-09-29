@@ -82,17 +82,17 @@ describe('DynamoDriver', function () {
     })
 
     expect(
-      await driver.checkSession({ account, session: authToken, isLogin: true })
-    ).toEqual({ success: true })
-    expect(
-      await driver.checkSession({ account, session: authToken, isLogin: false })
-    ).toEqual({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: authToken })
-    ).toEqual({ success: false, reason: 'expired' })
+      (await driver.getAccount({ account, session: authToken, isLogin: true })).account
+    ).toBe(account)
+    await expect(
+      driver.getAccount({ account, session: authToken, isLogin: false })
+    ).rejects.toThrow()
+    await expect(
+      driver.getAccount({ account, session: authToken })
+    ).rejects.toThrow()
   })
 
-  it('checkSession works based on session', async () => {
+  it('getAccount session validation works based on session', async () => {
     const account = generateAccountId()
     await driver.createAccount({
       account,
@@ -108,24 +108,24 @@ describe('DynamoDriver', function () {
       account,
       sessions: [{ token: newSession, expiry }],
     })
+    await expect(
+      driver.getAccount({ account, session })
+    ).rejects.toThrow()
+    await expect(
+      driver.getAccount({ account, session: authToken })
+    ).rejects.toThrow()
     expect(
-      await driver.checkSession({ account, session })
-    ).toMatchObject({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: authToken })
-    ).toMatchObject({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: newSession })
-    ).toMatchObject({ success: true })
-    expect(
-      await driver.checkSession({ account, session: 'wrong' })
-    ).toMatchObject({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: '' })
-    ).toMatchObject({ success: false })
+      (await driver.getAccount({ account, session: newSession })).account
+    ).toBe(account)
+    await expect(
+      driver.getAccount({ account, session: 'wrong' })
+    ).rejects.toThrow()
+    await expect(
+      driver.getAccount({ account, session: '' })
+    ).rejects.toThrow()
   })
 
-  it('checkSession accepts multiple active sessions', async () => {
+  it('getAccount accepts multiple active sessions', async () => {
     const account = generateAccountId()
     await driver.createAccount({
       account,
@@ -147,8 +147,8 @@ describe('DynamoDriver', function () {
       ],
     })
 
-    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
-    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: true })
+    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
+    expect((await driver.getAccount({ account, session: sessionB })).account).toBe(account)
   })
 
   it('repeated createAccount calls fail', async () => {
@@ -181,8 +181,8 @@ describe('DynamoDriver', function () {
 
     // Session should be valid after creation
     expect(
-      await driver.checkSession({ account, session: sessionA })
-    ).toEqual({ success: true })
+      (await driver.getAccount({ account, session: sessionA })).account
+    ).toBe(account)
 
     // Extend the session
     await driver.extendSession({ account, session: sessionA })
@@ -304,8 +304,8 @@ describe('DynamoDriver', function () {
     })
 
     // Both sessions are valid
-    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
-    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: true })
+    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
+    expect((await driver.getAccount({ account, session: sessionB })).account).toBe(account)
 
     // Simulate changePassword by updating sessions array to only contain sessionA
     await driver.updateAccountData({
@@ -314,8 +314,8 @@ describe('DynamoDriver', function () {
     })
 
     // Now sessionA is valid, sessionB is revoked
-    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
-    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: false, reason: 'expired' })
+    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
+    await expect(driver.getAccount({ account, session: sessionB })).rejects.toThrow()
   })
 
   it('fetchManifest returns item and modifiedAt tuples without payload', async () => {

@@ -1,7 +1,6 @@
 import Fastify from 'fastify'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
-import { fastifyAuth } from '@fastify/auth'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import getDriver from '../drivers'
 import { appRouter } from '../trpc/root'
@@ -26,7 +25,6 @@ async function createServer(devMode = false) {
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   })
-  await server.register(fastifyAuth)
 
   const vault = getDriver('dynamo', devMode)
   server.decorate('vault', vault)

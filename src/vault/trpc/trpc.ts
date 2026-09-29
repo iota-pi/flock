@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type BaseDriver from '../drivers/base'
+import type { VaultAccountWithAuth } from '../drivers/base'
 import { AccountInputSchema } from '../../shared/schemas/trpc'
 
 type TrpcContext = {
@@ -43,12 +44,17 @@ export const protectedProcedure = t.procedure
 
     const { account } = input
 
-    const validSession = await ctx.vault.checkSession({
-      account,
-      session: ctx.authToken,
-    })
+    let accountData: VaultAccountWithAuth
+    try {
+      accountData = await ctx.vault.getAccount({
+        account,
+        session: ctx.authToken,
+      })
+    } catch {
+      throw new TRPCError({ code: 'UNAUTHORIZED' })
+    }
 
-    if (!validSession.success) {
+    if (!accountData) {
       throw new TRPCError({ code: 'UNAUTHORIZED' })
     }
 
@@ -58,6 +64,7 @@ export const protectedProcedure = t.procedure
       ctx: {
         ...ctx,
         account,
+        accountData,
       },
     })
   })

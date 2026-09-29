@@ -5,19 +5,13 @@ import { ItemId } from 'src/shared/schemas/items'
 
 function createContext(overrides?: {
   authToken?: string
-  checkSessionSuccess?: boolean
+  sessionValid?: boolean
 }) {
-  const checkSessionSuccess = overrides?.checkSessionSuccess ?? true
+  const sessionValid = overrides?.sessionValid ?? true
   const vault = {
-    checkSession: vi.fn(async (_: { account: string; session: string }) => {
-      if (!checkSessionSuccess) {
-        return { success: false, reason: 'Invalid session' }
-      }
-      return { success: true }
-    }),
     extendSession: vi.fn(async () => undefined),
     getAccount: vi.fn(async ({ account, session }: { account: string; session: string }) => {
-      if (!checkSessionSuccess) {
+      if (!sessionValid) {
         throw new Error('Unauthorized')
       }
       return {
@@ -66,13 +60,13 @@ describe('syncRouter authorization & IDOR protection', () => {
   })
 
   it('rejects pushBatch when session does not belong to target account (IDOR protection)', async () => {
-    const ctx = createContext({ checkSessionSuccess: false })
+    const ctx = createContext({ sessionValid: false })
     const caller = syncRouter.createCaller(ctx as any)
 
     await expect(caller.pushBatch(samplePushInput)).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     } satisfies Partial<TRPCError>)
-    expect(ctx.vault.checkSession).toHaveBeenCalledWith({
+    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
       account: 'target-account',
       session: 'valid-session-token',
     })
@@ -80,12 +74,12 @@ describe('syncRouter authorization & IDOR protection', () => {
   })
 
   it('allows pushBatch when session is valid for the account', async () => {
-    const ctx = createContext({ checkSessionSuccess: true })
+    const ctx = createContext({ sessionValid: true })
     const caller = syncRouter.createCaller(ctx as any)
 
     const result = await caller.pushBatch(samplePushInput)
     expect(result.success).toBe(true)
-    expect(ctx.vault.checkSession).toHaveBeenCalledWith({
+    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
       account: 'target-account',
       session: 'valid-session-token',
     })
@@ -97,7 +91,7 @@ describe('syncRouter authorization & IDOR protection', () => {
   })
 
   it('rejects pollSync when session does not belong to target account', async () => {
-    const ctx = createContext({ checkSessionSuccess: false })
+    const ctx = createContext({ sessionValid: false })
     const caller = syncRouter.createCaller(ctx as any)
 
     await expect(
@@ -109,7 +103,7 @@ describe('syncRouter authorization & IDOR protection', () => {
     ).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     } satisfies Partial<TRPCError>)
-    expect(ctx.vault.checkSession).toHaveBeenCalledWith({
+    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
       account: 'target-account',
       session: 'valid-session-token',
     })
@@ -153,8 +147,8 @@ describe('pollSync behavior and account isolation', () => {
     expect(result.pullResults[0].itemId).toBe('item-1')
     expect(result.pullResults[0].nextCursor).toBe(120)
 
-    // Critical assertion: getAccount is NOT called on idle polls
-    expect(ctx.vault.getAccount).not.toHaveBeenCalled()
+    // Critical assertion: getAccount is called once in protectedProcedure for session auth, not in pollSync
+    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
     // Critical assertion: global GSI query is executed
     expect(ctx.vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledTimes(1)
   })
@@ -180,8 +174,8 @@ describe('pollSync behavior and account isolation', () => {
     const pushedCursor = result.pushResults[0].cursor
     expect(pushedCursor).toBeGreaterThan(0)
 
-    // Critical assertion: getAccount and updateAccountData are NOT called on push (no OCC contention)
-    expect(ctx.vault.getAccount).not.toHaveBeenCalled()
+    // Critical assertion: getAccount is called once in protectedProcedure for auth, and updateAccountData is NOT called on push (no OCC contention)
+    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })
 

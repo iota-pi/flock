@@ -98,15 +98,10 @@ export const accountsRouter = router({
 
   getMetadata: protectedProcedure
     .input(AccountInputSchema)
-    .query(async ({ ctx, input }) => {
-      const { metadata } = await ctx.vault.getAccount({
-        account: input.account,
-        session: ctx.authToken,
-      })
-
+    .query(async ({ ctx }) => {
       return {
         success: true,
-        metadata,
+        metadata: ctx.accountData.metadata,
       }
     }),
 
@@ -124,12 +119,7 @@ export const accountsRouter = router({
   addPushSubscription: protectedProcedure
     .input(PushSubscriptionBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const existingAccount = await ctx.vault.getAccount({
-        account: input.account,
-        session: ctx.authToken,
-      })
-
-      const existing = existingAccount.pushSubscriptions ?? []
+      const existing = ctx.accountData.pushSubscriptions ?? []
       const incoming = {
         endpoint: input.endpoint,
         keys: input.keys,
@@ -149,12 +139,7 @@ export const accountsRouter = router({
   deletePushSubscription: protectedProcedure
     .input(PushSubscriptionDeleteBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const existingAccount = await ctx.vault.getAccount({
-        account: input.account,
-        session: ctx.authToken,
-      })
-
-      const existing = existingAccount.pushSubscriptions ?? []
+      const existing = ctx.accountData.pushSubscriptions ?? []
       const next = existing.filter(sub => sub.endpoint !== input.endpoint)
 
       await ctx.vault.updateAccountData({
@@ -167,18 +152,13 @@ export const accountsRouter = router({
 
   getReminderSettings: protectedProcedure
     .input(AccountInputSchema)
-    .query(async ({ ctx, input }) => {
-      const existingAccount = await ctx.vault.getAccount({
-        account: input.account,
-        session: ctx.authToken,
-      })
-
+    .query(async ({ ctx }) => {
       return {
         success: true,
-        reminderEnabled: existingAccount.reminderEnabled ?? false,
-        reminderTime: existingAccount.reminderTime ?? '08:00',
-        reminderTimezone: existingAccount.reminderTimezone ?? 'UTC',
-        snoozeRemindersUntil: existingAccount.snoozeRemindersUntil,
+        reminderEnabled: ctx.accountData.reminderEnabled ?? false,
+        reminderTime: ctx.accountData.reminderTime ?? '08:00',
+        reminderTimezone: ctx.accountData.reminderTimezone ?? 'UTC',
+        snoozeRemindersUntil: ctx.accountData.snoozeRemindersUntil,
       }
     }),
 
@@ -200,11 +180,7 @@ export const accountsRouter = router({
     .mutation(async ({ ctx, input }) => {
       let targetDate = input.snoozeUntilDate
       if (targetDate === undefined) {
-        const existingAccount = await ctx.vault.getAccount({
-          account: input.account,
-          session: ctx.authToken,
-        })
-        const timezone = existingAccount.reminderTimezone ?? 'UTC'
+        const timezone = ctx.accountData.reminderTimezone ?? 'UTC'
         const zoned = toZonedTime(new Date(), timezone)
         const tomorrow = new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate() + 1)
         const year = tomorrow.getFullYear()
@@ -223,15 +199,10 @@ export const accountsRouter = router({
 
   getKeyring: protectedProcedure
     .input(AccountInputSchema)
-    .query(async ({ ctx, input }) => {
-      const accountData = await ctx.vault.getAccount({
-        account: input.account,
-        session: ctx.authToken,
-      })
-
+    .query(async ({ ctx }) => {
       return {
         success: true,
-        keyring: accountData.keyring,
+        keyring: ctx.accountData.keyring,
       }
     }),
 
@@ -270,10 +241,7 @@ export const accountsRouter = router({
   changePassword: protectedProcedure
     .input(ChangePasswordBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const accountData = await ctx.vault.getAccount({
-        account: input.account,
-        session: ctx.authToken,
-      })
+      const accountData = ctx.accountData
 
       const currentAuthTokenHash = hashString(input.currentAuthToken)
       if (accountData.authToken !== currentAuthTokenHash) {

@@ -474,33 +474,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  async checkSession(
-    { account, isLogin, session }: AuthData & { isLogin?: boolean },
-  ): Promise<{ success: boolean, reason?: string }> {
-    try {
-      const result = await this.getAccount({ account, isLogin, session })
-      if (result) {
-        await this.client.send(new UpdateCommand(
-          {
-            TableName: ACCOUNT_TABLE_NAME,
-            Key: { account },
-            UpdateExpression: 'SET lastAccess=:now',
-            ExpressionAttributeValues: {
-              ':now': Date.now(),
-            },
-          },
-        ))
-        return { success: true }
-      }
-      return { success: false }
-    } catch (error) {
-      if (error instanceof ExpiredSessionError) {
-        return { success: false, reason: 'expired' }
-      }
-      return { success: false }
-    }
-  }
-
   async set(item: VaultItem) {
     let itemToPersist = item
 
