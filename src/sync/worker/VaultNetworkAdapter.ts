@@ -17,6 +17,7 @@ import { areHeadsEqual } from './utils/automerge'
 import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedSet } from '../utils/boundedCollections'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export const MAX_OUTBOUND_QUEUE_SIZE = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
 const MAX_SEEDED_DOCUMENTS = 5000
@@ -341,7 +342,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   }
 
   private readonly saveSyncedHeadsDebounced = debounce(() => {
-    void this.persistSyncedHeads()
+    fireAndForget(this.persistSyncedHeads(), 'VaultNetworkAdapter:persistSyncedHeads')
   }, 1000)
 
   async persistSyncedHeads(): Promise<void> {

@@ -21,6 +21,7 @@ import { toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/aut
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
+import { fireAndForget } from '../utils/fireAndForget'
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {
@@ -198,8 +199,14 @@ export class SyncWorker implements SyncApi {
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(accountId, itemIds => {
       this.subscribeToItems(itemIds)
       if (this._context) {
-        this._context.indexManager.addAutomergeItemIdsToIndex(itemIds).catch(console.error)
-        this._context.recoveryManager.unquarantineBatch(itemIds).catch(console.error)
+        fireAndForget(
+          this._context.indexManager.addAutomergeItemIdsToIndex(itemIds),
+          'SyncWorker:addAutomergeItemIdsToIndex',
+        )
+        fireAndForget(
+          this._context.recoveryManager.unquarantineBatch(itemIds),
+          'SyncWorker:unquarantineBatch',
+        )
       }
     })
   }
@@ -271,10 +278,16 @@ export class SyncWorker implements SyncApi {
         const doc = handle.doc() || null
         const item = normalizeItemSnapshot(id, doc)
         if (item?.deleted) {
-          this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+          fireAndForget(
+            this.context.indexManager.removeAutomergeItemIdsFromIndex([id]),
+            'SyncWorker:removeAutomergeItemIdsFromIndex',
+          )
           this.unsubscribe(id)
         } else if (item) {
-          this.context.indexManager.addAutomergeItemIdsToIndex([id]).catch(console.error)
+          fireAndForget(
+            this.context.indexManager.addAutomergeItemIdsToIndex([id]),
+            'SyncWorker:addAutomergeItemIdsToIndex',
+          )
         }
         if (isDocChange) {
           this.context.snapshotManager.recordInboundChange(id)
@@ -303,11 +316,14 @@ export class SyncWorker implements SyncApi {
       this.subscribedIds.add(id)
 
       const url = toAutomergeUrlFromItemId(id)
-      repo.find<RepoDoc>(url).then(handle => {
-        if (!this.subscribedIds.has(id)) return
-        const currentHandle = (repo.handles?.[handle.documentId] as DocHandle<RepoDoc> | undefined) ?? handle
-        this.bindItemHandle(id, currentHandle)
-      }).catch(console.error)
+      fireAndForget(
+        repo.find<RepoDoc>(url).then(handle => {
+          if (!this.subscribedIds.has(id)) return
+          const currentHandle = (repo.handles?.[handle.documentId] as DocHandle<RepoDoc> | undefined) ?? handle
+          this.bindItemHandle(id, currentHandle)
+        }),
+        'SyncWorker:subscribeToItems:find',
+      )
     }
   }
 
@@ -391,7 +407,10 @@ export class SyncWorker implements SyncApi {
     this.withContext(async ctx => {
       await ctx.recoveryManager.unquarantine(itemId)
       ctx.snapshotManager.markItemDirty(itemId)
-      void ctx.snapshotManager.flushPendingSnapshots()
+      fireAndForget(
+        ctx.snapshotManager.flushPendingSnapshots(),
+        'SyncWorker:retryRecoveryItem:flushPendingSnapshots',
+      )
     })
 
   forceOverwriteRecoveryItem = (itemId: ItemId) =>
@@ -403,7 +422,10 @@ export class SyncWorker implements SyncApi {
   compactItem = (itemId: ItemId) =>
     this.withContext(async ctx => {
       await ctx.itemOperations.compactItem(itemId)
-      void ctx.snapshotManager.flushPendingSnapshots()
+      fireAndForget(
+        ctx.snapshotManager.flushPendingSnapshots(),
+        'SyncWorker:compactItem:flushPendingSnapshots',
+      )
     })
 
   dismissRecoveryItem = (entryId: string) =>

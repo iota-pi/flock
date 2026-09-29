@@ -4,6 +4,7 @@ import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifie
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { RecoveryManager } from './RecoveryManager'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export interface SnapshotTrackerOptions {
   accountId: string
@@ -40,12 +41,12 @@ export class SnapshotTracker {
   private readonly accountId: string
 
   public readonly flushDirtyDocumentsToIndexDebounced = debounce(
-    () => void this.flushDirtyDocumentsToIndex(),
+    () => fireAndForget(this.flushDirtyDocumentsToIndex(), 'SnapshotTracker:flushDirtyDocumentsToIndex'),
     1000,
   )
 
   public readonly saveLastModifiedDebounced = debounce(
-    () => void this.persistLastModified(),
+    () => fireAndForget(this.persistLastModified(), 'SnapshotTracker:persistLastModified'),
     1000,
   )
 

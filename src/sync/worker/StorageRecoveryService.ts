@@ -15,6 +15,7 @@ import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { SyncOrchestrator } from './SyncOrchestrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export class QuotaExceededRetryError extends Error {
   constructor(message: string) {
@@ -64,7 +65,7 @@ export class StorageRecoveryService implements LifecycleAware {
 
     if (!this.unregisterQuotaReporter) {
       this.unregisterQuotaReporter = registerQuotaReporter((msg: string) => {
-        void this.handleQuotaExceeded(msg)
+        fireAndForget(this.handleQuotaExceeded(msg), 'StorageRecoveryService:handleQuotaExceeded')
       })
     }
   }
@@ -194,7 +195,10 @@ export class StorageRecoveryService implements LifecycleAware {
    */
   flushPendingSyncIfOnline(): void {
     if (this.deps.orchestrator.online) {
-      void this.deps.snapshotManager.flushPendingSnapshots().catch(console.error)
+      fireAndForget(
+        this.deps.snapshotManager.flushPendingSnapshots(),
+        'StorageRecoveryService:flushPendingSnapshots',
+      )
       this.deps.orchestrator.flush()
     }
   }

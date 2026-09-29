@@ -15,6 +15,7 @@ import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap } from '../utils/boundedCollections'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { fireAndForget } from '../utils/fireAndForget'
 
 interface ProcessItemMessagesResult {
   highestCursor: number
@@ -45,7 +46,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   private readonly batchProgress = new BoundedMap<string, number>(BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
 
-  private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
+  private readonly saveCursorsDebounced = debounce(() => fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors'), 1000)
 
   private lockCoordinator?: ItemLockCoordinator
   private internalEventHub: WorkerInternalEventHub

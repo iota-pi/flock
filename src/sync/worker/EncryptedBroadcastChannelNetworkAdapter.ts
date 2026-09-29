@@ -25,6 +25,7 @@ import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import { AsyncQueue } from '../utils/AsyncQueue'
 import { BoundedQueue } from '../utils/boundedCollections'
+import { fireAndForget } from '../utils/fireAndForget'
 
 const DEFAULT_MAX_CRYPTO_RETRIES = 3
 const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
@@ -199,7 +200,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   private ensureKeyWaiter(kver: string): void {
     if (this.activeKeyWaiters.has(kver)) return
     this.activeKeyWaiters.add(kver)
-    void this.waitForKeyAndDrain(kver)
+    fireAndForget(this.waitForKeyAndDrain(kver), 'EncryptedBroadcastChannel:waitForKeyAndDrain')
   }
 
   private async waitForKeyAndDrain(kver: string): Promise<void> {

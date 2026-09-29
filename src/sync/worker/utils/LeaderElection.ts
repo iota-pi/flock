@@ -1,3 +1,5 @@
+import { fireAndForget } from '../../utils/fireAndForget'
+
 export interface LeaderElectionCallbacks {
   onLeaderGranted: () => void
   onLeaderRevoked: () => void
@@ -311,21 +313,24 @@ export class LeaderElection {
     this.abortController = abortController
 
     try {
-      void navigator.locks
-        .request(lockName, { signal: abortController.signal }, async () => {
-          this.consecutiveFailures = 0
-          this.grantLeadership(false)
+      fireAndForget(
+        navigator.locks
+          .request(lockName, { signal: abortController.signal }, async () => {
+            this.consecutiveFailures = 0
+            this.grantLeadership(false)
 
-          return new Promise<void>(resolve => {
-            this.releaseLeadershipLock = () => {
-              this.revokeLeadership()
-              resolve()
-            }
+            return new Promise<void>(resolve => {
+              this.releaseLeadershipLock = () => {
+                this.revokeLeadership()
+                resolve()
+              }
+            })
           })
-        })
-        .catch((err: unknown) => {
-          this.handleLockError(err, abortController)
-        })
+          .catch((err: unknown) => {
+            this.handleLockError(err, abortController)
+          }),
+        'LeaderElection:acquireLock',
+      )
     } catch (err: unknown) {
       this.handleLockError(err, abortController)
     }
