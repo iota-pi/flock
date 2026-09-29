@@ -38,7 +38,7 @@ export const SYNCABLE_METADATA_KEYS = [
 ] as const satisfies readonly (keyof z.infer<typeof accountMetadataSchema>)[]
 
 type SyncableMetadataKey = (typeof SYNCABLE_METADATA_KEYS)[number]
-type SyncableMetadata = Partial<Record<SyncableMetadataKey, unknown>>
+export type SyncableMetadata = Pick<z.infer<typeof accountMetadataSchema>, SyncableMetadataKey>
 
 export function extractSyncableMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -47,7 +47,7 @@ export function extractSyncableMetadata(
   const result: SyncableMetadata = {}
   for (const key of SYNCABLE_METADATA_KEYS) {
     if (metadata[key] !== undefined) {
-      result[key] = metadata[key]
+      result[key] = metadata[key] as never
     }
   }
   return result

@@ -18,9 +18,9 @@ export interface SnapshotTrackerOptions {
 }
 
 export class SnapshotTracker {
-  private isShutdown = false
+  public isShutdown = false
   private isLeader = false
-  private isOnline = true
+  public isOnline = true
   public readonly dirtyItems = new Map<ItemId, number>()
   public dirtyItemsTick = 0
   public readonly lastModifiedByItemId = new Map<ItemId, number>()
@@ -31,7 +31,7 @@ export class SnapshotTracker {
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
-  private readonly loadGuard = new SingleFlightGuard<void>()
+  public readonly loadGuard = new SingleFlightGuard<void>()
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
   private readonly onOversizedFound?: (itemId: ItemId) => void
