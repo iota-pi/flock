@@ -49,6 +49,8 @@ export type UpdateAccountDataParams = Partial<AuthData> & {
 }
 
 
+export type VaultDriver = BaseDriver
+
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>

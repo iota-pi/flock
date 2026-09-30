@@ -8,8 +8,7 @@ import {
   fetchManifest,
   fetchSnapshotsByIds,
 } from '../../services/manifestService'
-import type { VaultItem } from '../../drivers/base'
-import type { ItemType } from '../../types'
+import { persistSnapshots } from '../../services/snapshotService'
 
 export const itemsRouter = router({
   fetchManifest: protectedProcedure
@@ -40,51 +39,6 @@ export const itemsRouter = router({
   putSnapshots: protectedProcedure
     .input(PutSnapshotBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      const results = await Promise.allSettled(
-        input.snapshots.map(async snapshot => {
-          const item: VaultItem = {
-            account: input.account,
-            item: snapshot.itemId,
-            metadata: {
-              type: snapshot.type as ItemType,
-              iv: '',
-              modified: snapshot.modified,
-              ...(snapshot.deleted ? { deleted: true } : {}),
-            },
-            snapshot: snapshot.snapshot,
-          }
-
-          await ctx.vault.set(item)
-        })
-      )
-
-      const persistedSnapshots = results
-        .map((result, index) => result.status === 'fulfilled' ? input.snapshots[index] : null)
-        .filter((snapshot): snapshot is typeof input.snapshots[number] => !!snapshot)
-      const persisted = persistedSnapshots.length
-
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          console.error(
-            `[itemsRouter.putSnapshots] Failed to persist snapshot for item ${input.snapshots[index].itemId}:`,
-            result.reason,
-          )
-        }
-      })
-
-      if (persisted > 0) {
-        const snapshotCursor = Math.max(...persistedSnapshots.map(snapshot => snapshot.snapshotCursor))
-        await ctx.vault.updateAccountData({
-          account: input.account,
-          lastSnapshotCursor: snapshotCursor,
-          lastSnapshotAt: Date.now(),
-        })
-      }
-
-      return {
-        success: persisted === input.snapshots.length,
-        persisted,
-        total: input.snapshots.length,
-      }
+      return persistSnapshots(ctx.vault, input)
     }),
 })
