@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from './SyncBridge'
 import { resumePendingReencryption } from '../../api/vault/reencrypt'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export default function useSyncCoordinatorLifecycle(
   account: string | null | undefined,
@@ -20,7 +21,7 @@ export default function useSyncCoordinatorLifecycle(
       clearFatalError()
       SyncBridge.initialize(account)
         .then(() => {
-          void resumePendingReencryption(account)
+          fireAndForget(resumePendingReencryption(account), 'useSyncCoordinatorLifecycle:resumePendingReencryption')
         })
         .catch(error => {
           console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
@@ -30,9 +31,10 @@ export default function useSyncCoordinatorLifecycle(
         if (SyncBridge.isClearingLocalData?.()) {
           return
         }
-        void SyncBridge.shutdown({ accountId: account }).catch(error => {
-          console.error('[useSyncCoordinatorLifecycle] shutdown failed', error)
-        })
+        fireAndForget(
+          SyncBridge.shutdown({ accountId: account }),
+          'useSyncCoordinatorLifecycle:shutdown',
+        )
       }
     },
     [account, enabled],

@@ -1,3 +1,5 @@
+import { fireAndForget } from './fireAndForget'
+
 export type AsyncQueueWorker<T> = (item: T) => Promise<void> | void
 
 export interface AsyncQueueOptions<T = unknown> {
@@ -66,7 +68,7 @@ export class AsyncQueue<T> {
   push(...items: T[]): void {
     if (items.length === 0) return
     this.items.push(...items)
-    void this.drain()
+    fireAndForget(this.drain(), 'AsyncQueue:drain')
   }
 
   unshift(...items: T[]): void {
@@ -77,7 +79,7 @@ export class AsyncQueue<T> {
     } else {
       this.items.unshift(...items)
     }
-    void this.drain()
+    fireAndForget(this.drain(), 'AsyncQueue:drain')
   }
 
   clear(): void {
@@ -136,12 +138,18 @@ export class AsyncQueue<T> {
           }
         }
       }
+    } catch (err) {
+      console.error('[AsyncQueue] Unexpected error in drain loop:', err)
     } finally {
       this.isProcessing = false
       if (this.items.length > 0) {
-        void this.drain()
+        fireAndForget(this.drain(), 'AsyncQueue:drain')
       } else {
-        this.resolveIdleWaiters()
+        try {
+          this.resolveIdleWaiters()
+        } catch (err) {
+          console.error('[AsyncQueue] Error resolving idle waiters:', err)
+        }
       }
     }
   }

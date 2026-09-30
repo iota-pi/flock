@@ -7,6 +7,7 @@ import { SYNC_BATCH_SIZES } from '../syncConfig'
 export interface SyncEventProcessorCallbacks {
   onKeyVersionMissing?: (kver?: string) => void
   onActivity?: () => void
+  onTokenRefreshNeeded?: () => void
 }
 
 export class SyncEventProcessor {
@@ -16,6 +17,7 @@ export class SyncEventProcessor {
 
   private recoveryEntries: ManualRecoveryEntry[] = []
   private recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
+  private reencryptProgressListeners = new Set<(done: number, total: number) => void>()
 
   constructor(private callbacks: SyncEventProcessorCallbacks = {}) {}
 
@@ -39,6 +41,13 @@ export class SyncEventProcessor {
     listener(this.recoveryEntries)
     return () => {
       this.recoveryEntriesListeners.delete(listener)
+    }
+  }
+
+  subscribeReencryptProgress(listener: (done: number, total: number) => void): () => void {
+    this.reencryptProgressListeners.add(listener)
+    return () => {
+      this.reencryptProgressListeners.delete(listener)
     }
   }
 
@@ -137,6 +146,18 @@ export class SyncEventProcessor {
         syncStore.setLeaderConflict(event.hasConflict)
         break
       }
+      case 'tokenRefreshNeeded':
+        this.callbacks.onTokenRefreshNeeded?.()
+        break
+      case 'reencryptProgress':
+        for (const listener of Array.from(this.reencryptProgressListeners)) {
+          try {
+            listener(event.done, event.total)
+          } catch (err) {
+            console.error('[SyncEventProcessor] Error in reencryptProgress listener:', err)
+          }
+        }
+        break
     }
   }
 
@@ -146,6 +167,7 @@ export class SyncEventProcessor {
       this.itemUpdateFlushHandle = null
     }
     this.pendingItemUpdates.clear()
+    this.reencryptProgressListeners.clear()
 
     if (clearRecovery) {
       this.recoveryEntries = []

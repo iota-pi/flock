@@ -1,9 +1,6 @@
-import { FastifyRequest } from 'fastify'
 import { z } from 'zod'
 
 import type { WebPushSubscription } from '../types'
-import { getAuthToken } from '../api/util'
-import { HttpError } from '../api/errors'
 import type { ItemId } from 'src/shared/schemas/items'
 import {
   VaultKeySchema,
@@ -30,6 +27,28 @@ export interface AuthData extends BaseData {
 }
 
 
+export type UpdateAccountDataParams = Partial<AuthData> & {
+  metadata?: Record<string, unknown>,
+  session?: string,
+  sessions?: VaultSessionRecord[],
+  pushSubscriptions?: WebPushSubscription[],
+  reminderEnabled?: boolean,
+  reminderTime?: string,
+  reminderTimezone?: string,
+  snoozeRemindersUntil?: string | null,
+  lastSnapshotCursor?: number,
+  lastSnapshotAt?: number,
+  lastSnapshotRequestedAt?: number,
+  keyring?: string,
+  authToken?: string,
+  salt?: string,
+  iterations?: number,
+  saltVersion?: number,
+  keyringVersion?: number,
+  expectedKeyringVersion?: number,
+}
+
+
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
@@ -38,11 +57,8 @@ export default abstract class BaseDriver<T = unknown> {
   // pre-populated `session` for immediate login.
   abstract createAccount(data: VaultAccount): Promise<boolean>
 
-  // Check session/authentication. `isLogin` instructs the implementation to
-  // validate against `authToken` instead of session hash.
-  abstract checkSession(data: AuthData & { isLogin?: boolean }): Promise<{ success: boolean, reason?: string }>
-
-  // Retrieve account data; `isLogin` optional as in `checkSession`.
+  // Retrieve account data and validate session; `isLogin` instructs implementation
+  // to validate against `authToken` instead of session hash.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
   abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }>
@@ -50,26 +66,7 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Update account-level data. Accepts partial auth data so callers can update
   // either `metadata` or `session` independently.
-  abstract updateAccountData(data: Partial<AuthData> & {
-    metadata?: Record<string, unknown>,
-    session?: string,
-    sessions?: VaultSessionRecord[],
-    pushSubscriptions?: WebPushSubscription[],
-    reminderEnabled?: boolean,
-    reminderTime?: string,
-    reminderTimezone?: string,
-    snoozeRemindersUntil?: string | null,
-    lastSnapshotCursor?: number,
-    lastSnapshotAt?: number,
-    lastSnapshotRequestedAt?: number,
-    keyring?: string,
-    authToken?: string,
-    salt?: string,
-    iterations?: number,
-    saltVersion?: number,
-    keyringVersion?: number,
-    expectedKeyringVersion?: number,
-  }): Promise<void>
+  abstract updateAccountData(data: UpdateAccountDataParams): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
   abstract extendSession(data: AuthData): Promise<void>
@@ -108,15 +105,4 @@ export default abstract class BaseDriver<T = unknown> {
     cursor?: number
     exclusiveStartKey?: Record<string, unknown>
   }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
-
-  async auth(request: FastifyRequest) {
-    const account = (request.params as { account: string }).account
-    const authToken = getAuthToken(request)
-    const valid = await this.checkSession({ account, session: authToken })
-    if (!valid) {
-      throw new HttpError(403, 'Unauthorized')
-    }
-    // Extend session expiry on successful authentication (fire-and-forget)
-    this.extendSession({ account, session: authToken }).catch(() => {})
-  }
 }

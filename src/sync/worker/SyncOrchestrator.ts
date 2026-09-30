@@ -6,6 +6,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from './utils/errorClassifier'
+import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from 'src/shared/schemas/items'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -135,7 +136,7 @@ export class SyncOrchestrator implements LifecycleAware {
     this.manifestSyncManager = manifestSyncManager
     if (this.isOperational) {
       this.startPeriodicManifestSync()
-      void this.triggerManifestSync()
+      fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
     }
   }
 
@@ -158,7 +159,7 @@ export class SyncOrchestrator implements LifecycleAware {
         this.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
       },
     })
-    void this.leaderElection.acquire().catch(console.error)
+    fireAndForget(this.leaderElection.acquire(), 'SyncOrchestrator:leaderElection:acquire')
   }
 
   claimLeader(): void {
@@ -182,11 +183,11 @@ export class SyncOrchestrator implements LifecycleAware {
     this.internalEventHub.emit({ type: 'leaderChange', isLeader })
 
     if (isLeader) {
-      void this.cursorReloadGuard.run(() => this.reloadCursors())
+      fireAndForget(this.cursorReloadGuard.run(() => this.reloadCursors()), 'SyncOrchestrator:reloadCursors')
       this.startPolling(true)
       if (this.isOnline) {
         this.startPeriodicManifestSync()
-        void this.triggerManifestSync()
+        fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
       }
     } else {
       this.cursorReloadGuard.clear()
@@ -216,7 +217,7 @@ export class SyncOrchestrator implements LifecycleAware {
       this.resetPollBackoff()
       this.startPolling(true)
       this.startPeriodicManifestSync()
-      void this.triggerManifestSync()
+      fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
     }
   }
 
@@ -225,27 +226,31 @@ export class SyncOrchestrator implements LifecycleAware {
     this.pollingPausedForAuth = false
     if (this.syncBatchTimeout === null) {
       this.syncBatchTimeout = self.setTimeout(
-        () => void this.flushSyncBatch(),
+        () => fireAndForget(this.flushSyncBatch(), 'SyncOrchestrator:flushSyncBatch'),
         0
       )
     }
   }
 
   private async flushSyncBatch(): Promise<void> {
-    this.syncBatchTimeout = null
-    if (this.pollGuard.isRunning) {
-      this.pendingFlush = true
-      return
-    }
-
-    if (this.pollBackoffIndex > 0) {
-      if (this.pollIntervalId === null) {
-        this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
+    try {
+      this.syncBatchTimeout = null
+      if (this.pollGuard.isRunning) {
+        this.pendingFlush = true
+        return
       }
-      return
-    }
 
-    void this.executeWrappedPoll(true)
+      if (this.pollBackoffIndex > 0) {
+        if (this.pollIntervalId === null) {
+          this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
+        }
+        return
+      }
+
+      fireAndForget(this.executeWrappedPoll(true), 'SyncOrchestrator:executeWrappedPoll')
+    } catch (err) {
+      console.error('[SyncOrchestrator] Error during flushSyncBatch:', err)
+    }
   }
 
   startPolling(immediate?: boolean): void {
@@ -260,7 +265,7 @@ export class SyncOrchestrator implements LifecycleAware {
 
     if (immediate) {
       if (!this.pollGuard.isRunning) {
-        void this.executeWrappedPoll(true)
+        fireAndForget(this.executeWrappedPoll(true), 'SyncOrchestrator:executeWrappedPoll')
       } else {
         this.pendingFlush = true
       }
@@ -295,7 +300,7 @@ export class SyncOrchestrator implements LifecycleAware {
     const jitteredDelayMs = this.applyBackoffJitter(delayMs)
     this.pollIntervalId = self.setTimeout(() => {
       this.pollIntervalId = null
-      void this.executeWrappedPoll()
+      fireAndForget(this.executeWrappedPoll(), 'SyncOrchestrator:executeWrappedPoll')
     }, jitteredDelayMs)
   }
 
@@ -361,49 +366,55 @@ export class SyncOrchestrator implements LifecycleAware {
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
-    if (!this.canPoll(force) || this.pollGuard.isRunning) return
+    try {
+      if (!this.canPoll(force) || this.pollGuard.isRunning) return
 
-    await this.pollGuard.run(async () => {
-      const abortController = new AbortController()
-      this.pollAbortController = abortController
-      const { signal } = abortController
+      await this.pollGuard.run(async () => {
+        const abortController = new AbortController()
+        this.pollAbortController = abortController
+        const { signal } = abortController
 
-      let outcome: PollOutcome
-      try {
-        if (this.cursorReloadGuard.isRunning) {
-          await this.cursorReloadGuard.waitForRunning()
+        let outcome: PollOutcome
+        try {
+          if (this.cursorReloadGuard.isRunning) {
+            await this.cursorReloadGuard.waitForRunning()
+          }
+          checkAlive(signal, () => this.isOperational)
+
+          outcome = await this.poller.executePoll()
+          checkAlive(signal, () => this.isOperational)
+        } catch (err) {
+          if (signal.aborted || isAbortError(err) || !this.isOperational) {
+            return
+          }
+          this.handlePollError(err)
+          return
+        } finally {
+          if (this.pollAbortController === abortController) {
+            this.pollAbortController = null
+          }
         }
-        checkAlive(signal, () => this.isOperational)
 
-        outcome = await this.poller.executePoll()
-        checkAlive(signal, () => this.isOperational)
-      } catch (err) {
-        if (signal.aborted || isAbortError(err) || !this.isOperational) {
+        if (signal.aborted || !this.isOperational) {
           return
         }
-        this.handlePollError(err)
-        return
-      } finally {
-        if (this.pollAbortController === abortController) {
-          this.pollAbortController = null
+
+        if (outcome === 'auth-failure') {
+          this.handlePollError(outcome)
+          return
         }
-      }
 
-      if (signal.aborted || !this.isOperational) {
-        return
+        this.scheduleNextPoll(outcome)
+      }, {
+        onCoalesce: () => {
+          this.pendingFlush = true
+        },
+      })
+    } catch (err) {
+      if (!isAbortError(err)) {
+        console.error('[SyncOrchestrator] Error during executeWrappedPoll:', err)
       }
-
-      if (outcome === 'auth-failure') {
-        this.handlePollError(outcome)
-        return
-      }
-
-      this.scheduleNextPoll(outcome)
-    }, {
-      onCoalesce: () => {
-        this.pendingFlush = true
-      },
-    })
+    }
   }
 
   private async reloadCursors(): Promise<void> {
@@ -445,7 +456,7 @@ export class SyncOrchestrator implements LifecycleAware {
     }
     this.stopPeriodicManifestSync()
     this.manifestSyncIntervalId = self.setInterval(() => {
-      void this.triggerManifestSync()
+      fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
     }, this.manifestSyncIntervalMs) as unknown as number
   }
 
@@ -457,27 +468,33 @@ export class SyncOrchestrator implements LifecycleAware {
   }
 
   async triggerManifestSync(force = false): Promise<void> {
-    if (!this.isOperational || !this.manifestSyncManager) {
-      return
-    }
-    return this.manifestSyncGuard.run(async () => {
-      const abortController = new AbortController()
-      this.manifestSyncAbortController = abortController
-      const { signal } = abortController
-      try {
-        checkAlive(signal, () => this.isOperational)
-        await this.manifestSyncManager!.sync(force, signal)
-        checkAlive(signal, () => this.isOperational)
-      } catch (error) {
-        if (signal.aborted || isAbortError(error) || !this.isOperational) {
-          return
-        }
-        console.warn('[SyncOrchestrator] Manifest sync failed', error)
-      } finally {
-        if (this.manifestSyncAbortController === abortController) {
-          this.manifestSyncAbortController = null
-        }
+    try {
+      if (!this.isOperational || !this.manifestSyncManager) {
+        return
       }
-    })
+      return await this.manifestSyncGuard.run(async () => {
+        const abortController = new AbortController()
+        this.manifestSyncAbortController = abortController
+        const { signal } = abortController
+        try {
+          checkAlive(signal, () => this.isOperational)
+          await this.manifestSyncManager!.sync(force, signal)
+          checkAlive(signal, () => this.isOperational)
+        } catch (error) {
+          if (signal.aborted || isAbortError(error) || !this.isOperational) {
+            return
+          }
+          console.warn('[SyncOrchestrator] Manifest sync failed', error)
+        } finally {
+          if (this.manifestSyncAbortController === abortController) {
+            this.manifestSyncAbortController = null
+          }
+        }
+      })
+    } catch (err) {
+      if (!isAbortError(err)) {
+        console.error('[SyncOrchestrator] Error during triggerManifestSync:', err)
+      }
+    }
   }
 }

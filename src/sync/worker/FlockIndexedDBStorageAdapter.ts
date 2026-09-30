@@ -1,4 +1,5 @@
 import { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge-repo/slim'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   private db: IDBDatabase | null = null
@@ -26,7 +27,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
         this.db = db
         db.addEventListener('versionchange', () => {
           console.warn(`[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection.`)
-          void this.close()
+          fireAndForget(this.close(), 'FlockIndexedDBStorageAdapter:versionchange:close')
         })
         resolve(db)
       }

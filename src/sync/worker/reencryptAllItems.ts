@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_BATCH_BYTES,
 } from '../utils/SizeAwareBatchAccumulator'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
+import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
@@ -119,9 +120,13 @@ export class ItemReencryptor {
       }
       this.scheduledRetryTimeoutId = setTimeout(() => {
         this.scheduledRetryTimeoutId = null
-        void this.reencryptAllItems(deps, onProgress).catch(err => {
-          console.warn('[reencryptAllItems] Scheduled retry failed:', err)
-        })
+        fireAndForget(
+          this.reencryptAllItems(deps, onProgress),
+          'reencryptAllItems:scheduledRetry',
+          err => {
+            console.warn('[reencryptAllItems] Scheduled retry failed:', err)
+          },
+        )
       }, delayMs)
     }
 

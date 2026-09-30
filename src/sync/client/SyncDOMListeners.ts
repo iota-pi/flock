@@ -4,6 +4,7 @@ import {
   VAULT_EVENTS_CHANNEL,
   type VaultBroadcastEvent,
 } from 'src/api/vault'
+import { fireAndForget } from 'src/sync/utils/fireAndForget'
 
 export interface SyncDOMListenersCallbacks {
   setOnlineState?: (isOnline: boolean) => Promise<void> | void
@@ -26,7 +27,7 @@ export class SyncDOMListeners {
 
     if (!this.onlineHandler && typeof window !== 'undefined') {
       this.onlineHandler = () => {
-        void this.handleNetworkChange()
+        fireAndForget(this.handleNetworkChange(), 'SyncDOMListeners:handleNetworkChange')
       }
       window.addEventListener('online', this.onlineHandler)
       window.addEventListener('offline', this.onlineHandler)
@@ -68,43 +69,47 @@ export class SyncDOMListeners {
   }
 
   private async handleNetworkChange(): Promise<void> {
-    const currentCallbacks = this.callbacks
-    if (!currentCallbacks) return
+    try {
+      const currentCallbacks = this.callbacks
+      if (!currentCallbacks) return
 
-    this.eventSequence += 1
-    const seq = this.eventSequence
-    const isOnline = getOnlineState()
+      this.eventSequence += 1
+      const seq = this.eventSequence
+      const isOnline = getOnlineState()
 
-    if (!isOnline) {
+      if (!isOnline) {
+        if (currentCallbacks.setOnlineState) {
+          await currentCallbacks.setOnlineState(false)
+        }
+        if (currentCallbacks.onOnlineChange) {
+          await currentCallbacks.onOnlineChange(false)
+        }
+        return
+      }
+
+      // Step 1: Update online state in worker and await completion
       if (currentCallbacks.setOnlineState) {
-        await currentCallbacks.setOnlineState(false)
+        await currentCallbacks.setOnlineState(true)
       }
       if (currentCallbacks.onOnlineChange) {
-        await currentCallbacks.onOnlineChange(false)
+        await currentCallbacks.onOnlineChange(true)
       }
-      return
-    }
 
-    // Step 1: Update online state in worker and await completion
-    if (currentCallbacks.setOnlineState) {
-      await currentCallbacks.setOnlineState(true)
-    }
-    if (currentCallbacks.onOnlineChange) {
-      await currentCallbacks.onOnlineChange(true)
-    }
-
-    // If a newer event arrived while awaiting setOnlineState, or if offline / stopped, abort
-    if (seq !== this.eventSequence || !getOnlineState() || !this.callbacks) {
-      return
-    }
-
-    // Step 2: Trigger onReconnect callback
-    if (currentCallbacks.onReconnect) {
-      try {
-        await currentCallbacks.onReconnect()
-      } catch (error) {
-        console.error('[SyncDOMListeners] onReconnect callback failed:', error)
+      // If a newer event arrived while awaiting setOnlineState, or if offline / stopped, abort
+      if (seq !== this.eventSequence || !getOnlineState() || !this.callbacks) {
+        return
       }
+
+      // Step 2: Trigger onReconnect callback
+      if (currentCallbacks.onReconnect) {
+        try {
+          await currentCallbacks.onReconnect()
+        } catch (error) {
+          console.error('[SyncDOMListeners] onReconnect callback failed:', error)
+        }
+      }
+    } catch (err) {
+      console.error('[SyncDOMListeners] Error handling network change:', err)
     }
   }
 

@@ -15,11 +15,15 @@ vi.mock('../../api/vault/ItemClient', () => ({
 }))
 
 const mockGetMetadata = vi.fn()
+const mockUpdateMetadata = vi.fn()
 vi.mock('src/api/trpcClient', () => ({
   getTrpcClient: () => ({
     accounts: {
       getMetadata: {
         query: (...args: any[]) => mockGetMetadata(...args),
+      },
+      updateMetadata: {
+        mutate: (...args: any[]) => mockUpdateMetadata(...args),
       },
     },
   }),
@@ -229,6 +233,20 @@ describe('SyncApiClient', () => {
       expect(mockGetMetadata).toHaveBeenCalledWith({ account: 'acc-1' })
     })
 
+    it('passes through updateAccountMetadata successfully', async () => {
+      mockUpdateMetadata.mockResolvedValue({ success: true })
+      const client = new SyncApiClient()
+
+      await client.updateAccountMetadata({
+        account: 'acc-1',
+        metadata: { theme: 'light' } as any,
+      })
+      expect(mockUpdateMetadata).toHaveBeenCalledWith({
+        account: 'acc-1',
+        metadata: { theme: 'light' },
+      })
+    })
+
     it('passes through pollSyncBatch successfully', async () => {
       mockPollSyncBatchWithToken.mockResolvedValue({
         success: true,
@@ -247,6 +265,51 @@ describe('SyncApiClient', () => {
         expect.objectContaining({ account: 'acc-1', authToken: 'default-store-token' }),
         undefined
       )
+    })
+  })
+
+  describe('Global Token Synchronization in executeWithAuth', () => {
+    it('synchronizes the runtime auth token before executing an operation', async () => {
+      mockGetActiveSessionToken.mockResolvedValue('cached-session-token')
+      const client = new SyncApiClient()
+
+      let tokenDuringOperation: string | null = null
+      mockSetApiAuthToken.mockImplementation((t: string) => {
+        tokenDuringOperation = t
+      })
+
+      const executed = await client.executeWithAuth(async token => {
+        expect(mockSetApiAuthToken).toHaveBeenCalledWith('cached-session-token')
+        expect(tokenDuringOperation).toBe('cached-session-token')
+        return `result-with-${token}`
+      })
+
+      expect(executed).toBe('result-with-cached-session-token')
+      expect(mockSetApiAuthToken).toHaveBeenCalledWith('cached-session-token')
+    })
+
+    it('synchronizes the runtime auth token with refreshed token on 401 retry', async () => {
+      mockGetActiveSessionToken.mockResolvedValueOnce('initial-token')
+      const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-token-999')
+      const client = new SyncApiClient({ refreshAuthToken })
+
+      const tokenOrder: string[] = []
+      mockSetApiAuthToken.mockImplementation((t: string) => {
+        tokenOrder.push(t)
+      })
+
+      let attempts = 0
+      await client.executeWithAuth(async token => {
+        attempts += 1
+        if (attempts === 1) {
+          throw { data: { httpStatus: 401 }, message: 'UNAUTHORIZED' }
+        }
+        return token
+      })
+
+      expect(tokenOrder).toContain('initial-token')
+      expect(tokenOrder).toContain('refreshed-token-999')
+      expect(mockSetApiAuthToken).toHaveBeenLastCalledWith('refreshed-token-999')
     })
   })
 })

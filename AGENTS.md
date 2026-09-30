@@ -270,6 +270,10 @@ Item data flows from Automerge docs (in the worker) → dispatched via `SyncEven
 - **Integration tests**: `sync.integration.spec.ts` tests the WAL → poll → pull cycle with mocked network/storage.
 - **E2E tests**: Cypress (`cypress/e2e/`): `offline-sync.cy.ts`, `offline-recovery.cy.ts`, `keyring-sync.cy.ts`.
 
+## Style
+- Utilise the vitest globals in unit tests. Don't import them because it is redundant and will fail the eslint rule
+- Don't use increment/decrement operators. Prefer the longer-form `+=` or `-=` syntax
+
 ## Development
 
 ```bash

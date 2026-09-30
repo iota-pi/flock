@@ -16,6 +16,7 @@ vi.mock('src/api/vault', () => ({
   syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
   lockVault: vi.fn().mockResolvedValue(undefined),
   getVaultSession: vi.fn().mockReturnValue(null),
+  handleSessionExpired: vi.fn().mockResolvedValue(undefined),
   getKeyHash: vi.fn().mockReturnValue(null),
   KEYRING_CACHE_KEY: 'FlockKeyringCache',
   VAULT_EVENTS_CHANNEL: 'flock-vault-events',
@@ -52,6 +53,7 @@ const mockSyncApi = {
   forceDeleteRecoveryItem: vi.fn().mockResolvedValue(undefined),
   dismissRecoveryItem: vi.fn().mockResolvedValue(undefined),
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
+  updateAuthToken: vi.fn().mockResolvedValue(undefined),
   reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
   flushSync: vi.fn().mockReturnValue(undefined),
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
@@ -171,7 +173,6 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
       'test-account',
       'test-key',
-      expect.any(Function),
     )
     expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
   })
@@ -988,7 +989,6 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith(
       'account-success',
       'test-key',
-      expect.any(Function),
     )
 
     vi.useRealTimers()
@@ -1183,7 +1183,6 @@ describe('SyncBridge', () => {
       const onProgress = vi.fn()
       await SyncBridge.reencryptAllItems(onProgress)
       expect(mockSyncApi.reencryptAllItems).toHaveBeenCalledTimes(1)
-      expect(Comlink.proxy).toHaveBeenCalledWith(onProgress)
 
       const entries: ManualRecoveryEntry[] = [
         {

@@ -9,6 +9,7 @@ import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import { SnapshotPusher } from './SnapshotPusher'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -57,7 +58,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       debounceDelayMs: options?.debounceDelayMs,
       maxWaitMs: options?.maxWaitMs,
       isLeader: options?.isLeader,
-      onTriggerPush: () => void this.pusher.triggerSnapshotPush(),
+      onTriggerPush: () => fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onTriggerPush'),
       isRetryActive: () => this.pusher.isRetryActive,
       onOversizedFound: itemId => this.pusher.addOversized(itemId),
     })
@@ -102,7 +103,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     if (isOnline) {
       if (this.tracker.leader && this.tracker.dirtyCount > 0) {
         this.pusher.resetRetry()
-        void this.pusher.triggerSnapshotPush()
+        fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onOnlineStateChange')
       }
     } else {
       this.pusher.abortPush()

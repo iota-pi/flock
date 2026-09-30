@@ -3,7 +3,7 @@ import * as Comlink from 'comlink'
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
 import type { SyncStatus } from 'src/state/slices/syncSlice'
-import { exportKeyringData, handleSessionExpired, getVaultSession } from 'src/api/vault'
+import { exportKeyringData, getVaultSession } from 'src/api/vault'
 import {
   SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
@@ -217,12 +217,11 @@ export class WorkerLifecycleManager {
         pingChannel.port1.start()
         worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
-        const refreshAuthToken = Comlink.proxy(async () => {
-          await handleSessionExpired()
-          return getVaultSession() || null
-        })
-
-        await wrappedApi.initRepo(accountId, vaultKey, refreshAuthToken)
+        await wrappedApi.initRepo(accountId, vaultKey)
+        const currentSession = getVaultSession()
+        if (currentSession) {
+          await wrappedApi.updateAuthToken(currentSession)
+        }
         if (signal.aborted || this.currentAccountId !== accountId) {
           console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()

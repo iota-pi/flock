@@ -29,8 +29,9 @@ export interface SyncApi {
   dismissRecoveryItem: (entryId: string) => Promise<void>
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
+  updateAuthToken: (token: string | null) => Promise<void>
   reencryptAllItems: (
-    onProgress: (done: number, total: number) => void,
+    onProgress?: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>
   ) => Promise<{
     succeeded: ItemId[]

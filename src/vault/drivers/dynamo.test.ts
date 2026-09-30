@@ -1,4 +1,4 @@
-import DynamoDriver, { getConnectionParams } from './dynamo'
+import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
 import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
@@ -82,17 +82,17 @@ describe('DynamoDriver', function () {
     })
 
     expect(
-      await driver.checkSession({ account, session: authToken, isLogin: true })
-    ).toEqual({ success: true })
-    expect(
-      await driver.checkSession({ account, session: authToken, isLogin: false })
-    ).toEqual({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: authToken })
-    ).toEqual({ success: false, reason: 'expired' })
+      (await driver.getAccount({ account, session: authToken, isLogin: true })).account
+    ).toBe(account)
+    await expect(
+      driver.getAccount({ account, session: authToken, isLogin: false })
+    ).rejects.toThrow()
+    await expect(
+      driver.getAccount({ account, session: authToken })
+    ).rejects.toThrow()
   })
 
-  it('checkSession works based on session', async () => {
+  it('getAccount session validation works based on session', async () => {
     const account = generateAccountId()
     await driver.createAccount({
       account,
@@ -108,24 +108,24 @@ describe('DynamoDriver', function () {
       account,
       sessions: [{ token: newSession, expiry }],
     })
+    await expect(
+      driver.getAccount({ account, session })
+    ).rejects.toThrow()
+    await expect(
+      driver.getAccount({ account, session: authToken })
+    ).rejects.toThrow()
     expect(
-      await driver.checkSession({ account, session })
-    ).toMatchObject({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: authToken })
-    ).toMatchObject({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: newSession })
-    ).toMatchObject({ success: true })
-    expect(
-      await driver.checkSession({ account, session: 'wrong' })
-    ).toMatchObject({ success: false, reason: 'expired' })
-    expect(
-      await driver.checkSession({ account, session: '' })
-    ).toMatchObject({ success: false })
+      (await driver.getAccount({ account, session: newSession })).account
+    ).toBe(account)
+    await expect(
+      driver.getAccount({ account, session: 'wrong' })
+    ).rejects.toThrow()
+    await expect(
+      driver.getAccount({ account, session: '' })
+    ).rejects.toThrow()
   })
 
-  it('checkSession accepts multiple active sessions', async () => {
+  it('getAccount accepts multiple active sessions', async () => {
     const account = generateAccountId()
     await driver.createAccount({
       account,
@@ -147,8 +147,8 @@ describe('DynamoDriver', function () {
       ],
     })
 
-    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
-    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: true })
+    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
+    expect((await driver.getAccount({ account, session: sessionB })).account).toBe(account)
   })
 
   it('repeated createAccount calls fail', async () => {
@@ -181,8 +181,8 @@ describe('DynamoDriver', function () {
 
     // Session should be valid after creation
     expect(
-      await driver.checkSession({ account, session: sessionA })
-    ).toEqual({ success: true })
+      (await driver.getAccount({ account, session: sessionA })).account
+    ).toBe(account)
 
     // Extend the session
     await driver.extendSession({ account, session: sessionA })
@@ -304,8 +304,8 @@ describe('DynamoDriver', function () {
     })
 
     // Both sessions are valid
-    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
-    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: true })
+    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
+    expect((await driver.getAccount({ account, session: sessionB })).account).toBe(account)
 
     // Simulate changePassword by updating sessions array to only contain sessionA
     await driver.updateAccountData({
@@ -314,8 +314,8 @@ describe('DynamoDriver', function () {
     })
 
     // Now sessionA is valid, sessionB is revoked
-    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
-    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: false, reason: 'expired' })
+    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
+    await expect(driver.getAccount({ account, session: sessionB })).rejects.toThrow()
   })
 
   it('fetchManifest returns item and modifiedAt tuples without payload', async () => {
@@ -408,6 +408,94 @@ describe('DynamoDriver', function () {
         },
       }),
     ).rejects.toThrow('exceeds maximum')
+  })
+
+  it('updateAccountData returns early without throwing when no update fields are provided', async () => {
+    const account = generateAccountId()
+    await expect(driver.updateAccountData({ account })).resolves.toBeUndefined()
+  })
+
+  it('updateAccountData updates arbitrary fields including reminder settings and clears snooze with null', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      metadata: {},
+      salt,
+      iterations,
+    })
+
+    await driver.updateAccountData({
+      account,
+      reminderEnabled: true,
+      reminderTime: '09:30',
+      reminderTimezone: 'America/New_York',
+      snoozeRemindersUntil: '2026-10-01T00:00:00Z',
+    })
+
+    let stored = await driver.getAccount({ account, session: authToken, isLogin: true })
+    expect(stored.reminderEnabled).toBe(true)
+    expect(stored.reminderTime).toBe('09:30')
+    expect(stored.reminderTimezone).toBe('America/New_York')
+    expect(stored.snoozeRemindersUntil).toBe('2026-10-01T00:00:00Z')
+
+    // Now clear snooze with null
+    await driver.updateAccountData({
+      account,
+      snoozeRemindersUntil: null,
+    })
+
+    stored = await driver.getAccount({ account, session: authToken, isLogin: true })
+    expect(stored.snoozeRemindersUntil).toBeNull()
+  })
+})
+
+describe('buildDynamoUpdate', () => {
+  it('builds SET expression and mapped values for provided fields', () => {
+    const result = buildDynamoUpdate({
+      reminderEnabled: true,
+      reminderTime: '08:00',
+      iterations: 5000,
+    })
+
+    expect(result.expression).toBe('SET reminderEnabled = :reminderEnabled, reminderTime = :reminderTime, iterations = :iterations')
+    expect(result.values).toEqual({
+      ':reminderEnabled': true,
+      ':reminderTime': '08:00',
+      ':iterations': 5000,
+    })
+  })
+
+  it('filters out undefined values while preserving null, false, 0, and empty string', () => {
+    const result = buildDynamoUpdate({
+      definedString: 'flock',
+      emptyString: '',
+      nullValue: null,
+      falseValue: false,
+      zeroValue: 0,
+      undefinedValue: undefined,
+    })
+
+    expect(result.expression).toBe('SET definedString = :definedString, emptyString = :emptyString, nullValue = :nullValue, falseValue = :falseValue, zeroValue = :zeroValue')
+    expect(result.values).toEqual({
+      ':definedString': 'flock',
+      ':emptyString': '',
+      ':nullValue': null,
+      ':falseValue': false,
+      ':zeroValue': 0,
+    })
+  })
+
+  it('returns empty expression and empty values when given an empty object or all-undefined fields', () => {
+    expect(buildDynamoUpdate({})).toEqual({
+      expression: '',
+      values: {},
+    })
+
+    expect(buildDynamoUpdate({ a: undefined, b: undefined })).toEqual({
+      expression: '',
+      values: {},
+    })
   })
 })
 

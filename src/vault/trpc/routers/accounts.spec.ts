@@ -3,16 +3,15 @@ import { hashString } from '../../api/util'
 import { accountsRouter } from './accounts'
 
 
-function createContext(overrides?: { authToken?: string, checkSessionSuccess?: boolean }) {
-  const checkSessionSuccess = overrides?.checkSessionSuccess ?? true
+function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
+  const sessionValid = overrides?.sessionValid ?? true
   const vault = {
     getNewAccountId: vi.fn(async () => 'acct-1'),
     createAccount: vi.fn(async () => true),
-    checkSession: vi.fn(async () => ({ success: checkSessionSuccess })),
     updateAccountData: vi.fn(async () => undefined),
     getAccountSalt: vi.fn(async () => 'salt-1'),
     getAccount: vi.fn(async () => {
-      if (!checkSessionSuccess) {
+      if (!sessionValid) {
         throw new Error('Unauthorized')
       }
       return { metadata: { theme: 'light' } }
@@ -71,7 +70,7 @@ describe('accountsRouter security contracts', () => {
   })
 
   it('blocks unauthorized metadata access when session validation fails', async () => {
-    const ctx = createContext({ checkSessionSuccess: false })
+    const ctx = createContext({ sessionValid: false })
     const caller = accountsRouter.createCaller(ctx as any)
 
     await expect(caller.getMetadata({ account: 'acct-1' })).rejects.toMatchObject({
@@ -153,7 +152,7 @@ describe('accountsRouter security contracts', () => {
   })
 
   it('blocks unauthorized keyring updates when session validation fails', async () => {
-    const ctx = createContext({ checkSessionSuccess: false })
+    const ctx = createContext({ sessionValid: false })
     const caller = accountsRouter.createCaller(ctx as any)
 
     await expect(caller.updateKeyring({
@@ -329,6 +328,99 @@ describe('accountsRouter security contracts', () => {
     expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
       account: 'acct-1',
       snoozeRemindersUntil: result.snoozeRemindersUntil,
+    })
+    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+  })
+
+  describe('single getAccount round-trip efficiency in protectedProcedure', () => {
+    it('calls getAccount exactly once for getMetadata', async () => {
+      const ctx = createContext()
+      ctx.vault.getAccount.mockResolvedValueOnce({
+        account: 'acct-1',
+        metadata: { theme: 'dark', language: 'en' },
+      } as any)
+      const caller = accountsRouter.createCaller(ctx as any)
+
+      const result = await caller.getMetadata({ account: 'acct-1' })
+
+      expect(result).toEqual({ success: true, metadata: { theme: 'dark', language: 'en' } })
+      expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+      expect(ctx.vault.getAccount).toHaveBeenCalledWith({
+        account: 'acct-1',
+        session: 'session-token',
+      })
+    })
+
+    it('calls getAccount exactly once for addPushSubscription and merges existing subscriptions', async () => {
+      const ctx = createContext()
+      ctx.vault.getAccount.mockResolvedValueOnce({
+        account: 'acct-1',
+        pushSubscriptions: [{ endpoint: 'ep-1', keys: { auth: 'a1', p256dh: 'p1' } }],
+      } as any)
+      const caller = accountsRouter.createCaller(ctx as any)
+
+      const result = await caller.addPushSubscription({
+        account: 'acct-1',
+        endpoint: 'ep-2',
+        keys: { auth: 'a2', p256dh: 'p2' },
+      })
+
+      expect(result).toEqual({ success: true })
+      expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+      expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+        account: 'acct-1',
+        pushSubscriptions: [
+          { endpoint: 'ep-1', keys: { auth: 'a1', p256dh: 'p1' } },
+          { endpoint: 'ep-2', keys: { auth: 'a2', p256dh: 'p2' } },
+        ],
+      })
+    })
+
+    it('calls getAccount exactly once for deletePushSubscription and filters existing subscriptions', async () => {
+      const ctx = createContext()
+      ctx.vault.getAccount.mockResolvedValueOnce({
+        account: 'acct-1',
+        pushSubscriptions: [
+          { endpoint: 'ep-1', keys: { auth: 'a1', p256dh: 'p1' } },
+          { endpoint: 'ep-2', keys: { auth: 'a2', p256dh: 'p2' } },
+        ],
+      } as any)
+      const caller = accountsRouter.createCaller(ctx as any)
+
+      const result = await caller.deletePushSubscription({
+        account: 'acct-1',
+        endpoint: 'ep-1',
+      })
+
+      expect(result).toEqual({ success: true })
+      expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+      expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+        account: 'acct-1',
+        pushSubscriptions: [{ endpoint: 'ep-2', keys: { auth: 'a2', p256dh: 'p2' } }],
+      })
+    })
+
+    it('calls getAccount exactly once for getReminderSettings', async () => {
+      const ctx = createContext()
+      ctx.vault.getAccount.mockResolvedValueOnce({
+        account: 'acct-1',
+        reminderEnabled: true,
+        reminderTime: '09:30',
+        reminderTimezone: 'America/New_York',
+        snoozeRemindersUntil: '2026-10-01',
+      } as any)
+      const caller = accountsRouter.createCaller(ctx as any)
+
+      const result = await caller.getReminderSettings({ account: 'acct-1' })
+
+      expect(result).toEqual({
+        success: true,
+        reminderEnabled: true,
+        reminderTime: '09:30',
+        reminderTimezone: 'America/New_York',
+        snoozeRemindersUntil: '2026-10-01',
+      })
+      expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
     })
   })
 })

@@ -11,6 +11,7 @@ import { isQuotaError } from '../../utils/storageQuota'
 import type { StorageRecoveryService } from './StorageRecoveryService'
 import type { SyncApiClient } from './SyncApiClient'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { fireAndForget } from '../utils/fireAndForget'
 
 interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
@@ -53,7 +54,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
       switch (event.type) {
         case 'messageToSend':
-          void this.handleOutgoingMessage(event.message)
+          fireAndForget(this.handleOutgoingMessage(event.message), 'SyncMessageBroker:handleOutgoingMessage')
           break
         case 'messageParsed':
           if (this.account) {
@@ -215,46 +216,50 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
   }
 
   private async handleOutgoingMessage(message: Message): Promise<void> {
-    if (!this.sendEnabled || !this.account) {
-      return
-    }
-
-    const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
-    if (!documentId) {
-      return
-    }
-
-    const itemId = toVaultItemIdFromAutomergeId(documentId)
-
-    if (message.type === 'request') {
-      this.pullQueueManager.addPendingItem(itemId)
-      this.flush()
-    } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      if (this.isItemBlocked(itemId)) {
-        console.warn(`[SyncMessageBroker] Dropping outgoing sync message for blocked item ${itemId}`)
+    try {
+      if (!this.sendEnabled || !this.account) {
         return
       }
 
-      if (this.snapshotOnlyItems.has(itemId)) {
-        // Item was pruned from WAL and is flagged for snapshot-only sync.
-        // Drop incremental sync message to avoid re-filling WAL and causing thrashing.
-        // Emit walEntriesPruned to ensure dirty snapshot state is refreshed.
-        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
+      const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
+      if (!documentId) {
         return
       }
 
-      if (this.wal) {
-        try {
-          await this.wal.append(itemId, message.data)
-          this.flush()
-        } catch (err) {
-          console.error(`[SyncMessageBroker] Failed to append sync message to WAL for item ${itemId}:`, err)
-          this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
+      const itemId = toVaultItemIdFromAutomergeId(documentId)
+
+      if (message.type === 'request') {
+        this.pullQueueManager.addPendingItem(itemId)
+        this.flush()
+      } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
+        if (this.isItemBlocked(itemId)) {
+          console.warn(`[SyncMessageBroker] Dropping outgoing sync message for blocked item ${itemId}`)
+          return
         }
-      } else {
-        console.warn(`[SyncMessageBroker] WAL unavailable for item ${itemId}, falling back to snapshot sync`)
-        this.handleWalAppendFailure(itemId, documentId as DocumentId, new Error('WAL not initialized'))
+
+        if (this.snapshotOnlyItems.has(itemId)) {
+          // Item was pruned from WAL and is flagged for snapshot-only sync.
+          // Drop incremental sync message to avoid re-filling WAL and causing thrashing.
+          // Emit walEntriesPruned to ensure dirty snapshot state is refreshed.
+          this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
+          return
+        }
+
+        if (this.wal) {
+          try {
+            await this.wal.append(itemId, message.data)
+            this.flush()
+          } catch (err) {
+            console.error(`[SyncMessageBroker] Failed to append sync message to WAL for item ${itemId}:`, err)
+            this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
+          }
+        } else {
+          console.warn(`[SyncMessageBroker] WAL unavailable for item ${itemId}, falling back to snapshot sync`)
+          this.handleWalAppendFailure(itemId, documentId as DocumentId, new Error('WAL not initialized'))
+        }
       }
+    } catch (err) {
+      console.error('[SyncMessageBroker] Error handling outgoing message:', err)
     }
   }
 
@@ -264,7 +269,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
     if (isQuotaError(err)) {
       if (this.storageRecovery) {
-        void this.storageRecovery.handleQuotaExceeded(err)
+        fireAndForget(this.storageRecovery.handleQuotaExceeded(err), 'SyncMessageBroker:handleQuotaExceeded')
       } else {
         this.clientEventHub.emit({
           type: 'quotaExceeded',

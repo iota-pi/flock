@@ -23,6 +23,7 @@ import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycle
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
+import { fireAndForget } from '../utils/fireAndForget'
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -144,7 +145,9 @@ export class SyncWorkerContext {
         }
       },
       onQuotaError: error => {
-        void this.storageRecoveryService?.handleQuotaExceeded(error)
+        if (this.storageRecoveryService) {
+          fireAndForget(this.storageRecoveryService.handleQuotaExceeded(error), 'SyncWorkerContext:onQuotaError')
+        }
       },
     })
     adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
@@ -233,7 +236,7 @@ export class SyncWorkerContext {
       storeItems: (items, options) => itemOperations.storeItems(items, options),
       mutateMetadata: changes => itemOperations.mutateMetadata(changes),
       onDecryptionFailure: (itemId, error) => {
-        void this.recoveryManager.reportDecryptionFailure(itemId, error)
+        fireAndForget(this.recoveryManager.reportDecryptionFailure(itemId, error), 'SyncWorkerContext:reportDecryptionFailure')
       },
       onItemSnapshotHydrated: (itemId, heads) => {
         const docId = toDocumentIdFromItemId(itemId)
@@ -330,10 +333,16 @@ export class SyncWorkerContext {
           this.snapshotManager.setLeader(event.isLeader)
           break
         case 'decryptionFailure':
-          void this.recoveryManager.reportDecryptionFailure(event.itemId, event.error)
+          fireAndForget(
+            this.recoveryManager.reportDecryptionFailure(event.itemId, event.error),
+            'SyncWorkerContext:internalEvent:decryptionFailure',
+          )
           break
         case 'itemMessageParsed':
-          void this.recoveryManager.unquarantineBatch([event.itemId])
+          fireAndForget(
+            this.recoveryManager.unquarantineBatch([event.itemId]),
+            'SyncWorkerContext:internalEvent:itemMessageParsed',
+          )
           break
         case 'renegotiationTriggered': {
           const itemId = toVaultItemIdFromAutomergeId(event.documentId)

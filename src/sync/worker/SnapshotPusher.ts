@@ -12,6 +12,7 @@ import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { PreparedSnapshotItem } from './SnapshotBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export interface SnapshotPusherOptions {
   accountId: string
@@ -115,7 +116,7 @@ export class SnapshotPusher {
     if (typeof cursor === 'number') {
       this.snapshotRequestCursor = cursor
     }
-    void this.triggerSnapshotPush()
+    fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:scheduleSnapshotPush')
   }
 
   async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
@@ -149,7 +150,7 @@ export class SnapshotPusher {
     this.retryTimeoutId = setTimeout(() => {
       this.retryTimeoutId = null
       if (this.tracker.dirtyCount > 0) {
-        void this.pushSnapshots()
+        fireAndForget(this.pushSnapshots(), 'SnapshotPusher:scheduleRetry')
       }
     }, delayMs)
   }
@@ -260,12 +261,13 @@ export class SnapshotPusher {
         type: 'quotaExceeded',
         message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
       })
-      void this.recoveryManager
-        .quarantine(
+      fireAndForget(
+        this.recoveryManager.quarantine(
           itemId,
           `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
-        )
-        .catch(() => {})
+        ),
+        'SnapshotPusher:quarantine',
+      )
     }
   }
 
@@ -317,7 +319,10 @@ export class SnapshotPusher {
       }
       this.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
       this.broker.unblockItem?.(item.snapshot.itemId)
-      void this.recoveryManager.unquarantine(item.snapshot.itemId).catch(() => {})
+      fireAndForget(
+        this.recoveryManager.unquarantine(item.snapshot.itemId),
+        'SnapshotPusher:unquarantine',
+      )
     }
   }
 
@@ -488,7 +493,7 @@ export class SnapshotPusher {
     if (!success && hasDirtyDocs && this.tracker.isOperational) {
       this.scheduleRetry()
     } else if (this.snapshotPushPending && hasDirtyDocs && this.tracker.isOperational) {
-      void this.triggerSnapshotPush()
+      fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:handlePostPushScheduling')
     }
 
     this.snapshotPushPending = false

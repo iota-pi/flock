@@ -86,6 +86,14 @@ export class SyncApiClient {
   }
 
   /**
+   * Sets the active authentication token in memory and runtime.
+   */
+  setToken(token: string | null): void {
+    this.currentToken = token
+    safeSetApiAuthToken(token || '')
+  }
+
+  /**
    * Retrieves a valid authentication token.
    * Checks persistence store, then runtime token, then cached in-memory token,
    * falling back to refreshAuthToken if needed.
@@ -220,6 +228,8 @@ export class SyncApiClient {
       throw new AuthError('No active session token available')
     }
 
+    safeSetApiAuthToken(token)
+
     try {
       return await operation(token)
     } catch (err) {
@@ -232,6 +242,8 @@ export class SyncApiClient {
       if (!refreshedToken || refreshedToken === token) {
         throw toAuthExpiredError(err)
       }
+
+      safeSetApiAuthToken(refreshedToken)
 
       try {
         return await operation(refreshedToken)
@@ -252,7 +264,6 @@ export class SyncApiClient {
     options?: { signal?: AbortSignal }
   ): Promise<{ success: boolean; persisted: number; total?: number }> {
     return this.executeWithAuth(async authToken => {
-      safeSetApiAuthToken(authToken)
       return putSnapshotsWithToken(
         {
           account: input.account,
@@ -268,8 +279,7 @@ export class SyncApiClient {
     input: { account: string },
     options?: { signal?: AbortSignal },
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
-    return this.executeWithAuth(async authToken => {
-      safeSetApiAuthToken(authToken)
+    return this.executeWithAuth(async () => {
       return fetchManifest(
         { account: input.account },
         ...(options ? [options] : []),
@@ -284,8 +294,7 @@ export class SyncApiClient {
     },
     options?: { signal?: AbortSignal }
   ): Promise<{ items: VaultItem[]; serverTime: number }> {
-    return this.executeWithAuth(async authToken => {
-      safeSetApiAuthToken(authToken)
+    return this.executeWithAuth(async () => {
       return fetchSnapshotsByIds(
         { account: input.account, itemIds: input.itemIds },
         ...(options ? [options] : []),
@@ -296,8 +305,7 @@ export class SyncApiClient {
   async getAccountMetadata(input: {
     account: string
   }): Promise<AccountMetadata | null> {
-    return this.executeWithAuth(async authToken => {
-      safeSetApiAuthToken(authToken)
+    return this.executeWithAuth(async () => {
       const response = await getTrpcClient().accounts.getMetadata.query({
         account: input.account,
       })
@@ -317,8 +325,7 @@ export class SyncApiClient {
     account: string
     metadata: AccountMetadata
   }): Promise<void> {
-    return this.executeWithAuth(async authToken => {
-      safeSetApiAuthToken(authToken)
+    return this.executeWithAuth(async () => {
       await getTrpcClient().accounts.updateMetadata.mutate({
         account: input.account,
         metadata: input.metadata,
@@ -331,7 +338,6 @@ export class SyncApiClient {
     options?: { signal?: AbortSignal }
   ): Promise<PollSyncBatchResponse> {
     return this.executeWithAuth(async authToken => {
-      safeSetApiAuthToken(authToken)
       return pollSyncBatchWithToken({ ...input, authToken }, options)
     })
   }
