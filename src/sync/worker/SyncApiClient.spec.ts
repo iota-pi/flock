@@ -300,7 +300,7 @@ describe('SyncApiClient', () => {
 
       let attempts = 0
       await client.executeWithAuth(async token => {
-        attempts++
+        attempts += 1
         if (attempts === 1) {
           throw { data: { httpStatus: 401 }, message: 'UNAUTHORIZED' }
         }
