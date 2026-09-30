@@ -1,4 +1,4 @@
-import * as Comlink from 'comlink'
+import type * as Comlink from 'comlink'
 
 import { useAppStore } from 'src/state/store'
 import {
@@ -31,6 +31,9 @@ class SyncBridgeService {
     this.eventProcessor = new SyncEventProcessor({
       onKeyVersionMissing: kver => {
         void this.handleKeyringUpdate(kver)
+      },
+      onTokenRefreshNeeded: () => {
+        void this.handleTokenRefresh()
       },
       onActivity: () => {
         this.lifecycleManager.recordWorkerActivity()
@@ -153,6 +156,27 @@ class SyncBridgeService {
     }
   }
 
+  private handleTokenRefresh = async () => {
+    try {
+      await handleSessionExpired()
+      const token = getVaultSession() || null
+      const syncApi = this.lifecycleManager.getSyncApi()
+      if (syncApi) {
+        await syncApi.updateAuthToken(token)
+      }
+    } catch (err) {
+      console.error('[SyncBridge] Failed to handle token refresh:', err)
+      const syncApi = this.lifecycleManager.getSyncApi()
+      if (syncApi) {
+        try {
+          await syncApi.updateAuthToken(null)
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  }
+
   requestClearOnShutdown(accountId?: string): void {
     this.lifecycleManager.requestClearOnShutdown(accountId)
   }
@@ -207,13 +231,7 @@ class SyncBridgeService {
   }
 
   initRepo(accountId: string, vaultKey: string): Promise<void> {
-    return this.execute(api => {
-      const refreshAuthToken = Comlink.proxy(async () => {
-        await handleSessionExpired()
-        return getVaultSession() || null
-      })
-      return api.initRepo(accountId, vaultKey, refreshAuthToken)
-    })
+    return this.execute(api => api.initRepo(accountId, vaultKey))
   }
 
   setOnlineState(isOnline: boolean): Promise<void> {
@@ -284,16 +302,23 @@ class SyncBridgeService {
     return this.execute(api => api.updateVaultKey(vaultKey))
   }
 
-  reencryptAllItems(onProgress: (done: number, total: number) => void): Promise<{
+  updateAuthToken(token: string | null): Promise<void> {
+    return this.execute(api => api.updateAuthToken(token))
+  }
+
+  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<{
     succeeded: ItemId[]
     failed: Array<{ itemId: ItemId; error: string }>
   }> {
-    return this.execute(api => {
-      const refreshAuthToken = Comlink.proxy(async () => {
-        await handleSessionExpired()
-        return getVaultSession() || null
-      })
-      return api.reencryptAllItems(Comlink.proxy(onProgress), refreshAuthToken)
+    return this.execute(async api => {
+      const unsubscribe = onProgress
+        ? this.eventProcessor.subscribeReencryptProgress(onProgress)
+        : undefined
+      try {
+        return await api.reencryptAllItems()
+      } finally {
+        unsubscribe?.()
+      }
     })
   }
 

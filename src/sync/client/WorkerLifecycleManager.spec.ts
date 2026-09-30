@@ -4,6 +4,7 @@ import * as localDataCleanup from './localDataCleanup'
 const mockSyncApi = {
   setOnlineState: vi.fn().mockResolvedValue(undefined),
   initRepo: vi.fn().mockResolvedValue(undefined),
+  updateAuthToken: vi.fn().mockResolvedValue(undefined),
   bootstrapItems: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
 }
@@ -255,7 +256,7 @@ describe('WorkerLifecycleManager', () => {
 
       // The new account should remain active and not be clobbered
       expect(manager.getCurrentAccountId()).toBe('account-new-success')
-      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key', expect.any(Function))
+      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key')
 
       vi.useRealTimers()
     })

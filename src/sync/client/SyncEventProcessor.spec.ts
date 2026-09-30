@@ -130,4 +130,24 @@ describe('SyncEventProcessor', () => {
     expect(updateItemsSpy).not.toHaveBeenCalled()
     expect(processor.getRecoveryEntries()).toEqual([])
   })
+
+  it('delegates tokenRefreshNeeded event to callback', () => {
+    const onTokenRefreshNeeded = vi.fn()
+    processor.setCallbacks({ onTokenRefreshNeeded })
+
+    processor.handleSyncEvent({ type: 'tokenRefreshNeeded' })
+    expect(onTokenRefreshNeeded).toHaveBeenCalledTimes(1)
+  })
+
+  it('notifies reencryptProgress subscribers and supports unsubscription', () => {
+    const progressListener = vi.fn()
+    const unsubscribe = processor.subscribeReencryptProgress(progressListener)
+
+    processor.handleSyncEvent({ type: 'reencryptProgress', done: 5, total: 20 })
+    expect(progressListener).toHaveBeenCalledWith(5, 20)
+
+    unsubscribe()
+    processor.handleSyncEvent({ type: 'reencryptProgress', done: 10, total: 20 })
+    expect(progressListener).toHaveBeenCalledTimes(1)
+  })
 })

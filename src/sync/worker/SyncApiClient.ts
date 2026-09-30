@@ -86,6 +86,14 @@ export class SyncApiClient {
   }
 
   /**
+   * Sets the active authentication token in memory and runtime.
+   */
+  setToken(token: string | null): void {
+    this.currentToken = token
+    safeSetApiAuthToken(token || '')
+  }
+
+  /**
    * Retrieves a valid authentication token.
    * Checks persistence store, then runtime token, then cached in-memory token,
    * falling back to refreshAuthToken if needed.

@@ -24,6 +24,8 @@ export type ClientEvent =
   | { type: 'keyVersionMissing'; kver: string }
   | { type: 'snapshotFailed'; itemId: ItemId; message: string }
   | { type: 'leaderConflict'; hasConflict: boolean }
+  | { type: 'tokenRefreshNeeded' }
+  | { type: 'reencryptProgress'; done: number; total: number }
 
 export type WorkerInternalEvent =
   | { type: 'pollResult'; outcome: PollOutcome }

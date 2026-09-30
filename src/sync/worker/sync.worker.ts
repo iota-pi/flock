@@ -55,9 +55,43 @@ export class SyncWorker implements SyncApi {
   private unsubscribeRealtimeBus: (() => void) | null = null
   private subscribedIds = new Set<ItemId>()
   private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<RepoDoc>; listener: () => void }>()
+  private tokenRefreshPromise: Promise<string | null> | null = null
+  private tokenRefreshResolve: ((token: string | null) => void) | null = null
+  private tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private latestAuthToken: string | null = null
 
   constructor() {
     this.initReadyPromise()
+  }
+
+  requestAuthTokenRefresh = (): Promise<string | null> => {
+    if (this.tokenRefreshPromise) {
+      return this.tokenRefreshPromise
+    }
+
+    this.tokenRefreshPromise = new Promise<string | null>(resolve => {
+      this.tokenRefreshResolve = resolve
+      this.tokenRefreshTimeoutId = setTimeout(() => {
+        console.warn('[SyncWorker] Token refresh timed out waiting for main thread')
+        this.resolveTokenRefresh(null)
+      }, 10000)
+    })
+
+    this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
+    return this.tokenRefreshPromise
+  }
+
+  private resolveTokenRefresh(token: string | null): void {
+    if (this.tokenRefreshTimeoutId !== null) {
+      clearTimeout(this.tokenRefreshTimeoutId)
+      this.tokenRefreshTimeoutId = null
+    }
+    const resolve = this.tokenRefreshResolve
+    this.tokenRefreshResolve = null
+    this.tokenRefreshPromise = null
+    if (resolve) {
+      resolve(token)
+    }
   }
 
   private initReadyPromise() {
@@ -91,6 +125,7 @@ export class SyncWorker implements SyncApi {
   }
 
   private async teardownSession(): Promise<void> {
+    this.resolveTokenRefresh(null)
     const accountId = this._context?.accountId
     this.clearListeners()
     if (this.unsubscribeRealtimeBus) {
@@ -228,11 +263,14 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
-        refreshAuthToken,
+        refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
         onDocumentReceived: itemId => this.subscribeToItems([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
       })
+      if (this.latestAuthToken) {
+        context.apiClient.setToken(this.latestAuthToken)
+      }
       this._context = context
 
       this.subscribeClientEvents()
@@ -441,20 +479,40 @@ export class SyncWorker implements SyncApi {
     })
   }
 
+  updateAuthToken = async (token: string | null): Promise<void> => {
+    this.latestAuthToken = token
+    if (this._context) {
+      this._context.apiClient.setToken(token)
+    }
+    this.resolveTokenRefresh(token)
+  }
+
   reencryptAllItems = (
-    onProgress: (done: number, total: number) => void,
+    onProgress?: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>
   ) =>
     this.withContext(ctx =>
-      ctx.itemReencryptor.reencryptAllItems({
-        accountId: ctx.accountId,
-        repo: ctx.repo,
-        indexManager: ctx.indexManager,
-        refreshAuthToken,
-        recoveryManager: ctx.recoveryManager,
-        apiClient: ctx.apiClient,
-        reencryptor: ctx.itemReencryptor,
-      }, onProgress)
+      ctx.itemReencryptor.reencryptAllItems(
+        {
+          accountId: ctx.accountId,
+          repo: ctx.repo,
+          indexManager: ctx.indexManager,
+          refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
+          recoveryManager: ctx.recoveryManager,
+          apiClient: ctx.apiClient,
+          reencryptor: ctx.itemReencryptor,
+        },
+        (done, total) => {
+          if (onProgress) {
+            try {
+              onProgress(done, total)
+            } catch {
+              // Ignore
+            }
+          }
+          this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
+        }
+      )
     )
 
   exportSyncState = (): Promise<BackupSyncState> =>
@@ -487,6 +545,8 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.claimLeader())
 
   async shutdown(options?: { clearLocalData?: boolean }) {
+    this.resolveTokenRefresh(null)
+    this.latestAuthToken = null
     this.isShutDown = true
     this.isReady = false
     if (this.readyReject) {

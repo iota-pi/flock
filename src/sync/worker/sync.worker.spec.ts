@@ -120,6 +120,14 @@ vi.mock('./SyncWorkerContext', () => {
         append: vi.fn().mockResolvedValue(undefined),
       }
 
+      apiClient = {
+        setToken: vi.fn(),
+      }
+
+      itemReencryptor = {
+        reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
+      }
+
       initialize = mockContextInitialize
       shutdown = mockContextShutdown
       claimLeader = mockContextClaimLeader
@@ -467,5 +475,51 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
     expect(mutateDone).toBe(true)
     expect(mockItemOperationsMutateItem).toHaveBeenCalledWith('item-switch', { name: 'Switch' })
+  })
+
+  describe('Auth token refresh and progress events without Comlink proxies', () => {
+    it('emits tokenRefreshNeeded and resolves when updateAuthToken is called', async () => {
+      const worker = new SyncWorker()
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      const eventSpy = vi.fn()
+      ;(worker as any).clientEventHub.subscribe(eventSpy)
+
+      // Start token refresh request
+      const refreshPromise = worker.requestAuthTokenRefresh()
+      expect(eventSpy).toHaveBeenCalledWith({ type: 'tokenRefreshNeeded' })
+
+      // Call updateAuthToken to supply refreshed token
+      await worker.updateAuthToken('new-session-token-xyz')
+      const token = await refreshPromise
+
+      expect(token).toBe('new-session-token-xyz')
+      expect((worker as any)._context.apiClient.setToken).toHaveBeenCalledWith('new-session-token-xyz')
+    })
+
+    it('emits reencryptProgress event during reencryptAllItems', async () => {
+      const worker = new SyncWorker()
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      const eventSpy = vi.fn()
+      ;(worker as any).clientEventHub.subscribe(eventSpy)
+
+      const onProgressParam = vi.fn()
+      // Mock itemReencryptor.reencryptAllItems to invoke the onProgress callback it receives
+      ;(worker as any)._context.itemReencryptor.reencryptAllItems.mockImplementationOnce(
+        async (_deps: any, onProgress: (done: number, total: number) => void) => {
+          onProgress(3, 10)
+          onProgress(10, 10)
+          return { succeeded: ['item-1'], failed: [] }
+        }
+      )
+
+      await worker.reencryptAllItems(onProgressParam)
+
+      expect(onProgressParam).toHaveBeenCalledWith(3, 10)
+      expect(onProgressParam).toHaveBeenCalledWith(10, 10)
+      expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 3, total: 10 })
+      expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 10, total: 10 })
+    })
   })
 })
