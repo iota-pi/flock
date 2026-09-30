@@ -260,5 +260,19 @@ describe('WorkerLifecycleManager', () => {
 
       vi.useRealTimers()
     })
+
+    it('logs initialization failure with [WorkerLifecycleManager] tag', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const initError = new Error('Init crash')
+      mockSyncApi.initRepo.mockRejectedValueOnce(initError)
+
+      await expect(manager.initialize('account-log-fail')).rejects.toThrow(initError)
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[WorkerLifecycleManager] Failed to initialize SyncBridge:',
+        initError
+      )
+      errorSpy.mockRestore()
+    })
   })
 })

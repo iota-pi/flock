@@ -22,6 +22,9 @@ import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncWorker')
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {
@@ -72,7 +75,7 @@ export class SyncWorker implements SyncApi {
     this.tokenRefreshPromise = new Promise<string | null>(resolve => {
       this.tokenRefreshResolve = resolve
       this.tokenRefreshTimeoutId = setTimeout(() => {
-        console.warn('[SyncWorker] Token refresh timed out waiting for main thread')
+        log.warn('Token refresh timed out waiting for main thread')
         this.resolveTokenRefresh(null)
       }, 10000)
     })
@@ -189,11 +192,11 @@ export class SyncWorker implements SyncApi {
           this.handlePollResult(event.outcome)
           break
         case 'multipleLeadersDetected':
-          console.warn('[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
+          log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
           this._context?.repoManager.pauseBroadcastSync()
           break
         case 'soleLeaderRestored':
-          console.info('[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.')
+          log.info('Sole leader restored. Resuming BroadcastChannel sync.')
           this._context?.repoManager.resumeBroadcastSync()
           break
         case 'retryingStateChange':
@@ -332,7 +335,7 @@ export class SyncWorker implements SyncApi {
         }
         this.clientEventHub.emit({ type: 'itemUpdated', id, item })
       } catch (err) {
-        console.error(`[SyncWorker] Error handling Automerge doc change for item ${id}:`, err)
+        log.error(`Error handling Automerge doc change for item ${id}:`, err)
       }
     }
     handle.on('change', () => handleChange(true))

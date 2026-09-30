@@ -150,4 +150,34 @@ describe('SyncEventProcessor', () => {
     processor.handleSyncEvent({ type: 'reencryptProgress', done: 10, total: 20 })
     expect(progressListener).toHaveBeenCalledTimes(1)
   })
+
+  it('logs mutationFailed events with [SyncEventProcessor] tag', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    processor.handleSyncEvent({
+      type: 'mutationFailed',
+      mutationType: 'updateItem',
+      error: 'Network timeout',
+    })
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SyncEventProcessor] Mutation updateItem failed: Network timeout'
+    )
+    errorSpy.mockRestore()
+  })
+
+  it('logs reencryptProgress listener errors with [SyncEventProcessor] tag', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const throwingListener = vi.fn(() => {
+      throw new Error('Listener crash')
+    })
+    processor.subscribeReencryptProgress(throwingListener)
+
+    processor.handleSyncEvent({ type: 'reencryptProgress', done: 1, total: 5 })
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SyncEventProcessor] Error in reencryptProgress listener:',
+      expect.any(Error)
+    )
+    errorSpy.mockRestore()
+  })
 })
