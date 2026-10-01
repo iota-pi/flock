@@ -13,31 +13,10 @@ import {
 } from './syncMetadataStorage'
 import localforage from 'localforage'
 
-class MockLocalforage {
-  public data = new Map<string, any>()
-  public config: Record<string, any>
-
-  constructor(config: Record<string, any>) {
-    this.config = config
-  }
-
-  async getItem<T>(key: string): Promise<T | null> {
-    return (this.data.get(key) as T) ?? null
-  }
-
-  async setItem<T>(key: string, value: T): Promise<T> {
-    this.data.set(key, value)
-    return value
-  }
-
-  async removeItem(key: string): Promise<void> {
-    this.data.delete(key)
-  }
-
-  async clear(): Promise<void> {
-    this.data.clear()
-  }
-}
+import {
+  MockLocalforage,
+  createMockLocalForage,
+} from '../__test__/testUtils'
 
 const mockInstances = new Map<string, MockLocalforage>()
 const createdInstances: MockLocalforage[] = []
@@ -51,7 +30,7 @@ vi.mock('localforage', () => ({
         createdInstances.push(existing)
         return existing
       }
-      const inst = new MockLocalforage(config)
+      const inst = createMockLocalForage(config)
       createdInstances.push(inst)
       return inst
     }),
@@ -181,7 +160,7 @@ describe('ScopedMetadataStore', () => {
   })
 
   it('initializes with a direct LocalForage instance', async () => {
-    const customInstance = new MockLocalforage({ name: 'custom-db', storeName: 'custom-store' })
+    const customInstance = createMockLocalForage({ name: 'custom-db', storeName: 'custom-store' })
     const customStore = new TestScopedStore(customInstance as unknown as LocalForage)
 
     await customStore.setScopedData({ value: 'direct' })
@@ -234,7 +213,7 @@ describe('ScopedMetadataStore', () => {
     }
     try {
       const legacyStoreKey = `test-legacy-db#test-store-${accountId}`
-      const legacyStore = new MockLocalforage({ name: 'test-legacy-db', storeName: `test-store-${accountId}` })
+      const legacyStore = createMockLocalForage({ name: 'test-legacy-db', storeName: `test-store-${accountId}` })
       await legacyStore.setItem('testLegacyKey', { value: 'from-tier-2-db' })
       mockInstances.set(legacyStoreKey, legacyStore)
 

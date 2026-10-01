@@ -1,50 +1,16 @@
 import { BaseLocalForageStore } from './BaseLocalForageStore'
 import * as storageManager from '../../../utils/storageManager'
 
-class MockLocalforage {
-  private data = new Map<string, any>()
-  public _config = { storeName: 'test-store' }
-
-  async getItem<T>(key: string): Promise<T | null> {
-    return (this.data.get(key) as T) ?? null
-  }
-
-  async setItem<T>(key: string, value: T): Promise<T> {
-    this.data.set(key, value)
-    return value
-  }
-
-  async removeItem(key: string): Promise<void> {
-    this.data.delete(key)
-  }
-
-  async clear(): Promise<void> {
-    this.data.clear()
-  }
-
-  async length(): Promise<number> {
-    return this.data.size
-  }
-
-  async keys(): Promise<string[]> {
-    return Array.from(this.data.keys())
-  }
-
-  async iterate<T, U>(iteratee: (value: T, key: string, iterationNumber: number) => U): Promise<U> {
-    let i = 0
-    for (const [key, value] of this.data.entries()) {
-      iteratee(value, key, i)
-      i += 1
-    }
-    return undefined as unknown as U
-  }
-}
+import {
+  MockLocalforage,
+  createMockLocalForage,
+} from '../__test__/testUtils'
 
 let activeStore: MockLocalforage
 vi.mock('localforage', () => ({
   default: {
     createInstance: vi.fn().mockImplementation(() => {
-      activeStore = new MockLocalforage()
+      activeStore = createMockLocalForage()
       return activeStore
     }),
   },
@@ -87,7 +53,7 @@ describe('BaseLocalForageStore', () => {
   })
 
   it('initializes with existing LocalForage instance', () => {
-    const existing = new MockLocalforage()
+    const existing = createMockLocalForage()
     const customStore = new TestStore(existing as any)
     expect(customStore.storeName).toBe('test-store')
   })

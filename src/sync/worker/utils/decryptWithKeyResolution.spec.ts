@@ -1,13 +1,18 @@
 import { decryptWithKeyResolution, MissingKeyError } from './decryptWithKeyResolution'
 
-const mockDecryptBytes = vi.fn()
-const mockHasVaultKey = vi.fn()
-const mockWaitForKeyVersion = vi.fn()
+import { createMockVault } from '../__test__/testUtils'
+
+const mockVault = createMockVault()
+const {
+  decryptBytes: mockDecryptBytes,
+  hasVaultKey: mockHasVaultKey,
+  waitForKeyVersion: mockWaitForKeyVersion,
+} = mockVault
 
 vi.mock('src/api/vault', () => ({
-  decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
-  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockWaitForKeyVersion(...args),
+  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
+  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
+  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
 }))
 
 describe('decryptWithKeyResolution', () => {

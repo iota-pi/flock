@@ -33,15 +33,20 @@ vi.mock('../../api/vault/ItemClient', () => ({
   fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
 }))
 
-const mockDecryptObject = vi.fn()
-const mockDecryptBytes = vi.fn()
-const mockHasVaultKey = vi.fn().mockReturnValue(true)
-const mockWaitForKeyVersion = vi.fn().mockResolvedValue(true)
+import { createMockVault } from './__test__/testUtils'
+
+const mockVault = createMockVault()
+const {
+  decryptObject: mockDecryptObject,
+  decryptBytes: mockDecryptBytes,
+  hasVaultKey: mockHasVaultKey,
+  waitForKeyVersion: mockWaitForKeyVersion,
+} = mockVault
 vi.mock('../../api/vault', () => ({
-  decryptObject: (...args: any[]) => mockDecryptObject(...args),
-  decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
-  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockWaitForKeyVersion(...args),
+  decryptObject: (...args: any[]) => mockVault.decryptObject(...args),
+  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
+  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
+  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
 }))
 
 const mockReadManualRecoveryEntries = vi.fn().mockResolvedValue([])
@@ -77,6 +82,7 @@ describe('ManifestSyncManager', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockVault.reset()
 
     const mockDocStore = {
       hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,

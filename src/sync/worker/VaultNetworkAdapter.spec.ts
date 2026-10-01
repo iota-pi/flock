@@ -13,24 +13,16 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
 import type { ItemId } from 'src/shared/schemas/items'
 
+import { createTestEventHubs, createMockVault } from './__test__/testUtils'
+
 const mockPollSyncBatchWithToken = vi.fn()
 
 vi.mock('src/api/vault', async importOriginal => {
   const actual = await importOriginal<typeof import('src/api/vault')>()
+  const { createMockVault } = await import('./__test__/testUtils')
   return {
     ...actual,
-    encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => {
-      return {
-        iv: 'mock-iv',
-        cipher: 'mock-cipher-' + bytes.length,
-        kver: '1',
-      }
-    }),
-    decryptBytes: vi.fn().mockImplementation(async () => {
-      return new Uint8Array([1, 2, 3])
-    }),
-    hasVaultKey: vi.fn().mockReturnValue(true),
-    waitForKeyVersion: vi.fn().mockResolvedValue(true),
+    ...createMockVault(),
   }
 })
 
@@ -77,8 +69,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       await new SyncWriteAheadLog(acc).clear()
     }
 
-    clientEventHub = new ClientEventHub()
-    internalEventHub = new WorkerInternalEventHub()
+    const hubs = createTestEventHubs()
+    clientEventHub = hubs.clientEventHub
+    internalEventHub = hubs.internalEventHub
     adapter = new VaultNetworkAdapter()
     const cursorStore = new CursorStore('test-account')
     pullQueueManager = new SyncPullQueueManager(cursorStore)

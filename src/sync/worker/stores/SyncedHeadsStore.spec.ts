@@ -7,44 +7,19 @@ import {
 } from './syncMetadataStorage'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
-class MockLocalforage {
-  private data = new Map<string, any>()
-  public config?: Record<string, any>
+import {
+  MockLocalforage,
+  createMockLocalForage,
+  createMockLocalForagePool,
+} from '../__test__/testUtils'
 
-  constructor(config?: Record<string, any>) {
-    this.config = config
-  }
-
-  async getItem<T>(key: string): Promise<T | null> {
-    return (this.data.get(key) as T) ?? null
-  }
-
-  async setItem<T>(key: string, value: T): Promise<T> {
-    this.data.set(key, value)
-    return value
-  }
-
-  async removeItem(key: string): Promise<void> {
-    this.data.delete(key)
-  }
-
-  async clear(): Promise<void> {
-    this.data.clear()
-  }
-}
-
-const instances = new Map<string, MockLocalforage>()
+const pool = createMockLocalForagePool()
+const instances = pool.instances
 
 vi.mock('localforage', () => ({
   default: {
     createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
-      const key = `${config.name}#${config.storeName}`
-      let inst = instances.get(key)
-      if (!inst) {
-        inst = new MockLocalforage(config)
-        instances.set(key, inst)
-      }
-      return inst
+      return pool.createInstance(config)
     }),
   },
 }))
@@ -127,7 +102,7 @@ describe('SyncedHeadsStore', () => {
     }
     try {
       const legacyStoreKey = `${LEGACY_DB_NAMES.SYNCED_HEADS}#synced-heads-${accountId}`
-      const legacyStore = new MockLocalforage({ name: LEGACY_DB_NAMES.SYNCED_HEADS, storeName: `synced-heads-${accountId}` })
+      const legacyStore = createMockLocalForage({ name: LEGACY_DB_NAMES.SYNCED_HEADS, storeName: `synced-heads-${accountId}` })
       const legacyData: [DocumentId, string[]][] = [['doc-from-old-db' as DocumentId, ['head-db']]]
       await legacyStore.setItem(LEGACY_KEYS.SYNCED_HEADS, legacyData)
       instances.set(legacyStoreKey, legacyStore)

@@ -1,5 +1,6 @@
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { createTestEventHubs } from './__test__/testUtils'
 
 describe('SyncOrchestrator', () => {
   let orchestrator: SyncOrchestrator
@@ -55,8 +56,9 @@ describe('SyncOrchestrator', () => {
       configurable: true,
     })
 
-    clientEventHub = new ClientEventHub()
-    internalEventHub = new WorkerInternalEventHub()
+    const hubs = createTestEventHubs()
+    clientEventHub = hubs.clientEventHub
+    internalEventHub = hubs.internalEventHub
 
     orchestrator = new SyncOrchestrator(
       'account-1',

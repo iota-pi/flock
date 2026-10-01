@@ -1,16 +1,21 @@
 import { ManifestHydrator } from './ManifestHydrator'
 import type { ItemId } from '../../shared/schemas/items'
 
-const mockDecryptBytes = vi.fn()
-const mockDecryptObject = vi.fn()
-const mockHasVaultKey = vi.fn().mockReturnValue(true)
-const mockWaitForKeyVersion = vi.fn().mockResolvedValue(true)
+import { createMockVault } from './__test__/testUtils'
+
+const mockVault = createMockVault()
+const {
+  decryptBytes: mockDecryptBytes,
+  decryptObject: mockDecryptObject,
+  hasVaultKey: mockHasVaultKey,
+  waitForKeyVersion: mockWaitForKeyVersion,
+} = mockVault
 
 vi.mock('../../api/vault', () => ({
-  decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
-  decryptObject: (...args: any[]) => mockDecryptObject(...args),
-  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockWaitForKeyVersion(...args),
+  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
+  decryptObject: (...args: any[]) => mockVault.decryptObject(...args),
+  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
+  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
 }))
 
 vi.mock('./utils/decryptWithKeyResolution', () => ({
@@ -31,6 +36,7 @@ describe('ManifestHydrator', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockVault.reset()
 
     mockApiClient = {
       fetchSnapshotsByIds: vi.fn(),

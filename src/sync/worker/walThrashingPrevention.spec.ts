@@ -1,4 +1,9 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
+import {
+  MockLocalforage,
+  createMockLocalForage,
+  createTestEventHubs,
+} from './__test__/testUtils'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -8,64 +13,16 @@ import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
 
-const { mockStores } = vi.hoisted(() => {
-  class MockLocalForageInstance {
-    store = new Map<string, any>()
-    getItem = vi.fn().mockImplementation(async (key: string) => this.store.get(key) ?? null)
-    setItem = vi.fn().mockImplementation(async (key: string, value: any) => {
-      this.store.set(key, value)
-      return value
-    })
-
-    removeItem = vi.fn().mockImplementation(async (key: string) => {
-      this.store.delete(key)
-    })
-
-    clear = vi.fn().mockImplementation(async () => {
-      this.store.clear()
-    })
-
-    keys = vi.fn().mockImplementation(async () => Array.from(this.store.keys()))
-    length = vi.fn().mockImplementation(async () => this.store.size)
-    iterate = vi.fn().mockImplementation(async (fn: (val: any, key: string) => void) => {
-      for (const [key, val] of this.store.entries()) {
-        fn(val, key)
-      }
-    })
-  }
-
-  return {
-    mockStores: new Map<string, MockLocalForageInstance>(),
-  }
-})
+const { mockStores } = vi.hoisted(() => ({
+  mockStores: new Map<string, MockLocalforage>(),
+}))
 
 vi.mock('localforage', () => ({
   default: {
     createInstance: vi.fn().mockImplementation((opts: { name: string; storeName: string }) => {
       const key = `${opts.name}:${opts.storeName}`
       if (!mockStores.has(key)) {
-        const store = new Map<string, any>()
-        mockStores.set(key, {
-          store,
-          getItem: vi.fn().mockImplementation(async (k: string) => store.get(k) ?? null),
-          setItem: vi.fn().mockImplementation(async (k: string, v: any) => {
-            store.set(k, v)
-            return v
-          }),
-          removeItem: vi.fn().mockImplementation(async (k: string) => {
-            store.delete(k)
-          }),
-          clear: vi.fn().mockImplementation(async () => {
-            store.clear()
-          }),
-          keys: vi.fn().mockImplementation(async () => Array.from(store.keys())),
-          length: vi.fn().mockImplementation(async () => store.size),
-          iterate: vi.fn().mockImplementation(async (fn: (val: any, k: string) => void) => {
-            for (const [k, val] of store.entries()) {
-              fn(val, k)
-            }
-          }),
-        } as any)
+        mockStores.set(key, createMockLocalForage(opts))
       }
       return mockStores.get(key)
     }),
@@ -97,8 +54,9 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     mockStores.clear()
     clearWalInstancesCacheForTesting()
 
-    clientEventHub = new ClientEventHub()
-    internalEventHub = new WorkerInternalEventHub()
+    const hubs = createTestEventHubs()
+    clientEventHub = hubs.clientEventHub
+    internalEventHub = hubs.internalEventHub
     adapter = new VaultNetworkAdapter()
     adapter.connect('peer-1' as any)
 
