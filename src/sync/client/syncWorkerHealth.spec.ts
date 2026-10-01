@@ -4,7 +4,7 @@ import {
   MAX_CONSECUTIVE_TIMEOUTS,
   SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
-import { useAppStore } from '../../state/store'
+import { useAppStore } from 'src/state/store'
 
 describe('sendPing', () => {
   let channel: MessageChannel

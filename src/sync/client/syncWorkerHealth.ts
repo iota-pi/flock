@@ -1,4 +1,4 @@
-import { useAppStore } from '../../state/store'
+import { useAppStore } from 'src/state/store'
 
 const HEARTBEAT_INTERVAL_MS = 15000
 const HEARTBEAT_TIMEOUT_MS = 30000

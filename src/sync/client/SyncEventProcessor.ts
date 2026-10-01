@@ -1,7 +1,7 @@
 import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
 import type { Item } from 'src/state/items'
-import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
+import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import { createLogger } from '../utils/logger'
 

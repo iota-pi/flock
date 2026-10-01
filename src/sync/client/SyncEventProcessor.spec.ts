@@ -1,6 +1,6 @@
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { useAppStore } from 'src/state/store'
-import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
+import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { ItemId } from 'src/shared/schemas/items'
 
 describe('SyncEventProcessor', () => {
