@@ -1,4 +1,4 @@
-import { LeaderElection } from './utils/LeaderElection'
+import { LeaderElection, type LeaderElectionCallbacks } from './utils/LeaderElection'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -10,6 +10,12 @@ import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from 'src/shared/schemas/items'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+
+export interface LeaderElectionLike {
+  acquire: () => Promise<void>
+  release: () => void
+  claimLeadership: () => void
+}
 
 export interface SyncPollerLike {
   executePoll: () => Promise<PollOutcome>
@@ -29,13 +35,14 @@ export interface ManifestSyncManagerLike {
 
 export interface SyncOrchestratorOptions {
   manifestSyncIntervalMs?: number
+  createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
 }
 
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 
 export class SyncOrchestrator implements LifecycleAware {
   readonly lifecycleName = 'SyncOrchestrator'
-  private leaderElection: LeaderElection | null = null
+  private leaderElection: LeaderElectionLike | null = null
   private isOnline = true
   private isLeader = false
   private pollingPausedForAuth = false
@@ -89,7 +96,7 @@ export class SyncOrchestrator implements LifecycleAware {
     private internalEventHub: WorkerInternalEventHub,
     private pullQueueManager: SyncPullQueueManagerLike,
     manifestSyncManager?: ManifestSyncManagerLike,
-    options?: SyncOrchestratorOptions
+    private options?: SyncOrchestratorOptions
   ) {
     this.poller = broker.poller
     this.manifestSyncManager = manifestSyncManager ?? null
@@ -110,6 +117,14 @@ export class SyncOrchestrator implements LifecycleAware {
 
   get isPolling(): boolean {
     return this.pollGuard.isRunning
+  }
+
+  get hasPendingFlush(): boolean {
+    return this.pendingFlush
+  }
+
+  get hasScheduledPoll(): boolean {
+    return this.pollIntervalId !== null
   }
 
   private canPoll(force = false): boolean {
@@ -141,7 +156,7 @@ export class SyncOrchestrator implements LifecycleAware {
   }
 
   async start(): Promise<void> {
-    this.leaderElection = new LeaderElection(this.accountId, {
+    const callbacks: LeaderElectionCallbacks = {
       onLeaderGranted: () => {
         this.setLeader(true)
       },
@@ -158,7 +173,10 @@ export class SyncOrchestrator implements LifecycleAware {
         this.internalEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
         this.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
       },
-    })
+    }
+    this.leaderElection = this.options?.createLeaderElection
+      ? this.options.createLeaderElection(this.accountId, callbacks)
+      : new LeaderElection(this.accountId, callbacks)
     fireAndForget(this.leaderElection.acquire(), 'SyncOrchestrator:leaderElection:acquire')
   }
 
