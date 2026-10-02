@@ -451,26 +451,63 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async extendSession({ account, session }: AuthData): Promise<void> {
-    const response = await this.client.send(new GetCommand({
-      TableName: ACCOUNT_TABLE_NAME,
-      Key: { account },
-      ConsistentRead: true,
-    }))
+    const maxRetries = 3
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const response = await this.client.send(new GetCommand({
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        ConsistentRead: true,
+      }))
 
-    if (response?.Item) {
+      if (!response?.Item) {
+        return
+      }
+
+      const rawSessions = response.Item.sessions
       const now = Date.now()
-      const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
+      const activeSessions = normalizeSessionRecords(rawSessions, now)
       const sessionRecord = activeSessions.find(active => almostConstantTimeEqual(session, active.token))
-      if (sessionRecord) {
-        sessionRecord.expiry = now + SESSION_EXPIRY_MS
-        await this.client.send(new UpdateCommand({
-          TableName: ACCOUNT_TABLE_NAME,
-          Key: { account },
-          UpdateExpression: 'SET sessions = :sessions',
-          ExpressionAttributeValues: {
-            ':sessions': activeSessions,
-          },
-        }))
+      if (!sessionRecord) {
+        return
+      }
+
+      // If already extended recently (e.g. by another concurrent request), avoid redundant write
+      if (attempt > 0 && sessionRecord.expiry >= now + SESSION_EXPIRY_MS - 60_000) {
+        return
+      }
+
+      sessionRecord.expiry = now + SESSION_EXPIRY_MS
+      const nextSessions = normalizeSessionRecords(activeSessions, now)
+
+      const params: UpdateCommandInput = {
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        UpdateExpression: 'SET sessions = :sessions',
+        ExpressionAttributeValues: {
+          ':sessions': nextSessions,
+        },
+      }
+
+      if (Array.isArray(rawSessions)) {
+        params.ConditionExpression = 'sessions = :expectedSessions'
+        params.ExpressionAttributeValues![':expectedSessions'] = rawSessions
+      } else {
+        params.ConditionExpression = 'attribute_not_exists(sessions)'
+      }
+
+      try {
+        await this.client.send(new UpdateCommand(params))
+        return
+      } catch (error) {
+        if (isConditionalCheckFailure(error)) {
+          if (attempt === maxRetries - 1) {
+            return
+          }
+          const delay = Math.min(10 * Math.pow(2, attempt) + Math.random() * 10, 100)
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+        throw error
       }
     }
   }
