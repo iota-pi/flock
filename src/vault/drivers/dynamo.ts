@@ -21,7 +21,7 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
 import {
-  almostConstantTimeEqual,
+  safeEqual,
   generateAccountId,
 } from '../util'
 import BaseDriver, {
@@ -347,7 +347,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (response?.Item) {
       if (isLogin) {
         // For logins, check authToken instead
-        if (almostConstantTimeEqual(session, response.Item.authToken as string)) {
+        if (safeEqual(session, response.Item.authToken as string)) {
           return {
             ...(response.Item as VaultAccountWithAuth),
             session,
@@ -359,7 +359,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const now = Date.now()
       const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
-      if (activeSessions.some(active => almostConstantTimeEqual(session, active.token))) {
+      if (activeSessions.some(active => safeEqual(session, active.token))) {
         return {
           ...(response.Item as VaultAccountWithAuth),
           sessions: activeSessions,
@@ -466,7 +466,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const rawSessions = response.Item.sessions
       const now = Date.now()
       const activeSessions = normalizeSessionRecords(rawSessions, now)
-      const sessionRecord = activeSessions.find(active => almostConstantTimeEqual(session, active.token))
+      const sessionRecord = activeSessions.find(active => safeEqual(session, active.token))
       if (!sessionRecord) {
         return
       }
