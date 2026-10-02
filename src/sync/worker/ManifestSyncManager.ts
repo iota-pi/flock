@@ -12,9 +12,9 @@ import { extractSyncableMetadata } from '../../shared/schemas/metadata'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { isAuthError } from './utils/errorClassifier'
+import type { ManifestEntry } from 'src/shared/schemas/trpc'
 import {
   ManifestDeltaCalculator,
-  type ManifestEntry,
   type SyncDeltas,
   type CalculateSyncDeltasParams,
 } from './ManifestDeltaCalculator'

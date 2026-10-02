@@ -1,8 +1,11 @@
 import type { ClientEvent } from '../worker/SyncEventHub'
 import { useAppStore } from 'src/state/store'
 import type { Item } from 'src/state/items'
-import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
+import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncEventProcessor')
 
 export interface SyncEventProcessorCallbacks {
   onKeyVersionMissing?: (kver?: string) => void
@@ -97,7 +100,7 @@ export class SyncEventProcessor {
         useAppStore.getState().updateMetadata(event.metadata)
         break
       case 'mutationFailed':
-        console.error(`Mutation ${event.mutationType} failed: ${event.error}`)
+        log.error(`Mutation ${event.mutationType} failed: ${event.error}`)
         break
       case 'startRequest':
         useAppStore.getState().startRequest()
@@ -154,7 +157,7 @@ export class SyncEventProcessor {
           try {
             listener(event.done, event.total)
           } catch (err) {
-            console.error('[SyncEventProcessor] Error in reencryptProgress listener:', err)
+            log.error('Error in reencryptProgress listener:', err)
           }
         }
         break

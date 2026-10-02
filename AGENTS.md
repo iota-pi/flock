@@ -273,6 +273,7 @@ Item data flows from Automerge docs (in the worker) → dispatched via `SyncEven
 ## Style
 - Utilise the vitest globals in unit tests. Don't import them because it is redundant and will fail the eslint rule
 - Don't use increment/decrement operators. Prefer the longer-form `+=` or `-=` syntax
+- Don't add re-exports for compatibility after refactoring/moving code. Instead, update the import paths to import from the correct location
 
 ## Development
 

@@ -10,11 +10,11 @@ import {
   getVaultSession,
 } from 'src/api/vault'
 import type { Item } from 'src/state/items'
-import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
+import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from 'src/types/backup'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
-import type { SyncApi } from 'src/sync/worker/syncProtocol'
+import type { SyncApi } from '../worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'

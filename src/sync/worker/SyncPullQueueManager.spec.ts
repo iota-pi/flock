@@ -8,51 +8,35 @@ import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
 import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 
-// Create a robust MockLocalforage helper class
-class MockLocalforage {
-  store = new Map<string, any>()
-  getItem = vi.fn().mockImplementation(async (key: string) => this.store.get(key) ?? null)
-  setItem = vi.fn().mockImplementation(async (key: string, value: any) => {
-    this.store.set(key, value)
-    return value
-  })
-
-  removeItem = vi.fn().mockImplementation(async (key: string) => {
-    this.store.delete(key)
-  })
-
-  clear = vi.fn().mockImplementation(async () => {
-    this.store.clear()
-  })
-
-  keys = vi.fn().mockImplementation(async () => Array.from(this.store.keys()))
-  length = vi.fn().mockImplementation(async () => this.store.size)
-  iterate = vi.fn().mockImplementation(async (fn: (val: any, key: string) => void) => {
-    for (const [key, val] of this.store.entries()) {
-      fn(val, key)
-    }
-  })
-}
+import {
+  MockLocalforage,
+  createMockLocalForage,
+  createMockVault,
+} from './__test__/testUtils'
 
 // Mock localforage
 let activeStore: MockLocalforage | null = null
 vi.mock('localforage', () => ({
   default: {
     createInstance: vi.fn().mockImplementation(() => {
-      activeStore = new MockLocalforage()
+      activeStore = createMockLocalForage()
       return activeStore
     }),
   },
 }))
 
-// Mock other dependencies
-const mockDecryptBytes = vi.fn()
-const mockHasVaultKey = vi.fn().mockReturnValue(true)
-const mockWaitForKeyVersion = vi.fn().mockResolvedValue(true)
+// Mock vault crypto
+const mockVault = createMockVault()
+const {
+  decryptBytes: mockDecryptBytes,
+  hasVaultKey: mockHasVaultKey,
+  waitForKeyVersion: mockWaitForKeyVersion,
+} = mockVault
+
 vi.mock('src/api/vault', () => ({
-  decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
-  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockWaitForKeyVersion(...args),
+  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
+  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
+  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
 }))
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
@@ -109,9 +93,7 @@ describe('SyncPullQueueManager', () => {
     manager = new SyncPullQueueManager(cursorStore)
 
     // Default mock behavior
-    mockDecryptBytes.mockImplementation(async (encrypted: any) => encrypted.cipher)
-    mockHasVaultKey.mockReturnValue(true)
-    mockWaitForKeyVersion.mockResolvedValue(true)
+    mockVault.reset()
   })
 
   afterEach(() => {
@@ -136,7 +118,7 @@ describe('SyncPullQueueManager', () => {
     it('loads previously stored cursors successfully', async () => {
       // Setup legacy mock item store pre-loaded values
       const preLoadedCursors: [string, number][] = [['item-1', 42]]
-      const lf = new MockLocalforage()
+      const lf = createMockLocalForage()
       await lf.setItem(SYNC_METADATA_KEYS.CURSORS, preLoadedCursors)
 
       // Inject this store into createInstance

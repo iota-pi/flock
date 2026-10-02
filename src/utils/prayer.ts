@@ -1,4 +1,5 @@
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
+import { isSameDay } from './index'
 import { compareItems, filterArchived, Item } from '../state/items'
 import type { GroupItem, ItemId } from '../shared/schemas/items'
 
@@ -355,4 +356,43 @@ export function getNaturalPrayerGoal(items: Item[]) {
   }
 
   return Math.ceil(sum)
+}
+
+export function isPrayerCompletedForToday(
+  items: Item[],
+  prayerGoal?: number,
+  today: Date = new Date(),
+): boolean {
+  const unarchived = filterArchived(items).filter(item => !item.deleted)
+  if (unarchived.length === 0) {
+    return false
+  }
+
+  const isPrayedForToday = (item: Item): boolean =>
+    isSameDay(today, new Date(getLastPrayedFor(item)))
+
+  const completed = unarchived.filter(isPrayedForToday).length
+  if (completed === 0) {
+    return false
+  }
+
+  const naturalGoal = getNaturalPrayerGoal(unarchived)
+  const goal = prayerGoal ?? naturalGoal
+
+  const scheduleIds = getPrayerSchedule(unarchived)
+  if (scheduleIds.length === 0) {
+    return false
+  }
+
+  const itemMap = new Map(unarchived.map(item => [item.id, item]))
+  const effectiveGoal = Math.max(1, goal)
+  const visibleSchedule = scheduleIds
+    .slice(0, effectiveGoal)
+    .map(id => itemMap.get(id))
+    .filter((item): item is Item => !!item)
+
+  const allVisiblePrayed =
+    visibleSchedule.length > 0 && visibleSchedule.every(isPrayedForToday)
+
+  return allVisiblePrayed || (goal > 0 && completed >= goal)
 }

@@ -109,3 +109,18 @@ self.addEventListener('notificationclick', event => {
     })(),
   )
 })
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'CLEAR_REMINDER_NOTIFICATIONS') {
+    event.waitUntil(
+      (async () => {
+        const notifications = await self.registration.getNotifications()
+        for (const notification of notifications) {
+          if (!notification.tag || notification.tag.startsWith('prayer-reminder')) {
+            notification.close()
+          }
+        }
+      })(),
+    )
+  }
+})

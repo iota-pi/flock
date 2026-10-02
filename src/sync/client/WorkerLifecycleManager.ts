@@ -11,6 +11,9 @@ import { getOnlineState } from 'src/utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { SYNC_TIMEOUTS } from '../syncConfig'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('WorkerLifecycleManager')
 
 export interface WorkerLifecycleCallbacks {
   onEvent: (event: ClientEvent) => void
@@ -187,7 +190,7 @@ export class WorkerLifecycleManager {
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
         if (signal.aborted || this.currentAccountId !== accountId) {
-          console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
+          log.warn('Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
         }
@@ -195,7 +198,7 @@ export class WorkerLifecycleManager {
         worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
         worker.addEventListener('error', (event: ErrorEvent) => {
           const error = event.error || new Error(event.message || 'Sync Worker Error')
-          console.error('[WorkerLifecycleManager] Worker error:', error)
+          log.error('Worker error:', error)
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
           }
@@ -223,14 +226,14 @@ export class WorkerLifecycleManager {
           await wrappedApi.updateAuthToken(currentSession)
         }
         if (signal.aborted || this.currentAccountId !== accountId) {
-          console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
+          log.warn('Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
         }
 
         await wrappedApi.setOnlineState(initialOnlineState)
         if (signal.aborted || this.currentAccountId !== accountId) {
-          console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
+          log.warn('Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
         }
@@ -239,7 +242,7 @@ export class WorkerLifecycleManager {
         this.healthMonitor.recordActivity()
 
         if (signal.aborted || this.currentAccountId !== accountId) {
-          console.warn('[WorkerLifecycleManager] Initialization aborted due to account change or concurrent shutdown')
+          log.warn('Initialization aborted due to account change or concurrent shutdown')
           cleanupSessionResources()
           return
         }
@@ -294,7 +297,7 @@ export class WorkerLifecycleManager {
                     this._restartResolve = null
                   })
                   .catch(err => {
-                    console.error('[WorkerLifecycleManager] Auto-restart initialization failed:', err)
+                    log.error('Auto-restart initialization failed:', err)
                     this._restartResolve?.()
                     this._restartResolve = null
                   })
@@ -306,7 +309,7 @@ export class WorkerLifecycleManager {
           },
         })
       } catch (error) {
-        console.error('Failed to initialize SyncBridge:', error)
+        log.error('Failed to initialize SyncBridge:', error)
         cleanupSessionResources()
 
         if (!signal.aborted && this.initRetryStrategy.canRetry) {
@@ -438,7 +441,7 @@ export class WorkerLifecycleManager {
           ),
         ])
       } catch (err) {
-        console.error('[WorkerLifecycleManager] Failed to shut down worker cleanly:', err)
+        log.error('Failed to shut down worker cleanly:', err)
       }
     }
 

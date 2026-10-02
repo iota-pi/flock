@@ -7,31 +7,10 @@ import {
   clearAccountStore,
 } from './createAccountStore'
 
-class MockLocalforage {
-  public data = new Map<string, any>()
-  public config: Record<string, any>
-
-  constructor(config: Record<string, any>) {
-    this.config = config
-  }
-
-  async getItem<T>(key: string): Promise<T | null> {
-    return (this.data.get(key) as T) ?? null
-  }
-
-  async setItem<T>(key: string, value: T): Promise<T> {
-    this.data.set(key, value)
-    return value
-  }
-
-  async removeItem(key: string): Promise<void> {
-    this.data.delete(key)
-  }
-
-  async clear(): Promise<void> {
-    this.data.clear()
-  }
-}
+import {
+  MockLocalforage,
+  createMockLocalForage,
+} from '../worker/__test__/testUtils'
 
 const createdConfigs: Record<string, any>[] = []
 
@@ -39,7 +18,7 @@ vi.mock('localforage', () => ({
   default: {
     createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
       createdConfigs.push(config)
-      return new MockLocalforage(config)
+      return createMockLocalForage(config)
     }),
   },
 }))

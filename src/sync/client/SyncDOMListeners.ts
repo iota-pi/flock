@@ -4,7 +4,7 @@ import {
   VAULT_EVENTS_CHANNEL,
   type VaultBroadcastEvent,
 } from 'src/api/vault'
-import { fireAndForget } from 'src/sync/utils/fireAndForget'
+import { fireAndForget } from '../utils/fireAndForget'
 
 export interface SyncDOMListenersCallbacks {
   setOnlineState?: (isOnline: boolean) => Promise<void> | void

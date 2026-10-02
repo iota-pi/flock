@@ -1,11 +1,8 @@
-import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema } from '../../shared/schemas/trpc'
+import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema, type ManifestEntry } from '../../shared/schemas/trpc'
 import { assertSuccess } from './clientUtils'
 import type { VaultItem } from './clientTypes'
 import type { ItemId } from '../../shared/schemas/items'
 import { getTrpcClient } from '../trpcClient'
-
-
-export type ManifestEntry = [string, number, boolean?]
 
 export async function fetchManifest(
   { account }: { account: string },

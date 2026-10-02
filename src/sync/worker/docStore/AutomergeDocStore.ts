@@ -309,7 +309,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         try {
           this.repo.delete(documentId)
         } catch (error) {
-          console.error('[automerge] failed to clear unavailable handle before import', {
+          console.error('[AutomergeDocStore] Failed to clear unavailable handle before import', {
             itemId,
             error,
           })
@@ -488,7 +488,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
           return this.buildHydrateResult(handle.doc(), incomingHeads)
         }
       } catch (error) {
-        console.error('[automerge] failed to hydrate document', {
+        console.error('[AutomergeDocStore] Failed to hydrate document', {
           itemId,
           error,
         })
@@ -647,7 +647,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     try {
       await this.repo.shutdown()
     } catch (err) {
-      console.error('[automergeDocStore] Failed to close repo:', err)
+      console.error('[AutomergeDocStore] Failed to close repo:', err)
     }
   }
 }

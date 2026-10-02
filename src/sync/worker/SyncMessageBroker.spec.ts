@@ -3,6 +3,7 @@ import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/s
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { createTestEventHubs } from './__test__/testUtils'
 import { AutomergeIndexManager } from './docStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
@@ -31,8 +32,9 @@ describe('SyncMessageBroker', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    clientEventHub = new ClientEventHub()
-    internalEventHub = new WorkerInternalEventHub()
+    const hubs = createTestEventHubs()
+    clientEventHub = hubs.clientEventHub
+    internalEventHub = hubs.internalEventHub
     adapter = new VaultNetworkAdapter(internalEventHub)
     indexManager = {
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),

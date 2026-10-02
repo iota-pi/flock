@@ -1,6 +1,7 @@
 import { SyncPoller } from './SyncPoller'
 import { SyncApiClient, AuthError } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { createTestEventHubs } from './__test__/testUtils'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
@@ -34,8 +35,9 @@ describe('SyncPoller', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    clientEventHub = new ClientEventHub()
-    internalEventHub = new WorkerInternalEventHub()
+    const hubs = createTestEventHubs()
+    clientEventHub = hubs.clientEventHub
+    internalEventHub = hubs.internalEventHub
     pullQueueManager = new SyncPullQueueManager(new CursorStore('test-account'))
     indexManager = {
       updateLastSyncTime: vi.fn().mockResolvedValue(undefined),

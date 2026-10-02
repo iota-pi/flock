@@ -10,6 +10,7 @@ import {
   VaultItemSchema,
   StoredSyncMessageSchema,
 } from '../../shared/schemas/vault'
+import type { ManifestEntry } from 'src/shared/schemas/trpc'
 
 export type VaultKey = z.infer<typeof VaultKeySchema>
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
@@ -49,6 +50,8 @@ export type UpdateAccountDataParams = Partial<AuthData> & {
 }
 
 
+export type VaultDriver = BaseDriver
+
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
@@ -73,8 +76,8 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
-  abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<{ itemId: string; modifiedAt: number; deleted?: boolean }>>
-  abstract fetchByIds(opts: { account: string; itemIds: string[] }): Promise<VaultItem[]>
+  abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<ManifestEntry>>
+  abstract fetchByIds(opts: { account: string; itemIds: ItemId[] }): Promise<VaultItem[]>
 
   // Sync message operations
   abstract appendSyncMessage(input: {

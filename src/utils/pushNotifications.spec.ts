@@ -1,4 +1,4 @@
-import { checkSubscription, syncReminderTimezone } from './pushNotifications'
+import { checkSubscription, syncReminderTimezone, clearReminderNotifications } from './pushNotifications'
 import { getReminderSettings, updateReminderSettings } from '../api/vault/client'
 
 vi.mock('../api/vault/client', () => ({
@@ -104,6 +104,54 @@ describe('pushNotifications utility', () => {
       const updated = await syncReminderTimezone('user-1')
       expect(updated).toBe(false)
       expect(updateReminderSettings).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('clearReminderNotifications', () => {
+    it('does nothing when navigator has no serviceWorker', async () => {
+      const originalServiceWorker = navigator.serviceWorker
+      try {
+        Object.defineProperty(navigator, 'serviceWorker', {
+          value: undefined,
+          configurable: true,
+        })
+        await expect(clearReminderNotifications()).resolves.toBeUndefined()
+      } finally {
+        Object.defineProperty(navigator, 'serviceWorker', {
+          value: originalServiceWorker,
+          configurable: true,
+        })
+      }
+    })
+
+    it('posts CLEAR_REMINDER_NOTIFICATIONS to active worker and closes prayer-reminder notifications', async () => {
+      const mockPostMessage = vi.fn()
+      const closeNotification1 = vi.fn()
+      const closeNotification2 = vi.fn()
+      const closeOtherNotification = vi.fn()
+
+      const notif1 = { tag: 'prayer-reminder', close: closeNotification1 }
+      const notif2 = { tag: '', close: closeNotification2 }
+      const notifOther = { tag: 'unrelated-tag', close: closeOtherNotification }
+
+      const mockRegistration = {
+        active: { postMessage: mockPostMessage },
+        getNotifications: vi.fn().mockResolvedValue([notif1, notif2, notifOther]),
+      }
+
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+          getRegistration: vi.fn().mockResolvedValue(mockRegistration),
+        },
+        configurable: true,
+      })
+
+      await clearReminderNotifications()
+
+      expect(mockPostMessage).toHaveBeenCalledWith({ type: 'CLEAR_REMINDER_NOTIFICATIONS' })
+      expect(closeNotification1).toHaveBeenCalled()
+      expect(closeNotification2).toHaveBeenCalled()
+      expect(closeOtherNotification).not.toHaveBeenCalled()
     })
   })
 })

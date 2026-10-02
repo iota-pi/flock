@@ -42,6 +42,7 @@ import {
   isResourceInUseError,
   isTransientDynamoError,
 } from './dynamoErrors'
+import type { ManifestEntry } from 'src/shared/schemas/trpc'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
@@ -514,8 +515,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
   async fetchManifest(
     { account }: { account: string },
-  ): Promise<Array<{ itemId: string; modifiedAt: number; deleted?: boolean }>> {
-    const manifest: Array<{ itemId: string; modifiedAt: number; deleted?: boolean }> = []
+  ): Promise<Array<ManifestEntry>> {
+    const manifest: Array<ManifestEntry> = []
     let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
 
     while (true) {
@@ -539,7 +540,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       if (response?.Items) {
         for (const record of response.Items) {
-          const itemId = record.item as string
+          const itemId = record.item as ItemId
           if (!itemId) continue
           const isDeleted = record.metadata?.deleted === true || (record as Record<string, unknown>).deleted === true
           const modifiedAt = typeof record.modifiedAt === 'number'
@@ -548,7 +549,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           manifest.push({
             itemId,
             modifiedAt,
-            ...(isDeleted ? { deleted: true } : {}),
+            ...(isDeleted ? { isDeleted: true } : {}),
           })
         }
       }

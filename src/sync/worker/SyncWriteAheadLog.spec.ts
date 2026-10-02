@@ -3,30 +3,10 @@ import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from 'src/shared/schemas/items'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../../utils/storageManager'
 
-class MockLocalforage {
-  store = new Map<string, any>()
-  getItem = vi.fn().mockImplementation(async (key: string) => this.store.get(key) ?? null)
-  setItem = vi.fn().mockImplementation(async (key: string, value: any) => {
-    this.store.set(key, value)
-    return value
-  })
-
-  removeItem = vi.fn().mockImplementation(async (key: string) => {
-    this.store.delete(key)
-  })
-
-  clear = vi.fn().mockImplementation(async () => {
-    this.store.clear()
-  })
-
-  keys = vi.fn().mockImplementation(async () => Array.from(this.store.keys()))
-  length = vi.fn().mockImplementation(async () => this.store.size)
-  iterate = vi.fn().mockImplementation(async (fn: (val: any, key: string) => void) => {
-    for (const [key, val] of this.store.entries()) {
-      fn(val, key)
-    }
-  })
-}
+import {
+  MockLocalforage,
+  createMockLocalForage,
+} from './__test__/testUtils'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
 vi.mock('localforage', () => ({
@@ -34,7 +14,7 @@ vi.mock('localforage', () => ({
     createInstance: vi.fn().mockImplementation((options: { name: string; storeName: string }) => {
       const key = `${options.name}:${options.storeName}`
       if (!activeStoreMap.has(key)) {
-        activeStoreMap.set(key, new MockLocalforage())
+        activeStoreMap.set(key, createMockLocalForage(options))
       }
       return activeStoreMap.get(key)
     }),

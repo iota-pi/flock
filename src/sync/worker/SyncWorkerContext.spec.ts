@@ -1,5 +1,6 @@
 import { SyncWorkerContext } from './SyncWorkerContext'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { createTestEventHubs } from './__test__/testUtils'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
@@ -200,8 +201,9 @@ describe('SyncWorkerContext', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    clientEventHub = new ClientEventHub()
-    internalEventHub = new WorkerInternalEventHub()
+    const hubs = createTestEventHubs()
+    clientEventHub = hubs.clientEventHub
+    internalEventHub = hubs.internalEventHub
 
     context = new SyncWorkerContext({
       accountId: 'test-account',
@@ -255,10 +257,10 @@ describe('SyncWorkerContext', () => {
   })
 
   it('clears manual recovery when itemMessageParsed is received', () => {
-    const ctxInternalHub = new WorkerInternalEventHub()
+    const { clientEventHub: ctxClientHub, internalEventHub: ctxInternalHub } = createTestEventHubs()
     const ctx = new SyncWorkerContext({
       accountId: 'test-account',
-      clientEventHub: new ClientEventHub(),
+      clientEventHub: ctxClientHub,
       internalEventHub: ctxInternalHub,
     })
 

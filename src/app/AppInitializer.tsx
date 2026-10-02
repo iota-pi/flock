@@ -8,6 +8,7 @@ import { getTrackedFetch } from 'src/api/trackedFetch'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { useNavigate } from 'react-router'
 import { syncReminderTimezone } from '../utils/pushNotifications'
+import { useAutoClearPrayerNotifications } from '../hooks/useAutoClearPrayerNotifications'
 
 export default function AppInitializer() {
   const loggedIn = useLoggedIn()
@@ -49,6 +50,7 @@ export default function AppInitializer() {
   }, [navigate])
 
   useSyncCoordinatorLifecycle(account, loggedIn)
+  useAutoClearPrayerNotifications()
 
   return null
 }

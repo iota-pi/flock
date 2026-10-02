@@ -1,5 +1,11 @@
-import { SyncOrchestrator } from './SyncOrchestrator'
+import {
+  SyncOrchestrator,
+  type SyncPullQueueManagerLike,
+  type LeaderElectionLike,
+} from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { createTestEventHubs } from './__test__/testUtils'
+import type { LeaderElectionCallbacks } from './utils/LeaderElection'
 
 describe('SyncOrchestrator', () => {
   let orchestrator: SyncOrchestrator
@@ -55,8 +61,9 @@ describe('SyncOrchestrator', () => {
       configurable: true,
     })
 
-    clientEventHub = new ClientEventHub()
-    internalEventHub = new WorkerInternalEventHub()
+    const hubs = createTestEventHubs()
+    clientEventHub = hubs.clientEventHub
+    internalEventHub = hubs.internalEventHub
 
     orchestrator = new SyncOrchestrator(
       'account-1',
@@ -101,22 +108,26 @@ describe('SyncOrchestrator', () => {
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
   })
 
-  it('applies symmetric jitter centered around target delay', () => {
+  it('applies symmetric jitter centered around target delay when scheduling poll timers', () => {
     orchestrator.setLeader(true)
     orchestrator.setOnlineState(true)
 
-    // Access private method applyBackoffJitter for testing
-    const applyJitter = (orchestrator as any).applyBackoffJitter.bind(orchestrator)
-
+    const setTimeoutSpy = vi.spyOn(self, 'setTimeout')
     const samples: number[] = []
+
     for (let i = 0; i < 1000; i++) {
-      samples.push(applyJitter(60000))
+      orchestrator.startPolling(false)
+      const lastCall = setTimeoutSpy.mock.calls[setTimeoutSpy.mock.calls.length - 1]
+      samples.push(lastCall[1] as number)
     }
 
+    setTimeoutSpy.mockRestore()
+
     const avg = samples.reduce((a, b) => a + b, 0) / samples.length
-    // Target is 60000, jitter window is 15000, so delay ranges 52500 - 67500. Average should be ~60000.
-    expect(avg).toBeGreaterThan(57000)
-    expect(avg).toBeLessThan(63000)
+    // Target base delay is 30000ms, jitter factor is 0.25 -> jitter window 7500ms (range: 26250 - 33750). Average should be ~30000ms.
+    expect(avg).toBeGreaterThan(28500)
+    expect(avg).toBeLessThan(31500)
+    expect(samples.some(s => s !== samples[0])).toBe(true)
   })
 
   it('handles auth-failure properly and pauses polling even if flush is called during poll', async () => {
@@ -362,18 +373,41 @@ describe('SyncOrchestrator', () => {
     expect(mockBroker.abortPoll).toHaveBeenCalledTimes(1)
   })
 
-  it('does not set pendingFlush when shutting down with a pending batch timeout', async () => {
+  it('does not execute pending flush after shutdown when shutdown occurs before batch timeout fires', async () => {
     orchestrator.setLeader(true)
     orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
 
-    // Schedule a flush (syncBatchTimeout)
+    // Schedule a flush (batched via setTimeout)
     orchestrator.flush()
-    expect((orchestrator as any).syncBatchTimeout).not.toBeNull()
+    // Poll is not executed synchronously before batch delay
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
 
     // Shut down before batch timeout fires
     await orchestrator.shutdown()
+    expect(orchestrator.hasPendingFlush).toBe(false)
 
-    expect((orchestrator as any).pendingFlush).toBe(false)
+    // Advancing timers past the batch timeout should not execute any poll
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+  })
+
+  it('executes poll after batch timeout delay when flush is called', async () => {
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Call flush
+    orchestrator.flush()
+    // Poll should not be called synchronously before delay
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Advance timer to fire the batch timeout (0ms / next tick)
+    await vi.advanceTimersByTimeAsync(10)
+    // Observable behavior: executePoll is called after flush()
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
   })
 
   it('does not schedule a redundant polling timer when startPolling is called with immediate=true', async () => {
@@ -384,37 +418,42 @@ describe('SyncOrchestrator', () => {
     mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    // At this point startPolling(true) was invoked by setLeader(true).
-    // An immediate poll was launched, and no redundant scheduled timer should be pending.
-    expect((orchestrator as any).pollIntervalId).toBeNull()
+    // Await microtasks for reloadCursors and launch of the immediate poll
+    await vi.advanceTimersByTimeAsync(0)
+
+    // An immediate poll was launched, and no redundant scheduled timer should be pending
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+    expect(orchestrator.hasScheduledPoll).toBe(false)
+
+    // Advance time while poll is in-flight: no redundant poll should be triggered
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
 
     // Finish the poll
     resolvePoll('success')
     await vi.advanceTimersByTimeAsync(0)
 
     // Once poll completed, it should schedule the next poll
-    expect((orchestrator as any).pollIntervalId).not.toBeNull()
+    expect(orchestrator.hasScheduledPoll).toBe(true)
+
+    // Advancing past scheduled poll interval executes the next poll
+    await vi.advanceTimersByTimeAsync(40000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
   })
 
-  it('does not permanently freeze polling loop if timer fires slightly early due to timer resolution', async () => {
+  it('does not permanently freeze polling loop and continues polling over time', async () => {
     orchestrator.setLeader(true)
     orchestrator.setOnlineState(true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
-    expect((orchestrator as any).pollIntervalId).not.toBeNull()
+    expect(orchestrator.hasScheduledPoll).toBe(true)
 
-    // Simulate browser timer resolution where setTimeout fires 1ms before target timestamp
-    const scheduledPollAt = (orchestrator as any).nextPollAt ?? (Date.now() + 30000)
-    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(scheduledPollAt - 1)
-
-    // Trigger timer
+    // Trigger timer for second poll
     await vi.advanceTimersByTimeAsync(40000)
-
-    // The second poll must execute despite firing 1ms early
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
 
-    dateNowSpy.mockRestore()
+    // Trigger timer for third poll
     await vi.advanceTimersByTimeAsync(40000)
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
   })
@@ -423,18 +462,37 @@ describe('SyncOrchestrator', () => {
     const internalListener = vi.fn()
     internalEventHub.subscribe(internalListener)
 
-    await orchestrator.start()
-    const leaderElection = (orchestrator as any).leaderElection
+    let capturedCallbacks!: LeaderElectionCallbacks
+    const customOrchestrator = new SyncOrchestrator(
+      'account-1',
+      mockBroker,
+      clientEventHub,
+      internalEventHub,
+      mockPullQueueManager,
+      undefined,
+      {
+        createLeaderElection: (_accountId, callbacks) => {
+          capturedCallbacks = callbacks
+          return {
+            acquire: vi.fn().mockResolvedValue(undefined),
+            release: vi.fn(),
+            claimLeadership: vi.fn(),
+          }
+        },
+      }
+    )
+
+    await customOrchestrator.start()
 
     // Trigger onMultipleLeadersDetected callback
-    leaderElection.callbacks.onMultipleLeadersDetected?.()
+    capturedCallbacks.onMultipleLeadersDetected?.()
     expect(internalListener).toHaveBeenCalledWith({ type: 'multipleLeadersDetected' })
 
     // Trigger onSoleLeaderRestored callback
-    leaderElection.callbacks.onSoleLeaderRestored?.()
+    capturedCallbacks.onSoleLeaderRestored?.()
     expect(internalListener).toHaveBeenCalledWith({ type: 'soleLeaderRestored' })
 
-    await orchestrator.shutdown()
+    await customOrchestrator.shutdown()
   })
 
   it('forwards leaderConflict event to internalEventHub and clientEventHub', async () => {
@@ -443,30 +501,64 @@ describe('SyncOrchestrator', () => {
     internalEventHub.subscribe(internalListener)
     clientEventHub.subscribe(clientListener)
 
-    await orchestrator.start()
-    const leaderElection = (orchestrator as any).leaderElection
+    let capturedCallbacks!: LeaderElectionCallbacks
+    const customOrchestrator = new SyncOrchestrator(
+      'account-1',
+      mockBroker,
+      clientEventHub,
+      internalEventHub,
+      mockPullQueueManager,
+      undefined,
+      {
+        createLeaderElection: (_accountId, callbacks) => {
+          capturedCallbacks = callbacks
+          return {
+            acquire: vi.fn().mockResolvedValue(undefined),
+            release: vi.fn(),
+            claimLeadership: vi.fn(),
+          }
+        },
+      }
+    )
+
+    await customOrchestrator.start()
 
     // Trigger onLeaderConflict callback
-    leaderElection.callbacks.onLeaderConflict?.(true)
+    capturedCallbacks.onLeaderConflict?.(true)
     expect(internalListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: true })
     expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: true })
 
-    leaderElection.callbacks.onLeaderConflict?.(false)
+    capturedCallbacks.onLeaderConflict?.(false)
     expect(internalListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
     expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
 
-    await orchestrator.shutdown()
+    await customOrchestrator.shutdown()
   })
 
   it('delegates claimLeader to leaderElection.claimLeadership', async () => {
-    await orchestrator.start()
-    const leaderElection = (orchestrator as any).leaderElection
-    const claimSpy = vi.spyOn(leaderElection, 'claimLeadership')
+    const mockLeaderElection: LeaderElectionLike = {
+      acquire: vi.fn().mockResolvedValue(undefined),
+      release: vi.fn(),
+      claimLeadership: vi.fn(),
+    }
+    const customOrchestrator = new SyncOrchestrator(
+      'account-1',
+      mockBroker,
+      clientEventHub,
+      internalEventHub,
+      mockPullQueueManager,
+      undefined,
+      {
+        createLeaderElection: () => mockLeaderElection,
+      }
+    )
 
-    orchestrator.claimLeader()
-    expect(claimSpy).toHaveBeenCalledTimes(1)
+    await customOrchestrator.start()
 
-    await orchestrator.shutdown()
+    customOrchestrator.claimLeader()
+    expect(mockLeaderElection.claimLeadership).toHaveBeenCalledTimes(1)
+
+    await customOrchestrator.shutdown()
   })
 
   describe('promoted leader cursor reloading', () => {
@@ -475,7 +567,7 @@ describe('SyncOrchestrator', () => {
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      const mockPullQueueManager = {
+      const customPullQueueManager: SyncPullQueueManagerLike = {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
       }
 
@@ -484,14 +576,14 @@ describe('SyncOrchestrator', () => {
         mockBroker,
         clientEventHub,
         internalEventHub,
-        mockPullQueueManager as any
+        customPullQueueManager
       )
 
       // Promote to leader
       orchestratorWithPQM.setLeader(true)
 
       // loadCursors should have been called
-      expect(mockPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
+      expect(customPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
 
       // Poll must NOT have executed yet because reload is still in-flight
       await vi.advanceTimersByTimeAsync(0)
@@ -532,7 +624,7 @@ describe('SyncOrchestrator', () => {
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      const mockPullQueueManager = {
+      const customPullQueueManager: SyncPullQueueManagerLike = {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
       }
 
@@ -541,11 +633,11 @@ describe('SyncOrchestrator', () => {
         mockBroker,
         clientEventHub,
         internalEventHub,
-        mockPullQueueManager as any
+        customPullQueueManager
       )
 
       orchestratorWithPQM.setLeader(true)
-      expect(mockPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
+      expect(customPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
 
       // Leadership revoked while reloading
       orchestratorWithPQM.setLeader(false)

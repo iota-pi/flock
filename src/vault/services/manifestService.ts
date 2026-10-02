@@ -1,5 +1,7 @@
 import type BaseDriver from '../drivers/base'
 import type { VaultItem } from '../drivers/base'
+import type { ItemId } from 'src/shared/schemas/items'
+import type { ManifestEntry } from 'src/shared/schemas/trpc'
 
 type ManifestServiceContext = {
   vault: BaseDriver
@@ -8,19 +10,19 @@ type ManifestServiceContext = {
 export async function fetchManifest(
   ctx: ManifestServiceContext,
   input: { account: string },
-): Promise<{ manifest: Array<[string, number, boolean?]>; serverTime: number }> {
+): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
   const { account } = input
-  const items = await ctx.vault.fetchManifest({ account })
+  const manifest = await ctx.vault.fetchManifest({ account })
 
   return {
-    manifest: items.map(entry => (entry.deleted ? [entry.itemId, entry.modifiedAt, true] : [entry.itemId, entry.modifiedAt])),
+    manifest,
     serverTime: Date.now(),
   }
 }
 
 export async function fetchSnapshotsByIds(
   ctx: ManifestServiceContext,
-  input: { account: string; itemIds: string[] },
+  input: { account: string; itemIds: ItemId[] },
 ): Promise<{ items: VaultItem[]; serverTime: number }> {
   const { account, itemIds } = input
   const items = await ctx.vault.fetchByIds({ account, itemIds })

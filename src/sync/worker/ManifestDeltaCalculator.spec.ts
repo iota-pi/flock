@@ -6,18 +6,18 @@ describe('ManifestDeltaCalculator', () => {
     it('partitions deltas correctly into missingIds, locallyTombstonedSnapshots, and upstreamIds', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          ['item-new-remote', 2000],
-          ['item-server-deleted', 2000, true],
-          ['item-in-sync', 1000],
+          { itemId: 'item-new-remote' as ItemId, modifiedAt: 2000 },
+          { itemId: 'item-server-deleted' as ItemId, modifiedAt: 2000, isDeleted: true },
+          { itemId: 'item-in-sync' as ItemId, modifiedAt: 1000 },
         ],
         clockSkew: 0,
         force: false,
         knownItemIds: ['item-server-deleted' as ItemId, 'item-in-sync' as ItemId, 'item-local-only' as ItemId],
         tombstoneItemIds: [],
         localLastModifiedMap: new Map([
-          ['item-server-deleted', 1000],
-          ['item-in-sync', 1000],
-          ['item-local-only', 1500],
+          ['item-server-deleted' as ItemId, 1000],
+          ['item-in-sync' as ItemId, 1000],
+          ['item-local-only' as ItemId, 1500],
         ]),
         quarantinedMap: new Map(),
       })
@@ -32,8 +32,8 @@ describe('ManifestDeltaCalculator', () => {
     it('filters quarantined items unless server has a newer timestamp', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          ['item-quarantined-old', 500],
-          ['item-quarantined-new', 1500],
+          { itemId: 'item-quarantined-old' as ItemId, modifiedAt: 500 },
+          { itemId: 'item-quarantined-new' as ItemId, modifiedAt: 1500 },
         ],
         clockSkew: 0,
         force: false,
@@ -52,7 +52,7 @@ describe('ManifestDeltaCalculator', () => {
     it('does not filter quarantined items when force is true', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          ['item-quarantined-old', 500],
+          { itemId: 'item-quarantined-old' as ItemId, modifiedAt: 500 },
         ],
         clockSkew: 0,
         force: true,
@@ -70,14 +70,14 @@ describe('ManifestDeltaCalculator', () => {
     it('never resurrects locally tombstoned items with active server snapshot', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          ['item-tombstoned', 5000], // active on server
+          { itemId: 'item-tombstoned' as ItemId, modifiedAt: 5000 }, // active on server
         ],
         clockSkew: 0,
         force: false,
         knownItemIds: [],
         tombstoneItemIds: ['item-tombstoned' as ItemId],
         localLastModifiedMap: new Map([
-          ['item-tombstoned', 4000],
+          ['item-tombstoned' as ItemId, 4000],
         ]),
         quarantinedMap: new Map(),
       })
@@ -89,14 +89,14 @@ describe('ManifestDeltaCalculator', () => {
     it('records server deleted timestamp for inactive item without fetching snapshot', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          ['item-server-del', 3000, true],
+          { itemId: 'item-server-del' as ItemId, modifiedAt: 3000, isDeleted: true },
         ],
         clockSkew: 0,
         force: false,
         knownItemIds: [], // not in active items
         tombstoneItemIds: [],
         localLastModifiedMap: new Map([
-          ['item-server-del', 1000],
+          ['item-server-del' as ItemId, 1000],
         ]),
         quarantinedMap: new Map(),
       })
@@ -113,14 +113,14 @@ describe('ManifestDeltaCalculator', () => {
       // Since serverTime (9990) > adjustedLocalTime (-50000), it treats it as missing (clock skew safety).
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          ['item-skew', serverTime],
+          { itemId: 'item-skew' as ItemId, modifiedAt: serverTime },
         ],
         clockSkew: 0,
         force: false,
         knownItemIds: ['item-skew' as ItemId],
         tombstoneItemIds: [],
         localLastModifiedMap: new Map([
-          ['item-skew', localTime],
+          ['item-skew' as ItemId, localTime],
         ]),
         quarantinedMap: new Map(),
       })
@@ -133,14 +133,14 @@ describe('ManifestDeltaCalculator', () => {
       const localTime = serverTime + SKEW_BUFFER_MS + 5000 // well ahead
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          ['item-local-newer', serverTime],
+          { itemId: 'item-local-newer' as ItemId, modifiedAt: serverTime },
         ],
         clockSkew: 0,
         force: false,
         knownItemIds: ['item-local-newer' as ItemId],
         tombstoneItemIds: [],
         localLastModifiedMap: new Map([
-          ['item-local-newer', localTime],
+          ['item-local-newer' as ItemId, localTime],
         ]),
         quarantinedMap: new Map(),
       })

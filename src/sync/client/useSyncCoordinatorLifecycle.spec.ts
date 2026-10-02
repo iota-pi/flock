@@ -1,7 +1,8 @@
 import { renderHook } from '@testing-library/react'
 import useSyncCoordinatorLifecycle from './useSyncCoordinatorLifecycle'
 import { SyncBridge } from './SyncBridge'
-import { useAppStore } from '../../state/store'
+import { useAppStore } from 'src/state/store'
+import { resumePendingReencryption } from 'src/api/vault/reencrypt'
 
 vi.mock('../../api/vault/reencrypt', () => ({
   resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
@@ -52,7 +53,6 @@ describe('useSyncCoordinatorLifecycle', () => {
   })
 
   it('resumes pending re-encryption after successful initialization', async () => {
-    const { resumePendingReencryption } = await import('../../api/vault/reencrypt')
     renderHook(() => useSyncCoordinatorLifecycle('test-acc-3', true))
 
     await vi.waitFor(() => {
