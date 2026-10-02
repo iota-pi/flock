@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Item } from 'src/state/items'
 import { useEventCallback } from 'src/hooks/useEventCallback'
 import { snoozeReminders } from 'src/api/vault'
+import { clearReminderNotifications } from 'src/utils/pushNotifications'
 import { isSameDay } from 'src/utils'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import { type FlowState } from 'src/state/slices/prayerFlowSlice'
@@ -176,6 +177,7 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
       void SyncBridge.flushSync().catch(err => {
         console.error('Failed to trigger forceSync after finishing prayer schedule:', err)
       })
+      void clearReminderNotifications().catch(() => {})
       return
     }
 

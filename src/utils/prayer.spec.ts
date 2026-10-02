@@ -3,6 +3,7 @@ import {
   getActiveItems,
   getPrayerSchedule,
   getNaturalPrayerGoal,
+  isPrayerCompletedForToday,
 } from './prayer'
 import type { Item } from '../state/items'
 import type { GroupItem, ItemId } from 'src/shared/schemas/items'
@@ -263,5 +264,52 @@ describe('prayer utilities', () => {
     expect(schedule.slice(0, 2)).toContain('c1')
     expect(schedule[2]).toBe('p2')
     expect(schedule[3]).toBe('p3')
+  })
+
+  describe('isPrayerCompletedForToday', () => {
+    it('returns false for empty items array', () => {
+      expect(isPrayerCompletedForToday([])).toBe(false)
+    })
+
+    it('returns false when items have no prayers recorded today', () => {
+      const yesterday = Date.now() - (24 * 60 * 60 * 1000)
+      const p1 = makePerson('p1', 'daily', [yesterday])
+      const p2 = makePerson('p2', 'daily', [yesterday])
+      expect(isPrayerCompletedForToday([p1, p2])).toBe(false)
+    })
+
+    it('returns false when only partially completed and goal is not met', () => {
+      const today = new Date()
+      const yesterday = today.getTime() - (24 * 60 * 60 * 1000)
+      const p1 = makePerson('p1', 'daily', [today.getTime()])
+      const p2 = makePerson('p2', 'daily', [yesterday])
+      const p3 = makePerson('p3', 'daily', [yesterday])
+      // 3 daily items -> naturalGoal = 3. Prayed for 1.
+      expect(isPrayerCompletedForToday([p1, p2, p3], 3, today)).toBe(false)
+    })
+
+    it('returns true when all visible scheduled items have been prayed for today', () => {
+      const today = new Date()
+      const p1 = makePerson('p1', 'daily', [today.getTime()])
+      const p2 = makePerson('p2', 'daily', [today.getTime()])
+      // goal = 2, both prayed today
+      expect(isPrayerCompletedForToday([p1, p2], 2, today)).toBe(true)
+    })
+
+    it('returns true when daily goal is reached even if not in original schedule order', () => {
+      const today = new Date()
+      const yesterday = today.getTime() - (24 * 60 * 60 * 1000)
+      const p1 = makePerson('p1', 'daily', [yesterday])
+      const p2 = makePerson('p2', 'daily', [today.getTime()])
+      const p3 = makePerson('p3', 'daily', [today.getTime()])
+      // goal = 2, completed = 2 (p2 and p3 prayed today)
+      expect(isPrayerCompletedForToday([p1, p2, p3], 2, today)).toBe(true)
+    })
+
+    it('returns false when items are deleted', () => {
+      const today = new Date()
+      const p1 = { ...makePerson('p1', 'daily', [today.getTime()]), deleted: true }
+      expect(isPrayerCompletedForToday([p1], 1, today)).toBe(false)
+    })
   })
 })

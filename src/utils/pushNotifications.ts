@@ -131,3 +131,33 @@ export async function syncReminderTimezone(account: string): Promise<boolean> {
     return false
   }
 }
+
+export async function clearReminderNotifications(): Promise<void> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.getRegistration()
+    if (!registration) {
+      return
+    }
+
+    if (registration.active) {
+      registration.active.postMessage({ type: 'CLEAR_REMINDER_NOTIFICATIONS' })
+    } else if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_REMINDER_NOTIFICATIONS' })
+    }
+
+    if ('getNotifications' in registration) {
+      const notifications = await registration.getNotifications()
+      for (const notification of notifications) {
+        if (!notification.tag || notification.tag.startsWith('prayer-reminder')) {
+          notification.close()
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to clear reminder notifications:', error)
+  }
+}
