@@ -1,9 +1,8 @@
 import type { Item } from '../../state/items'
 import type { ItemId } from 'src/shared/schemas/items'
+import type { ManifestEntry } from 'src/shared/schemas/trpc'
 
 export const SKEW_BUFFER_MS = 60 * 1000
-
-export type ManifestEntry = [itemId: string, serverTime: number, isDeleted?: boolean]
 
 export interface SyncDeltas {
   missingIds: ItemId[]
@@ -20,7 +19,7 @@ export interface CalculateSyncDeltasParams {
   force: boolean
   knownItemIds: ItemId[]
   tombstoneItemIds: ItemId[]
-  localLastModifiedMap: Map<string, number>
+  localLastModifiedMap: Map<ItemId, number>
   quarantinedMap: Map<ItemId, number>
 }
 
@@ -30,7 +29,7 @@ export interface CalculateInboundDeltasParams {
   tombstoneSet: Set<ItemId>
   knownSet: Set<ItemId>
   quarantinedMap: Map<ItemId, number>
-  localLastModifiedMap: Map<string, number>
+  localLastModifiedMap: Map<ItemId, number>
   clockSkew: number
   force: boolean
 }
@@ -40,9 +39,9 @@ export interface CalculateUpstreamDeltasParams {
   missingSet: Set<ItemId>
   locallyTombstonedSet: Set<ItemId>
   tombstoneSet: Set<ItemId>
-  serverManifestMap: Map<string, number>
-  serverDeletedSet: Set<string>
-  localLastModifiedMap: Map<string, number>
+  serverManifestMap: Map<ItemId, number>
+  serverDeletedSet: Set<ItemId>
+  localLastModifiedMap: Map<ItemId, number>
   clockSkew: number
 }
 
@@ -52,9 +51,11 @@ export class ManifestDeltaCalculator {
     const deletedLastModifiedUpdates: [ItemId, number][] = []
     const missingIds: ItemId[] = []
 
-    for (const [itemId, serverTime, isDeleted] of params.manifest) {
-      const id = itemId as ItemId
+    for (const entry of params.manifest) {
+      const id = entry.itemId
       if (!id) continue
+      const serverTime = entry.modifiedAt
+      const isDeleted = entry.isDeleted
 
       // If not forced and item is currently quarantined in manual recovery:
       // skip unless the server has a newer snapshot timestamp than when it was quarantined
@@ -138,19 +139,19 @@ export class ManifestDeltaCalculator {
 
   static calculateSyncDeltas(params: CalculateSyncDeltasParams): SyncDeltas {
     const activeSet = new Set(params.knownItemIds)
-    const serverManifestMap = new Map<string, number>(
-      params.manifest.map(([itemId, serverTime]) => [itemId, serverTime]),
+    const serverManifestMap = new Map<ItemId, number>(
+      params.manifest.map(entry => [entry.itemId, entry.modifiedAt]),
     )
-    const serverDeletedSet = new Set<string>(
+    const serverDeletedSet = new Set<ItemId>(
       params.manifest
-        .filter(([, , isDeleted]) => isDeleted === true)
-        .map(([itemId]) => itemId),
+        .filter(entry => entry.isDeleted === true)
+        .map(entry => entry.itemId),
     )
 
     const tombstoneSet = new Set(params.tombstoneItemIds)
     for (const [id] of params.localLastModifiedMap) {
-      if (!activeSet.has(id as ItemId)) {
-        tombstoneSet.add(id as ItemId)
+      if (!activeSet.has(id)) {
+        tombstoneSet.add(id)
       }
     }
     const knownSet = new Set([...activeSet, ...tombstoneSet])
@@ -173,7 +174,7 @@ export class ManifestDeltaCalculator {
     const upstreamIds = ManifestDeltaCalculator.calculateUpstreamDeltas({
       allLocalIds: new Set([...params.knownItemIds, ...tombstoneSet]),
       missingSet: new Set(missingIds),
-      locallyTombstonedSet: new Set(locallyTombstonedSnapshots.map(s => s.id as ItemId)),
+      locallyTombstonedSet: new Set(locallyTombstonedSnapshots.map(s => s.id)),
       tombstoneSet,
       serverManifestMap,
       serverDeletedSet,

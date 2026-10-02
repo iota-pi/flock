@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { CryptoResultSchema } from './crypto'
 import { VaultSnapshotSchema } from './snapshots'
-import { ItemIdSchema } from './items'
+import { ItemIdSchema, type ItemId } from './items'
 
 
 const WebPushSubscriptionKeysSchema = z.object({
@@ -63,6 +63,12 @@ export const ChangePasswordBodySchema = z.object({
 export const FetchItemsInputSchema = z.object({
   account: z.string().min(1),
 })
+
+export type ManifestEntry = {
+  itemId: ItemId
+  modifiedAt: number
+  isDeleted?: boolean
+}
 
 export const FetchSnapshotsByIdsInputSchema = z.object({
   account: z.string().min(1),

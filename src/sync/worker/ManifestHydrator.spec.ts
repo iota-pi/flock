@@ -7,8 +7,6 @@ const mockVault = createMockVault()
 const {
   decryptBytes: mockDecryptBytes,
   decryptObject: mockDecryptObject,
-  hasVaultKey: mockHasVaultKey,
-  waitForKeyVersion: mockWaitForKeyVersion,
 } = mockVault
 
 vi.mock('../../api/vault', () => ({
@@ -83,7 +81,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [['item-binary', 2000]],
+        [{ itemId: 'item-binary' as ItemId, modifiedAt: 2000 }],
         new Set(['item-binary' as ItemId]),
       )
 
@@ -110,7 +108,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [['item-binary-changes', 2000]],
+        [{ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000 }],
         new Set(['item-binary-changes' as ItemId]),
       )
 
@@ -131,7 +129,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [['item-deleted-meta', 3000]],
+        [{ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000 }],
         new Set(),
       )
 
@@ -155,7 +153,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [['item-un-decryptable', 1000]],
+        [{ itemId: 'item-un-decryptable' as ItemId, modifiedAt: 1000 }],
         new Set(),
       )
 
@@ -178,7 +176,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-1' as ItemId],
-        manifest: [['item-1', 1000]],
+        manifest: [{ itemId: 'item-1' as ItemId, modifiedAt: 1000 }],
         serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
@@ -205,7 +203,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-bad' as ItemId],
-        manifest: [['item-bad', 1000]],
+        manifest: [{ itemId: 'item-bad' as ItemId, modifiedAt: 1000 }],
         serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
@@ -220,7 +218,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-err' as ItemId],
-        manifest: [['item-err', 1000]],
+        manifest: [{ itemId: 'item-err' as ItemId, modifiedAt: 1000 }],
         serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),

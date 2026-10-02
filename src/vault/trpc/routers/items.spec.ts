@@ -133,11 +133,11 @@ describe('itemsRouter.putSnapshots', () => {
 })
 
 describe('itemsRouter.fetchManifest', () => {
-  it('returns manifest tuples from the driver', async () => {
+  it('returns manifest entries from the driver', async () => {
     const ctx = createContext()
     ;(ctx.vault as any).fetchManifest = vi.fn().mockResolvedValue([
       { itemId: 'item-1', modifiedAt: 123 },
-      { itemId: 'item-2', modifiedAt: 456 },
+      { itemId: 'item-2', modifiedAt: 456, isDeleted: true },
     ])
     const caller = itemsRouter.createCaller(ctx as any)
 
@@ -146,8 +146,8 @@ describe('itemsRouter.fetchManifest', () => {
     expect(result).toEqual({
       success: true,
       manifest: [
-        ['item-1', 123],
-        ['item-2', 456],
+        { itemId: 'item-1', modifiedAt: 123 },
+        { itemId: 'item-2', modifiedAt: 456, isDeleted: true },
       ],
       serverTime: expect.any(Number),
     })

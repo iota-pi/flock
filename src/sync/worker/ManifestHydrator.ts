@@ -11,7 +11,7 @@ import type { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
-import type { ManifestEntry } from './ManifestDeltaCalculator'
+import type { ManifestEntry } from 'src/shared/schemas/trpc'
 
 const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
@@ -190,8 +190,8 @@ export class ManifestHydrator {
   ): Promise<HydrateItemResult> {
     const itemId = item.item as ItemId
     try {
-      const manifestEntry = manifest.find(([id]) => id === item.item)
-      const serverTime = manifestEntry ? manifestEntry[1] : serverTimeFallback
+      const manifestEntry = manifest.find(entry => entry.itemId === item.item)
+      const serverTime = manifestEntry ? manifestEntry.modifiedAt : serverTimeFallback
 
       if (item.metadata?.deleted === true) {
         return {
