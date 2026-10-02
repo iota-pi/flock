@@ -259,12 +259,12 @@ export class SnapshotPusher {
       )
       this.eventHub?.emit({
         type: 'quotaExceeded',
-        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
+        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. Recreating the item with fresh history is required to resume sync.`,
       })
       fireAndForget(
         this.recoveryManager.quarantine(
           itemId,
-          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
+          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. Recreating the item with fresh history is required to resume sync.`,
         ),
         'SnapshotPusher:quarantine',
       )

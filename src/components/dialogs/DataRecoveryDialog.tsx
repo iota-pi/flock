@@ -29,7 +29,7 @@ function DataRecoveryDialog({ onClose, open }: Props) {
     handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
-    handleCompactItem,
+    handleRecreateItem,
   } = useDataRecovery()
 
   const quarantinedItems = useQuarantinedItems()
@@ -96,10 +96,10 @@ function DataRecoveryDialog({ onClose, open }: Props) {
                               disabled={isRetrying !== null}
                               startIcon={isRetrying === item.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
                               onClick={() => {
-                                void handleCompactItem(item.itemId)
+                                void handleRecreateItem(item.itemId)
                               }}
                             >
-                              Compact History
+                              Recreate Item
                             </Button>
                             <Button
                               variant="text"

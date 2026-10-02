@@ -10,6 +10,7 @@ import { SyncApiClient } from './SyncApiClient'
 import { extractSyncableMetadata } from '../../shared/schemas/metadata'
 import { hasSyncableChanges } from './utils/metadataSync'
 import { RecoveryManager } from './RecoveryManager'
+import { generateItemId } from '../../utils'
 
 export interface ItemOperationsDeps {
   accountId: string
@@ -235,18 +236,88 @@ export class ItemOperations {
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
-  async compactItem(itemId: ItemId): Promise<void> {
-    if (!this.deps.accountId) return
-    const localItem = await this.deps.docStore.getAutomergeItem(itemId)
+  async recreateOversizedItem(oldItemId: ItemId): Promise<ItemId> {
+    if (!this.deps.accountId) {
+      throw new Error('Account ID is required to recreate oversized item.')
+    }
+    const localItem = await this.deps.docStore.getAutomergeItem(oldItemId)
     if (!localItem) {
-      throw new Error(`No local item found for ${itemId} to compact.`)
+      throw new Error(`No local item found for ${oldItemId} to recreate.`)
     }
 
-    await this.deps.docStore.compactDocument(itemId, localItem)
+    const payloadJson = JSON.stringify(localItem)
+    if (payloadJson.length > 300 * 1024) {
+      throw new Error(
+        'The content of this item is too large (over 300 KB). Please edit and shorten the notes or description before recreating.',
+      )
+    }
 
-    await this.recoveryManager.unquarantine(itemId)
+    const newItemId = generateItemId()
+    const cleanItemSnapshot = JSON.parse(payloadJson) as Item
+    const newItem: Item = {
+      ...cleanItemSnapshot,
+      id: newItemId,
+      created: Date.now(),
+    }
 
-    this.deps.markDocumentDirty(itemId)
-    this.deps.eventHub.emit({ type: 'itemUpdated', id: itemId, item: localItem })
+    // 1. Create the new clean document and register in index
+    await this.createItem(newItem)
+
+    // 2. Scan active groups and remap any references from oldItemId -> newItemId
+    try {
+      const activeItemIds = await this.deps.indexManager.listAutomergeItemIds()
+      for (const id of activeItemIds) {
+        if (id === oldItemId || id === newItemId) continue
+        const candidate = await this.deps.docStore.getAutomergeItem(id)
+        if (
+          candidate &&
+          candidate.type === 'group' &&
+          Array.isArray(candidate.members) &&
+          candidate.members.includes(oldItemId)
+        ) {
+          const updatedMembers = candidate.members.map(m => (m === oldItemId ? newItemId : m))
+          const updated = await this.applyDocumentChange(
+            id,
+            { members: updatedMembers },
+            { knownToExist: true },
+          )
+          if (updated) {
+            this.deps.markDocumentDirty(id)
+            const updatedGroup = await this.deps.docStore.getAutomergeItem(id)
+            this.deps.eventHub.emit({ type: 'itemUpdated', id, item: updatedGroup })
+          }
+        }
+      }
+    } catch (groupRemapErr) {
+      console.warn(`[ItemOperations] Error remapping group references for ${oldItemId}:`, groupRemapErr)
+    }
+
+    // 3. Mark old oversized item as deleted in Automerge document & remove from active index
+    await this.deps.docStore.changeDocument(
+      oldItemId,
+      doc => {
+        doc.deleted = true
+      },
+      { knownToExist: true },
+    )
+    await this.deps.indexManager.removeAutomergeItemIdsFromIndex([oldItemId])
+
+    // 4. Remove old item from quarantine
+    await this.recoveryManager.unquarantine(oldItemId)
+    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
+
+    // 5. Notify subscribers & ping bus
+    publishRealtimeBusSyncPing(this.deps.accountId, [oldItemId, newItemId])
+    this.deps.eventHub.emit({ type: 'itemUpdated', id: oldItemId, item: null })
+    this.deps.eventHub.emit({ type: 'itemUpdated', id: newItemId, item: newItem })
+
+    return newItemId
+  }
+
+  /**
+   * @deprecated Use recreateOversizedItem instead.
+   */
+  async compactItem(itemId: ItemId): Promise<ItemId> {
+    return this.recreateOversizedItem(itemId)
   }
 }

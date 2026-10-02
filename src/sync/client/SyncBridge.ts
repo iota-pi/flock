@@ -311,8 +311,15 @@ class SyncBridgeService {
     return this.execute(api => api.forceDeleteRecoveryItem(itemId))
   }
 
-  compactItem(itemId: ItemId): Promise<void> {
-    return this.execute(api => api.compactItem(itemId))
+  recreateOversizedItem(itemId: ItemId): Promise<ItemId> {
+    return this.execute(api => api.recreateOversizedItem(itemId))
+  }
+
+  /**
+   * @deprecated Use recreateOversizedItem instead.
+   */
+  compactItem(itemId: ItemId): Promise<ItemId | void> {
+    return this.execute(api => api.recreateOversizedItem(itemId))
   }
 
   dismissRecoveryItem(entryId: string): Promise<void> {

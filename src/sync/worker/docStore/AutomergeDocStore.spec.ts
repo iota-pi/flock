@@ -858,7 +858,7 @@ describe('AutomergeDocStore Unit Tests', () => {
   // =========================================================================
   // 6. Additional AutomergeDocStore core methods
   // =========================================================================
-  describe('changeDocument, compactDocument, saveDocToStorage, and helpers', () => {
+  describe('changeDocument, saveDocToStorage, and helpers', () => {
     it('changeDocument returns false for invalid itemId', async () => {
       const res = await docStore.changeDocument('' as ItemId, () => {})
       expect(res).toBe(false)
@@ -904,29 +904,6 @@ describe('AutomergeDocStore Unit Tests', () => {
 
       const item = await docStore.getAutomergeItem(itemId)
       expect(item?.name).toBe('Mutated Name')
-    })
-
-    it('compactDocument returns false for invalid itemId', async () => {
-      const res = await docStore.compactDocument('' as ItemId, {} as any)
-      expect(res).toBe(false)
-    })
-
-    it('compactDocument recreates document with current item state and notifies handle replacement', async () => {
-      const itemId = 'compact-target-item' as ItemId
-      const listenerSpy = vi.fn()
-      docStore.onDocHandleReplaced = listenerSpy
-
-      const item = createTestItem(itemId, { name: 'Compacted Name', description: 'Compacted Desc' })
-      const success = await docStore.compactDocument(itemId, item)
-
-      expect(success).toBe(true)
-      expect(listenerSpy).toHaveBeenCalledWith(itemId, expect.objectContaining({
-        documentId: expect.any(String),
-      }))
-
-      const retrieved = await docStore.getAutomergeItem(itemId)
-      expect(retrieved?.name).toBe('Compacted Name')
-      expect(retrieved?.description).toBe('Compacted Desc')
     })
 
     it('saveDocToStorage returns false if repo.storageSubsystem is undefined', async () => {

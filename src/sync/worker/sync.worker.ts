@@ -495,14 +495,19 @@ export class SyncWorker implements SyncApi {
   forceDeleteRecoveryItem = (itemId: ItemId) =>
     this.withContext(ctx => ctx.itemOperations.forceDeleteRecoveryItem(itemId))
 
-  compactItem = (itemId: ItemId) =>
+  recreateOversizedItem = (itemId: ItemId): Promise<ItemId> =>
     this.withContext(async ctx => {
-      await ctx.itemOperations.compactItem(itemId)
+      const newItemId = await ctx.itemOperations.recreateOversizedItem(itemId)
+      ctx.snapshotManager.clearOversized(itemId)
       fireAndForget(
         ctx.snapshotManager.flushPendingSnapshots(),
-        'SyncWorker:compactItem:flushPendingSnapshots',
+        'SyncWorker:recreateOversizedItem:flushPendingSnapshots',
       )
+      return newItemId
     })
+
+  compactItem = (itemId: ItemId): Promise<ItemId> =>
+    this.recreateOversizedItem(itemId)
 
   dismissRecoveryItem = (entryId: string) =>
     this.withContext(ctx => ctx.recoveryManager.dismissEntry(entryId))

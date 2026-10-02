@@ -1,4 +1,5 @@
 import { SyncWorker } from './sync.worker'
+import type { ItemId } from 'src/shared/schemas/items'
 
 // Mock Automerge WASM
 vi.mock('@automerge/automerge/slim', () => ({
@@ -75,6 +76,8 @@ vi.mock('./SyncWorkerContext', () => {
 
       itemOperations = {
         mutateItem: mockItemOperationsMutateItem,
+        recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
+        compactItem: vi.fn().mockResolvedValue('item-new'),
       }
 
       snapshotManager = {
@@ -84,6 +87,7 @@ vi.mock('./SyncWorkerContext', () => {
         flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
         exportLastModified: vi.fn().mockReturnValue({}),
         importLastModified: vi.fn().mockResolvedValue(undefined),
+        clearOversized: vi.fn(),
       }
 
       orchestrator = {
@@ -530,6 +534,18 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       expect(onProgressParam).toHaveBeenCalledWith(10, 10)
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 3, total: 10 })
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 10, total: 10 })
+    })
+
+    it('delegates recreateOversizedItem to itemOperations and flushes snapshots', async () => {
+      const worker = new SyncWorker()
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      const newItemId = await worker.recreateOversizedItem('item-old' as ItemId)
+
+      expect(newItemId).toBe('item-new')
+      expect((worker as any)._context.itemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
+      expect((worker as any)._context.snapshotManager.clearOversized).toHaveBeenCalledWith('item-old')
+      expect((worker as any)._context.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
     })
   })
 })
