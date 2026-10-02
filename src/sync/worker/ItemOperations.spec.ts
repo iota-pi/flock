@@ -470,6 +470,22 @@ describe('ItemOperations', () => {
         )
       })
 
+      it('throws if local item has error type (validation failed)', async () => {
+        getAutomergeItemMock.mockResolvedValue({
+          id: 'item-3' as ItemId,
+          type: 'error',
+          name: 'Corrupt Item',
+          description: 'This item could not be parsed.',
+        })
+
+        await expect(operations.forceOverwriteRecoveryItem('item-3' as ItemId)).rejects.toThrow(
+          'Cannot overwrite with corrupt local item item-3. Force delete is available instead.'
+        )
+
+        expect(changeDocumentMock).not.toHaveBeenCalled()
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
+
       it('does nothing if accountId is not set', async () => {
         deps.accountId = ''
 

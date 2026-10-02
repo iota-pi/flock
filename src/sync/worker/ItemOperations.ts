@@ -2,7 +2,7 @@ import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
-import type { ItemId } from 'src/shared/schemas/items'
+import { ERROR_ITEM_TYPE, type ItemId } from 'src/shared/schemas/items'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
@@ -191,6 +191,9 @@ export class ItemOperations {
     const localItem = await this.deps.docStore.getAutomergeItem(itemId)
     if (!localItem) {
       throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
+    }
+    if (localItem.type === ERROR_ITEM_TYPE) {
+      throw new Error(`Cannot overwrite with corrupt local item ${itemId}. Force delete is available instead.`)
     }
 
     const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
