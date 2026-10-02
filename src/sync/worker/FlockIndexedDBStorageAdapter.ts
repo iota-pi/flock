@@ -1,5 +1,4 @@
 import { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge-repo/slim'
-import { fireAndForget } from '../utils/fireAndForget'
 
 export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   private db: IDBDatabase | null = null
@@ -18,7 +17,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   }
 
   private connect(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
+    const promise = new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(this.databaseName)
 
       request.onerror = () => reject(request.error)
@@ -26,16 +25,64 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
         const db = (event.target as IDBOpenDBRequest).result as IDBDatabase
         this.db = db
         db.addEventListener('versionchange', () => {
-          console.warn(`[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection.`)
-          fireAndForget(this.close(), 'FlockIndexedDBStorageAdapter:versionchange:close')
+          this.handleVersionChange(db)
+        })
+        db.addEventListener('close', () => {
+          this.handleUnexpectedClose(db)
         })
         resolve(db)
       }
       request.onupgradeneeded = event => {
         const db = (event.target as IDBOpenDBRequest).result as IDBDatabase
-        db.createObjectStore(this.storeName)
+        if (!db.objectStoreNames || !db.objectStoreNames.contains(this.storeName)) {
+          db.createObjectStore(this.storeName)
+        }
       }
     })
+
+    promise.catch(() => {
+      if (this.dbPromise === promise) {
+        this.dbPromise = null
+      }
+    })
+
+    return promise
+  }
+
+  private handleVersionChange(db: IDBDatabase): void {
+    if (this.isExplicitlyClosed || this.isClosing) {
+      return
+    }
+
+    console.warn(
+      `[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection to yield to upgrade.`
+    )
+
+    if (this.db === db) {
+      this.db = null
+      this.dbPromise = null
+    }
+
+    try {
+      db.close()
+    } catch (err) {
+      console.warn(`[FlockIndexedDBStorageAdapter] Error closing db on versionchange:`, err)
+    }
+  }
+
+  private handleUnexpectedClose(db: IDBDatabase): void {
+    if (this.isExplicitlyClosed || this.isClosing) {
+      return
+    }
+
+    console.warn(
+      `[FlockIndexedDBStorageAdapter] Database connection unexpectedly closed for ${this.databaseName}.`
+    )
+
+    if (this.db === db) {
+      this.db = null
+      this.dbPromise = null
+    }
   }
 
   private async getDB(): Promise<IDBDatabase> {
@@ -110,59 +157,91 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       throw new Error('Database is closed')
     }
 
+    const MAX_RETRIES = 2
+    let attempt = 0
+
     this.activeTransactions += 1
     try {
-      const db = await this.getDB()
-      return await new Promise<T>((resolve, reject) => {
-        let isSettled = false
-        let result: T | undefined
-
-        const safeResolve = (val: T) => {
-          if (!isSettled) {
-            isSettled = true
-            resolve(val)
-          }
+      while (true) {
+        if (this.isExplicitlyClosed || this.isClosing) {
+          throw new Error('Database is closed')
         }
 
-        const safeReject = (err: unknown) => {
-          if (!isSettled) {
-            isSettled = true
-            reject(err)
-          }
-        }
-
-        const transaction = db.transaction(storeName, mode)
-        const store = transaction.objectStore(storeName)
-
-        transaction.onerror = () => safeReject(transaction.error)
-        transaction.onabort = () =>
-          safeReject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
-        transaction.oncomplete = () => {
-          safeResolve(result as T)
-        }
+        const db = await this.getDB()
+        let transaction: IDBTransaction
+        let store: IDBObjectStore
 
         try {
-          const cbResult = callback(store, transaction)
-          if (cbResult instanceof Promise) {
-            cbResult.then(
-              res => {
-                result = res
-                if (mode === 'readonly') {
-                  safeResolve(res)
-                }
-              },
-              err => safeReject(err)
+          transaction = db.transaction(storeName, mode)
+          store = transaction.objectStore(storeName)
+        } catch (err) {
+          const isInvalidState =
+            (err instanceof DOMException && err.name === 'InvalidStateError') ||
+            (err instanceof Error && (err.name === 'InvalidStateError' || /closed|closing/i.test(err.message)))
+
+          if (isInvalidState && !this.isExplicitlyClosed && !this.isClosing && attempt < MAX_RETRIES) {
+            console.warn(
+              `[FlockIndexedDBStorageAdapter] Transaction creation failed on closing/closed connection for ${this.databaseName}. Reconnecting... (attempt ${attempt + 1})`,
+              err
             )
-          } else if (cbResult !== undefined) {
-            result = cbResult
-            if (mode === 'readonly') {
-              safeResolve(cbResult)
+            if (this.db === db) {
+              this.db = null
+              this.dbPromise = null
+            }
+            attempt += 1
+            continue
+          }
+          throw err
+        }
+
+        return await new Promise<T>((resolve, reject) => {
+          let isSettled = false
+          let result: T | undefined
+
+          const safeResolve = (val: T) => {
+            if (!isSettled) {
+              isSettled = true
+              resolve(val)
             }
           }
-        } catch (err) {
-          safeReject(err)
-        }
-      })
+
+          const safeReject = (err: unknown) => {
+            if (!isSettled) {
+              isSettled = true
+              reject(err)
+            }
+          }
+
+          transaction.onerror = () => safeReject(transaction.error)
+          transaction.onabort = () =>
+            safeReject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
+          transaction.oncomplete = () => {
+            safeResolve(result as T)
+          }
+
+          try {
+            const cbResult = callback(store, transaction)
+            if (cbResult instanceof Promise) {
+              cbResult.then(
+                res => {
+                  result = res
+                  if (mode === 'readonly') {
+                    safeResolve(res)
+                  }
+                },
+                err => safeReject(err)
+              )
+            } else if (cbResult !== undefined) {
+              result = cbResult
+              if (mode === 'readonly') {
+                safeResolve(cbResult)
+              }
+            }
+          } catch (err) {
+            safeReject(err)
+          }
+        })
+      }
     } finally {
       this.activeTransactions -= 1
       if (this.activeTransactions === 0 && this.drainResolve) {
