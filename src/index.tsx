@@ -51,6 +51,8 @@ function matchesAny(text: string, matchers: Array<string | RegExp>): boolean {
 
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
+  environment: import.meta.env.MODE,
+  release: import.meta.env.VITE_RELEASE || undefined,
   tracesSampleRate: 0.0,
   ignoreErrors: NETWORK_ERROR_MATCHERS,
   beforeSend(event) {

@@ -1,4 +1,5 @@
 import type { ClientEvent } from '../worker/SyncEventHub'
+import * as Sentry from '@sentry/react'
 import { useAppStore } from 'src/state/store'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
@@ -112,6 +113,11 @@ export class SyncEventProcessor {
         const syncStore = useAppStore.getState()
         syncStore.setSyncStatus('offline')
         syncStore.setSyncWarning(event.message)
+        Sentry.addBreadcrumb({
+          category: 'auth',
+          message: `Sync auth failure: ${event.message}`,
+          level: 'warning',
+        })
         break
       }
       case 'recoveryItemsChanged':
@@ -122,6 +128,11 @@ export class SyncEventProcessor {
         syncStore.setSyncStatus('degraded')
         syncStore.setSyncWarning(event.message)
         syncStore.setQuotaExceeded(true)
+        Sentry.addBreadcrumb({
+          category: 'storage',
+          message: `Storage quota exceeded: ${event.message}`,
+          level: 'warning',
+        })
         break
       }
       case 'quotaResolved': {
@@ -147,6 +158,7 @@ export class SyncEventProcessor {
       case 'leaderConflict': {
         const syncStore = useAppStore.getState()
         syncStore.setLeaderConflict(event.hasConflict)
+        Sentry.setTag('leaderConflict', event.hasConflict)
         break
       }
       case 'tokenRefreshNeeded':
@@ -161,6 +173,22 @@ export class SyncEventProcessor {
           }
         }
         break
+      case 'workerError': {
+        const error = new Error(event.error.message)
+        if (event.error.name) {
+          error.name = event.error.name
+        }
+        if (event.error.stack) {
+          error.stack = event.error.stack
+        }
+        log.error('Worker error received:', error)
+        Sentry.captureException(error, {
+          tags: {
+            origin: 'sync-worker',
+          },
+        })
+        break
+      }
     }
   }
 

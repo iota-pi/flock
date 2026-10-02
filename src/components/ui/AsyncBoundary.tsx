@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode, Suspense } from 'react'
+import * as Sentry from '@sentry/react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -103,7 +104,17 @@ class AsyncErrorBoundary extends Component<AsyncErrorBoundaryProps, AsyncErrorBo
     console.error('[AsyncBoundary] render failed', error, errorInfo)
     if (isChunkLoadError(error)) {
       handleChunkErrorReload()
+      return
     }
+
+    Sentry.captureException(error, {
+      extra: {
+        componentStack: errorInfo.componentStack,
+      },
+      tags: {
+        boundary: 'AsyncBoundary',
+      },
+    })
   }
 
   public render(): ReactNode {

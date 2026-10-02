@@ -1,7 +1,15 @@
+import * as Sentry from '@sentry/react'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { useAppStore } from 'src/state/store'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { ItemId } from 'src/shared/schemas/items'
+
+vi.mock('@sentry/react', () => ({
+  captureException: vi.fn(),
+  addBreadcrumb: vi.fn(),
+  setTag: vi.fn(),
+  setUser: vi.fn(),
+}))
 
 describe('SyncEventProcessor', () => {
   let processor: SyncEventProcessor
@@ -178,6 +186,36 @@ describe('SyncEventProcessor', () => {
       '[SyncEventProcessor] Error in reencryptProgress listener:',
       expect.any(Error)
     )
+    errorSpy.mockRestore()
+  })
+
+  it('captures workerError events to Sentry with stack and tags', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const captureMock = vi.mocked(Sentry.captureException)
+    captureMock.mockClear()
+
+    processor.handleSyncEvent({
+      type: 'workerError',
+      error: {
+        name: 'AutomergeWasmError',
+        message: 'Out of memory during sync commit',
+        stack: 'Error: Out of memory\n    at Automerge.change (automerge.wasm:1:123)',
+      },
+    })
+
+    expect(captureMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'AutomergeWasmError',
+        message: 'Out of memory during sync commit',
+        stack: 'Error: Out of memory\n    at Automerge.change (automerge.wasm:1:123)',
+      }),
+      {
+        tags: {
+          origin: 'sync-worker',
+        },
+      }
+    )
+
     errorSpy.mockRestore()
   })
 })

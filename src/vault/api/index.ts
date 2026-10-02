@@ -1,6 +1,8 @@
 import Fastify from 'fastify'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
+import * as Sentry from '@sentry/node'
+import { TRPCError } from '@trpc/server'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import getDriver from '../drivers'
 import { appRouter } from '../trpc/root'
@@ -36,6 +38,23 @@ async function createServer(devMode = false) {
       createContext,
       onError: ({ path, error }: { path: string | undefined, error: unknown }) => {
         console.error(`[TRPC Error] path=${path}:`, error)
+        if (process.env.SENTRY_DSN) {
+          const isExpectedClientError =
+            error instanceof TRPCError &&
+            (error.code === 'UNAUTHORIZED' || error.code === 'NOT_FOUND') &&
+            !error.cause
+
+          if (!isExpectedClientError) {
+            Sentry.withScope(scope => {
+              scope.setTag('trpc.path', path || 'unknown')
+              if (error instanceof Error) {
+                Sentry.captureException(error)
+              } else {
+                Sentry.captureMessage(String(error), 'error')
+              }
+            })
+          }
+        }
       },
     },
   })

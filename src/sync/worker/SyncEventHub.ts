@@ -26,6 +26,14 @@ export type ClientEvent =
   | { type: 'leaderConflict'; hasConflict: boolean }
   | { type: 'tokenRefreshNeeded' }
   | { type: 'reencryptProgress'; done: number; total: number }
+  | {
+    type: 'workerError'
+    error: {
+      message: string
+      stack?: string
+      name?: string
+    }
+  }
 
 export type WorkerInternalEvent =
   | { type: 'pollResult'; outcome: PollOutcome }

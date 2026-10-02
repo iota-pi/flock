@@ -1,4 +1,5 @@
 import type * as Comlink from 'comlink'
+import * as Sentry from '@sentry/react'
 
 import { useAppStore } from 'src/state/store'
 import {
@@ -48,10 +49,21 @@ class SyncBridgeService {
       },
       onStatusChange: status => {
         useAppStore.getState().setSyncStatus(status)
+        Sentry.setTag('syncStatus', status)
+        Sentry.addBreadcrumb({
+          category: 'sync',
+          message: `Sync status changed to ${status}`,
+          level: status === 'offline' ? 'warning' : 'info',
+        })
       },
       onSyncWarning: warning => {
         if (warning) {
           useAppStore.getState().setSyncWarning(warning)
+          Sentry.addBreadcrumb({
+            category: 'sync',
+            message: `Sync warning: ${warning}`,
+            level: 'warning',
+          })
         } else {
           useAppStore.getState().clearSyncWarning()
         }
@@ -63,6 +75,12 @@ class SyncBridgeService {
       onReady: () => {
         this.domListeners.start({
           setOnlineState: async isOnline => {
+            Sentry.setTag('online', isOnline)
+            Sentry.addBreadcrumb({
+              category: 'network',
+              message: isOnline ? 'Network online' : 'Network offline',
+              level: isOnline ? 'info' : 'warning',
+            })
             const api = this.lifecycleManager.getSyncApi()
             if (api) await api.setOnlineState(isOnline)
           },
@@ -83,6 +101,7 @@ class SyncBridgeService {
       },
       onShutdownCleanup: options => {
         if (!options?.internalRestart) {
+          Sentry.setUser(null)
           this.eventProcessor.reset(true)
           useAppStore.getState().reset()
           this.domListeners.stop()
@@ -198,6 +217,8 @@ class SyncBridgeService {
   }
 
   initialize(accountId: string, options?: { clearLocalData?: boolean }): Promise<void> {
+    Sentry.setUser({ id: accountId })
+    Sentry.setTag('accountId', accountId)
     return this.lifecycleManager.initialize(accountId, options)
   }
 
