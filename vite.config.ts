@@ -52,7 +52,10 @@ export default defineConfig({
         org: sentryOrg,
         project: sentryProject,
         authToken: sentryAuthToken,
-        disable: true,
+        sourcemaps: {
+          // Avoid exposing sourcemaps publicly on Cloudflare Pages
+          filesToDeleteAfterUpload: ['dist/**/*.map'],
+        },
       })
       : null,
     visualizer() as any,

@@ -36,6 +36,7 @@
     "@mui/icons-material": "^9.0.1",
     "@mui/material": "^9.0.1",
     "@mui/x-date-pickers": "^9.3.0",
+    "@sentry/node": "^10.46.0",
     "@sentry/react": "^10.46.0",
     "@tanstack/react-virtual": "^3.13.12",
     "@trpc/client": "^11.17.0",

@@ -27,6 +27,41 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('SyncWorker')
 
 let globalEventPort: MessagePort | null = null
+
+function forwardWorkerError(errorData: { message: string; stack?: string; name?: string }) {
+  if (globalEventPort) {
+    try {
+      globalEventPort.postMessage({
+        type: 'workerError',
+        error: errorData,
+      })
+    } catch (e) {
+      log.error('Failed to post workerError to globalEventPort:', e)
+    }
+  }
+}
+
+self.addEventListener('error', (event: ErrorEvent) => {
+  const errorObj = event.error instanceof Error ? event.error : null
+  const errorData = {
+    message: event.message || errorObj?.message || 'Sync Worker Error',
+    stack: errorObj?.stack,
+    name: errorObj?.name || 'WorkerError',
+  }
+  forwardWorkerError(errorData)
+})
+
+self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+  const reason = event.reason
+  const isError = reason instanceof Error
+  const errorData = {
+    message: isError ? reason.message : String(reason),
+    stack: isError ? reason.stack : undefined,
+    name: isError ? reason.name : 'UnhandledRejection',
+  }
+  forwardWorkerError(errorData)
+})
+
 self.addEventListener('message', ev => {
   if (ev.data && ev.data.type === 'EVENT_PORT') {
     globalEventPort = ev.data.port

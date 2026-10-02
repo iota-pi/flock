@@ -96,6 +96,7 @@ export default $config({
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
         SYNC_MESSAGES_TABLE: syncMessagesTable.name,
+        SENTRY_DSN: process.env.SENTRY_DSN || process.env.VITE_SENTRY_DSN || "",
       },
       link: [accountsTable, itemsTable, syncMessagesTable],
     });

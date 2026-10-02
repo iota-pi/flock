@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink'
+import * as Sentry from '@sentry/react'
 
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
@@ -199,6 +200,9 @@ export class WorkerLifecycleManager {
         worker.addEventListener('error', (event: ErrorEvent) => {
           const error = event.error || new Error(event.message || 'Sync Worker Error')
           log.error('Worker error:', error)
+          Sentry.captureException(error, {
+            tags: { origin: 'sync-worker-host' },
+          })
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
           }
