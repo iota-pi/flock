@@ -1,4 +1,4 @@
-import { vi, type Mock } from 'vitest'
+import type { Mock } from 'vitest'
 import { ClientEventHub, WorkerInternalEventHub } from '../SyncEventHub'
 
 /**
@@ -236,7 +236,7 @@ export function createMockVault(overrides?: Partial<MockVault>): MockVault {
         cipher: 'mock-cipher-' + (bytes?.length ?? 0),
         kver: '1',
       }))
-      mockVault.encryptObject.mockReset().mockImplementation(async (obj: any) => ({
+      mockVault.encryptObject.mockReset().mockImplementation(async () => ({
         iv: 'mock-iv',
         cipher: 'mock-cipher',
         kver: '1',

@@ -8,7 +8,6 @@ import {
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
 
 import {
-  MockLocalforage,
   createMockLocalForage,
   createMockLocalForagePool,
 } from '../__test__/testUtils'

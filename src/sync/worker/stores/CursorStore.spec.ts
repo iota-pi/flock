@@ -8,7 +8,6 @@ import {
 import type { ItemId } from 'src/shared/schemas/items'
 
 import {
-  MockLocalforage,
   createMockLocalForage,
   createMockLocalForagePool,
 } from '../__test__/testUtils'

@@ -39,9 +39,7 @@ export function createLogger(tagOrClass: LogTag): Logger {
   const rawTag =
     typeof tagOrClass === 'string'
       ? tagOrClass
-      : typeof tagOrClass === 'function'
-        ? (tagOrClass as Function).name
-        : tagOrClass?.name || ''
+      : (tagOrClass as { name?: string })?.name || ''
   const cleanTag = rawTag.trim().replace(/^\[+|\]+$/g, '')
   const prefix = cleanTag ? `[${cleanTag}]` : ''
 
@@ -51,7 +49,9 @@ export function createLogger(tagOrClass: LogTag): Logger {
     error: (...args: unknown[]) => console.error(...formatArgs(prefix, args)),
     warn: (...args: unknown[]) => console.warn(...formatArgs(prefix, args)),
     info: (...args: unknown[]) => console.info(...formatArgs(prefix, args)),
+    // eslint-disable-next-line no-console
     debug: (...args: unknown[]) => console.debug(...formatArgs(prefix, args)),
+    // eslint-disable-next-line no-console
     log: (...args: unknown[]) => console.log(...formatArgs(prefix, args)),
   }
 }

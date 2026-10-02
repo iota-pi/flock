@@ -89,7 +89,16 @@ export default defineConfig([
     },
   },
   {
-    files: ['**/*.spec.ts', '**/*.spec.tsx', '**/tests/**/*.ts', '**/tests/**/*.tsx'],
+    files: [
+      '**/*.spec.ts',
+      '**/*.spec.tsx',
+      '**/tests/**/*.ts',
+      '**/tests/**/*.tsx',
+      '**/__test__/**/*.ts',
+      '**/__test__/**/*.tsx',
+      '**/__tests__/**/*.ts',
+      '**/__tests__/**/*.tsx',
+    ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/dot-notation': 'off',

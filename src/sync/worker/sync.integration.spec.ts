@@ -16,7 +16,6 @@ import type { ItemId } from 'src/shared/schemas/items'
 import {
   MockLocalforage,
   createMockLocalForage,
-  createMockVault,
   createTestEventHubs,
 } from './__test__/testUtils'
 

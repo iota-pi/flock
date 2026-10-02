@@ -1,9 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Repo, DocHandle } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import {
   AutomergeDocStore,
-  normalizeItemSnapshot,
   type DocStorageChecker,
   type RepoDoc,
 } from './AutomergeDocStore'
@@ -449,7 +447,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         const abortTimes: number[] = []
 
         vi.spyOn(customRepo, 'find').mockImplementation((_url, options) => {
-          callCount++
+          callCount += 1
           const startTime = Date.now()
           return new Promise((_resolve, reject) => {
             options?.signal?.addEventListener('abort', () => {
@@ -941,7 +939,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const itemId = 'save-ready-item' as ItemId
       const docId = toDocumentIdFromItemId(itemId)
       const binary = createDocBinary(itemId)
-      const handle = customRepo.import(binary, { docId })
+      customRepo.import(binary, { docId })
 
       const saveDocMock = vi.fn().mockResolvedValue(undefined)
       // @ts-expect-error mocking storageSubsystem

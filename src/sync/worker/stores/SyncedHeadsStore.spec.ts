@@ -8,7 +8,6 @@ import {
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
 import {
-  MockLocalforage,
   createMockLocalForage,
   createMockLocalForagePool,
 } from '../__test__/testUtils'

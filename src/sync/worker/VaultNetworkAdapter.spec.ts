@@ -13,7 +13,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
 import type { ItemId } from 'src/shared/schemas/items'
 
-import { createTestEventHubs, createMockVault } from './__test__/testUtils'
+import { createTestEventHubs } from './__test__/testUtils'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
