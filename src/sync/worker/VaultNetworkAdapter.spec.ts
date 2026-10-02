@@ -2,7 +2,11 @@ import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/aut
 import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
-import { VaultNetworkAdapter, MAX_OUTBOUND_QUEUE_SIZE } from './VaultNetworkAdapter'
+import {
+  VaultNetworkAdapter,
+  MAX_OUTBOUND_QUEUE_SIZE,
+  CIRCUIT_BREAKER_COOLDOWN_MS,
+} from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
@@ -1291,7 +1295,172 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
       adapter.resetReNegotiationCircuit(docId)
       expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
+      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
+    })
+
+    it('automatically retries renegotiation when circuit breaker cooldown expires without manual invocation', () => {
+      const docId = 'doc-auto-retry' as DocumentId
+      const callback = vi.fn()
+      adapter.eventHub.subscribe(e => {
+        if (e.type === 'renegotiationTriggered') callback(e.documentId)
+      })
+
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
+      expect(callback).toHaveBeenCalledTimes(3)
+      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
+
+      // 4th call trips circuit and schedules automatic retry
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
+      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(true)
+      expect(callback).toHaveBeenCalledTimes(3)
+
+      // Before cooldown expires, retry should not have fired
+      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS - 100)
+      expect(callback).toHaveBeenCalledTimes(3)
+      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(true)
+
+      // Once cooldown expires, retry fires automatically
+      vi.advanceTimersByTime(100)
+      expect(callback).toHaveBeenCalledTimes(4)
+      expect(callback).toHaveBeenLastCalledWith(docId)
+      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
+      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
+    })
+
+    it('de-duplicates retry timers and does not push out cooldown deadline on repeated calls while open', () => {
+      const docId = 'doc-dedup-retry' as DocumentId
+      const callback = vi.fn()
+      adapter.eventHub.subscribe(e => {
+        if (e.type === 'renegotiationTriggered') callback(e.documentId)
+      })
+
+      // Trip circuit at t = 0
+      adapter.triggerReNegotiation(docId)
+      adapter.triggerReNegotiation(docId)
+      adapter.triggerReNegotiation(docId)
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(callback).toHaveBeenCalledTimes(3)
+
+      // Advance 15s (halfway through cooldown) and trigger multiple times while circuit is open
+      vi.advanceTimersByTime(15000)
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(adapter.triggerReNegotiation(docId)).toBe(false)
+      expect(callback).toHaveBeenCalledTimes(3)
+
+      // Advance remaining 15s of the original 30s cooldown: retry must fire now (not 15s later)
+      vi.advanceTimersByTime(15000)
+      expect(callback).toHaveBeenCalledTimes(4)
+      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
+    })
+
+    it('cancels pending retry timer on resetReNegotiationCircuit, clearOutboundQueue, and disconnect', () => {
+      const doc1 = 'doc-cancel-1' as DocumentId
+      const doc2 = 'doc-cancel-2' as DocumentId
+      const doc3 = 'doc-cancel-3' as DocumentId
+      const callback = vi.fn()
+      adapter.eventHub.subscribe(e => {
+        if (e.type === 'renegotiationTriggered') callback(e.documentId)
+      })
+
+      const tripCircuit = (id: DocumentId) => {
+        adapter.triggerReNegotiation(id)
+        adapter.triggerReNegotiation(id)
+        adapter.triggerReNegotiation(id)
+        expect(adapter.triggerReNegotiation(id)).toBe(false)
+        expect(adapter.hasReNegotiationRetryScheduled(id)).toBe(true)
+      }
+
+      tripCircuit(doc1)
+      tripCircuit(doc2)
+      tripCircuit(doc3)
+      callback.mockClear()
+
+      // 1. Reset single document circuit
+      adapter.resetReNegotiationCircuit(doc1)
+      expect(adapter.hasReNegotiationRetryScheduled(doc1)).toBe(false)
+      expect(adapter.hasReNegotiationRetryScheduled(doc2)).toBe(true)
+
+      // 2. Clear outbound queue cancels remaining circuits
+      adapter.clearOutboundQueue()
+      expect(adapter.hasReNegotiationRetryScheduled(doc2)).toBe(false)
+      expect(adapter.hasReNegotiationRetryScheduled(doc3)).toBe(false)
+
+      // Re-trip doc3 and test disconnect()
+      tripCircuit(doc3)
+      callback.mockClear()
+      adapter.disconnect()
+      expect(adapter.hasReNegotiationRetryScheduled(doc3)).toBe(false)
+
+      // Advance past cooldown: no renegotiation should fire for any cancelled circuit
+      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS + 1000)
+      expect(callback).not.toHaveBeenCalled()
+    })
+
+    it('recovers evicted outbound queue document after circuit breaker cooldown expires', () => {
+      const evictedDocId = 'doc-evicted-circuit' as DocumentId
+      const callback = vi.fn()
+      adapter.eventHub.subscribe(e => {
+        if (e.type === 'renegotiationTriggered') callback(e.documentId)
+      })
+
+      // Disable sending so messages buffer into outboundQueue
+      adapter.setSendEnabled(false)
+
+      // Consume the 3 allowed renegotiation attempts within the window for evictedDocId
+      expect(adapter.triggerReNegotiation(evictedDocId)).toBe(true)
+      expect(adapter.triggerReNegotiation(evictedDocId)).toBe(true)
+      expect(adapter.triggerReNegotiation(evictedDocId)).toBe(true)
+      expect(callback).toHaveBeenCalledTimes(3)
+
+      // Clear pending renegotiations from the setup calls to isolate the eviction test
+      ;(adapter as any).pendingReNegotiations.clear()
+
+      const syncMsgWithChange = encodeSyncMessage({
+        heads: [],
+        need: [],
+        have: [],
+        changes: [new Uint8Array([1, 2, 3])],
+      })
+
+      // Enqueue a message for evictedDocId at the front of the outboundQueue
+      adapter.send({
+        type: 'sync',
+        senderId: 'test-peer' as PeerId,
+        targetId: 'vault' as PeerId,
+        documentId: evictedDocId,
+        data: syncMsgWithChange,
+      })
+
+      // Flood outboundQueue with MAX_OUTBOUND_QUEUE_SIZE messages to evict evictedDocId
+      for (let i = 0; i < MAX_OUTBOUND_QUEUE_SIZE; i++) {
+        adapter.send({
+          type: 'sync',
+          senderId: 'test-peer' as PeerId,
+          targetId: 'vault' as PeerId,
+          documentId: `filler-${i}` as DocumentId,
+          data: syncMsgWithChange,
+        })
+      }
+
+      // Eviction called triggerReNegotiation(evictedDocId) which tripped the circuit breaker (4th attempt)
+      expect(adapter.isReNegotiationCircuitOpen(evictedDocId)).toBe(true)
+      expect(adapter.hasReNegotiationRetryScheduled(evictedDocId)).toBe(true)
+      expect(adapter.getPendingReNegotiationCount()).toBe(0)
+      expect(callback).toHaveBeenCalledTimes(3)
+
+      // Advance time past circuit breaker cooldown
+      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS)
+
+      // Scheduled retry should have automatically fired and queued the pending renegotiation
+      expect(adapter.isReNegotiationCircuitOpen(evictedDocId)).toBe(false)
+      expect(adapter.hasReNegotiationRetryScheduled(evictedDocId)).toBe(false)
+      expect(adapter.getPendingReNegotiationCount()).toBe(1)
+      expect(callback).toHaveBeenCalledTimes(4)
+      expect(callback).toHaveBeenLastCalledWith(evictedDocId)
     })
   })
 })

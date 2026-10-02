@@ -21,14 +21,15 @@ import { fireAndForget } from '../utils/fireAndForget'
 
 export const MAX_OUTBOUND_QUEUE_SIZE = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
 const MAX_SEEDED_DOCUMENTS = 5000
-const MAX_RENEGOTIATION_ATTEMPTS = 3
-const RENEGOTIATION_WINDOW_MS = 5000
-const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
+export const MAX_RENEGOTIATION_ATTEMPTS = 3
+export const RENEGOTIATION_WINDOW_MS = 5000
+export const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
 const VAULT_PEER_ID = 'vault' as PeerId
 
 interface RenegotiationCircuitState {
   timestamps: number[]
   circuitOpenUntil?: number
+  retryTimer?: ReturnType<typeof setTimeout>
 }
 
 export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements LifecycleAware {
@@ -170,12 +171,39 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
     )
     if (evicted?.documentId) {
-      this.triggerReNegotiation(evicted.documentId)
+      const renegotiated = this.triggerReNegotiation(evicted.documentId)
+      if (!renegotiated) {
+        console.warn(
+          `[VaultNetworkAdapter] Renegotiation for evicted document ${evicted.documentId} deferred due to active circuit breaker.`
+        )
+      }
     }
   }
 
   protected override processOutboundMessage(message: Message): void {
     this.processMessage(message)
+  }
+
+  private scheduleReNegotiationRetry(
+    documentId: DocumentId,
+    circuit: RenegotiationCircuitState,
+    delayMs: number,
+  ): void {
+    if (circuit.retryTimer) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      if (circuit.retryTimer === timer) {
+        circuit.retryTimer = undefined
+      }
+      if (this.isDisconnected) {
+        return
+      }
+      this.triggerReNegotiation(documentId)
+    }, Math.max(0, delayMs))
+
+    circuit.retryTimer = timer
   }
 
   triggerReNegotiation(documentId: DocumentId): boolean {
@@ -186,11 +214,15 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       this.renegotiationCircuits.set(documentId, circuit)
     }
 
-    if (circuit.circuitOpenUntil && now < circuit.circuitOpenUntil) {
-      console.warn(
-        `[VaultNetworkAdapter] Renegotiation circuit breaker is OPEN for document ${documentId}. Skipping renegotiation.`
-      )
-      return false
+    if (circuit.circuitOpenUntil) {
+      if (now < circuit.circuitOpenUntil) {
+        console.warn(
+          `[VaultNetworkAdapter] Renegotiation circuit breaker is OPEN for document ${documentId}. Skipping renegotiation.`
+        )
+        this.scheduleReNegotiationRetry(documentId, circuit, circuit.circuitOpenUntil - now)
+        return false
+      }
+      circuit.circuitOpenUntil = undefined
     }
 
     circuit.timestamps = circuit.timestamps.filter(ts => now - ts < RENEGOTIATION_WINDOW_MS)
@@ -200,7 +232,13 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       console.warn(
         `[VaultNetworkAdapter] Renegotiation limit reached for document ${documentId} (${circuit.timestamps.length} attempts in ${RENEGOTIATION_WINDOW_MS}ms). Tripping circuit breaker for ${CIRCUIT_BREAKER_COOLDOWN_MS}ms.`
       )
+      this.scheduleReNegotiationRetry(documentId, circuit, CIRCUIT_BREAKER_COOLDOWN_MS)
       return false
+    }
+
+    if (circuit.retryTimer) {
+      clearTimeout(circuit.retryTimer)
+      circuit.retryTimer = undefined
     }
 
     circuit.timestamps.push(now)
@@ -310,10 +348,25 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     return Date.now() < circuit.circuitOpenUntil
   }
 
+  hasReNegotiationRetryScheduled(documentId: DocumentId): boolean {
+    return Boolean(this.renegotiationCircuits.get(documentId)?.retryTimer)
+  }
+
   resetReNegotiationCircuit(documentId?: DocumentId): void {
     if (documentId) {
+      const circuit = this.renegotiationCircuits.get(documentId)
+      if (circuit?.retryTimer) {
+        clearTimeout(circuit.retryTimer)
+        circuit.retryTimer = undefined
+      }
       this.renegotiationCircuits.delete(documentId)
     } else {
+      for (const circuit of this.renegotiationCircuits.values()) {
+        if (circuit.retryTimer) {
+          clearTimeout(circuit.retryTimer)
+          circuit.retryTimer = undefined
+        }
+      }
       this.renegotiationCircuits.clear()
     }
   }
