@@ -74,7 +74,8 @@ export class EventHub<T> {
     }
   }
 
-  emit(event: T): void {
+  emit(event: T): boolean {
+    let hasError = false
     for (const listener of Array.from(this.listeners)) {
       try {
         const result = listener(event)
@@ -84,9 +85,11 @@ export class EventHub<T> {
           )
         }
       } catch (err) {
+        hasError = true
         console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
       }
     }
+    return !hasError
   }
 }
 
@@ -101,8 +104,8 @@ export class ClientEventHub extends EventHub<ClientEvent> {
     this.externalPort = port
   }
 
-  override emit(event: ClientEvent): void {
-    super.emit(event)
+  override emit(event: ClientEvent): boolean {
+    const ok = super.emit(event)
 
     // Distribute to main-thread listener via MessagePort
     if (this.externalPort) {
@@ -110,36 +113,16 @@ export class ClientEventHub extends EventHub<ClientEvent> {
         this.externalPort.postMessage(event)
       } catch (err) {
         console.error('[ClientEventHub] Error posting to external port:', err)
+        return false
       }
     }
+    return ok
   }
 }
 
 export class WorkerInternalEventHub extends EventHub<WorkerInternalEvent> {
   constructor() {
     super('WorkerInternalEventHub', 'listener')
-  }
-
-  override emit(event: WorkerInternalEvent): void {
-    let firstError: unknown = null
-    for (const listener of Array.from(this.listeners)) {
-      try {
-        const result = listener(event)
-        if (result instanceof Promise) {
-          result.catch(err =>
-            console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
-          )
-        }
-      } catch (err) {
-        console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
-        if (!firstError) {
-          firstError = err
-        }
-      }
-    }
-    if (firstError) {
-      throw firstError
-    }
   }
 }
 

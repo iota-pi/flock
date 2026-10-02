@@ -159,7 +159,9 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   }
 
   private notifyMessageParsed(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
-    this.internalEventHub.emit({ type: 'messageParsed', itemId, documentId, message })
+    if (!this.internalEventHub.emit({ type: 'messageParsed', itemId, documentId, message })) {
+      throw new Error(`Listener failed while processing messageParsed for item ${itemId}`)
+    }
   }
 
   private async handleMessageEntry(
