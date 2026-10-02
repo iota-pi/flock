@@ -273,6 +273,7 @@ export class SyncPoller {
       }
     } catch (pullErr) {
       console.error('[SyncPoller] Error processing pull results', pullErr)
+      throw pullErr
     }
   }
 
