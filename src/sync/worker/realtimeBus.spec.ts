@@ -167,9 +167,9 @@ describe('realtimeBus', () => {
     teardownRealtimeBus('acc-1')
 
     expect(channel1.close).toHaveBeenCalledTimes(1)
-    expect(channel1.removeEventListener).toHaveBeenCalledWith('message', listener1)
+    expect(channel1.onmessage).toBeNull()
+    expect(channel1.onmessageerror).toBeNull()
     expect(channel2.close).not.toHaveBeenCalled()
-    expect(channel2.removeEventListener).not.toHaveBeenCalled()
 
     // Message sent to channel1 should no longer trigger listener1
     channel1.onmessage?.({

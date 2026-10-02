@@ -100,18 +100,15 @@ export function publishRealtimeBusSyncPing(
 }
 
 function closeAccountBus(state: AccountBusState): void {
-  try {
-    state.channel?.close()
-  } catch {
-    // Ignore close errors
-  }
-  state.listeners.forEach(l => {
+  if (state.channel) {
+    state.channel.onmessage = null
+    state.channel.onmessageerror = null
     try {
-      state.channel?.removeEventListener?.('message', l as unknown as EventListener)
+      state.channel.close()
     } catch {
-      // Ignore
+      // Ignore close errors
     }
-  })
+  }
   state.listeners.clear()
   state.channel = null
 }
