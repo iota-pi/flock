@@ -201,11 +201,13 @@ export class ManifestHydrator {
     try {
       const manifestEntry = manifest.find(entry => entry.itemId === item.item)
       const serverTime = manifestEntry?.modifiedAt ?? serverTimeFallback
-      const serverVersion = (typeof manifestEntry?.version === 'number' && manifestEntry.version > 0)
+      const serverVersion = (manifestEntry?.version && manifestEntry.version > 0)
         ? manifestEntry.version
-        : (typeof (item as unknown as { version?: unknown }).version === 'number'
+        : (
+          typeof (item as unknown as { version?: unknown }).version === 'number'
             ? (item as unknown as { version: number }).version
-            : 1)
+            : 1
+        )
 
       if (item.metadata?.deleted === true) {
         return {
