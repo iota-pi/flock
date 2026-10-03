@@ -373,8 +373,9 @@ export class SyncWorker implements SyncApi {
         log.error(`Error handling Automerge doc change for item ${id}:`, err)
       }
     }
-    handle.on('change', () => handleChange(true))
-    this.changeListenersByItemId.set(id, { handle, listener: handleChange })
+    const changeListener = () => handleChange(true)
+    handle.on('change', changeListener)
+    this.changeListenersByItemId.set(id, { handle, listener: changeListener })
     handleChange(false)
   }
 
@@ -425,10 +426,8 @@ export class SyncWorker implements SyncApi {
   }
 
   clearListeners() {
-    if (this.changeListenersByItemId.size > 0) {
-      for (const id of Array.from(this.subscribedIds)) {
-        this.unsubscribe(id)
-      }
+    for (const [, sub] of this.changeListenersByItemId) {
+      sub.handle.off('change', sub.listener)
     }
     this.subscribedIds.clear()
     this.changeListenersByItemId.clear()

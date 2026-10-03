@@ -292,8 +292,9 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     // Invoke the onDocHandleReplaced callback wired by SyncWorker into SyncWorkerContext config
     ;(worker as any)._context.docStore.onDocHandleReplaced('item-1' as any, handleB)
 
-    // 1. Old handle listener must be unbound
-    expect(handleA.off).toHaveBeenCalledWith('change', expect.any(Function))
+    // 1. Old handle listener must be unbound with the exact registered reference
+    const registeredListenerA = (handleA.on as any).mock.calls[0][1]
+    expect(handleA.off).toHaveBeenCalledWith('change', registeredListenerA)
 
     // 2. New handle listener must be bound
     expect(handleB.on).toHaveBeenCalledWith('change', expect.any(Function))
@@ -331,6 +332,78 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     ;(worker as any)._context.docStore.onDocHandleReplaced('item-unsub' as any, handle)
 
     expect(handle.on).not.toHaveBeenCalled()
+  })
+
+  it('unsubscribes and detaches the exact registered listener reference when updateItemSubscriptions removes an item', async () => {
+    const handle = {
+      documentId: 'doc-item-2',
+      on: vi.fn(),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ id: 'item-2', name: 'Item 2' }),
+    }
+    mockRepoFind.mockResolvedValue(handle)
+
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    worker.subscribeToItems(['item-2' as any])
+    await Promise.resolve()
+
+    expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function))
+    const registeredListener = (handle.on as any).mock.calls[0][1]
+
+    worker.updateItemSubscriptions([])
+
+    expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
+  })
+
+  it('unsubscribes and detaches the exact registered listener reference when an item is deleted', async () => {
+    let changeCallback: (() => void) | undefined
+    const handle = {
+      documentId: 'doc-item-3',
+      on: vi.fn().mockImplementation((event: string, fn: () => void) => {
+        if (event === 'change') changeCallback = fn
+      }),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ id: 'item-3', name: 'Item 3' }),
+    }
+    mockRepoFind.mockResolvedValue(handle)
+
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    worker.subscribeToItems(['item-3' as any])
+    await Promise.resolve()
+
+    expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function))
+    const registeredListener = (handle.on as any).mock.calls[0][1]
+
+    handle.doc.mockReturnValue({ id: 'item-3', name: 'Item 3', deleted: true })
+    changeCallback?.()
+
+    expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
+  })
+
+  it('detaches the exact registered listener reference for all handles on clearListeners', async () => {
+    const handle = {
+      documentId: 'doc-item-4',
+      on: vi.fn(),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ id: 'item-4', name: 'Item 4' }),
+    }
+    mockRepoFind.mockResolvedValue(handle)
+
+    const worker = new SyncWorker()
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    worker.subscribeToItems(['item-4' as any])
+    await Promise.resolve()
+
+    const registeredListener = (handle.on as any).mock.calls[0][1]
+
+    worker.clearListeners()
+
+    expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
   })
 
   it('delegates claimLeader to context.claimLeader', async () => {
