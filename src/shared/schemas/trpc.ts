@@ -112,10 +112,23 @@ export const SyncPushBatchSchema = z.object({
   })).min(1).max(1000),
 })
 
+export const SyncMessageLastEvaluatedKeySchema = z.object({
+  syncId: z.string().min(1),
+  cursor: z.number().int().min(0),
+}).strict()
+export type SyncMessageLastEvaluatedKey = z.infer<typeof SyncMessageLastEvaluatedKeySchema>
+
+export const GlobalSyncLastEvaluatedKeySchema = z.object({
+  account: z.string().min(1),
+  cursor: z.number().int().min(0),
+  syncId: z.string().min(1),
+}).strict()
+export type GlobalSyncLastEvaluatedKey = z.infer<typeof GlobalSyncLastEvaluatedKeySchema>
+
 export const SyncPollBatchSchema = z.object({
   account: z.string().min(1),
   clientLatestCursor: z.number().int().min(0).optional(),
-  globalLastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
+  globalLastEvaluatedKey: GlobalSyncLastEvaluatedKeySchema.optional(),
   pushMessages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
@@ -123,7 +136,7 @@ export const SyncPollBatchSchema = z.object({
   pullCursors: z.array(z.object({
     itemId: ItemIdSchema,
     cursor: z.number().int().min(0).optional(),
-    lastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
+    lastEvaluatedKey: SyncMessageLastEvaluatedKeySchema.optional(),
   })).max(100).default([]),
 })
 

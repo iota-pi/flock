@@ -10,7 +10,11 @@ import {
   VaultItemSchema,
   StoredSyncMessageSchema,
 } from '../../shared/schemas/vault'
-import type { ManifestEntry } from 'src/shared/schemas/trpc'
+import type {
+  ManifestEntry,
+  SyncMessageLastEvaluatedKey,
+  GlobalSyncLastEvaluatedKey,
+} from 'src/shared/schemas/trpc'
 
 export type VaultKey = z.infer<typeof VaultKeySchema>
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
@@ -100,12 +104,12 @@ export default abstract class BaseDriver<T = unknown> {
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
+    exclusiveStartKey?: SyncMessageLastEvaluatedKey
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }>
 
   abstract getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
+    exclusiveStartKey?: GlobalSyncLastEvaluatedKey
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }>
 }

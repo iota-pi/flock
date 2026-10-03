@@ -42,7 +42,11 @@ import {
   isResourceInUseError,
   isTransientDynamoError,
 } from './dynamoErrors'
-import type { ManifestEntry } from 'src/shared/schemas/trpc'
+import type {
+  ManifestEntry,
+  SyncMessageLastEvaluatedKey,
+  GlobalSyncLastEvaluatedKey,
+} from 'src/shared/schemas/trpc'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
@@ -815,10 +819,26 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
+    exclusiveStartKey?: SyncMessageLastEvaluatedKey
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
     const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
     const hasCursor = typeof fromCursor === 'number'
+    const expectedSyncId = `${input.account}#${input.itemId}`
+    let exclusiveStartKey: Record<string, unknown> | undefined = undefined
+    if (input.exclusiveStartKey) {
+      if (input.exclusiveStartKey.syncId !== expectedSyncId) {
+        throw new Error(`Invalid exclusiveStartKey syncId: expected ${expectedSyncId}`)
+      }
+      const cursor = input.exclusiveStartKey.cursor
+      if (typeof cursor !== 'number' || !Number.isFinite(cursor) || cursor < 0) {
+        throw new Error('Invalid exclusiveStartKey cursor: must be a non-negative number')
+      }
+      exclusiveStartKey = {
+        syncId: expectedSyncId,
+        cursor,
+      }
+    }
+
     const response = await this.client.send(new QueryCommand({
       TableName: SYNC_MESSAGES_TABLE_NAME,
       KeyConditionExpression: hasCursor
@@ -828,27 +848,47 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ? { '#c': 'cursor' }
         : undefined,
       ExpressionAttributeValues: {
-        ':syncId': `${input.account}#${input.itemId}`,
+        ':syncId': expectedSyncId,
         ...(hasCursor ? { ':fromCursor': fromCursor } : undefined),
       },
       Limit: input.limit ?? DEFAULT_SYNC_MESSAGE_LIMIT,
-      ExclusiveStartKey: input.exclusiveStartKey,
+      ExclusiveStartKey: exclusiveStartKey,
     }))
 
     return {
       messages: (response.Items as StoredSyncMessage[]) || [],
       hasMore: !!response.LastEvaluatedKey,
-      lastEvaluatedKey: response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey as SyncMessageLastEvaluatedKey | undefined,
     }
   }
 
   async getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
+    exclusiveStartKey?: GlobalSyncLastEvaluatedKey
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
     const hasCursor = typeof input.cursor === 'number'
+
+    let exclusiveStartKey: Record<string, unknown> | undefined = undefined
+    if (input.exclusiveStartKey) {
+      if (input.exclusiveStartKey.account !== input.account) {
+        throw new Error(`Invalid exclusiveStartKey account: expected ${input.account}`)
+      }
+      const syncId = input.exclusiveStartKey.syncId
+      if (typeof syncId !== 'string' || !syncId.startsWith(`${input.account}#`)) {
+        throw new Error(`Invalid exclusiveStartKey syncId: expected prefix ${input.account}#`)
+      }
+      const cursor = input.exclusiveStartKey.cursor
+      if (typeof cursor !== 'number' || !Number.isFinite(cursor) || cursor < 0) {
+        throw new Error('Invalid exclusiveStartKey cursor: must be a non-negative number')
+      }
+      exclusiveStartKey = {
+        account: input.account,
+        cursor,
+        syncId,
+      }
+    }
 
     const response = await this.client.send(new QueryCommand({
       TableName: SYNC_MESSAGES_TABLE_NAME,
@@ -864,7 +904,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ...(hasCursor ? { ':cursor': input.cursor } : undefined),
       },
       Limit: 1000,
-      ExclusiveStartKey: input.exclusiveStartKey,
+      ExclusiveStartKey: exclusiveStartKey,
     }))
 
     for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
@@ -889,7 +929,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         messages: messages.sort((a, b) => a.cursor - b.cursor),
       })),
       hasMore: !!response.LastEvaluatedKey,
-      lastEvaluatedKey: response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey as GlobalSyncLastEvaluatedKey | undefined,
     }
   }
 }

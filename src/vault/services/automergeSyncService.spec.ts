@@ -372,4 +372,81 @@ describe('AutomergeSyncService', () => {
       exclusiveStartKey: undefined,
     })
   })
+
+  describe('continuation key validation', () => {
+    it('throws when pullAutomergeSyncMessages receives lastEvaluatedKey with mismatched syncId', async () => {
+      const repository = createMockRepository()
+      const service = createAutomergeSyncService({ repository })
+
+      await expect(
+        service.pullAutomergeSyncBatch({
+          account: 'test-account',
+          cursors: [
+            {
+              itemId: 'item-1' as ItemId,
+              cursor: 100,
+              lastEvaluatedKey: { syncId: 'test-account#item-2', cursor: 150 },
+            },
+          ],
+        })
+      ).rejects.toThrow('Invalid lastEvaluatedKey syncId: expected test-account#item-1')
+    })
+
+    it('throws when pullAutomergeSyncMessages receives lastEvaluatedKey with cursor preceding fromCursor', async () => {
+      const repository = createMockRepository()
+      const service = createAutomergeSyncService({ repository })
+
+      await expect(
+        service.pullAutomergeSyncBatch({
+          account: 'test-account',
+          cursors: [
+            {
+              itemId: 'item-1' as ItemId,
+              cursor: 500,
+              lastEvaluatedKey: { syncId: 'test-account#item-1', cursor: 400 },
+            },
+          ],
+        })
+      ).rejects.toThrow('Invalid lastEvaluatedKey cursor: cursor cannot precede 500')
+    })
+
+    it('throws when pullAutomergeSyncGlobal receives lastEvaluatedKey with mismatched account', async () => {
+      const repository = createMockRepository()
+      const service = createAutomergeSyncService({ repository })
+
+      await expect(
+        service.pullAutomergeSyncGlobal({
+          account: 'test-account',
+          cursor: 500,
+          lastEvaluatedKey: { account: 'other-account', cursor: 600, syncId: 'test-account#item-1' },
+        })
+      ).rejects.toThrow('Invalid global lastEvaluatedKey account: expected test-account')
+    })
+
+    it('throws when pullAutomergeSyncGlobal receives lastEvaluatedKey with mismatched syncId prefix', async () => {
+      const repository = createMockRepository()
+      const service = createAutomergeSyncService({ repository })
+
+      await expect(
+        service.pullAutomergeSyncGlobal({
+          account: 'test-account',
+          cursor: 500,
+          lastEvaluatedKey: { account: 'test-account', cursor: 600, syncId: 'other-account#item-1' },
+        })
+      ).rejects.toThrow('Invalid global lastEvaluatedKey syncId: must start with test-account#')
+    })
+
+    it('throws when pullAutomergeSyncGlobal receives lastEvaluatedKey with cursor preceding input cursor', async () => {
+      const repository = createMockRepository()
+      const service = createAutomergeSyncService({ repository })
+
+      await expect(
+        service.pullAutomergeSyncGlobal({
+          account: 'test-account',
+          cursor: 1000,
+          lastEvaluatedKey: { account: 'test-account', cursor: 999, syncId: 'test-account#item-1' },
+        })
+      ).rejects.toThrow('Invalid global lastEvaluatedKey cursor: cursor cannot precede 1000')
+    })
+  })
 })

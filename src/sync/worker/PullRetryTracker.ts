@@ -1,12 +1,13 @@
 import { hasVaultKey } from 'src/api/vault'
 import { ItemId } from 'src/shared/schemas/items'
+import type { SyncMessageLastEvaluatedKey } from 'src/shared/schemas/trpc'
 
 export interface ItemPullState {
   cursor: number
   pending: boolean
   retryCount: number
   blockedOnKey?: string
-  lastEvaluatedKey?: Record<string, unknown>
+  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
 }
 
 export interface RecordPullOutcomeParams {
@@ -20,7 +21,7 @@ export interface RecordPullOutcomeParams {
   failingCursor?: number
   hasMore: boolean
   nextCursor?: number
-  lastEvaluatedKey?: Record<string, unknown>
+  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
 }
 
 export interface RecordPullOutcomeResult {
@@ -48,7 +49,7 @@ export interface PullStateTransition {
   pending: boolean
   retryCount: number
   blockedOnKey?: string
-  lastEvaluatedKey?: Record<string, unknown>
+  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
   permanentlyFailed: boolean
   advanceCursor?: number
   cursorUpdated: boolean
@@ -148,8 +149,8 @@ export class PullRetryTracker {
     return unblockedAny
   }
 
-  getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> {
-    const cursors: Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> = []
+  getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
+    const cursors: Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> = []
 
     for (const [itemId, state] of this.retryQueue.entries()) {
       if (state.blockedOnKey && !hasVaultKey(state.blockedOnKey)) {
@@ -305,7 +306,7 @@ export class PullRetryTracker {
     let pending: boolean
     let retryCount = state.retryCount
     let nextBlockedOnKey = state.blockedOnKey
-    let nextLastEvaluatedKey: Record<string, unknown> | undefined
+    let nextLastEvaluatedKey: SyncMessageLastEvaluatedKey | undefined
     let permanentlyFailed = false
     let advanceCursor: number | undefined
     let removeFromRetryQueue = false
