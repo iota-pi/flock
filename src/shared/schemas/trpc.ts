@@ -109,7 +109,7 @@ export const SyncPushBatchSchema = z.object({
   messages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
-  })).min(1),
+  })).min(1).max(1000),
 })
 
 export const SyncPollBatchSchema = z.object({
@@ -119,12 +119,12 @@ export const SyncPollBatchSchema = z.object({
   pushMessages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
-  })).default([]),
+  })).max(100).default([]),
   pullCursors: z.array(z.object({
     itemId: ItemIdSchema,
     cursor: z.number().int().min(0).optional(),
     lastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
-  })).default([]),
+  })).max(100).default([]),
 })
 
 export const PutSnapshotBatchSchema = z.object({
