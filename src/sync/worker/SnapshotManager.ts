@@ -178,6 +178,18 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     await this.tracker.importLastModified(data)
   }
 
+  getBaseVersion(itemId: ItemId): number {
+    return this.tracker.getBaseVersion(itemId)
+  }
+
+  exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
+    return this.tracker.exportItemVersions()
+  }
+
+  async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
+    await this.tracker.importVersions(updates)
+  }
+
   clear(): void {
     this.tracker.clear()
     this.pusher.clear()

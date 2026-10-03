@@ -1,6 +1,10 @@
 import type BaseDriver from '../drivers/base'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { StoredSyncMessage } from '../drivers/base'
+import type {
+  SyncMessageLastEvaluatedKey,
+  GlobalSyncLastEvaluatedKey,
+} from 'src/shared/schemas/trpc'
 
 type AppendSyncMessageInput = {
   account: string
@@ -22,13 +26,13 @@ export interface AutomergeSyncRepository {
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
+    exclusiveStartKey?: SyncMessageLastEvaluatedKey
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }>
   getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }>
+    exclusiveStartKey?: GlobalSyncLastEvaluatedKey
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }>
 }
 
 export function createDynamoAutomergeSyncRepository(driver: BaseDriver): AutomergeSyncRepository {
@@ -53,16 +57,16 @@ export function createDynamoAutomergeSyncRepository(driver: BaseDriver): Automer
       itemId: ItemId
       fromCursor?: number
       limit?: number
-      exclusiveStartKey?: Record<string, unknown>
-    }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
+      exclusiveStartKey?: SyncMessageLastEvaluatedKey
+    }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
       return driver.getSyncMessages(input)
     },
 
     async getGlobalSyncMessagesAfterCursor(input: {
       account: string
       cursor?: number
-      exclusiveStartKey?: Record<string, unknown>
-    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
+      exclusiveStartKey?: GlobalSyncLastEvaluatedKey
+    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }> {
       return driver.getGlobalSyncMessagesAfterCursor(input)
     },
   }

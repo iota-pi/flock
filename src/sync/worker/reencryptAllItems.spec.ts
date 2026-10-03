@@ -939,3 +939,165 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
   })
 })
 
+describe('concurrency and retry race safety (H11)', () => {
+  let mockRepo: any
+  let mockHandle: any
+  let itemReencryptor: ItemReencryptor
+  let context: any
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+    itemReencryptor = new ItemReencryptor()
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
+
+    mockHandle = {
+      isReady: vi.fn().mockReturnValue(true),
+      doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
+    }
+
+    mockRepo = {
+      find: vi.fn().mockResolvedValue(mockHandle),
+    }
+
+    const mockIndexManager = {
+      listAutomergeItemIds: () => mockListAutomergeItemIds(),
+    }
+
+    context = {
+      accountId: 'test-account',
+      repo: mockRepo,
+      indexManager: mockIndexManager,
+    }
+  })
+
+  afterEach(() => {
+    itemReencryptor.cancelScheduled()
+    vi.useRealTimers()
+  })
+
+  it('coalesces concurrent reencryptAllItems calls using SingleFlightGuard', async () => {
+    let resolveUpload: (val: any) => void
+    const uploadPromise = new Promise(resolve => {
+      resolveUpload = resolve
+    })
+    mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+    const onProgress1 = vi.fn()
+    const onProgress2 = vi.fn()
+
+    const p1 = itemReencryptor.reencryptAllItems(context, onProgress1)
+    expect(itemReencryptor.isReencrypting).toBe(true)
+
+    const p2 = itemReencryptor.reencryptAllItems(context, onProgress2)
+
+    // Complete the upload
+    resolveUpload!({ success: true })
+
+    const [res1, res2] = await Promise.all([p1, p2])
+
+    expect(res1).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
+    expect(res2).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(onProgress1).toHaveBeenCalledWith(2, 2)
+    expect(onProgress2).toHaveBeenCalledWith(2, 2)
+    expect(itemReencryptor.isReencrypting).toBe(false)
+  })
+
+  it('coalesces a scheduled retry execution and a concurrent manual invocation without corrupting state', async () => {
+    vi.useFakeTimers()
+    let resolveUpload: (val: any) => void
+    const uploadPromise = new Promise(resolve => {
+      resolveUpload = resolve
+    })
+    mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+    const retryProgress = vi.fn()
+    const manualProgress = vi.fn()
+
+    // Schedule a retry
+    itemReencryptor.scheduleRetry(context, retryProgress)
+
+    // Advance timers so the scheduled retry fires its fireAndForget(reencryptAllItems)
+    vi.runOnlyPendingTimers()
+
+    expect(itemReencryptor.isReencrypting).toBe(true)
+
+    // Now, manual invocation happens while the scheduled retry is executing in background
+    const manualPromise = itemReencryptor.reencryptAllItems(context, manualProgress)
+
+    // Complete the in-flight upload
+    resolveUpload!({ success: true })
+
+    const result = await manualPromise
+
+    expect(result).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(retryProgress).toHaveBeenCalledWith(2, 2)
+    expect(manualProgress).toHaveBeenCalledWith(2, 2)
+    expect(itemReencryptor.isReencrypting).toBe(false)
+  })
+
+  it('cancels pending scheduled retry timeout when reencryptAllItems is invoked manually', async () => {
+    vi.useFakeTimers()
+    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+
+    const retryProgress = vi.fn()
+    const manualProgress = vi.fn()
+
+    // Schedule a retry
+    itemReencryptor.scheduleRetry(context, retryProgress)
+
+    // Invoke reencryptAllItems manually BEFORE the scheduled timer elapses
+    const manualPromise = itemReencryptor.reencryptAllItems(context, manualProgress)
+
+    const result = await manualPromise
+    expect(result.succeeded).toEqual(['item-1', 'item-2'])
+    expect(manualProgress).toHaveBeenCalledWith(2, 2)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+    // Advance time past the scheduled retry duration
+    vi.advanceTimersByTime(100_000)
+
+    // The scheduled retry should NOT have run because it was cancelled by manual invocation
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(retryProgress).not.toHaveBeenCalled()
+  })
+
+  it('does not store activeContext or activeProgressCallback on instance', () => {
+    expect((itemReencryptor as any).activeContext).toBeUndefined()
+    expect((itemReencryptor as any).activeProgressCallback).toBeUndefined()
+  })
+
+  it('allows a coalesced caller to abort independently without terminating the in-flight operation', async () => {
+    let resolveUpload: (val: any) => void
+    const uploadPromise = new Promise(resolve => {
+      resolveUpload = resolve
+    })
+    mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+    const abortController = new AbortController()
+
+    const p1 = itemReencryptor.reencryptAllItems(context)
+    const p2 = itemReencryptor.reencryptAllItems({
+      ...context,
+      signal: abortController.signal,
+    })
+
+    // Abort caller 2 while caller 1 is still in flight
+    abortController.abort(new Error('Caller 2 cancelled'))
+
+    await expect(p2).rejects.toThrow('Caller 2 cancelled')
+
+    // Caller 1 is still running
+    expect(itemReencryptor.isReencrypting).toBe(true)
+
+    // Complete the in-flight upload
+    resolveUpload!({ success: true })
+
+    const res1 = await p1
+    expect(res1).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
+    expect(itemReencryptor.isReencrypting).toBe(false)
+  })
+})

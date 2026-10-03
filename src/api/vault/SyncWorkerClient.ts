@@ -4,7 +4,12 @@ import env from '../../env'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { z } from 'zod'
-import type { SyncPollBatchSchema } from 'src/shared/schemas/trpc'
+import type {
+  SyncPollBatchSchema,
+  SyncMessageLastEvaluatedKey,
+  GlobalSyncLastEvaluatedKey,
+  PutSnapshotResultItem,
+} from 'src/shared/schemas/trpc'
 type SyncMessageEnvelope = {
   iv: string
   cipher: string
@@ -44,7 +49,7 @@ export type PullSyncMessagesResponse = {
     encryptedMessage: SyncMessageEnvelope
   }>
   hasMore: boolean
-  lastEvaluatedKey?: Record<string, unknown>
+  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
 }
 
 export type PushResultItem = {
@@ -59,7 +64,7 @@ export type PollSyncBatchResponse = {
   pushResults: Array<PushResultItem>
   pullResults: Array<PullSyncMessagesResponse>
   hasMore?: boolean
-  globalLastEvaluatedKey?: Record<string, unknown>
+  globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey
 }
 
 
@@ -79,7 +84,7 @@ export async function putSnapshotsWithToken(
     snapshots: VaultSnapshotInput[]
   },
   options?: { signal?: AbortSignal }
-): Promise<{ success: boolean; persisted: number; total: number }> {
+): Promise<{ success: boolean; persisted: number; total: number; results?: PutSnapshotResultItem[] }> {
   const client = createWorkerSyncClient(input.authToken)
   return client.items.putSnapshots.mutate(
     {

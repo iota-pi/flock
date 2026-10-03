@@ -602,30 +602,5 @@ describe('items operations', () => {
     expect(handleReplacedListener).toHaveBeenCalledTimes(1)
     expect(handleReplacedListener).toHaveBeenCalledWith('seeded-item', handle)
   })
-
-  it('should notify onDocHandleReplaced when compactDocument recreates and imports a document', async () => {
-    const handleReplacedListener = vi.fn()
-    docStore.onDocHandleReplaced = handleReplacedListener
-
-    const item: Item = {
-      id: 'compact-item' as ItemId,
-      type: 'person',
-      name: 'Compact Test',
-      description: 'Desc',
-      created: 1000,
-      archived: false,
-      prayerFrequency: 'none',
-      notes: [],
-      prayedFor: [],
-    }
-
-    const success = await docStore.compactDocument('compact-item' as ItemId, item)
-
-    expect(success).toBe(true)
-    expect(handleReplacedListener).toHaveBeenCalledTimes(1)
-    expect(handleReplacedListener).toHaveBeenCalledWith('compact-item', expect.objectContaining({
-      documentId: expect.any(String),
-    }))
-  })
 })
 

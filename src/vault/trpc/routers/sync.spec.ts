@@ -429,6 +429,106 @@ describe('pollSync behavior and account isolation', () => {
       expect(result.globalLastEvaluatedKey).toEqual(outputGlobalKey)
       expect(result.pullResults).toHaveLength(1)
     })
+
+    it('rejects globalLastEvaluatedKey when account does not match authenticated account', async () => {
+      const ctx = createContext()
+      const caller = syncRouter.createCaller(ctx as any)
+
+      await expect(
+        caller.pollSync({
+          account: 'target-account',
+          pushMessages: [],
+          pullCursors: [],
+          globalLastEvaluatedKey: { account: 'other-account', cursor: 500, syncId: 'target-account#item-x' },
+        })
+      ).rejects.toThrow('globalLastEvaluatedKey account mismatch')
+    })
+
+    it('rejects globalLastEvaluatedKey when syncId does not match authenticated account prefix', async () => {
+      const ctx = createContext()
+      const caller = syncRouter.createCaller(ctx as any)
+
+      await expect(
+        caller.pollSync({
+          account: 'target-account',
+          pushMessages: [],
+          pullCursors: [],
+          globalLastEvaluatedKey: { account: 'target-account', cursor: 500, syncId: 'other-account#item-x' },
+        })
+      ).rejects.toThrow('globalLastEvaluatedKey syncId mismatch')
+    })
+
+    it('rejects globalLastEvaluatedKey when cursor precedes clientLatestCursor', async () => {
+      const ctx = createContext()
+      const caller = syncRouter.createCaller(ctx as any)
+
+      await expect(
+        caller.pollSync({
+          account: 'target-account',
+          clientLatestCursor: 1000,
+          pushMessages: [],
+          pullCursors: [],
+          globalLastEvaluatedKey: { account: 'target-account', cursor: 999, syncId: 'target-account#item-x' },
+        })
+      ).rejects.toThrow('globalLastEvaluatedKey cursor cannot precede clientLatestCursor')
+    })
+
+    it('rejects pullCursors lastEvaluatedKey when syncId does not match account and itemId', async () => {
+      const ctx = createContext()
+      const caller = syncRouter.createCaller(ctx as any)
+
+      await expect(
+        caller.pollSync({
+          account: 'target-account',
+          pushMessages: [],
+          pullCursors: [
+            {
+              itemId: 'item-1' as ItemId,
+              cursor: 100,
+              lastEvaluatedKey: { syncId: 'target-account#item-2', cursor: 150 },
+            },
+          ],
+        })
+      ).rejects.toThrow('pullCursor lastEvaluatedKey syncId mismatch for item item-1')
+    })
+
+    it('rejects pullCursors lastEvaluatedKey when cursor precedes item pull cursor', async () => {
+      const ctx = createContext()
+      const caller = syncRouter.createCaller(ctx as any)
+
+      await expect(
+        caller.pollSync({
+          account: 'target-account',
+          pushMessages: [],
+          pullCursors: [
+            {
+              itemId: 'item-1' as ItemId,
+              cursor: 500,
+              lastEvaluatedKey: { syncId: 'target-account#item-1', cursor: 499 },
+            },
+          ],
+        })
+      ).rejects.toThrow('pullCursor lastEvaluatedKey cursor cannot precede pull cursor for item item-1')
+    })
+
+    it('rejects extra unknown properties on lastEvaluatedKey via strict schema', async () => {
+      const ctx = createContext()
+      const caller = syncRouter.createCaller(ctx as any)
+
+      await expect(
+        caller.pollSync({
+          account: 'target-account',
+          pushMessages: [],
+          pullCursors: [
+            {
+              itemId: 'item-1' as ItemId,
+              cursor: 500,
+              lastEvaluatedKey: { syncId: 'target-account#item-1', cursor: 500, unexpectedField: true } as any,
+            },
+          ],
+        })
+      ).rejects.toThrow()
+    })
   })
 })
 

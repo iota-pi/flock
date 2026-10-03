@@ -31,7 +31,6 @@ describe('ItemOperations', () => {
   }
   let emitMock: any
   let changeDocumentMock: any
-  let compactDocumentMock: any
   let addAutomergeItemIdsToIndexMock: any
   let removeAutomergeItemIdsFromIndexMock: any
   let markDocumentDirtyMock: any
@@ -51,7 +50,6 @@ describe('ItemOperations', () => {
     mockUpsertManualRecoveryEntry.mockResolvedValue(undefined)
     emitMock = vi.fn()
     changeDocumentMock = vi.fn()
-    compactDocumentMock = vi.fn().mockResolvedValue(undefined)
     addAutomergeItemIdsToIndexMock = vi.fn()
     removeAutomergeItemIdsFromIndexMock = vi.fn().mockResolvedValue(undefined)
     markDocumentDirtyMock = vi.fn()
@@ -62,7 +60,6 @@ describe('ItemOperations', () => {
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: getAutomergeItemMock,
-        compactDocument: compactDocumentMock,
         removeAutomergeItem: vi.fn(),
       } as any,
       indexManager: {
@@ -314,29 +311,43 @@ describe('ItemOperations', () => {
     })
   })
 
-  describe('compactItem', () => {
-    it('compacts document, cleans up manual recovery, marks dirty, and emits updated item', async () => {
-      const compactDocumentMock = vi.fn().mockResolvedValue(true)
-      deps.docStore.compactDocument = compactDocumentMock
+  describe('recreateOversizedItem', () => {
+    it('creates new document with clean history, soft-deletes old item, unquarantines, and returns new ID', async () => {
+      changeDocumentMock.mockResolvedValue(true)
       const localItem = { id: 'item-1' as ItemId, type: 'note', text: 'survived content' } as unknown as Item
       getAutomergeItemMock.mockResolvedValue(localItem)
 
-      await operations.compactItem('item-1' as ItemId)
+      const newItemId = await operations.recreateOversizedItem('item-1' as ItemId)
 
+      expect(typeof newItemId).toBe('string')
+      expect(newItemId).not.toBe('item-1')
       expect(getAutomergeItemMock).toHaveBeenCalledWith('item-1')
-      expect(compactDocumentMock).toHaveBeenCalledWith('item-1', localItem)
-      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
+      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith([newItemId])
+      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-1'])
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith(newItemId)
       expect(emitMock).toHaveBeenCalledWith({
         type: 'itemUpdated',
         id: 'item-1',
-        item: localItem,
+        item: null,
+      })
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'itemUpdated',
+        id: newItemId,
+        item: expect.objectContaining({ id: newItemId, text: 'survived content' }),
       })
     })
 
     it('throws error if item is not found locally', async () => {
       getAutomergeItemMock.mockResolvedValue(null)
 
-      await expect(operations.compactItem('missing-item' as ItemId)).rejects.toThrow('No local item found')
+      await expect(operations.recreateOversizedItem('missing-item' as ItemId)).rejects.toThrow('No local item found')
+    })
+
+    it('throws error if content size alone exceeds 300 KB', async () => {
+      const hugeItem = { id: 'item-huge' as ItemId, type: 'note', text: 'x'.repeat(305 * 1024) } as unknown as Item
+      getAutomergeItemMock.mockResolvedValue(hugeItem)
+
+      await expect(operations.recreateOversizedItem('item-huge' as ItemId)).rejects.toThrow('over 300 KB')
     })
   })
 
@@ -459,6 +470,22 @@ describe('ItemOperations', () => {
         )
       })
 
+      it('throws if local item has error type (validation failed)', async () => {
+        getAutomergeItemMock.mockResolvedValue({
+          id: 'item-3' as ItemId,
+          type: 'error',
+          name: 'Corrupt Item',
+          description: 'This item could not be parsed.',
+        })
+
+        await expect(operations.forceOverwriteRecoveryItem('item-3' as ItemId)).rejects.toThrow(
+          'Cannot overwrite with corrupt local item item-3. Force delete is available instead.'
+        )
+
+        expect(changeDocumentMock).not.toHaveBeenCalled()
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
+
       it('does nothing if accountId is not set', async () => {
         deps.accountId = ''
 
@@ -560,51 +587,62 @@ describe('ItemOperations', () => {
       })
     })
 
-    describe('compactItem', () => {
+    describe('recreateOversizedItem / compactItem', () => {
       it('throws if no local item is found', async () => {
         getAutomergeItemMock.mockResolvedValue(null)
 
-        await expect(operations.compactItem('item-5' as ItemId)).rejects.toThrow(
-          'No local item found for item-5 to compact.'
+        await expect(operations.recreateOversizedItem('item-5' as ItemId)).rejects.toThrow(
+          'No local item found for item-5 to recreate.'
         )
       })
 
-      it('does nothing if accountId is not set', async () => {
+      it('throws if accountId is not set', async () => {
         deps.accountId = ''
 
-        await operations.compactItem('item-5' as ItemId)
-
-        expect(getAutomergeItemMock).not.toHaveBeenCalled()
+        await expect(operations.recreateOversizedItem('item-5' as ItemId)).rejects.toThrow(
+          'Account ID is required to recreate oversized item.'
+        )
       })
 
-      it('compacts document, clears recovery state, pushes recovery updates, and emits itemUpdated', async () => {
+      it('recreates document, remaps groups, clears recovery state, and emits updates', async () => {
+        changeDocumentMock.mockResolvedValue(true)
         const localItem = { id: 'item-5', type: 'note', text: 'hello' }
-        getAutomergeItemMock.mockResolvedValue(localItem)
-        compactDocumentMock.mockResolvedValue(undefined)
+        getAutomergeItemMock.mockImplementation(async (id: string) => {
+          if (id === 'item-5') return localItem
+          if (id === 'group-1') return { id: 'group-1', type: 'group', members: ['item-5', 'other-item'] }
+          return null
+        })
+        deps.indexManager.listAutomergeItemIds = vi.fn().mockResolvedValue(['group-1'])
         const mockEntries: any[] = []
         mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
         operations.recoveryManager.setRecoveryCooldown('item-5' as ItemId, Date.now() + 10000)
         operations.recoveryManager.setInFlight('item-5' as ItemId, true)
 
-        await operations.compactItem('item-5' as ItemId)
+        const newItemId = await operations.recreateOversizedItem('item-5' as ItemId)
 
+        expect(typeof newItemId).toBe('string')
+        expect(newItemId).not.toBe('item-5')
         expect(getAutomergeItemMock).toHaveBeenCalledWith('item-5')
-        expect(compactDocumentMock).toHaveBeenCalledWith('item-5', localItem)
         expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-5')
         expect(operations.recoveryManager.isInFlight('item-5' as ItemId)).toBe(false)
         expect(operations.recoveryManager.getRecoveryCooldownUntil('item-5' as ItemId)).toBe(0)
-        expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-5')
+        expect(markDocumentDirtyMock).toHaveBeenCalledWith(newItemId)
         expect(emitMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
-        expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-5', item: localItem })
+        expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-5', item: null })
+        expect(emitMock).toHaveBeenCalledWith({
+          type: 'itemUpdated',
+          id: newItemId,
+          item: expect.objectContaining({ id: newItemId, text: 'hello' }),
+        })
       })
 
-      it('does not clear recovery state if compactDocument throws', async () => {
+      it('does not clear recovery state if item creation throws', async () => {
         const localItem = { id: 'item-5', type: 'note', text: 'hello' }
         getAutomergeItemMock.mockResolvedValue(localItem)
-        compactDocumentMock.mockRejectedValue(new Error('Compact failed'))
+        changeDocumentMock.mockRejectedValue(new Error('Creation failed'))
 
-        await expect(operations.compactItem('item-5' as ItemId)).rejects.toThrow('Compact failed')
+        await expect(operations.recreateOversizedItem('item-5' as ItemId)).rejects.toThrow('Creation failed')
 
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       })

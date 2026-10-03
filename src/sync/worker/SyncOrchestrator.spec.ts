@@ -1246,6 +1246,29 @@ describe('SyncOrchestrator', () => {
         expect.objectContaining({ outcome: 'failure' })
       )
     })
+
+    it('continues scheduling next poll timer when internalEventHub listener throws synchronously on pollResult', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      internalEventHub.subscribe(event => {
+        if (event.type === 'pollResult') {
+          throw new Error('listener failure')
+        }
+      })
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      expect(orchestrator.hasScheduledPoll).toBe(true)
+
+      // Advance timer by poll backoff delay to verify the timer executes the subsequent poll
+      await vi.advanceTimersByTimeAsync(40000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+
+      consoleErrorSpy.mockRestore()
+    })
   })
 })
 

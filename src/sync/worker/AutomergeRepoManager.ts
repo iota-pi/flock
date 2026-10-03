@@ -69,14 +69,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
   constructor(private readonly accountId: string) {}
 
   async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
-    if (options?.clearLocalData) {
-      try {
-        await this.clearLocalData()
-      } catch (err) {
-        console.error('[AutomergeRepoManager] Error clearing Automerge DB', err)
-      }
-    }
-    await this.close()
+    await this.close(options)
   }
 
   init(vaultNetworkAdapter: VaultNetworkAdapter, options?: AutomergeRepoManagerOptions): Repo {
@@ -139,7 +132,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  async close(): Promise<void> {
+  async close(options?: { clearLocalData?: boolean }): Promise<void> {
     if (this.broadcastAdapter) {
       try {
         this.broadcastAdapter.disconnect()
@@ -156,6 +149,14 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
         console.error(`[AutomergeRepoManager] Error shutting down repo for ${this.accountId}:`, err)
       }
       this.repo = null
+    }
+
+    if (options?.clearLocalData) {
+      try {
+        await this.clearLocalData()
+      } catch (err) {
+        console.error('[AutomergeRepoManager] Error clearing Automerge DB', err)
+      }
     }
 
     if (this.indexedDbAdapter) {

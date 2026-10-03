@@ -326,11 +326,11 @@ describe('SyncPoller', () => {
       })
 
       const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
+      expect(outcome).toBe('failure')
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
     })
 
-    it('does not fail empty poll when processPullResults throws', async () => {
+    it('returns failure when processPullResults throws during empty poll', async () => {
       vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
 
       mockPollSyncBatchWithToken.mockResolvedValueOnce({
@@ -340,7 +340,7 @@ describe('SyncPoller', () => {
       })
 
       const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
+      expect(outcome).toBe('failure')
     })
   })
 

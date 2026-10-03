@@ -48,8 +48,8 @@ describe('LastModifiedStore', () => {
     const loaded = await store.loadTimestamps()
 
     expect(loaded).toEqual([
-      ['item-1', { localModifiedAt: 2000, lastSnapshotAt: 1000 }],
-      ['item-2', { localModifiedAt: 3000, lastSnapshotAt: undefined }],
+      ['item-1', { localModifiedAt: 2000, lastSnapshotAt: 1000, baseVersion: 0 }],
+      ['item-2', { localModifiedAt: 3000, lastSnapshotAt: undefined, baseVersion: 0 }],
     ])
 
     const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
@@ -66,8 +66,8 @@ describe('LastModifiedStore', () => {
     const loaded = await store.loadTimestamps()
 
     expect(loaded).toEqual([
-      ['item-legacy-1', { localModifiedAt: 5000, lastSnapshotAt: 5000 }],
-      ['item-legacy-2', { localModifiedAt: 9000, lastSnapshotAt: 9000 }],
+      ['item-legacy-1', { localModifiedAt: 5000, lastSnapshotAt: 5000, baseVersion: 0 }],
+      ['item-legacy-2', { localModifiedAt: 9000, lastSnapshotAt: 9000, baseVersion: 0 }],
     ])
   })
 
@@ -85,8 +85,8 @@ describe('LastModifiedStore', () => {
 
     const timestamps = await store.loadTimestamps()
     expect(timestamps).toEqual([
-      ['item-1', { localModifiedAt: 12345, lastSnapshotAt: 12345 }],
-      ['item-2', { localModifiedAt: 67890, lastSnapshotAt: 67890 }],
+      ['item-1', { localModifiedAt: 12345, lastSnapshotAt: 12345, baseVersion: 0 }],
+      ['item-2', { localModifiedAt: 67890, lastSnapshotAt: 67890, baseVersion: 0 }],
     ])
   })
 
@@ -120,11 +120,11 @@ describe('LastModifiedStore', () => {
 
     const loaded = await store.loadTimestamps()
     expect(loaded).toEqual([
-      ['item-legacy', { localModifiedAt: 4000, lastSnapshotAt: 4000 }],
+      ['item-legacy', { localModifiedAt: 4000, lastSnapshotAt: 4000, baseVersion: 0 }],
     ])
 
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.LAST_MODIFIED)).toEqual([
-      ['item-legacy', { localModifiedAt: 4000, lastSnapshotAt: 4000 }],
+      ['item-legacy', { localModifiedAt: 4000, lastSnapshotAt: 4000, baseVersion: 0 }],
     ])
     expect(await consolidatedStore?.getItem(LEGACY_KEYS.LAST_MODIFIED)).toBeNull()
   })
@@ -144,12 +144,12 @@ describe('LastModifiedStore', () => {
 
       const loaded = await store.loadTimestamps()
       expect(loaded).toEqual([
-        ['item-from-old-db', { localModifiedAt: 8888, lastSnapshotAt: 8888 }],
+        ['item-from-old-db', { localModifiedAt: 8888, lastSnapshotAt: 8888, baseVersion: 0 }],
       ])
 
       const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
       expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.LAST_MODIFIED)).toEqual([
-        ['item-from-old-db', { localModifiedAt: 8888, lastSnapshotAt: 8888 }],
+        ['item-from-old-db', { localModifiedAt: 8888, lastSnapshotAt: 8888, baseVersion: 0 }],
       ])
       expect(await legacyStore.getItem(LEGACY_KEYS.LAST_MODIFIED)).toBeNull()
     } finally {

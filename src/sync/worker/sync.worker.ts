@@ -373,8 +373,9 @@ export class SyncWorker implements SyncApi {
         log.error(`Error handling Automerge doc change for item ${id}:`, err)
       }
     }
-    handle.on('change', () => handleChange(true))
-    this.changeListenersByItemId.set(id, { handle, listener: handleChange })
+    const changeListener = () => handleChange(true)
+    handle.on('change', changeListener)
+    this.changeListenersByItemId.set(id, { handle, listener: changeListener })
     handleChange(false)
   }
 
@@ -425,10 +426,8 @@ export class SyncWorker implements SyncApi {
   }
 
   clearListeners() {
-    if (this.changeListenersByItemId.size > 0) {
-      for (const id of Array.from(this.subscribedIds)) {
-        this.unsubscribe(id)
-      }
+    for (const [, sub] of this.changeListenersByItemId) {
+      sub.handle.off('change', sub.listener)
     }
     this.subscribedIds.clear()
     this.changeListenersByItemId.clear()
@@ -495,14 +494,19 @@ export class SyncWorker implements SyncApi {
   forceDeleteRecoveryItem = (itemId: ItemId) =>
     this.withContext(ctx => ctx.itemOperations.forceDeleteRecoveryItem(itemId))
 
-  compactItem = (itemId: ItemId) =>
+  recreateOversizedItem = (itemId: ItemId): Promise<ItemId> =>
     this.withContext(async ctx => {
-      await ctx.itemOperations.compactItem(itemId)
+      const newItemId = await ctx.itemOperations.recreateOversizedItem(itemId)
+      ctx.snapshotManager.clearOversized(itemId)
       fireAndForget(
         ctx.snapshotManager.flushPendingSnapshots(),
-        'SyncWorker:compactItem:flushPendingSnapshots',
+        'SyncWorker:recreateOversizedItem:flushPendingSnapshots',
       )
+      return newItemId
     })
+
+  compactItem = (itemId: ItemId): Promise<ItemId> =>
+    this.recreateOversizedItem(itemId)
 
   dismissRecoveryItem = (entryId: string) =>
     this.withContext(ctx => ctx.recoveryManager.dismissEntry(entryId))

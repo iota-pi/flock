@@ -15,6 +15,7 @@ import {
 } from 'src/shared/schemas/trpc'
 import { toZonedTime } from 'date-fns-tz'
 import { hashString } from '../../api/util'
+import { safeEqual } from 'src/vault/util'
 
 
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
@@ -244,7 +245,7 @@ export const accountsRouter = router({
       const accountData = ctx.accountData
 
       const currentAuthTokenHash = hashString(input.currentAuthToken)
-      if (accountData.authToken !== currentAuthTokenHash) {
+      if (!safeEqual(accountData.authToken, currentAuthTokenHash)) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
       }
 

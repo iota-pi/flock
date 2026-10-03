@@ -66,9 +66,16 @@ export const FetchItemsInputSchema = z.object({
 
 export type ManifestEntry = {
   itemId: ItemId
-  modifiedAt: number
+  version?: number
+  modifiedAt?: number
   isDeleted?: boolean
 }
+
+export const PutSnapshotResultItemSchema = z.object({
+  itemId: ItemIdSchema,
+  version: z.number().int().min(1),
+})
+export type PutSnapshotResultItem = z.infer<typeof PutSnapshotResultItemSchema>
 
 export const FetchSnapshotsByIdsInputSchema = z.object({
   account: z.string().min(1),
@@ -109,22 +116,35 @@ export const SyncPushBatchSchema = z.object({
   messages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
-  })).min(1),
+  })).min(1).max(1000),
 })
+
+export const SyncMessageLastEvaluatedKeySchema = z.object({
+  syncId: z.string().min(1),
+  cursor: z.number().int().min(0),
+}).strict()
+export type SyncMessageLastEvaluatedKey = z.infer<typeof SyncMessageLastEvaluatedKeySchema>
+
+export const GlobalSyncLastEvaluatedKeySchema = z.object({
+  account: z.string().min(1),
+  cursor: z.number().int().min(0),
+  syncId: z.string().min(1),
+}).strict()
+export type GlobalSyncLastEvaluatedKey = z.infer<typeof GlobalSyncLastEvaluatedKeySchema>
 
 export const SyncPollBatchSchema = z.object({
   account: z.string().min(1),
   clientLatestCursor: z.number().int().min(0).optional(),
-  globalLastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
+  globalLastEvaluatedKey: GlobalSyncLastEvaluatedKeySchema.optional(),
   pushMessages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
-  })).default([]),
+  })).max(100).default([]),
   pullCursors: z.array(z.object({
     itemId: ItemIdSchema,
     cursor: z.number().int().min(0).optional(),
-    lastEvaluatedKey: z.record(z.string(), z.unknown()).optional(),
-  })).default([]),
+    lastEvaluatedKey: SyncMessageLastEvaluatedKeySchema.optional(),
+  })).max(100).default([]),
 })
 
 export const PutSnapshotBatchSchema = z.object({

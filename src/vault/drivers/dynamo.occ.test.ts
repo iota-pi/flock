@@ -1,4 +1,5 @@
-import DynamoDriver, { getConnectionParams } from './dynamo'
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import DynamoDriver, { ACCOUNT_TABLE_NAME, getConnectionParams } from './dynamo'
 import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
@@ -203,4 +204,181 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       expect(updated.keyring).toBe('first-rotation-keyring')
     })
   })
+
+  describe('Concurrent Session Extension & sessions OCC', () => {
+    it('preserves concurrently added login session when extendSession races with login', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+        metadata: {},
+      })
+
+      const sessionA = 'session-A'
+      const sessionB = 'session-B'
+      const initialExpiry = Date.now() + 5000
+
+      await driver.updateAccountData({
+        account,
+        sessions: [{ token: sessionA, expiry: initialExpiry }],
+      })
+
+      let intercepted = false
+      const originalSend = driver.client.send.bind(driver.client)
+      const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
+        const res = await originalSend(command as never)
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+          intercepted = true
+          // Simulate a concurrent login adding sessionB right after extendSession reads the old sessions list
+          await originalSend(new UpdateCommand({
+            TableName: ACCOUNT_TABLE_NAME,
+            Key: { account },
+            UpdateExpression: 'SET sessions = :sessions',
+            ExpressionAttributeValues: {
+              ':sessions': [
+                { token: sessionA, expiry: initialExpiry },
+                { token: sessionB, expiry: initialExpiry + 60_000 },
+              ],
+            },
+          }))
+        }
+        return res
+      }) as typeof driver.client.send)
+
+      try {
+        await driver.extendSession({ account, session: sessionA })
+
+        // Both sessionA and sessionB must remain valid
+        const acctViaB = await driver.getAccount({ account, session: sessionB })
+        expect(acctViaB.account).toBe(account)
+
+        const acctViaA = await driver.getAccount({ account, session: sessionA })
+        expect(acctViaA.account).toBe(account)
+
+        const recordA = acctViaA.sessions?.find(s => s.token === sessionA)
+        const recordB = acctViaA.sessions?.find(s => s.token === sessionB)
+
+        expect(recordB).toBeDefined()
+        expect(recordA?.expiry).toBeGreaterThan(Date.now() + 10_000)
+      } finally {
+        sendSpy.mockRestore()
+      }
+    })
+
+    it('does not resurrect a session that was concurrently revoked (e.g. via changePassword)', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+        metadata: {},
+      })
+
+      const sessionA = 'session-A'
+      const sessionB = 'session-B'
+      const initialExpiry = Date.now() + 5000
+
+      await driver.updateAccountData({
+        account,
+        sessions: [{ token: sessionA, expiry: initialExpiry }],
+      })
+
+      let intercepted = false
+      const originalSend = driver.client.send.bind(driver.client)
+      const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
+        const res = await originalSend(command as never)
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+          intercepted = true
+          // Simulate concurrent changePassword revoking sessionA and keeping only sessionB
+          await originalSend(new UpdateCommand({
+            TableName: ACCOUNT_TABLE_NAME,
+            Key: { account },
+            UpdateExpression: 'SET sessions = :sessions',
+            ExpressionAttributeValues: {
+              ':sessions': [
+                { token: sessionB, expiry: initialExpiry + 60_000 },
+              ],
+            },
+          }))
+        }
+        return res
+      }) as typeof driver.client.send)
+
+      try {
+        await driver.extendSession({ account, session: sessionA })
+
+        // sessionA must remain revoked and invalid
+        await expect(
+          driver.getAccount({ account, session: sessionA })
+        ).rejects.toThrow()
+
+        const acctViaB = await driver.getAccount({ account, session: sessionB })
+        expect(acctViaB.account).toBe(account)
+        expect(acctViaB.sessions?.find(s => s.token === sessionA)).toBeUndefined()
+      } finally {
+        sendSpy.mockRestore()
+      }
+    })
+
+    it('short-circuits retry if another concurrent extendSession already extended the session', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+        metadata: {},
+      })
+
+      const sessionA = 'session-A'
+      const initialExpiry = Date.now() + 5000
+
+      await driver.updateAccountData({
+        account,
+        sessions: [{ token: sessionA, expiry: initialExpiry }],
+      })
+
+      let intercepted = false
+      let updateCalls = 0
+      const originalSend = driver.client.send.bind(driver.client)
+      const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
+        if (command instanceof UpdateCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+          updateCalls += 1
+        }
+        const res = await originalSend(command as never)
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+          intercepted = true
+          // Simulate another concurrent request for sessionA extending it first
+          await originalSend(new UpdateCommand({
+            TableName: ACCOUNT_TABLE_NAME,
+            Key: { account },
+            UpdateExpression: 'SET sessions = :sessions',
+            ExpressionAttributeValues: {
+              ':sessions': [
+                { token: sessionA, expiry: Date.now() + 30 * 24 * 60 * 60 * 1000 },
+              ],
+            },
+          }))
+        }
+        return res
+      }) as typeof driver.client.send)
+
+      try {
+        await driver.extendSession({ account, session: sessionA })
+
+        // First attempt tried to Update (failed OCC), second attempt saw expiry already fresh and skipped Update
+        expect(updateCalls).toBe(1)
+
+        const acct = await driver.getAccount({ account, session: sessionA })
+        const recordA = acct.sessions?.find(s => s.token === sessionA)
+        expect(recordA?.expiry).toBeGreaterThan(Date.now() + 10_000)
+      } finally {
+        sendSpy.mockRestore()
+      }
+    })
+  })
 })
+

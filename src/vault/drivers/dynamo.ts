@@ -21,7 +21,7 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
 import {
-  almostConstantTimeEqual,
+  safeEqual,
   generateAccountId,
 } from '../util'
 import BaseDriver, {
@@ -42,7 +42,11 @@ import {
   isResourceInUseError,
   isTransientDynamoError,
 } from './dynamoErrors'
-import type { ManifestEntry } from 'src/shared/schemas/trpc'
+import type {
+  ManifestEntry,
+  SyncMessageLastEvaluatedKey,
+  GlobalSyncLastEvaluatedKey,
+} from 'src/shared/schemas/trpc'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
@@ -282,10 +286,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return this
   }
 
-  connect(_options?: T, devMode = false): DynamoDriver {
-    const options = getConnectionParams(_options)
+  connect(options?: T, devMode = false): DynamoDriver {
+    const connectionParams = getConnectionParams(options)
     const ddb = new DynamoDBClient({
-      ...options,
+      ...connectionParams,
       logger: devMode ? console : undefined,
     })
     this.internalClient = this.getDocumentClient(ddb)
@@ -347,7 +351,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (response?.Item) {
       if (isLogin) {
         // For logins, check authToken instead
-        if (almostConstantTimeEqual(session, response.Item.authToken as string)) {
+        if (safeEqual(session, response.Item.authToken as string)) {
           return {
             ...(response.Item as VaultAccountWithAuth),
             session,
@@ -359,7 +363,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const now = Date.now()
       const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
-      if (activeSessions.some(active => almostConstantTimeEqual(session, active.token))) {
+      if (activeSessions.some(active => safeEqual(session, active.token))) {
         return {
           ...(response.Item as VaultAccountWithAuth),
           sessions: activeSessions,
@@ -451,31 +455,70 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async extendSession({ account, session }: AuthData): Promise<void> {
-    const response = await this.client.send(new GetCommand({
-      TableName: ACCOUNT_TABLE_NAME,
-      Key: { account },
-      ConsistentRead: true,
-    }))
+    const maxRetries = 3
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const response = await this.client.send(new GetCommand({
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        ConsistentRead: true,
+      }))
 
-    if (response?.Item) {
+      if (!response?.Item) {
+        return
+      }
+
+      const rawSessions = response.Item.sessions
       const now = Date.now()
-      const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
-      const sessionRecord = activeSessions.find(active => almostConstantTimeEqual(session, active.token))
-      if (sessionRecord) {
-        sessionRecord.expiry = now + SESSION_EXPIRY_MS
-        await this.client.send(new UpdateCommand({
-          TableName: ACCOUNT_TABLE_NAME,
-          Key: { account },
-          UpdateExpression: 'SET sessions = :sessions',
-          ExpressionAttributeValues: {
-            ':sessions': activeSessions,
-          },
-        }))
+      const activeSessions = normalizeSessionRecords(rawSessions, now)
+      const sessionRecord = activeSessions.find(active => safeEqual(session, active.token))
+      if (!sessionRecord) {
+        return
+      }
+
+      // If already extended recently (e.g. by another concurrent request), avoid redundant write
+      if (attempt > 0 && sessionRecord.expiry >= now + SESSION_EXPIRY_MS - 60_000) {
+        return
+      }
+
+      sessionRecord.expiry = now + SESSION_EXPIRY_MS
+      const nextSessions = normalizeSessionRecords(activeSessions, now)
+
+      const params: UpdateCommandInput = {
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        UpdateExpression: 'SET sessions = :sessions',
+        ExpressionAttributeValues: {
+          ':sessions': nextSessions,
+        },
+      }
+
+      if (Array.isArray(rawSessions)) {
+        params.ConditionExpression = 'sessions = :expectedSessions'
+        params.ExpressionAttributeValues![':expectedSessions'] = rawSessions
+      } else {
+        params.ConditionExpression = 'attribute_not_exists(sessions)'
+      }
+
+      try {
+        await this.client.send(new UpdateCommand(params))
+        return
+      } catch (error) {
+        if (isConditionalCheckFailure(error)) {
+          if (attempt === maxRetries - 1) {
+            return
+          }
+          const delay = Math.min(10 * Math.pow(2, attempt) + Math.random() * 10, 100)
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+        throw error
       }
     }
   }
 
   async set(item: VaultItem) {
+    validateItem(item)
+
     let itemToPersist = item
 
     if (item.snapshot?.cipher) {
@@ -501,10 +544,55 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
+    if (typeof item.version !== 'number') {
+      const modifiedAt = typeof itemToPersist.metadata?.modified === 'number'
+        ? itemToPersist.metadata.modified
+        : Date.now()
+
+      const updateParams: UpdateCommandInput = {
+        TableName: ITEM_TABLE_NAME,
+        Key: {
+          account: itemToPersist.account,
+          item: itemToPersist.item,
+        },
+        UpdateExpression: [
+          'SET #metadata = :metadata',
+          itemToPersist.snapshot ? '#snapshot = :snapshot' : undefined,
+          itemToPersist.cipher ? '#cipher = :cipher' : undefined,
+          '#modifiedAt = :modifiedAt',
+          '#version = if_not_exists(#version, :zero) + :one',
+          itemToPersist.ttl !== undefined ? '#ttl = :ttl' : undefined,
+        ].filter(Boolean).join(', '),
+        ExpressionAttributeNames: {
+          '#metadata': 'metadata',
+          ...(itemToPersist.snapshot ? { '#snapshot': 'snapshot' } : {}),
+          ...(itemToPersist.cipher ? { '#cipher': 'cipher' } : {}),
+          '#modifiedAt': 'modifiedAt',
+          '#version': 'version',
+          ...(itemToPersist.ttl !== undefined ? { '#ttl': 'ttl' } : {}),
+        },
+        ExpressionAttributeValues: {
+          ':metadata': itemToPersist.metadata,
+          ...(itemToPersist.snapshot ? { ':snapshot': itemToPersist.snapshot } : {}),
+          ...(itemToPersist.cipher ? { ':cipher': itemToPersist.cipher } : {}),
+          ':modifiedAt': modifiedAt,
+          ':zero': 0,
+          ':one': 1,
+          ...(itemToPersist.ttl !== undefined ? { ':ttl': itemToPersist.ttl } : {}),
+        },
+        ReturnValues: 'UPDATED_NEW',
+      }
+
+      const res = await this.client.send(new UpdateCommand(updateParams))
+      const assignedVersion = (res.Attributes?.version as number) ?? 1
+      return { version: assignedVersion }
+    }
+
     const params = getItemPutParams(itemToPersist)
 
     try {
       await this.client.send(new PutCommand(params))
+      return { version: itemToPersist.version ?? 1 }
     } catch (err) {
       if (isConditionalCheckFailure(err)) {
         throw new VersionConflictError('Version conflict: The item has been modified by another client.')
@@ -528,11 +616,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           '#modifiedAt': 'modifiedAt',
           '#metadata': 'metadata',
           '#deleted': 'deleted',
+          '#version': 'version',
         },
         ExpressionAttributeValues: {
           ':accountid': account,
         },
-        ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
+        ProjectionExpression: '#itemKey, #version, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
         ExclusiveStartKey: lastEvaluatedKey,
       }
 
@@ -546,8 +635,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           const modifiedAt = typeof record.modifiedAt === 'number'
             ? record.modifiedAt
             : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
+          const version = typeof record.version === 'number' ? record.version : 1
           manifest.push({
             itemId,
+            version,
             modifiedAt,
             ...(isDeleted ? { isDeleted: true } : {}),
           })
@@ -778,10 +869,26 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
+    exclusiveStartKey?: SyncMessageLastEvaluatedKey
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
     const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
     const hasCursor = typeof fromCursor === 'number'
+    const expectedSyncId = `${input.account}#${input.itemId}`
+    let exclusiveStartKey: Record<string, unknown> | undefined = undefined
+    if (input.exclusiveStartKey) {
+      if (input.exclusiveStartKey.syncId !== expectedSyncId) {
+        throw new Error(`Invalid exclusiveStartKey syncId: expected ${expectedSyncId}`)
+      }
+      const cursor = input.exclusiveStartKey.cursor
+      if (typeof cursor !== 'number' || !Number.isFinite(cursor) || cursor < 0) {
+        throw new Error('Invalid exclusiveStartKey cursor: must be a non-negative number')
+      }
+      exclusiveStartKey = {
+        syncId: expectedSyncId,
+        cursor,
+      }
+    }
+
     const response = await this.client.send(new QueryCommand({
       TableName: SYNC_MESSAGES_TABLE_NAME,
       KeyConditionExpression: hasCursor
@@ -791,27 +898,47 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ? { '#c': 'cursor' }
         : undefined,
       ExpressionAttributeValues: {
-        ':syncId': `${input.account}#${input.itemId}`,
+        ':syncId': expectedSyncId,
         ...(hasCursor ? { ':fromCursor': fromCursor } : undefined),
       },
       Limit: input.limit ?? DEFAULT_SYNC_MESSAGE_LIMIT,
-      ExclusiveStartKey: input.exclusiveStartKey,
+      ExclusiveStartKey: exclusiveStartKey,
     }))
 
     return {
       messages: (response.Items as StoredSyncMessage[]) || [],
       hasMore: !!response.LastEvaluatedKey,
-      lastEvaluatedKey: response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey as SyncMessageLastEvaluatedKey | undefined,
     }
   }
 
   async getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: Record<string, unknown>
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> {
+    exclusiveStartKey?: GlobalSyncLastEvaluatedKey
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
     const hasCursor = typeof input.cursor === 'number'
+
+    let exclusiveStartKey: Record<string, unknown> | undefined = undefined
+    if (input.exclusiveStartKey) {
+      if (input.exclusiveStartKey.account !== input.account) {
+        throw new Error(`Invalid exclusiveStartKey account: expected ${input.account}`)
+      }
+      const syncId = input.exclusiveStartKey.syncId
+      if (typeof syncId !== 'string' || !syncId.startsWith(`${input.account}#`)) {
+        throw new Error(`Invalid exclusiveStartKey syncId: expected prefix ${input.account}#`)
+      }
+      const cursor = input.exclusiveStartKey.cursor
+      if (typeof cursor !== 'number' || !Number.isFinite(cursor) || cursor < 0) {
+        throw new Error('Invalid exclusiveStartKey cursor: must be a non-negative number')
+      }
+      exclusiveStartKey = {
+        account: input.account,
+        cursor,
+        syncId,
+      }
+    }
 
     const response = await this.client.send(new QueryCommand({
       TableName: SYNC_MESSAGES_TABLE_NAME,
@@ -827,7 +954,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ...(hasCursor ? { ':cursor': input.cursor } : undefined),
       },
       Limit: 1000,
-      ExclusiveStartKey: input.exclusiveStartKey,
+      ExclusiveStartKey: exclusiveStartKey,
     }))
 
     for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
@@ -852,7 +979,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         messages: messages.sort((a, b) => a.cursor - b.cursor),
       })),
       hasMore: !!response.LastEvaluatedKey,
-      lastEvaluatedKey: response.LastEvaluatedKey,
+      lastEvaluatedKey: response.LastEvaluatedKey as GlobalSyncLastEvaluatedKey | undefined,
     }
   }
 }

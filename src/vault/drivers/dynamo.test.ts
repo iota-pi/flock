@@ -448,6 +448,56 @@ describe('DynamoDriver', function () {
     stored = await driver.getAccount({ account, session: authToken, isLogin: true })
     expect(stored.snoozeRemindersUntil).toBeNull()
   })
+
+  describe('exclusiveStartKey validation', () => {
+    it('getSyncMessages rejects exclusiveStartKey with mismatched syncId', async () => {
+      const account = generateAccountId()
+      const itemId = generateItemId() as ItemId
+
+      await expect(
+        driver.getSyncMessages({
+          account,
+          itemId,
+          exclusiveStartKey: { syncId: 'wrong-account#item-1', cursor: 100 },
+        })
+      ).rejects.toThrow(`Invalid exclusiveStartKey syncId: expected ${account}#${itemId}`)
+    })
+
+    it('getSyncMessages rejects exclusiveStartKey with invalid cursor', async () => {
+      const account = generateAccountId()
+      const itemId = generateItemId() as ItemId
+
+      await expect(
+        driver.getSyncMessages({
+          account,
+          itemId,
+          exclusiveStartKey: { syncId: `${account}#${itemId}`, cursor: -5 },
+        })
+      ).rejects.toThrow('Invalid exclusiveStartKey cursor: must be a non-negative number')
+    })
+
+    it('getGlobalSyncMessagesAfterCursor rejects exclusiveStartKey with mismatched account', async () => {
+      const account = generateAccountId()
+
+      await expect(
+        driver.getGlobalSyncMessagesAfterCursor({
+          account,
+          exclusiveStartKey: { account: 'other-account', cursor: 100, syncId: 'other-account#item-1' },
+        })
+      ).rejects.toThrow(`Invalid exclusiveStartKey account: expected ${account}`)
+    })
+
+    it('getGlobalSyncMessagesAfterCursor rejects exclusiveStartKey with mismatched syncId prefix', async () => {
+      const account = generateAccountId()
+
+      await expect(
+        driver.getGlobalSyncMessagesAfterCursor({
+          account,
+          exclusiveStartKey: { account, cursor: 100, syncId: 'wrong-account#item-1' },
+        })
+      ).rejects.toThrow(`Invalid exclusiveStartKey syncId: expected prefix ${account}#`)
+    })
+  })
 })
 
 describe('buildDynamoUpdate', () => {

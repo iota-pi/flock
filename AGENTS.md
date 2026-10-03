@@ -137,12 +137,36 @@ The system has two complementary server sync mechanisms:
 
 **Important**: The local Automerge document (in IndexedDB) always holds the complete, authoritative state of each item, regardless of what is queued in the WAL or snapshot pipeline. The WAL and snapshots are delivery mechanisms, not the source of truth.
 
+#### WAL Pruning & Snapshot Recovery Safety
+
+When the WAL exceeds `MAX_ENTRIES`, `performPruneOldest` removes older entries to reclaim space. This is safe because:
+- **Pruning never loses local data**: The Automerge document in IndexedDB is the authoritative state. WAL entries are outbound delivery messages, not the source of truth.
+- **Snapshot sync provides full-state recovery**: `SnapshotManager` periodically serializes and uploads complete Automerge document binaries. Even if WAL entries for an item are pruned before being pushed, the next snapshot upload captures the complete merged state.
+- **WAL compaction self-heals torn state**: If the worker crashes mid-compaction, `readAll()` detects entries referenced in a loaded entry's `replaces` array and filters/purges them, preventing duplicate or orphaned entries.
+- **In-flight safety**: `SyncPoller.executePoll` wraps the polling cycle in `try/finally`, guaranteeing `wal.unmarkInFlight` runs regardless of errors. Entries cannot get permanently stuck in-flight.
+
 #### AutomergeDocStore
 - The AutomergeDocStore class intentionally tightly couples with the Automerge Repo to ensure handle safety to prevent data loss
+
+#### DocHandle Listener Contract
+
+`sync.worker.ts` subscribes to Automerge `DocHandle` `change` events to emit `itemUpdated` events to the UI. The registered listener function reference must be the **exact same reference** used for both `.on()` and `.off()`. Wrapping the listener in an anonymous arrow and storing the inner function causes `.off()` to silently fail, leaking listeners.
+
+#### Server Pull Result Filtering
+
+In `pollSync`, items present in `pullCursors` (targeted per-item pulls) are filtered out from the `globalPullResult` (account-wide pull) to prevent cursor jumps. This is safe:
+- If `globalPullResult` truncates messages for an active item, the item's individual `batchPullResult` reports `hasMore: true` and returns a `lastEvaluatedKey`. The client requests the remaining messages via individual `pullCursors` on the next poll.
+- Pull cursors advance monotonically. `SyncPullQueueManager` sorts messages ascending and `break`s on parse failure, ensuring the cursor only advances to the last successfully processed message.
 
 #### Leader Election and Multi-Tab
 
 Only one tab performs server sync at a time. `LeaderElection` uses `navigator.locks` to elect a leader. The leader tab runs the `SyncOrchestrator` polling loop; follower tabs still have a running Automerge Repo but rely on the `EncryptedBroadcastChannelNetworkAdapter` for cross-tab document sync.
+
+**Presence channel & heartbeat protocol:**
+- The leader broadcasts periodic heartbeats via a `BroadcastChannel`. Other tabs (including yielded former leaders) listen for these heartbeats to detect multi-leader conflicts and leader crashes.
+- Only tabs with `isLeader === true` send heartbeats (`sendHeartbeat` bails if `!this.isLeader`).
+- When a leader yields (due to receiving a `claim` from a higher-priority tab), it calls `revokeLeadership(false)` — preserving the presence channel and heartbeat timer so it can still monitor the new leader and recover if it crashes.
+- `multipleLeadersDetected` should only fire when there are genuinely 2+ active leaders (not just because a non-leader tab receives heartbeats from the sole active leader).
 
 #### Offline and Reconnection
 
@@ -193,6 +217,43 @@ When a tab receives a message encrypted with a key version not yet in its keyrin
 - **SyncPullQueueManager retry**: Failed pull messages are retried up to `MAX_PULL_RETRIES` (5) before quarantining the item.
 - **SnapshotManager retry**: Failed snapshot pushes use exponential backoff (2s → 5s → 10s → 30s → 60s). After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5), the item is removed from the dirty queue.
 - **Worker crash recovery**: `syncWorkerHealth.ts` monitors the worker via heartbeat ping/pong (15s interval, 30s timeout). On crash, the worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3).
+
+#### Oversized Item Handling (ID Rotation, Not In-Place Compaction)
+
+When an Automerge document's serialized binary exceeds the snapshot size limit (350 KB), the system uses **item recreation with ID rotation** — NOT in-place document compaction:
+- **Why in-place compaction is forbidden**: Creating a fresh `Automerge.init()` document under the same `documentId` produces disjoint causal heads. When any peer or server snapshot containing the old history merges, Automerge unions all heads, resurrecting the entire old history. This violates CRDT convergence guarantees.
+- **Recreation flow**: `ItemOperations.recreateOversizedItem` generates a new random `ItemId`, creates a clean Automerge document with the latest content (excluding edit history), remaps group memberships from old→new ID, and soft-deletes the old item.
+- **Content size validation**: Before recreation, the system validates that the item's current content (excluding Automerge edit history) is under 300 KB. If the content itself is oversized, recreation is rejected — the user must reduce the content manually.
+- **`compactItem` is a deprecated alias** for `recreateOversizedItem` and delegates directly to it.
+
+#### Lifecycle Shutdown Order Contract
+
+The sync worker uses `ServiceLifecycleManager` to orchestrate startup/shutdown of all components. The shutdown order matters for data integrity:
+- **AutomergeRepo must be shut down BEFORE clearing IndexedDB**: If `clearLocalData()` runs while the repo is active, pending saves can write data back into the cleared database. The repo must be shut down first to prevent data remanence.
+- **Database `dropInstance` must not race with `removeItem`**: When clearing the consolidated sync metadata database, `clearSyncMetadataStorage` (which drops the entire database) must not run concurrently with individual store `.clear()` calls that open transactions on the same database.
+- **WAL has its own separate IndexedDB database**: `wal.clear()` targets a separate database from the consolidated sync metadata stores and can safely run concurrently with `clearSyncMetadataStorage`.
+
+#### SyncPoller Result Propagation Contract
+
+`SyncPoller.executePoll` returns a result string (`'success'` / `'failure'` / `'noop'`) that controls `SyncOrchestrator`'s backoff behavior:
+- **`'success'`**: Resets backoff to minimum interval. Used only when the poll cycle completed without errors.
+- **`'failure'`**: Triggers exponential backoff. Must be returned when push or pull processing throws, to prevent tight infinite polling loops.
+- **`'noop'`**: No change to backoff. Used when polling was skipped (e.g., no pending work).
+- **Critical invariant**: If `processPullResults` or any I/O operation throws inside `executePoll`, the poll **must not** report `'success'`, otherwise the orchestrator resets backoff and `hasImmediatePendingPulls()` may remain true, causing a 0ms re-poll loop.
+
+#### Monotonic Snapshot Revisions & Elimination of Physical Clock Skew
+
+Flock uses **server-assigned monotonic revision tokens (`version`)** for full snapshot synchronization, aligning snapshots with the monotonic cursors already used by transient messages:
+- **Server-assigned atomic increment**: When a client persists a snapshot (`persistSnapshots` / `items.putSnapshots`), the DynamoDB driver executes an atomic `UpdateCommand` with `version = if_not_exists(version, 0) + 1` and returns the newly assigned `version`.
+- **Preserved LWW & Blind Relay Model**: Snapshot persistence remains unconditional Last-Write-Wins (LWW) without Optimistic Concurrency Control (OCC) rejection. The server never merges Automerge CRDTs (zero-knowledge encryption) and never rejects snapshot writes due to version mismatches.
+- **Client Base Version Tracking**: Clients persist the latest confirmed server version as `baseVersion` in the consolidated IndexedDB sync metadata store (`lastModified` record per item).
+- **Deterministic Reconciliation in `ManifestDeltaCalculator`**:
+  - $V_{\text{server}} > V_{\text{base}}$: Server has a strictly newer revision $\implies$ fetch inbound snapshot and merge into local Automerge doc.
+  - $V_{\text{server}} \le V_{\text{base}} \land \text{isDirty}$: Local Automerge doc has unsaved modifications $\implies$ push upstream snapshot.
+  - $V_{\text{server}} \le V_{\text{base}} \land !\text{isDirty}$: In sync $\implies$ zero network transfer.
+  - Item missing from server manifest: Created locally offline $\implies$ push upstream snapshot.
+  - Server tombstone ($V_{\text{server}} > V_{\text{base}} \land \text{isDeleted}$): Item was deleted remotely $\implies$ apply tombstone locally.
+- **Physical Clock Skew Elimination**: Because snapshot synchronization relies on monotonic integers rather than physical timestamps, clock skew between client devices and AWS Lambda, fast/slow client clocks, and arbitrary skew buffers (`SKEW_BUFFER_MS`) are completely eliminated from the snapshot reconciliation decision path. Legacy physical timestamps (`localModifiedAt`, `serverTime`) are retained only as fallback metadata.
 
 #### Deletion Architecture & Tombstone Lifecycle (No ID Recycling)
 
@@ -254,6 +315,9 @@ The server is a Fastify app with tRPC routers, deployed as an AWS Lambda behind 
   - `FlockItems` — item metadata + encrypted ciphers (hash: `account`, range: `item`, GSI: `account` + `modifiedAt`)
   - `FlockSyncMessages` — incremental Automerge sync messages (hash: `syncId`, range: `cursor`, GSI: `account` + `cursor`, TTL: `expiresAt`)
 - **tRPC Routers**: `accounts`, `items`, `sync` — handle account CRUD, item CRUD, and sync push/pull operations
+- **DynamoDB Batch Limits**: `pushSyncMessagesBatch` uses chunk size 25 (AWS `BatchWriteItem` limit). `fetchSnapshotsByIds` chunks by 100 (AWS `BatchGetItem` limit). `UnprocessedItems` / `UnprocessedKeys` are retried with jittered exponential backoff.
+- **Password change invalidates all other sessions**: `changePassword` replaces the `sessions` array with only the current session, forcing all other devices to re-authenticate. This is an intentional security measure.
+- **Lambda runs in UTC**: All server-side date operations assume UTC. Client-side timezone conversion uses `date-fns-tz`.
 
 ## State Management
 

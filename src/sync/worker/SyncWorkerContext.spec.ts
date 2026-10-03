@@ -3,8 +3,13 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createTestEventHubs } from './__test__/testUtils'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
+import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
+
+vi.mock('./stores/syncMetadataStorage', () => ({
+  clearSyncMetadataStorage: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('./stores/CursorStore', () => ({
   CursorStore: class MockCursorStore {
@@ -101,10 +106,7 @@ vi.mock('./AutomergeRepoManager', () => ({
     getStorage = vi.fn().mockReturnValue(undefined)
     getStorageAdapter = vi.fn().mockReturnValue(undefined)
     onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
-      if (options?.clearLocalData) {
-        await this.clearLocalData()
-      }
-      await this.close()
+      await this.close(options)
     })
   },
 }))
@@ -235,8 +237,10 @@ describe('SyncWorkerContext', () => {
     expect(context.snapshotManager.shutdown).toHaveBeenCalledWith({ clearLocalData: true })
     expect(context.orchestrator.shutdown).toHaveBeenCalled()
     expect(context.docStore.shutdown).toHaveBeenCalled()
-    expect(context.indexStore.clear).toHaveBeenCalled()
-    expect(context.cursorStore.clear).toHaveBeenCalled()
+    expect(context.wal.clear).toHaveBeenCalled()
+    expect(clearSyncMetadataStorage).toHaveBeenCalledWith(context.accountId)
+    expect(context.indexStore.clear).not.toHaveBeenCalled()
+    expect(context.cursorStore.clear).not.toHaveBeenCalled()
   })
 
   it('shuts down cleanly without clearLocalData', async () => {
@@ -244,6 +248,8 @@ describe('SyncWorkerContext', () => {
 
     expect(context.pullQueueManager.shutdown).toHaveBeenCalledWith(undefined)
     expect(context.snapshotManager.shutdown).toHaveBeenCalledWith(undefined)
+    expect(context.wal.clear).not.toHaveBeenCalled()
+    expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
     expect(context.indexStore.clear).not.toHaveBeenCalled()
     expect(context.cursorStore.clear).not.toHaveBeenCalled()
   })

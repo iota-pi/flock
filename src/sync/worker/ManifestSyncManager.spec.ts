@@ -1378,6 +1378,7 @@ describe('ManifestSyncManager', () => {
           itemId: 'item-binary',
           hydratedId: 'item-binary',
           lastModifiedUpdate: ['item-binary', 2000],
+          versionUpdate: ['item-binary', 1],
         })
       })
 
@@ -1395,7 +1396,7 @@ describe('ManifestSyncManager', () => {
 
         const result = await manifestSyncManager.hydrateRemoteItem(
           item as any,
-          [{ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000 }],
+          [{ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000, version: 4 }],
           new Set(['item-binary-changes' as ItemId]),
         )
 
@@ -1404,6 +1405,7 @@ describe('ManifestSyncManager', () => {
           itemId: 'item-binary-changes',
           hydratedId: 'item-binary-changes',
           lastModifiedUpdate: undefined,
+          versionUpdate: ['item-binary-changes', 4],
         })
         expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-binary-changes', 2000)
       })
@@ -1416,7 +1418,7 @@ describe('ManifestSyncManager', () => {
 
         const result = await manifestSyncManager.hydrateRemoteItem(
           item as any,
-          [{ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000 }],
+          [{ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000, version: 2 }],
           new Set(),
         )
 
@@ -1425,6 +1427,7 @@ describe('ManifestSyncManager', () => {
           itemId: 'item-deleted-meta',
           snapshot: { id: 'item-deleted-meta', deleted: true },
           lastModifiedUpdate: ['item-deleted-meta', 3000],
+          versionUpdate: ['item-deleted-meta', 2],
         })
         expect(mockDecryptBytes).not.toHaveBeenCalled()
         expect(mockDecryptObject).not.toHaveBeenCalled()

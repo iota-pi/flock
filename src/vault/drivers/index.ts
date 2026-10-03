@@ -6,5 +6,5 @@ const BACKENDS = {
 }
 
 export default function getDriver(backend: keyof typeof BACKENDS, devMode = false) {
-  return BACKENDS[backend].connect(devMode)
+  return BACKENDS[backend].connect(undefined, devMode)
 }

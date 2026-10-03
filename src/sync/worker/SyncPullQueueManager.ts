@@ -7,6 +7,7 @@ import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from './utils/errorClassifier'
 import { ItemId } from 'src/shared/schemas/items'
+import type { GlobalSyncLastEvaluatedKey, SyncMessageLastEvaluatedKey } from 'src/shared/schemas/trpc'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
@@ -41,7 +42,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   private readonly retryTracker = new PullRetryTracker()
   private hasMoreGlobal = false
-  private globalLastEvaluatedKey?: Record<string, unknown>
+  private globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey
   public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
 
   private readonly batchProgress = new BoundedMap<string, number>(BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
@@ -159,7 +160,9 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   }
 
   private notifyMessageParsed(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
-    this.internalEventHub.emit({ type: 'messageParsed', itemId, documentId, message })
+    if (!this.internalEventHub.emit({ type: 'messageParsed', itemId, documentId, message })) {
+      throw new Error(`Listener failed while processing messageParsed for item ${itemId}`)
+    }
   }
 
   private async handleMessageEntry(
@@ -233,7 +236,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: Record<string, unknown> }> {
+  getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
     return this.retryTracker.getCursors()
   }
 
@@ -258,7 +261,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     return this.retryTracker.getGlobalLatestCursor()
   }
 
-  getGlobalLastEvaluatedKey(): Record<string, unknown> | undefined {
+  getGlobalLastEvaluatedKey(): GlobalSyncLastEvaluatedKey | undefined {
     return this.hasMoreGlobal ? this.globalLastEvaluatedKey : undefined
   }
 
@@ -398,7 +401,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   async processPullResults(
     results: PullSyncMessagesResponse[],
     hasMoreGlobal?: boolean,
-    globalLastEvaluatedKey?: Record<string, unknown>
+    globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey
   ): Promise<void> {
     if (!this.account || this.isShutdown) return
     if (typeof hasMoreGlobal === 'boolean') {
