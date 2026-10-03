@@ -48,6 +48,10 @@ describe('snapshotService.persistSnapshots', () => {
       success: true,
       persisted: 2,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+        { itemId: 'item-2', version: 1 },
+      ],
     })
 
     expect(vault.set).toHaveBeenCalledTimes(2)
@@ -122,6 +126,9 @@ describe('snapshotService.persistSnapshots', () => {
       success: false,
       persisted: 1,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+      ],
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -163,6 +170,7 @@ describe('snapshotService.persistSnapshots', () => {
       success: false,
       persisted: 0,
       total: 1,
+      results: [],
     })
 
     expect(vault.updateAccountData).not.toHaveBeenCalled()
@@ -183,6 +191,7 @@ describe('snapshotService.persistSnapshots', () => {
       success: true,
       persisted: 0,
       total: 0,
+      results: [],
     })
 
     expect(vault.set).not.toHaveBeenCalled()

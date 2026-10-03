@@ -66,9 +66,16 @@ export const FetchItemsInputSchema = z.object({
 
 export type ManifestEntry = {
   itemId: ItemId
-  modifiedAt: number
+  version?: number
+  modifiedAt?: number
   isDeleted?: boolean
 }
+
+export const PutSnapshotResultItemSchema = z.object({
+  itemId: ItemIdSchema,
+  version: z.number().int().min(1),
+})
+export type PutSnapshotResultItem = z.infer<typeof PutSnapshotResultItemSchema>
 
 export const FetchSnapshotsByIdsInputSchema = z.object({
   account: z.string().min(1),

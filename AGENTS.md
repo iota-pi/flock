@@ -241,11 +241,19 @@ The sync worker uses `ServiceLifecycleManager` to orchestrate startup/shutdown o
 - **`'noop'`**: No change to backoff. Used when polling was skipped (e.g., no pending work).
 - **Critical invariant**: If `processPullResults` or any I/O operation throws inside `executePoll`, the poll **must not** report `'success'`, otherwise the orchestrator resets backoff and `hasImmediatePendingPulls()` may remain true, causing a 0ms re-poll loop.
 
-#### ManifestSyncManager Clock Skew Handling
+#### Monotonic Snapshot Revisions & Elimination of Physical Clock Skew
 
-`ManifestDeltaCalculator` compares local timestamps against server timestamps to determine which items need upstream push vs. inbound fetch. Clock skew compensation translates timestamps between the client's clock domain and the server's:
-- `clockSkew = clientMidTime - serverTime` (positive = client ahead, negative = client behind)
-- Skew compensation must handle **both** directions (ahead and behind) to correctly identify stale items regardless of which clock is faster.
+Flock uses **server-assigned monotonic revision tokens (`version`)** for full snapshot synchronization, aligning snapshots with the monotonic cursors already used by transient messages:
+- **Server-assigned atomic increment**: When a client persists a snapshot (`persistSnapshots` / `items.putSnapshots`), the DynamoDB driver executes an atomic `UpdateCommand` with `version = if_not_exists(version, 0) + 1` and returns the newly assigned `version`.
+- **Preserved LWW & Blind Relay Model**: Snapshot persistence remains unconditional Last-Write-Wins (LWW) without Optimistic Concurrency Control (OCC) rejection. The server never merges Automerge CRDTs (zero-knowledge encryption) and never rejects snapshot writes due to version mismatches.
+- **Client Base Version Tracking**: Clients persist the latest confirmed server version as `baseVersion` in the consolidated IndexedDB sync metadata store (`lastModified` record per item).
+- **Deterministic Reconciliation in `ManifestDeltaCalculator`**:
+  - $V_{\text{server}} > V_{\text{base}}$: Server has a strictly newer revision $\implies$ fetch inbound snapshot and merge into local Automerge doc.
+  - $V_{\text{server}} \le V_{\text{base}} \land \text{isDirty}$: Local Automerge doc has unsaved modifications $\implies$ push upstream snapshot.
+  - $V_{\text{server}} \le V_{\text{base}} \land !\text{isDirty}$: In sync $\implies$ zero network transfer.
+  - Item missing from server manifest: Created locally offline $\implies$ push upstream snapshot.
+  - Server tombstone ($V_{\text{server}} > V_{\text{base}} \land \text{isDeleted}$): Item was deleted remotely $\implies$ apply tombstone locally.
+- **Physical Clock Skew Elimination**: Because snapshot synchronization relies on monotonic integers rather than physical timestamps, clock skew between client devices and AWS Lambda, fast/slow client clocks, and arbitrary skew buffers (`SKEW_BUFFER_MS`) are completely eliminated from the snapshot reconciliation decision path. Legacy physical timestamps (`localModifiedAt`, `serverTime`) are retained only as fallback metadata.
 
 #### Deletion Architecture & Tombstone Lifecycle (No ID Recycling)
 

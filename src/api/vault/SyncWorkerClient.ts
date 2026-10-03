@@ -8,6 +8,7 @@ import type {
   SyncPollBatchSchema,
   SyncMessageLastEvaluatedKey,
   GlobalSyncLastEvaluatedKey,
+  PutSnapshotResultItem,
 } from 'src/shared/schemas/trpc'
 type SyncMessageEnvelope = {
   iv: string
@@ -83,7 +84,7 @@ export async function putSnapshotsWithToken(
     snapshots: VaultSnapshotInput[]
   },
   options?: { signal?: AbortSignal }
-): Promise<{ success: boolean; persisted: number; total: number }> {
+): Promise<{ success: boolean; persisted: number; total: number; results?: PutSnapshotResultItem[] }> {
   const client = createWorkerSyncClient(input.authToken)
   return client.items.putSnapshots.mutate(
     {

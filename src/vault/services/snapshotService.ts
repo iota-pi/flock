@@ -3,6 +3,7 @@ import type { VaultItem, VaultDriver } from '../drivers/base'
 import type { PutSnapshotBatchSchema } from '../../shared/schemas/trpc'
 import type { ItemType } from '../types'
 
+import type { ItemId } from 'src/shared/schemas/items'
 export type { VaultDriver }
 export type PutSnapshotInput = z.infer<typeof PutSnapshotBatchSchema>
 
@@ -10,6 +11,7 @@ export interface PersistSnapshotsResult {
   success: boolean
   persisted: number
   total: number
+  results?: Array<{ itemId: ItemId; version: number }>
 }
 
 export interface PersistSnapshotsOptions {
@@ -43,12 +45,23 @@ export async function persistSnapshots(
         snapshot: snapshot.snapshot,
       }
 
-      await vault.set(item)
+      const setResult = await vault.set(item)
+      return {
+        itemId: snapshot.itemId,
+        version: setResult?.version ?? 1,
+      }
     })
   )
 
+  const persistedResults: Array<{ itemId: ItemId; version: number }> = []
   const persistedSnapshots = results
-    .map((result, index) => (result.status === 'fulfilled' ? input.snapshots[index] : null))
+    .map((result, index) => {
+      if (result.status === 'fulfilled') {
+        persistedResults.push(result.value)
+        return input.snapshots[index]
+      }
+      return null
+    })
     .filter((snapshot): snapshot is typeof input.snapshots[number] => Boolean(snapshot))
   const persisted = persistedSnapshots.length
 
@@ -74,5 +87,6 @@ export async function persistSnapshots(
     success: persisted === input.snapshots.length,
     persisted,
     total: input.snapshots.length,
+    results: persistedResults,
   }
 }

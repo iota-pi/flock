@@ -9,6 +9,7 @@ export interface SyncDeltas {
   upstreamIds: ItemId[]
   locallyTombstonedSnapshots: Item[]
   deletedLastModifiedUpdates: [ItemId, number][]
+  deletedVersionUpdates?: [ItemId, number][]
   knownSet: Set<ItemId>
   tombstoneSet: Set<ItemId>
 }
@@ -21,6 +22,7 @@ export interface CalculateSyncDeltasParams {
   tombstoneItemIds: ItemId[]
   localLastModifiedMap: Map<ItemId, number>
   quarantinedMap: Map<ItemId, number>
+  localVersionsMap?: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
 
 export interface CalculateInboundDeltasParams {
@@ -32,6 +34,7 @@ export interface CalculateInboundDeltasParams {
   localLastModifiedMap: Map<ItemId, number>
   clockSkew: number
   force: boolean
+  localVersionsMap?: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
 
 export interface CalculateUpstreamDeltasParams {
@@ -43,18 +46,21 @@ export interface CalculateUpstreamDeltasParams {
   serverDeletedSet: Set<ItemId>
   localLastModifiedMap: Map<ItemId, number>
   clockSkew: number
+  localVersionsMap?: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
 
 export class ManifestDeltaCalculator {
   static calculateInboundDeltas(params: CalculateInboundDeltasParams) {
     const locallyTombstonedSnapshots: Item[] = []
     const deletedLastModifiedUpdates: [ItemId, number][] = []
+    const deletedVersionUpdates: [ItemId, number][] = []
     const missingIds: ItemId[] = []
 
     for (const entry of params.manifest) {
       const id = entry.itemId
       if (!id) continue
-      const serverTime = entry.modifiedAt
+      const serverTime = entry.modifiedAt ?? 0
+      const serverVersion = typeof entry.version === 'number' ? entry.version : 1
       const isDeleted = entry.isDeleted
 
       // If not forced and item is currently quarantined in manual recovery:
@@ -67,6 +73,7 @@ export class ManifestDeltaCalculator {
       }
 
       const localTime = params.localLastModifiedMap.get(id) ?? 0
+      const localVersionInfo = params.localVersionsMap?.get(id)
 
       if (isDeleted) {
         if (params.activeSet.has(id)) {
@@ -74,10 +81,16 @@ export class ManifestDeltaCalculator {
           // Apply tombstone locally and record timestamp to prevent resurrection.
           locallyTombstonedSnapshots.push({ id, deleted: true } as unknown as Item)
           deletedLastModifiedUpdates.push([id, serverTime])
-        } else if (serverTime > localTime) {
+          deletedVersionUpdates.push([id, serverVersion])
+        } else if (
+          params.localVersionsMap
+            ? serverVersion > (localVersionInfo?.baseVersion ?? 0)
+            : serverTime > localTime
+        ) {
           // Item is deleted on server and client does not have it active (e.g. fresh login or already deleted).
-          // Track that this item exists and is deleted at serverTime without fetching snapshot.
+          // Track that this item exists and is deleted at serverTime/serverVersion without fetching snapshot.
           deletedLastModifiedUpdates.push([id, serverTime])
+          deletedVersionUpdates.push([id, serverVersion])
         }
         continue
       }
@@ -88,6 +101,28 @@ export class ManifestDeltaCalculator {
         continue
       }
 
+      // If the item was quarantined and not skipped above (either force is true or server has newer timestamp),
+      // fetch it immediately to retry recovery.
+      if (params.quarantinedMap.has(id)) {
+        missingIds.push(id)
+        continue
+      }
+
+      if (params.localVersionsMap) {
+        // MONOTONIC VERSION LOGIC: Deterministic version comparison
+        if (!params.knownSet.has(id)) {
+          missingIds.push(id)
+          continue
+        }
+        const baseVersion = localVersionInfo?.baseVersion ?? 0
+        if (serverVersion > baseVersion) {
+          missingIds.push(id)
+          continue
+        }
+        continue
+      }
+
+      // LEGACY TIMESTAMP FALLBACK (when localVersionsMap is not provided)
       if (localTime === 0) {
         missingIds.push(id)
         continue
@@ -110,7 +145,7 @@ export class ManifestDeltaCalculator {
       }
     }
 
-    return { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates }
+    return { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates, deletedVersionUpdates }
   }
 
   static calculateUpstreamDeltas(params: CalculateUpstreamDeltasParams): ItemId[] {
@@ -123,9 +158,18 @@ export class ManifestDeltaCalculator {
       if (serverTime === undefined) {
         // Item exists locally but is completely missing from server manifest
         upstreamIds.push(localId)
-      } else if (params.tombstoneSet.has(localId) && !params.serverDeletedSet.has(localId)) {
-        // Item is tombstoned locally, but server still has an active snapshot: push tombstone upstream
-        upstreamIds.push(localId)
+      } else if (params.tombstoneSet.has(localId)) {
+        // If tombstoned locally, push upstream ONLY if server still has an active snapshot
+        if (!params.serverDeletedSet.has(localId)) {
+          upstreamIds.push(localId)
+        }
+      } else if (params.localVersionsMap) {
+        // MONOTONIC VERSION LOGIC:
+        // If the local item is marked dirty, it has local changes that need to be pushed upstream
+        const localVersionInfo = params.localVersionsMap.get(localId)
+        if (localVersionInfo?.isDirty) {
+          upstreamIds.push(localId)
+        }
       } else {
         // Clock skew + buffer compensation: if local time exceeds server time
         const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
@@ -140,7 +184,7 @@ export class ManifestDeltaCalculator {
   static calculateSyncDeltas(params: CalculateSyncDeltasParams): SyncDeltas {
     const activeSet = new Set(params.knownItemIds)
     const serverManifestMap = new Map<ItemId, number>(
-      params.manifest.map(entry => [entry.itemId, entry.modifiedAt]),
+      params.manifest.map(entry => [entry.itemId, entry.modifiedAt ?? 0]),
     )
     const serverDeletedSet = new Set<ItemId>(
       params.manifest
@@ -156,7 +200,7 @@ export class ManifestDeltaCalculator {
     }
     const knownSet = new Set([...activeSet, ...tombstoneSet])
 
-    const { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates } =
+    const { missingIds, locallyTombstonedSnapshots, deletedLastModifiedUpdates, deletedVersionUpdates } =
       ManifestDeltaCalculator.calculateInboundDeltas({
         manifest: params.manifest,
         activeSet,
@@ -166,6 +210,7 @@ export class ManifestDeltaCalculator {
         localLastModifiedMap: params.localLastModifiedMap,
         clockSkew: params.clockSkew,
         force: params.force,
+        localVersionsMap: params.localVersionsMap,
       })
 
     // Two-Way Manifest Reconciliation (Upstream):
@@ -180,6 +225,7 @@ export class ManifestDeltaCalculator {
       serverDeletedSet,
       localLastModifiedMap: params.localLastModifiedMap,
       clockSkew: params.clockSkew,
+      localVersionsMap: params.localVersionsMap,
     })
 
     return {
@@ -187,6 +233,7 @@ export class ManifestDeltaCalculator {
       upstreamIds,
       locallyTombstonedSnapshots,
       deletedLastModifiedUpdates,
+      deletedVersionUpdates,
       knownSet,
       tombstoneSet,
     }

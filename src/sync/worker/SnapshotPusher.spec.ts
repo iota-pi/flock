@@ -51,7 +51,11 @@ describe('SnapshotPusher', () => {
 
     mockApiClient = {
       hasAuthToken: vi.fn().mockResolvedValue(true),
-      putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 1 }),
+      putSnapshots: vi.fn().mockResolvedValue({
+        success: true,
+        persisted: 1,
+        results: [{ itemId: 'item-1', version: 2 }],
+      }),
     }
 
     mockRecoveryManager = {
@@ -84,7 +88,7 @@ describe('SnapshotPusher', () => {
 
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
-    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1)
+    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
     expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-1', ['head-1'])
     expect(mockBroker.clearSnapshotOnlyItem).toHaveBeenCalledWith('item-1')
     expect(mockBroker.unblockItem).toHaveBeenCalledWith('item-1')

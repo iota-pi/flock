@@ -169,6 +169,7 @@ export class ManifestSyncManager implements LifecycleAware {
   private async collectLocalSyncState(signal: AbortSignal, isAlive: () => boolean) {
     const tombstoneItemIds = (await this.deps.indexManager.listAutomergeTombstoneIds?.()) ?? []
     const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
+    const localVersionsMap = new Map(this.deps.snapshotManager.exportItemVersions())
     checkAlive(signal, isAlive)
 
     const quarantinedMap = new Map<ItemId, number>()
@@ -185,7 +186,7 @@ export class ManifestSyncManager implements LifecycleAware {
       }
     }
 
-    return { tombstoneItemIds, localLastModifiedMap, quarantinedMap }
+    return { tombstoneItemIds, localLastModifiedMap, quarantinedMap, localVersionsMap }
   }
 
   private createSyncAbortContext(outerSignal?: AbortSignal) {
@@ -286,6 +287,7 @@ export class ManifestSyncManager implements LifecycleAware {
         tombstoneItemIds: localState.tombstoneItemIds,
         localLastModifiedMap: localState.localLastModifiedMap,
         quarantinedMap: localState.quarantinedMap,
+        localVersionsMap: localState.localVersionsMap,
       })
 
       // Step 2: Push local updates
@@ -335,7 +337,7 @@ export class ManifestSyncManager implements LifecycleAware {
     deltasOrUpstreamIds:
       | SyncDeltas
       | (Pick<SyncDeltas, 'upstreamIds'> &
-          Partial<Pick<SyncDeltas, 'locallyTombstonedSnapshots' | 'deletedLastModifiedUpdates'>>)
+          Partial<Pick<SyncDeltas, 'locallyTombstonedSnapshots' | 'deletedLastModifiedUpdates' | 'deletedVersionUpdates'>>)
       | ItemId[],
   ): Promise<void> {
     if (Array.isArray(deltasOrUpstreamIds)) {
@@ -357,6 +359,13 @@ export class ManifestSyncManager implements LifecycleAware {
       deltasOrUpstreamIds.deletedLastModifiedUpdates.length > 0
     ) {
       await this.deps.snapshotManager.importLastModified(deltasOrUpstreamIds.deletedLastModifiedUpdates)
+    }
+
+    if (
+      deltasOrUpstreamIds.deletedVersionUpdates &&
+      deltasOrUpstreamIds.deletedVersionUpdates.length > 0
+    ) {
+      await this.deps.snapshotManager.importVersions(deltasOrUpstreamIds.deletedVersionUpdates)
     }
 
     if (deltasOrUpstreamIds.upstreamIds && deltasOrUpstreamIds.upstreamIds.length > 0) {

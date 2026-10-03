@@ -9,12 +9,13 @@ import {
 export interface ItemSyncTimestamps {
   localModifiedAt: number
   lastSnapshotAt?: number
+  baseVersion?: number
 }
 
 function normalizeTimestamps(raw: [ItemId, number | ItemSyncTimestamps][]): [ItemId, ItemSyncTimestamps][] {
   return raw.map(([itemId, val]) => {
     if (typeof val === 'number') {
-      return [itemId, { localModifiedAt: val, lastSnapshotAt: val }]
+      return [itemId, { localModifiedAt: val, lastSnapshotAt: val, baseVersion: 0 }]
     }
     if (val && typeof val === 'object') {
       return [
@@ -22,10 +23,11 @@ function normalizeTimestamps(raw: [ItemId, number | ItemSyncTimestamps][]): [Ite
         {
           localModifiedAt: typeof val.localModifiedAt === 'number' ? val.localModifiedAt : 0,
           lastSnapshotAt: typeof val.lastSnapshotAt === 'number' ? val.lastSnapshotAt : undefined,
+          baseVersion: typeof val.baseVersion === 'number' ? val.baseVersion : 0,
         },
       ]
     }
-    return [itemId, { localModifiedAt: 0 }]
+    return [itemId, { localModifiedAt: 0, baseVersion: 0 }]
   })
 }
 

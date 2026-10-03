@@ -57,6 +57,10 @@ describe('itemsRouter.putSnapshots', () => {
       success: true,
       persisted: 2,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+        { itemId: 'item-2', version: 1 },
+      ],
     })
 
     expect(ctx.vault.set).toHaveBeenCalledTimes(2)
@@ -100,6 +104,9 @@ describe('itemsRouter.putSnapshots', () => {
       success: false,
       persisted: 1,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+      ],
     })
   })
 
@@ -127,6 +134,7 @@ describe('itemsRouter.putSnapshots', () => {
       success: false,
       persisted: 0,
       total: 1,
+      results: [],
     })
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })

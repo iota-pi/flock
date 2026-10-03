@@ -9,6 +9,7 @@ export const VaultSnapshotSchema = z.object({
   type: z.string().min(1),
   modified: z.number(),
   deleted: z.boolean().optional(),
+  version: z.number().int().min(0).optional(),
 })
 
 export type VaultSnapshotInput = z.infer<typeof VaultSnapshotSchema>

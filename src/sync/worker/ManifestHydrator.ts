@@ -24,6 +24,7 @@ export type HydrateItemResult =
     hydratedId?: ItemId
     snapshot?: Item
     lastModifiedUpdate?: [ItemId, number]
+    versionUpdate?: [ItemId, number]
   }
   | {
     status: 'decryption_failure'
@@ -112,6 +113,7 @@ export class ManifestHydrator {
     const snapshots: Item[] = []
     const hydratedIds: ItemId[] = []
     const lastModifiedUpdates: [ItemId, number][] = []
+    const versionUpdates: [ItemId, number][] = []
     let hasHydrationFailures = false
 
     const results = await Promise.allSettled(
@@ -145,6 +147,9 @@ export class ManifestHydrator {
           if (result.lastModifiedUpdate) {
             lastModifiedUpdates.push(result.lastModifiedUpdate)
           }
+          if (result.versionUpdate) {
+            versionUpdates.push(result.versionUpdate)
+          }
           break
         case 'decryption_failure':
           hasHydrationFailures = true
@@ -175,6 +180,10 @@ export class ManifestHydrator {
       await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
     }
 
+    if (versionUpdates.length > 0 && typeof this.deps.snapshotManager.importVersions === 'function') {
+      await this.deps.snapshotManager.importVersions(versionUpdates)
+    }
+
     return {
       added: hydratedIds,
       hasFailures: hasBatchFailures || hasHydrationFailures,
@@ -191,7 +200,12 @@ export class ManifestHydrator {
     const itemId = item.item as ItemId
     try {
       const manifestEntry = manifest.find(entry => entry.itemId === item.item)
-      const serverTime = manifestEntry ? manifestEntry.modifiedAt : serverTimeFallback
+      const serverTime = manifestEntry?.modifiedAt ?? serverTimeFallback
+      const serverVersion = (typeof manifestEntry?.version === 'number' && manifestEntry.version > 0)
+        ? manifestEntry.version
+        : (typeof (item as unknown as { version?: unknown }).version === 'number'
+            ? (item as unknown as { version: number }).version
+            : 1)
 
       if (item.metadata?.deleted === true) {
         return {
@@ -199,17 +213,31 @@ export class ManifestHydrator {
           itemId,
           snapshot: { id: item.item, deleted: true } as unknown as Item,
           lastModifiedUpdate: [itemId, serverTime],
+          versionUpdate: [itemId, serverVersion],
         }
       }
 
       if (item.snapshot) {
-        const binaryResult = await this.hydrateSnapshotBinary(itemId, item, serverTime, knownSet, tombstoneSet)
+        const binaryResult = await this.hydrateSnapshotBinary(
+          itemId,
+          item,
+          serverTime,
+          serverVersion,
+          knownSet,
+          tombstoneSet,
+        )
         if (binaryResult) {
           return binaryResult
         }
       }
 
-      const legacyResult = await this.hydrateLegacyCipher(itemId, item, serverTime, tombstoneSet)
+      const legacyResult = await this.hydrateLegacyCipher(
+        itemId,
+        item,
+        serverTime,
+        serverVersion,
+        tombstoneSet,
+      )
       if (legacyResult) {
         return legacyResult
       }
@@ -232,6 +260,7 @@ export class ManifestHydrator {
     itemId: ItemId,
     item: VaultItem,
     serverTime: number,
+    serverVersion: number,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
@@ -263,6 +292,7 @@ export class ManifestHydrator {
       itemId,
       hydratedId: isDeleted ? undefined : itemId,
       lastModifiedUpdate: hydrationResult?.hasLocalChanges ? undefined : [itemId, serverTime],
+      versionUpdate: [itemId, serverVersion],
     }
   }
 
@@ -270,6 +300,7 @@ export class ManifestHydrator {
     itemId: ItemId,
     item: VaultItem,
     serverTime: number,
+    serverVersion: number,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
     const decryptedLegacy = await this.decryptLegacyCipher(item)
@@ -288,6 +319,7 @@ export class ManifestHydrator {
       return {
         status: 'success',
         itemId,
+        versionUpdate: [snapshotId, serverVersion],
       }
     }
     return {
@@ -295,6 +327,7 @@ export class ManifestHydrator {
       itemId,
       snapshot: snapshot as Item,
       lastModifiedUpdate: [snapshotId, serverTime],
+      versionUpdate: [snapshotId, serverVersion],
     }
   }
 

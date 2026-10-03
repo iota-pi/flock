@@ -26,6 +26,7 @@ export class SnapshotTracker {
   public dirtyItemsTick = 0
   public readonly lastModifiedByItemId = new Map<ItemId, number>()
   public readonly lastSnapshotAtByItemId = new Map<ItemId, number>()
+  public readonly baseVersionByItemId = new Map<ItemId, number>()
 
   public debounceTimer: ReturnType<typeof setTimeout> | null = null
   public maxWaitTimer: ReturnType<typeof setTimeout> | null = null
@@ -192,6 +193,10 @@ export class SnapshotTracker {
             const existingLastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
             this.lastSnapshotAtByItemId.set(itemId, Math.max(existingLastSnap, ts.lastSnapshotAt))
           }
+          if (typeof ts.baseVersion === 'number') {
+            const existingVersion = this.baseVersionByItemId.get(itemId) ?? 0
+            this.baseVersionByItemId.set(itemId, Math.max(existingVersion, ts.baseVersion))
+          }
         }
       }
 
@@ -245,15 +250,19 @@ export class SnapshotTracker {
   }
 
   async persistLastModified(): Promise<void> {
-    const data: [ItemId, ItemSyncTimestamps][] = Array.from(this.lastModifiedByItemId.entries()).map(
-      ([itemId, localModifiedAt]) => [
-        itemId,
-        {
-          localModifiedAt,
-          lastSnapshotAt: this.lastSnapshotAtByItemId.get(itemId),
-        },
-      ],
-    )
+    const allItemIds = new Set([
+      ...this.lastModifiedByItemId.keys(),
+      ...this.lastSnapshotAtByItemId.keys(),
+      ...this.baseVersionByItemId.keys(),
+    ])
+    const data: [ItemId, ItemSyncTimestamps][] = Array.from(allItemIds).map(itemId => [
+      itemId,
+      {
+        localModifiedAt: this.lastModifiedByItemId.get(itemId) ?? 0,
+        lastSnapshotAt: this.lastSnapshotAtByItemId.get(itemId),
+        baseVersion: this.baseVersionByItemId.get(itemId) ?? 0,
+      },
+    ])
     try {
       await this.lastModifiedStore.saveTimestamps(data)
     } catch (error) {
@@ -261,7 +270,7 @@ export class SnapshotTracker {
     }
   }
 
-  recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number): void {
+  recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number, version?: number): void {
     if (this.dirtyItems.get(itemId) === tick) {
       this.dirtyItems.delete(itemId)
     }
@@ -271,6 +280,10 @@ export class SnapshotTracker {
       itemId,
       Math.max(currentLocalMod, modified),
     )
+    if (typeof version === 'number') {
+      const currentVersion = this.baseVersionByItemId.get(itemId) ?? 0
+      this.baseVersionByItemId.set(itemId, Math.max(currentVersion, version))
+    }
     this.saveLastModifiedDebounced()
   }
 
@@ -343,6 +356,35 @@ export class SnapshotTracker {
     await this.persistLastModified()
   }
 
+  getBaseVersion(itemId: ItemId): number {
+    return this.baseVersionByItemId.get(itemId) ?? 0
+  }
+
+  exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
+    const result = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
+    const allIds = new Set([
+      ...this.lastModifiedByItemId.keys(),
+      ...this.lastSnapshotAtByItemId.keys(),
+      ...this.baseVersionByItemId.keys(),
+      ...this.dirtyItems.keys(),
+    ])
+    for (const id of allIds) {
+      result.set(id, {
+        baseVersion: this.baseVersionByItemId.get(id) ?? 0,
+        isDirty: this.dirtyItems.has(id),
+      })
+    }
+    return result
+  }
+
+  async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
+    for (const [itemId, version] of updates) {
+      const currentVersion = this.baseVersionByItemId.get(itemId) ?? 0
+      this.baseVersionByItemId.set(itemId, Math.max(currentVersion, version))
+    }
+    await this.persistLastModified()
+  }
+
   clear(): void {
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
@@ -350,6 +392,7 @@ export class SnapshotTracker {
     this.dirtyItems.clear()
     this.lastModifiedByItemId.clear()
     this.lastSnapshotAtByItemId.clear()
+    this.baseVersionByItemId.clear()
     this.loadGuard.clear()
   }
 

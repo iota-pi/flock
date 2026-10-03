@@ -90,6 +90,7 @@ describe('ManifestHydrator', () => {
         itemId: 'item-binary',
         hydratedId: 'item-binary',
         lastModifiedUpdate: ['item-binary', 2000],
+        versionUpdate: ['item-binary', 1],
       })
       expect(onItemSnapshotHydratedSpy).toHaveBeenCalledWith('item-binary', ['head-1'])
     })
@@ -108,7 +109,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [{ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000 }],
+        [{ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000, version: 3 }],
         new Set(['item-binary-changes' as ItemId]),
       )
 
@@ -117,6 +118,7 @@ describe('ManifestHydrator', () => {
         itemId: 'item-binary-changes',
         hydratedId: 'item-binary-changes',
         lastModifiedUpdate: undefined,
+        versionUpdate: ['item-binary-changes', 3],
       })
       expect(mockSnapshotManager.markItemDirty).toHaveBeenCalledWith('item-binary-changes', 2000)
     })
@@ -129,7 +131,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [{ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000 }],
+        [{ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000, version: 5 }],
         new Set(),
       )
 
@@ -138,6 +140,7 @@ describe('ManifestHydrator', () => {
         itemId: 'item-deleted-meta',
         snapshot: { id: 'item-deleted-meta', deleted: true },
         lastModifiedUpdate: ['item-deleted-meta', 3000],
+        versionUpdate: ['item-deleted-meta', 5],
       })
       expect(mockDecryptBytes).not.toHaveBeenCalled()
       expect(mockDecryptObject).not.toHaveBeenCalled()

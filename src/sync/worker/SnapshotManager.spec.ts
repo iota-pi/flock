@@ -527,7 +527,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       // Execute shutdown
       await manager.shutdown()
 
-      expect(saveSpy).toHaveBeenCalledWith([['item-1', { localModifiedAt: 123456, lastSnapshotAt: 123456 }]])
+      expect(saveSpy).toHaveBeenCalledWith([['item-1', { localModifiedAt: 123456, lastSnapshotAt: 123456, baseVersion: 0 }]])
       expect(clearSpy).not.toHaveBeenCalled()
     })
 

@@ -517,6 +517,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async set(item: VaultItem) {
+    validateItem(item)
+
     let itemToPersist = item
 
     if (item.snapshot?.cipher) {
@@ -542,10 +544,55 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
+    if (typeof item.version !== 'number') {
+      const modifiedAt = typeof itemToPersist.metadata?.modified === 'number'
+        ? itemToPersist.metadata.modified
+        : Date.now()
+
+      const updateParams: UpdateCommandInput = {
+        TableName: ITEM_TABLE_NAME,
+        Key: {
+          account: itemToPersist.account,
+          item: itemToPersist.item,
+        },
+        UpdateExpression: [
+          'SET #metadata = :metadata',
+          itemToPersist.snapshot ? '#snapshot = :snapshot' : undefined,
+          itemToPersist.cipher ? '#cipher = :cipher' : undefined,
+          '#modifiedAt = :modifiedAt',
+          '#version = if_not_exists(#version, :zero) + :one',
+          itemToPersist.ttl !== undefined ? '#ttl = :ttl' : undefined,
+        ].filter(Boolean).join(', '),
+        ExpressionAttributeNames: {
+          '#metadata': 'metadata',
+          ...(itemToPersist.snapshot ? { '#snapshot': 'snapshot' } : {}),
+          ...(itemToPersist.cipher ? { '#cipher': 'cipher' } : {}),
+          '#modifiedAt': 'modifiedAt',
+          '#version': 'version',
+          ...(itemToPersist.ttl !== undefined ? { '#ttl': 'ttl' } : {}),
+        },
+        ExpressionAttributeValues: {
+          ':metadata': itemToPersist.metadata,
+          ...(itemToPersist.snapshot ? { ':snapshot': itemToPersist.snapshot } : {}),
+          ...(itemToPersist.cipher ? { ':cipher': itemToPersist.cipher } : {}),
+          ':modifiedAt': modifiedAt,
+          ':zero': 0,
+          ':one': 1,
+          ...(itemToPersist.ttl !== undefined ? { ':ttl': itemToPersist.ttl } : {}),
+        },
+        ReturnValues: 'UPDATED_NEW',
+      }
+
+      const res = await this.client.send(new UpdateCommand(updateParams))
+      const assignedVersion = (res.Attributes?.version as number) ?? 1
+      return { version: assignedVersion }
+    }
+
     const params = getItemPutParams(itemToPersist)
 
     try {
       await this.client.send(new PutCommand(params))
+      return { version: itemToPersist.version ?? 1 }
     } catch (err) {
       if (isConditionalCheckFailure(err)) {
         throw new VersionConflictError('Version conflict: The item has been modified by another client.')
@@ -569,11 +616,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           '#modifiedAt': 'modifiedAt',
           '#metadata': 'metadata',
           '#deleted': 'deleted',
+          '#version': 'version',
         },
         ExpressionAttributeValues: {
           ':accountid': account,
         },
-        ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
+        ProjectionExpression: '#itemKey, #version, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
         ExclusiveStartKey: lastEvaluatedKey,
       }
 
@@ -587,8 +635,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           const modifiedAt = typeof record.modifiedAt === 'number'
             ? record.modifiedAt
             : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
+          const version = typeof record.version === 'number' ? record.version : 1
           manifest.push({
             itemId,
+            version,
             modifiedAt,
             ...(isDeleted ? { isDeleted: true } : {}),
           })

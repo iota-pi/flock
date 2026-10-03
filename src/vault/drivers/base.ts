@@ -79,7 +79,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract extendSession(data: AuthData): Promise<void>
 
   // Item CRUD operations
-  abstract set(item: VaultItem): Promise<void>
+  abstract set(item: VaultItem): Promise<{ version?: number } | void>
   abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<ManifestEntry>>
   abstract fetchByIds(opts: { account: string; itemIds: ItemId[] }): Promise<VaultItem[]>
 
