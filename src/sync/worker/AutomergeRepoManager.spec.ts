@@ -114,5 +114,37 @@ describe('AutomergeRepoManager', () => {
     expect(manager.getStorage()).toBeDefined()
     expect(typeof manager.getStorage()?.has).toBe('function')
   })
+
+  it('shuts down repo BEFORE clearing storage, and closes adapter AFTER clearing', async () => {
+    const repo = manager.init(mockVaultAdapter) as any
+    const callOrder: string[] = []
+
+    const repoShutdownSpy = vi.spyOn(repo, 'shutdown').mockImplementation(async () => {
+      callOrder.push('repo.shutdown')
+    })
+    const clearLocalDataSpy = vi.spyOn(manager, 'clearLocalData').mockImplementation(async () => {
+      callOrder.push('clearLocalData')
+    })
+    // @ts-expect-error accessing private adapter
+    const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close').mockImplementation(async () => {
+      callOrder.push('adapter.close')
+    })
+
+    await manager.onLifecycleStop({ clearLocalData: true })
+
+    expect(callOrder).toEqual(['repo.shutdown', 'clearLocalData', 'adapter.close'])
+    expect(repoShutdownSpy).toHaveBeenCalledTimes(1)
+    expect(clearLocalDataSpy).toHaveBeenCalledTimes(1)
+    expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('only closes and does not clear local data when clearLocalData is false or omitted', async () => {
+    manager.init(mockVaultAdapter)
+    const clearLocalDataSpy = vi.spyOn(manager, 'clearLocalData').mockResolvedValue(undefined)
+
+    await manager.onLifecycleStop()
+
+    expect(clearLocalDataSpy).not.toHaveBeenCalled()
+  })
 })
 

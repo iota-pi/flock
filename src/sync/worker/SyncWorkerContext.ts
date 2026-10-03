@@ -272,14 +272,8 @@ export class SyncWorkerContext {
       lifecycleName: 'StorageCleanup',
       onLifecycleStop: async options => {
         if (options?.clearLocalData) {
-          await Promise.all([
-            clearSyncMetadataStorage(this.accountId),
-            this.indexStore.clear(),
-            this.cursorStore.clear(),
-            this.lastModifiedStore.clear(),
-            this.wal.clear(),
-            this.syncedHeadsStore.clear(),
-          ])
+          await this.wal.clear()
+          await clearSyncMetadataStorage(this.accountId)
         }
       },
     }
