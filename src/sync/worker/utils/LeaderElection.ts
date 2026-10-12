@@ -198,7 +198,8 @@ export class LeaderElection {
         this.sendHeartbeat(true)
       }
 
-      if (!this.multipleLeadersDetected) {
+      const totalLeaders = (this.isLeader ? 1 : 0) + this.otherLeaders.size
+      if (totalLeaders > 1 && !this.multipleLeadersDetected) {
         this.multipleLeadersDetected = true
         this.callbacks.onMultipleLeadersDetected?.()
       }

@@ -467,6 +467,119 @@ describe('LeaderElection', () => {
     peerPresenceChannel.close()
   })
 
+  it('does not fire onMultipleLeadersDetected on non-leader tab when receiving heartbeats from a sole leader', async () => {
+    const onMultipleLeadersDetected = vi.fn()
+    const onSoleLeaderRestored = vi.fn()
+
+    const followerElection = new LeaderElection(
+      'acc-1',
+      {
+        onLeaderGranted: vi.fn(),
+        onLeaderRevoked: vi.fn(),
+        onMultipleLeadersDetected,
+        onSoleLeaderRestored,
+      },
+      { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+    )
+
+    // Simulate non-leader tab listening to presence channel
+    ;(followerElection as any).setupPresence()
+    expect(followerElection.leader).toBe(false)
+
+    const peerChannel = new MockBroadcastChannel('flock-leader-presence-acc-1')
+    peerChannel.postMessage({
+      type: 'heartbeat',
+      leaderId: 'sole-leader-xyz',
+      createdAt: 100,
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    // Follower knows about sole leader, but should NOT fire multipleLeadersDetected
+    expect(followerElection.activeOtherLeaderCount).toBe(1)
+    expect(onMultipleLeadersDetected).not.toHaveBeenCalled()
+
+    // When a second leader sends a heartbeat, multipleLeadersDetected MUST fire
+    peerChannel.postMessage({
+      type: 'heartbeat',
+      leaderId: 'second-leader-abc',
+      createdAt: 200,
+    })
+
+    await vi.waitFor(() => {
+      expect(onMultipleLeadersDetected).toHaveBeenCalledTimes(1)
+    })
+    expect(followerElection.activeOtherLeaderCount).toBe(2)
+
+    // When both release, sole leader status is restored
+    peerChannel.postMessage({
+      type: 'release',
+      leaderId: 'second-leader-abc',
+    })
+    peerChannel.postMessage({
+      type: 'release',
+      leaderId: 'sole-leader-xyz',
+    })
+
+    await vi.waitFor(() => {
+      expect(onSoleLeaderRestored).toHaveBeenCalledTimes(1)
+    })
+
+    followerElection.release()
+    peerChannel.close()
+  })
+
+  it('does not fire onMultipleLeadersDetected on yielded tab when receiving heartbeats from the active leader', async () => {
+    const onMultipleLeadersDetected1 = vi.fn()
+    const onMultipleLeadersDetected2 = vi.fn()
+
+    const election1 = new LeaderElection(
+      'acc-1',
+      {
+        onLeaderGranted: vi.fn(),
+        onLeaderRevoked: vi.fn(),
+        onMultipleLeadersDetected: onMultipleLeadersDetected1,
+      },
+      { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+    )
+
+    vi.setSystemTime(100)
+    await election1.acquire()
+
+    const election2 = new LeaderElection(
+      'acc-1',
+      {
+        onLeaderGranted: vi.fn(),
+        onLeaderRevoked: vi.fn(),
+        onMultipleLeadersDetected: onMultipleLeadersDetected2,
+      },
+      { presenceHeartbeatIntervalMs: 200, presenceTimeoutMs: 100 }
+    )
+
+    vi.setSystemTime(200)
+    await election2.acquire()
+
+    // election2 yields to older election1
+    await vi.waitFor(() => {
+      expect(election2.yielded).toBe(true)
+      expect(election2.leader).toBe(false)
+    })
+
+    onMultipleLeadersDetected2.mockClear()
+
+    // election1 sends another heartbeat as the sole active leader
+    ;(election1 as any).sendHeartbeat()
+
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    // Yielded tab receives heartbeat from sole leader without firing onMultipleLeadersDetected
+    expect(onMultipleLeadersDetected2).not.toHaveBeenCalled()
+
+    election1.release()
+    election2.release()
+    vi.useRealTimers()
+  })
+
   describe('Leader Conflict & Claim Leadership (Approach B)', () => {
     it('newer tab yields leadership and notifies onLeaderConflict(true) when two tabs enter fallback mode', async () => {
       const onConflict1 = vi.fn()
