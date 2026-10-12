@@ -351,13 +351,22 @@ export class ManifestSyncManager implements LifecycleAware {
       deltasOrUpstreamIds.locallyTombstonedSnapshots &&
       deltasOrUpstreamIds.locallyTombstonedSnapshots.length > 0
     ) {
-      await this.deps.storeItems(deltasOrUpstreamIds.locallyTombstonedSnapshots, { markDirty: false })
+      try {
+        await this.deps.storeItems(deltasOrUpstreamIds.locallyTombstonedSnapshots, { markDirty: false })
+      } finally {
+        for (const item of deltasOrUpstreamIds.locallyTombstonedSnapshots) {
+          this.deps.snapshotManager.deleteDirtyItem?.(item.id)
+        }
+      }
     }
 
     if (
       deltasOrUpstreamIds.deletedLastModifiedUpdates &&
       deltasOrUpstreamIds.deletedLastModifiedUpdates.length > 0
     ) {
+      for (const [id] of deltasOrUpstreamIds.deletedLastModifiedUpdates) {
+        this.deps.snapshotManager.deleteDirtyItem?.(id)
+      }
       await this.deps.snapshotManager.importLastModified(deltasOrUpstreamIds.deletedLastModifiedUpdates)
     }
 

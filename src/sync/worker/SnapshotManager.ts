@@ -126,6 +126,10 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     this.tracker.markItemDirty(itemId, customDebounceDelayMs)
   }
 
+  deleteDirtyItem(itemId: ItemId): boolean {
+    return this.tracker.deleteDirtyItem(itemId)
+  }
+
   recordInboundChange(itemId: ItemId, timestamp: number = Date.now()): void {
     this.tracker.recordInboundChange(itemId, timestamp)
   }

@@ -1823,4 +1823,19 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(result.persisted).toBe(0)
     })
   })
+
+  describe('deleteDirtyItem', () => {
+    it('removes item from dirtyItems and clears timers when dirty items become empty', () => {
+      manager.markItemDirty('item-1' as ItemId)
+      expect(manager.dirtyItems.has('item-1' as ItemId)).toBe(true)
+      expect(manager.debounceTimer).not.toBeNull()
+
+      const deleted = manager.deleteDirtyItem('item-1' as ItemId)
+      expect(deleted).toBe(true)
+      expect(manager.dirtyItems.has('item-1' as ItemId)).toBe(false)
+      expect(manager.dirtyItems.size).toBe(0)
+      expect(manager.debounceTimer).toBeNull()
+      expect(manager.maxWaitTimer).toBeNull()
+    })
+  })
 })

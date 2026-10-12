@@ -155,4 +155,40 @@ describe('SnapshotTracker', () => {
     expect(newTracker.getLocalModifiedAt('item-1' as ItemId)).toBe(1000)
     expect(newTracker.getLastSnapshotAt('item-2' as ItemId)).toBe(2000)
   })
+
+  describe('deleteDirtyItem', () => {
+    it('removes item from dirtyItems and clears timers when dirtyItems becomes empty', () => {
+      tracker.markItemDirty('item-1' as ItemId)
+      expect(tracker.hasDirty('item-1' as ItemId)).toBe(true)
+      expect(tracker.debounceTimer).not.toBeNull()
+
+      const deleted = tracker.deleteDirtyItem('item-1' as ItemId)
+      expect(deleted).toBe(true)
+      expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
+      expect(tracker.dirtyCount).toBe(0)
+      expect(tracker.debounceTimer).toBeNull()
+      expect(tracker.maxWaitTimer).toBeNull()
+    })
+
+    it('advances lastSnapshotAt to localModifiedAt to prevent startup audit resurrection', async () => {
+      tracker.recordInboundChange('item-1' as ItemId, 5000)
+      tracker.markItemDirty('item-1' as ItemId)
+      // item-1 has localMod: 5000 and undefined lastSnapshotAt
+
+      tracker.deleteDirtyItem('item-1' as ItemId)
+      expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(5000)
+
+      // Verify that audit does not restore it
+      mockStore.loadTimestamps.mockResolvedValue([
+        ['item-1' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 5000 }],
+      ])
+      const { auditCount } = await tracker.loadLastModified()
+      expect(auditCount).toBe(0)
+      expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
+    })
+
+    it('returns false when deleting an item that was not dirty', () => {
+      expect(tracker.deleteDirtyItem('item-not-dirty' as ItemId)).toBe(false)
+    })
+  })
 })

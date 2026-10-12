@@ -306,7 +306,18 @@ export class SnapshotTracker {
   }
 
   deleteDirtyItem(itemId: ItemId): boolean {
-    return this.dirtyItems.delete(itemId)
+    if (this.isShutdown || !itemId) return false
+    const deleted = this.dirtyItems.delete(itemId)
+    const localMod = this.lastModifiedByItemId.get(itemId)
+    const lastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
+    if (localMod !== undefined && localMod > lastSnap) {
+      this.lastSnapshotAtByItemId.set(itemId, localMod)
+      this.saveLastModifiedDebounced()
+    }
+    if (this.dirtyItems.size === 0) {
+      this.clearDebounceTimers()
+    }
+    return deleted
   }
 
   hasDirty(itemId: ItemId): boolean {
