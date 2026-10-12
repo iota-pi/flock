@@ -269,6 +269,103 @@ describe('reencryptAllItems', () => {
     consoleWarnSpy.mockRestore()
   })
 
+  it('retries when buildSnapshot returns not-ready and succeeds if subsequent attempt is ready', async () => {
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-retry'])
+    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+
+    let attempts = 0
+    mockRepo.find.mockImplementation(async () => {
+      attempts++
+      if (attempts === 1) {
+        return {
+          isReady: () => false,
+          doc: () => ({ id: 'item-retry', type: 'note' }),
+        }
+      }
+      return {
+        isReady: () => true,
+        doc: () => ({ id: 'item-retry', type: 'note' }),
+      }
+    })
+
+    const onProgress = vi.fn()
+    const result = await itemReencryptor.reencryptAllItems(context as any, onProgress)
+
+    expect(attempts).toBe(2)
+    expect(result.succeeded).toEqual(['item-retry'])
+    expect(result.failed).toEqual([])
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries when buildSnapshot returns not-ready and records item as failed and quarantined if retries are exhausted', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-always-not-ready'])
+
+    let attempts = 0
+    mockRepo.find.mockImplementation(async () => {
+      attempts++
+      return {
+        isReady: () => false,
+        doc: () => ({ id: 'item-always-not-ready', type: 'note' }),
+      }
+    })
+
+    const result = await itemReencryptor.reencryptAllItems(context as any)
+
+    expect(attempts).toBe(3)
+    expect(result.succeeded).toEqual([])
+    expect(result.failed).toEqual([
+      {
+        itemId: 'item-always-not-ready',
+        error: 'Failed to build snapshot for item item-always-not-ready: Item item-always-not-ready document or vault was not ready',
+      },
+    ])
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
+      itemId: 'item-always-not-ready',
+      reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-always-not-ready: Item item-always-not-ready document or vault was not ready',
+    })
+    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('records not-ready item in failureDetails and quarantines it if returned directly to processChunk', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+
+    const reencryptor = new ItemReencryptor()
+    vi.spyOn(reencryptor as any, 'buildSnapshotWithRetry').mockResolvedValueOnce({ type: 'not-ready' })
+
+    const processContext = {
+      accountId: 'test-account',
+      repo: mockRepo,
+      apiClient: { syncLatestToken: vi.fn(), putSnapshots: vi.fn() } as any,
+      recoveryManager: { quarantine: vi.fn() } as any,
+    }
+
+    const result = await reencryptor.processChunk(['item-unready' as any], undefined, processContext as any)
+
+    expect(result.succeeded).toEqual([])
+    expect(result.failed).toEqual([
+      {
+        itemId: 'item-unready',
+        error: 'Failed to build snapshot for item item-unready: Document or vault was not ready after retries',
+      },
+    ])
+    expect(processContext.recoveryManager.quarantine).toHaveBeenCalledWith(
+      'item-unready',
+      'Re-encryption snapshot build failed: Failed to build snapshot for item item-unready: Document or vault was not ready after retries'
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleWarnSpy.mockRestore()
+  })
+
   it('logs error and continues gracefully if quarantining a failed item encounters a storage error', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})

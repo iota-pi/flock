@@ -191,7 +191,8 @@ export class ItemReencryptor {
    */
   async buildSnapshot(
     itemIdOrRepo: ItemId | Repo,
-    repoOrItemId?: Repo | ItemId
+    repoOrItemId?: Repo | ItemId,
+    signal?: AbortSignal
   ): Promise<BuildSnapshotResult> {
     let repo: Repo | undefined
     let itemId: ItemId | undefined
@@ -213,7 +214,7 @@ export class ItemReencryptor {
       throw new Error('ItemId is required to build snapshot')
     }
 
-    return buildSnapshotFromBuilder(repo, itemId, 0)
+    return buildSnapshotFromBuilder(repo, itemId, 0, signal ? { signal } : undefined)
   }
 
   /**
@@ -318,7 +319,13 @@ export class ItemReencryptor {
     batchRetryDelays?: readonly number[]
   ): Promise<BuildSnapshotResult> {
     return await RetryStrategy.executeWithRetry(
-      async () => this.buildSnapshot(itemId, repo),
+      async () => {
+        const result = await this.buildSnapshot(itemId, repo, signal)
+        if (result.type === 'not-ready') {
+          throw new Error(`Item ${itemId} document or vault was not ready`)
+        }
+        return result
+      },
       {
         maxAttempts: MAX_BATCH_RETRIES,
         delays: batchRetryDelays ?? this.batchRetryDelays,
@@ -452,7 +459,9 @@ export class ItemReencryptor {
         if (result.value.type === 'success') {
           readySnapshots.push({ itemId, snapshot: result.value.snapshot })
         } else if (result.value.type === 'not-ready') {
-          console.warn(`[reencryptAllItems] Item ${itemId} was not ready. Skipping.`)
+          const errorMsg = `Failed to build snapshot for item ${itemId}: Document or vault was not ready after retries`
+          console.error(`[reencryptAllItems] ${errorMsg}`)
+          failureDetails.push({ itemId, errorMsg })
         } else if (result.value.type === 'error') {
           const errorMsg = result.value.reason
             ? `Failed to build snapshot for item ${itemId}: ${result.value.reason}`
