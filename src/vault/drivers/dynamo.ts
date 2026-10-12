@@ -953,7 +953,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ':account': input.account,
         ...(hasCursor ? { ':cursor': input.cursor } : undefined),
       },
-      Limit: 1000,
+      Limit: DEFAULT_SYNC_MESSAGE_LIMIT,
       ExclusiveStartKey: exclusiveStartKey,
     }))
 
