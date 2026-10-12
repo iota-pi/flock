@@ -328,7 +328,7 @@ export class SyncOrchestrator implements LifecycleAware {
 
     if (outcome === 'failure') {
       this.increasePollBackoff()
-    } else {
+    } else if (outcome === 'success') {
       this.resetPollBackoff()
       this.pollingPausedForAuth = false
     }
