@@ -5,7 +5,6 @@ import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
-import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ManifestSyncManager } from './ManifestSyncManager'
@@ -267,18 +266,6 @@ export class SyncWorkerContext {
     this.subscribeInternalEvents()
   }
 
-  private get storageCleanupService(): LifecycleAware<{ clearLocalData?: boolean }> {
-    return {
-      lifecycleName: 'StorageCleanup',
-      onLifecycleStop: async options => {
-        if (options?.clearLocalData) {
-          await this.wal.clear()
-          await clearSyncMetadataStorage(this.accountId)
-        }
-      },
-    }
-  }
-
   private get syncedHeadsService(): LifecycleAware {
     return {
       lifecycleName: 'SyncedHeads',
@@ -295,8 +282,11 @@ export class SyncWorkerContext {
     // Teardown runs in LIFO order (reverse registration order).
     // Startup runs in FIFO order (registration order).
     // Register items that should stop last first, and items that should stop first last.
+    //
+    // Note: Local storage clearing during account logout is handled exclusively by the
+    // main thread (clearAccountLocalData in localDataCleanup.ts) after the worker has cleanly
+    // closed all connections. The worker must not attempt to clear databases on shutdown.
     const services: LifecycleAware<{ clearLocalData?: boolean }>[] = [
-      this.storageCleanupService,
       this.repoManager,
       this.adapter,
       this.broker,

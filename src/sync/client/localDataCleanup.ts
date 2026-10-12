@@ -4,6 +4,11 @@ import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
 import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 
+/**
+ * Deletes the Automerge IndexedDB database for an account.
+ * Relies on the worker having already cleanly closed its storage connection
+ * to prevent versionchange blocks and timeouts.
+ */
 export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: number = SYNC_TIMEOUTS.localDataCleanup): Promise<void> {
   const dbName = getAutomergeDBName(accountId)
   if (typeof indexedDB === 'undefined') {
@@ -59,6 +64,12 @@ export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: numb
   })
 }
 
+/**
+ * Single source of truth for clearing all local account data during logout or account reset.
+ * Cleans up Automerge IndexedDB, sync metadata, legacy databases, WAL, and manual recovery entries.
+ * Must be executed after the sync worker has closed its connections to prevent concurrent database
+ * operations and versionchange deadlocks.
+ */
 export async function clearAccountLocalData(accountId: string): Promise<void> {
   if (!accountId) return
   try {

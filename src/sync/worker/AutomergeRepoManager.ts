@@ -68,8 +68,8 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
 
   constructor(private readonly accountId: string) {}
 
-  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.close(options)
+  async onLifecycleStop(): Promise<void> {
+    await this.close()
   }
 
   init(vaultNetworkAdapter: VaultNetworkAdapter, options?: AutomergeRepoManagerOptions): Repo {
@@ -132,7 +132,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  async close(options?: { clearLocalData?: boolean }): Promise<void> {
+  async close(): Promise<void> {
     if (this.broadcastAdapter) {
       try {
         this.broadcastAdapter.disconnect()
@@ -151,14 +151,10 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
       this.repo = null
     }
 
-    if (options?.clearLocalData) {
-      try {
-        await this.clearLocalData()
-      } catch (err) {
-        console.error('[AutomergeRepoManager] Error clearing Automerge DB', err)
-      }
-    }
-
+    // Note: Do not clear storage through the adapter on close. Database deletion
+    // during logout is handled by the main thread (clearAutomergeIndexedDb via indexedDB.deleteDatabase)
+    // after the worker has cleanly closed its open connections. Calling indexedDbAdapter.clear()
+    // via an open connection creates versionchange conflicts and blocks deleteDatabase.
     if (this.indexedDbAdapter) {
       try {
         await this.indexedDbAdapter.close()

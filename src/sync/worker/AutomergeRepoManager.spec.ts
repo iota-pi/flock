@@ -115,7 +115,7 @@ describe('AutomergeRepoManager', () => {
     expect(typeof manager.getStorage()?.has).toBe('function')
   })
 
-  it('shuts down repo BEFORE clearing storage, and closes adapter AFTER clearing', async () => {
+  it('shuts down repo and closes adapter without clearing storage on lifecycle stop', async () => {
     const repo = manager.init(mockVaultAdapter) as any
     const callOrder: string[] = []
 
@@ -132,9 +132,9 @@ describe('AutomergeRepoManager', () => {
 
     await manager.onLifecycleStop({ clearLocalData: true })
 
-    expect(callOrder).toEqual(['repo.shutdown', 'clearLocalData', 'adapter.close'])
+    expect(callOrder).toEqual(['repo.shutdown', 'adapter.close'])
     expect(repoShutdownSpy).toHaveBeenCalledTimes(1)
-    expect(clearLocalDataSpy).toHaveBeenCalledTimes(1)
+    expect(clearLocalDataSpy).not.toHaveBeenCalled()
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
 

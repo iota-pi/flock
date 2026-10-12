@@ -50,12 +50,8 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   }
 
   private handleVersionChange(db: IDBDatabase): void {
-    if (this.isExplicitlyClosed || this.isClosing) {
-      return
-    }
-
     console.warn(
-      `[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection to yield to upgrade.`
+      `[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection to yield to upgrade/deletion.`
     )
 
     if (this.db === db) {
