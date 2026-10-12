@@ -235,7 +235,7 @@ export class ItemOperations {
 
     await this.recoveryManager.unquarantine(itemId)
 
-    await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
+    await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
