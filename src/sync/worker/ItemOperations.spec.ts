@@ -325,6 +325,7 @@ describe('ItemOperations', () => {
       expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith([newItemId])
       expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-1'])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith(newItemId)
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
       expect(emitMock).toHaveBeenCalledWith({
         type: 'itemUpdated',
         id: 'item-1',
@@ -524,6 +525,7 @@ describe('ItemOperations', () => {
           { createIfMissing: true }
         )
         expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-3'])
+        expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-3')
         expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-3'])
 
         // Verify the document was mutated properly
@@ -568,7 +570,8 @@ describe('ItemOperations', () => {
           { createIfMissing: true }
         )
         expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-4')
-        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-4'])
+        expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-4'])
+        expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-4')
 
         expect(capturedDoc).toEqual({
           id: 'item-4',
@@ -628,6 +631,7 @@ describe('ItemOperations', () => {
         expect(operations.recoveryManager.isInFlight('item-5' as ItemId)).toBe(false)
         expect(operations.recoveryManager.getRecoveryCooldownUntil('item-5' as ItemId)).toBe(0)
         expect(markDocumentDirtyMock).toHaveBeenCalledWith(newItemId)
+        expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-5')
         expect(emitMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
         expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-5', item: null })
         expect(emitMock).toHaveBeenCalledWith({

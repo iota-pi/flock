@@ -215,6 +215,7 @@ export class ItemOperations {
     await this.recoveryManager.unquarantine(itemId)
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
+    this.deps.markDocumentDirty(itemId)
     publishRealtimeBusSyncPing(this.deps.accountId, [itemId])
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
@@ -236,6 +237,7 @@ export class ItemOperations {
     await this.recoveryManager.unquarantine(itemId)
 
     await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
+    this.deps.markDocumentDirty(itemId)
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
@@ -304,6 +306,7 @@ export class ItemOperations {
       { knownToExist: true },
     )
     await this.deps.indexManager.removeAutomergeItemIdsFromIndex([oldItemId])
+    this.deps.markDocumentDirty(oldItemId)
 
     // 4. Remove old item from quarantine
     await this.recoveryManager.unquarantine(oldItemId)
