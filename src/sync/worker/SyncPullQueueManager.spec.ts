@@ -1666,5 +1666,49 @@ describe('SyncPullQueueManager', () => {
       expect(mockWaitForKeyVersion).toHaveBeenCalledTimes(1)
       expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 5000)
     })
+
+    it('rethrows error when batch-level error occurs, enabling callers to handle failure', async () => {
+      await manager.setAccount('test-account')
+      const err = new Error('Fatal batch iteration error')
+      const throwingResults = {
+        [Symbol.iterator]() {
+          throw err
+        },
+      } as any
+
+      await expect(manager.processPullResults(throwingResults)).rejects.toThrow('Fatal batch iteration error')
+    })
+
+    it('rethrows error and executes finally block when saveCursorsDebounced throws', async () => {
+      await manager.setAccount('test-account')
+      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+
+      const emitSpy = vi.spyOn(manager.eventHub, 'emit')
+      ;(manager as any).saveCursorsDebounced = vi.fn().mockImplementation(() => {
+        throw new Error('Save cursors failed')
+      })
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-1' as ItemId,
+          hasMore: false,
+          nextCursor: 5,
+          messages: [
+            {
+              cursor: 2,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      await expect(manager.processPullResults(pullResults)).rejects.toThrow('Save cursors failed')
+      expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'retryingStateChange' }))
+    })
   })
 })
+
