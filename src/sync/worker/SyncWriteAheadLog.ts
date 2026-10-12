@@ -212,9 +212,10 @@ export class SyncWriteAheadLog {
         await this.remove(supersededInStorage)
       }
 
-      // Valid entries exclude both superseded and currently in-flight entries, sorted chronologically
-      const validEntries = query.validSorted(supersededIds)
-      const entriesToPrune = validEntries.slice(0, count)
+      // Prunable entries exclude superseded entries, in-flight entries, and any entries
+      // belonging to items that have active in-flight entries (to prevent partial WAL history)
+      const prunableEntries = query.prunableSorted(supersededIds)
+      const entriesToPrune = prunableEntries.slice(0, count)
       if (entriesToPrune.length === 0) {
         return
       }
@@ -228,9 +229,10 @@ export class SyncWriteAheadLog {
       )
 
       const prunedItemSet = new Set(prunedItemIds)
-      // Remove all entries belonging to the pruned items to avoid partial change history in WAL
-      const toRemove = validEntries
-        .filter(e => prunedItemSet.has(e.itemId))
+      // Remove all entries belonging to the pruned items to avoid partial change history in WAL.
+      // Safety check: ensure in-flight entries are never removed even defensively.
+      const toRemove = allEntries
+        .filter(e => prunedItemSet.has(e.itemId) && !this.isInFlight(e.id))
         .map(e => e.id)
 
       if (toRemove.length > 0) {
@@ -349,11 +351,10 @@ export class SyncWriteAheadLog {
     })
 
     // If any superseded entries are still present in storage (e.g. crash during compaction),
-    // purge them from storage immediately.
+    // purge them from storage immediately, excluding any in-flight entries to avoid deleting mid-push.
     if (supersededIds.size > 0) {
-      const idsToDelete = rawEntries
-        .filter(e => supersededIds.has(e.id))
-        .map(e => e.id)
+      const query = this.query(rawEntries)
+      const idsToDelete = query.superseded(supersededIds).map(e => e.id)
       if (idsToDelete.length > 0) {
         await this.remove(idsToDelete)
       }
