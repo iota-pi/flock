@@ -241,6 +241,36 @@ describe('AutomergeIndexManager', () => {
     expect(snapshot).toEqual(newDoc)
   })
 
+  it('serializes getIndexSnapshot and listAutomergeItemIds behind in-flight writes to prevent torn reads (M-6)', async () => {
+    let isWriteInProgress = false
+    mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
+      isWriteInProgress = true
+      await new Promise(res => setTimeout(res, 30))
+      mockStore.data = JSON.parse(JSON.stringify(doc))
+      isWriteInProgress = false
+    })
+
+    const manager = new AutomergeIndexManager(accountId, indexStore)
+
+    // Start an in-flight write
+    const writePromise = manager.addAutomergeItemIdsToIndex(['item-concurrent' as ItemId])
+
+    // Concurrently call getIndexSnapshot and listAutomergeItemIds
+    const snapshotPromise = manager.getIndexSnapshot().then(snap => {
+      expect(isWriteInProgress).toBe(false)
+      return snap
+    })
+    const listPromise = manager.listAutomergeItemIds().then(items => {
+      expect(isWriteInProgress).toBe(false)
+      return items
+    })
+
+    const [_, snapshot, items] = await Promise.all([writePromise, snapshotPromise, listPromise])
+
+    expect(snapshot.itemIds).toEqual(['item-concurrent'])
+    expect(items).toEqual(['item-concurrent'])
+  })
+
   describe('Cross-Tab Concurrency & Web Locks (H11)', () => {
     let mockLockManager: MockLockManager
     let originalNavigatorLocks: any
@@ -413,6 +443,30 @@ describe('AutomergeIndexManager', () => {
       await manager.addAutomergeItemIdsToIndex(['item-success' as ItemId])
       const snapshot = await manager.getIndexSnapshot()
       expect(snapshot.itemIds).toContain('item-success')
+
+      manager.close()
+    })
+
+    it('acquires cross-tab Web Lock for getIndexSnapshot and listAutomergeItemIds preventing concurrent reads during remote write (M-6)', async () => {
+      const lockRequestSpy = vi.spyOn(mockLockManager, 'request')
+      const manager = new AutomergeIndexManager(accountId, indexStore)
+
+      await manager.getIndexSnapshot()
+
+      expect(lockRequestSpy).toHaveBeenCalledWith(
+        `flock-index-lock-${accountId}`,
+        expect.objectContaining({ mode: 'exclusive' }),
+        expect.any(Function)
+      )
+
+      lockRequestSpy.mockClear()
+      await manager.listAutomergeItemIds()
+
+      expect(lockRequestSpy).toHaveBeenCalledWith(
+        `flock-index-lock-${accountId}`,
+        expect.objectContaining({ mode: 'exclusive' }),
+        expect.any(Function)
+      )
 
       manager.close()
     })

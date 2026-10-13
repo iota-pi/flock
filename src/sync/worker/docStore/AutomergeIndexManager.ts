@@ -153,7 +153,7 @@ export class AutomergeIndexManager implements LifecycleAware {
     })
   }
 
-  async getIndexSnapshot(): Promise<AutomergeIndexDocument> {
+  private async getIndexSnapshotInternal(): Promise<AutomergeIndexDocument> {
     const doc = await this.indexStore.getIndex()
     return {
       accountId: doc?.accountId || this.accountId,
@@ -163,6 +163,10 @@ export class AutomergeIndexManager implements LifecycleAware {
       lastSyncTime: doc?.lastSyncTime || 0,
       lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
     }
+  }
+
+  async getIndexSnapshot(): Promise<AutomergeIndexDocument> {
+    return this.withLock(async () => this.getIndexSnapshotInternal())
   }
 
   async replaceIndex(indexDoc: AutomergeIndexDocument): Promise<void> {
@@ -196,7 +200,7 @@ export class AutomergeIndexManager implements LifecycleAware {
 
   async addAutomergeItemIdsToIndex(itemIds: ItemId[]): Promise<void> {
     return this.withLock(async () => {
-      const doc = await this.getIndexSnapshot()
+      const doc = await this.getIndexSnapshotInternal()
       const current = new Set(doc.itemIds || [])
       let updated = false
       for (const id of itemIds) {
@@ -226,7 +230,7 @@ export class AutomergeIndexManager implements LifecycleAware {
 
   async removeAutomergeItemIdsFromIndex(itemIds: ItemId[]): Promise<void> {
     return this.withLock(async () => {
-      const doc = await this.getIndexSnapshot()
+      const doc = await this.getIndexSnapshotInternal()
       const removeSet = new Set(itemIds)
       const current = doc.itemIds || []
       const newItemIds = current.filter(id => !removeSet.has(id))
@@ -267,7 +271,7 @@ export class AutomergeIndexManager implements LifecycleAware {
 
   async updateLocalMetadata(metadata: AccountMetadata): Promise<void> {
     return this.withLock(async () => {
-      const doc = await this.getIndexSnapshot()
+      const doc = await this.getIndexSnapshotInternal()
       doc.metadata = metadata
       await this.indexStore.saveIndex(doc)
       this.notifyLocalMetadataUpdated(metadata)
@@ -277,7 +281,7 @@ export class AutomergeIndexManager implements LifecycleAware {
 
   async updateAutomergeMetadata(changes: Partial<AccountMetadata>): Promise<AccountMetadata> {
     return this.withLock(async () => {
-      const doc = await this.getIndexSnapshot()
+      const doc = await this.getIndexSnapshotInternal()
       doc.metadata = { ...doc.metadata, ...changes }
       await this.indexStore.saveIndex(doc)
       this.notifyLocalMetadataUpdated(doc.metadata)
@@ -293,7 +297,7 @@ export class AutomergeIndexManager implements LifecycleAware {
 
   async updateLastSyncTime(time: number): Promise<void> {
     return this.withLock(async () => {
-      const doc = await this.getIndexSnapshot()
+      const doc = await this.getIndexSnapshotInternal()
       doc.lastSyncTime = time
       await this.indexStore.saveIndex(doc)
     })
@@ -306,7 +310,7 @@ export class AutomergeIndexManager implements LifecycleAware {
 
   async updateLastManifestSyncTime(time: number): Promise<void> {
     return this.withLock(async () => {
-      const doc = await this.getIndexSnapshot()
+      const doc = await this.getIndexSnapshotInternal()
       doc.lastManifestSyncTime = time
       await this.indexStore.saveIndex(doc)
     })
