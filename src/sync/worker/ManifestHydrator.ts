@@ -1,5 +1,4 @@
 import { chunk } from 'lodash-es'
-import * as Automerge from '@automerge/automerge/slim'
 
 import type { Item } from '../../state/items'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
@@ -290,10 +289,12 @@ export class ManifestHydrator {
       knownToExist: knownSet.has(itemId),
     })
     try {
-      const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
-      this.deps.onItemSnapshotHydrated?.(itemId, heads)
+      const heads = hydrationResult?.incomingHeads
+      if (heads) {
+        this.deps.onItemSnapshotHydrated?.(itemId, heads)
+      }
     } catch {
-      // Best-effort heads notification; ignore failure if binary cannot be inspected
+      // Best-effort heads notification; ignore failure if notification throws
     }
 
     const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))

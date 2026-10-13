@@ -96,6 +96,33 @@ describe('ManifestHydrator', () => {
       expect(onItemSnapshotHydratedSpy).toHaveBeenCalledWith('item-binary', ['head-1'])
     })
 
+    it('does not notify onItemSnapshotHydrated when incomingHeads is missing', async () => {
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDocStore.hydrateAutomergeDocumentBinary.mockResolvedValue({
+        hasLocalChanges: false,
+      })
+
+      const item = {
+        item: 'item-no-heads',
+        snapshot: { iv: 'iv-1', cipher: 'c-1' },
+      }
+
+      const result = await hydrator.hydrateRemoteItem(
+        item as any,
+        [{ itemId: 'item-no-heads' as ItemId, modifiedAt: 2000 }],
+        new Set(['item-no-heads' as ItemId]),
+      )
+
+      expect(result).toEqual({
+        status: 'success',
+        itemId: 'item-no-heads',
+        hydratedId: 'item-no-heads',
+        lastModifiedUpdate: ['item-no-heads', 2000],
+        versionUpdate: ['item-no-heads', 1],
+      })
+      expect(onItemSnapshotHydratedSpy).not.toHaveBeenCalled()
+    })
+
     it('returns structured success with markDirty when Automerge document has local changes', async () => {
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
       mockDocStore.hydrateAutomergeDocumentBinary.mockResolvedValue({
