@@ -1710,5 +1710,166 @@ describe('SyncPullQueueManager', () => {
       expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'retryingStateChange' }))
     })
   })
+
+  describe('batchProgress cleanup on cursor advancement and retry (M-5)', () => {
+    it('cleans up batchProgress when an item fails 1-4 times and then cursor advances without permanent failure', async () => {
+      await manager.setAccount('account-m5')
+      const itemId = 'item-m5-advance' as ItemId
+
+      let failMessage2 = true
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed' && failMessage2 && e.message[0] === 40) {
+          throw new Error('Transient failure on sub-message 2')
+        }
+      })
+
+      const msg1 = new Uint8Array([10, 20])
+      const msg2 = new Uint8Array([40, 50])
+      const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
+      const view = new DataView(combined.buffer)
+      let offset = 0
+      view.setUint32(offset, msg1.length, false)
+      offset += 4
+      combined.set(msg1, offset)
+      offset += msg1.length
+      view.setUint32(offset, msg2.length, false)
+      offset += 4
+      combined.set(msg2, offset)
+
+      mockDecryptBytes.mockResolvedValue(combined)
+
+      // Attempt 1: Cursor 10 partially parses msg1 then fails on msg2
+      const attempt1Results: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId,
+          hasMore: true,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'cipher',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(attempt1Results)
+
+      // batchProgress should now contain an entry for itemId:10
+      expect(manager.hasBatchProgressForTesting(itemId, 10)).toBe(true)
+      expect(manager.getBatchProgressCountForTesting()).toBe(1)
+
+      // Attempt 2 (retry 1 of 5 - NOT permanently failed):
+      // The server advances cursor to 20 (e.g. via nextCursor or skipping corrupt entry)
+      const attempt2Results: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId,
+          hasMore: false,
+          nextCursor: 20,
+          messages: [],
+        },
+      ]
+
+      await manager.processPullResults(attempt2Results)
+
+      // batchProgress must be cleared for cursor <= 20!
+      expect(manager.hasBatchProgressForTesting(itemId, 10)).toBe(false)
+      expect(manager.getBatchProgressCountForTesting()).toBe(0)
+    })
+
+    it('cleans up batchProgress when importCursors advances cursor past pending batch progress', async () => {
+      await manager.setAccount('account-m5-import')
+      const itemId = 'item-m5-import' as ItemId
+
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'messageParsed' && e.message[0] === 40) {
+          throw new Error('Transient error')
+        }
+      })
+
+      const msg1 = new Uint8Array([10])
+      const msg2 = new Uint8Array([40])
+      const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
+      const view = new DataView(combined.buffer)
+      let offset = 0
+      view.setUint32(offset, msg1.length, false)
+      offset += 4
+      combined.set(msg1, offset)
+      offset += msg1.length
+      view.setUint32(offset, msg2.length, false)
+      offset += 4
+      combined.set(msg2, offset)
+
+      mockDecryptBytes.mockResolvedValue(combined)
+
+      await manager.processPullResults([
+        {
+          success: true,
+          itemId,
+          hasMore: true,
+          messages: [
+            {
+              cursor: 5,
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'cipher',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ])
+
+      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(true)
+
+      // Now import cursors advancing past cursor 5
+      await manager.importCursors([[itemId, 10]])
+
+      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(false)
+      expect(manager.getBatchProgressCountForTesting()).toBe(0)
+    })
+
+    it('cleans up batchProgress when a message cursor <= initialCursor is skipped', async () => {
+      await manager.setAccount('account-m5-skip')
+      const itemId = 'item-m5-skip' as ItemId
+
+      // Inject partial batch progress directly for cursor 5
+      ;(manager as any).setBatchProgress(itemId, 5, 1)
+      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(true)
+
+      // Initial cursor is already 10 (higher than entry cursor 5)
+      await manager.importCursors([[itemId, 10]])
+      // Ensure batch progress is re-injected to test processItemMessages skip path
+      ;(manager as any).setBatchProgress(itemId, 5, 1)
+      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(true)
+
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
+
+      await manager.processPullResults([
+        {
+          success: true,
+          itemId,
+          hasMore: false,
+          messages: [
+            {
+              cursor: 5, // <= initialCursor (10)
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'cipher',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ])
+
+      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(false)
+    })
+  })
 })
 

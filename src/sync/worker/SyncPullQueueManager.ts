@@ -98,6 +98,26 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
+  private clearBatchProgressUpTo(itemId: ItemId, cursor: number): void {
+    const prefix = `${itemId}:`
+    for (const key of this.batchProgress.keys()) {
+      if (key.startsWith(prefix)) {
+        const entryCursor = Number(key.slice(prefix.length))
+        if (!Number.isFinite(entryCursor) || entryCursor <= cursor) {
+          this.batchProgress.delete(key)
+        }
+      }
+    }
+  }
+
+  getBatchProgressCountForTesting(): number {
+    return this.batchProgress.size
+  }
+
+  hasBatchProgressForTesting(itemId: ItemId, cursor: number): boolean {
+    return this.batchProgress.has(this.makeBatchProgressKey(itemId, cursor))
+  }
+
   setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
     this.account = account
@@ -309,6 +329,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
       for (const entry of sortedMessages) {
         if (Number.isFinite(entry.cursor) && (entry.cursor as number) <= initialCursor) {
+          this.clearBatchProgress(itemId, entry.cursor as number)
           highestCursor = Math.max(highestCursor, entry.cursor as number)
           continue
         }
@@ -382,9 +403,18 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       lastEvaluatedKey: result.lastEvaluatedKey,
     })
 
-    if (outcome.permanentlyFailed) {
-      this.clearBatchProgressForItem(itemId)
+    if (highestCursor > initialCursor) {
+      this.clearBatchProgressUpTo(itemId, highestCursor)
+    }
 
+    if (
+      outcome.permanentlyFailed ||
+      (!messageResult.hasParseFailure && !messageResult.hasKeyFailure && !hasMore)
+    ) {
+      this.clearBatchProgressForItem(itemId)
+    }
+
+    if (outcome.permanentlyFailed) {
       const err = new Error(
         `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
       )
@@ -461,6 +491,9 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   async importCursors(cursors: [ItemId, number][]): Promise<void> {
     if (!this.account) return
     this.retryTracker.importCursors(cursors)
+    for (const [itemId, cursor] of cursors) {
+      this.clearBatchProgressUpTo(itemId, cursor)
+    }
     await this.cursorStore.saveCursors(this.retryTracker.exportState())
   }
 
