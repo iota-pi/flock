@@ -620,5 +620,16 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       expect((worker as any)._context.snapshotManager.clearOversized).toHaveBeenCalledWith('item-old')
       expect((worker as any)._context.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
     })
+
+    it('delegates flushSync to orchestrator.flush and returns a Promise<void>', async () => {
+      const worker = new SyncWorker()
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      const result = worker.flushSync()
+      expect(result).toBeInstanceOf(Promise)
+      await result
+
+      expect(mockOrchestratorFlush).toHaveBeenCalledTimes(1)
+    })
   })
 })

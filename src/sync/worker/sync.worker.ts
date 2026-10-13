@@ -457,7 +457,7 @@ export class SyncWorker implements SyncApi {
   restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
     this.withContext(ctx => ctx.docStore.restoreFromBinaries(documents, ctx.indexManager))
 
-  flushSync = () =>
+  flushSync = (): Promise<void> =>
     this.withContext(ctx => ctx.orchestrator.flush())
 
   fullResync = () =>

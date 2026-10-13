@@ -55,7 +55,7 @@ const mockSyncApi = {
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
   updateAuthToken: vi.fn().mockResolvedValue(undefined),
   reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
-  flushSync: vi.fn().mockReturnValue(undefined),
+  flushSync: vi.fn().mockResolvedValue(undefined),
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
   retrySave: vi.fn().mockResolvedValue({ success: true }),
   claimLeader: vi.fn().mockResolvedValue(undefined),
@@ -152,7 +152,7 @@ describe('SyncBridge', () => {
     mockSyncApi.dismissRecoveryItem.mockResolvedValue(undefined)
     mockSyncApi.updateVaultKey.mockResolvedValue(undefined)
     mockSyncApi.reencryptAllItems.mockResolvedValue(undefined)
-    mockSyncApi.flushSync.mockReturnValue(undefined)
+    mockSyncApi.flushSync.mockResolvedValue(undefined)
     useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
   })
 
