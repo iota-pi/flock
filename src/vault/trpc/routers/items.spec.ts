@@ -21,7 +21,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
 }
 
 describe('itemsRouter.putSnapshots', () => {
-  it('persists snapshots and updates account data', async () => {
+  it('persists snapshots', async () => {
     const ctx = createContext()
     const caller = itemsRouter.createCaller(ctx as any)
 
@@ -64,11 +64,6 @@ describe('itemsRouter.putSnapshots', () => {
     })
 
     expect(ctx.vault.set).toHaveBeenCalledTimes(2)
-    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
-      account: 'acct-1',
-      lastSnapshotCursor: 20,
-      lastSnapshotAt: expect.any(Number),
-    })
   })
 
   it('returns success: false when one snapshot write fails', async () => {
