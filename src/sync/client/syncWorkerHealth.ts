@@ -285,8 +285,9 @@ export class SyncWorkerHealthMonitor {
         console.warn(`[SyncBridge] Sleep/throttle detected (${timeSinceLastTick}ms elapsed since last tick). Discarding stale ping.`)
         if (this.isPinging && this.activePingAbortController) {
           this.activePingAbortController.abort(new Error('System sleep detected'))
+        } else {
+          this.isPinging = false
         }
-        this.isPinging = false
         this.consecutiveMissedPings = 0
         return
       }
@@ -343,8 +344,8 @@ export class SyncWorkerHealthMonitor {
       } finally {
         if (this.activePingAbortController === abortController) {
           this.activePingAbortController = null
+          this.isPinging = false
         }
-        this.isPinging = false
       }
     }, heartbeatIntervalMs)
   }
