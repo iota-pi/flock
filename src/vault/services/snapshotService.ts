@@ -3,6 +3,7 @@ import type { VaultItem, VaultDriver } from '../drivers/base'
 import type { PutSnapshotBatchSchema } from '../../shared/schemas/trpc'
 import type { ItemType } from '../types'
 
+import type { ItemId } from 'src/shared/schemas/items'
 export type { VaultDriver }
 export type PutSnapshotInput = z.infer<typeof PutSnapshotBatchSchema>
 
@@ -10,25 +11,17 @@ export interface PersistSnapshotsResult {
   success: boolean
   persisted: number
   total: number
-}
-
-export interface PersistSnapshotsOptions {
-  now?: () => number
+  results?: Array<{ itemId: ItemId; version: number }>
 }
 
 /**
  * Persists a batch of encrypted item snapshots into the vault,
- * records error diagnostics for any rejected writes, and advances
- * the account's lastSnapshotCursor and lastSnapshotAt if at least
- * one snapshot succeeded.
+ * records error diagnostics for any rejected writes.
  */
 export async function persistSnapshots(
   vault: VaultDriver,
   input: PutSnapshotInput,
-  options?: PersistSnapshotsOptions,
 ): Promise<PersistSnapshotsResult> {
-  const now = options?.now ?? Date.now
-
   const results = await Promise.allSettled(
     input.snapshots.map(async snapshot => {
       const item: VaultItem = {
@@ -43,36 +36,31 @@ export async function persistSnapshots(
         snapshot: snapshot.snapshot,
       }
 
-      await vault.set(item)
+      const setResult = await vault.set(item)
+      return {
+        itemId: snapshot.itemId,
+        version: setResult?.version ?? 1,
+      }
     })
   )
 
-  const persistedSnapshots = results
-    .map((result, index) => (result.status === 'fulfilled' ? input.snapshots[index] : null))
-    .filter((snapshot): snapshot is typeof input.snapshots[number] => Boolean(snapshot))
-  const persisted = persistedSnapshots.length
-
+  const persistedResults: Array<{ itemId: ItemId; version: number }> = []
   results.forEach((result, index) => {
-    if (result.status === 'rejected') {
+    if (result.status === 'fulfilled') {
+      persistedResults.push(result.value)
+    } else {
       console.error(
         `[snapshotService.persistSnapshots] Failed to persist snapshot for item ${input.snapshots[index].itemId}:`,
         result.reason,
       )
     }
   })
-
-  if (persisted > 0) {
-    const snapshotCursor = Math.max(...persistedSnapshots.map(snapshot => snapshot.snapshotCursor))
-    await vault.updateAccountData({
-      account: input.account,
-      lastSnapshotCursor: snapshotCursor,
-      lastSnapshotAt: now(),
-    })
-  }
+  const persisted = persistedResults.length
 
   return {
     success: persisted === input.snapshots.length,
     persisted,
     total: input.snapshots.length,
+    results: persistedResults,
   }
 }

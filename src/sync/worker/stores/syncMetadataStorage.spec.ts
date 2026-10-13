@@ -4,6 +4,8 @@ import {
   clearSyncMetadataInstancesCacheForTesting,
   clearSyncMetadataStorage,
   clearLegacySyncDatabases,
+  probeDatabaseExists,
+  hasLegacyDatabase,
   SYNC_METADATA_STORE_NAME,
   SYNC_METADATA_KEYS,
   LEGACY_DB_NAMES,
@@ -233,6 +235,91 @@ describe('ScopedMetadataStore', () => {
     }
   })
 
+  it('migrates from legacy database when indexedDB.databases() throws (Safari Web Worker)', async () => {
+    const originalIndexedDb = (globalThis as any).indexedDB
+    const mockDbClose = vi.fn()
+    ;(globalThis as any).indexedDB = {
+      databases: vi.fn().mockRejectedValue(new Error('SecurityError in Web Worker')),
+      open: vi.fn().mockImplementation((name: string) => {
+        const req: any = {
+          onsuccess: null,
+          onerror: null,
+          result: { close: mockDbClose },
+        }
+        setTimeout(() => {
+          if (name === 'test-legacy-db') {
+            req.onsuccess?.({ target: { result: req.result } })
+          } else {
+            req.onerror?.({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+          }
+        }, 0)
+        return req
+      }),
+    }
+    try {
+      const legacyStoreKey = `test-legacy-db#test-store-${accountId}`
+      const legacyStore = createMockLocalForage({ name: 'test-legacy-db', storeName: `test-store-${accountId}` })
+      await legacyStore.setItem('testLegacyKey', { value: 'from-safari-worker-legacy-db' })
+      mockInstances.set(legacyStoreKey, legacyStore)
+
+      const data = await store.getScopedData()
+      expect(data).toEqual({ value: 'from-safari-worker-legacy-db' })
+      expect(mockDbClose).toHaveBeenCalled()
+
+      const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+      expect(await consolidated.getItem('testKey')).toEqual({ value: 'from-safari-worker-legacy-db' })
+      expect(await legacyStore.getItem('testLegacyKey')).toBeNull()
+    } finally {
+      if (originalIndexedDb === undefined) {
+        delete (globalThis as any).indexedDB
+      } else {
+        ;(globalThis as any).indexedDB = originalIndexedDb
+      }
+    }
+  })
+
+  it('migrates from legacy database when indexedDB.databases is undefined (Firefox)', async () => {
+    const originalIndexedDb = (globalThis as any).indexedDB
+    const mockDbClose = vi.fn()
+    ;(globalThis as any).indexedDB = {
+      open: vi.fn().mockImplementation((name: string) => {
+        const req: any = {
+          onsuccess: null,
+          onerror: null,
+          result: { close: mockDbClose },
+        }
+        setTimeout(() => {
+          if (name === 'test-legacy-db') {
+            req.onsuccess?.({ target: { result: req.result } })
+          } else {
+            req.onerror?.({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+          }
+        }, 0)
+        return req
+      }),
+    }
+    try {
+      const legacyStoreKey = `test-legacy-db#test-store-${accountId}`
+      const legacyStore = createMockLocalForage({ name: 'test-legacy-db', storeName: `test-store-${accountId}` })
+      await legacyStore.setItem('testLegacyKey', { value: 'from-firefox-legacy-db' })
+      mockInstances.set(legacyStoreKey, legacyStore)
+
+      const data = await store.getScopedData()
+      expect(data).toEqual({ value: 'from-firefox-legacy-db' })
+      expect(mockDbClose).toHaveBeenCalled()
+
+      const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+      expect(await consolidated.getItem('testKey')).toEqual({ value: 'from-firefox-legacy-db' })
+      expect(await legacyStore.getItem('testLegacyKey')).toBeNull()
+    } finally {
+      if (originalIndexedDb === undefined) {
+        delete (globalThis as any).indexedDB
+      } else {
+        ;(globalThis as any).indexedDB = originalIndexedDb
+      }
+    }
+  })
+
   it('clears scoped data and legacy key without wiping other keys in storage', async () => {
     const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
     await consolidated.setItem('unrelatedKey', 'important-data')
@@ -244,6 +331,173 @@ describe('ScopedMetadataStore', () => {
     expect(await consolidated.getItem('testKey')).toBeNull()
     expect(await consolidated.getItem('testLegacyKey')).toBeNull()
     expect(await consolidated.getItem('unrelatedKey')).toBe('important-data')
+  })
+})
+
+describe('hasLegacyDatabase and probeDatabaseExists', () => {
+  const originalIndexedDb = (globalThis as any).indexedDB
+
+  afterEach(() => {
+    if (originalIndexedDb === undefined) {
+      delete (globalThis as any).indexedDB
+    } else {
+      ;(globalThis as any).indexedDB = originalIndexedDb
+    }
+  })
+
+  it('returns false when indexedDB is undefined', async () => {
+    delete (globalThis as any).indexedDB
+    expect(await hasLegacyDatabase('some-db')).toBe(false)
+    expect(await probeDatabaseExists('some-db')).toBe(false)
+  })
+
+  it('probeDatabaseExists returns false when indexedDB.open is missing', async () => {
+    ;(globalThis as any).indexedDB = {}
+    expect(await probeDatabaseExists('some-db')).toBe(false)
+  })
+
+  it('probeDatabaseExists returns true and closes database when onsuccess fires', async () => {
+    const mockClose = vi.fn()
+    ;(globalThis as any).indexedDB = {
+      open: vi.fn().mockImplementation(() => {
+        const req: any = {}
+        setTimeout(() => {
+          req.onsuccess?.({ target: { result: { close: mockClose } } })
+        }, 0)
+        return req
+      }),
+    }
+    const exists = await probeDatabaseExists('existing-db')
+    expect(exists).toBe(true)
+    expect(mockClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('probeDatabaseExists returns false, aborts transaction, and calls deleteDatabase when oldVersion === 0', async () => {
+    const mockAbort = vi.fn()
+    const mockDelete = vi.fn()
+    ;(globalThis as any).indexedDB = {
+      deleteDatabase: mockDelete,
+      open: vi.fn().mockImplementation(() => {
+        const req: any = {
+          transaction: { abort: mockAbort },
+        }
+        setTimeout(() => {
+          req.onupgradeneeded?.({
+            oldVersion: 0,
+            target: { transaction: { abort: mockAbort } },
+          })
+        }, 0)
+        return req
+      }),
+    }
+    const exists = await probeDatabaseExists('non-existent-db')
+    expect(exists).toBe(false)
+    expect(mockAbort).toHaveBeenCalled()
+    expect(mockDelete).toHaveBeenCalledWith('non-existent-db')
+  })
+
+  it('probeDatabaseExists returns true when oldVersion > 0 in onupgradeneeded', async () => {
+    ;(globalThis as any).indexedDB = {
+      open: vi.fn().mockImplementation(() => {
+        const req: any = {}
+        setTimeout(() => {
+          req.onupgradeneeded?.({ oldVersion: 1, target: {} })
+        }, 0)
+        return req
+      }),
+    }
+    const exists = await probeDatabaseExists('upgraded-db')
+    expect(exists).toBe(true)
+  })
+
+  it('probeDatabaseExists returns false on error and prevents default', async () => {
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    ;(globalThis as any).indexedDB = {
+      open: vi.fn().mockImplementation(() => {
+        const req: any = {}
+        setTimeout(() => {
+          req.onerror?.({ preventDefault, stopPropagation })
+        }, 0)
+        return req
+      }),
+    }
+    const exists = await probeDatabaseExists('failing-db')
+    expect(exists).toBe(false)
+    expect(preventDefault).toHaveBeenCalled()
+  })
+
+  it('probeDatabaseExists returns true onblocked', async () => {
+    ;(globalThis as any).indexedDB = {
+      open: vi.fn().mockImplementation(() => {
+        const req: any = {}
+        setTimeout(() => {
+          req.onblocked?.()
+        }, 0)
+        return req
+      }),
+    }
+    const exists = await probeDatabaseExists('blocked-db')
+    expect(exists).toBe(true)
+  })
+
+  it('probeDatabaseExists returns false if indexedDB.open throws synchronously', async () => {
+    ;(globalThis as any).indexedDB = {
+      open: vi.fn().mockImplementation(() => {
+        throw new Error('Access denied')
+      }),
+    }
+    const exists = await probeDatabaseExists('throwing-db')
+    expect(exists).toBe(false)
+  })
+
+  it('hasLegacyDatabase uses indexedDB.databases() when available and returns match', async () => {
+    ;(globalThis as any).indexedDB = {
+      databases: vi.fn().mockResolvedValue([{ name: 'found-db' }, { name: 'other-db' }]),
+      open: vi.fn(),
+    }
+    expect(await hasLegacyDatabase('found-db')).toBe(true)
+    expect(await hasLegacyDatabase('missing-db')).toBe(false)
+    expect((globalThis as any).indexedDB.open).not.toHaveBeenCalled()
+  })
+
+  it('hasLegacyDatabase falls back to probeDatabaseExists when indexedDB.databases() rejects', async () => {
+    const mockClose = vi.fn()
+    ;(globalThis as any).indexedDB = {
+      databases: vi.fn().mockRejectedValue(new Error('Safari WebKit worker restriction')),
+      open: vi.fn().mockImplementation((name: string) => {
+        const req: any = {}
+        setTimeout(() => {
+          if (name === 'legacy-target') {
+            req.onsuccess?.({ target: { result: { close: mockClose } } })
+          } else {
+            req.onupgradeneeded?.({ oldVersion: 0, target: { transaction: { abort: vi.fn() } } })
+          }
+        }, 0)
+        return req
+      }),
+    }
+    expect(await hasLegacyDatabase('legacy-target')).toBe(true)
+    expect(await hasLegacyDatabase('other-target')).toBe(false)
+  })
+
+  it('hasLegacyDatabase falls back to probeDatabaseExists when indexedDB.databases is undefined', async () => {
+    const mockClose = vi.fn()
+    ;(globalThis as any).indexedDB = {
+      open: vi.fn().mockImplementation((name: string) => {
+        const req: any = {}
+        setTimeout(() => {
+          if (name === 'firefox-legacy') {
+            req.onsuccess?.({ target: { result: { close: mockClose } } })
+          } else {
+            req.onerror?.({ preventDefault: vi.fn() })
+          }
+        }, 0)
+        return req
+      }),
+    }
+    expect(await hasLegacyDatabase('firefox-legacy')).toBe(true)
+    expect(await hasLegacyDatabase('firefox-missing')).toBe(false)
   })
 })
 

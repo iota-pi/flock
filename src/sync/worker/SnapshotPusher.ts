@@ -3,6 +3,7 @@ import { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { classifySyncError } from './utils/errorClassifier'
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import type { ClientEventHub } from './SyncEventHub'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -68,7 +69,7 @@ export class SnapshotPusher {
     this.broker = options.broker
     this.eventHub = options.eventHub
     this.getLatestCursor = options.getLatestCursor
-    this.maxPayloadBytes = options.maxPayloadBytes ?? 350 * 1024
+    this.maxPayloadBytes = options.maxPayloadBytes ?? MAX_ITEM_SIZE_BYTES
     this.apiClient = options.apiClient ?? new SyncApiClient()
     this.recoveryManager = options.recoveryManager ?? new RecoveryManager({
       accountId: options.accountId,
@@ -179,7 +180,7 @@ export class SnapshotPusher {
   private async sendSnapshotBatch(
     batch: VaultSnapshotInput[],
     signal?: AbortSignal,
-  ): Promise<{ success: boolean; persisted: number }> {
+  ): Promise<{ success: boolean; persisted: number; results?: Array<{ itemId: ItemId; version: number }> }> {
     if (batch.length === 0) {
       return { success: true, persisted: 0 }
     }
@@ -193,7 +194,7 @@ export class SnapshotPusher {
       )
 
       if (response?.success && response.persisted === batch.length) {
-        return { success: true, persisted: response.persisted }
+        return { success: true, persisted: response.persisted, results: response.results }
       }
       return { success: false, persisted: response?.persisted ?? 0 }
     } catch (error) {
@@ -259,12 +260,12 @@ export class SnapshotPusher {
       )
       this.eventHub?.emit({
         type: 'quotaExceeded',
-        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. History compaction is required to resume sync.`,
+        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
       })
       fireAndForget(
         this.recoveryManager.quarantine(
           itemId,
-          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. History compaction is required to resume sync.`,
+          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
         ),
         'SnapshotPusher:quarantine',
       )
@@ -311,9 +312,11 @@ export class SnapshotPusher {
 
   private finalizeSuccessfulBatch(
     batch: PreparedSnapshotItem[],
+    versionsMap?: Map<ItemId, number>,
   ): void {
     for (const item of batch) {
-      this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick)
+      const assignedVersion = versionsMap?.get(item.snapshot.itemId)
+      this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
       if (item.heads && item.heads.length > 0) {
         this.broker.setSyncedHeads?.(item.snapshot.itemId, item.heads)
       }
@@ -338,7 +341,10 @@ export class SnapshotPusher {
       signal,
     )
     if (result.success) {
-      this.finalizeSuccessfulBatch(batch)
+      const versionsMap = result.results
+        ? new Map(result.results.map(r => [r.itemId, r.version]))
+        : undefined
+      this.finalizeSuccessfulBatch(batch, versionsMap)
     }
     return result
   }

@@ -126,6 +126,10 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     this.tracker.markItemDirty(itemId, customDebounceDelayMs)
   }
 
+  deleteDirtyItem(itemId: ItemId): boolean {
+    return this.tracker.deleteDirtyItem(itemId)
+  }
+
   recordInboundChange(itemId: ItemId, timestamp: number = Date.now()): void {
     this.tracker.recordInboundChange(itemId, timestamp)
   }
@@ -176,6 +180,18 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {
     await this.tracker.importLastModified(data)
+  }
+
+  getBaseVersion(itemId: ItemId): number {
+    return this.tracker.getBaseVersion(itemId)
+  }
+
+  exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
+    return this.tracker.exportItemVersions()
+  }
+
+  async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
+    await this.tracker.importVersions(updates)
   }
 
   clear(): void {

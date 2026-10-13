@@ -236,7 +236,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
       return
     }
     this.pendingKeyMessages.delete(kver)
-    this.receiveQueue.unshift(...pending.map(message => ({ message, retries: 0 })))
+    this.receiveQueue.push(...pending.map(message => ({ message, retries: 0 })))
   }
 
   private async processReceiveItem(item: QueuedMessage): Promise<void> {

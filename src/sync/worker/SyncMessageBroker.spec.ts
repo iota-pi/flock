@@ -250,7 +250,7 @@ describe('SyncMessageBroker', () => {
     expect(prunedSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
   })
 
-  it('drops outgoing sync messages for snapshot-only items and forwards to onWalEntriesPruned', async () => {
+  it('drops outgoing sync messages for snapshot-only items without re-emitting walEntriesPruned', async () => {
     const prunedSpy = vi.fn()
     internalEventHub.subscribe(e => {
       if (e.type === 'walEntriesPruned') prunedSpy(e.itemIds)
@@ -271,8 +271,8 @@ describe('SyncMessageBroker', () => {
 
     // WAL append should NOT be called for snapshot-only item
     expect(mockWal.append).not.toHaveBeenCalled()
-    // It should re-notify onWalEntriesPruned so snapshotManager dirty queue stays fresh
-    expect(prunedSpy).toHaveBeenCalledWith(['item-1'])
+    // It should NOT re-emit walEntriesPruned to avoid spurious downstream invocations
+    expect(prunedSpy).not.toHaveBeenCalled()
   })
 
   it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeads or clearSnapshotOnlyItem', async () => {

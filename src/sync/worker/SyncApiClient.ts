@@ -13,7 +13,7 @@ import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { AccountMetadata } from '../../state/metadata'
-import type { ManifestEntry, SyncPollBatchSchema } from 'src/shared/schemas/trpc'
+import type { ManifestEntry, SyncPollBatchSchema, PutSnapshotResultItem } from 'src/shared/schemas/trpc'
 
 function safeSetApiAuthToken(token: string) {
   try {
@@ -262,7 +262,7 @@ export class SyncApiClient {
       snapshots: VaultSnapshotInput[]
     },
     options?: { signal?: AbortSignal }
-  ): Promise<{ success: boolean; persisted: number; total?: number }> {
+  ): Promise<{ success: boolean; persisted: number; total?: number; results?: PutSnapshotResultItem[] }> {
     return this.executeWithAuth(async authToken => {
       return putSnapshotsWithToken(
         {

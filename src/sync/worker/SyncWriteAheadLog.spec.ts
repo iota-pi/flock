@@ -1,4 +1,4 @@
-import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, clearWalInstancesCacheForTesting, toUint8Array } from './SyncWriteAheadLog'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from 'src/shared/schemas/items'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../../utils/storageManager'
@@ -563,7 +563,7 @@ describe('SyncWriteAheadLog', () => {
     expect(remaining.has('item-push-race' as ItemId)).toBe(false)
   })
 
-  it('compacts only non-in-flight entries if new entries arrive during active push', async () => {
+  it('skips compaction for items with in-flight entries to prevent entry fragmentation', async () => {
     const id1 = await wal.append('item-partial-push' as ItemId, new Uint8Array([1]))
     const id2 = await wal.append('item-partial-push' as ItemId, new Uint8Array([2]))
 
@@ -571,23 +571,26 @@ describe('SyncWriteAheadLog', () => {
     wal.markInFlight([id1, id2])
 
     // id3 and id4 arrive while id1 and id2 are in flight
-    await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
-    await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
+    const id3 = await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
+    const id4 = await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
 
-    // Compaction runs
+    // Compaction runs while item has active in-flight entries
     const reduced = await wal.compact()
-    // id3 and id4 compacted into 1 entry (reduced by 1)
-    expect(reduced).toBe(1)
+    // Entire item should be skipped from compaction to avoid fragmenting its entries
+    expect(reduced).toBe(0)
 
     const entries = await wal.readAll()
     const itemEntries = entries.get('item-partial-push' as ItemId)!
-    // Expect 3 entries: id1 (in-flight), id2 (in-flight), and the compacted id3+id4 entry
-    expect(itemEntries).toHaveLength(3)
-    expect(itemEntries.map(e => e.id)).toContain(id1)
-    expect(itemEntries.map(e => e.id)).toContain(id2)
+    // All 4 original individual entries remain untouched without fragmentation
+    expect(itemEntries).toHaveLength(4)
+    expect(itemEntries.map(e => e.id)).toEqual([id1, id2, id3, id4])
 
     // Remove the acknowledged in-flight entries
     await wal.remove([id1, id2])
+
+    // Now that item has no in-flight entries, subsequent compaction compacts remaining id3+id4
+    const reducedAfterAck = await wal.compact()
+    expect(reducedAfterAck).toBe(1)
 
     // Only the compacted id3+id4 entry remains
     const remaining = await wal.readAll()
@@ -796,6 +799,274 @@ describe('SyncWriteAheadLog', () => {
     wal.unmarkInFlight(['q1'])
     const query2 = wal.query(entries)
     expect(query2.available().map(e => e.id)).toEqual(['q1', 'q2'])
+  })
+
+  describe('H-7: readAll superseded entries in-flight safety', () => {
+    it('does not purge in-flight superseded entries during readAll to avoid corrupting in-flight push tracking', async () => {
+      const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+      // Setup storage: e1 was compacted into c1, but crashed before remove(e1)
+      store.store.set('e1', {
+        id: 'e1',
+        itemId: 'item-1' as ItemId,
+        data: new Uint8Array([1]),
+        createdAt: 10,
+        seq: 1,
+      })
+      store.store.set('c1', {
+        id: 'c1',
+        itemId: 'item-1' as ItemId,
+        data: new Uint8Array([1, 2]),
+        createdAt: 20,
+        seq: 2,
+        isBatched: true,
+        replaces: ['e1'],
+      })
+
+      // e1 is currently marked in-flight (active push in progress)
+      wal.markInFlight(['e1'])
+      expect(wal.isInFlight('e1')).toBe(true)
+
+      // readAll() is called while push is active
+      const entriesMap = await wal.readAll()
+
+      // e1 must NOT have been removed from storage mid-push
+      expect(store.store.has('e1')).toBe(true)
+      // e1 must still be marked in-flight (tracking not corrupted)
+      expect(wal.isInFlight('e1')).toBe(true)
+
+      // The returned map only contains c1 (the valid non-superseded entry)
+      const itemEntries = entriesMap.get('item-1' as ItemId)!
+      expect(itemEntries).toHaveLength(1)
+      expect(itemEntries[0].id).toBe('c1')
+
+      // Once the push completes and unmarks e1:
+      wal.unmarkInFlight(['e1'])
+      expect(wal.isInFlight('e1')).toBe(false)
+
+      // Next readAll() now safely cleans up the un-in-flight superseded entry
+      await wal.readAll()
+      expect(store.store.has('e1')).toBe(false)
+    })
+  })
+
+  describe('H-8: Pruning cascade excludes items with in-flight entries', () => {
+    it('excludes items with active in-flight entries from pruning cascade to prevent partial WAL history', async () => {
+      const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+      // item-A has 2 entries: a1 (older) and a2 (newer)
+      store.store.set('a1', {
+        id: 'a1',
+        itemId: 'item-A' as ItemId,
+        data: new Uint8Array([1]),
+        createdAt: 10,
+        seq: 1,
+      })
+      store.store.set('a2', {
+        id: 'a2',
+        itemId: 'item-A' as ItemId,
+        data: new Uint8Array([2]),
+        createdAt: 20,
+        seq: 2,
+      })
+      // item-B has 1 entry
+      store.store.set('b1', {
+        id: 'b1',
+        itemId: 'item-B' as ItemId,
+        data: new Uint8Array([3]),
+        createdAt: 30,
+        seq: 3,
+      })
+
+      // Simulate a1 being in-flight (active push), while a2 arrived after push started
+      wal.markInFlight(['a1'])
+
+      const onPruned = vi.fn()
+      wal.eventHub.subscribe(e => {
+        if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
+      })
+
+      // Request pruning of 1 entry
+      await (wal as any).pruneOldest(1)
+
+      // item-A has an active push, so it must NOT be pruned.
+      // Both a1 and a2 must survive in storage (no torn/partial state for item-A!)
+      expect(store.store.has('a1')).toBe(true)
+      expect(store.store.has('a2')).toBe(true)
+
+      // item-B has no in-flight entries, so b1 is pruned instead
+      expect(store.store.has('b1')).toBe(false)
+      expect(onPruned).toHaveBeenCalledWith(['item-B'])
+      expect(onPruned).not.toHaveBeenCalledWith(expect.arrayContaining(['item-A']))
+    })
+
+    it('skips pruning items with in-flight entries even when their non-in-flight entries are the oldest in the WAL', async () => {
+      const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+      // item-A has an in-flight entry a-inflight, and a non-in-flight entry a-idle that is the oldest entry overall
+      store.store.set('a-idle', {
+        id: 'a-idle',
+        itemId: 'item-A' as ItemId,
+        data: new Uint8Array([1]),
+        createdAt: 5,
+        seq: 1,
+      })
+      store.store.set('a-inflight', {
+        id: 'a-inflight',
+        itemId: 'item-A' as ItemId,
+        data: new Uint8Array([2]),
+        createdAt: 100,
+        seq: 2,
+      })
+      // item-B has a non-in-flight entry
+      store.store.set('b-idle', {
+        id: 'b-idle',
+        itemId: 'item-B' as ItemId,
+        data: new Uint8Array([3]),
+        createdAt: 50,
+        seq: 3,
+      })
+
+      wal.markInFlight(['a-inflight'])
+
+      await (wal as any).pruneOldest(1)
+
+      // Despite a-idle being the oldest entry, item-A has an in-flight entry so item-A is protected
+      expect(store.store.has('a-idle')).toBe(true)
+      expect(store.store.has('a-inflight')).toBe(true)
+
+      // item-B is pruned
+      expect(store.store.has('b-idle')).toBe(false)
+    })
+
+    it('does not prune anything if all available entries belong to items with in-flight pushes', async () => {
+      const store = activeStoreMap.get('FlockVault_SyncWAL_test-account:wal-entries')!
+
+      store.store.set('a1', {
+        id: 'a1',
+        itemId: 'item-A' as ItemId,
+        data: new Uint8Array([1]),
+        createdAt: 10,
+        seq: 1,
+      })
+      store.store.set('a2', {
+        id: 'a2',
+        itemId: 'item-A' as ItemId,
+        data: new Uint8Array([2]),
+        createdAt: 20,
+        seq: 2,
+      })
+
+      // a1 is in-flight, a2 is available, but both belong to item-A
+      wal.markInFlight(['a1'])
+
+      await (wal as any).pruneOldest(5)
+
+      // Nothing should be pruned to avoid torn state for item-A
+      expect(store.store.has('a1')).toBe(true)
+      expect(store.store.has('a2')).toBe(true)
+    })
+  })
+
+  describe('worker restart seqCounter persistence (L-5)', () => {
+    it('initializes seqCounter from existing storage entries to prevent mis-ordering on restart in same millisecond', async () => {
+      const fixedNow = 1700000000000
+      vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
+
+      // First worker instance writes 3 entries
+      const id1 = await wal.append('item-restart' as ItemId, new Uint8Array([1]))
+      const id2 = await wal.append('item-restart' as ItemId, new Uint8Array([2]))
+      const id3 = await wal.append('item-restart' as ItemId, new Uint8Array([3]))
+
+      // Simulate worker restart by instantiating a fresh SyncWriteAheadLog for the same account
+      const restartedWal = new SyncWriteAheadLog('test-account')
+
+      // Append 4th entry at identical millisecond timestamp
+      const id4 = await restartedWal.append('item-restart' as ItemId, new Uint8Array([4]))
+
+      const entriesMap = await restartedWal.readAll()
+      const entries = entriesMap.get('item-restart' as ItemId)!
+
+      expect(entries).toHaveLength(4)
+      expect(entries.map(e => e.id)).toEqual([id1, id2, id3, id4])
+
+      // Verify sequence counter strictly advanced beyond previous maximum
+      expect(entries[0].seq).toBe(1)
+      expect(entries[1].seq).toBe(2)
+      expect(entries[2].seq).toBe(3)
+      expect(entries[3].seq).toBe(4)
+
+      vi.restoreAllMocks()
+    })
+
+    it('ensures timestamps never regress even if system clock jumps backwards across restarts', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(2000)
+      const id1 = await wal.append('item-skew' as ItemId, new Uint8Array([1]))
+
+      // Worker restart with clock skewed backwards
+      vi.spyOn(Date, 'now').mockReturnValue(1900)
+      const restartedWal = new SyncWriteAheadLog('test-account')
+      const id2 = await restartedWal.append('item-skew' as ItemId, new Uint8Array([2]))
+
+      const entriesMap = await restartedWal.readAll()
+      const entries = entriesMap.get('item-skew' as ItemId)!
+
+      expect(entries).toHaveLength(2)
+      expect(entries[0].id).toBe(id1)
+      expect(entries[1].id).toBe(id2)
+      expect(entries[1].createdAt).toBeGreaterThanOrEqual(entries[0].createdAt)
+      expect(entries[1].seq!).toBeGreaterThan(entries[0].seq!)
+
+      vi.restoreAllMocks()
+    })
+  })
+
+  describe('toUint8Array conversion without intermediate array (L-6)', () => {
+    it('returns original Uint8Array directly', () => {
+      const original = new Uint8Array([1, 2, 3])
+      expect(toUint8Array(original)).toBe(original)
+    })
+
+    it('converts ArrayBuffer and ArrayBufferView views directly without intermediate arrays', () => {
+      const buffer = new Uint8Array([10, 20, 30]).buffer
+      const fromBuf = toUint8Array(buffer)
+      expect(fromBuf).toBeInstanceOf(Uint8Array)
+      expect(fromBuf).toEqual(new Uint8Array([10, 20, 30]))
+
+      const view = new DataView(buffer)
+      const fromView = toUint8Array(view)
+      expect(fromView).toBeInstanceOf(Uint8Array)
+      expect(fromView).toEqual(new Uint8Array([10, 20, 30]))
+    })
+
+    it('converts number[] array using native constructor', () => {
+      const arr = [5, 10, 15]
+      const result = toUint8Array(arr)
+      expect(result).toBeInstanceOf(Uint8Array)
+      expect(result).toEqual(new Uint8Array([5, 10, 15]))
+    })
+
+    it('converts indexed object with length directly into pre-allocated Uint8Array', () => {
+      const objWithLength = { 0: 42, 1: 84, length: 2 }
+      const result = toUint8Array(objWithLength)
+      expect(result).toBeInstanceOf(Uint8Array)
+      expect(result).toEqual(new Uint8Array([42, 84]))
+    })
+
+    it('converts indexed object without length property using key count', () => {
+      const objWithoutLength = { 0: 100, 1: 200 }
+      const result = toUint8Array(objWithoutLength)
+      expect(result).toBeInstanceOf(Uint8Array)
+      expect(result).toEqual(new Uint8Array([100, 200]))
+    })
+
+    it('handles non-numbers, negative length, and empty input gracefully', () => {
+      expect(toUint8Array(null)).toEqual(new Uint8Array())
+      expect(toUint8Array(undefined)).toEqual(new Uint8Array())
+      expect(toUint8Array('not an object')).toEqual(new Uint8Array())
+      expect(toUint8Array({ length: -5 })).toEqual(new Uint8Array())
+      expect(toUint8Array({ 0: 'invalid', 1: 99, length: 2 })).toEqual(new Uint8Array([0, 99]))
+    })
   })
 })
 

@@ -15,13 +15,18 @@ export type BuildSnapshotResult =
   | { type: 'not-ready' }
   | { type: 'error'; reason?: string }
 
+export interface BuildSnapshotOptions {
+  signal?: AbortSignal
+}
+
 export async function buildSnapshot(
   repo: Repo,
   itemId: ItemId,
   snapshotCursor: number,
+  options?: BuildSnapshotOptions,
 ): Promise<BuildSnapshotResult> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
-  const handle = await repo.find(documentUrl).catch(() => undefined)
+  const handle = await repo.find(documentUrl, options).catch(() => undefined)
   if (!handle) {
     return { type: 'error', reason: 'Document handle not found' }
   }
@@ -79,9 +84,13 @@ export async function buildSnapshot(
 export class SnapshotBuilder {
   constructor(private readonly repo: Repo) {}
 
-  async build(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
+  async build(
+    itemId: ItemId,
+    snapshotCursor: number,
+    options?: BuildSnapshotOptions,
+  ): Promise<BuildSnapshotResult> {
     try {
-      return await buildSnapshot(this.repo, itemId, snapshotCursor)
+      return await buildSnapshot(this.repo, itemId, snapshotCursor, options)
     } catch (error: unknown) {
       const classified = classifySyncError(error)
       if (classified.isTransientVault) {

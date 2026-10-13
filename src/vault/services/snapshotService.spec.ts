@@ -10,9 +10,8 @@ function createMockVault(): VaultDriver {
 }
 
 describe('snapshotService.persistSnapshots', () => {
-  it('transforms input snapshots to VaultItems, calls vault.set for each, and updates account metadata', async () => {
+  it('transforms input snapshots to VaultItems, calls vault.set for each', async () => {
     const vault = createMockVault()
-    const now = () => 1700000000000
 
     const input = {
       account: 'acct-1',
@@ -42,12 +41,16 @@ describe('snapshotService.persistSnapshots', () => {
       ],
     }
 
-    const result = await persistSnapshots(vault, input, { now })
+    const result = await persistSnapshots(vault, input)
 
     expect(result).toEqual({
       success: true,
       persisted: 2,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+        { itemId: 'item-2', version: 1 },
+      ],
     })
 
     expect(vault.set).toHaveBeenCalledTimes(2)
@@ -79,16 +82,9 @@ describe('snapshotService.persistSnapshots', () => {
         kver: 'k2',
       },
     })
-
-    expect(vault.updateAccountData).toHaveBeenCalledTimes(1)
-    expect(vault.updateAccountData).toHaveBeenCalledWith({
-      account: 'acct-1',
-      lastSnapshotCursor: 25,
-      lastSnapshotAt: 1700000000000,
-    })
   })
 
-  it('handles partial failures, logs errors, and updates cursor with max among succeeded snapshots', async () => {
+  it('handles partial failures and logs errors', async () => {
     const vault = createMockVault()
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -122,6 +118,9 @@ describe('snapshotService.persistSnapshots', () => {
       success: false,
       persisted: 1,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+      ],
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -129,16 +128,10 @@ describe('snapshotService.persistSnapshots', () => {
       expect.any(Error)
     )
 
-    expect(vault.updateAccountData).toHaveBeenCalledWith({
-      account: 'acct-1',
-      lastSnapshotCursor: 50,
-      lastSnapshotAt: expect.any(Number),
-    })
-
     consoleErrorSpy.mockRestore()
   })
 
-  it('does not update account data when all writes fail', async () => {
+  it('does not touch account data when all writes fail', async () => {
     const vault = createMockVault()
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -163,6 +156,7 @@ describe('snapshotService.persistSnapshots', () => {
       success: false,
       persisted: 0,
       total: 1,
+      results: [],
     })
 
     expect(vault.updateAccountData).not.toHaveBeenCalled()
@@ -183,6 +177,7 @@ describe('snapshotService.persistSnapshots', () => {
       success: true,
       persisted: 0,
       total: 0,
+      results: [],
     })
 
     expect(vault.set).not.toHaveBeenCalled()

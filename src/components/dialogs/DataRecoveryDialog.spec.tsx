@@ -2,6 +2,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react'
 import DataRecoveryDialog from './DataRecoveryDialog'
 import { useAppStore } from '../../state/store'
 import type { ErrorItem, ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import * as itemMutations from '../../features/items/mutations/itemMutations'
 import * as dataRecoveryHook from '../../hooks/useDataRecovery'
 
@@ -26,6 +27,7 @@ describe('DataRecoveryDialog', () => {
       handleRetryCorruptedItem: vi.fn(),
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
+      handleRecreateItem: vi.fn(),
       handleCompactItem: vi.fn(),
     })
 
@@ -63,6 +65,7 @@ describe('DataRecoveryDialog', () => {
       handleRetryCorruptedItem: vi.fn(),
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
+      handleRecreateItem: vi.fn(),
       handleCompactItem: vi.fn(),
     })
 
@@ -90,14 +93,14 @@ describe('DataRecoveryDialog', () => {
     expect(deleteItemsSpy).toHaveBeenCalledWith('error-item-1')
   })
 
-  it('renders oversized item with Compact History button and calls handleCompactItem', async () => {
-    const handleCompactItem = vi.fn()
+  it('renders oversized item with Recreate Item button and calls handleRecreateItem', async () => {
+    const handleRecreateItem = vi.fn()
     vi.spyOn(dataRecoveryHook, 'useDataRecovery').mockReturnValue({
       recoveryItems: [
         {
           id: 'rec-1',
           itemId: 'item-oversized' as ItemId,
-          reason: 'Snapshot size (360 KB) exceeds 350 KB limit. History compaction is required to resume sync.',
+          reason: `Snapshot size (360 KB) exceeds ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
           createdAt: Date.now(),
         },
       ],
@@ -106,17 +109,18 @@ describe('DataRecoveryDialog', () => {
       handleRetryCorruptedItem: vi.fn(),
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
-      handleCompactItem,
+      handleRecreateItem,
+      handleCompactItem: handleRecreateItem,
     })
 
     render(<DataRecoveryDialog open={true} onClose={onClose} />)
 
     expect(screen.getByText('Item edit history too large to sync')).toBeDefined()
-    expect(screen.getByText(/exceeds 350 KB limit/)).toBeDefined()
+    expect(screen.getByText(new RegExp(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`))).toBeDefined()
 
-    const compactButton = screen.getByRole('button', { name: /compact history/i })
+    const compactButton = screen.getByRole('button', { name: /recreate item/i })
     fireEvent.click(compactButton)
 
-    expect(handleCompactItem).toHaveBeenCalledWith('item-oversized')
+    expect(handleRecreateItem).toHaveBeenCalledWith('item-oversized')
   })
 })

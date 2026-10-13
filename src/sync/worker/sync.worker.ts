@@ -5,7 +5,9 @@ import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
 import type { DocHandle } from '@automerge/automerge-repo/slim'
 import type { SyncApi } from './syncProtocol'
+import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
+
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
@@ -373,8 +375,9 @@ export class SyncWorker implements SyncApi {
         log.error(`Error handling Automerge doc change for item ${id}:`, err)
       }
     }
-    handle.on('change', () => handleChange(true))
-    this.changeListenersByItemId.set(id, { handle, listener: handleChange })
+    const changeListener = () => handleChange(true)
+    handle.on('change', changeListener)
+    this.changeListenersByItemId.set(id, { handle, listener: changeListener })
     handleChange(false)
   }
 
@@ -425,10 +428,8 @@ export class SyncWorker implements SyncApi {
   }
 
   clearListeners() {
-    if (this.changeListenersByItemId.size > 0) {
-      for (const id of Array.from(this.subscribedIds)) {
-        this.unsubscribe(id)
-      }
+    for (const [, sub] of this.changeListenersByItemId) {
+      sub.handle.off('change', sub.listener)
     }
     this.subscribedIds.clear()
     this.changeListenersByItemId.clear()
@@ -458,7 +459,7 @@ export class SyncWorker implements SyncApi {
   restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
     this.withContext(ctx => ctx.docStore.restoreFromBinaries(documents, ctx.indexManager))
 
-  flushSync = () =>
+  flushSync = (): Promise<void> =>
     this.withContext(ctx => ctx.orchestrator.flush())
 
   fullResync = () =>
@@ -495,20 +496,25 @@ export class SyncWorker implements SyncApi {
   forceDeleteRecoveryItem = (itemId: ItemId) =>
     this.withContext(ctx => ctx.itemOperations.forceDeleteRecoveryItem(itemId))
 
-  compactItem = (itemId: ItemId) =>
+  recreateOversizedItem = (itemId: ItemId): Promise<ItemId> =>
     this.withContext(async ctx => {
-      await ctx.itemOperations.compactItem(itemId)
+      const newItemId = await ctx.itemOperations.recreateOversizedItem(itemId)
+      ctx.snapshotManager.clearOversized(itemId)
       fireAndForget(
         ctx.snapshotManager.flushPendingSnapshots(),
-        'SyncWorker:compactItem:flushPendingSnapshots',
+        'SyncWorker:recreateOversizedItem:flushPendingSnapshots',
       )
+      return newItemId
     })
+
+  compactItem = (itemId: ItemId): Promise<ItemId> =>
+    this.recreateOversizedItem(itemId)
 
   dismissRecoveryItem = (entryId: string) =>
     this.withContext(ctx => ctx.recoveryManager.dismissEntry(entryId))
 
-  listRecoveryItems = () =>
-    this.withContext(ctx => ctx.recoveryManager.listRecoveryItems())
+  listRecoveryItems = (options?: ReadManualRecoveryOptions) =>
+    this.withContext(ctx => ctx.recoveryManager.listRecoveryItems(undefined, options))
 
   updateVaultKey = async (vaultKey: string) => {
     await initWorkerVault(vaultKey)

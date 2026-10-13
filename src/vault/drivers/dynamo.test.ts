@@ -3,6 +3,7 @@ import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -388,11 +389,11 @@ describe('DynamoDriver', function () {
     expect(results[0].snapshot?.iv).toBe('snapshot-iv')
   })
 
-  it('rejects snapshots exceeding 350KB', async () => {
+  it(`rejects snapshots exceeding ${MAX_ITEM_SIZE_KB}KB`, async () => {
     const account = generateAccountId()
     const item = generateItemId()
     const type: ItemType = 'person'
-    const largeBuffer = Buffer.alloc(360 * 1024, 0x41)
+    const largeBuffer = Buffer.alloc(MAX_ITEM_SIZE_BYTES + 10 * 1024, 0x41)
     const payload = largeBuffer.toString('base64')
     const modified = Date.now()
 
@@ -447,6 +448,56 @@ describe('DynamoDriver', function () {
 
     stored = await driver.getAccount({ account, session: authToken, isLogin: true })
     expect(stored.snoozeRemindersUntil).toBeNull()
+  })
+
+  describe('exclusiveStartKey validation', () => {
+    it('getSyncMessages rejects exclusiveStartKey with mismatched syncId', async () => {
+      const account = generateAccountId()
+      const itemId = generateItemId() as ItemId
+
+      await expect(
+        driver.getSyncMessages({
+          account,
+          itemId,
+          exclusiveStartKey: { syncId: 'wrong-account#item-1', cursor: 100 },
+        })
+      ).rejects.toThrow(`Invalid exclusiveStartKey syncId: expected ${account}#${itemId}`)
+    })
+
+    it('getSyncMessages rejects exclusiveStartKey with invalid cursor', async () => {
+      const account = generateAccountId()
+      const itemId = generateItemId() as ItemId
+
+      await expect(
+        driver.getSyncMessages({
+          account,
+          itemId,
+          exclusiveStartKey: { syncId: `${account}#${itemId}`, cursor: -5 },
+        })
+      ).rejects.toThrow('Invalid exclusiveStartKey cursor: must be a non-negative number')
+    })
+
+    it('getGlobalSyncMessagesAfterCursor rejects exclusiveStartKey with mismatched account', async () => {
+      const account = generateAccountId()
+
+      await expect(
+        driver.getGlobalSyncMessagesAfterCursor({
+          account,
+          exclusiveStartKey: { account: 'other-account', cursor: 100, syncId: 'other-account#item-1' },
+        })
+      ).rejects.toThrow(`Invalid exclusiveStartKey account: expected ${account}`)
+    })
+
+    it('getGlobalSyncMessagesAfterCursor rejects exclusiveStartKey with mismatched syncId prefix', async () => {
+      const account = generateAccountId()
+
+      await expect(
+        driver.getGlobalSyncMessagesAfterCursor({
+          account,
+          exclusiveStartKey: { account, cursor: 100, syncId: 'wrong-account#item-1' },
+        })
+      ).rejects.toThrow(`Invalid exclusiveStartKey syncId: expected prefix ${account}#`)
+    })
   })
 })
 

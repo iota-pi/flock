@@ -1,6 +1,11 @@
 import type { ItemId } from 'src/shared/schemas/items'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
 import type { StoredSyncMessage } from '../drivers/base'
+import type {
+  SyncMessageLastEvaluatedKey,
+  GlobalSyncLastEvaluatedKey,
+} from 'src/shared/schemas/trpc'
+import { mapWithConcurrency, resolveConcurrency } from '../../shared/concurrency'
 
 type SyncMessagePayload = {
   iv: string
@@ -12,7 +17,7 @@ type PullSyncMessageInput = {
   account: string
   itemId: ItemId
   cursor?: number
-  lastEvaluatedKey?: Record<string, unknown>
+  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
 }
 
 type PullSyncBatchInput = {
@@ -20,8 +25,9 @@ type PullSyncBatchInput = {
   cursors: Array<{
     itemId: ItemId
     cursor?: number
-    lastEvaluatedKey?: Record<string, unknown>
+    lastEvaluatedKey?: SyncMessageLastEvaluatedKey
   }>
+  concurrency?: number
 }
 
 type PushSyncBatchInput = {
@@ -35,11 +41,14 @@ type PushSyncBatchInput = {
 type AutomergeSyncServiceDeps = {
   now?: () => number
   repository: AutomergeSyncRepository
+  pullConcurrency?: number
 }
 
 function sortMessagesAscendingByCursor(messages: StoredSyncMessage[]): StoredSyncMessage[] {
   return messages.slice().sort((left, right) => left.cursor - right.cursor)
 }
+
+export const DEFAULT_PULL_BATCH_CONCURRENCY = 10
 
 const SYNC_MESSAGE_PAGE_LIMIT = 200
 const TIMESTAMP_MULTIPLIER = 10_000_000
@@ -49,6 +58,7 @@ const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
 export function createAutomergeSyncService({
   now = Date.now,
   repository,
+  pullConcurrency = DEFAULT_PULL_BATCH_CONCURRENCY,
 }: AutomergeSyncServiceDeps) {
   async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: ItemId; cursor: number }> }> {
     const timestamp = now()
@@ -94,10 +104,19 @@ export function createAutomergeSyncService({
     nextCursor: number
     messages: StoredSyncMessage[]
     hasMore: boolean
-    lastEvaluatedKey?: Record<string, unknown>
+    lastEvaluatedKey?: SyncMessageLastEvaluatedKey
   }> {
     const isContinuation = !!input.lastEvaluatedKey
     const fromCursor = typeof input.cursor === 'number' ? input.cursor : 0
+    if (input.lastEvaluatedKey) {
+      const expectedSyncId = `${input.account}#${input.itemId}`
+      if (input.lastEvaluatedKey.syncId !== expectedSyncId) {
+        throw new Error(`Invalid lastEvaluatedKey syncId: expected ${expectedSyncId}`)
+      }
+      if (typeof input.lastEvaluatedKey.cursor === 'number' && input.lastEvaluatedKey.cursor < fromCursor) {
+        throw new Error(`Invalid lastEvaluatedKey cursor: cursor cannot precede ${fromCursor}`)
+      }
+    }
     const { messages: storedMessages, hasMore, lastEvaluatedKey } = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
@@ -128,10 +147,10 @@ export function createAutomergeSyncService({
       nextCursor: number
       messages: StoredSyncMessage[]
       hasMore: boolean
-      lastEvaluatedKey?: Record<string, unknown>
+      lastEvaluatedKey?: SyncMessageLastEvaluatedKey
     }>
   }> {
-    const dedupedCursorsByItemId = new Map<ItemId, { cursor: number; lastEvaluatedKey?: Record<string, unknown> }>()
+    const dedupedCursorsByItemId = new Map<ItemId, { cursor: number; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }>()
     for (const cursorInput of input.cursors) {
       const nextCursor = typeof cursorInput.cursor === 'number' ? cursorInput.cursor : 0
       const existing = dedupedCursorsByItemId.get(cursorInput.itemId)
@@ -143,15 +162,18 @@ export function createAutomergeSyncService({
       }
     }
 
-    const results = await Promise.all(
-      Array
-        .from(dedupedCursorsByItemId.entries())
-        .map(([itemId, { cursor, lastEvaluatedKey }]) => pullAutomergeSyncMessages({
-          account: input.account,
-          itemId,
-          cursor,
-          lastEvaluatedKey,
-        })),
+    const concurrency = resolveConcurrency(input.concurrency ?? pullConcurrency, DEFAULT_PULL_BATCH_CONCURRENCY)
+    const entries = Array.from(dedupedCursorsByItemId.entries())
+
+    const results = await mapWithConcurrency(
+      entries,
+      concurrency,
+      ([itemId, { cursor, lastEvaluatedKey }]) => pullAutomergeSyncMessages({
+        account: input.account,
+        itemId,
+        cursor,
+        lastEvaluatedKey,
+      }),
     )
 
     return {
@@ -163,7 +185,7 @@ export function createAutomergeSyncService({
   async function pullAutomergeSyncGlobal(input: {
     account: string
     cursor: number
-    lastEvaluatedKey?: Record<string, unknown>
+    lastEvaluatedKey?: GlobalSyncLastEvaluatedKey
   }): Promise<{
     success: true
     results: Array<{
@@ -174,9 +196,20 @@ export function createAutomergeSyncService({
       hasMore: boolean
     }>
     hasMore: boolean
-    lastEvaluatedKey?: Record<string, unknown>
+    lastEvaluatedKey?: GlobalSyncLastEvaluatedKey
   }> {
     const isContinuation = !!input.lastEvaluatedKey
+    if (input.lastEvaluatedKey) {
+      if (input.lastEvaluatedKey.account !== input.account) {
+        throw new Error(`Invalid global lastEvaluatedKey account: expected ${input.account}`)
+      }
+      if (typeof input.lastEvaluatedKey.syncId !== 'string' || !input.lastEvaluatedKey.syncId.startsWith(`${input.account}#`)) {
+        throw new Error(`Invalid global lastEvaluatedKey syncId: must start with ${input.account}#`)
+      }
+      if (typeof input.lastEvaluatedKey.cursor === 'number' && input.lastEvaluatedKey.cursor < input.cursor) {
+        throw new Error(`Invalid global lastEvaluatedKey cursor: cursor cannot precede ${input.cursor}`)
+      }
+    }
     const { items, hasMore, lastEvaluatedKey } = await repository.getGlobalSyncMessagesAfterCursor({
       account: input.account,
       cursor: isContinuation ? undefined : input.cursor,

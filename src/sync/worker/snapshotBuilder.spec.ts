@@ -76,10 +76,17 @@ describe('buildSnapshot helper function', () => {
     })
 
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
-    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1')
+    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', undefined)
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]))
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' })
+  })
+
+  it('forwards abort signal to repo.find when provided in options', async () => {
+    const controller = new AbortController()
+    await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, { signal: controller.signal })
+
+    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: controller.signal })
   })
 
   it('captures snapshot timestamp prior to async encryption to prevent stale timestamp masking', async () => {

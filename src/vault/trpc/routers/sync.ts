@@ -1,7 +1,9 @@
+import { TRPCError } from '@trpc/server'
 import { protectedProcedure, router } from '../trpc'
 import {
   SyncPushBatchSchema,
   SyncPollBatchSchema,
+  type GlobalSyncLastEvaluatedKey,
 } from 'src/shared/schemas/trpc'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
 import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
@@ -23,6 +25,47 @@ export const syncRouter = router({
   pollSync: protectedProcedure
     .input(SyncPollBatchSchema)
     .mutation(async ({ ctx, input }) => {
+      if (input.globalLastEvaluatedKey) {
+        if (input.globalLastEvaluatedKey.account !== ctx.account) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'globalLastEvaluatedKey account mismatch',
+          })
+        }
+        if (!input.globalLastEvaluatedKey.syncId.startsWith(`${ctx.account}#`)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'globalLastEvaluatedKey syncId mismatch',
+          })
+        }
+        const clientLatestCursor = input.clientLatestCursor ?? 0
+        if (input.globalLastEvaluatedKey.cursor < clientLatestCursor) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'globalLastEvaluatedKey cursor cannot precede clientLatestCursor',
+          })
+        }
+      }
+
+      for (const pullCursor of input.pullCursors) {
+        if (pullCursor.lastEvaluatedKey) {
+          const expectedSyncId = `${ctx.account}#${pullCursor.itemId}`
+          if (pullCursor.lastEvaluatedKey.syncId !== expectedSyncId) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `pullCursor lastEvaluatedKey syncId mismatch for item ${pullCursor.itemId}`,
+            })
+          }
+          const baseCursor = pullCursor.cursor ?? 0
+          if (pullCursor.lastEvaluatedKey.cursor < baseCursor) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `pullCursor lastEvaluatedKey cursor cannot precede pull cursor for item ${pullCursor.itemId}`,
+            })
+          }
+        }
+      }
+
       const repository = createDynamoAutomergeSyncRepository(ctx.vault)
       const service = createAutomergeSyncService({ repository })
 
@@ -37,7 +80,7 @@ export const syncRouter = router({
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
       let globalHasMore = false
-      let globalLastEvaluatedKey: Record<string, unknown> | undefined = undefined
+      let globalLastEvaluatedKey: GlobalSyncLastEvaluatedKey | undefined = undefined
 
       const shouldPullBatch = input.pullCursors.length > 0
       const shouldPullGlobal = typeof input.clientLatestCursor === 'number' || !!input.globalLastEvaluatedKey

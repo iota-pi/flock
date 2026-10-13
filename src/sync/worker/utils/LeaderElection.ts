@@ -78,7 +78,6 @@ export class LeaderElection {
       this.isLeader = true
       this.isFallback = isFallback
       this.isYielded = false
-      this.createdAt = Date.now()
       this.setupPresence()
       this.callbacks.onLeaderGranted()
       this.callbacks.onLeaderConflict?.(false)
@@ -198,7 +197,8 @@ export class LeaderElection {
         this.sendHeartbeat(true)
       }
 
-      if (!this.multipleLeadersDetected) {
+      const totalLeaders = (this.isLeader ? 1 : 0) + this.otherLeaders.size
+      if (totalLeaders > 1 && !this.multipleLeadersDetected) {
         this.multipleLeadersDetected = true
         this.callbacks.onMultipleLeadersDetected?.()
       }
@@ -294,6 +294,7 @@ export class LeaderElection {
     this.release()
     this.isReleased = false
     this.consecutiveFailures = 0
+    this.createdAt = Date.now()
 
     if (typeof navigator === 'undefined' || !navigator.locks) {
       this.grantLeadership(true)

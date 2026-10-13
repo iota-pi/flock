@@ -193,7 +193,7 @@ describe('PullRetryTracker', () => {
     })
 
     it('handles pagination success outcome (hasMore: true)', () => {
-      const evalKey = { cursor: 100 }
+      const evalKey = { syncId: 'test-acc#item-page', cursor: 100 }
       const outcome = tracker.recordPullOutcome({
         itemId: 'item-page' as ItemId,
         initialCursor: 0,
@@ -405,7 +405,7 @@ describe('PullRetryTracker', () => {
         retryCount: 1,
         blockedOnKey: 'some-key',
       }
-      const evalKey = { p: 'token' }
+      const evalKey = { syncId: 'test-acc#item-1', cursor: 120 }
 
       const transition = tracker.computeTransition(state, {
         itemId: 'item-1' as ItemId,
@@ -526,7 +526,7 @@ describe('PullRetryTracker', () => {
         pending: true,
         retryCount: 3,
         blockedOnKey: 'k1',
-        lastEvaluatedKey: { page: 1 },
+        lastEvaluatedKey: { syncId: 'test-acc#item-1', cursor: 10 },
       }
 
       const transition: PullStateTransition = {

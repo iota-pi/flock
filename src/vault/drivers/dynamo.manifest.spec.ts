@@ -52,6 +52,7 @@ describe('DynamoDriver.fetchManifest', () => {
       KeyConditionExpression: 'account = :accountid',
       ExpressionAttributeNames: {
         '#itemKey': 'item',
+        '#version': 'version',
         '#modifiedAt': 'modifiedAt',
         '#metadata': 'metadata',
         '#deleted': 'deleted',
@@ -59,14 +60,14 @@ describe('DynamoDriver.fetchManifest', () => {
       ExpressionAttributeValues: {
         ':accountid': 'acc-123',
       },
-      ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
+      ProjectionExpression: '#itemKey, #version, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
     })
 
     expect(result).toEqual([
-      { itemId: 'item-active-1', modifiedAt: 1000 },
-      { itemId: 'item-deleted-metadata', modifiedAt: 2000, isDeleted: true },
-      { itemId: 'item-deleted-toplevel', modifiedAt: 3000, isDeleted: true },
-      { itemId: 'item-active-2', modifiedAt: 4000 },
+      { itemId: 'item-active-1', modifiedAt: 1000, version: 1 },
+      { itemId: 'item-deleted-metadata', modifiedAt: 2000, isDeleted: true, version: 1 },
+      { itemId: 'item-deleted-toplevel', modifiedAt: 3000, isDeleted: true, version: 1 },
+      { itemId: 'item-active-2', modifiedAt: 4000, version: 1 },
     ])
   })
 
@@ -94,8 +95,8 @@ describe('DynamoDriver.fetchManifest', () => {
     })
 
     expect(result).toEqual([
-      { itemId: 'item-p1', modifiedAt: 100 },
-      { itemId: 'item-p2', modifiedAt: 200, isDeleted: true },
+      { itemId: 'item-p1', modifiedAt: 100, version: 1 },
+      { itemId: 'item-p2', modifiedAt: 200, isDeleted: true, version: 1 },
     ])
   })
 })

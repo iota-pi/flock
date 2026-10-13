@@ -2,6 +2,7 @@ import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import { AuthError } from './SyncApiClient'
 
 describe('SnapshotPusher', () => {
@@ -51,7 +52,11 @@ describe('SnapshotPusher', () => {
 
     mockApiClient = {
       hasAuthToken: vi.fn().mockResolvedValue(true),
-      putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 1 }),
+      putSnapshots: vi.fn().mockResolvedValue({
+        success: true,
+        persisted: 1,
+        results: [{ itemId: 'item-1', version: 2 }],
+      }),
     }
 
     mockRecoveryManager = {
@@ -84,7 +89,7 @@ describe('SnapshotPusher', () => {
 
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
-    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1)
+    expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
     expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-1', ['head-1'])
     expect(mockBroker.clearSnapshotOnlyItem).toHaveBeenCalledWith('item-1')
     expect(mockBroker.unblockItem).toHaveBeenCalledWith('item-1')
@@ -104,7 +109,7 @@ describe('SnapshotPusher', () => {
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
-      expect.stringContaining('exceeds 350 KB limit'),
+      expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
     )
   })
 

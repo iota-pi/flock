@@ -5,7 +5,6 @@ import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
-import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ManifestSyncManager } from './ManifestSyncManager'
@@ -174,6 +173,11 @@ export class SyncWorkerContext {
       this.internalEventHub
     )
 
+    const recoveryManager = new RecoveryManager({
+      accountId: config.accountId,
+      eventHub: config.clientEventHub,
+    })
+
     const broker = new SyncMessageBroker(
       this.adapter,
       config.clientEventHub,
@@ -183,12 +187,8 @@ export class SyncWorkerContext {
       this.wal,
       null,
       this.apiClient,
+      recoveryManager,
     )
-
-    const recoveryManager = new RecoveryManager({
-      accountId: config.accountId,
-      eventHub: config.clientEventHub,
-    })
 
     const snapshotManager = new SnapshotManager(
       {
@@ -263,26 +263,9 @@ export class SyncWorkerContext {
   private wireCrossServiceDependencies(): void {
     this.snapshotManager.setLeader(this.orchestrator.leader)
     this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
-    this.broker.setStorageRecoveryService?.(this.storageRecoveryService)
+    this.broker.setStorageRecoveryService(this.storageRecoveryService)
+    this.broker.setRecoveryManager(this.recoveryManager)
     this.subscribeInternalEvents()
-  }
-
-  private get storageCleanupService(): LifecycleAware<{ clearLocalData?: boolean }> {
-    return {
-      lifecycleName: 'StorageCleanup',
-      onLifecycleStop: async options => {
-        if (options?.clearLocalData) {
-          await Promise.all([
-            clearSyncMetadataStorage(this.accountId),
-            this.indexStore.clear(),
-            this.cursorStore.clear(),
-            this.lastModifiedStore.clear(),
-            this.wal.clear(),
-            this.syncedHeadsStore.clear(),
-          ])
-        }
-      },
-    }
   }
 
   private get syncedHeadsService(): LifecycleAware {
@@ -301,8 +284,11 @@ export class SyncWorkerContext {
     // Teardown runs in LIFO order (reverse registration order).
     // Startup runs in FIFO order (registration order).
     // Register items that should stop last first, and items that should stop first last.
+    //
+    // Note: Local storage clearing during account logout is handled exclusively by the
+    // main thread (clearAccountLocalData in localDataCleanup.ts) after the worker has cleanly
+    // closed all connections. The worker must not attempt to clear databases on shutdown.
     const services: LifecycleAware<{ clearLocalData?: boolean }>[] = [
-      this.storageCleanupService,
       this.repoManager,
       this.adapter,
       this.broker,

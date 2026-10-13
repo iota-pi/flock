@@ -1,5 +1,4 @@
 import { chunk } from 'lodash-es'
-import * as Automerge from '@automerge/automerge/slim'
 
 import type { Item } from '../../state/items'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
@@ -12,6 +11,8 @@ import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
 import type { ManifestEntry } from 'src/shared/schemas/trpc'
+import { mapWithConcurrency } from '../../shared/concurrency'
+import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
@@ -24,6 +25,7 @@ export type HydrateItemResult =
     hydratedId?: ItemId
     snapshot?: Item
     lastModifiedUpdate?: [ItemId, number]
+    versionUpdate?: [ItemId, number]
   }
   | {
     status: 'decryption_failure'
@@ -55,6 +57,7 @@ export interface ManifestHydratorDeps {
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   onKeyVersionMissing?: (kver: string) => void
   isShutdown?: () => boolean
+  hydrationConcurrency?: number
 }
 
 export class ManifestHydrator {
@@ -112,18 +115,32 @@ export class ManifestHydrator {
     const snapshots: Item[] = []
     const hydratedIds: ItemId[] = []
     const lastModifiedUpdates: [ItemId, number][] = []
+    const versionUpdates: [ItemId, number][] = []
     let hasHydrationFailures = false
 
-    const results = await Promise.allSettled(
-      validFetchedItems.map(item =>
-        this.hydrateRemoteItem(
-          item,
-          params.manifest,
-          params.knownSet,
-          params.tombstoneSet,
-          params.serverTime,
-        ),
-      ),
+    const hydrationConcurrency = this.deps.hydrationConcurrency ?? SYNC_BATCH_SIZES.hydrationConcurrency
+
+    const results = await mapWithConcurrency(
+      validFetchedItems,
+      hydrationConcurrency,
+      async item => {
+        checkAlive(signal, () => this.isAlive())
+        try {
+          const value = await this.hydrateRemoteItem(
+            item,
+            params.manifest,
+            params.knownSet,
+            params.tombstoneSet,
+            params.serverTime,
+          )
+          return { status: 'fulfilled' as const, value }
+        } catch (reason) {
+          if (signal?.aborted || isAbortError(reason)) {
+            throw reason
+          }
+          return { status: 'rejected' as const, reason }
+        }
+      },
     )
 
     for (const settled of results) {
@@ -144,6 +161,9 @@ export class ManifestHydrator {
           }
           if (result.lastModifiedUpdate) {
             lastModifiedUpdates.push(result.lastModifiedUpdate)
+          }
+          if (result.versionUpdate) {
+            versionUpdates.push(result.versionUpdate)
           }
           break
         case 'decryption_failure':
@@ -175,6 +195,10 @@ export class ManifestHydrator {
       await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
     }
 
+    if (versionUpdates.length > 0) {
+      await this.deps.snapshotManager.importVersions(versionUpdates)
+    }
+
     return {
       added: hydratedIds,
       hasFailures: hasBatchFailures || hasHydrationFailures,
@@ -191,7 +215,14 @@ export class ManifestHydrator {
     const itemId = item.item as ItemId
     try {
       const manifestEntry = manifest.find(entry => entry.itemId === item.item)
-      const serverTime = manifestEntry ? manifestEntry.modifiedAt : serverTimeFallback
+      const serverTime = manifestEntry?.modifiedAt ?? serverTimeFallback
+      const serverVersion = (manifestEntry?.version && manifestEntry.version > 0)
+        ? manifestEntry.version
+        : (
+          typeof (item as unknown as { version?: unknown }).version === 'number'
+            ? (item as unknown as { version: number }).version
+            : 1
+        )
 
       if (item.metadata?.deleted === true) {
         return {
@@ -199,17 +230,31 @@ export class ManifestHydrator {
           itemId,
           snapshot: { id: item.item, deleted: true } as unknown as Item,
           lastModifiedUpdate: [itemId, serverTime],
+          versionUpdate: [itemId, serverVersion],
         }
       }
 
       if (item.snapshot) {
-        const binaryResult = await this.hydrateSnapshotBinary(itemId, item, serverTime, knownSet, tombstoneSet)
+        const binaryResult = await this.hydrateSnapshotBinary(
+          itemId,
+          item,
+          serverTime,
+          serverVersion,
+          knownSet,
+          tombstoneSet,
+        )
         if (binaryResult) {
           return binaryResult
         }
       }
 
-      const legacyResult = await this.hydrateLegacyCipher(itemId, item, serverTime, tombstoneSet)
+      const legacyResult = await this.hydrateLegacyCipher(
+        itemId,
+        item,
+        serverTime,
+        serverVersion,
+        tombstoneSet,
+      )
       if (legacyResult) {
         return legacyResult
       }
@@ -232,6 +277,7 @@ export class ManifestHydrator {
     itemId: ItemId,
     item: VaultItem,
     serverTime: number,
+    serverVersion: number,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
@@ -243,10 +289,12 @@ export class ManifestHydrator {
       knownToExist: knownSet.has(itemId),
     })
     try {
-      const heads = hydrationResult?.incomingHeads ?? Automerge.getHeads(Automerge.load(binary))
-      this.deps.onItemSnapshotHydrated?.(itemId, heads)
+      const heads = hydrationResult?.incomingHeads
+      if (heads) {
+        this.deps.onItemSnapshotHydrated?.(itemId, heads)
+      }
     } catch {
-      // Best-effort heads notification; ignore failure if binary cannot be inspected
+      // Best-effort heads notification; ignore failure if notification throws
     }
 
     const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))
@@ -263,6 +311,7 @@ export class ManifestHydrator {
       itemId,
       hydratedId: isDeleted ? undefined : itemId,
       lastModifiedUpdate: hydrationResult?.hasLocalChanges ? undefined : [itemId, serverTime],
+      versionUpdate: [itemId, serverVersion],
     }
   }
 
@@ -270,6 +319,7 @@ export class ManifestHydrator {
     itemId: ItemId,
     item: VaultItem,
     serverTime: number,
+    serverVersion: number,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
     const decryptedLegacy = await this.decryptLegacyCipher(item)
@@ -288,6 +338,7 @@ export class ManifestHydrator {
       return {
         status: 'success',
         itemId,
+        versionUpdate: [snapshotId, serverVersion],
       }
     }
     return {
@@ -295,6 +346,7 @@ export class ManifestHydrator {
       itemId,
       snapshot: snapshot as Item,
       lastModifiedUpdate: [snapshotId, serverTime],
+      versionUpdate: [snapshotId, serverVersion],
     }
   }
 

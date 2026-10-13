@@ -55,6 +55,7 @@ describe('AutomergeDocStore Unit Tests', () => {
   afterEach(async () => {
     vi.restoreAllMocks()
     await docStore.shutdown()
+    await repo.shutdown()
   })
 
   // =========================================================================
@@ -858,7 +859,7 @@ describe('AutomergeDocStore Unit Tests', () => {
   // =========================================================================
   // 6. Additional AutomergeDocStore core methods
   // =========================================================================
-  describe('changeDocument, compactDocument, saveDocToStorage, and helpers', () => {
+  describe('changeDocument, saveDocToStorage, and helpers', () => {
     it('changeDocument returns false for invalid itemId', async () => {
       const res = await docStore.changeDocument('' as ItemId, () => {})
       expect(res).toBe(false)
@@ -904,29 +905,6 @@ describe('AutomergeDocStore Unit Tests', () => {
 
       const item = await docStore.getAutomergeItem(itemId)
       expect(item?.name).toBe('Mutated Name')
-    })
-
-    it('compactDocument returns false for invalid itemId', async () => {
-      const res = await docStore.compactDocument('' as ItemId, {} as any)
-      expect(res).toBe(false)
-    })
-
-    it('compactDocument recreates document with current item state and notifies handle replacement', async () => {
-      const itemId = 'compact-target-item' as ItemId
-      const listenerSpy = vi.fn()
-      docStore.onDocHandleReplaced = listenerSpy
-
-      const item = createTestItem(itemId, { name: 'Compacted Name', description: 'Compacted Desc' })
-      const success = await docStore.compactDocument(itemId, item)
-
-      expect(success).toBe(true)
-      expect(listenerSpy).toHaveBeenCalledWith(itemId, expect.objectContaining({
-        documentId: expect.any(String),
-      }))
-
-      const retrieved = await docStore.getAutomergeItem(itemId)
-      expect(retrieved?.name).toBe('Compacted Name')
-      expect(retrieved?.description).toBe('Compacted Desc')
     })
 
     it('saveDocToStorage returns false if repo.storageSubsystem is undefined', async () => {
@@ -1036,19 +1014,22 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(docStore.lifecycleName).toBe('DocStore')
 
       const customRepo = new Repo()
-      const shutdownSpy = vi.spyOn(customRepo, 'shutdown').mockResolvedValue(undefined)
       const store = new AutomergeDocStore(customRepo)
+      const shutdownSpy = vi.spyOn(store, 'shutdown')
 
       await store.onLifecycleStop()
       expect(shutdownSpy).toHaveBeenCalledTimes(1)
+      await customRepo.shutdown()
     })
 
-    it('shutdown catches and logs repo shutdown failures without rethrowing', async () => {
+    it('shutdown does not shut down repo since repo lifecycle is owned by AutomergeRepoManager (L-8)', async () => {
       const customRepo = new Repo()
-      vi.spyOn(customRepo, 'shutdown').mockRejectedValue(new Error('Shutdown error'))
+      const shutdownSpy = vi.spyOn(customRepo, 'shutdown')
       const store = new AutomergeDocStore(customRepo)
 
-      await expect(store.shutdown()).resolves.toBeUndefined()
+      await store.shutdown()
+      expect(shutdownSpy).not.toHaveBeenCalled()
+      await customRepo.shutdown()
     })
 
     it('setInternalEventHub allows updating internal event hub', async () => {

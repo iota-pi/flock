@@ -27,7 +27,7 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
   protected isPaused = false
 
   protected readyPromiseResolver: (() => void) | null = null
-  protected readonly readyPromise: Promise<void>
+  protected readyPromise: Promise<void>
   protected outboundQueue: BoundedQueue<Message>
 
   constructor(options?: BaseSyncNetworkAdapterOptions) {
@@ -63,6 +63,19 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
     }
   }
 
+  /**
+   * Resets readiness state and recreates the readiness promise if the adapter was ready.
+   * Ensures subsequent calls to whenReady() will wait for the next markReady() invocation.
+   */
+  protected resetReady(): void {
+    if (this.ready || !this.readyPromiseResolver) {
+      this.ready = false
+      this.readyPromise = new Promise<void>(resolve => {
+        this.readyPromiseResolver = resolve
+      })
+    }
+  }
+
   isConnected(): boolean {
     return this.connected && !this.isDisconnected
   }
@@ -90,6 +103,7 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
   disconnect(): void {
     this.connected = false
     this.isDisconnected = true
+    this.resetReady()
     this.dispatchClose()
   }
 

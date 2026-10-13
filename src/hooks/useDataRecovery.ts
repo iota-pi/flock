@@ -81,15 +81,15 @@ export function useDataRecovery() {
     }
   }, [setMessage])
 
-  const handleCompactItem = useCallback(async (itemId: ItemId) => {
+  const handleRecreateItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
-      await SyncBridge.compactItem(itemId)
-      setMessage({ message: `Compacted edit history for ${itemId}. Resuming sync.` })
+      await SyncBridge.recreateOversizedItem(itemId)
+      setMessage({ message: 'Recreated item with fresh edit history. Resuming sync.' })
     } catch (error: unknown) {
       setMessage({
         severity: 'error',
-        message: (error as Error).message || `Failed to compact ${itemId}.`,
+        message: (error as Error).message || `Failed to recreate ${itemId}.`,
       })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -103,7 +103,8 @@ export function useDataRecovery() {
     handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
-    handleCompactItem,
+    handleRecreateItem,
+    handleCompactItem: handleRecreateItem,
   }
 }
 

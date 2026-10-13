@@ -3,8 +3,13 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createTestEventHubs } from './__test__/testUtils'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
+import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
+
+vi.mock('./stores/syncMetadataStorage', () => ({
+  clearSyncMetadataStorage: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('./stores/CursorStore', () => ({
   CursorStore: class MockCursorStore {
@@ -68,6 +73,7 @@ vi.mock('./SyncMessageBroker', () => ({
     readonly lifecycleName = 'SyncMessageBroker'
     unblockAllItems = vi.fn()
     setStorageRecoveryService = vi.fn()
+    setRecoveryManager = vi.fn()
     poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
     shutdown = vi.fn().mockResolvedValue(undefined)
     onLifecycleStop = vi.fn().mockImplementation(async () => {
@@ -100,10 +106,7 @@ vi.mock('./AutomergeRepoManager', () => ({
     close = vi.fn().mockResolvedValue(undefined)
     getStorage = vi.fn().mockReturnValue(undefined)
     getStorageAdapter = vi.fn().mockReturnValue(undefined)
-    onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
-      if (options?.clearLocalData) {
-        await this.clearLocalData()
-      }
+    onLifecycleStop = vi.fn().mockImplementation(async () => {
       await this.close()
     })
   },
@@ -228,15 +231,17 @@ describe('SyncWorkerContext', () => {
     expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('pruned-item-2' as ItemId, 0)
   })
 
-  it('forwards clearLocalData options to pullQueueManager and snapshotManager on shutdown', async () => {
+  it('forwards clearLocalData options to pullQueueManager and snapshotManager on shutdown without clearing storage directly', async () => {
     await context.shutdown({ clearLocalData: true })
 
     expect(context.pullQueueManager.shutdown).toHaveBeenCalledWith({ clearLocalData: true })
     expect(context.snapshotManager.shutdown).toHaveBeenCalledWith({ clearLocalData: true })
     expect(context.orchestrator.shutdown).toHaveBeenCalled()
     expect(context.docStore.shutdown).toHaveBeenCalled()
-    expect(context.indexStore.clear).toHaveBeenCalled()
-    expect(context.cursorStore.clear).toHaveBeenCalled()
+    expect(context.wal.clear).not.toHaveBeenCalled()
+    expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
+    expect(context.indexStore.clear).not.toHaveBeenCalled()
+    expect(context.cursorStore.clear).not.toHaveBeenCalled()
   })
 
   it('shuts down cleanly without clearLocalData', async () => {
@@ -244,6 +249,8 @@ describe('SyncWorkerContext', () => {
 
     expect(context.pullQueueManager.shutdown).toHaveBeenCalledWith(undefined)
     expect(context.snapshotManager.shutdown).toHaveBeenCalledWith(undefined)
+    expect(context.wal.clear).not.toHaveBeenCalled()
+    expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
     expect(context.indexStore.clear).not.toHaveBeenCalled()
     expect(context.cursorStore.clear).not.toHaveBeenCalled()
   })
@@ -337,7 +344,6 @@ describe('SyncWorkerContext', () => {
   it('registers expected services in lifecycle manager in correct order', () => {
     const serviceNames = context.lifecycle.getRegisteredServiceNames()
     expect(serviceNames).toEqual([
-      'StorageCleanup',
       'RepoManager',
       'VaultNetworkAdapter',
       'SyncMessageBroker',

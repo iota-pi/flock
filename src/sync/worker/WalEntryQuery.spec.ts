@@ -112,4 +112,76 @@ describe('WalEntryQuery', () => {
     WalEntryQuery.sortByAge(original)
     expect(original).toEqual(copy)
   })
+
+  describe('inFlightItemIds', () => {
+    it('returns an empty set when no entries are in-flight', () => {
+      const entries: WalEntryDescriptor[] = [
+        { id: 'e1', itemId: 'item-1', createdAt: 100 },
+        { id: 'e2', itemId: 'item-2', createdAt: 200 },
+      ]
+      const query = new WalEntryQuery(entries, new Set())
+      expect(query.inFlightItemIds().size).toBe(0)
+    })
+
+    it('extracts unique item IDs for entries currently marked in-flight', () => {
+      const entries: WalEntryDescriptor[] = [
+        { id: 'e1', itemId: 'item-1', createdAt: 100 },
+        { id: 'e2', itemId: 'item-1', createdAt: 200 },
+        { id: 'e3', itemId: 'item-2', createdAt: 300 },
+        { id: 'e4', itemId: 'item-3', createdAt: 400 },
+      ]
+      // Mark e1, e2 (both item-1) and e3 (item-2) in-flight
+      const query = new WalEntryQuery(entries, new Set(['e1', 'e2', 'e3']))
+      const itemIds = query.inFlightItemIds()
+
+      expect(itemIds.size).toBe(2)
+      expect(itemIds.has('item-1')).toBe(true)
+      expect(itemIds.has('item-2')).toBe(true)
+      expect(itemIds.has('item-3')).toBe(false)
+    })
+  })
+
+  describe('prunableSorted', () => {
+    it('returns all valid entries sorted when no entries are in-flight', () => {
+      const entries: WalEntryDescriptor[] = [
+        { id: 'e2', itemId: 'item-B', createdAt: 200, seq: 1 },
+        { id: 'e1', itemId: 'item-A', createdAt: 100, seq: 1 },
+      ]
+      const query = new WalEntryQuery(entries, new Set())
+      const prunable = query.prunableSorted(new Set())
+
+      expect(prunable.map(e => e.id)).toEqual(['e1', 'e2'])
+    })
+
+    it('strictly excludes ALL entries of an item if that item has ANY in-flight entry', () => {
+      const entries: WalEntryDescriptor[] = [
+        { id: 'a1', itemId: 'item-A', createdAt: 100, seq: 1 },
+        { id: 'a2', itemId: 'item-A', createdAt: 300, seq: 2 }, // available, but item-A has an in-flight entry!
+        { id: 'b1', itemId: 'item-B', createdAt: 200, seq: 1 }, // available
+        { id: 'c1', itemId: 'item-C', createdAt: 400, seq: 1 }, // available
+      ]
+      // a1 is in-flight; a2 is NOT in-flight.
+      // b1 and c1 are NOT in-flight.
+      const query = new WalEntryQuery(entries, new Set(['a1']))
+      const prunable = query.prunableSorted(new Set())
+
+      // Both a1 (in-flight) and a2 (item-A has active in-flight push) must be excluded!
+      expect(prunable.map(e => e.id)).toEqual(['b1', 'c1'])
+    })
+
+    it('excludes superseded entries while honoring item in-flight exclusions', () => {
+      const entries: WalEntryDescriptor[] = [
+        { id: 'b1', itemId: 'item-B', createdAt: 100, seq: 1 }, // superseded
+        { id: 'b2', itemId: 'item-B', createdAt: 200, seq: 2 }, // valid
+        { id: 'a1', itemId: 'item-A', createdAt: 50, seq: 1 },  // in-flight
+        { id: 'a2', itemId: 'item-A', createdAt: 150, seq: 2 }, // valid, but item-A has in-flight entry
+      ]
+      const query = new WalEntryQuery(entries, new Set(['a1']))
+      const prunable = query.prunableSorted(new Set(['b1']))
+
+      // b1 is superseded; item-A has in-flight entry (a1), so a1 and a2 are excluded.
+      // Only b2 remains.
+      expect(prunable.map(e => e.id)).toEqual(['b2'])
+    })
+  })
 })

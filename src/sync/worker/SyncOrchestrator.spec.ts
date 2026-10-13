@@ -393,6 +393,29 @@ describe('SyncOrchestrator', () => {
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
   })
 
+  it('does not double-call stopPolling and stopPeriodicManifestSync during shutdown (L-7)', async () => {
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+
+    const stopPollingSpy = vi.spyOn(orchestrator, 'stopPolling')
+    const stopPeriodicSpy = vi.spyOn(orchestrator, 'stopPeriodicManifestSync')
+
+    await orchestrator.shutdown()
+
+    expect(stopPollingSpy).toHaveBeenCalledTimes(1)
+    expect(stopPeriodicSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops polling and periodic manifest sync exactly once when shutting down non-leader (L-7)', async () => {
+    const stopPollingSpy = vi.spyOn(orchestrator, 'stopPolling')
+    const stopPeriodicSpy = vi.spyOn(orchestrator, 'stopPeriodicManifestSync')
+
+    await orchestrator.shutdown()
+
+    expect(stopPollingSpy).toHaveBeenCalledTimes(1)
+    expect(stopPeriodicSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('executes poll after batch timeout delay when flush is called', async () => {
     orchestrator.setLeader(true)
     orchestrator.setOnlineState(true)
@@ -1245,6 +1268,29 @@ describe('SyncOrchestrator', () => {
       expect(internalPollResultSpy).not.toHaveBeenCalledWith(
         expect.objectContaining({ outcome: 'failure' })
       )
+    })
+
+    it('continues scheduling next poll timer when internalEventHub listener throws synchronously on pollResult', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      internalEventHub.subscribe(event => {
+        if (event.type === 'pollResult') {
+          throw new Error('listener failure')
+        }
+      })
+
+      orchestrator.setLeader(true)
+      orchestrator.setOnlineState(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+      expect(orchestrator.hasScheduledPoll).toBe(true)
+
+      // Advance timer by poll backoff delay to verify the timer executes the subsequent poll
+      await vi.advanceTimersByTimeAsync(40000)
+      expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+
+      consoleErrorSpy.mockRestore()
     })
   })
 })

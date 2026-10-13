@@ -491,5 +491,147 @@ describe('FlockIndexedDBStorageAdapter', () => {
       await new Promise(r => setTimeout(r, 10))
       expect(mockDb.close).toHaveBeenCalled()
     })
+
+    it('reopens database connection on subsequent operation after versionchange event', async () => {
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      await new Promise(r => setTimeout(r, 10))
+      expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(1)
+
+      // Emit versionchange on initial db connection
+      mockDb._emit('versionchange')
+      expect(mockDb.close).toHaveBeenCalledTimes(1)
+
+      // Prepare a second mockDb for the reconnection
+      const mockRequest2: any = {
+        onsuccess: null,
+        onerror: null,
+        result: { binary: new Uint8Array([9, 8, 7]) },
+      }
+      const mockStore2 = {
+        ...mockStore,
+        get: vi.fn().mockReturnValue(mockRequest2),
+      }
+      const mockTransaction2: any = {
+        objectStore: vi.fn().mockReturnValue(mockStore2),
+        onerror: null,
+        onabort: null,
+        oncomplete: null,
+        error: null,
+      }
+      const mockDb2 = {
+        ...mockDb,
+        transaction: vi.fn().mockReturnValue(mockTransaction2),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }
+      mockOpenRequest.result = mockDb2
+
+      const loadPromise = adapter.load(['doc-after-upgrade'])
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(2)
+      expect(mockDb2.transaction).toHaveBeenCalledWith('documents', 'readonly')
+
+      mockRequest2.onsuccess()
+      const data = await loadPromise
+      expect(data).toEqual(new Uint8Array([9, 8, 7]))
+    })
+
+    it('retries transaction if connection was closed concurrently with InvalidStateError', async () => {
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      await new Promise(r => setTimeout(r, 10))
+
+      // First db.transaction throws InvalidStateError (simulating race with versionchange close)
+      mockDb.transaction.mockImplementationOnce(() => {
+        throw new DOMException('The database connection is closing.', 'InvalidStateError')
+      })
+
+      // Reconnection returns mockDb2 which succeeds
+      const mockRequest2: any = {
+        onsuccess: null,
+        onerror: null,
+        result: { binary: new Uint8Array([42]) },
+      }
+      const mockStore2 = {
+        ...mockStore,
+        get: vi.fn().mockReturnValue(mockRequest2),
+      }
+      const mockTransaction2: any = {
+        objectStore: vi.fn().mockReturnValue(mockStore2),
+        onerror: null,
+        onabort: null,
+        oncomplete: null,
+        error: null,
+      }
+      const mockDb2 = {
+        ...mockDb,
+        transaction: vi.fn().mockReturnValue(mockTransaction2),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }
+      mockOpenRequest.result = mockDb2
+
+      const loadPromise = adapter.load(['doc-retry'])
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(2)
+      mockRequest2.onsuccess()
+
+      const result = await loadPromise
+      expect(result).toEqual(new Uint8Array([42]))
+    })
+
+    it('clears cached database reference on unexpected close event and reconnects on next operation', async () => {
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      await new Promise(r => setTimeout(r, 10))
+      expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(1)
+
+      // Emit unexpected 'close' event on db (without calling adapter.close())
+      mockDb._emit('close')
+
+      const savePromise = adapter.save(['doc-1'], new Uint8Array([1, 2]))
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(2)
+      mockTransaction.oncomplete()
+      await savePromise
+    })
+
+    it('resets dbPromise on connection rejection allowing subsequent attempts to reconnect', async () => {
+      // Make initial open fail
+      globalThis.indexedDB = {
+        open: vi.fn().mockImplementationOnce(() => {
+          queueMicrotask(() => {
+            mockOpenRequest.error = new Error('Initial open failed')
+            if (mockOpenRequest.onerror) {
+              mockOpenRequest.onerror({ target: mockOpenRequest })
+            }
+          })
+          return mockOpenRequest
+        }).mockImplementation(() => {
+          queueMicrotask(() => {
+            mockOpenRequest.error = null
+            mockOpenRequest.result = mockDb
+            if (mockOpenRequest.onsuccess) {
+              mockOpenRequest.onsuccess({ target: mockOpenRequest })
+            }
+          })
+          return mockOpenRequest
+        }),
+      } as any
+
+      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      await new Promise(r => setTimeout(r, 10))
+
+      // Subsequent operation should attempt a new connection and succeed
+      const savePromise = adapter.save(['doc-1'], new Uint8Array([5]))
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(2)
+      mockTransaction.oncomplete()
+      await savePromise
+    })
   })
 })
+

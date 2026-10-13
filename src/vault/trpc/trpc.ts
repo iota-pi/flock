@@ -3,6 +3,30 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type BaseDriver from '../drivers/base'
 import type { VaultAccountWithAuth } from '../drivers/base'
 import { AccountInputSchema } from '../../shared/schemas/trpc'
+import { safeEqual } from '../util'
+
+export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+export const SESSION_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000 // 1 day
+export const SESSION_RENEWAL_THRESHOLD_MS = SESSION_EXPIRY_MS - SESSION_RENEWAL_WINDOW_MS // 29 days
+
+export function shouldRenewSession(
+  accountData: Pick<VaultAccountWithAuth, 'sessions'>,
+  authToken: string,
+  now = Date.now(),
+): boolean {
+  const currentSession = accountData.sessions?.find(s => safeEqual(authToken, s.token))
+
+  if (!currentSession) {
+    return true
+  }
+
+  const expiry = currentSession.expiry ?? (currentSession as { expires?: number }).expires
+  if (typeof expiry !== 'number' || !Number.isFinite(expiry)) {
+    return true
+  }
+
+  return expiry - now < SESSION_RENEWAL_THRESHOLD_MS
+}
 
 type TrpcContext = {
   authToken: string,
@@ -58,13 +82,25 @@ export const protectedProcedure = t.procedure
       throw new TRPCError({ code: 'UNAUTHORIZED' })
     }
 
-    ctx.vault.extendSession({ account, session: ctx.authToken }).catch(() => {})
+    let extendSessionPromise: Promise<void> | null = null
+    if (shouldRenewSession(accountData, ctx.authToken)) {
+      extendSessionPromise = (
+        ctx.vault.extendSession({ account, session: ctx.authToken })
+          .catch(error => console.error('[extendSession failed]', error))
+      )
+    }
 
-    return next({
-      ctx: {
-        ...ctx,
-        account,
-        accountData,
-      },
-    })
+    try {
+      return await next({
+        ctx: {
+          ...ctx,
+          account,
+          accountData,
+        },
+      })
+    } finally {
+      if (extendSessionPromise) {
+        await extendSessionPromise
+      }
+    }
   })

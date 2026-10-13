@@ -102,27 +102,6 @@ describe('sendPing', () => {
     await expect(pingPromise).rejects.toThrow('Port closed')
     expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
   })
-
-  it('cleans up onmessage and onmessageerror when addEventListener is not supported', async () => {
-    const mockPort = {
-      postMessage: vi.fn(),
-      start: vi.fn(),
-      onmessage: null as any,
-      onmessageerror: null as any,
-    } as unknown as MessagePort
-
-    const controller = new AbortController()
-    const pingPromise = sendPing(mockPort, controller.signal)
-
-    expect(typeof mockPort.onmessage).toBe('function')
-    expect(typeof mockPort.onmessageerror).toBe('function')
-
-    controller.abort(new Error('Manual abort'))
-    await expect(pingPromise).rejects.toThrow('Manual abort')
-
-    expect(mockPort.onmessage).toBeNull()
-    expect(mockPort.onmessageerror).toBeNull()
-  })
 })
 
 describe('syncWorkerHealth', () => {
@@ -477,6 +456,97 @@ describe('syncWorkerHealth', () => {
     await vi.advanceTimersByTimeAsync(30000)
 
     // Worker must NOT be terminated on sleep jump
+    expect(onCrash).not.toHaveBeenCalled()
+    expect(mockWorker.terminate).not.toHaveBeenCalled()
+
+    channel.port1.close()
+    channel.port2.close()
+  })
+
+  it('does not overwrite new ping state when old ping aborts and preserves isPinging', async () => {
+    const onCrash = vi.fn()
+    const onRestart = vi.fn()
+
+    const channel = new MessageChannel()
+
+    healthMonitor.setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel.port1,
+      isCurrentWorker: () => true,
+      onCrash,
+      onRestart,
+      maxMissedPings: 1,
+    })
+
+    // Advance 15s to initiate Ping 1
+    await vi.advanceTimersByTimeAsync(15000)
+    expect((healthMonitor as any).isPinging).toBe(true)
+
+    // Simulate replacing the active controller (e.g. new ping initiated while old unwinds)
+    const oldController = (healthMonitor as any).activePingAbortController
+    const newController = new AbortController()
+    ;(healthMonitor as any).activePingAbortController = newController
+
+    // Abort the old controller
+    oldController.abort(new Error('System sleep detected'))
+
+    // Allow microtasks to run (old ping's catch/finally)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // The old ping's finally block must NOT have reset isPinging to false
+    expect((healthMonitor as any).isPinging).toBe(true)
+    expect((healthMonitor as any).activePingAbortController).toBe(newController)
+
+    // Cleaning up
+    ;(healthMonitor as any).activePingAbortController = null
+    ;(healthMonitor as any).isPinging = false
+
+    channel.port1.close()
+    channel.port2.close()
+  })
+
+  it('prevents concurrent pings on port and spurious crash following sleep detection', async () => {
+    const onCrash = vi.fn()
+    const onRestart = vi.fn()
+
+    const channel = new MessageChannel()
+    const postMessageSpy = vi.spyOn(channel.port1, 'postMessage')
+
+    healthMonitor.setupWorkerHealthCheck({
+      worker: mockWorker,
+      pingPort: channel.port1,
+      isCurrentWorker: () => true,
+      onCrash,
+      onRestart,
+      maxMissedPings: 1,
+    })
+
+    // Advance 15s to send Ping 1
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(postMessageSpy).toHaveBeenCalledTimes(1)
+
+    // Simulate system sleep: clock jumps forward by 60s
+    vi.setSystemTime(Date.now() + 60000)
+
+    // Advance 15s: sleep detected, Ping 1 aborted and discarded
+    await vi.advanceTimersByTimeAsync(15000)
+    // No new ping should be sent during the sleep detection tick
+    expect(postMessageSpy).toHaveBeenCalledTimes(1)
+
+    // Advance 15s to next interval: Ping 2 is sent
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(postMessageSpy).toHaveBeenCalledTimes(2)
+
+    // Advance 5s (ping 2 still in flight, less than interval/timeout)
+    await vi.advanceTimersByTimeAsync(5000)
+    // No concurrent ping should be dispatched while Ping 2 is in flight
+    expect(postMessageSpy).toHaveBeenCalledTimes(2)
+
+    // Worker responds to Ping 2 with 'pong'
+    channel.port2.postMessage('pong')
+    await vi.advanceTimersByTimeAsync(100)
+
     expect(onCrash).not.toHaveBeenCalled()
     expect(mockWorker.terminate).not.toHaveBeenCalled()
 

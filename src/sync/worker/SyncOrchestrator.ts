@@ -52,7 +52,7 @@ export class SyncOrchestrator implements LifecycleAware {
     await this.start()
   }
 
-  async onLifecycleStop(): Promise<void> {
+  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.shutdown()
   }
 
@@ -328,7 +328,7 @@ export class SyncOrchestrator implements LifecycleAware {
 
     if (outcome === 'failure') {
       this.increasePollBackoff()
-    } else {
+    } else if (outcome === 'success') {
       this.resetPollBackoff()
       this.pollingPausedForAuth = false
     }
@@ -450,17 +450,19 @@ export class SyncOrchestrator implements LifecycleAware {
       this.unsubscribeInternalEvents = null
     }
     const wasPolling = this.pollAbortController !== null
+    const wasLeader = this.isLeader
     this.setLeader(false)
-    this.cursorReloadGuard.clear()
     if (this.leaderElection) {
       this.leaderElection.release()
       this.leaderElection = null
     }
-    this.stopPolling()
-    this.stopPeriodicManifestSync()
-
-    this.abortPoll()
-    this.abortManifestSync()
+    if (!wasLeader) {
+      this.cursorReloadGuard.clear()
+      this.stopPolling()
+      this.stopPeriodicManifestSync()
+      this.abortPoll()
+      this.abortManifestSync()
+    }
     if (!wasPolling) {
       this.poller.abort?.()
     }

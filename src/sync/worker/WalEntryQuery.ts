@@ -1,5 +1,6 @@
 export interface WalEntryDescriptor {
   id: string
+  itemId?: string
   createdAt?: number
   seq?: number
 }
@@ -61,6 +62,35 @@ export class WalEntryQuery<T extends WalEntryDescriptor> {
    */
   validSorted(supersededIds: ReadonlySet<string>): T[] {
     return WalEntryQuery.sortByAge(this.valid(supersededIds))
+  }
+
+  /**
+   * Returns a set of unique item IDs that currently have at least one entry in-flight.
+   */
+  inFlightItemIds(): Set<string> {
+    const itemIds = new Set<string>()
+    for (const entry of this.inFlight()) {
+      if (typeof entry.itemId === 'string' && entry.itemId.length > 0) {
+        itemIds.add(entry.itemId)
+      }
+    }
+    return itemIds
+  }
+
+  /**
+   * Returns valid (not superseded, not in-flight) entries whose items do NOT have
+   * any in-flight entries, sorted chronologically.
+   * This ensures that items with active pushes are completely excluded from pruning,
+   * preventing torn/partial WAL histories.
+   */
+  prunableSorted(supersededIds: ReadonlySet<string>): T[] {
+    const inFlightItems = this.inFlightItemIds()
+    if (inFlightItems.size === 0) {
+      return this.validSorted(supersededIds)
+    }
+    return this.validSorted(supersededIds).filter(
+      e => !e.itemId || !inFlightItems.has(e.itemId)
+    )
   }
 
   /**

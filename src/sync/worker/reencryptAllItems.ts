@@ -12,6 +12,7 @@ import {
   SizeAwareBatchAccumulator,
   DEFAULT_MAX_BATCH_BYTES,
 } from '../utils/SizeAwareBatchAccumulator'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from 'src/shared/schemas/items'
@@ -79,9 +80,8 @@ export class ItemReencryptor {
   public readonly maxBatchCount: number
   public readonly maxBatchBytes: number
   public readonly batchRetryDelays: readonly number[]
-
-  private activeContext?: ProcessChunkContext
-  private activeProgressCallback?: (done: number, total: number) => void
+  private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
+  private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
 
   constructor(options?: ItemReencryptorOptions) {
     this.retryStrategy = new RetryStrategy({ delays: options?.retryDelays ?? DEFAULT_RETRY_DELAYS })
@@ -92,6 +92,10 @@ export class ItemReencryptor {
 
   get retryAttempt(): number {
     return this.retryStrategy.attempt
+  }
+
+  get isReencrypting(): boolean {
+    return this.reencryptGuard.isRunning
   }
 
   cancelScheduled(): void {
@@ -162,7 +166,7 @@ export class ItemReencryptor {
     reason: string,
     recoveryManager?: RecoveryManager
   ): Promise<void> {
-    const manager = recoveryManager ?? this.activeContext?.recoveryManager
+    const manager = recoveryManager
     if (!manager) {
       console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}: No RecoveryManager available`)
       return
@@ -187,7 +191,8 @@ export class ItemReencryptor {
    */
   async buildSnapshot(
     itemIdOrRepo: ItemId | Repo,
-    repoOrItemId?: Repo | ItemId
+    repoOrItemId?: Repo | ItemId,
+    signal?: AbortSignal
   ): Promise<BuildSnapshotResult> {
     let repo: Repo | undefined
     let itemId: ItemId | undefined
@@ -196,8 +201,6 @@ export class ItemReencryptor {
       itemId = itemIdOrRepo as ItemId
       if (typeof repoOrItemId === 'object' && repoOrItemId !== null) {
         repo = repoOrItemId as Repo
-      } else {
-        repo = this.activeContext?.repo
       }
     } else {
       repo = itemIdOrRepo as Repo
@@ -211,7 +214,7 @@ export class ItemReencryptor {
       throw new Error('ItemId is required to build snapshot')
     }
 
-    return buildSnapshotFromBuilder(repo, itemId, 0)
+    return buildSnapshotFromBuilder(repo, itemId, 0, signal ? { signal } : undefined)
   }
 
   /**
@@ -243,9 +246,9 @@ export class ItemReencryptor {
     if (Array.isArray(arg1)) {
       rawSnapshots = arg1
       const opts = typeof arg2 === 'object' ? arg2 : undefined
-      apiClient = opts?.apiClient ?? this.activeContext?.apiClient
-      accountId = opts?.accountId ?? this.activeContext?.accountId
-      signal = opts?.signal ?? this.activeContext?.signal ?? this.activeContext?.deps?.signal
+      apiClient = opts?.apiClient
+      accountId = opts?.accountId
+      signal = opts?.signal
     } else {
       apiClient = arg1 as SyncApiClient
       accountId = arg2 as string
@@ -290,9 +293,22 @@ export class ItemReencryptor {
     total: number,
     onProgress?: (done: number, total: number) => void
   ): void {
-    const callback = onProgress ?? this.activeProgressCallback ?? this.activeContext?.onProgress
-    if (callback) {
-      callback(Math.min(done, total), total)
+    const clampedDone = Math.min(done, total)
+    if (onProgress) {
+      try {
+        onProgress(clampedDone, total)
+      } catch {
+        // Ignore
+      }
+    }
+    for (const cb of this.progressCallbacks) {
+      if (cb !== onProgress) {
+        try {
+          cb(clampedDone, total)
+        } catch {
+          // Ignore
+        }
+      }
     }
   }
 
@@ -303,7 +319,13 @@ export class ItemReencryptor {
     batchRetryDelays?: readonly number[]
   ): Promise<BuildSnapshotResult> {
     return await RetryStrategy.executeWithRetry(
-      async () => this.buildSnapshot(itemId, repo),
+      async () => {
+        const result = await this.buildSnapshot(itemId, repo, signal)
+        if (result.type === 'not-ready') {
+          throw new Error(`Item ${itemId} document or vault was not ready`)
+        }
+        return result
+      },
       {
         maxAttempts: MAX_BATCH_RETRIES,
         delays: batchRetryDelays ?? this.batchRetryDelays,
@@ -401,7 +423,7 @@ export class ItemReencryptor {
       context = contextOrSignal as ProcessChunkContext
     }
 
-    const ctx = context ?? this.activeContext
+    const ctx = context
     if (!ctx) {
       throw new Error('SyncWorker not initialized')
     }
@@ -437,7 +459,9 @@ export class ItemReencryptor {
         if (result.value.type === 'success') {
           readySnapshots.push({ itemId, snapshot: result.value.snapshot })
         } else if (result.value.type === 'not-ready') {
-          console.warn(`[reencryptAllItems] Item ${itemId} was not ready. Skipping.`)
+          const errorMsg = `Failed to build snapshot for item ${itemId}: Document or vault was not ready after retries`
+          console.error(`[reencryptAllItems] ${errorMsg}`)
+          failureDetails.push({ itemId, errorMsg })
         } else if (result.value.type === 'error') {
           const errorMsg = result.value.reason
             ? `Failed to build snapshot for item ${itemId}: ${result.value.reason}`
@@ -529,67 +553,105 @@ export class ItemReencryptor {
       throw new Error('SyncWorker not initialized')
     }
 
-    const { accountId, repo, indexManager } = deps
-    const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
-    const apiClient = deps.apiClient ?? new SyncApiClient({
-      getAuthToken: deps.getAuthToken,
-      refreshAuthToken: deps.refreshAuthToken,
+    if (deps.signal?.aborted) {
+      throw deps.signal.reason instanceof Error
+        ? deps.signal.reason
+        : new AbortError(typeof deps.signal.reason === 'string' ? deps.signal.reason : 'Re-encryption aborted')
+    }
+
+    if (this.scheduledRetryTimeoutId !== null) {
+      clearTimeout(this.scheduledRetryTimeoutId)
+      this.scheduledRetryTimeoutId = null
+    }
+
+    if (onProgress) {
+      this.progressCallbacks.add(onProgress)
+    }
+
+    const runPromise = this.reencryptGuard.run(async () => {
+      const { accountId, repo, indexManager } = deps
+      const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
+      const apiClient = deps.apiClient ?? new SyncApiClient({
+        getAuthToken: deps.getAuthToken,
+        refreshAuthToken: deps.refreshAuthToken,
+      })
+      const initialToken = await apiClient.getValidToken()
+      if (!initialToken) {
+        throw new Error('No active session token available')
+      }
+
+      const allItemIds = await indexManager.listAutomergeItemIds()
+      const total = allItemIds.length
+      if (total === 0) {
+        this.reportProgress(0, 0, onProgress)
+        this.retryStrategy.reset()
+        return { succeeded: [], failed: [] }
+      }
+
+      const succeeded: ItemId[] = []
+      const failed: Array<{ itemId: ItemId; error: string }> = []
+
+      const itemChunks = this.buildReencryptionPlan(allItemIds, REENCRYPT_CHUNK_SIZE)
+      const batchRetryDelays = deps.batchRetryDelays ?? this.batchRetryDelays
+
+      const context: ProcessChunkContext = {
+        accountId,
+        repo,
+        apiClient,
+        recoveryManager,
+        signal: deps.signal,
+        batchRetryDelays,
+        deps,
+        onProgress,
+        total,
+        processedCount: 0,
+      }
+
+      try {
+        for (const chunkIds of itemChunks) {
+          const chunkResult = await this.processChunk(chunkIds, deps.signal, context)
+          succeeded.push(...chunkResult.succeeded)
+          failed.push(...chunkResult.failed)
+        }
+
+        this.retryStrategy.reset()
+        return { succeeded, failed }
+      } catch (err) {
+        if (!isAbortError(err)) {
+          const classified = classifySyncError(err)
+          if (classified.isNetwork || classified.isServerError) {
+            this.scheduleRetry(deps, onProgress)
+          }
+        }
+        throw err
+      }
     })
-    const initialToken = await apiClient.getValidToken()
-    if (!initialToken) {
-      throw new Error('No active session token available')
-    }
-
-    const allItemIds = await indexManager.listAutomergeItemIds()
-    const total = allItemIds.length
-    if (total === 0) {
-      this.reportProgress(0, 0, onProgress)
-      this.retryStrategy.reset()
-      return { succeeded: [], failed: [] }
-    }
-
-    const succeeded: ItemId[] = []
-    const failed: Array<{ itemId: ItemId; error: string }> = []
-
-    const itemChunks = this.buildReencryptionPlan(allItemIds, REENCRYPT_CHUNK_SIZE)
-    const batchRetryDelays = deps.batchRetryDelays ?? this.batchRetryDelays
-
-    const context: ProcessChunkContext = {
-      accountId,
-      repo,
-      apiClient,
-      recoveryManager,
-      signal: deps.signal,
-      batchRetryDelays,
-      deps,
-      onProgress,
-      total,
-      processedCount: 0,
-    }
-
-    this.activeContext = context
-    this.activeProgressCallback = onProgress
 
     try {
-      for (const chunkIds of itemChunks) {
-        const chunkResult = await this.processChunk(chunkIds, deps.signal, context)
-        succeeded.push(...chunkResult.succeeded)
-        failed.push(...chunkResult.failed)
+      if (!deps.signal) {
+        return await runPromise
       }
 
-      this.retryStrategy.reset()
-      return { succeeded, failed }
-    } catch (err) {
-      if (!isAbortError(err)) {
-        const classified = classifySyncError(err)
-        if (classified.isNetwork || classified.isServerError) {
-          this.scheduleRetry(deps, onProgress)
+      const signal = deps.signal
+      return await new Promise<ReencryptResult>((resolve, reject) => {
+        const onAbort = () => {
+          reject(
+            signal.reason instanceof Error
+              ? signal.reason
+              : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Re-encryption aborted')
+          )
         }
-      }
-      throw err
+        signal.addEventListener('abort', onAbort, { once: true })
+        runPromise
+          .then(resolve, reject)
+          .finally(() => {
+            signal.removeEventListener('abort', onAbort)
+          })
+      })
     } finally {
-      this.activeContext = undefined
-      this.activeProgressCallback = undefined
+      if (onProgress) {
+        this.progressCallbacks.delete(onProgress)
+      }
     }
   }
 }

@@ -290,4 +290,48 @@ describe('manualRecoveryStore', () => {
 
     consoleErrorSpy.mockRestore()
   })
+
+  it('paginates manual recovery entries with limit and offset', async () => {
+    const baseTime = Date.now()
+    const dateSpy = vi.spyOn(Date, 'now')
+
+    for (let i = 1; i <= 5; i++) {
+      dateSpy.mockReturnValueOnce(baseTime + i * 1000)
+      await upsertManualRecoveryEntry(accountId, { itemId: `item-${i}`, reason: `error-${i}` })
+    }
+
+    // Page 1: limit 2, offset 0 -> newest items: item-5, item-4
+    const page1 = await readManualRecoveryEntries(accountId, { limit: 2, offset: 0 })
+    expect(page1).toHaveLength(2)
+    expect(page1[0].itemId).toBe('item-5')
+    expect(page1[1].itemId).toBe('item-4')
+
+    // Page 2: limit 2, offset 2 -> next items: item-3, item-2
+    const page2 = await readManualRecoveryEntries(accountId, { limit: 2, offset: 2 })
+    expect(page2).toHaveLength(2)
+    expect(page2[0].itemId).toBe('item-3')
+    expect(page2[1].itemId).toBe('item-2')
+
+    // Page 3: limit 2, offset 4 -> last item: item-1
+    const page3 = await readManualRecoveryEntries(accountId, { limit: 2, offset: 4 })
+    expect(page3).toHaveLength(1)
+    expect(page3[0].itemId).toBe('item-1')
+
+    // Past end: offset 5 -> empty
+    const page4 = await readManualRecoveryEntries(accountId, { limit: 2, offset: 5 })
+    expect(page4).toEqual([])
+
+    dateSpy.mockRestore()
+  })
+
+  it('caps limit at MAX_MANUAL_RECOVERY_LIMIT', async () => {
+    const mod = await import('./manualRecoveryStore')
+    expect(mod.MAX_MANUAL_RECOVERY_LIMIT).toBe(500)
+    expect(mod.DEFAULT_MANUAL_RECOVERY_LIMIT).toBe(100)
+
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'err' })
+    const entries = await readManualRecoveryEntries(accountId, { limit: 9999 })
+    expect(entries).toHaveLength(1)
+  })
 })
+

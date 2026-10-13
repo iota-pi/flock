@@ -7,6 +7,7 @@ import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from 'src/shared/schemas/items'
+import type { RecoveryManager } from './RecoveryManager'
 
 const mockPollSyncBatchWithToken = vi.fn()
 vi.mock('../../api/vault/SyncWorkerClient', () => ({
@@ -32,6 +33,7 @@ describe('SyncPoller', () => {
   let pullQueueManager: SyncPullQueueManager
   let indexManager: AutomergeIndexManager
   let mockWal: SyncWriteAheadLog
+  let mockRecoveryManager: RecoveryManager
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -50,6 +52,10 @@ describe('SyncPoller', () => {
       markInFlight: vi.fn(),
       unmarkInFlight: vi.fn(),
     } as unknown as SyncWriteAheadLog
+    mockRecoveryManager = {
+      quarantine: vi.fn().mockResolvedValue(undefined),
+      unquarantine: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RecoveryManager
 
     poller = new SyncPoller(
       pullQueueManager,
@@ -57,6 +63,8 @@ describe('SyncPoller', () => {
       internalEventHub,
       indexManager,
       mockWal,
+      undefined,
+      mockRecoveryManager,
     )
     poller.setAccount('test-account')
     poller.setOnlineState(true)
@@ -326,11 +334,11 @@ describe('SyncPoller', () => {
       })
 
       const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
+      expect(outcome).toBe('failure')
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
     })
 
-    it('does not fail empty poll when processPullResults throws', async () => {
+    it('returns failure when processPullResults throws during empty poll', async () => {
       vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
 
       mockPollSyncBatchWithToken.mockResolvedValueOnce({
@@ -340,7 +348,7 @@ describe('SyncPoller', () => {
       })
 
       const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
+      expect(outcome).toBe('failure')
     })
   })
 
@@ -562,6 +570,9 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).toHaveBeenCalledTimes(1)
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
       expect(mockWal.remove).not.toHaveBeenCalledWith(expect.arrayContaining(['msg-2']))
+      expect(poller.consecutivePushFailures.get('item-2' as ItemId)).toBe(1)
+      expect(poller.consecutivePushFailures.has('item-1' as ItemId)).toBe(false)
+      expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
     })
 
     it('removes only WAL entries for items present in pushResults when an item is omitted', async () => {
@@ -586,6 +597,8 @@ describe('SyncPoller', () => {
       expect(outcome).toBe('success')
       expect(mockWal.remove).toHaveBeenCalledTimes(1)
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+      expect(poller.consecutivePushFailures.get('item-2' as ItemId)).toBe(1)
+      expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
     })
 
     it('does not remove any WAL entries when pushResults is empty', async () => {
@@ -602,8 +615,11 @@ describe('SyncPoller', () => {
       })
 
       const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
+      expect(outcome).toBe('failure')
       expect(mockWal.remove).not.toHaveBeenCalled()
+      expect(poller.consecutivePushFailures.get('item-1' as ItemId)).toBe(1)
+      expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
+      expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
     it('removes all batched WAL entries for an acknowledged item', async () => {
@@ -626,6 +642,7 @@ describe('SyncPoller', () => {
       const outcome = await poller.executePoll()
       expect(outcome).toBe('success')
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1a', 'msg-1b', 'msg-1c'])
+      expect(poller.consecutivePushFailures.has('item-1' as ItemId)).toBe(false)
     })
 
     it('does not remove WAL entries when item has invalid or missing cursor without explicit success', async () => {
@@ -644,8 +661,11 @@ describe('SyncPoller', () => {
       })
 
       const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
+      expect(outcome).toBe('failure')
       expect(mockWal.remove).not.toHaveBeenCalled()
+      expect(poller.consecutivePushFailures.get('item-1' as ItemId)).toBe(1)
+      expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
+      expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
     it('removes WAL entries when pushResult has explicit success: true even without cursor', async () => {
@@ -666,6 +686,137 @@ describe('SyncPoller', () => {
       const outcome = await poller.executePoll()
       expect(outcome).toBe('success')
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+      expect(poller.consecutivePushFailures.has('item-1' as ItemId)).toBe(false)
+    })
+
+    it('processes pullResults without backoff on partial push failure in multi-item chunk (Option B)', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 10, success: true },
+          { itemId: 'item-2', success: false, error: 'DatabaseWriteFailed' },
+        ],
+        pullResults: [
+          {
+            itemId: 'item-pull-1',
+            messages: [],
+            hasMore: false,
+          },
+        ],
+      })
+
+      const outcome = await poller.executePoll()
+      // Partial success returns 'success' so healthy items and pulls are not blocked
+      expect(outcome).toBe('success')
+
+      // Acknowledged item is removed from WAL
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+      expect(mockWal.remove).not.toHaveBeenCalledWith(expect.arrayContaining(['msg-2']))
+
+      // Pull results from this batch are still processed
+      expect(processPullResultsSpy).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ itemId: 'item-pull-1' }),
+        ])
+      )
+
+      // Item 2 failure count incremented
+      expect(poller.consecutivePushFailures.get('item-2' as ItemId)).toBe(1)
+      expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
+    })
+
+    it('quarantines item and removes from WAL after reaching MAX_CONSECUTIVE_PUSH_FAILURES', async () => {
+      const itemId = 'item-bad' as ItemId
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set(itemId, [
+        { id: 'msg-bad', itemId, data: new Uint8Array([99]), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValue(walMap)
+
+      // Pre-seed with 4 failures
+      poller.consecutivePushFailures.set(itemId, 4)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId, success: false, error: 'PayloadTooLarge' },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      // Quarantined items are cleared from WAL and considered handled (returns 'success')
+      expect(outcome).toBe('success')
+
+      // Recovery manager was asked to quarantine the item
+      expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
+        itemId,
+        expect.stringContaining('Push failed after 5 consecutive attempts: PayloadTooLarge')
+      )
+
+      // Quarantined item's entries are removed from WAL
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-bad'])
+
+      // Failure count cleared after quarantine
+      expect(poller.consecutivePushFailures.has(itemId)).toBe(false)
+    })
+
+    it('resets consecutivePushFailures when item subsequently succeeds', async () => {
+      const itemId = 'item-flaky' as ItemId
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set(itemId, [
+        { id: 'msg-flaky', itemId, data: new Uint8Array([50]), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValue(walMap)
+
+      // Pre-seed with 3 failures
+      poller.consecutivePushFailures.set(itemId, 3)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId, cursor: 50, success: true },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-flaky'])
+      expect(poller.consecutivePushFailures.has(itemId)).toBe(false)
+      expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+    })
+
+    it('returns failure when wal.remove throws during push acknowledgment', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+      vi.mocked(mockWal.remove).mockRejectedValueOnce(new Error('IndexedDB transaction failed'))
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', success: true },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+      expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
     })
   })
 

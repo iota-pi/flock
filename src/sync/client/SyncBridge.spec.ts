@@ -55,7 +55,7 @@ const mockSyncApi = {
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
   updateAuthToken: vi.fn().mockResolvedValue(undefined),
   reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
-  flushSync: vi.fn().mockReturnValue(undefined),
+  flushSync: vi.fn().mockResolvedValue(undefined),
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
   retrySave: vi.fn().mockResolvedValue({ success: true }),
   claimLeader: vi.fn().mockResolvedValue(undefined),
@@ -152,7 +152,7 @@ describe('SyncBridge', () => {
     mockSyncApi.dismissRecoveryItem.mockResolvedValue(undefined)
     mockSyncApi.updateVaultKey.mockResolvedValue(undefined)
     mockSyncApi.reencryptAllItems.mockResolvedValue(undefined)
-    mockSyncApi.flushSync.mockReturnValue(undefined)
+    mockSyncApi.flushSync.mockResolvedValue(undefined)
     useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
   })
 
@@ -564,6 +564,134 @@ describe('SyncBridge', () => {
       expect(syncKeyringFromServer).toHaveBeenCalledWith('test-account')
       expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('server-fetched-keyring-version-5')
     })
+  })
+
+  it('coalesces concurrent keyVersionMissing events to prevent duplicate server calls', async () => {
+    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('src/api/vault')
+    let serverSynced = false
+    vi.mocked(hasVaultKey).mockImplementation(() => serverSynced)
+
+    let resolveServerSync!: () => void
+    const serverSyncPromise = new Promise<void>(resolve => {
+      resolveServerSync = resolve
+    })
+    vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
+      await serverSyncPromise
+      serverSynced = true
+    })
+    vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
+      success: true,
+      keyringData: serverSynced ? 'coalesced-keyring' : 'old-keyring',
+    }))
+
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+
+    await vi.waitFor(() => {
+      expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+    })
+
+    resolveServerSync()
+
+    await vi.waitFor(() => {
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('coalesced-keyring')
+    })
+
+    expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+
+    vi.mocked(hasVaultKey).mockReturnValue(true)
+    vi.mocked(syncKeyringFromServer).mockResolvedValue(undefined)
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
+  })
+
+  it('coalesces concurrent keyVersionMissing events for different key versions into a single server call', async () => {
+    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('src/api/vault')
+    let serverSynced = false
+    vi.mocked(hasVaultKey).mockImplementation(() => serverSynced)
+
+    let resolveServerSync!: () => void
+    const serverSyncPromise = new Promise<void>(resolve => {
+      resolveServerSync = resolve
+    })
+    vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
+      await serverSyncPromise
+      serverSynced = true
+    })
+    vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
+      success: true,
+      keyringData: serverSynced ? 'multi-key-keyring' : 'old-keyring',
+    }))
+
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '8' })
+
+    await vi.waitFor(() => {
+      expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+    })
+
+    resolveServerSync()
+
+    await vi.waitFor(() => {
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('multi-key-keyring')
+    })
+
+    expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+
+    vi.mocked(hasVaultKey).mockReturnValue(true)
+    vi.mocked(syncKeyringFromServer).mockResolvedValue(undefined)
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
+  })
+
+  it('handles network error gracefully without looping when syncing keyring from server', async () => {
+    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('src/api/vault')
+    vi.mocked(hasVaultKey).mockReturnValue(false)
+
+    let rejectServerSync!: (err: Error) => void
+    const serverSyncPromise = new Promise<void>((_, reject) => {
+      rejectServerSync = reject
+    })
+    vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
+      await serverSyncPromise
+    })
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({
+      success: true,
+      keyringData: 'fallback-local-keyring',
+    })
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await SyncBridge.initialize('test-account')
+
+    expect(lastEventPort).not.toBeNull()
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '9' })
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '9' })
+
+    await vi.waitFor(() => {
+      expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+    })
+
+    rejectServerSync(new Error('Network offline'))
+
+    await vi.waitFor(() => {
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('fallback-local-keyring')
+    })
+
+    expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[SyncBridge] Failed to sync keyring from server:',
+      expect.any(Error),
+    )
+
+    vi.mocked(hasVaultKey).mockReturnValue(true)
+    vi.mocked(syncKeyringFromServer).mockResolvedValue(undefined)
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
   })
 
   it('updates syncStatus to degraded and sets syncWarning when snapshotFailed event is received', async () => {

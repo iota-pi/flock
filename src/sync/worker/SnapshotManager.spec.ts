@@ -1,4 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import { SnapshotManager } from './SnapshotManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
@@ -527,7 +528,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       // Execute shutdown
       await manager.shutdown()
 
-      expect(saveSpy).toHaveBeenCalledWith([['item-1', { localModifiedAt: 123456, lastSnapshotAt: 123456 }]])
+      expect(saveSpy).toHaveBeenCalledWith([['item-1', { localModifiedAt: 123456, lastSnapshotAt: 123456, baseVersion: 0 }]])
       expect(clearSpy).not.toHaveBeenCalled()
     })
 
@@ -1020,14 +1021,14 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockEventHub.emit).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'quotaExceeded',
-          message: expect.stringContaining('exceeds the 350 KB limit'),
+          message: expect.stringContaining(`exceeds the ${MAX_ITEM_SIZE_KB} KB limit`),
         }),
       )
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
         'test-account',
         expect.objectContaining({
           itemId: 'item-1',
-          reason: expect.stringContaining('exceeds 350 KB limit'),
+          reason: expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
         }),
       )
     })
@@ -1068,7 +1069,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('excludes quarantined oversized items from being restored to dirty queue during startup audit', async () => {
       mockReadManualRecoveryEntries.mockResolvedValueOnce([
-        { id: 'item-oversized', itemId: 'item-oversized', reason: 'Snapshot size exceeds 350 KB limit', createdAt: 1000 },
+        { id: 'item-oversized', itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, createdAt: 1000 },
       ])
 
       vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
@@ -1821,6 +1822,21 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(capturedSignal?.aborted).toBe(true)
       const result = await pushPromise
       expect(result.persisted).toBe(0)
+    })
+  })
+
+  describe('deleteDirtyItem', () => {
+    it('removes item from dirtyItems and clears timers when dirty items become empty', () => {
+      manager.markItemDirty('item-1' as ItemId)
+      expect(manager.dirtyItems.has('item-1' as ItemId)).toBe(true)
+      expect(manager.debounceTimer).not.toBeNull()
+
+      const deleted = manager.deleteDirtyItem('item-1' as ItemId)
+      expect(deleted).toBe(true)
+      expect(manager.dirtyItems.has('item-1' as ItemId)).toBe(false)
+      expect(manager.dirtyItems.size).toBe(0)
+      expect(manager.debounceTimer).toBeNull()
+      expect(manager.maxWaitTimer).toBeNull()
     })
   })
 })

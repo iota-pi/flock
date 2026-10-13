@@ -21,7 +21,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
 }
 
 describe('itemsRouter.putSnapshots', () => {
-  it('persists snapshots and updates account data', async () => {
+  it('persists snapshots', async () => {
     const ctx = createContext()
     const caller = itemsRouter.createCaller(ctx as any)
 
@@ -57,14 +57,13 @@ describe('itemsRouter.putSnapshots', () => {
       success: true,
       persisted: 2,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+        { itemId: 'item-2', version: 1 },
+      ],
     })
 
     expect(ctx.vault.set).toHaveBeenCalledTimes(2)
-    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
-      account: 'acct-1',
-      lastSnapshotCursor: 20,
-      lastSnapshotAt: expect.any(Number),
-    })
   })
 
   it('returns success: false when one snapshot write fails', async () => {
@@ -100,6 +99,9 @@ describe('itemsRouter.putSnapshots', () => {
       success: false,
       persisted: 1,
       total: 2,
+      results: [
+        { itemId: 'item-1', version: 1 },
+      ],
     })
   })
 
@@ -127,6 +129,7 @@ describe('itemsRouter.putSnapshots', () => {
       success: false,
       persisted: 0,
       total: 1,
+      results: [],
     })
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })

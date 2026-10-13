@@ -75,16 +75,8 @@ export const sendPing = (
         clearTimeout(timer)
         timer = null
       }
-      if (typeof port.removeEventListener === 'function') {
-        port.removeEventListener('message', handleMessage)
-        port.removeEventListener('messageerror', handleMessageError)
-      }
-      if (port.onmessage === handleMessage) {
-        port.onmessage = null
-      }
-      if (port.onmessageerror === handleMessageError) {
-        port.onmessageerror = null
-      }
+      port.removeEventListener('message', handleMessage)
+      port.removeEventListener('messageerror', handleMessageError)
       if (signal) {
         signal.removeEventListener('abort', handleAbort)
       }
@@ -101,17 +93,9 @@ export const sendPing = (
       }, timeoutMs)
     }
 
-    if (typeof port.addEventListener === 'function') {
-      port.addEventListener('message', handleMessage)
-      port.addEventListener('messageerror', handleMessageError)
-    } else {
-      port.onmessage = handleMessage
-      port.onmessageerror = handleMessageError
-    }
-
-    if (typeof port.start === 'function') {
-      port.start()
-    }
+    port.addEventListener('message', handleMessage)
+    port.addEventListener('messageerror', handleMessageError)
+    port.start()
 
     try {
       port.postMessage('ping')
@@ -301,8 +285,9 @@ export class SyncWorkerHealthMonitor {
         console.warn(`[SyncBridge] Sleep/throttle detected (${timeSinceLastTick}ms elapsed since last tick). Discarding stale ping.`)
         if (this.isPinging && this.activePingAbortController) {
           this.activePingAbortController.abort(new Error('System sleep detected'))
+        } else {
+          this.isPinging = false
         }
-        this.isPinging = false
         this.consecutiveMissedPings = 0
         return
       }
@@ -359,8 +344,8 @@ export class SyncWorkerHealthMonitor {
       } finally {
         if (this.activePingAbortController === abortController) {
           this.activePingAbortController = null
+          this.isPinging = false
         }
-        this.isPinging = false
       }
     }, heartbeatIntervalMs)
   }

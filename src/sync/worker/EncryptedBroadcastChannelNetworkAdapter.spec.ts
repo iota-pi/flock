@@ -853,6 +853,96 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         data: new Uint8Array([12, 13]),
       })
     })
+
+    it('preserves causal FIFO ordering across multiple keys during key rotation without inverting relative order', async () => {
+      const adapter = new EncryptedBroadcastChannelNetworkAdapter({
+        channelName: 'test-channel-multi-key',
+        keyWaitTimeoutMs: 30,
+      })
+      const innerMock = (adapter as any).inner
+      const messageListener = vi.fn()
+      adapter.on('message', messageListener)
+
+      let innerCallback: any
+      for (const call of innerMock.on.mock.calls) {
+        if (call[0] === 'message') innerCallback = call[1]
+      }
+
+      const { hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+      let key5Available = false
+      let key6Available = false
+      vi.mocked(hasVaultKey).mockImplementation((kver?: string) => {
+        if (kver === '5') return key5Available
+        if (kver === '6') return key6Available
+        return true
+      })
+
+      const key5Resolvers: Array<(val: boolean) => void> = []
+      const key6Resolvers: Array<(val: boolean) => void> = []
+      vi.mocked(waitForKeyVersion).mockImplementation((kver: string) => {
+        if (kver === '5' && !key5Available) {
+          return new Promise(resolve => key5Resolvers.push(resolve))
+        }
+        if (kver === '6' && !key6Available) {
+          return new Promise(resolve => key6Resolvers.push(resolve))
+        }
+        return Promise.resolve(true)
+      })
+
+      const payloadKey5 = { iv: 'iv-5', cipher: 'mock-cipher-50,51', kver: '5', version: '1.0' }
+      const payloadKey6 = { iv: 'iv-6', cipher: 'mock-cipher-60,61', kver: '6', version: '1.0' }
+
+      const msgK5: Message = {
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'docK5' as DocumentId,
+        data: new TextEncoder().encode(JSON.stringify(payloadKey5)),
+      }
+
+      const msgK6: Message = {
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'docK6' as DocumentId,
+        data: new TextEncoder().encode(JSON.stringify(payloadKey6)),
+      }
+
+      innerCallback(msgK5)
+      innerCallback(msgK6)
+
+      // Wait for msgK5 to start waiting
+      await vi.waitFor(() => {
+        expect(key5Resolvers.length).toBeGreaterThan(0)
+      })
+      key5Resolvers.shift()?.(false)
+
+      // Wait for msgK6 to start waiting
+      await vi.waitFor(() => {
+        expect(key6Resolvers.length).toBeGreaterThan(0)
+      })
+      key6Resolvers.shift()?.(false)
+
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(messageListener).not.toHaveBeenCalled()
+
+      // Key 5 resolves first, then Key 6 resolves
+      key5Available = true
+      for (const res of key5Resolvers) res(true)
+      key5Resolvers.length = 0
+
+      key6Available = true
+      for (const res of key6Resolvers) res(true)
+      key6Resolvers.length = 0
+
+      await vi.waitFor(() => {
+        expect(messageListener).toHaveBeenCalledTimes(2)
+      })
+
+      // msgK5 must be dispatched BEFORE msgK6 (causal FIFO preserved)
+      expect(messageListener.mock.calls[0][0].documentId).toBe('docK5')
+      expect(messageListener.mock.calls[1][0].documentId).toBe('docK6')
+    })
   })
 
   describe('cross-tab new item discovery', () => {

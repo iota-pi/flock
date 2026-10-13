@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { TRPCError } from '@trpc/server'
-import { router, publicProcedure, protectedProcedure } from '../trpc'
+import { router, publicProcedure, protectedProcedure, SESSION_EXPIRY_MS } from '../trpc'
 import {
   AccountInputSchema,
   CreateAccountBodySchema,
@@ -15,9 +15,9 @@ import {
 } from 'src/shared/schemas/trpc'
 import { toZonedTime } from 'date-fns-tz'
 import { hashString } from '../../api/util'
+import { safeEqual } from 'src/vault/util'
 
 
-const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 
 export const accountsRouter = router({
@@ -244,7 +244,7 @@ export const accountsRouter = router({
       const accountData = ctx.accountData
 
       const currentAuthTokenHash = hashString(input.currentAuthToken)
-      if (accountData.authToken !== currentAuthTokenHash) {
+      if (!safeEqual(accountData.authToken, currentAuthTokenHash)) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
       }
 
