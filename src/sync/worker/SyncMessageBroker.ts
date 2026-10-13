@@ -240,8 +240,6 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
         if (this.snapshotOnlyItems.has(itemId)) {
           // Item was pruned from WAL and is flagged for snapshot-only sync.
           // Drop incremental sync message to avoid re-filling WAL and causing thrashing.
-          // Emit walEntriesPruned to ensure dirty snapshot state is refreshed.
-          this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
           return
         }
 

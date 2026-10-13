@@ -141,7 +141,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
 
     // Step 7: If the user edits one of the pruned items again while still offline:
     // The broker should DROP the incremental sync message (NOT append to WAL),
-    // and re-notify onWalEntriesPruned so SnapshotManager dirty queue is refreshed.
+    // without re-emitting walEntriesPruned (avoiding spurious downstream invocations).
     walAppendSpy.mockClear()
     onPrunedSpy.mockClear()
 
@@ -152,8 +152,8 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     expect(walAppendSpy).not.toHaveBeenCalled()
     // Storage size remains at 1901 (no growth / thrashing)
     expect(await store.length()).toBe(1901)
-    // onWalEntriesPruned re-notified for dirty tracking
-    expect(onPrunedSpy).toHaveBeenCalledWith(['offline-item-5'])
+    // walEntriesPruned must NOT be re-emitted
+    expect(onPrunedSpy).not.toHaveBeenCalled()
 
     // Step 8: When the snapshot is uploaded to server upon reconnecting:
     // broker.setSyncedHeads is called, removing the item from snapshot-only mode.
