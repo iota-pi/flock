@@ -437,6 +437,60 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(emitSpy).not.toHaveBeenCalledWith('message', expect.anything())
   })
 
+  it('does not fire reflected ACK microtask and unseeds document when sending is disabled or paused before microtask runs', async () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const emitSpy = vi.spyOn(adapter, 'emit')
+    const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
+    const initialSyncMsg = encodeSyncMessage({
+      heads: testHeads,
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    adapter.setSendEnabled(true)
+    adapter.setAccount('test')
+    adapter.connect('vault' as PeerId)
+
+    const docId = 'automerge:item-test-send-disabled' as DocumentId
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: docId,
+      data: initialSyncMsg,
+    })
+
+    // Disable sending immediately before microtask runs
+    adapter.setSendEnabled(false)
+
+    // Wait for microtasks
+    await Promise.resolve()
+
+    expect(receiveMessageSpy).not.toHaveBeenCalled()
+    expect(emitSpy).not.toHaveBeenCalledWith('message', expect.anything())
+
+    // Document should be unseeded so subsequent renegotiation/send succeeds
+    adapter.setSendEnabled(true)
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: docId,
+      data: initialSyncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveMessageSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('receiveMessage does not dispatch message when peerId is undefined', () => {
+    const emitSpy = vi.spyOn(adapter, 'emit')
+    const unattachedAdapter = new VaultNetworkAdapter()
+    // unattachedAdapter has no peerId connected
+    unattachedAdapter.receiveMessage('doc1' as DocumentId, new Uint8Array([1, 2, 3]))
+    expect(emitSpy).not.toHaveBeenCalled()
+  })
+
   it('prevents history dumps when syncedHeads matches and allows future changes through Automerge Repo', async () => {
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)

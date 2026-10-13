@@ -308,8 +308,10 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
               changes: [],
             })
             queueMicrotask(() => {
-              if (this.connected) {
+              if (this.canSend() && this.peerId) {
                 this.receiveMessage(message.documentId!, ackMsg)
+              } else if (message.documentId) {
+                this.seededDocuments.delete(message.documentId)
               }
             })
           }
@@ -324,10 +326,13 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   }
 
   receiveMessage(documentId: DocumentId, message: Uint8Array): void {
+    if (!this.peerId) {
+      return
+    }
     this.dispatchMessage({
       type: 'sync',
       senderId: VAULT_PEER_ID,
-      targetId: this.peerId!,
+      targetId: this.peerId,
       documentId,
       data: message,
     })
