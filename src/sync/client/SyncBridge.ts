@@ -11,7 +11,7 @@ import {
   getVaultSession,
 } from 'src/api/vault'
 import type { Item } from 'src/state/items'
-import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from 'src/types/backup'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
@@ -259,9 +259,9 @@ class SyncBridgeService {
     return fn(api)
   }
 
-  listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
+  listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
     return this.execute(async api => {
-      const entries = await api.listRecoveryItems()
+      const entries = await api.listRecoveryItems(options)
       this.eventProcessor.setRecoveryEntries(entries)
       return entries
     })

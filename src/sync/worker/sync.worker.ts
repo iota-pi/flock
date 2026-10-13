@@ -5,7 +5,9 @@ import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
 import type { DocHandle } from '@automerge/automerge-repo/slim'
 import type { SyncApi } from './syncProtocol'
+import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
+
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
@@ -511,8 +513,8 @@ export class SyncWorker implements SyncApi {
   dismissRecoveryItem = (entryId: string) =>
     this.withContext(ctx => ctx.recoveryManager.dismissEntry(entryId))
 
-  listRecoveryItems = () =>
-    this.withContext(ctx => ctx.recoveryManager.listRecoveryItems())
+  listRecoveryItems = (options?: ReadManualRecoveryOptions) =>
+    this.withContext(ctx => ctx.recoveryManager.listRecoveryItems(undefined, options))
 
   updateVaultKey = async (vaultKey: string) => {
     await initWorkerVault(vaultKey)

@@ -2,6 +2,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub } from './SyncEventHub'
 import {
   type ManualRecoveryEntry,
+  type ReadManualRecoveryOptions,
   readManualRecoveryEntries,
   readManualRecoveryCount,
   removeManualRecoveryEntryById,
@@ -90,11 +91,11 @@ export class RecoveryManager implements LifecycleAware {
     this.resetRecoveryState()
   }
 
-  async pushRecoveryItems(accountId?: string | null): Promise<ManualRecoveryEntry[]> {
+  async pushRecoveryItems(accountId?: string | null, options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
     const targetAccount = accountId !== undefined ? accountId : this.accountId
     if (!targetAccount) return []
     try {
-      const entries = await readManualRecoveryEntries(targetAccount)
+      const entries = await readManualRecoveryEntries(targetAccount, options)
       this.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
       return entries
     } catch (error) {
@@ -103,10 +104,10 @@ export class RecoveryManager implements LifecycleAware {
     }
   }
 
-  async listRecoveryItems(accountId?: string | null): Promise<ManualRecoveryEntry[]> {
+  async listRecoveryItems(accountId?: string | null, options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
     const targetAccount = accountId !== undefined ? accountId : this.accountId
     if (!targetAccount) return []
-    return await readManualRecoveryEntries(targetAccount)
+    return await readManualRecoveryEntries(targetAccount, options)
   }
 
   async quarantine(

@@ -1,6 +1,6 @@
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
-import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -28,7 +28,7 @@ export interface SyncApi {
   recreateOversizedItem: (itemId: ItemId) => Promise<ItemId>
   compactItem: (itemId: ItemId) => Promise<ItemId | void>
   dismissRecoveryItem: (entryId: string) => Promise<void>
-  listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
+  listRecoveryItems: (options?: ReadManualRecoveryOptions) => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
   updateAuthToken: (token: string | null) => Promise<void>
   reencryptAllItems: (

@@ -143,6 +143,14 @@ async function ensureMigrated(accountId: string): Promise<void> {
   return promise
 }
 
+export const DEFAULT_MANUAL_RECOVERY_LIMIT = 100
+export const MAX_MANUAL_RECOVERY_LIMIT = 500
+
+export interface ReadManualRecoveryOptions {
+  limit?: number
+  offset?: number
+}
+
 function sortEntries(left: ManualRecoveryEntry, right: ManualRecoveryEntry): number {
   if (left.createdAt !== right.createdAt) {
     return right.createdAt - left.createdAt
@@ -151,10 +159,44 @@ function sortEntries(left: ManualRecoveryEntry, right: ManualRecoveryEntry): num
   return left.id.localeCompare(right.id)
 }
 
-export async function readManualRecoveryEntries(accountId: string): Promise<ManualRecoveryEntry[]> {
+function insertSorted(candidates: ManualRecoveryEntry[], entry: ManualRecoveryEntry, maxCapacity: number): void {
+  if (candidates.length === 0) {
+    candidates.push(entry)
+    return
+  }
+
+  let low = 0
+  let high = candidates.length
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    if (sortEntries(entry, candidates[mid]) < 0) {
+      high = mid
+    } else {
+      low = mid + 1
+    }
+  }
+
+  candidates.splice(low, 0, entry)
+  if (candidates.length > maxCapacity) {
+    candidates.pop()
+  }
+}
+
+export async function readManualRecoveryEntries(
+  accountId: string,
+  options?: ReadManualRecoveryOptions,
+): Promise<ManualRecoveryEntry[]> {
   if (!accountId) return []
   await ensureMigrated(accountId)
-  const entries: ManualRecoveryEntry[] = []
+
+  const limit = Math.min(
+    Math.max(options?.limit ?? DEFAULT_MANUAL_RECOVERY_LIMIT, 1),
+    MAX_MANUAL_RECOVERY_LIMIT,
+  )
+  const offset = Math.max(options?.offset ?? 0, 0)
+  const maxNeeded = offset + limit
+
+  const candidates: ManualRecoveryEntry[] = []
   const storage = getManualRecoveryStorage(accountId)
 
   await storage.iterate<ManualRecoveryEntry, void>(value => {
@@ -166,12 +208,15 @@ export async function readManualRecoveryEntries(accountId: string): Promise<Manu
       && typeof value.reason === 'string'
       && typeof value.createdAt === 'number'
     ) {
-      entries.push(value)
+      if (candidates.length < maxNeeded) {
+        insertSorted(candidates, value, maxNeeded)
+      } else if (sortEntries(value, candidates[candidates.length - 1]) < 0) {
+        insertSorted(candidates, value, maxNeeded)
+      }
     }
   })
 
-  entries.sort(sortEntries)
-  return entries
+  return candidates.slice(offset, offset + limit)
 }
 
 export async function readManualRecoveryCount(accountId: string): Promise<number> {
