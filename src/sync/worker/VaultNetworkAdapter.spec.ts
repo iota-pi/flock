@@ -104,6 +104,27 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     vi.useRealTimers()
   })
 
+  it('resets readiness on disconnect() and resolves whenReady() on reconnect', async () => {
+    expect(adapter.isReady()).toBe(true)
+    await expect(adapter.whenReady()).resolves.toBeUndefined()
+
+    adapter.disconnect()
+    expect(adapter.isReady()).toBe(false)
+
+    let reconnected = false
+    void adapter.whenReady().then(() => {
+      reconnected = true
+    })
+
+    await Promise.resolve()
+    expect(reconnected).toBe(false)
+
+    adapter.connect('test-peer' as PeerId)
+    expect(adapter.isReady()).toBe(true)
+    await Promise.resolve()
+    expect(reconnected).toBe(true)
+  })
+
   it('queues sync messages to SyncWriteAheadLog on send()', async () => {
     const accountId = 'account-queues'
     adapter.setAccount(accountId)

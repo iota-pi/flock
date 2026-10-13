@@ -41,6 +41,14 @@ class ConcreteSyncNetworkAdapter extends BaseSyncNetworkAdapter {
   public testEnqueueOutboundMessage(message: Message): void {
     this.enqueueOutboundMessage(message)
   }
+
+  public testMarkReady(): void {
+    this.markReady()
+  }
+
+  public testResetReady(): void {
+    this.resetReady()
+  }
 }
 
 describe('BaseSyncNetworkAdapter', () => {
@@ -85,9 +93,11 @@ describe('BaseSyncNetworkAdapter', () => {
 
       adapter.connect('peer-1' as PeerId)
       expect(adapter.isConnected()).toBe(true)
+      expect(adapter.isReady()).toBe(true)
 
       adapter.disconnect()
       expect(adapter.isConnected()).toBe(false)
+      expect(adapter.isReady()).toBe(false)
       expect(adapter.testCanSend()).toBe(false)
       expect(closeSpy).toHaveBeenCalledTimes(1)
     })
@@ -96,10 +106,89 @@ describe('BaseSyncNetworkAdapter', () => {
       adapter.connect('peer-1' as PeerId)
       adapter.disconnect()
       expect(adapter.isConnected()).toBe(false)
+      expect(adapter.isReady()).toBe(false)
 
       adapter.connect('peer-1' as PeerId)
       expect(adapter.isConnected()).toBe(true)
+      expect(adapter.isReady()).toBe(true)
       expect(adapter.testCanSend()).toBe(true)
+    })
+
+    it('resets ready state on disconnect() and delays whenReady() resolution until reconnect', async () => {
+      const peerId = 'peer-1' as PeerId
+
+      // Initial connect
+      adapter.connect(peerId)
+      expect(adapter.isReady()).toBe(true)
+      await expect(adapter.whenReady()).resolves.toBeUndefined()
+
+      // Disconnect must reset ready state
+      adapter.disconnect()
+      expect(adapter.isReady()).toBe(false)
+      expect(adapter.isConnected()).toBe(false)
+
+      let reconnected = false
+      void adapter.whenReady().then(() => {
+        reconnected = true
+      })
+
+      // Must NOT resolve prematurely while disconnected or before reconnect
+      await Promise.resolve()
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(reconnected).toBe(false)
+      expect(adapter.isReady()).toBe(false)
+
+      // Reconnect must mark ready and resolve whenReady()
+      adapter.connect(peerId)
+      expect(adapter.isReady()).toBe(true)
+      await Promise.resolve()
+      expect(reconnected).toBe(true)
+    })
+
+    it('resets ready state via resetReady() and waits for subsequent markReady()', async () => {
+      adapter.testMarkReady()
+      expect(adapter.isReady()).toBe(true)
+
+      adapter.testResetReady()
+      expect(adapter.isReady()).toBe(false)
+
+      let readyResolved = false
+      void adapter.whenReady().then(() => {
+        readyResolved = true
+      })
+
+      await Promise.resolve()
+      expect(readyResolved).toBe(false)
+
+      adapter.testMarkReady()
+      expect(adapter.isReady()).toBe(true)
+      await Promise.resolve()
+      expect(readyResolved).toBe(true)
+    })
+
+    it('preserves pending whenReady() waiter across redundant disconnect() calls', async () => {
+      const peerId = 'peer-1' as PeerId
+
+      adapter.connect(peerId)
+      adapter.disconnect()
+      expect(adapter.isReady()).toBe(false)
+
+      let reconnected = false
+      void adapter.whenReady().then(() => {
+        reconnected = true
+      })
+
+      // Redundant disconnect calls should not overwrite or orphan the pending promise
+      adapter.disconnect()
+      adapter.disconnect()
+
+      await Promise.resolve()
+      expect(reconnected).toBe(false)
+
+      adapter.connect(peerId)
+      expect(adapter.isReady()).toBe(true)
+      await Promise.resolve()
+      expect(reconnected).toBe(true)
     })
 
     it('pauses and resumes sync', () => {
