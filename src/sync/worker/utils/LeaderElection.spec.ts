@@ -964,6 +964,80 @@ describe('LeaderElection', () => {
       electionTrue.release()
       trueLockRelease?.()
     })
+
+    it('preserves original createdAt when yielded leader is restored, preventing flip in fallback tie-breaking', async () => {
+      // Tab 1 acquires at T=100
+      vi.setSystemTime(100)
+      const election1 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+      await election1.acquire()
+
+      // Tab 2 acquires at T=200
+      vi.setSystemTime(200)
+      const election2 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: vi.fn(),
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+      await election2.acquire()
+
+      // Tab 2 yields to older Tab 1
+      await vi.waitFor(() => {
+        expect(election2.yielded).toBe(true)
+      })
+
+      // Tab 3 acquires at T=250
+      vi.setSystemTime(250)
+      const election3 = new LeaderElection(
+        'acc-1',
+        {
+          onLeaderGranted: vi.fn(),
+          onLeaderRevoked: vi.fn(),
+          onLeaderConflict: vi.fn(),
+        },
+        { presenceHeartbeatIntervalMs: 25, presenceTimeoutMs: 100 }
+      )
+      await election3.acquire()
+
+      // Tab 3 also yields to older Tab 1
+      await vi.waitFor(() => {
+        expect(election3.yielded).toBe(true)
+      })
+
+      // Advance time and timers past presenceTimeoutMs (100ms) to T=360
+      vi.setSystemTime(360)
+      ;(election2 as any).pruneStaleLeaders()
+      ;(election3 as any).pruneStaleLeaders()
+
+      // Tab 1 closes / releases at T=360
+      election1.release()
+
+      // Tab 2 (createdAt=200) was older than Tab 3 (createdAt=250).
+      // Tab 2 auto-recovers on release and retains createdAt=200
+      expect(election2.leader).toBe(true)
+      expect(election2.yielded).toBe(false)
+      expect((election2 as any).createdAt).toBe(200)
+
+      // When Tab 2 sends a heartbeat, Tab 3 (createdAt=250) receives it and yields to Tab 2
+      ;(election2 as any).sendHeartbeat()
+      expect(election3.leader).toBe(false)
+      expect(election3.yielded).toBe(true)
+      expect((election3 as any).createdAt).toBe(250)
+
+      election2.release()
+      election3.release()
+      vi.useRealTimers()
+    })
   })
 })
 
