@@ -450,17 +450,19 @@ export class SyncOrchestrator implements LifecycleAware {
       this.unsubscribeInternalEvents = null
     }
     const wasPolling = this.pollAbortController !== null
+    const wasLeader = this.isLeader
     this.setLeader(false)
-    this.cursorReloadGuard.clear()
     if (this.leaderElection) {
       this.leaderElection.release()
       this.leaderElection = null
     }
-    this.stopPolling()
-    this.stopPeriodicManifestSync()
-
-    this.abortPoll()
-    this.abortManifestSync()
+    if (!wasLeader) {
+      this.cursorReloadGuard.clear()
+      this.stopPolling()
+      this.stopPeriodicManifestSync()
+      this.abortPoll()
+      this.abortManifestSync()
+    }
     if (!wasPolling) {
       this.poller.abort?.()
     }
