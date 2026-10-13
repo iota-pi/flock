@@ -108,7 +108,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   private storageAdapter?: DocStorageChecker | null
   public onDocHandleReplaced?: DocHandleReplacedListener
 
-  async onLifecycleStop(): Promise<void> {
+  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.shutdown()
   }
 

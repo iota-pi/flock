@@ -68,7 +68,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
 
   constructor(private readonly accountId: string) {}
 
-  async onLifecycleStop(): Promise<void> {
+  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.close()
   }
 

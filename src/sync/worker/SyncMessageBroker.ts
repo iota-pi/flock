@@ -24,7 +24,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
   private isOnline = true
   private sendEnabled = false
 
-  async onLifecycleStop(): Promise<void> {
+  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.shutdown()
   }
 

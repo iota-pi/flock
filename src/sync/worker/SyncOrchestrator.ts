@@ -52,7 +52,7 @@ export class SyncOrchestrator implements LifecycleAware {
     await this.start()
   }
 
-  async onLifecycleStop(): Promise<void> {
+  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.shutdown()
   }
 
