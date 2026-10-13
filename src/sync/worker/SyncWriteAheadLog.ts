@@ -21,21 +21,32 @@ export interface WalEntry extends WalEntryDescriptor {
   replaces?: string[]
 }
 
-function toUint8Array(data: unknown): Uint8Array {
+export function toUint8Array(data: unknown): Uint8Array {
   if (data instanceof Uint8Array) {
     return data
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  }
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data)
+  }
+  if (Array.isArray(data)) {
+    return new Uint8Array(data)
   }
   if (data && typeof data === 'object') {
     const rawObj = data as Record<string | number, unknown>
     const length = typeof rawObj.length === 'number' && Number.isFinite(rawObj.length)
-      ? rawObj.length
+      ? Math.max(0, Math.floor(rawObj.length))
       : Object.keys(rawObj).length
-    const arr: number[] = []
+    const result = new Uint8Array(length)
     for (let i = 0; i < length; i++) {
       const val = rawObj[i]
-      arr.push(typeof val === 'number' ? val : 0)
+      if (typeof val === 'number') {
+        result[i] = val
+      }
     }
-    return new Uint8Array(arr)
+    return result
   }
   return new Uint8Array()
 }
@@ -48,6 +59,35 @@ export class SyncWriteAheadLog {
   public static readonly PRUNE_BATCH_SIZE = PRUNE_BATCH_SIZE
 
   private seqCounter = 0
+  private lastCreatedAt = 0
+  private isSeqInitialized = false
+  private readonly initSeqGuard = new SingleFlightGuard<void>()
+
+  private async ensureSeqInitialized(): Promise<void> {
+    if (this.isSeqInitialized) return
+    await this.initSeqGuard.run(async () => {
+      if (this.isSeqInitialized) return
+      let maxSeq = 0
+      let maxCreatedAt = 0
+      await this.storage.iterate<WalEntry, void>(entry => {
+        if (entry) {
+          if (typeof entry.seq === 'number' && entry.seq > maxSeq) {
+            maxSeq = entry.seq
+          }
+          if (typeof entry.createdAt === 'number' && entry.createdAt > maxCreatedAt) {
+            maxCreatedAt = entry.createdAt
+          }
+        }
+      })
+      if (maxSeq > this.seqCounter) {
+        this.seqCounter = maxSeq
+      }
+      if (maxCreatedAt > this.lastCreatedAt) {
+        this.lastCreatedAt = maxCreatedAt
+      }
+      this.isSeqInitialized = true
+    })
+  }
 
   public static resetSeqCounterForTesting(): void {
     // Kept for backward compatibility
@@ -310,14 +350,19 @@ export class SyncWriteAheadLog {
    */
   async append(itemId: ItemId, data: Uint8Array): Promise<string> {
     await this.enforceSizeLimit()
+    await this.ensureSeqInitialized()
 
     this.seqCounter += 1
     const id = nanoid()
+    const now = Date.now()
+    const createdAt = Math.max(now, this.lastCreatedAt)
+    this.lastCreatedAt = createdAt
+
     const entry: WalEntry = {
       id,
       itemId,
       data,
-      createdAt: Date.now(),
+      createdAt,
       seq: this.seqCounter,
     }
 
@@ -333,9 +378,17 @@ export class SyncWriteAheadLog {
   async readAll(): Promise<Map<ItemId, WalEntry[]>> {
     const rawEntries: WalEntry[] = []
     const supersededIds = new Set<string>()
+    let maxSeq = 0
+    let maxCreatedAt = 0
 
     await this.storage.iterate<WalEntry, void>(entry => {
       if (entry && entry.id && entry.itemId && entry.data) {
+        if (typeof entry.seq === 'number' && entry.seq > maxSeq) {
+          maxSeq = entry.seq
+        }
+        if (typeof entry.createdAt === 'number' && entry.createdAt > maxCreatedAt) {
+          maxCreatedAt = entry.createdAt
+        }
         const normalizedData = toUint8Array(entry.data)
         const validEntry: WalEntry = {
           id: entry.id,
@@ -356,6 +409,16 @@ export class SyncWriteAheadLog {
         }
       }
     })
+
+    if (!this.isSeqInitialized) {
+      if (maxSeq > this.seqCounter) {
+        this.seqCounter = maxSeq
+      }
+      if (maxCreatedAt > this.lastCreatedAt) {
+        this.lastCreatedAt = maxCreatedAt
+      }
+      this.isSeqInitialized = true
+    }
 
     // If any superseded entries are still present in storage (e.g. crash during compaction),
     // purge them from storage immediately, excluding any in-flight entries to avoid deleting mid-push.
@@ -405,6 +468,8 @@ export class SyncWriteAheadLog {
   async clear(): Promise<void> {
     this.inFlightEntryIds.clear()
     this.seqCounter = 0
+    this.lastCreatedAt = 0
+    this.isSeqInitialized = true
     await runStorageOperation(() => this.storage.clear())
   }
 }

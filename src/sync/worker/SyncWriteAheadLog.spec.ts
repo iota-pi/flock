@@ -1,4 +1,4 @@
-import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, clearWalInstancesCacheForTesting, toUint8Array } from './SyncWriteAheadLog'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from 'src/shared/schemas/items'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../../utils/storageManager'
@@ -965,6 +965,107 @@ describe('SyncWriteAheadLog', () => {
       // Nothing should be pruned to avoid torn state for item-A
       expect(store.store.has('a1')).toBe(true)
       expect(store.store.has('a2')).toBe(true)
+    })
+  })
+
+  describe('worker restart seqCounter persistence (L-5)', () => {
+    it('initializes seqCounter from existing storage entries to prevent mis-ordering on restart in same millisecond', async () => {
+      const fixedNow = 1700000000000
+      vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
+
+      // First worker instance writes 3 entries
+      const id1 = await wal.append('item-restart' as ItemId, new Uint8Array([1]))
+      const id2 = await wal.append('item-restart' as ItemId, new Uint8Array([2]))
+      const id3 = await wal.append('item-restart' as ItemId, new Uint8Array([3]))
+
+      // Simulate worker restart by instantiating a fresh SyncWriteAheadLog for the same account
+      const restartedWal = new SyncWriteAheadLog('test-account')
+
+      // Append 4th entry at identical millisecond timestamp
+      const id4 = await restartedWal.append('item-restart' as ItemId, new Uint8Array([4]))
+
+      const entriesMap = await restartedWal.readAll()
+      const entries = entriesMap.get('item-restart' as ItemId)!
+
+      expect(entries).toHaveLength(4)
+      expect(entries.map(e => e.id)).toEqual([id1, id2, id3, id4])
+
+      // Verify sequence counter strictly advanced beyond previous maximum
+      expect(entries[0].seq).toBe(1)
+      expect(entries[1].seq).toBe(2)
+      expect(entries[2].seq).toBe(3)
+      expect(entries[3].seq).toBe(4)
+
+      vi.restoreAllMocks()
+    })
+
+    it('ensures timestamps never regress even if system clock jumps backwards across restarts', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(2000)
+      const id1 = await wal.append('item-skew' as ItemId, new Uint8Array([1]))
+
+      // Worker restart with clock skewed backwards
+      vi.spyOn(Date, 'now').mockReturnValue(1900)
+      const restartedWal = new SyncWriteAheadLog('test-account')
+      const id2 = await restartedWal.append('item-skew' as ItemId, new Uint8Array([2]))
+
+      const entriesMap = await restartedWal.readAll()
+      const entries = entriesMap.get('item-skew' as ItemId)!
+
+      expect(entries).toHaveLength(2)
+      expect(entries[0].id).toBe(id1)
+      expect(entries[1].id).toBe(id2)
+      expect(entries[1].createdAt).toBeGreaterThanOrEqual(entries[0].createdAt)
+      expect(entries[1].seq!).toBeGreaterThan(entries[0].seq!)
+
+      vi.restoreAllMocks()
+    })
+  })
+
+  describe('toUint8Array conversion without intermediate array (L-6)', () => {
+    it('returns original Uint8Array directly', () => {
+      const original = new Uint8Array([1, 2, 3])
+      expect(toUint8Array(original)).toBe(original)
+    })
+
+    it('converts ArrayBuffer and ArrayBufferView views directly without intermediate arrays', () => {
+      const buffer = new Uint8Array([10, 20, 30]).buffer
+      const fromBuf = toUint8Array(buffer)
+      expect(fromBuf).toBeInstanceOf(Uint8Array)
+      expect(fromBuf).toEqual(new Uint8Array([10, 20, 30]))
+
+      const view = new DataView(buffer)
+      const fromView = toUint8Array(view)
+      expect(fromView).toBeInstanceOf(Uint8Array)
+      expect(fromView).toEqual(new Uint8Array([10, 20, 30]))
+    })
+
+    it('converts number[] array using native constructor', () => {
+      const arr = [5, 10, 15]
+      const result = toUint8Array(arr)
+      expect(result).toBeInstanceOf(Uint8Array)
+      expect(result).toEqual(new Uint8Array([5, 10, 15]))
+    })
+
+    it('converts indexed object with length directly into pre-allocated Uint8Array', () => {
+      const objWithLength = { 0: 42, 1: 84, length: 2 }
+      const result = toUint8Array(objWithLength)
+      expect(result).toBeInstanceOf(Uint8Array)
+      expect(result).toEqual(new Uint8Array([42, 84]))
+    })
+
+    it('converts indexed object without length property using key count', () => {
+      const objWithoutLength = { 0: 100, 1: 200 }
+      const result = toUint8Array(objWithoutLength)
+      expect(result).toBeInstanceOf(Uint8Array)
+      expect(result).toEqual(new Uint8Array([100, 200]))
+    })
+
+    it('handles non-numbers, negative length, and empty input gracefully', () => {
+      expect(toUint8Array(null)).toEqual(new Uint8Array())
+      expect(toUint8Array(undefined)).toEqual(new Uint8Array())
+      expect(toUint8Array('not an object')).toEqual(new Uint8Array())
+      expect(toUint8Array({ length: -5 })).toEqual(new Uint8Array())
+      expect(toUint8Array({ 0: 'invalid', 1: 99, length: 2 })).toEqual(new Uint8Array([0, 99]))
     })
   })
 })
