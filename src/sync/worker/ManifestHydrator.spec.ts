@@ -231,5 +231,120 @@ describe('ManifestHydrator', () => {
       expect(result.hasFailures).toBe(true)
       expect(result.added).toHaveLength(0)
     })
+
+    it('limits concurrent hydration tasks to hydrationConcurrency limit (M-18)', async () => {
+      const items = Array.from({ length: 10 }, (_, i) => ({
+        item: `item-${i}`,
+        metadata: { deleted: true },
+      }))
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({ items })
+
+      const concurrencyLimit = 3
+      const customHydrator = new ManifestHydrator({
+        accountId: 'acc-test',
+        apiClient: mockApiClient,
+        docStore: mockDocStore,
+        indexManager: mockIndexManager,
+        snapshotManager: mockSnapshotManager,
+        storeItems: storeItemsSpy,
+        hydrationConcurrency: concurrencyLimit,
+      })
+
+      let activeCount = 0
+      let peakConcurrency = 0
+      const originalHydrate = customHydrator.hydrateRemoteItem.bind(customHydrator)
+      vi.spyOn(customHydrator, 'hydrateRemoteItem').mockImplementation(async (...args) => {
+        activeCount += 1
+        peakConcurrency = Math.max(peakConcurrency, activeCount)
+        await new Promise(resolve => setTimeout(resolve, 15))
+        activeCount -= 1
+        return originalHydrate(...args)
+      })
+
+      const missingIds = items.map(entry => entry.item as ItemId)
+      const manifest = items.map(entry => ({ itemId: entry.item as ItemId, modifiedAt: 1000 }))
+
+      const result = await customHydrator.fetchAndHydrateRemoteItems({
+        missingIds,
+        manifest,
+        serverTime: 1000,
+        knownSet: new Set(),
+        tombstoneSet: new Set(),
+      })
+
+      expect(result.hasFailures).toBe(false)
+      expect(peakConcurrency).toBe(concurrencyLimit)
+      expect(storeItemsSpy).toHaveBeenCalled()
+    })
+
+    it('settles unexpected hydration rejection without halting processing of remaining items', async () => {
+      const items = [
+        { item: 'item-1', metadata: { deleted: true } },
+        { item: 'item-crash', metadata: { deleted: true } },
+        { item: 'item-2', metadata: { deleted: true } },
+      ]
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({ items })
+
+      const originalHydrate = hydrator.hydrateRemoteItem.bind(hydrator)
+      vi.spyOn(hydrator, 'hydrateRemoteItem').mockImplementation(async (item, ...rest) => {
+        if (item.item === 'item-crash') {
+          throw new Error('Catastrophic failure in item-crash')
+        }
+        return originalHydrate(item, ...rest)
+      })
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const result = await hydrator.fetchAndHydrateRemoteItems({
+        missingIds: items.map(e => e.item as ItemId),
+        manifest: items.map(e => ({ itemId: e.item as ItemId, modifiedAt: 1000 })),
+        serverTime: 1000,
+        knownSet: new Set(),
+        tombstoneSet: new Set(),
+      })
+
+      expect(result.hasFailures).toBe(true)
+      expect(storeItemsSpy).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'item-1' }),
+          expect.objectContaining({ id: 'item-2' }),
+        ]),
+        { markDirty: false },
+      )
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('aborts immediately and throws when AbortSignal is aborted during concurrent hydration', async () => {
+      const items = Array.from({ length: 8 }, (_, i) => ({
+        item: `item-${i}`,
+        metadata: { deleted: true },
+      }))
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({ items })
+
+      const controller = new AbortController()
+      let executedCount = 0
+
+      vi.spyOn(hydrator, 'hydrateRemoteItem').mockImplementation(async () => {
+        executedCount += 1
+        if (executedCount === 2) {
+          controller.abort()
+        }
+        await new Promise(resolve => setTimeout(resolve, 20))
+        return { status: 'success', itemId: 'item-0' as ItemId }
+      })
+
+      await expect(
+        hydrator.fetchAndHydrateRemoteItems(
+          {
+            missingIds: items.map(e => e.item as ItemId),
+            manifest: items.map(e => ({ itemId: e.item as ItemId, modifiedAt: 1000 })),
+            serverTime: 1000,
+            knownSet: new Set(),
+            tombstoneSet: new Set(),
+          },
+          controller.signal,
+        ),
+      ).rejects.toThrow()
+    })
   })
 })

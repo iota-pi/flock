@@ -5,6 +5,7 @@ import type {
   SyncMessageLastEvaluatedKey,
   GlobalSyncLastEvaluatedKey,
 } from 'src/shared/schemas/trpc'
+import { mapWithConcurrency, resolveConcurrency } from '../../shared/concurrency'
 
 type SyncMessagePayload = {
   iv: string
@@ -48,53 +49,6 @@ function sortMessagesAscendingByCursor(messages: StoredSyncMessage[]): StoredSyn
 }
 
 export const DEFAULT_PULL_BATCH_CONCURRENCY = 10
-
-function resolveConcurrency(concurrency?: number): number {
-  if (typeof concurrency === 'number' && Number.isFinite(concurrency) && concurrency > 0) {
-    return Math.floor(concurrency)
-  }
-  return DEFAULT_PULL_BATCH_CONCURRENCY
-}
-
-export async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) {
-    return []
-  }
-
-  const workerCount = Math.max(1, Math.min(concurrency, items.length))
-  const results = new Array<R>(items.length)
-  let currentIndex = 0
-  let firstError: unknown = null
-  let hasError = false
-
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (currentIndex < items.length && !hasError) {
-      const index = currentIndex
-      currentIndex += 1
-      try {
-        results[index] = await fn(items[index])
-      } catch (err) {
-        if (!hasError) {
-          hasError = true
-          firstError = err
-        }
-        break
-      }
-    }
-  })
-
-  await Promise.all(workers)
-
-  if (hasError) {
-    throw firstError
-  }
-
-  return results
-}
 
 const SYNC_MESSAGE_PAGE_LIMIT = 200
 const TIMESTAMP_MULTIPLIER = 10_000_000
@@ -208,7 +162,7 @@ export function createAutomergeSyncService({
       }
     }
 
-    const concurrency = resolveConcurrency(input.concurrency ?? pullConcurrency)
+    const concurrency = resolveConcurrency(input.concurrency ?? pullConcurrency, DEFAULT_PULL_BATCH_CONCURRENCY)
     const entries = Array.from(dedupedCursorsByItemId.entries())
 
     const results = await mapWithConcurrency(

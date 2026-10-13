@@ -12,6 +12,8 @@ import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
 import type { ManifestEntry } from 'src/shared/schemas/trpc'
+import { mapWithConcurrency } from '../../shared/concurrency'
+import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
@@ -56,6 +58,7 @@ export interface ManifestHydratorDeps {
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   onKeyVersionMissing?: (kver: string) => void
   isShutdown?: () => boolean
+  hydrationConcurrency?: number
 }
 
 export class ManifestHydrator {
@@ -116,16 +119,29 @@ export class ManifestHydrator {
     const versionUpdates: [ItemId, number][] = []
     let hasHydrationFailures = false
 
-    const results = await Promise.allSettled(
-      validFetchedItems.map(item =>
-        this.hydrateRemoteItem(
-          item,
-          params.manifest,
-          params.knownSet,
-          params.tombstoneSet,
-          params.serverTime,
-        ),
-      ),
+    const hydrationConcurrency = this.deps.hydrationConcurrency ?? SYNC_BATCH_SIZES.hydrationConcurrency
+
+    const results = await mapWithConcurrency(
+      validFetchedItems,
+      hydrationConcurrency,
+      async item => {
+        checkAlive(signal, () => this.isAlive())
+        try {
+          const value = await this.hydrateRemoteItem(
+            item,
+            params.manifest,
+            params.knownSet,
+            params.tombstoneSet,
+            params.serverTime,
+          )
+          return { status: 'fulfilled' as const, value }
+        } catch (reason) {
+          if (signal?.aborted || isAbortError(reason)) {
+            throw reason
+          }
+          return { status: 'rejected' as const, reason }
+        }
+      },
     )
 
     for (const settled of results) {

@@ -2,8 +2,8 @@ import type { Mocked } from 'vitest'
 import {
   createAutomergeSyncService,
   DEFAULT_PULL_BATCH_CONCURRENCY,
-  mapWithConcurrency,
 } from './automergeSyncService'
+import { mapWithConcurrency } from '../../shared/concurrency'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
 import { ItemId } from 'src/shared/schemas/items'
 
