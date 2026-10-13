@@ -1,5 +1,9 @@
 import type { Mocked } from 'vitest'
-import { createAutomergeSyncService } from './automergeSyncService'
+import {
+  createAutomergeSyncService,
+  DEFAULT_PULL_BATCH_CONCURRENCY,
+  mapWithConcurrency,
+} from './automergeSyncService'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -449,4 +453,185 @@ describe('AutomergeSyncService', () => {
       ).rejects.toThrow('Invalid global lastEvaluatedKey cursor: cursor cannot precede 1000')
     })
   })
+
+  describe('concurrency control in pullAutomergeSyncBatch', () => {
+    it('limits peak concurrent DynamoDB queries to DEFAULT_PULL_BATCH_CONCURRENCY by default', async () => {
+      const repository = createMockRepository()
+      let activeCount = 0
+      let peakConcurrency = 0
+
+      repository.getSyncMessages.mockImplementation(async () => {
+        activeCount += 1
+        peakConcurrency = Math.max(peakConcurrency, activeCount)
+        await new Promise(resolve => setTimeout(resolve, 15))
+        activeCount -= 1
+        return { messages: [], hasMore: false }
+      })
+
+      const service = createAutomergeSyncService({ repository })
+      const cursors = Array.from({ length: 30 }, (_, i) => ({
+        itemId: `item-${i}` as ItemId,
+        cursor: 100,
+      }))
+
+      const result = await service.pullAutomergeSyncBatch({
+        account: 'test-account',
+        cursors,
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.results).toHaveLength(30)
+      expect(repository.getSyncMessages).toHaveBeenCalledTimes(30)
+      expect(peakConcurrency).toBe(DEFAULT_PULL_BATCH_CONCURRENCY)
+    })
+
+    it('respects service-level pullConcurrency override', async () => {
+      const repository = createMockRepository()
+      let activeCount = 0
+      let peakConcurrency = 0
+
+      repository.getSyncMessages.mockImplementation(async () => {
+        activeCount += 1
+        peakConcurrency = Math.max(peakConcurrency, activeCount)
+        await new Promise(resolve => setTimeout(resolve, 15))
+        activeCount -= 1
+        return { messages: [], hasMore: false }
+      })
+
+      const service = createAutomergeSyncService({ repository, pullConcurrency: 4 })
+      const cursors = Array.from({ length: 15 }, (_, i) => ({
+        itemId: `item-${i}` as ItemId,
+        cursor: 100,
+      }))
+
+      const result = await service.pullAutomergeSyncBatch({
+        account: 'test-account',
+        cursors,
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.results).toHaveLength(15)
+      expect(repository.getSyncMessages).toHaveBeenCalledTimes(15)
+      expect(peakConcurrency).toBe(4)
+    })
+
+    it('respects input-level concurrency override over service default', async () => {
+      const repository = createMockRepository()
+      let activeCount = 0
+      let peakConcurrency = 0
+
+      repository.getSyncMessages.mockImplementation(async () => {
+        activeCount += 1
+        peakConcurrency = Math.max(peakConcurrency, activeCount)
+        await new Promise(resolve => setTimeout(resolve, 15))
+        activeCount -= 1
+        return { messages: [], hasMore: false }
+      })
+
+      const service = createAutomergeSyncService({ repository, pullConcurrency: 8 })
+      const cursors = Array.from({ length: 10 }, (_, i) => ({
+        itemId: `item-${i}` as ItemId,
+        cursor: 100,
+      }))
+
+      const result = await service.pullAutomergeSyncBatch({
+        account: 'test-account',
+        cursors,
+        concurrency: 2,
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.results).toHaveLength(10)
+      expect(peakConcurrency).toBe(2)
+    })
+
+    it('preserves result order even when requests resolve out of order', async () => {
+      const repository = createMockRepository()
+
+      repository.getSyncMessages.mockImplementation(async ({ itemId }: { itemId: ItemId }) => {
+        const index = parseInt(itemId.replace('item-', ''), 10)
+        const delay = (10 - index) * 5
+        await new Promise(resolve => setTimeout(resolve, delay))
+        return {
+          messages: [{
+            cursor: index * 10,
+            encryptedMessage: { iv: `iv-${index}`, cipher: `c-${index}` },
+            createdAt: 1000 + index,
+          }],
+          hasMore: false,
+        }
+      })
+
+      const service = createAutomergeSyncService({ repository, pullConcurrency: 5 })
+      const cursors = Array.from({ length: 10 }, (_, i) => ({
+        itemId: `item-${i}` as ItemId,
+        cursor: i * 10,
+      }))
+
+      const result = await service.pullAutomergeSyncBatch({
+        account: 'test-account',
+        cursors,
+      })
+
+      expect(result.results).toHaveLength(10)
+      result.results.forEach((itemResult, i) => {
+        expect(itemResult.itemId).toBe(`item-${i}`)
+        expect(itemResult.messages[0].cursor).toBe(i * 10)
+      })
+    })
+
+    it('propagates error and halts further worker iterations without unhandled rejection', async () => {
+      const repository = createMockRepository()
+      let queryCount = 0
+
+      repository.getSyncMessages.mockImplementation(async ({ itemId }: { itemId: ItemId }) => {
+        queryCount += 1
+        if (itemId === 'item-2') {
+          throw new Error('DynamoDB query failed for item-2')
+        }
+        await new Promise(resolve => setTimeout(resolve, 10))
+        return { messages: [], hasMore: false }
+      })
+
+      const service = createAutomergeSyncService({ repository, pullConcurrency: 2 })
+      const cursors = Array.from({ length: 10 }, (_, i) => ({
+        itemId: `item-${i}` as ItemId,
+        cursor: 100,
+      }))
+
+      await expect(
+        service.pullAutomergeSyncBatch({
+          account: 'test-account',
+          cursors,
+        })
+      ).rejects.toThrow('DynamoDB query failed for item-2')
+
+      expect(queryCount).toBeLessThan(10)
+    })
+  })
+
+  describe('mapWithConcurrency', () => {
+    it('returns empty array when input is empty', async () => {
+      const fn = vi.fn()
+      const result = await mapWithConcurrency([], 5, fn)
+      expect(result).toEqual([])
+      expect(fn).not.toHaveBeenCalled()
+    })
+
+    it('processes all items when concurrency is larger than item count', async () => {
+      const result = await mapWithConcurrency([1, 2, 3], 10, async x => x * 2)
+      expect(result).toEqual([2, 4, 6])
+    })
+
+    it('works correctly with concurrency = 1 (strictly serial)', async () => {
+      const callLog: number[] = []
+      const result = await mapWithConcurrency([1, 2, 3], 1, async x => {
+        callLog.push(x)
+        return x * 10
+      })
+      expect(callLog).toEqual([1, 2, 3])
+      expect(result).toEqual([10, 20, 30])
+    })
+  })
 })
+

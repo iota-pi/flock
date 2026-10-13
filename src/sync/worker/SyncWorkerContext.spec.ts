@@ -73,6 +73,7 @@ vi.mock('./SyncMessageBroker', () => ({
     readonly lifecycleName = 'SyncMessageBroker'
     unblockAllItems = vi.fn()
     setStorageRecoveryService = vi.fn()
+    setRecoveryManager = vi.fn()
     poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
     shutdown = vi.fn().mockResolvedValue(undefined)
     onLifecycleStop = vi.fn().mockImplementation(async () => {

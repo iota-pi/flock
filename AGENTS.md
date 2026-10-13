@@ -315,7 +315,7 @@ The server is a Fastify app with tRPC routers, deployed as an AWS Lambda behind 
   - `FlockItems` — item metadata + encrypted ciphers (hash: `account`, range: `item`, GSI: `account` + `modifiedAt`)
   - `FlockSyncMessages` — incremental Automerge sync messages (hash: `syncId`, range: `cursor`, GSI: `account` + `cursor`, TTL: `expiresAt`)
 - **tRPC Routers**: `accounts`, `items`, `sync` — handle account CRUD, item CRUD, and sync push/pull operations
-- **DynamoDB Batch Limits**: `pushSyncMessagesBatch` uses chunk size 25 (AWS `BatchWriteItem` limit). `fetchSnapshotsByIds` chunks by 100 (AWS `BatchGetItem` limit). `UnprocessedItems` / `UnprocessedKeys` are retried with jittered exponential backoff.
+- **DynamoDB Batch Limits**: `pushSyncMessagesBatch` uses chunk size 25 (AWS `BatchWriteItem` limit). `fetchSnapshotsByIds` chunks by 100 (AWS `BatchGetItem` limit). `pullAutomergeSyncBatch` bounds concurrent per-item queries to `DEFAULT_PULL_BATCH_CONCURRENCY` (10) using `mapWithConcurrency` to prevent DynamoDB throttling and Lambda socket exhaustion. `UnprocessedItems` / `UnprocessedKeys` are retried with jittered exponential backoff.
 - **Password change invalidates all other sessions**: `changePassword` replaces the `sessions` array with only the current session, forcing all other devices to re-authenticate. This is an intentional security measure.
 - **Lambda runs in UTC**: All server-side date operations assume UTC. Client-side timezone conversion uses `date-fns-tz`.
 
