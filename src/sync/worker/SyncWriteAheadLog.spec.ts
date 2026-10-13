@@ -563,7 +563,7 @@ describe('SyncWriteAheadLog', () => {
     expect(remaining.has('item-push-race' as ItemId)).toBe(false)
   })
 
-  it('compacts only non-in-flight entries if new entries arrive during active push', async () => {
+  it('skips compaction for items with in-flight entries to prevent entry fragmentation', async () => {
     const id1 = await wal.append('item-partial-push' as ItemId, new Uint8Array([1]))
     const id2 = await wal.append('item-partial-push' as ItemId, new Uint8Array([2]))
 
@@ -571,23 +571,26 @@ describe('SyncWriteAheadLog', () => {
     wal.markInFlight([id1, id2])
 
     // id3 and id4 arrive while id1 and id2 are in flight
-    await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
-    await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
+    const id3 = await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
+    const id4 = await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
 
-    // Compaction runs
+    // Compaction runs while item has active in-flight entries
     const reduced = await wal.compact()
-    // id3 and id4 compacted into 1 entry (reduced by 1)
-    expect(reduced).toBe(1)
+    // Entire item should be skipped from compaction to avoid fragmenting its entries
+    expect(reduced).toBe(0)
 
     const entries = await wal.readAll()
     const itemEntries = entries.get('item-partial-push' as ItemId)!
-    // Expect 3 entries: id1 (in-flight), id2 (in-flight), and the compacted id3+id4 entry
-    expect(itemEntries).toHaveLength(3)
-    expect(itemEntries.map(e => e.id)).toContain(id1)
-    expect(itemEntries.map(e => e.id)).toContain(id2)
+    // All 4 original individual entries remain untouched without fragmentation
+    expect(itemEntries).toHaveLength(4)
+    expect(itemEntries.map(e => e.id)).toEqual([id1, id2, id3, id4])
 
     // Remove the acknowledged in-flight entries
     await wal.remove([id1, id2])
+
+    // Now that item has no in-flight entries, subsequent compaction compacts remaining id3+id4
+    const reducedAfterAck = await wal.compact()
+    expect(reducedAfterAck).toBe(1)
 
     // Only the compacted id3+id4 entry remains
     const remaining = await wal.readAll()

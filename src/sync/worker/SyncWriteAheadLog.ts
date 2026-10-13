@@ -134,8 +134,15 @@ export class SyncWriteAheadLog {
     let reducedCount = 0
 
     for (const [itemId, entries] of byItem.entries()) {
-      // Exclude entries that are currently in-flight from compaction to prevent race conditions with active push
-      const availableEntries = this.query(entries).available()
+      const itemQuery = this.query(entries)
+
+      // Skip compaction for items with active in-flight entries to prevent
+      // fragmenting entries or splitting outbound delivery
+      if (itemQuery.inFlight().length > 0) {
+        continue
+      }
+
+      const availableEntries = itemQuery.available()
 
       if (availableEntries.length <= 1) continue
 
