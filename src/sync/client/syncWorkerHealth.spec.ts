@@ -102,27 +102,6 @@ describe('sendPing', () => {
     await expect(pingPromise).rejects.toThrow('Port closed')
     expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
   })
-
-  it('cleans up onmessage and onmessageerror when addEventListener is not supported', async () => {
-    const mockPort = {
-      postMessage: vi.fn(),
-      start: vi.fn(),
-      onmessage: null as any,
-      onmessageerror: null as any,
-    } as unknown as MessagePort
-
-    const controller = new AbortController()
-    const pingPromise = sendPing(mockPort, controller.signal)
-
-    expect(typeof mockPort.onmessage).toBe('function')
-    expect(typeof mockPort.onmessageerror).toBe('function')
-
-    controller.abort(new Error('Manual abort'))
-    await expect(pingPromise).rejects.toThrow('Manual abort')
-
-    expect(mockPort.onmessage).toBeNull()
-    expect(mockPort.onmessageerror).toBeNull()
-  })
 })
 
 describe('syncWorkerHealth', () => {

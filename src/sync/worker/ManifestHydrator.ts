@@ -180,7 +180,7 @@ export class ManifestHydrator {
       await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
     }
 
-    if (versionUpdates.length > 0 && typeof this.deps.snapshotManager.importVersions === 'function') {
+    if (versionUpdates.length > 0) {
       await this.deps.snapshotManager.importVersions(versionUpdates)
     }
 

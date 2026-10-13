@@ -75,16 +75,8 @@ export const sendPing = (
         clearTimeout(timer)
         timer = null
       }
-      if (typeof port.removeEventListener === 'function') {
-        port.removeEventListener('message', handleMessage)
-        port.removeEventListener('messageerror', handleMessageError)
-      }
-      if (port.onmessage === handleMessage) {
-        port.onmessage = null
-      }
-      if (port.onmessageerror === handleMessageError) {
-        port.onmessageerror = null
-      }
+      port.removeEventListener('message', handleMessage)
+      port.removeEventListener('messageerror', handleMessageError)
       if (signal) {
         signal.removeEventListener('abort', handleAbort)
       }
@@ -101,17 +93,9 @@ export const sendPing = (
       }, timeoutMs)
     }
 
-    if (typeof port.addEventListener === 'function') {
-      port.addEventListener('message', handleMessage)
-      port.addEventListener('messageerror', handleMessageError)
-    } else {
-      port.onmessage = handleMessage
-      port.onmessageerror = handleMessageError
-    }
-
-    if (typeof port.start === 'function') {
-      port.start()
-    }
+    port.addEventListener('message', handleMessage)
+    port.addEventListener('messageerror', handleMessageError)
+    port.start()
 
     try {
       port.postMessage('ping')

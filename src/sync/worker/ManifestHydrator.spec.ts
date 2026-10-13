@@ -48,6 +48,7 @@ describe('ManifestHydrator', () => {
     }
     mockSnapshotManager = {
       importLastModified: vi.fn().mockResolvedValue(undefined),
+      importVersions: vi.fn().mockResolvedValue(undefined),
       markItemDirty: vi.fn(),
     }
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
