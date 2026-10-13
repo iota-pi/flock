@@ -47,6 +47,7 @@ import type {
   SyncMessageLastEvaluatedKey,
   GlobalSyncLastEvaluatedKey,
 } from 'src/shared/schemas/trpc'
+import { MAX_ITEM_SIZE } from 'src/shared/constants/limits'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
@@ -69,7 +70,7 @@ const DATA_ATTRIBUTE_NAMES = {
   '#version': 'version',
 }
 
-const MAX_ITEM_SIZE = 350 * 1024
+export { MAX_ITEM_SIZE }
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 

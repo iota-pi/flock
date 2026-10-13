@@ -3,6 +3,7 @@ import { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { classifySyncError } from './utils/errorClassifier'
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import type { ClientEventHub } from './SyncEventHub'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -68,7 +69,7 @@ export class SnapshotPusher {
     this.broker = options.broker
     this.eventHub = options.eventHub
     this.getLatestCursor = options.getLatestCursor
-    this.maxPayloadBytes = options.maxPayloadBytes ?? 350 * 1024
+    this.maxPayloadBytes = options.maxPayloadBytes ?? MAX_ITEM_SIZE_BYTES
     this.apiClient = options.apiClient ?? new SyncApiClient()
     this.recoveryManager = options.recoveryManager ?? new RecoveryManager({
       accountId: options.accountId,
@@ -259,12 +260,12 @@ export class SnapshotPusher {
       )
       this.eventHub?.emit({
         type: 'quotaExceeded',
-        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the 350 KB limit. Recreating the item with fresh history is required to resume sync.`,
+        message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
       })
       fireAndForget(
         this.recoveryManager.quarantine(
           itemId,
-          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds 350 KB limit. Recreating the item with fresh history is required to resume sync.`,
+          `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
         ),
         'SnapshotPusher:quarantine',
       )

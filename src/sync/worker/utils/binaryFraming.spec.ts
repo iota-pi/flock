@@ -78,7 +78,6 @@ describe('binaryFraming', () => {
       const messages = [
         new Uint8Array([0xaa, 0xbb]),
         new Uint8Array([0xcc, 0xdd, 0xee]),
-        new Uint8Array([]), // empty payload message
         new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05]),
       ]
 

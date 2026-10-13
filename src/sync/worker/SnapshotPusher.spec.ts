@@ -2,6 +2,7 @@ import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import { AuthError } from './SyncApiClient'
 
 describe('SnapshotPusher', () => {
@@ -108,7 +109,7 @@ describe('SnapshotPusher', () => {
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
-      expect.stringContaining('exceeds 350 KB limit'),
+      expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
     )
   })
 

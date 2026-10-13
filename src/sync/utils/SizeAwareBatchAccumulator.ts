@@ -1,3 +1,5 @@
+import { MAX_ITEM_SIZE_BYTES } from 'src/shared/constants/limits'
+
 export interface SizeAwareBatchAccumulatorOptions<T> {
   maxBatchCount?: number
   maxBatchBytes?: number
@@ -6,7 +8,7 @@ export interface SizeAwareBatchAccumulatorOptions<T> {
 }
 
 export const DEFAULT_MAX_BATCH_COUNT = 25
-export const DEFAULT_MAX_BATCH_BYTES = 350 * 1024 // 350 KB
+export const DEFAULT_MAX_BATCH_BYTES = MAX_ITEM_SIZE_BYTES
 export const DEFAULT_MAX_PAYLOAD_LIMIT = 2 * 1024 * 1024 // 2 MB
 
 export class SizeAwareBatchAccumulator<T> {

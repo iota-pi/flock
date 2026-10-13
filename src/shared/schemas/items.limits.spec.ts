@@ -14,6 +14,13 @@ describe('ITEM_LIMITS', () => {
     expect(ITEM_LIMITS.NOTE_MAX).toBe(5000)
     expect(ITEM_LIMITS.NOTE_WARN).toBe(4000)
     expect(ITEM_LIMITS.NOTE_WARN).toBe(Math.floor(ITEM_LIMITS.NOTE_MAX * 0.8))
+
+    expect(ITEM_LIMITS.MAX_ITEM_SIZE_KB).toBe(350)
+    expect(ITEM_LIMITS.MAX_ITEM_SIZE_BYTES).toBe(350 * 1024)
+    expect(ITEM_LIMITS.MAX_ITEM_SIZE).toBe(350 * 1024)
+
+    expect(ITEM_LIMITS.MAX_ITEM_CONTENT_KB).toBe(300)
+    expect(ITEM_LIMITS.MAX_ITEM_CONTENT_BYTES).toBe(300 * 1024)
   })
 })
 

@@ -3,6 +3,7 @@ import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -388,11 +389,11 @@ describe('DynamoDriver', function () {
     expect(results[0].snapshot?.iv).toBe('snapshot-iv')
   })
 
-  it('rejects snapshots exceeding 350KB', async () => {
+  it(`rejects snapshots exceeding ${MAX_ITEM_SIZE_KB}KB`, async () => {
     const account = generateAccountId()
     const item = generateItemId()
     const type: ItemType = 'person'
-    const largeBuffer = Buffer.alloc(360 * 1024, 0x41)
+    const largeBuffer = Buffer.alloc(MAX_ITEM_SIZE_BYTES + 10 * 1024, 0x41)
     const payload = largeBuffer.toString('base64')
     const modified = Date.now()
 

@@ -2,6 +2,7 @@ import { ItemOperations, ItemOperationsDeps } from './ItemOperations'
 import { SyncApiClient } from './SyncApiClient'
 import type { Item } from '../../state/items'
 import type { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/constants/limits'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({
@@ -344,11 +345,11 @@ describe('ItemOperations', () => {
       await expect(operations.recreateOversizedItem('missing-item' as ItemId)).rejects.toThrow('No local item found')
     })
 
-    it('throws error if content size alone exceeds 300 KB', async () => {
-      const hugeItem = { id: 'item-huge' as ItemId, type: 'note', text: 'x'.repeat(305 * 1024) } as unknown as Item
+    it(`throws error if content size alone exceeds ${MAX_ITEM_CONTENT_KB} KB`, async () => {
+      const hugeItem = { id: 'item-huge' as ItemId, type: 'note', text: 'x'.repeat(MAX_ITEM_CONTENT_BYTES + 5 * 1024) } as unknown as Item
       getAutomergeItemMock.mockResolvedValue(hugeItem)
 
-      await expect(operations.recreateOversizedItem('item-huge' as ItemId)).rejects.toThrow('over 300 KB')
+      await expect(operations.recreateOversizedItem('item-huge' as ItemId)).rejects.toThrow(`over ${MAX_ITEM_CONTENT_KB} KB`)
     })
   })
 

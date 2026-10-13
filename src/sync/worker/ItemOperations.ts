@@ -3,6 +3,7 @@ import type { AccountMetadata } from '../../state/metadata'
 import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import { ERROR_ITEM_TYPE, type ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/constants/limits'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
@@ -251,9 +252,9 @@ export class ItemOperations {
     }
 
     const payloadJson = JSON.stringify(localItem)
-    if (payloadJson.length > 300 * 1024) {
+    if (payloadJson.length > MAX_ITEM_CONTENT_BYTES) {
       throw new Error(
-        'The content of this item is too large (over 300 KB). Please edit and shorten the notes or description before recreating.',
+        `The content of this item is too large (over ${MAX_ITEM_CONTENT_KB} KB). Please edit and shorten the notes or description before recreating.`,
       )
     }
 

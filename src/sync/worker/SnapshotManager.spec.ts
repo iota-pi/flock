@@ -1,4 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import { SnapshotManager } from './SnapshotManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
@@ -1020,14 +1021,14 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockEventHub.emit).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'quotaExceeded',
-          message: expect.stringContaining('exceeds the 350 KB limit'),
+          message: expect.stringContaining(`exceeds the ${MAX_ITEM_SIZE_KB} KB limit`),
         }),
       )
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
         'test-account',
         expect.objectContaining({
           itemId: 'item-1',
-          reason: expect.stringContaining('exceeds 350 KB limit'),
+          reason: expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
         }),
       )
     })
@@ -1068,7 +1069,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('excludes quarantined oversized items from being restored to dirty queue during startup audit', async () => {
       mockReadManualRecoveryEntries.mockResolvedValueOnce([
-        { id: 'item-oversized', itemId: 'item-oversized', reason: 'Snapshot size exceeds 350 KB limit', createdAt: 1000 },
+        { id: 'item-oversized', itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, createdAt: 1000 },
       ])
 
       vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([

@@ -2,6 +2,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react'
 import DataRecoveryDialog from './DataRecoveryDialog'
 import { useAppStore } from '../../state/store'
 import type { ErrorItem, ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import * as itemMutations from '../../features/items/mutations/itemMutations'
 import * as dataRecoveryHook from '../../hooks/useDataRecovery'
 
@@ -99,7 +100,7 @@ describe('DataRecoveryDialog', () => {
         {
           id: 'rec-1',
           itemId: 'item-oversized' as ItemId,
-          reason: 'Snapshot size (360 KB) exceeds 350 KB limit. Recreating the item with fresh history is required to resume sync.',
+          reason: `Snapshot size (360 KB) exceeds ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
           createdAt: Date.now(),
         },
       ],
@@ -115,7 +116,7 @@ describe('DataRecoveryDialog', () => {
     render(<DataRecoveryDialog open={true} onClose={onClose} />)
 
     expect(screen.getByText('Item edit history too large to sync')).toBeDefined()
-    expect(screen.getByText(/exceeds 350 KB limit/)).toBeDefined()
+    expect(screen.getByText(new RegExp(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`))).toBeDefined()
 
     const compactButton = screen.getByRole('button', { name: /recreate item/i })
     fireEvent.click(compactButton)

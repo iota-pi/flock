@@ -1,5 +1,6 @@
 import { SnapshotTracker } from './SnapshotTracker'
 import { ItemId } from 'src/shared/schemas/items'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 
 describe('SnapshotTracker', () => {
@@ -89,7 +90,7 @@ describe('SnapshotTracker', () => {
 
     mockRecoveryManager.listRecoveryItems.mockResolvedValue([
       { itemId: 'item-quarantined', reason: 'Decryption failed' },
-      { itemId: 'item-oversized', reason: 'Snapshot size exceeds 350 KB limit' },
+      { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit` },
     ])
 
     const { auditCount, oversizedItemIds } = await tracker.loadLastModified()

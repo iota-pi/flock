@@ -1,4 +1,4 @@
-import { parseBatchedMessages } from './messageParser'
+import { parseBatchedMessages, DEFAULT_MAX_MESSAGE_SIZE } from './messageParser'
 import { ItemId } from 'src/shared/schemas/items'
 import { DocumentId } from '@automerge/automerge-repo/slim'
 
@@ -129,6 +129,57 @@ describe('parseBatchedMessages', () => {
       'doc-1' as DocumentId,
       malformed,
       onMessageParsed
+    )
+
+    expect(result).toBe(false)
+    expect(onMessageParsed).not.toHaveBeenCalled()
+  })
+
+  it('rejects zero-length messages in batch', () => {
+    const onMessageParsed = vi.fn()
+    const zeroLengthBatch = new Uint8Array(4) // 4 zero bytes => length = 0
+
+    const result = parseBatchedMessages(
+      'item-1' as ItemId,
+      'doc-1' as DocumentId,
+      zeroLengthBatch,
+      onMessageParsed
+    )
+
+    expect(result).toBe(false)
+    expect(onMessageParsed).not.toHaveBeenCalled()
+  })
+
+  it('rejects messages exceeding DEFAULT_MAX_MESSAGE_SIZE', () => {
+    const onMessageParsed = vi.fn()
+    const oversizedLength = DEFAULT_MAX_MESSAGE_SIZE + 1
+    const buffer = new Uint8Array(4 + 10)
+    const view = new DataView(buffer.buffer)
+    view.setUint32(0, oversizedLength, false)
+
+    const result = parseBatchedMessages(
+      'item-1' as ItemId,
+      'doc-1' as DocumentId,
+      buffer,
+      onMessageParsed
+    )
+
+    expect(result).toBe(false)
+    expect(onMessageParsed).not.toHaveBeenCalled()
+  })
+
+  it('rejects messages exceeding custom maxMessageSize option', () => {
+    const onMessageParsed = vi.fn()
+    const buffer = new Uint8Array(4 + 100)
+    const view = new DataView(buffer.buffer)
+    view.setUint32(0, 50, false)
+
+    const result = parseBatchedMessages(
+      'item-1' as ItemId,
+      'doc-1' as DocumentId,
+      buffer,
+      onMessageParsed,
+      { maxMessageSize: 30 }
     )
 
     expect(result).toBe(false)
