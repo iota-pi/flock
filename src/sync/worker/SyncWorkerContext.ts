@@ -173,6 +173,11 @@ export class SyncWorkerContext {
       this.internalEventHub
     )
 
+    const recoveryManager = new RecoveryManager({
+      accountId: config.accountId,
+      eventHub: config.clientEventHub,
+    })
+
     const broker = new SyncMessageBroker(
       this.adapter,
       config.clientEventHub,
@@ -182,12 +187,8 @@ export class SyncWorkerContext {
       this.wal,
       null,
       this.apiClient,
+      recoveryManager,
     )
-
-    const recoveryManager = new RecoveryManager({
-      accountId: config.accountId,
-      eventHub: config.clientEventHub,
-    })
 
     const snapshotManager = new SnapshotManager(
       {
@@ -262,7 +263,8 @@ export class SyncWorkerContext {
   private wireCrossServiceDependencies(): void {
     this.snapshotManager.setLeader(this.orchestrator.leader)
     this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
-    this.broker.setStorageRecoveryService?.(this.storageRecoveryService)
+    this.broker.setStorageRecoveryService(this.storageRecoveryService)
+    this.broker.setRecoveryManager(this.recoveryManager)
     this.subscribeInternalEvents()
   }
 

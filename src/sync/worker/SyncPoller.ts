@@ -15,8 +15,18 @@ import type { PushResultItem, PollSyncBatchResponse } from '../../api/vault/Sync
 import { SyncApiClient } from './SyncApiClient'
 import { checkAlive } from '../utils/abort'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
+import type { RecoveryManager } from './RecoveryManager'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
+export const MAX_CONSECUTIVE_PUSH_FAILURES = 5
+
+export interface ChunkPushSummary {
+  acknowledgedCount: number
+  quarantinedCount: number
+  unacknowledgedCount: number
+  totalPushed: number
+}
+
 type ChunkEntry = [ItemId, WalEntry[]][]
 
 function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
@@ -38,6 +48,8 @@ export class SyncPoller {
   private isShutdown = false
   private abortController: AbortController | null = null
   private readonly apiClient: SyncApiClient
+  public readonly consecutivePushFailures = new Map<ItemId, number>()
+  private recoveryManager: RecoveryManager | null = null
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
@@ -46,12 +58,19 @@ export class SyncPoller {
     private indexManager?: AutomergeIndexManager,
     private wal?: SyncWriteAheadLog | null,
     apiClient?: SyncApiClient,
+    recoveryManager?: RecoveryManager | null,
   ) {
     this.apiClient = apiClient ?? new SyncApiClient()
+    this.recoveryManager = recoveryManager ?? null
+  }
+
+  setRecoveryManager(recoveryManager: RecoveryManager | null): void {
+    this.recoveryManager = recoveryManager
   }
 
   setAccount(account: string | null): void {
     this.account = account
+    this.consecutivePushFailures.clear()
     if (account) {
       this.isShutdown = false
     }
@@ -82,6 +101,7 @@ export class SyncPoller {
 
   shutdown(): void {
     this.isShutdown = true
+    this.consecutivePushFailures.clear()
     this.abort()
   }
 
@@ -104,8 +124,21 @@ export class SyncPoller {
 
       const chunks = batchEntries.length > 0 ? chunk(batchEntries, POLL_CHUNK_SIZE) : [[]]
 
+      let anyPushSucceeded = false
+      let anyPushQuarantined = false
+      let hadUnacknowledgedPush = false
+
       for (const chunkEntry of chunks) {
-        await this.processChunk(chunkEntry, signal)
+        const summary = await this.processChunk(chunkEntry, signal)
+        if (summary.acknowledgedCount > 0) anyPushSucceeded = true
+        if (summary.quarantinedCount > 0) anyPushQuarantined = true
+        if (summary.unacknowledgedCount > 0) hadUnacknowledgedPush = true
+      }
+
+      // If we pushed items and EVERY pushed item failed without any item being quarantined,
+      // report failure so orchestrator applies backoff between retry attempts.
+      if (batchEntries.length > 0 && !anyPushSucceeded && !anyPushQuarantined && hadUnacknowledgedPush) {
+        return 'failure'
       }
 
       await this.indexManager?.updateLastSyncTime(Date.now())
@@ -152,7 +185,7 @@ export class SyncPoller {
   private async processChunk(
     chunkEntry: ChunkEntry,
     signal: AbortSignal
-  ): Promise<void> {
+  ): Promise<ChunkPushSummary> {
     const sentIdsByItem = new Map<ItemId, string[]>()
     const pushMessages = await Promise.all(
       chunkEntry.map(async ([itemId, messages]) => {
@@ -191,25 +224,41 @@ export class SyncPoller {
 
     checkAlive(signal, () => this.isOperational)
 
+    let summary: ChunkPushSummary = {
+      acknowledgedCount: 0,
+      quarantinedCount: 0,
+      unacknowledgedCount: 0,
+      totalPushed: chunkEntry.length,
+    }
+
     if (chunkEntry.length > 0) {
-      await this.handlePushAcknowledgments(chunkEntry, sentIdsByItem, response?.pushResults)
+      summary = await this.handlePushAcknowledgments(
+        chunkEntry,
+        sentIdsByItem,
+        response?.pushResults
+      )
     }
 
     await this.handlePollResponse(response)
+
+    return summary
   }
 
   private async handlePushAcknowledgments(
     chunkEntry: ChunkEntry,
     sentIdsByItem: Map<ItemId, string[]>,
     pushResults?: PushResultItem[]
-  ): Promise<void> {
+  ): Promise<ChunkPushSummary> {
     const acknowledgedIds: string[] = []
     const acknowledgedItemIds = new Set<ItemId>()
+    const quarantinedIds: string[] = []
+    const quarantinedItemIds = new Set<ItemId>()
 
     const results = pushResults ?? []
     for (const result of results) {
       if (this.isPushResultSuccessful(result)) {
         acknowledgedItemIds.add(result.itemId)
+        this.consecutivePushFailures.delete(result.itemId)
         const ids = sentIdsByItem.get(result.itemId)
         if (ids && ids.length > 0) {
           acknowledgedIds.push(...ids)
@@ -220,18 +269,55 @@ export class SyncPoller {
       }
     }
 
-    for (const [sentItemId] of chunkEntry) {
+    for (const [sentItemId, messages] of chunkEntry) {
       if (!acknowledgedItemIds.has(sentItemId)) {
-        console.warn(`[SyncPoller] Item ${sentItemId} was not acknowledged in pushResults, preserving in WAL`)
+        const failures = (this.consecutivePushFailures.get(sentItemId) || 0) + 1
+        const pushResult = results.find(r => r.itemId === sentItemId)
+        const errorMsg = pushResult?.error || 'Push unacknowledged by server'
+
+        if (failures >= MAX_CONSECUTIVE_PUSH_FAILURES) {
+          console.error(
+            `[SyncPoller] Item ${sentItemId} reached max consecutive push failures (${failures}). Quarantining to manual recovery.`
+          )
+          quarantinedItemIds.add(sentItemId)
+          this.consecutivePushFailures.delete(sentItemId)
+          for (const m of messages) {
+            if (m.id) quarantinedIds.push(m.id)
+          }
+          if (this.recoveryManager) {
+            try {
+              await this.recoveryManager.quarantine(
+                sentItemId,
+                `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
+              )
+            } catch (qErr) {
+              console.error(`[SyncPoller] Failed to quarantine item ${sentItemId}:`, qErr)
+            }
+          }
+        } else {
+          this.consecutivePushFailures.set(sentItemId, failures)
+          console.warn(
+            `[SyncPoller] Push failed for item ${sentItemId} (attempt ${failures}/${MAX_CONSECUTIVE_PUSH_FAILURES}): ${errorMsg}, preserving in WAL`
+          )
+        }
       }
     }
 
-    if (this.wal && acknowledgedIds.length > 0) {
+    const idsToRemove = [...acknowledgedIds, ...quarantinedIds]
+    if (this.wal && idsToRemove.length > 0) {
       try {
-        await this.wal.remove(acknowledgedIds)
+        await this.wal.remove(idsToRemove)
       } catch (walErr) {
-        console.error('[SyncPoller] Failed to remove acknowledged IDs from WAL', walErr)
+        console.error('[SyncPoller] Failed to remove acknowledged/quarantined IDs from WAL', walErr)
+        throw walErr
       }
+    }
+
+    return {
+      acknowledgedCount: acknowledgedItemIds.size,
+      quarantinedCount: quarantinedItemIds.size,
+      unacknowledgedCount: chunkEntry.length - acknowledgedItemIds.size - quarantinedItemIds.size,
+      totalPushed: chunkEntry.length,
     }
   }
 

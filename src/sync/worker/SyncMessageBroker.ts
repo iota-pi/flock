@@ -12,6 +12,7 @@ import type { StorageRecoveryService } from './StorageRecoveryService'
 import type { SyncApiClient } from './SyncApiClient'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
+import type { RecoveryManager } from './RecoveryManager'
 
 interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
@@ -31,6 +32,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
   private syncPoller: SyncPoller
   private wal: SyncWriteAheadLog | null = null
   private storageRecovery: StorageRecoveryService | null = null
+  private recoveryManager: RecoveryManager | null = null
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
   private unsubscribeClientEvents: (() => void) | null = null
@@ -45,8 +47,10 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     wal?: SyncWriteAheadLog | null,
     storageRecovery?: StorageRecoveryService | null,
     apiClient?: SyncApiClient,
+    recoveryManager?: RecoveryManager | null,
   ) {
     this.storageRecovery = storageRecovery ?? null
+    this.recoveryManager = recoveryManager ?? null
     this.adapter?.setInternalEventHub?.(this.internalEventHub)
     this.pullQueueManager?.setInternalEventHub?.(this.internalEventHub)
     this.setWal(wal ?? null)
@@ -83,6 +87,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
       this.indexManager,
       this.wal,
       apiClient,
+      this.recoveryManager,
     )
 
     this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
@@ -96,6 +101,11 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
         }
       }
     })
+  }
+
+  setRecoveryManager(recoveryManager: RecoveryManager | null): void {
+    this.recoveryManager = recoveryManager
+    this.syncPoller.setRecoveryManager(recoveryManager)
   }
 
   setStorageRecoveryService(storageRecovery: StorageRecoveryService | null): void {
