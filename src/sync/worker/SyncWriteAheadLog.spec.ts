@@ -1070,4 +1070,3 @@ describe('SyncWriteAheadLog', () => {
   })
 })
 
-

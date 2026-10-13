@@ -276,7 +276,7 @@ describe('reencryptAllItems', () => {
 
     let attempts = 0
     mockRepo.find.mockImplementation(async () => {
-      attempts++
+      attempts += 1
       if (attempts === 1) {
         return {
           isReady: () => false,
@@ -306,7 +306,7 @@ describe('reencryptAllItems', () => {
 
     let attempts = 0
     mockRepo.find.mockImplementation(async () => {
-      attempts++
+      attempts += 1
       return {
         isReady: () => false,
         doc: () => ({ id: 'item-always-not-ready', type: 'note' }),

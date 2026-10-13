@@ -90,17 +90,17 @@ export const protectedProcedure = t.procedure
       )
     }
 
-    const result = await next({
-      ctx: {
-        ...ctx,
-        account,
-        accountData,
-      },
-    })
-
-    if (extendSessionPromise) {
-      await extendSessionPromise
+    try {
+      return await next({
+        ctx: {
+          ...ctx,
+          account,
+          accountData,
+        },
+      })
+    } finally {
+      if (extendSessionPromise) {
+        await extendSessionPromise
+      }
     }
-
-    return result
   })

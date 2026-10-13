@@ -1716,7 +1716,7 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-m5')
       const itemId = 'item-m5-advance' as ItemId
 
-      let failMessage2 = true
+      const failMessage2 = true
       manager.eventHub.subscribe(e => {
         if (e.type === 'messageParsed' && failMessage2 && e.message[0] === 40) {
           throw new Error('Transient failure on sub-message 2')

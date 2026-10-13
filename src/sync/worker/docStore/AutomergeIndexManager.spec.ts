@@ -256,17 +256,24 @@ describe('AutomergeIndexManager', () => {
     const writePromise = manager.addAutomergeItemIdsToIndex(['item-concurrent' as ItemId])
 
     // Concurrently call getIndexSnapshot and listAutomergeItemIds
-    const snapshotPromise = manager.getIndexSnapshot().then(snap => {
-      expect(isWriteInProgress).toBe(false)
+    let snapshotWriteInProgress: boolean | undefined
+    let listWriteInProgress: boolean | undefined
+
+    const snapshotPromise = (async () => {
+      const snap = await manager.getIndexSnapshot()
+      snapshotWriteInProgress = isWriteInProgress
       return snap
-    })
-    const listPromise = manager.listAutomergeItemIds().then(items => {
-      expect(isWriteInProgress).toBe(false)
+    })()
+    const listPromise = (async () => {
+      const items = await manager.listAutomergeItemIds()
+      listWriteInProgress = isWriteInProgress
       return items
-    })
+    })()
 
-    const [_, snapshot, items] = await Promise.all([writePromise, snapshotPromise, listPromise])
+    const [, snapshot, items] = await Promise.all([writePromise, snapshotPromise, listPromise])
 
+    expect(snapshotWriteInProgress).toBe(false)
+    expect(listWriteInProgress).toBe(false)
     expect(snapshot.itemIds).toEqual(['item-concurrent'])
     expect(items).toEqual(['item-concurrent'])
   })

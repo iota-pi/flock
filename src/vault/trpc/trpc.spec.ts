@@ -166,9 +166,14 @@ describe('protectedProcedure session renewal behavior', () => {
     expect(executionOrder).toEqual(['get-account', 'procedure-body'])
   })
 
-  it('calls and awaits extendSession AFTER the procedure body when renewal threshold is reached', async () => {
+  it('forks and awaits extendSession when renewal threshold is reached', async () => {
+    let extendSessionFinished = false
     const ctx = createMockContext({
       expiry: Date.now() + SESSION_RENEWAL_THRESHOLD_MS - 5000, // needs renewal
+      extendSessionMock: async () => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        extendSessionFinished = true
+      },
     })
     const caller = testRouter.createCaller(ctx as any)
 
@@ -180,13 +185,19 @@ describe('protectedProcedure session renewal behavior', () => {
       account: 'acc-1',
       session: 'valid-session-token',
     })
-    // Crucial: procedure-body executed BEFORE extend-session
-    expect(executionOrder).toEqual(['get-account', 'procedure-body', 'extend-session'])
+    // Fork-join: extendSession is forked before procedure-body and awaited before completion
+    expect(executionOrder).toEqual(['get-account', 'extend-session', 'procedure-body'])
+    expect(extendSessionFinished).toBe(true)
   })
 
-  it('does NOT call extendSession when the procedure fails', async () => {
+  it('still forks and awaits extendSession when the procedure fails', async () => {
+    let extendSessionFinished = false
     const ctx = createMockContext({
       expiry: Date.now() + SESSION_RENEWAL_THRESHOLD_MS - 5000, // needs renewal
+      extendSessionMock: async () => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        extendSessionFinished = true
+      },
     })
     const caller = testRouter.createCaller(ctx as any)
 
@@ -194,8 +205,12 @@ describe('protectedProcedure session renewal behavior', () => {
       code: 'BAD_REQUEST',
     })
 
-    expect(ctx.vault.extendSession).not.toHaveBeenCalled()
-    expect(executionOrder).toEqual(['get-account', 'procedure-failing-body'])
+    expect(ctx.vault.extendSession).toHaveBeenCalledWith({
+      account: 'acc-1',
+      session: 'valid-session-token',
+    })
+    expect(executionOrder).toEqual(['get-account', 'extend-session', 'procedure-failing-body'])
+    expect(extendSessionFinished).toBe(true)
   })
 
   it('does not fail procedure result if extendSession throws', async () => {
