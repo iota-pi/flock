@@ -55,6 +55,7 @@ describe('AutomergeDocStore Unit Tests', () => {
   afterEach(async () => {
     vi.restoreAllMocks()
     await docStore.shutdown()
+    await repo.shutdown()
   })
 
   // =========================================================================
@@ -1013,19 +1014,22 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(docStore.lifecycleName).toBe('DocStore')
 
       const customRepo = new Repo()
-      const shutdownSpy = vi.spyOn(customRepo, 'shutdown').mockResolvedValue(undefined)
       const store = new AutomergeDocStore(customRepo)
+      const shutdownSpy = vi.spyOn(store, 'shutdown')
 
       await store.onLifecycleStop()
       expect(shutdownSpy).toHaveBeenCalledTimes(1)
+      await customRepo.shutdown()
     })
 
-    it('shutdown catches and logs repo shutdown failures without rethrowing', async () => {
+    it('shutdown does not shut down repo since repo lifecycle is owned by AutomergeRepoManager (L-8)', async () => {
       const customRepo = new Repo()
-      vi.spyOn(customRepo, 'shutdown').mockRejectedValue(new Error('Shutdown error'))
+      const shutdownSpy = vi.spyOn(customRepo, 'shutdown')
       const store = new AutomergeDocStore(customRepo)
 
-      await expect(store.shutdown()).resolves.toBeUndefined()
+      await store.shutdown()
+      expect(shutdownSpy).not.toHaveBeenCalled()
+      await customRepo.shutdown()
     })
 
     it('setInternalEventHub allows updating internal event hub', async () => {

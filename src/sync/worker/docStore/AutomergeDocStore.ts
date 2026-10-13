@@ -608,10 +608,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   }
 
   async shutdown(): Promise<void> {
-    try {
-      await this.repo.shutdown()
-    } catch (err) {
-      console.error('[AutomergeDocStore] Failed to close repo:', err)
-    }
+    this.storageAdapter = null
+    this.onDocHandleReplaced = undefined
   }
 }
