@@ -48,7 +48,7 @@ export function toVaultItemIdFromAutomergeId(documentId: DocumentId): ItemId {
     if (!binary) {
       return documentId as unknown as ItemId
     }
-    return new TextDecoder().decode(binary) as ItemId
+    return new TextDecoder('utf-8', { fatal: true }).decode(binary) as ItemId
   } catch {
     // If decoding fails (e.g. legacy fallback or test mocks), return the normalized document ID
     return documentId as unknown as ItemId

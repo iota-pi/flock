@@ -1,4 +1,9 @@
-import type { DocHandle, DocumentId } from '@automerge/automerge-repo/slim'
+import {
+  type BinaryDocumentId,
+  type DocHandle,
+  type DocumentId,
+  stringifyAutomergeUrl,
+} from '@automerge/automerge-repo/slim'
 import { ItemId } from 'src/shared/schemas/items'
 import {
   readObjectSnapshot,
@@ -81,6 +86,16 @@ describe('automerge utils', () => {
     it('falls back to normalized document ID if the ID is not in mapping cache', async () => {
       expect(toVaultItemIdFromAutomergeId('unknown-id' as DocumentId)).toBe('unknown-id')
       expect(toVaultItemIdFromAutomergeId('abc-xyz' as DocumentId)).toBe('abc-xyz')
+    })
+
+    it('falls back to document ID when binary is not valid UTF-8 instead of returning replacement characters', async () => {
+      const invalidUtf8Bytes = new Uint8Array([0xff, 0xfe, 0xfd]) as BinaryDocumentId
+      const url = stringifyAutomergeUrl(invalidUtf8Bytes)
+      const docId = url.replace(/^automerge:/, '') as DocumentId
+
+      const result = toVaultItemIdFromAutomergeId(docId)
+      expect(result).toBe(docId)
+      expect(result).not.toContain('\uFFFD')
     })
   })
 })
