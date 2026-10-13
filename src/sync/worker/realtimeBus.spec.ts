@@ -133,7 +133,7 @@ describe('realtimeBus', () => {
     expect(channel.close).not.toHaveBeenCalled()
   })
 
-  it('reuses the same BroadcastChannel across subscribers and publishers without closing on unsubscribe', async () => {
+  it('closes BroadcastChannel and cleans up map entry when all listeners unsubscribe', async () => {
     const { subscribeRealtimeBusSyncPing, publishRealtimeBusSyncPing } = await import('./realtimeBus')
     const listener = vi.fn()
     const unsubscribe = subscribeRealtimeBusSyncPing('acc-1', listener)
@@ -149,8 +149,40 @@ describe('realtimeBus', () => {
     expect(channel.close).not.toHaveBeenCalled()
 
     unsubscribe()
-    expect(channel.close).not.toHaveBeenCalled()
+    expect(channel.close).toHaveBeenCalledTimes(1)
+    expect(channel.onmessage).toBeNull()
+    expect(channel.onmessageerror).toBeNull()
+  })
+
+  it('keeps BroadcastChannel open while other listeners remain, and closes once the last listener unsubscribes', async () => {
+    const { subscribeRealtimeBusSyncPing } = await import('./realtimeBus')
+    const listener1 = vi.fn()
+    const listener2 = vi.fn()
+    const unsub1 = subscribeRealtimeBusSyncPing('acc-1', listener1)
+    const unsub2 = subscribeRealtimeBusSyncPing('acc-1', listener2)
+
     expect(MockBroadcastChannel.instances).toHaveLength(1)
+    const channel = MockBroadcastChannel.instances[0]
+
+    unsub1()
+    expect(channel.close).not.toHaveBeenCalled()
+
+    unsub2()
+    expect(channel.close).toHaveBeenCalledTimes(1)
+  })
+
+  it('safely handles redundant unsubscribe calls', async () => {
+    const { subscribeRealtimeBusSyncPing } = await import('./realtimeBus')
+    const listener = vi.fn()
+    const unsubscribe = subscribeRealtimeBusSyncPing('acc-1', listener)
+
+    const channel = MockBroadcastChannel.instances[0]
+    unsubscribe()
+    expect(channel.close).toHaveBeenCalledTimes(1)
+
+    // Second unsubscribe call should be a no-op
+    expect(() => unsubscribe()).not.toThrow()
+    expect(channel.close).toHaveBeenCalledTimes(1)
   })
 
   it('teardownRealtimeBus(accountId) closes the channel and cleans up listeners for the specific account', async () => {

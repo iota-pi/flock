@@ -79,7 +79,14 @@ export function subscribeRealtimeBusSyncPing(
   getChannel(accountId)
 
   return () => {
+    if (!state.listeners.has(listener)) {
+      return
+    }
     state.listeners.delete(listener)
+    if (state.listeners.size === 0) {
+      closeAccountBus(state)
+      busStateByAccount.delete(accountId)
+    }
   }
 }
 
