@@ -228,6 +228,8 @@ When an Automerge document's serialized binary exceeds the snapshot size limit (
 - **Recreation flow**: `ItemOperations.recreateOversizedItem` generates a new random `ItemId`, creates a clean Automerge document with the latest content (excluding edit history), remaps group memberships from old→new ID, and soft-deletes the old item.
 - **Content size validation**: Before recreation, the system validates that the item's current content (excluding Automerge edit history) is under 300 KB. If the content itself is oversized, recreation is rejected — the user must reduce the content manually.
 - **`compactItem` is a deprecated alias** for `recreateOversizedItem` and delegates directly to it.
+- **Failure safety**: `recreateOversizedItem` creates and indexes the new document first and only then soft-deletes the old item. If creation, indexing or the old-item deletion fails it throws, leaving the old item indexed and quarantined, so retrying is safe. Calls for the same old ID are merged with a `KeyedSingleFlightGuard`. If the source is already deleted, the previous recreation is finalised (index removal, unquarantine) without creating another copy.
+- **Deleted oversized docs upload a tombstone**: The soft-deleted old item still has a full-history snapshot over the limit, so `SnapshotPusher` uploads a payload-less tombstone (`toTombstoneSnapshot`: `deleted: true`, no `snapshot`) instead of quarantining it. The server sets `metadata.deleted`, bumps the version and keeps the last real snapshot; hydration returns early on `metadata.deleted`. No synced heads are recorded for tombstones.
 
 #### Lifecycle Shutdown Order Contract
 
@@ -265,6 +267,7 @@ Flock intentionally uses **soft-deletes (tombstones)** across both client and se
 - DynamoDB records in `FlockItems` are never hard-deleted and have no TTL.
 - In a local-first offline architecture, an item missing from the server manifest indicates it was created offline and needs an upstream push—not that it was deleted. If an item were hard-deleted on the server, `ManifestSyncManager`'s two-way upstream reconciliation would treat it as an offline item and resurrect/re-upload it.
 - UI selectors filter out tombstoned items (`!item.deleted`), and `AutomergeIndexManager` excludes them from the active item ID index.
+- **Oversized tombstones**: A deleted item whose snapshot exceeds the size limit is pushed as a metadata-only tombstone (`VaultSnapshotSchema.snapshot` is optional only when `deleted === true`), so the server manifest still learns of the deletion.
 - **Deletions are terminal (no undelete / no ID recycling)**: Flock does not support undeleting items; deletions cannot be undone. Creating an item with the same name generates a brand-new random Nanoid (`generateItemId()`, 126 bits of entropy).
 - **Why "Delete + Recreate with the same ID" is impossible and intentional**:
   - In a CRDT, reusing an existing document ID for a new logical entity is an anti-pattern because Automerge would merge the old entity's edit history and tombstones into the new entity.

@@ -389,6 +389,36 @@ describe('DynamoDriver', function () {
     expect(results[0].snapshot?.iv).toBe('snapshot-iv')
   })
 
+  it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const payload = Buffer.from('last-real-snapshot').toString('base64')
+    const modified = Date.now()
+
+    await driver.set({
+      account,
+      item,
+      metadata: { type, iv: 'iv', modified },
+      snapshot: { cipher: payload, iv: 'snapshot-iv', kver: '1' },
+    })
+    const before = (await driver.fetchByIds({ account, itemIds: [item] }))[0]
+
+    await driver.set({
+      account,
+      item,
+      metadata: { type, iv: '', modified: modified + 1, deleted: true },
+    })
+
+    const after = (await driver.fetchByIds({ account, itemIds: [item] }))[0]
+    expect(after.snapshot?.cipher).toBe(payload)
+    expect(after.metadata.deleted).toBe(true)
+    expect(after.version).toBe((before.version ?? 0) + 1)
+
+    const manifest = await driver.fetchManifest({ account })
+    expect(manifest.find(m => m.itemId === item)?.isDeleted).toBe(true)
+  })
+
   it(`rejects snapshots exceeding ${MAX_ITEM_SIZE_KB}KB`, async () => {
     const account = generateAccountId()
     const item = generateItemId()

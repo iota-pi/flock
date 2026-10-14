@@ -12,7 +12,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { PreparedSnapshotItem } from './SnapshotBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder } from './snapshotBuilder'
+import { SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 
 export interface SnapshotPusherOptions {
@@ -298,6 +298,18 @@ export class SnapshotPusher {
 
     const snapshotSize = this.builder.estimateSize(snapshot)
 
+    if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
+      // The full history can never be uploaded, but the server still needs to learn of the deletion
+      this.oversizedItems.delete(itemId)
+      console.warn(`[SnapshotPusher] Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
+      const tombstone = toTombstoneSnapshot(snapshot)
+      return {
+        type: 'ready',
+        item: { snapshot: tombstone, tick, heads: undefined },
+        size: this.builder.estimateSize(tombstone),
+      }
+    }
+
     if (snapshotSize > this.maxPayloadBytes) {
       this.handleOversizedItem(itemId, snapshotSize, snapshot.modified)
       return { type: 'oversized' }
@@ -319,6 +331,7 @@ export class SnapshotPusher {
     for (const item of batch) {
       const assignedVersion = versionsMap?.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
+      // Tombstones deliberately carry no heads: the server does not hold the document state
       if (item.heads && item.heads.length > 0) {
         this.broker.setSyncedHeads?.(item.snapshot.itemId, item.heads)
       }
