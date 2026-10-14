@@ -66,6 +66,11 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  optimizeDeps: {
+    // Only imported from the sync worker, which the dep scanner doesn't crawl.
+    // Without this, discovery on first load triggers a full page reload.
+    include: ['@automerge/automerge/slim'],
+  },
   build: {
     target: 'es2022',
     outDir: 'dist/app',
