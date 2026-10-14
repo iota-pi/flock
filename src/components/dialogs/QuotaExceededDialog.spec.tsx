@@ -1,9 +1,9 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import QuotaExceededDialog from './QuotaExceededDialog'
 import { useAppStore } from '../../state/store'
-import { SyncBridge } from '../../sync/client/SyncBridge'
+import { SyncBridge } from '../../app/vault/syncBridge'
 
-vi.mock('../../sync/client/SyncBridge', () => ({
+vi.mock('../../app/vault/syncBridge', () => ({
   SyncBridge: {
     retrySave: vi.fn(),
     pushSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),

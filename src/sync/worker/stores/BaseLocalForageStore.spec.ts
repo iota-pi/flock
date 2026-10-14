@@ -1,5 +1,5 @@
 import { BaseLocalForageStore } from './BaseLocalForageStore'
-import * as storageManager from '../../../utils/storageManager'
+import * as storageManager from '../../utils/storageManager'
 
 import {
   MockLocalforage,

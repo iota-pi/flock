@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { CryptoResultSchema } from './crypto'
-import { ItemIdSchema } from './items'
+import { ItemIdSchema } from './ids'
 
 export const VaultSnapshotSchema = z.object({
   itemId: ItemIdSchema,

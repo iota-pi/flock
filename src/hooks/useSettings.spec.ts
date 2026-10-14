@@ -2,8 +2,8 @@ import { act, renderHook } from '@testing-library/react'
 
 import useSettings from './useSettings'
 import type { Item } from 'src/state/items'
-import type { BackupSyncState } from 'src/types/backup'
-import { ItemId } from 'src/shared/schemas/items'
+import type { BackupSyncState } from 'src/sync/shared/backupSyncState'
+import { ItemId } from 'src/shared/vault/ids'
 
 
 const mocks = vi.hoisted(() => ({
@@ -33,10 +33,13 @@ const mocks = vi.hoisted(() => ({
   disableBiometrics: vi.fn(async () => undefined),
 }))
 
-vi.mock('../api/vault', () => ({
-  exportData: mocks.exportData,
+vi.mock('../app/vault/session', () => ({
   lockVault: mocks.lockVault,
   removeVaultFromDevice: mocks.removeVaultFromDevice,
+}))
+
+vi.mock('../api/vault', () => ({
+  exportData: mocks.exportData,
   hasBiometricData: mocks.hasBiometricData,
   subscribeBiometrics: mocks.subscribeBiometrics,
   isWebAuthnPrfSupported: vi.fn(async () => true),
@@ -75,7 +78,7 @@ vi.mock('../state/store', () => ({
 }))
 
 
-vi.mock('../sync/client/SyncBridge', () => ({
+vi.mock('../app/vault/syncBridge', () => ({
   SyncBridge: {
     clearAutomergeDocStore: mocks.clearAutomergeDocStore,
     exportAllBinaries: mocks.exportAllBinaries,

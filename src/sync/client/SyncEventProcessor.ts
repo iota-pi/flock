@@ -1,7 +1,6 @@
 import type { ClientEvent } from '../worker/SyncEventHub'
-import * as Sentry from '@sentry/react'
-import { useAppStore } from 'src/state/store'
-import type { Item } from 'src/state/items'
+import type { VaultDoc, VaultMetadata } from '../shared/types'
+import { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './host'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import { createLogger } from '../utils/logger'
@@ -14,16 +13,20 @@ export interface SyncEventProcessorCallbacks {
   onTokenRefreshNeeded?: () => void
 }
 
-export class SyncEventProcessor {
+export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMetadata = VaultMetadata> {
   private readonly ITEM_UPDATE_BATCH_MAX = SYNC_BATCH_SIZES.itemUpdateBatchMax
-  private pendingItemUpdates = new Map<string, Item | null>()
+  private pendingItemUpdates = new Map<string, TDoc | null>()
   private itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
 
   private recoveryEntries: ManualRecoveryEntry[] = []
   private recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
   private reencryptProgressListeners = new Set<(done: number, total: number) => void>()
 
-  constructor(private callbacks: SyncEventProcessorCallbacks = {}) {}
+  constructor(
+    private readonly sink: SyncStateSink<TDoc, TMeta>,
+    private callbacks: SyncEventProcessorCallbacks = {},
+    private readonly telemetry: SyncTelemetry = noopTelemetry,
+  ) {}
 
   setCallbacks(callbacks: SyncEventProcessorCallbacks): void {
     this.callbacks = callbacks
@@ -62,7 +65,7 @@ export class SyncEventProcessor {
     this.pendingItemUpdates.clear()
     this.itemUpdateFlushHandle = null
 
-    useAppStore.getState().updateItemsFromServer(updates)
+    this.sink.updateItems(updates)
   }
 
   private scheduleItemUpdateFlush = (): void => {
@@ -76,11 +79,12 @@ export class SyncEventProcessor {
       case 'ready':
         break
       case 'statusChange':
-        useAppStore.getState().setSyncStatus(event.status)
+        this.sink.setSyncStatus(event.status)
         break
       case 'itemUpdated': {
         const { id, item } = event
-        this.pendingItemUpdates.set(id, item)
+        // The worker's codec produces the app's document type
+        this.pendingItemUpdates.set(id, item as TDoc | null)
 
         if (this.pendingItemUpdates.size >= this.ITEM_UPDATE_BATCH_MAX) {
           if (this.itemUpdateFlushHandle !== null) {
@@ -95,25 +99,24 @@ export class SyncEventProcessor {
         break
       }
       case 'indexUpdated':
-        useAppStore.getState().updateIndexFromServer(event.itemIds)
+        this.sink.updateIndex(event.itemIds)
         break
       case 'metadataUpdated':
-        useAppStore.getState().updateMetadata(event.metadata)
+        this.sink.updateMetadata(event.metadata as TMeta)
         break
       case 'mutationFailed':
         log.error(`Mutation ${event.mutationType} failed: ${event.error}`)
         break
       case 'startRequest':
-        useAppStore.getState().startRequest()
+        this.sink.startRequest()
         break
       case 'finishRequest':
-        useAppStore.getState().finishRequest()
+        this.sink.finishRequest()
         break
       case 'authFailure': {
-        const syncStore = useAppStore.getState()
-        syncStore.setSyncStatus('offline')
-        syncStore.setSyncWarning(event.message)
-        Sentry.addBreadcrumb({
+        this.sink.setSyncStatus('offline')
+        this.sink.setSyncWarning(event.message)
+        this.telemetry.addBreadcrumb({
           category: 'auth',
           message: `Sync auth failure: ${event.message}`,
           level: 'warning',
@@ -124,11 +127,10 @@ export class SyncEventProcessor {
         this.setRecoveryEntries(event.entries)
         break
       case 'quotaExceeded': {
-        const syncStore = useAppStore.getState()
-        syncStore.setSyncStatus('degraded')
-        syncStore.setSyncWarning(event.message)
-        syncStore.setQuotaExceeded(true)
-        Sentry.addBreadcrumb({
+        this.sink.setSyncStatus('degraded')
+        this.sink.setSyncWarning(event.message)
+        this.sink.setQuotaExceeded(true)
+        this.telemetry.addBreadcrumb({
           category: 'storage',
           message: `Storage quota exceeded: ${event.message}`,
           level: 'warning',
@@ -136,29 +138,27 @@ export class SyncEventProcessor {
         break
       }
       case 'quotaResolved': {
-        const syncStore = useAppStore.getState()
-        syncStore.clearQuotaExceeded()
-        if (syncStore.syncStatus === 'degraded') {
-          syncStore.setSyncStatus('idle')
+        this.sink.setQuotaExceeded(false)
+        if (this.sink.getSyncStatus() === 'degraded') {
+          this.sink.setSyncStatus('idle')
         }
-        if (syncStore.syncWarning?.toLowerCase().includes('quota') || syncStore.syncWarning?.includes('Storage')) {
-          syncStore.clearSyncWarning()
+        const syncWarning = this.sink.getSyncWarning()
+        if (syncWarning?.toLowerCase().includes('quota') || syncWarning?.includes('Storage')) {
+          this.sink.clearSyncWarning()
         }
         break
       }
       case 'snapshotFailed': {
-        const syncStore = useAppStore.getState()
-        syncStore.setSyncStatus('degraded')
-        syncStore.setSyncWarning(event.message)
+        this.sink.setSyncStatus('degraded')
+        this.sink.setSyncWarning(event.message)
         break
       }
       case 'keyVersionMissing':
         this.callbacks.onKeyVersionMissing?.(event.kver)
         break
       case 'leaderConflict': {
-        const syncStore = useAppStore.getState()
-        syncStore.setLeaderConflict(event.hasConflict)
-        Sentry.setTag('leaderConflict', event.hasConflict)
+        this.sink.setLeaderConflict(event.hasConflict)
+        this.telemetry.setTag('leaderConflict', event.hasConflict)
         break
       }
       case 'tokenRefreshNeeded':
@@ -182,11 +182,7 @@ export class SyncEventProcessor {
           error.stack = event.error.stack
         }
         log.error('Worker error received:', error)
-        Sentry.captureException(error, {
-          tags: {
-            origin: 'sync-worker',
-          },
-        })
+        this.telemetry.captureException(error, { origin: 'sync-worker' })
         break
       }
     }

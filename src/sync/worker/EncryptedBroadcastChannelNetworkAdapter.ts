@@ -26,6 +26,7 @@ import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils
 import { AsyncQueue } from '../utils/AsyncQueue'
 import { BoundedQueue } from '../utils/boundedCollections'
 import { fireAndForget } from '../utils/fireAndForget'
+import { getVaultStorageNames } from '../shared/storageNames'
 
 const DEFAULT_MAX_CRYPTO_RETRIES = 3
 const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
@@ -49,6 +50,11 @@ interface QueuedMessage {
   retries: number
 }
 
+function accountIdFromChannelName(channelName?: string): string | undefined {
+  const prefix = getVaultStorageNames().accountPrefixes.automergeBroadcastChannel
+  return channelName?.startsWith(prefix) ? channelName.slice(prefix.length) : undefined
+}
+
 export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdapter {
   private options?: EncryptedBroadcastChannelOptions
   private accountId?: string
@@ -64,7 +70,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   constructor(options?: EncryptedBroadcastChannelOptions) {
     super(options)
     this.options = options
-    this.accountId = options?.accountId ?? (options?.channelName?.startsWith('flock-automerge-broadcast-') ? options.channelName.slice('flock-automerge-broadcast-'.length) : undefined)
+    this.accountId = options?.accountId ?? accountIdFromChannelName(options?.channelName)
     this.maxPendingMessagesPerKey = options?.maxPendingMessagesPerKey ?? 1000
     this.maxCryptoRetries = options?.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
     const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'

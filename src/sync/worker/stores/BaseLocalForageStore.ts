@@ -1,5 +1,5 @@
 import localforage from 'localforage'
-import { runStorageOperation, type RunStorageOperationOptions } from '../../../utils/storageManager'
+import { runStorageOperation, type RunStorageOperationOptions } from '../../utils/storageManager'
 
 export interface BaseStoreOptions {
   name: string

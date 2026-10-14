@@ -1,13 +1,8 @@
 import { z } from 'zod'
 import { CryptoResultSchema } from './crypto'
 import { VaultSnapshotSchema } from './snapshots'
-import { ItemIdSchema, type ItemId } from './items'
+import { ItemIdSchema, type ItemId } from './ids'
 
-
-const WebPushSubscriptionKeysSchema = z.object({
-  p256dh: z.string(),
-  auth: z.string(),
-})
 
 export const CreateAccountBodySchema = z.object({
   salt: z.string().min(1),
@@ -18,13 +13,6 @@ export const CreateAccountBodySchema = z.object({
 
 export const AccountCreationResponseSchema = z.object({
   account: z.string(),
-})
-
-export const ReminderSettingsResponseSchema = z.object({
-  success: z.boolean(),
-  reminderEnabled: z.boolean(),
-  reminderTime: z.string(),
-  reminderTimezone: z.string(),
 })
 
 export const LoginBodySchema = z.object({
@@ -80,29 +68,6 @@ export type PutSnapshotResultItem = z.infer<typeof PutSnapshotResultItemSchema>
 export const FetchSnapshotsByIdsInputSchema = z.object({
   account: z.string().min(1),
   itemIds: z.array(ItemIdSchema).min(1).max(50),
-})
-
-export const PushSubscriptionBodySchema = z.object({
-  account: z.string().min(1),
-  endpoint: z.string().min(1),
-  keys: WebPushSubscriptionKeysSchema,
-})
-
-export const PushSubscriptionDeleteBodySchema = z.object({
-  account: z.string().min(1),
-  endpoint: z.string().min(1),
-})
-
-export const ReminderSettingsBodySchema = z.object({
-  account: z.string().min(1),
-  reminderEnabled: z.boolean(),
-  reminderTime: z.string().min(5).max(5),
-  reminderTimezone: z.string().min(1),
-})
-
-export const SnoozeRemindersBodySchema = z.object({
-  account: z.string().min(1),
-  snoozeUntilDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 })
 
 const SyncEncryptedMessageSchema = (

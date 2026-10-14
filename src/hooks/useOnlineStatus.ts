@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useEventListener } from 'usehooks-ts'
-import { getOnlineState } from 'src/utils/onlineStatus'
+import { getOnlineState } from 'src/sync/utils/onlineStatus'
 
 export function useOnlineStatus(): boolean {
   const [isOnline, setIsOnline] = useState<boolean>(getOnlineState)

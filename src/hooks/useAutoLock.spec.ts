@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import useAutoLock from './useAutoLock'
-import * as vault from '../api/vault'
+import * as session from '../app/vault/session'
 import * as autoLockStore from '../api/vault/autoLockStore'
 import { useAppStore } from '../state/store'
 
@@ -10,7 +10,7 @@ describe('useAutoLock hook', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     localStorage.clear()
-    lockVaultSpy = vi.spyOn(vault, 'lockVault').mockResolvedValue(undefined)
+    lockVaultSpy = vi.spyOn(session, 'lockVault').mockResolvedValue(undefined)
     useAppStore.setState({ loggedIn: true })
   })
 

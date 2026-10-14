@@ -1,5 +1,7 @@
 // TODO: enable StrictMode
 // import { StrictMode } from 'react'
+// Configures the vault before any other module can use it
+import './app/vault/setup'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 // eslint-disable-next-line import-x/no-unresolved
@@ -91,7 +93,7 @@ function initializeApp() {
     if (window.Cypress) {
       window.vault = import('./api/vault')
       window.mutations = import('./features/items/mutations/itemMutations')
-      window.syncBridge = import('./sync/client/SyncBridge').then(mod => mod.SyncBridge)
+      window.syncBridge = import('./app/vault/syncBridge').then(mod => mod.SyncBridge)
     }
   } catch (error) {
     console.error('Failed to initialize application core:', error)

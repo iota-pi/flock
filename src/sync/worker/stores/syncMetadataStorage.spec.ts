@@ -8,7 +8,7 @@ import {
   hasLegacyDatabase,
   SYNC_METADATA_STORE_NAME,
   SYNC_METADATA_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
   LEGACY_KEYS,
   ScopedMetadataStore,
   type ScopedMetadataStoreOptions,
@@ -39,9 +39,11 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../../utils/storageManager', () => ({
+vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
+
+const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('syncMetadataStorage', () => {
   beforeEach(() => {
@@ -104,19 +106,19 @@ describe('syncMetadataStorage', () => {
 
     const createdConfigs = createdInstances.map(i => i.config)
     expect(createdConfigs).toContainEqual({
-      name: LEGACY_DB_NAMES.CURSORS,
+      name: legacyDbNames.cursors,
       storeName: 'cursors-acc-legacy',
     })
     expect(createdConfigs).toContainEqual({
-      name: LEGACY_DB_NAMES.INDEX_DOC,
+      name: legacyDbNames.indexDoc,
       storeName: 'index-acc-legacy',
     })
     expect(createdConfigs).toContainEqual({
-      name: LEGACY_DB_NAMES.LAST_MODIFIED,
+      name: legacyDbNames.lastModified,
       storeName: 'last-modified-acc-legacy',
     })
     expect(createdConfigs).toContainEqual({
-      name: LEGACY_DB_NAMES.SYNCED_HEADS,
+      name: legacyDbNames.syncedHeads,
       storeName: 'synced-heads-acc-legacy',
     })
   })

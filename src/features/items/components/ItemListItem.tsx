@@ -21,7 +21,7 @@ import { getItemName, getItemTypeLabel, isItem, type Item } from 'src/state/item
 import { useItem } from 'src/state/selectors'
 import { useItemListContext } from './ItemListContext'
 import type { GroupLookupData } from 'src/shared/itemTypes'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 
 const FADED_OPACITY = 0.65

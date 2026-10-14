@@ -1,12 +1,11 @@
-import { ItemId } from "src/shared/schemas/items"
+import { ItemId } from 'src/shared/vault/ids'
+import { getVaultStorageNames } from '../shared/storageNames'
 
 export type SyncPingListener = (itemIds: ItemId[]) => void
 export type ItemDirtyListener = (itemIds: ItemId[]) => void
 
-const SYNC_PING_CHANNEL_PREFIX = 'flock-sync-ping-bus-'
-
 export function getSyncPingChannelName(accountId: string): string {
-  return `${SYNC_PING_CHANNEL_PREFIX}${accountId}`
+  return `${getVaultStorageNames().accountPrefixes.syncPingChannel}${accountId}`
 }
 
 interface AccountBusState {

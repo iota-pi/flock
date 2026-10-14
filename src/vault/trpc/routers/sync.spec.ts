@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { syncRouter } from './sync'
 import { StoredSyncMessage } from 'src/vault/drivers/base'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 function createContext(overrides?: {
   authToken?: string

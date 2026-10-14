@@ -1,5 +1,3 @@
-import { ITEM_TYPES } from 'src/shared/schemas/items'
-import type { Item } from 'src/state/items'
 import { reconcileAutomergeList, type AutomergeListItem } from './crdtReconcile'
 
 export function mutateDraftToMatchSnapshot<T>(
@@ -24,14 +22,4 @@ export function mutateDraftToMatchSnapshot<T>(
       }
     }
   }
-}
-
-export function normalizeSnapshotType(type: Item['type'], originalType?: Item['type']): string {
-  const resolvedType = (
-    (type === 'error' && originalType) ? originalType : type
-  )
-  const isValidType = ITEM_TYPES.includes(resolvedType as (typeof ITEM_TYPES)[number])
-  return isValidType
-    ? resolvedType
-    : 'person'
 }

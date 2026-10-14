@@ -1,15 +1,25 @@
-import { syncDB } from '../../api/db'
+import localforage from 'localforage'
+import { getVaultStorageNames } from './storageNames'
 
 const ACTIVE_SESSION_TOKEN_KEY = 'active_session_token'
 
+let authDB: LocalForage | null = null
+
+function getAuthDB(): LocalForage {
+  if (!authDB) {
+    authDB = localforage.createInstance({ name: getVaultStorageNames().authDatabase })
+  }
+  return authDB
+}
+
 export async function getActiveSessionToken(): Promise<string | null> {
-  return (await syncDB.getItem<string>(ACTIVE_SESSION_TOKEN_KEY)) || null
+  return (await getAuthDB().getItem<string>(ACTIVE_SESSION_TOKEN_KEY)) || null
 }
 
 export async function setActiveSessionToken(sessionToken: string): Promise<void> {
-  await syncDB.setItem(ACTIVE_SESSION_TOKEN_KEY, sessionToken)
+  await getAuthDB().setItem(ACTIVE_SESSION_TOKEN_KEY, sessionToken)
 }
 
 export async function clearActiveSessionToken(): Promise<void> {
-  await syncDB.removeItem(ACTIVE_SESSION_TOKEN_KEY)
+  await getAuthDB().removeItem(ACTIVE_SESSION_TOKEN_KEY)
 }

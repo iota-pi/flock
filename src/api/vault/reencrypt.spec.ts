@@ -1,6 +1,5 @@
 import { reencryptAllItems, resumePendingReencryption, REENCRYPT_PENDING_KEY_PREFIX } from './reencrypt'
 import { rotateVaultKey, exportKeyringData } from './index'
-import { SyncBridge } from '../../sync/client/SyncBridge'
 
 
 vi.mock('./index', () => ({
@@ -8,17 +7,16 @@ vi.mock('./index', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('mock-keyring-data'),
 }))
 
-vi.mock('../../sync/client/SyncBridge', () => ({
-  SyncBridge: {
-    updateVaultKey: vi.fn().mockResolvedValue(undefined),
-    reencryptAllItems: vi.fn().mockImplementation(async onProgress => {
-      if (onProgress) {
-        onProgress(5, 10)
-        onProgress(10, 10)
-      }
-    }),
-  },
-}))
+const SyncBridge = {
+  updateVaultKey: vi.fn().mockResolvedValue(undefined),
+  reencryptAllItems: vi.fn().mockImplementation(async (onProgress?: (done: number, total: number) => void) => {
+    if (onProgress) {
+      onProgress(5, 10)
+      onProgress(10, 10)
+    }
+    return { succeeded: [], failed: [] }
+  }),
+}
 
 describe('reencryptAllItems coordinator', () => {
   beforeEach(() => {
@@ -32,7 +30,7 @@ describe('reencryptAllItems coordinator', () => {
       progressCalls.push([done, total])
     }
 
-    await reencryptAllItems('test-account', onProgress)
+    await reencryptAllItems(SyncBridge, 'test-account', onProgress)
 
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
     expect(exportKeyringData).toHaveBeenCalledTimes(1)
@@ -48,7 +46,7 @@ describe('reencryptAllItems coordinator', () => {
   it('throws an error if keyring is missing after rotation', async () => {
     vi.mocked(exportKeyringData).mockResolvedValueOnce('')
 
-    await expect(reencryptAllItems('test-account')).rejects.toThrow('Keyring not found in memory after rotation')
+    await expect(reencryptAllItems(SyncBridge, 'test-account')).rejects.toThrow('Keyring not found in memory after rotation')
 
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
     expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()
@@ -62,7 +60,7 @@ describe('reencryptAllItems coordinator', () => {
       new Error('Key rotation failed: keyring upload unsuccessful. Local state rolled back.')
     )
 
-    await expect(reencryptAllItems('test-account')).rejects.toThrow(
+    await expect(reencryptAllItems(SyncBridge, 'test-account')).rejects.toThrow(
       'Key rotation failed: keyring upload unsuccessful. Local state rolled back.'
     )
 
@@ -74,7 +72,7 @@ describe('reencryptAllItems coordinator', () => {
 
   describe('resumePendingReencryption', () => {
     it('does nothing if no re-encryption is pending', async () => {
-      await resumePendingReencryption('test-account')
+      await resumePendingReencryption(SyncBridge, 'test-account')
 
       expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
     })
@@ -82,7 +80,7 @@ describe('reencryptAllItems coordinator', () => {
     it('resumes re-encryption and clears pending flag if flag is set', async () => {
       localStorage.setItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`, 'true')
 
-      await resumePendingReencryption('test-account')
+      await resumePendingReencryption(SyncBridge, 'test-account')
 
       expect(SyncBridge.reencryptAllItems).toHaveBeenCalledTimes(1)
       expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBeNull()
@@ -92,7 +90,7 @@ describe('reencryptAllItems coordinator', () => {
       localStorage.setItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`, 'true')
       vi.mocked(SyncBridge.reencryptAllItems).mockRejectedValueOnce(new Error('Network error'))
 
-      await resumePendingReencryption('test-account')
+      await resumePendingReencryption(SyncBridge, 'test-account')
 
       expect(SyncBridge.reencryptAllItems).toHaveBeenCalledTimes(1)
       expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBe('true')

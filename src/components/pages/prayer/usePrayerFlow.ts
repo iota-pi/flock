@@ -10,7 +10,7 @@ import { useToday } from 'src/hooks/useToday'
 import { type FlowState } from 'src/state/slices/prayerFlowSlice'
 import { useAppStore } from 'src/state/store'
 import { type PrayerFlowActions, usePrayerFlowActions } from './usePrayerFlowActions'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 
 type PrayerFlowProgressSlice = {

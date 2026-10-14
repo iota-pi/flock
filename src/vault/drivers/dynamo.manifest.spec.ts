@@ -1,4 +1,4 @@
-import DynamoDriver, { ITEM_TABLE_NAME } from './dynamo'
+import DynamoDriver from './dynamo'
 import { QueryCommand } from '@aws-sdk/lib-dynamodb'
 
 describe('DynamoDriver.fetchManifest', () => {
@@ -48,7 +48,7 @@ describe('DynamoDriver.fetchManifest', () => {
     const command = mockSend.mock.calls[0][0]
     expect(command).toBeInstanceOf(QueryCommand)
     expect(command.input).toMatchObject({
-      TableName: ITEM_TABLE_NAME,
+      TableName: driver.tables.items,
       KeyConditionExpression: 'account = :accountid',
       ExpressionAttributeNames: {
         '#itemKey': 'item',

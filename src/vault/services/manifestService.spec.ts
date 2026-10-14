@@ -1,7 +1,7 @@
 import { fetchManifest, fetchSnapshotsByIds } from './manifestService'
 import type BaseDriver from '../drivers/base'
 import type { VaultItem } from '../drivers/base'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 function createMockVault(): BaseDriver {
   return {

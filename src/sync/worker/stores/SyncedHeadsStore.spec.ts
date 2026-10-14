@@ -2,7 +2,7 @@ import { SyncedHeadsStore } from './SyncedHeadsStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
   LEGACY_KEYS,
 } from './syncMetadataStorage'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
@@ -23,9 +23,11 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../../utils/storageManager', () => ({
+vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
+
+const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('SyncedHeadsStore', () => {
   let store: SyncedHeadsStore
@@ -97,11 +99,11 @@ describe('SyncedHeadsStore', () => {
   it('migrates legacy database flock-sync-synced-heads', async () => {
     const originalIndexedDb = (globalThis as any).indexedDB
     ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: LEGACY_DB_NAMES.SYNCED_HEADS }]),
+      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.syncedHeads }]),
     }
     try {
-      const legacyStoreKey = `${LEGACY_DB_NAMES.SYNCED_HEADS}#synced-heads-${accountId}`
-      const legacyStore = createMockLocalForage({ name: LEGACY_DB_NAMES.SYNCED_HEADS, storeName: `synced-heads-${accountId}` })
+      const legacyStoreKey = `${legacyDbNames.syncedHeads}#synced-heads-${accountId}`
+      const legacyStore = createMockLocalForage({ name: legacyDbNames.syncedHeads, storeName: `synced-heads-${accountId}` })
       const legacyData: [DocumentId, string[]][] = [['doc-from-old-db' as DocumentId, ['head-db']]]
       await legacyStore.setItem(LEGACY_KEYS.SYNCED_HEADS, legacyData)
       instances.set(legacyStoreKey, legacyStore)

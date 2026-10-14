@@ -11,7 +11,7 @@ import { clearSyncMetadataInstancesCacheForTesting } from './stores/syncMetadata
 import { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 import {
   MockLocalforage,

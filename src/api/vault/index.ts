@@ -9,7 +9,6 @@ import {
   createAccount,
   getSecurityParams,
   getSession,
-  snoozeReminders as snoozeRemindersClient,
   getKeyring,
   updateKeyring,
   changePassword as changePasswordClient,
@@ -29,11 +28,8 @@ import {
 } from './crypto'
 import {
   readStoredMetadata,
-  VAULT_STORAGE_KEY,
   VaultStoredMetadata,
   DEFAULT_CRYPTO_ITERATIONS,
-  KEYRING_CACHE_KEY,
-  VAULT_EVENTS_CHANNEL,
   type VaultBroadcastEvent,
 } from './util'
 import { SyncWriteAheadLog } from 'src/sync/worker/SyncWriteAheadLog'
@@ -49,7 +45,7 @@ import {
   getPrfOutput,
   isWebAuthnPrfSupported,
 } from './webauthn'
-import { unsubscribe as unsubscribeFromNotifications } from 'src/utils/pushNotifications'
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
 
 export {
   createAccount,
@@ -62,25 +58,39 @@ export {
   readStoredMetadata,
 }
 export type { CryptoResult }
-export { KEYRING_CACHE_KEY, VAULT_EVENTS_CHANNEL, type VaultBroadcastEvent }
+export type { VaultBroadcastEvent }
 
 export function readCachedKeyring(): string | null {
   if (typeof localStorage === 'undefined') return null
-  return localStorage.getItem(KEYRING_CACHE_KEY)
+  return localStorage.getItem(getVaultStorageNames().keyringCacheKey)
 }
 
 export function writeCachedKeyring(encryptedKeyring: string): void {
   if (typeof localStorage === 'undefined') return
-  localStorage.setItem(KEYRING_CACHE_KEY, encryptedKeyring)
+  localStorage.setItem(getVaultStorageNames().keyringCacheKey, encryptedKeyring)
 }
 
 export function clearCachedKeyring(): void {
   if (typeof localStorage === 'undefined') return
-  localStorage.removeItem(KEYRING_CACHE_KEY)
+  localStorage.removeItem(getVaultStorageNames().keyringCacheKey)
 }
 
 export interface VaultImportExportData {
   key: string,
+}
+
+export interface VaultHostHooks {
+  /** Account to restore the session for when none has been established in this realm yet */
+  getAccountId?: () => string | undefined
+  /** Called when the session has expired and could not be silently re-established */
+  onSessionLost?: (message: string) => void
+}
+
+let hostHooks: VaultHostHooks = {}
+
+/** Connects the vault to the host app. Call once at startup on the main thread. */
+export function configureVaultHost(hooks: VaultHostHooks): void {
+  hostHooks = hooks
 }
 
 export class VaultNotInitializedError extends Error {
@@ -158,7 +168,7 @@ function notifyKeyWaiters(): void {
 export function broadcastVaultEvent(event: VaultBroadcastEvent): void {
   if (typeof BroadcastChannel === 'undefined') return
   try {
-    const channel = new BroadcastChannel(VAULT_EVENTS_CHANNEL)
+    const channel = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
     channel.postMessage(event)
     channel.close()
   } catch (err) {
@@ -208,7 +218,7 @@ async function writeStoredMetadata(
 ) {
   const existing = readStoredMetadata()
   localStorage.setItem(
-    VAULT_STORAGE_KEY,
+    getVaultStorageNames().vaultMetadataKey,
     JSON.stringify({
       account,
       salt: params?.salt ?? existing?.salt,
@@ -219,7 +229,7 @@ async function writeStoredMetadata(
 }
 
 function clearStoredMetadata() {
-  localStorage.removeItem(VAULT_STORAGE_KEY)
+  localStorage.removeItem(getVaultStorageNames().vaultMetadataKey)
 }
 
 export async function establishSessionFromKeyHash(account: string, nextKeyHash: string) {
@@ -238,8 +248,7 @@ export function handleSessionExpired(): Promise<void> {
 
   sessionExpiryPromise = (async () => {
     try {
-      const { useAppStore } = await import('src/state/store')
-      const account = activeAccount || readStoredMetadata()?.account || useAppStore.getState().account
+      const account = activeAccount || readStoredMetadata()?.account || hostHooks.getAccountId?.()
 
       if (account && keyHash) {
         try {
@@ -254,8 +263,7 @@ export function handleSessionExpired(): Promise<void> {
       session = ''
       setApiAuthToken('')
       await clearActiveSessionToken()
-      useAppStore.getState().setSyncStatus('offline')
-      useAppStore.getState().setSyncWarning(
+      hostHooks.onSessionLost?.(
         'Sync paused: unable to re-establish session. Please re-enter your password to resume syncing.'
       )
     } finally {
@@ -430,17 +438,6 @@ export async function loginVault({
   await writeStoredMetadata(account, { salt, iterations, saltVersion })
 }
 
-export async function loadAccount() {
-  const { useAppStore } = await import('src/state/store')
-  const { updateAuth } = useAppStore.getState()
-  const stored = readStoredMetadata()
-  if (stored?.account) {
-    updateAuth({ account: stored.account, initializing: false })
-  } else {
-    updateAuth({ initializing: false })
-  }
-}
-
 export async function exportKeyringData(): Promise<string> {
   const keyringData: Record<string, string> = {
     activeVersion: activeKeyVersion,
@@ -494,35 +491,22 @@ function clearKeyData() {
   pendingKeyWaiters.clear()
 }
 
-export async function lockVault() {
-  const { useAppStore } = await import('src/state/store')
-  const { SyncBridge } = await import('src/sync/client/SyncBridge')
-  const { updateAuth } = useAppStore.getState()
+/**
+ * Forgets the in-memory keys and the session token. The host app is responsible for stopping sync
+ * and updating its own state.
+ */
+export async function lockVaultKeys() {
   clearKeyData()
   await clearActiveSessionToken()
-
-  await SyncBridge.shutdown({ clearLocalData: false })
-
-  updateAuth({ loggedIn: false })
 }
 
-export async function removeVaultFromDevice() {
-  const { useAppStore } = await import('src/state/store')
-  const { SyncBridge } = await import('src/sync/client/SyncBridge')
-  const { account, updateAuth } = useAppStore.getState()
-
+/**
+ * Removes every trace of the vault from this device: keys, the session, cached keyring, biometric
+ * unlock data and stored metadata, plus the account's WAL and manual recovery entries. Shut the sync
+ * worker down (clearing its local data) before calling this.
+ */
+export async function clearVaultDeviceData(account?: string) {
   if (account) {
-    SyncBridge.requestClearOnShutdown?.(account)
-  }
-
-  await SyncBridge.shutdown({ clearLocalData: true, accountId: account })
-
-  if (account) {
-    try {
-      await unsubscribeFromNotifications(account)
-    } catch (error) {
-      console.error('Failed to unsubscribe from notifications', error)
-    }
     await SyncWriteAheadLog.clear(account)
     await clearManualRecoveryEntries(account)
   }
@@ -531,7 +515,6 @@ export async function removeVaultFromDevice() {
   clearCachedKeyring()
   await clearActiveSessionToken()
   clearStoredMetadata()
-  updateAuth({ account: '', loggedIn: false })
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
@@ -563,10 +546,6 @@ export async function encryptBytes(bytes: Uint8Array): Promise<CryptoResult> {
 export async function decryptBytes(data: CryptoResult): Promise<Uint8Array> {
   const kver = data.kver || '1'
   return decryptBytesWithKey(getVaultKey(kver), data)
-}
-
-export async function snoozeReminders(account: string, snoozeUntilDate?: string | null): Promise<void> {
-  await snoozeRemindersClient(account, snoozeUntilDate)
 }
 
 export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {

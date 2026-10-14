@@ -8,6 +8,25 @@ import vitest from '@vitest/eslint-plugin'
 import react from 'eslint-plugin-react'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
 
+// Code that will be extracted into the reusable vault library (see docs/vault-extraction.md).
+// Paths are relative to src/.
+const VAULT_LIBRARY_PATHS = [
+  'shared/vault/**',
+  'sync/**',
+  'api/vault/**',
+  'api/runtime.ts',
+  'api/trackedFetch.ts',
+  'api/vaultTrpcClient.ts',
+  'vault/services/**',
+  'vault/drivers/**',
+  'vault/trpc/trpc.ts',
+  'vault/trpc/vaultRouter.ts',
+  'vault/trpc/routers/accounts.ts',
+  'vault/trpc/routers/items.ts',
+  'vault/trpc/routers/sync.ts',
+  'vault/util.ts',
+]
+
 export default defineConfig([
   globalIgnores([
     'node_modules',
@@ -86,6 +105,24 @@ export default defineConfig([
         },
       ],
       '@typescript-eslint/dot-notation': 'error',
+    },
+  },
+  {
+    files: VAULT_LIBRARY_PATHS.map(path => `src/${path}`),
+    rules: {
+      'import-x/no-restricted-paths': [
+        'error',
+        {
+          zones: [
+            {
+              target: VAULT_LIBRARY_PATHS.map(path => `./src/${path}`),
+              from: './src/**',
+              except: VAULT_LIBRARY_PATHS.map(path => `**/src/${path}`),
+              message: 'Vault library code must not import Flock app code. Inject it instead (see docs/vault-extraction.md).',
+            },
+          ],
+        },
+      ],
     },
   },
   {

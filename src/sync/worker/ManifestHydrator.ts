@@ -1,17 +1,17 @@
 import { chunk } from 'lodash-es'
 
-import type { Item } from '../../state/items'
+import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
 import { decryptObject, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
-import type { ManifestEntry } from 'src/shared/schemas/trpc'
-import { mapWithConcurrency } from '../../shared/concurrency'
+import type { ManifestEntry } from 'src/shared/vault/api'
+import { mapWithConcurrency } from '../../shared/vault/concurrency'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 const BATCH_SIZE = 50
@@ -23,7 +23,7 @@ export type HydrateItemResult =
     status: 'success'
     itemId: ItemId
     hydratedId?: ItemId
-    snapshot?: Item
+    snapshot?: VaultDoc
     lastModifiedUpdate?: [ItemId, number]
     versionUpdate?: [ItemId, number]
   }
@@ -52,7 +52,7 @@ export interface ManifestHydratorDeps {
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   snapshotManager: SnapshotManager
-  storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>
+  storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   onKeyVersionMissing?: (kver: string) => void
@@ -112,7 +112,7 @@ export class ManifestHydrator {
         entry.item.length > 0,
     )
 
-    const snapshots: Item[] = []
+    const snapshots: VaultDoc[] = []
     const hydratedIds: ItemId[] = []
     const lastModifiedUpdates: [ItemId, number][] = []
     const versionUpdates: [ItemId, number][] = []
@@ -228,7 +228,7 @@ export class ManifestHydrator {
         return {
           status: 'success',
           itemId,
-          snapshot: { id: item.item, deleted: true } as unknown as Item,
+          snapshot: { id: item.item, deleted: true },
           lastModifiedUpdate: [itemId, serverTime],
           versionUpdate: [itemId, serverVersion],
         }
@@ -344,7 +344,7 @@ export class ManifestHydrator {
     return {
       status: 'success',
       itemId,
-      snapshot: snapshot as Item,
+      snapshot: snapshot as VaultDoc,
       lastModifiedUpdate: [snapshotId, serverTime],
       versionUpdate: [snapshotId, serverVersion],
     }

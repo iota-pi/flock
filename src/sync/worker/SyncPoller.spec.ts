@@ -6,7 +6,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import type { RecoveryManager } from './RecoveryManager'
 
 const mockPollSyncBatchWithToken = vi.fn()

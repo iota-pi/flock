@@ -1,5 +1,6 @@
 import localforage from 'localforage'
-import { runStorageOperation } from '../../utils/storageManager'
+import { runStorageOperation } from '../utils/storageManager'
+import { getVaultStorageNames, type VaultStorageNames } from './storageNames'
 
 export interface CreateAccountStoreOptions {
   dbName?: string
@@ -8,24 +9,24 @@ export interface CreateAccountStoreOptions {
   driver?: string | string[]
 }
 
-const DEFAULT_DB_PREFIX_BY_STORE: Record<string, string> = {
-  'sync-batch-messages': 'FlockVault_SyncBatchDB_',
-  'manual-recovery-items': 'FlockVault_ManualRecoveryDB_',
-  'manual-recovery-metadata': 'FlockVault_ManualRecoveryDB_',
-  'wal-entries': 'FlockVault_SyncWAL_',
-  'sync-metadata': 'flock-sync-metadata-',
+const DB_PREFIX_KEY_BY_STORE: Record<string, keyof VaultStorageNames['accountPrefixes']> = {
+  'manual-recovery-items': 'manualRecoveryDatabase',
+  'manual-recovery-metadata': 'manualRecoveryDatabase',
+  'wal-entries': 'walDatabase',
+  'sync-metadata': 'syncMetadataDatabase',
 }
 
 const DEFAULT_DESCRIPTION_BY_STORE: Record<string, string> = {
-  'sync-metadata': 'Consolidated sync metadata for Flock account',
+  'sync-metadata': 'Consolidated vault sync metadata for an account',
 }
 
 export function getAccountDatabaseName(storeName: string, accountId: string): string {
-  const prefix = DEFAULT_DB_PREFIX_BY_STORE[storeName]
-  if (prefix) {
-    return `${prefix}${accountId}`
+  const prefixes = getVaultStorageNames().accountPrefixes
+  const prefixKey = DB_PREFIX_KEY_BY_STORE[storeName]
+  if (prefixKey) {
+    return `${prefixes[prefixKey]}${accountId}`
   }
-  return `FlockVault_${storeName}_${accountId}`
+  return `${prefixes.accountStoreDatabase}${storeName}_${accountId}`
 }
 
 export function resolveAccountStoreConfig(

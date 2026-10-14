@@ -1,8 +1,11 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import { AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocStore'
-import type { Item } from 'src/state/items'
-import { ItemId } from 'src/shared/schemas/items'
+import type { VaultDoc } from 'src/sync/shared/types'
+import { passthroughCodec } from '../domain'
+
+type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string }> }
+import { ItemId } from 'src/shared/vault/ids'
 
 const testRepo = new Repo()
 
@@ -14,7 +17,7 @@ describe('items operations', () => {
   })
 
   it('should create and retrieve an item successfully', async () => {
-    const item: Item = {
+    const item: VaultDoc = {
       id: 'test-item-id' as ItemId,
       type: 'person',
       name: 'Test Prayer',
@@ -43,7 +46,7 @@ describe('items operations', () => {
   })
 
   it('should remove an item successfully', async () => {
-    const item: Item = {
+    const item: VaultDoc = {
       id: 'test-item-remove' as ItemId,
       type: 'person',
       name: 'Test Prayer Remove',
@@ -71,29 +74,14 @@ describe('items operations', () => {
     expect(retrieved).toBeNull()
   })
 
-  it('should self-heal a snapshot with topic type containing leftover group fields', () => {
-    const rawSnapshot = {
-      id: 'converted-topic-1',
-      type: 'topic',
-      name: 'Global Topic',
-      description: 'Formerly a group',
-      created: 10000,
-      archived: false,
-      prayerFrequency: 'none',
-      notes: [],
-      prayedFor: [],
-      members: ['member-1'],
-      memberPrayerFrequency: 'daily',
-      memberPrayerTarget: 'all',
-    }
+  it('normalizeItemSnapshot fills in a missing id and decodes with the codec', () => {
+    const codec = { ...passthroughCodec, decode: vi.fn((_id: ItemId, raw: Record<string, unknown>) => ({ ...raw, decoded: true }) as unknown as VaultDoc) }
 
-    const normalized = normalizeItemSnapshot('converted-topic-1' as ItemId, rawSnapshot)
-    expect(normalized).not.toBeNull()
-    expect(normalized?.type).toBe('topic')
-    expect(normalized?.name).toBe('Global Topic')
-    expect((normalized as any).members).toBeUndefined()
-    expect((normalized as any).memberPrayerFrequency).toBeUndefined()
-    expect((normalized as any).memberPrayerTarget).toBeUndefined()
+    const normalized = normalizeItemSnapshot('doc-1' as ItemId, { name: 'No id' }, codec)
+
+    expect(codec.decode).toHaveBeenCalledWith('doc-1', { name: 'No id', id: 'doc-1' })
+    expect(normalized).toEqual({ name: 'No id', id: 'doc-1', decoded: true })
+    expect(normalizeItemSnapshot('doc-1' as ItemId, {}, codec)).toBeNull()
   })
 
   it('should not delete existing storage document or overwrite with blank doc when load times out', async () => {
@@ -328,7 +316,7 @@ describe('items operations', () => {
   })
 
   it('should cleanly import snapshot when document does not exist locally', async () => {
-    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
       doc.id = 'imported-item-1' as ItemId
       doc.type = 'person'
       doc.name = 'Remote Prayer'
@@ -359,7 +347,7 @@ describe('items operations', () => {
     const remoteNote = { id: 'note-remote', text: 'Remote Note', archived: false, time: 3000 }
 
     // 1. Initial base document
-    const baseDoc = Automerge.change(Automerge.init<Item>(), doc => {
+    const baseDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
       doc.id = 'merged-item-1' as ItemId
       doc.type = 'person'
       doc.name = 'Base Name'
@@ -382,7 +370,7 @@ describe('items operations', () => {
     })
 
     // 3. Simultaneously, remote branch makes different edits from baseDoc
-    const remoteBranch = Automerge.load<Item>(baseBinary)
+    const remoteBranch = Automerge.load<NotesDoc>(baseBinary)
     const remoteUpdatedDoc = Automerge.change(remoteBranch, doc => {
       doc.description = 'Remotely Updated Description'
       doc.notes.push(remoteNote)
@@ -397,7 +385,7 @@ describe('items operations', () => {
     })
 
     // 5. Verify that local and remote changes are both merged seamlessly
-    const mergedResult = await docStore.getAutomergeItem('merged-item-1' as ItemId)
+    const mergedResult = await docStore.getAutomergeItem('merged-item-1' as ItemId) as NotesDoc | null
     expect(mergedResult).not.toBeNull()
     // Local edit preserved
     expect(mergedResult?.name).toBe('Locally Updated Name')
@@ -411,7 +399,7 @@ describe('items operations', () => {
 
   it('should report hasLocalChanges: false when incoming snapshot is a fast-forward of existing local document without local edits', async () => {
     // 1. Initial base document
-    const baseDoc = Automerge.change(Automerge.init<Item>(), doc => {
+    const baseDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
       doc.id = 'ff-item-1' as ItemId
       doc.type = 'person'
       doc.name = 'Base Name'
@@ -428,7 +416,7 @@ describe('items operations', () => {
     await docStore.hydrateAutomergeDocumentBinary('ff-item-1', baseBinary)
 
     // 2. Remote makes an update on top of baseDoc (no local edits made)
-    const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), doc => {
+    const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), doc => {
       doc.name = 'Remote Name Update'
     })
     const remoteBinary = Automerge.save(remoteDoc)
@@ -449,7 +437,7 @@ describe('items operations', () => {
     const importSpy = vi.spyOn(customRepo, 'import')
 
     // Create a base doc with a common ancestor
-    const baseDoc = Automerge.change(Automerge.init<Item>(), doc => {
+    const baseDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
       doc.id = 'timeout-item' as ItemId
       doc.type = 'person'
       doc.name = 'Base Name'
@@ -463,13 +451,13 @@ describe('items operations', () => {
     const baseBinary = Automerge.save(baseDoc)
 
     // Local edit (stored in IndexedDB storage)
-    const localDoc = Automerge.change(Automerge.load<Item>(baseBinary), doc => {
+    const localDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), doc => {
       doc.name = 'Unsynced Local Name'
     })
     const localBinary = Automerge.save(localDoc)
 
     // Remote snapshot (from server)
-    const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), doc => {
+    const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), doc => {
       doc.description = 'Server Updated Description'
     })
     const remoteBinary = Automerge.save(remoteDoc)
@@ -494,7 +482,7 @@ describe('items operations', () => {
     // Verify import was called with the merged binary
     expect(importSpy).toHaveBeenCalled()
     const importedBinary = importSpy.mock.calls[0][0] as Uint8Array
-    const importedDoc = Automerge.load<Item>(importedBinary)
+    const importedDoc = Automerge.load<VaultDoc>(importedBinary)
     expect(importedDoc.name).toBe('Unsynced Local Name')
     expect(importedDoc.description).toBe('Server Updated Description')
   })
@@ -506,7 +494,7 @@ describe('items operations', () => {
     // Corrupt binary in storage that cannot be merged
     const corruptBinary = new Uint8Array([0, 1, 2, 3])
 
-    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
       doc.id = 'timeout-corrupt' as ItemId
       doc.type = 'person'
       doc.name = 'Remote Name'
@@ -535,7 +523,7 @@ describe('items operations', () => {
     const customRepo = new Repo()
     const importSpy = vi.spyOn(customRepo, 'import')
 
-    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
       doc.id = 'error-hydrate-item' as ItemId
       doc.type = 'person'
       doc.name = 'Remote Name'
@@ -564,7 +552,7 @@ describe('items operations', () => {
     const customRepo = new Repo()
     const importSpy = vi.spyOn(customRepo, 'import')
 
-    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
       doc.id = 'clean-new-item' as ItemId
       doc.type = 'person'
       doc.name = 'Brand New Item'
@@ -590,7 +578,7 @@ describe('items operations', () => {
     const handleReplacedListener = vi.fn()
     docStore.onDocHandleReplaced = handleReplacedListener
 
-    const doc = Automerge.change(Automerge.init<Item>(), d => {
+    const doc = Automerge.change(Automerge.init<VaultDoc>(), d => {
       d.id = 'seeded-item' as ItemId
       d.name = 'Seeded Item'
     })

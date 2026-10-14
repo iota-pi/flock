@@ -4,8 +4,10 @@ import { AutomergeDocStore } from './AutomergeDocStore'
 import { SyncPullQueueManager } from '../SyncPullQueueManager'
 import { CursorStore } from '../stores/CursorStore'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
-import { ItemId } from 'src/shared/schemas/items'
-import type { Item } from 'src/state/items'
+import { ItemId } from 'src/shared/vault/ids'
+import type { VaultDoc } from 'src/sync/shared/types'
+
+type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string; archived: boolean; time: number }> }
 
 // Mock localforage for CursorStore
 vi.mock('localforage', () => ({
@@ -36,7 +38,7 @@ vi.mock('src/api/vault', () => ({
 }))
 
 function createBaseDocBinary(id: ItemId, name = 'Base Name', description = 'Base Desc'): Uint8Array {
-  const doc = Automerge.change(Automerge.init<Item>(), d => {
+  const doc = Automerge.change(Automerge.init<NotesDoc>(), d => {
     d.id = id
     d.type = 'person'
     d.name = name
@@ -50,8 +52,8 @@ function createBaseDocBinary(id: ItemId, name = 'Base Name', description = 'Base
   return Automerge.save(doc)
 }
 
-function forkDocBinary(baseBinary: Uint8Array, changeFn: (d: Item) => void): Uint8Array {
-  const doc = Automerge.load<Item>(baseBinary)
+function forkDocBinary(baseBinary: Uint8Array, changeFn: (d: NotesDoc) => void): Uint8Array {
+  const doc = Automerge.load<NotesDoc>(baseBinary)
   const updated = Automerge.change(doc, changeFn)
   return Automerge.save(updated)
 }
@@ -94,7 +96,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     expect(res1).toBeDefined()
     expect(res2).toBeDefined()
 
-    const item = await docStore.getAutomergeItem(itemId)
+    const item = await docStore.getAutomergeItem(itemId) as NotesDoc | null
     expect(item).not.toBeNull()
     // The second hydration should have merged into the first cleanly
     expect(item?.name).toBe('First Hydration Name')
@@ -110,7 +112,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     const baseBinary = createBaseDocBinary(itemId)
 
     // Prepare an incremental edit message from Device A
-    const baseDoc = Automerge.load<Item>(baseBinary)
+    const baseDoc = Automerge.load<NotesDoc>(baseBinary)
     const updatedDoc = Automerge.change(baseDoc, d => {
       d.description = 'Incremental Edit from Device A'
       d.notes.push({ id: 'note-inc', text: 'Incremental Note', archived: false, time: 2000 })
@@ -192,7 +194,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     expect(pullProcessed).toBe(true)
 
     // 5. Verify that the document has BOTH baseline and incremental changes!
-    const item = await docStore.getAutomergeItem(itemId)
+    const item = await docStore.getAutomergeItem(itemId) as NotesDoc | null
     expect(item).not.toBeNull()
     expect(item?.name).toBe('Base Name')
     expect(item?.description).toBe('Incremental Edit from Device A')
@@ -206,7 +208,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     const baseBinary = createBaseDocBinary(itemId)
 
     // 1. Device A makes an incremental edit
-    const baseDoc = Automerge.load<Item>(baseBinary)
+    const baseDoc = Automerge.load<NotesDoc>(baseBinary)
     const docA = Automerge.change(baseDoc, d => {
       d.name = 'Device A Name'
       d.notes.push({ id: 'note-a', text: 'Device A Note', archived: false, time: 2000 })
@@ -214,7 +216,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     const [, syncMsgA] = Automerge.generateSyncMessage(docA, Automerge.initSyncState())
 
     // 2. Device B (remote) makes a different edit and creates a snapshot
-    const docB = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+    const docB = Automerge.change(Automerge.load<NotesDoc>(baseBinary), d => {
       d.description = 'Device B Desc'
       d.notes.push({ id: 'note-b', text: 'Device B Note', archived: false, time: 3000 })
     })
@@ -269,7 +271,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     expect(hydrationResult).toBeDefined()
 
     // Verify non-destructive CRDT merge of Device A and Device B
-    const finalItem = await docStore.getAutomergeItem(itemId)
+    const finalItem = await docStore.getAutomergeItem(itemId) as NotesDoc | null
     expect(finalItem?.name).toBe('Device A Name')
     expect(finalItem?.description).toBe('Device B Desc')
     const noteTexts = finalItem?.notes?.map(n => n.text)
@@ -303,7 +305,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     await docStore.hydrateAutomergeDocumentBinary(itemId, snapshotBinary)
 
     // Verify it did NOT wipe out the in-memory handle, but merged with it!
-    const item = await docStore.getAutomergeItem(itemId)
+    const item = await docStore.getAutomergeItem(itemId) as NotesDoc | null
     expect(item).not.toBeNull()
     expect(item?.name).toBe('Existing In-Memory Name')
     expect(item?.description).toBe('Snapshot Desc')

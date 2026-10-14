@@ -1,13 +1,9 @@
 import { TRPCError } from '@trpc/server'
 import { protectedProcedure, router } from '../trpc'
-import {
-  SyncPushBatchSchema,
-  SyncPollBatchSchema,
-  type GlobalSyncLastEvaluatedKey,
-} from 'src/shared/schemas/trpc'
+import { SyncPushBatchSchema, SyncPollBatchSchema, type GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
 import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 
 export const syncRouter = router({

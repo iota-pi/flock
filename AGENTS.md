@@ -27,13 +27,18 @@ CI runs `test run`, `typecheck` and `lint` on every PR, so run all three before 
 
 ## Where things live
 
-- `src/sync/worker/` contains the sync engine, which runs in a Web Worker. `sync.worker.ts` is the Comlink API surface and `SyncWorkerContext.ts` wires the components together.
+The vault (sync engine, client crypto and server) is being extracted into a reusable library ([docs/vault-extraction.md](docs/vault-extraction.md)). Library code must not import Flock code, and lint enforces this. Flock plugs in through the interfaces in `src/sync/worker/domain.ts` and `src/sync/client/host.ts`.
+
+- `src/sync/worker/` contains the sync engine, which runs in a Web Worker. `sync.worker.ts` is the Comlink API surface (started with `exposeSyncWorker`) and `SyncWorkerContext.ts` wires the components together.
 - `src/sync/client/` is the main-thread side: `SyncBridge`, worker lifecycle and health/restart.
 - `src/sync/worker/docStore/` handles Automerge doc find/create/change/hydrate plus the account item index.
 - `src/sync/utils/` holds the concurrency primitives (`SingleFlightGuard`, `AsyncMutex`, `AsyncQueue`, `RetryStrategy`, bounded collections). Use them; don't hand-roll new ones.
+- `src/sync/shared/storageNames.ts` names every IndexedDB database, BroadcastChannel, Web Lock and localStorage key. Flock's names (`src/app/vault/storageNames.ts`) must never change.
 - `src/api/vault/` is the client crypto, keyring and API calls.
+- `src/shared/vault/` holds the wire schemas, IDs and size limits shared by client and server.
+- `src/app/vault/` is Flock's vault wiring: the worker entry, item codec and hooks, the `SyncBridge` instance and session (lock/remove) flows.
 - `src/state/` is the Zustand store (composed slices).
-- `src/vault/` is server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver.
+- `src/vault/` is server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `flockAccounts.ts` (reminders and push subscriptions), `root.ts`, `flockDriver.ts`, the notifier and migrations are Flock's.
 - DynamoDB has three tables. `FlockAccounts` is keyed by `account`. `FlockItems` is keyed by `account` + `item`. `FlockSyncMessages` is keyed by `syncId` + `cursor` and has a 90-day TTL.
 
 ## Sync: rules that must hold

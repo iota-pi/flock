@@ -1,8 +1,8 @@
 import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import { ItemId, ItemIdSchema, standardItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
-import type { Item } from '../../../state/items'
-import type { AccountMetadata } from '../../../state/metadata'
+import { ItemId, ItemIdSchema } from '../../../shared/vault/ids'
+import type { VaultDoc, VaultMetadata } from '../../shared/types'
+import { passthroughCodec, type DocCodec } from '../domain'
 import {
   readObjectSnapshot,
   toAutomergeUrlFromItemId,
@@ -36,7 +36,7 @@ export type AutomergeIndexDocument = {
   accountId?: string
   itemIds?: ItemId[]
   tombstoneIds?: ItemId[]
-  metadata?: AccountMetadata
+  metadata?: VaultMetadata
   lastSyncTime?: number
   lastManifestSyncTime?: number
 }
@@ -46,48 +46,21 @@ function normalizeItemId(raw: unknown): ItemId | null {
   return result.success ? result.data : null
 }
 
-export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null): Item | null {
+/**
+ * Decodes a document snapshot with the app's codec, filling in a missing `id`.
+ * Returns null for empty documents.
+ */
+export function normalizeItemSnapshot(
+  itemId: ItemId,
+  snapshot: RepoDoc | null,
+  codec: DocCodec = passthroughCodec,
+): VaultDoc | null {
   if (!snapshot || Object.keys(snapshot).length === 0) {
     return null
   }
 
-  const item = snapshot as Partial<Item>
-  const normalizedItem = {
-    ...(typeof item.id === 'string' && item.id.length > 0
-      ? item
-      : { ...item, id: itemId }),
-    isNew: undefined,
-  }
-
-  if (normalizedItem.type !== 'group') {
-    delete (normalizedItem as Record<string, unknown>).members
-    delete (normalizedItem as Record<string, unknown>).memberPrayerFrequency
-    delete (normalizedItem as Record<string, unknown>).memberPrayerTarget
-  }
-
-  const parsed = standardItemSchema.safeParse(normalizedItem)
-  if (parsed.success) {
-    return parsed.data as Item
-  }
-
-  const errorParsed = errorItemSchema.safeParse(normalizedItem)
-  if (errorParsed.success) {
-    return errorParsed.data as Item
-  }
-
-  return {
-    id: itemId,
-    type: 'error',
-    name: 'Corrupt Item',
-    description: 'This item could not be parsed.',
-    created: typeof normalizedItem.created === 'number' ? normalizedItem.created : Date.now(),
-    archived: !!normalizedItem.archived,
-    prayerFrequency: 'none',
-    notes: [],
-    prayedFor: [],
-    originalType: normalizedItem.type as ErrorItem['originalType'],
-    rawSnapshot: snapshot,
-  } as Item
+  const hasId = typeof snapshot.id === 'string' && snapshot.id.length > 0
+  return codec.decode(itemId, { ...snapshot, id: hasId ? snapshot.id : itemId })
 }
 
 export type DocHandleReplacedListener = (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
@@ -116,6 +89,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     private readonly repo: Repo,
     internalEventHub?: WorkerInternalEventHub,
     storageAdapter?: DocStorageChecker | null,
+    public readonly codec: DocCodec = passthroughCodec,
   ) {
     this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
     this.storageAdapter = storageAdapter
@@ -372,14 +346,18 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     }
   }
 
-  async getAutomergeItem(itemId: ItemId): Promise<Item | null> {
+  decodeSnapshot(itemId: ItemId, snapshot: RepoDoc | null): VaultDoc | null {
+    return normalizeItemSnapshot(itemId, snapshot, this.codec)
+  }
+
+  async getAutomergeItem(itemId: ItemId): Promise<VaultDoc | null> {
     const normalizedItemId = normalizeItemId(itemId)
     if (!normalizedItemId) {
       return null
     }
 
     const snapshot = await this.readItemSnapshot(normalizedItemId)
-    return normalizeItemSnapshot(normalizedItemId, snapshot)
+    return this.decodeSnapshot(normalizedItemId, snapshot)
   }
 
   async removeAutomergeItem(itemId: ItemId): Promise<void> {

@@ -1,6 +1,6 @@
 import { DocumentId } from '@automerge/automerge-repo/slim'
-import { ItemId } from 'src/shared/schemas/items'
-import { MAX_ITEM_SIZE_BYTES } from 'src/shared/constants/limits'
+import { ItemId } from 'src/shared/vault/ids'
+import { MAX_ITEM_SIZE_BYTES } from 'src/shared/vault/limits'
 
 export const DEFAULT_MAX_MESSAGE_SIZE = MAX_ITEM_SIZE_BYTES
 

@@ -3,7 +3,7 @@ import {
   deletePushSubscription,
   updateReminderSettings,
   getReminderSettings,
-} from '../api/vault/client'
+} from '../api/notificationClient'
 import env from '../env'
 
 function fromBase64Url(base64Url: string) {

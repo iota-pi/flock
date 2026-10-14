@@ -20,7 +20,7 @@ function reportQuotaExceeded(): void {
   }
   lastReportedTime = now
   const message =
-    'Storage quota exceeded. Flock cannot save changes or synchronize, risking data loss. Please free up space and check your connection to sync.'
+    'Storage quota exceeded. Changes cannot be saved or synchronized, risking data loss. Please free up space and check your connection to sync.'
   for (const listener of listeners) {
     try {
       listener(message)

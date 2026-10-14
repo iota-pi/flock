@@ -2,7 +2,7 @@ import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim
 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { toDocumentIdFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({

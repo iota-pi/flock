@@ -1,9 +1,8 @@
 import type { z } from 'zod'
 import type { VaultItem, VaultDriver } from '../drivers/base'
-import type { PutSnapshotBatchSchema } from '../../shared/schemas/trpc'
-import type { ItemType } from '../types'
+import type { PutSnapshotBatchSchema } from '../../shared/vault/api'
 
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 export type { VaultDriver }
 export type PutSnapshotInput = z.infer<typeof PutSnapshotBatchSchema>
 
@@ -28,7 +27,7 @@ export async function persistSnapshots(
         account: input.account,
         item: snapshot.itemId,
         metadata: {
-          type: snapshot.type as ItemType,
+          type: snapshot.type,
           iv: '',
           modified: snapshot.modified,
           ...(snapshot.deleted ? { deleted: true } : {}),

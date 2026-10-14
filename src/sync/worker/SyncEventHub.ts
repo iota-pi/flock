@@ -1,7 +1,5 @@
-import type { SyncStatus } from 'src/state/slices/syncSlice'
-import type { Item } from 'src/state/items'
-import type { ItemId } from 'src/shared/schemas/items'
-import type { AccountMetadata } from 'src/state/metadata'
+import type { SyncStatus, VaultDoc, VaultMetadata } from 'src/sync/shared/types'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { PollOutcome } from './SyncPoller'
 
@@ -11,9 +9,9 @@ import type { RepoDoc } from './docStore/AutomergeDocStore'
 export type ClientEvent =
   | { type: 'ready' }
   | { type: 'statusChange'; status: SyncStatus }
-  | { type: 'itemUpdated'; id: string; item: Item | null }
+  | { type: 'itemUpdated'; id: string; item: VaultDoc | null }
   | { type: 'indexUpdated'; itemIds: ItemId[] }
-  | { type: 'metadataUpdated'; metadata: AccountMetadata }
+  | { type: 'metadataUpdated'; metadata: VaultMetadata }
   | { type: 'mutationFailed'; mutationType: string; error: string }
   | { type: 'startRequest' }
   | { type: 'finishRequest' }

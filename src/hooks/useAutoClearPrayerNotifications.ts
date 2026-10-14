@@ -4,7 +4,7 @@ import { useAppStore } from '../state/store'
 import { useToday } from './useToday'
 import { isPrayerCompletedForToday } from '../utils/prayer'
 import { clearReminderNotifications } from '../utils/pushNotifications'
-import { snoozeReminders } from '../api/vault'
+import { snoozeReminders } from '../api/notificationClient'
 import { formatDate } from '../utils'
 
 export function useAutoClearPrayerNotifications(): void {

@@ -1,5 +1,5 @@
 import { debounce } from 'lodash-es'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'

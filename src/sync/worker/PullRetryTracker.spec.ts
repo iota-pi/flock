@@ -1,5 +1,5 @@
 import { PullRetryTracker, PullStateTransition } from './PullRetryTracker'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 const mockHasVaultKey = vi.fn().mockReturnValue(true)
 vi.mock('src/api/vault', () => ({

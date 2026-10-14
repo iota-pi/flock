@@ -18,13 +18,14 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
 import { fireAndForget } from '../utils/fireAndForget'
 import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
+import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -54,6 +55,8 @@ export interface SyncWorkerContextConfig {
   refreshAuthToken?: () => Promise<string | null>
   /** Optional override for testing. */
   apiClient?: SyncApiClient
+  /** The app's document codec and hooks. Defaults to passing documents through untouched. */
+  domain?: SyncDomain
 }
 
 export class SyncWorkerContext {
@@ -65,6 +68,7 @@ export class SyncWorkerContext {
   public readonly clientEventHub: ClientEventHub
   public readonly internalEventHub: WorkerInternalEventHub
   public readonly apiClient: SyncApiClient
+  public readonly domain: SyncDomain
 
   public indexStore!: IndexStore
   public cursorStore!: CursorStore
@@ -90,6 +94,7 @@ export class SyncWorkerContext {
     this.accountId = config.accountId
     this.clientEventHub = config.clientEventHub
     this.internalEventHub = config.internalEventHub
+    this.domain = config.domain ?? DEFAULT_SYNC_DOMAIN
     this.apiClient = config.apiClient ?? new SyncApiClient({
       refreshAuthToken: config.refreshAuthToken,
     })
@@ -126,7 +131,7 @@ export class SyncWorkerContext {
     this.itemOperations = ops.itemOperations
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
-    this.itemReencryptor = new ItemReencryptor()
+    this.itemReencryptor = new ItemReencryptor({ codec: this.domain.codec })
   }
 
   private wireEvents(): void {
@@ -163,7 +168,7 @@ export class SyncWorkerContext {
 
   private createCoreServices(config: SyncWorkerContextConfig) {
     const storage = this.repoManager.getStorage()
-    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub, storage)
+    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub, storage, this.domain.codec)
     if (config.onDocHandleReplaced) {
       docStore.onDocHandleReplaced = config.onDocHandleReplaced
     }
@@ -207,6 +212,7 @@ export class SyncWorkerContext {
         eventHub: config.clientEventHub,
         recoveryManager,
         apiClient: this.apiClient,
+        codec: this.domain.codec,
       },
       this.lastModifiedStore
     )
@@ -235,6 +241,8 @@ export class SyncWorkerContext {
       },
       recoveryManager: this.recoveryManager,
       apiClient: this.apiClient,
+      hooks: this.domain.hooks,
+      metadataSync: this.domain.metadataSync,
     })
 
     const manifestSyncManager = new ManifestSyncManager({
@@ -254,6 +262,7 @@ export class SyncWorkerContext {
         const docId = toDocumentIdFromItemId(itemId)
         this.adapter.setSyncedHeads(docId, heads)
       },
+      metadataSync: this.domain.metadataSync,
     })
 
     const storageRecoveryService = new StorageRecoveryService({

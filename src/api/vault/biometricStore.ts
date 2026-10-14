@@ -1,4 +1,4 @@
-export const BIOMETRIC_STORAGE_KEY = 'FlockBiometricData'
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
 
 export type BiometricStoredData = {
   account?: string
@@ -25,7 +25,7 @@ function notifyBiometricsChanged(): void {
 export function subscribeBiometrics(callback: () => void): () => void {
   listeners.add(callback)
   const onStorage = (e: StorageEvent) => {
-    if (e.key === BIOMETRIC_STORAGE_KEY) {
+    if (e.key === getVaultStorageNames().biometricDataKey) {
       callback()
     }
   }
@@ -42,7 +42,7 @@ export function subscribeBiometrics(callback: () => void): () => void {
 
 export function readBiometricData(): BiometricStoredData | null {
   if (typeof localStorage === 'undefined') return null
-  const serialized = localStorage.getItem(BIOMETRIC_STORAGE_KEY)
+  const serialized = localStorage.getItem(getVaultStorageNames().biometricDataKey)
   if (!serialized) return null
   try {
     const parsed = JSON.parse(serialized) as Partial<BiometricStoredData>
@@ -68,13 +68,13 @@ export function readBiometricData(): BiometricStoredData | null {
 
 export function writeBiometricData(data: BiometricStoredData): void {
   if (typeof localStorage === 'undefined') return
-  localStorage.setItem(BIOMETRIC_STORAGE_KEY, JSON.stringify(data))
+  localStorage.setItem(getVaultStorageNames().biometricDataKey, JSON.stringify(data))
   notifyBiometricsChanged()
 }
 
 export function clearBiometricData(): void {
   if (typeof localStorage === 'undefined') return
-  localStorage.removeItem(BIOMETRIC_STORAGE_KEY)
+  localStorage.removeItem(getVaultStorageNames().biometricDataKey)
   notifyBiometricsChanged()
 }
 

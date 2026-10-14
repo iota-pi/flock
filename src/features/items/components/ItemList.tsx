@@ -18,7 +18,7 @@ import {
 } from './ItemListStrategies'
 import { useAppStore } from 'src/state/store'
 import type { GroupLookupData } from 'src/shared/itemTypes'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 
 const DEFAULT_ROW_HEIGHT = 58

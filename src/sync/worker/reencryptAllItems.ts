@@ -3,6 +3,7 @@ import { chunk } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { buildSnapshot as buildSnapshotFromBuilder, type BuildSnapshotResult } from './snapshotBuilder'
+import type { DocCodec } from './domain'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient, toAuthExpiredError } from './SyncApiClient'
 import { classifySyncError } from './utils/errorClassifier'
@@ -15,8 +16,8 @@ import {
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { ItemId } from 'src/shared/schemas/items'
-import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
+import type { ItemId } from 'src/shared/vault/ids'
+import type { VaultSnapshotInput } from 'src/shared/vault/snapshots'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 
 const MAX_BATCH_RETRIES = 3
@@ -72,6 +73,7 @@ export interface ItemReencryptorOptions {
   batchRetryDelays?: readonly number[]
   maxBatchCount?: number
   maxBatchBytes?: number
+  codec?: DocCodec
 }
 
 export class ItemReencryptor {
@@ -82,8 +84,10 @@ export class ItemReencryptor {
   public readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
+  private readonly codec?: DocCodec
 
   constructor(options?: ItemReencryptorOptions) {
+    this.codec = options?.codec
     this.retryStrategy = new RetryStrategy({ delays: options?.retryDelays ?? DEFAULT_RETRY_DELAYS })
     this.batchRetryDelays = options?.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
     this.maxBatchCount = options?.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
@@ -214,7 +218,7 @@ export class ItemReencryptor {
       throw new Error('ItemId is required to build snapshot')
     }
 
-    return buildSnapshotFromBuilder(repo, itemId, 0, signal ? { signal } : undefined)
+    return buildSnapshotFromBuilder(repo, itemId, 0, { signal, codec: this.codec })
   }
 
   /**

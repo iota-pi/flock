@@ -13,7 +13,7 @@ import { useDataRecovery } from '../../hooks/useDataRecovery'
 import { useQuarantinedItems } from '../../state/selectors'
 import { deleteItems } from '../../features/items/mutations/itemMutations'
 import ConfirmationDialog from './ConfirmationDialog'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { ManualRecoveryKind } from '../../sync/shared/manualRecoveryStore'
 
 

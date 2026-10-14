@@ -2,7 +2,7 @@ import type { DocumentId } from '@automerge/automerge-repo/slim'
 import {
   ScopedMetadataStore,
   SYNC_METADATA_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
   LEGACY_KEYS,
 } from './syncMetadataStorage'
 
@@ -11,7 +11,7 @@ export class SyncedHeadsStore extends ScopedMetadataStore<[DocumentId, string[]]
     super(accountIdOrStore, {
       metadataKey: SYNC_METADATA_KEYS.SYNCED_HEADS,
       legacyKey: LEGACY_KEYS.SYNCED_HEADS,
-      legacyDbName: LEGACY_DB_NAMES.SYNCED_HEADS,
+      legacyDbName: getLegacySyncDatabaseNames()?.syncedHeads,
       legacyStorePrefix: 'synced-heads',
       storeLabel: 'SyncedHeadsStore',
       normalize: (raw: unknown) =>

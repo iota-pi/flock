@@ -7,9 +7,9 @@ import { createTestEventHubs } from './__test__/testUtils'
 import { AutomergeIndexManager } from './docStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { MAX_INCREMENTAL_MESSAGE_BYTES } from 'src/shared/constants/limits'
+import { MAX_INCREMENTAL_MESSAGE_BYTES } from 'src/shared/vault/limits'
 
 function createSyncMessage(itemId: string, data: number[]): Message {
   const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))

@@ -1,5 +1,5 @@
 import { ManifestSyncManager } from './ManifestSyncManager'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 // Mock dependencies
 const mockListAutomergeItemIds = vi.fn()
@@ -61,8 +61,8 @@ vi.mock('../../api/runtime', () => ({
 
 const mockGetMetadataQuery = vi.fn()
 const mockUpdateMetadataMutate = vi.fn().mockResolvedValue({ success: true })
-vi.mock('../../api/trpcClient', () => ({
-  getTrpcClient: () => ({
+vi.mock('../../api/vaultTrpcClient', () => ({
+  getVaultTrpcClient: () => ({
     accounts: {
       getMetadata: {
         query: (...args: any[]) => mockGetMetadataQuery(...args),
@@ -77,6 +77,11 @@ vi.mock('../../api/trpcClient', () => ({
 describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager
   let storeItemsSpy: any
+  let mockMetadataSync: {
+    hasSyncableChanges: ReturnType<typeof vi.fn>
+    extractSyncable: ReturnType<typeof vi.fn>
+    reconcile: ReturnType<typeof vi.fn>
+  }
   let mutateMetadataSpy: any
   let depsObj: { accountId: string | null; docStore: any; indexManager: any; snapshotManager: any }
 
@@ -117,6 +122,11 @@ describe('ManifestSyncManager', () => {
 
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
     mutateMetadataSpy = vi.fn().mockResolvedValue(undefined)
+    mockMetadataSync = {
+      hasSyncableChanges: vi.fn(() => true),
+      extractSyncable: vi.fn((metadata?: Record<string, unknown>) => ({ ...(metadata ?? {}) })),
+      reconcile: vi.fn(),
+    }
 
     depsObj = {
       accountId: 'acc-123',
@@ -125,6 +135,7 @@ describe('ManifestSyncManager', () => {
       snapshotManager: mockSnapshotManager,
       storeItems: storeItemsSpy,
       mutateMetadata: mutateMetadataSpy,
+      metadataSync: mockMetadataSync,
     } as any
 
     manifestSyncManager = new ManifestSyncManager(depsObj as any)
@@ -437,104 +448,71 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('syncMetadata', () => {
-    it('pushes local metadata to server when remote is empty', async () => {
+    beforeEach(() => {
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
         serverTime: Date.now(),
       })
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      mockGetAutomergeMetadata.mockResolvedValue({
-        defaultPrayerFrequency: { person: 'daily' as const },
-        prayerGoal: 5,
-      })
-      mockGetMetadataQuery.mockResolvedValue({
-        success: true,
-        metadata: {},
-      })
+    })
+
+    it('reconciles local and remote metadata with the adapter', async () => {
+      mockGetAutomergeMetadata.mockResolvedValue({ local: 1 })
+      mockGetMetadataQuery.mockResolvedValue({ success: true, metadata: { remote: 2 } })
+      mockMetadataSync.reconcile.mockReturnValue({ merged: {}, needsRemotePush: false, hasLocalChanges: false })
 
       await manifestSyncManager.sync()
 
       expect(mockGetMetadataQuery).toHaveBeenCalledWith({ account: 'acc-123' })
-      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
-        account: 'acc-123',
-        metadata: expect.objectContaining({
-          defaultPrayerFrequency: { person: 'daily' },
-          prayerGoal: 5,
-        }),
-      })
+      expect(mockMetadataSync.reconcile).toHaveBeenCalledWith({ local: 1 }, { remote: 2 })
+      expect(mutateMetadataSpy).not.toHaveBeenCalled()
+      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
     })
 
-    it('hydrates metadata from trpc client into local store and preserves local sortCriteria', async () => {
-      mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
-        serverTime: Date.now(),
+    it('pushes the syncable part of the merged metadata when the adapter asks for it', async () => {
+      mockGetAutomergeMetadata.mockResolvedValue({ shared: 'local', deviceOnly: true })
+      mockGetMetadataQuery.mockResolvedValue({ success: true, metadata: {} })
+      mockMetadataSync.reconcile.mockReturnValue({
+        merged: { shared: 'local', deviceOnly: true },
+        needsRemotePush: true,
+        hasLocalChanges: false,
       })
-      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-      mockGetLastManifestSyncTime.mockResolvedValue(0)
-      mockGetAutomergeMetadata.mockResolvedValue({
-        sortCriteria: [{ type: 'name' as const, reverse: false }],
+      mockMetadataSync.extractSyncable.mockReturnValue({ shared: 'local' })
+
+      await manifestSyncManager.sync()
+
+      expect(mockMetadataSync.extractSyncable).toHaveBeenCalledWith({ shared: 'local', deviceOnly: true })
+      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
+        account: 'acc-123',
+        metadata: { shared: 'local' },
       })
-      mockGetMetadataQuery.mockResolvedValue({
-        success: true,
-        metadata: {
-          defaultPrayerFrequency: { person: 'weekly' as const },
-          prayerGoal: 10,
-          updatedAt: 1000,
-        },
+      expect(mutateMetadataSpy).not.toHaveBeenCalled()
+    })
+
+    it('stores merged metadata locally without pushing it back to the server', async () => {
+      mockGetAutomergeMetadata.mockResolvedValue({ deviceOnly: true })
+      mockGetMetadataQuery.mockResolvedValue({ success: true, metadata: { shared: 'remote' } })
+      mockMetadataSync.reconcile.mockReturnValue({
+        merged: { shared: 'remote', deviceOnly: true },
+        needsRemotePush: false,
+        hasLocalChanges: true,
       })
 
       await manifestSyncManager.sync()
 
-      expect(mockGetMetadataQuery).toHaveBeenCalledWith({ account: 'acc-123' })
-      expect(mutateMetadataSpy).toHaveBeenCalledWith(
-        {
-          defaultPrayerFrequency: { person: 'weekly' },
-          prayerGoal: 10,
-          sortCriteria: [{ type: 'name', reverse: false }],
-          updatedAt: 1000,
-        },
-        { pushRemote: false },
-      )
+      expect(mutateMetadataSpy).toHaveBeenCalledWith({ shared: 'remote', deviceOnly: true }, { pushRemote: false })
+      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
     })
 
-    it('reconciles bidirectional changes when both local and remote have updates', async () => {
-      mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
-        serverTime: Date.now(),
-      })
-      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-      mockGetLastManifestSyncTime.mockResolvedValue(0)
-      mockGetAutomergeMetadata.mockResolvedValue({
-        prayerGoal: 15,
-        updatedAt: 2000,
-      })
-      mockGetMetadataQuery.mockResolvedValue({
-        success: true,
-        metadata: {
-          defaultPrayerFrequency: { topic: 'daily' as const },
-          updatedAt: 1000,
-        },
-      })
+    it('leaves metadata local when there is no metadata adapter', async () => {
+      const manager = new ManifestSyncManager({ ...depsObj, metadataSync: undefined } as any)
+      mockGetAutomergeMetadata.mockResolvedValue({ shared: 'local' })
 
-      await manifestSyncManager.sync()
+      await manager.sync()
 
-      expect(mutateMetadataSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prayerGoal: 15,
-          defaultPrayerFrequency: { topic: 'daily' },
-          updatedAt: 2000,
-        }),
-        { pushRemote: false },
-      )
-      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
-        account: 'acc-123',
-        metadata: expect.objectContaining({
-          prayerGoal: 15,
-          defaultPrayerFrequency: { topic: 'daily' },
-          updatedAt: 2000,
-        }),
-      })
+      expect(mockGetMetadataQuery).not.toHaveBeenCalled()
+      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
     })
 
     it('swallows errors if remote metadata query fails', async () => {

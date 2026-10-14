@@ -1,6 +1,7 @@
 import deepEqual from 'fast-deep-equal'
-import type { AccountMetadata } from '../../../state/metadata'
-import { extractSyncableMetadata, SYNCABLE_METADATA_KEYS } from '../../../shared/schemas/metadata'
+import type { AccountMetadata } from '../../state/metadata'
+import { extractSyncableMetadata, SYNCABLE_METADATA_KEYS } from '../../shared/schemas/metadata'
+import type { MetadataSyncAdapter } from '../../sync/worker/domain'
 
 export interface ReconcileMetadataResult {
   merged: AccountMetadata
@@ -109,4 +110,14 @@ export function reconcileAccountMetadata(
     needsRemotePush,
     hasLocalChanges,
   }
+}
+
+/** Syncs Flock's shared settings through the server's account metadata (see docs/vault-extraction.md) */
+export const flockMetadataSync: MetadataSyncAdapter = {
+  hasSyncableChanges: changes => hasSyncableChanges(changes as Partial<AccountMetadata>),
+  extractSyncable: metadata => extractSyncableMetadata(metadata),
+  reconcile: (local, remote) => reconcileAccountMetadata(
+    local as AccountMetadata | undefined,
+    remote as AccountMetadata | undefined,
+  ),
 }

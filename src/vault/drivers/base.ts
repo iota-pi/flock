@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
-import type { WebPushSubscription } from '../types'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import {
   VaultKeySchema,
   VaultSessionRecordSchema,
@@ -9,12 +8,8 @@ import {
   VaultAccountWithAuthSchema,
   VaultItemSchema,
   StoredSyncMessageSchema,
-} from '../../shared/schemas/vault'
-import type {
-  ManifestEntry,
-  SyncMessageLastEvaluatedKey,
-  GlobalSyncLastEvaluatedKey,
-} from 'src/shared/schemas/trpc'
+} from '../../shared/vault/storage'
+import type { ManifestEntry, SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
 
 export type VaultKey = z.infer<typeof VaultKeySchema>
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
@@ -36,11 +31,6 @@ export type UpdateAccountDataParams = Partial<AuthData> & {
   metadata?: Record<string, unknown>,
   session?: string,
   sessions?: VaultSessionRecord[],
-  pushSubscriptions?: WebPushSubscription[],
-  reminderEnabled?: boolean,
-  reminderTime?: string,
-  reminderTimezone?: string,
-  snoozeRemindersUntil?: string | null,
   keyring?: string,
   authToken?: string,
   salt?: string,
@@ -69,8 +59,11 @@ export default abstract class BaseDriver<T = unknown> {
   abstract getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update
-  // either `metadata` or `session` independently.
-  abstract updateAccountData(data: UpdateAccountDataParams): Promise<void>
+  // either `metadata` or `session` independently. Apps can store their own fields on
+  // the account record by passing them via `TExtra`.
+  abstract updateAccountData<TExtra extends object = Record<never, never>>(
+    data: UpdateAccountDataParams & Partial<TExtra>,
+  ): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
   abstract extendSession(data: AuthData): Promise<void>

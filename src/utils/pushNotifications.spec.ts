@@ -1,7 +1,7 @@
 import { checkSubscription, syncReminderTimezone, clearReminderNotifications } from './pushNotifications'
-import { getReminderSettings, updateReminderSettings } from '../api/vault/client'
+import { getReminderSettings, updateReminderSettings } from '../api/notificationClient'
 
-vi.mock('../api/vault/client', () => ({
+vi.mock('../api/notificationClient', () => ({
   addPushSubscription: vi.fn(),
   deletePushSubscription: vi.fn(),
   updateReminderSettings: vi.fn().mockResolvedValue(undefined),

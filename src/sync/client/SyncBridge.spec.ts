@@ -1,10 +1,9 @@
-import { SyncBridge } from './SyncBridge'
+import { createSyncBridge } from './SyncBridge'
 import { clearAutomergeIndexedDb, clearAccountLocalData } from './localDataCleanup'
 import * as Comlink from 'comlink'
-import { useAppStore } from 'src/state/store'
-import { VAULT_STORAGE_KEY } from 'src/api/vault/util'
-import type { ItemId } from 'src/shared/schemas/items'
-import { getBlankPerson } from 'src/state/items'
+import { getVaultStorageNames } from '../shared/storageNames'
+import type { ItemId } from 'src/shared/vault/ids'
+import { createFakeSink, createFakeTelemetry } from './__test__/fakeHost'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { attemptSessionRecovery } from 'src/api/vault/sessionRecovery'
 import { resumePendingReencryption } from 'src/api/vault/reencrypt'
@@ -14,12 +13,9 @@ vi.mock('src/api/vault', () => ({
   reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
   hasVaultKey: vi.fn().mockReturnValue(true),
   syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
-  lockVault: vi.fn().mockResolvedValue(undefined),
   getVaultSession: vi.fn().mockReturnValue(null),
   handleSessionExpired: vi.fn().mockResolvedValue(undefined),
   getKeyHash: vi.fn().mockReturnValue(null),
-  KEYRING_CACHE_KEY: 'FlockKeyringCache',
-  VAULT_EVENTS_CHANNEL: 'flock-vault-events',
 }))
 
 vi.mock('src/api/vault/sessionRecovery', () => ({
@@ -122,13 +118,24 @@ class MockWorker {
   }
 }
 
+const sink = createFakeSink()
+const lockVault = vi.fn().mockResolvedValue(undefined)
+// Workers are created through globalThis.Worker at call time, so tests can swap in their own mock
+const SyncBridge = createSyncBridge({
+  createWorker: () => new Worker('vault.worker.js', { type: 'module' }),
+  sink,
+  telemetry: createFakeTelemetry(),
+  getAccountId: () => null,
+  lockVault,
+})
+
 describe('SyncBridge', () => {
   let originalWorker: any
 
   beforeEach(() => {
     originalWorker = globalThis.Worker
     globalThis.Worker = MockWorker as any
-    localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({ account: 'test-account', key: 'test-key' }))
+    localStorage.setItem(getVaultStorageNames().vaultMetadataKey, JSON.stringify({ account: 'test-account', key: 'test-key' }))
     vi.clearAllMocks()
     mockSyncApi.setOnlineState.mockResolvedValue(undefined)
     mockSyncApi.initRepo.mockResolvedValue(undefined)
@@ -153,7 +160,7 @@ describe('SyncBridge', () => {
     mockSyncApi.updateVaultKey.mockResolvedValue(undefined)
     mockSyncApi.reencryptAllItems.mockResolvedValue(undefined)
     mockSyncApi.flushSync.mockResolvedValue(undefined)
-    useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
+    Object.assign(sink.state, { syncStatus: 'idle', fatalError: null, syncWarning: null })
   })
 
   afterEach(async () => {
@@ -165,7 +172,7 @@ describe('SyncBridge', () => {
 
   it('initializes and configures the sync worker', async () => {
     const initPromise = SyncBridge.initialize('test-account')
-    expect(useAppStore.getState().syncStatus).toBe('connecting')
+    expect(sink.state.syncStatus).toBe('connecting')
     await initPromise
 
     expect(Comlink.wrap).toHaveBeenCalled()
@@ -230,7 +237,7 @@ describe('SyncBridge', () => {
     await SyncBridge.shutdown()
     expect(mockSyncApi.shutdown).toHaveBeenCalledTimes(1)
     expect(terminateSpy).toHaveBeenCalledTimes(1)
-    expect(useAppStore.getState().syncStatus).toBe('offline')
+    expect(sink.state.syncStatus).toBe('offline')
 
     // After shutdown, we should be able to initialize again (which spins up a new worker)
     globalThis.Worker = class extends MockWorker {
@@ -268,8 +275,8 @@ describe('SyncBridge', () => {
     )
 
     // Expect status to be connecting, and reconnect warning set
-    expect(useAppStore.getState().syncStatus).toBe('connecting')
-    expect(useAppStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
+    expect(sink.state.syncStatus).toBe('connecting')
+    expect(sink.state.syncWarning).toBe('Sync connection lost. Reconnecting...')
 
     // Fast-forward 1000ms for the restart timer
     await vi.advanceTimersByTimeAsync(1000)
@@ -294,13 +301,13 @@ describe('SyncBridge', () => {
 
     // Move time forward by first timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s
     await vi.advanceTimersByTimeAsync(45000)
-    expect(useAppStore.getState().syncWarning).toBe('Sync connection is slow. Checking...')
+    expect(sink.state.syncWarning).toBe('Sync connection is slow. Checking...')
 
     // Move time forward by second timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s -> total 90s
     await vi.advanceTimersByTimeAsync(45000)
 
-    expect(useAppStore.getState().syncStatus).toBe('connecting')
-    expect(useAppStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
+    expect(sink.state.syncStatus).toBe('connecting')
+    expect(sink.state.syncWarning).toBe('Sync connection lost. Reconnecting...')
 
     // Fast-forward another 1000ms for the restart timer
     await vi.advanceTimersByTimeAsync(1000)
@@ -337,8 +344,8 @@ describe('SyncBridge', () => {
     capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 3' }))
 
     // No more restarts. Fatal error should be set.
-    expect(useAppStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
-    expect(useAppStore.getState().syncStatus).toBe('dead')
+    expect(sink.state.fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
+    expect(sink.state.syncStatus).toBe('dead')
     expect(initializeSpy).toHaveBeenCalledTimes(3) // should not have incremented
 
     vi.useRealTimers()
@@ -370,7 +377,7 @@ describe('SyncBridge', () => {
       const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
 
       await SyncBridge.initialize('test-reconnect-account')
-      useAppStore.setState({ syncWarning: 'Warning to be cleared' })
+      Object.assign(sink.state, { syncWarning: 'Warning to be cleared' })
       vi.clearAllMocks()
 
       window.dispatchEvent(new Event('online'))
@@ -380,8 +387,8 @@ describe('SyncBridge', () => {
         expect(mockSyncApi.flushSync).toHaveBeenCalledTimes(1)
       })
 
-      expect(useAppStore.getState().syncWarning).toBeNull()
-      expect(resumePendingReencryption).toHaveBeenCalledWith('test-reconnect-account')
+      expect(sink.state.syncWarning).toBeNull()
+      expect(resumePendingReencryption).toHaveBeenCalledWith(SyncBridge, 'test-reconnect-account')
 
       onLineSpy.mockRestore()
     })
@@ -392,18 +399,18 @@ describe('SyncBridge', () => {
       const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
 
       await SyncBridge.initialize('test-failed-recovery-account')
-      useAppStore.setState({ syncWarning: 'Persistent sync warning' })
+      Object.assign(sink.state, { syncWarning: 'Persistent sync warning' })
       vi.clearAllMocks()
 
       window.dispatchEvent(new Event('online'))
 
       await vi.waitFor(() => {
         expect(attemptSessionRecovery).toHaveBeenCalledWith('test-failed-recovery-account')
-        expect(resumePendingReencryption).toHaveBeenCalledWith('test-failed-recovery-account')
+        expect(resumePendingReencryption).toHaveBeenCalledWith(SyncBridge, 'test-failed-recovery-account')
       })
 
       expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
-      expect(useAppStore.getState().syncWarning).toBe('Persistent sync warning')
+      expect(sink.state.syncWarning).toBe('Persistent sync warning')
 
       onLineSpy.mockRestore()
     })
@@ -511,7 +518,7 @@ describe('SyncBridge', () => {
   })
 
   it('locks vault when storage reload indicates passwordChanged', async () => {
-    const { reloadKeyringFromStorage, lockVault } = await import('src/api/vault')
+    const { reloadKeyringFromStorage } = await import('src/api/vault')
     vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
       success: false,
       passwordChanged: true,
@@ -705,8 +712,8 @@ describe('SyncBridge', () => {
     })
 
     await vi.waitFor(() => {
-      expect(useAppStore.getState().syncStatus).toBe('degraded')
-      expect(useAppStore.getState().syncWarning).toBe(
+      expect(sink.state.syncStatus).toBe('degraded')
+      expect(sink.state.syncWarning).toBe(
         'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
       )
     })
@@ -722,8 +729,8 @@ describe('SyncBridge', () => {
     })
 
     await vi.waitFor(() => {
-      expect(useAppStore.getState().syncStatus).toBe('degraded')
-      expect(useAppStore.getState().isQuotaExceeded).toBe(true)
+      expect(sink.state.syncStatus).toBe('degraded')
+      expect(sink.state.isQuotaExceeded).toBe(true)
     })
 
     lastEventPort!.postMessage({
@@ -731,7 +738,7 @@ describe('SyncBridge', () => {
     })
 
     await vi.waitFor(() => {
-      expect(useAppStore.getState().isQuotaExceeded).toBe(false)
+      expect(sink.state.isQuotaExceeded).toBe(false)
     })
   })
 
@@ -747,20 +754,20 @@ describe('SyncBridge', () => {
   it('handles leaderConflict events and updates store state', async () => {
     await SyncBridge.initialize('test-account')
 
-    expect(useAppStore.getState().isLeaderConflict).toBe(false)
+    expect(sink.state.isLeaderConflict).toBe(false)
 
     // Simulate leaderConflict true event from worker
     lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: true })
 
     await vi.waitFor(() => {
-      expect(useAppStore.getState().isLeaderConflict).toBe(true)
+      expect(sink.state.isLeaderConflict).toBe(true)
     })
 
     // Simulate leaderConflict false event from worker
     lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: false })
 
     await vi.waitFor(() => {
-      expect(useAppStore.getState().isLeaderConflict).toBe(false)
+      expect(sink.state.isLeaderConflict).toBe(false)
     })
   })
 
@@ -806,7 +813,7 @@ describe('SyncBridge', () => {
 
     expect(worker1Terminate).toHaveBeenCalledTimes(1)
     expect(worker2Terminate).not.toHaveBeenCalled()
-    expect(useAppStore.getState().syncStatus).not.toBe('offline')
+    expect(sink.state.syncStatus).not.toBe('offline')
   })
 
   it('resets initializationPromise when initialization is aborted due to concurrent account change', async () => {
@@ -837,7 +844,7 @@ describe('SyncBridge', () => {
       })
     } as any
 
-    const updateItemsSpy = vi.spyOn(useAppStore.getState(), 'updateItemsFromServer')
+    const updateItemsSpy = sink.updateItems
 
     await SyncBridge.initialize('test-account')
     expect(capturedEventPort).not.toBeNull()
@@ -1058,7 +1065,7 @@ describe('SyncBridge', () => {
     await expect(initPromise).rejects.toThrow('initRepo failed transiently')
 
     // Warning is set
-    expect(useAppStore.getState().syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
+    expect(sink.state.syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
 
     // ensureReady callers wait on the retry
     let ready = false
@@ -1075,7 +1082,7 @@ describe('SyncBridge', () => {
     await ensureReadyPromise
     expect(ready).toBe(true)
     expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(2)
-    expect(useAppStore.getState().syncWarning).toBeNull()
+    expect(sink.state.syncWarning).toBeNull()
 
     vi.useRealTimers()
   })
@@ -1093,8 +1100,8 @@ describe('SyncBridge', () => {
       await vi.advanceTimersByTimeAsync(delays[i])
     }
 
-    expect(useAppStore.getState().fatalError).toBe('Unable to start sync. Please refresh the page.')
-    expect(useAppStore.getState().syncStatus).toBe('offline')
+    expect(sink.state.fatalError).toBe('Unable to start sync. Please refresh the page.')
+    expect(sink.state.syncStatus).toBe('offline')
 
     vi.useRealTimers()
   })
@@ -1104,7 +1111,7 @@ describe('SyncBridge', () => {
     mockSyncApi.initRepo.mockRejectedValueOnce(new Error('account 1 failed'))
 
     await expect(SyncBridge.initialize('account-fail')).rejects.toThrow('account 1 failed')
-    expect(useAppStore.getState().syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
+    expect(sink.state.syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
 
     // Switch account before retry timer fires
     const initTwo = SyncBridge.initialize('account-success')
@@ -1229,14 +1236,12 @@ describe('SyncBridge', () => {
     SyncBridge.subscribeRecoveryItems(recoveryListener)
     expect(recoveryListener).toHaveBeenCalledTimes(1)
 
-    useAppStore.setState({ items: { 'item-1': { id: 'item-1' } as any } })
-
     await SyncBridge.shutdown({ internalRestart: true })
 
     // Listener shouldn't have been called with empty array upon shutdown
     expect(recoveryListener).toHaveBeenCalledTimes(1)
     // App store state shouldn't be reset
-    expect(useAppStore.getState().items['item-1']).toBeDefined()
+    expect(sink.reset).not.toHaveBeenCalled()
   })
 
   describe('proxied worker methods', () => {
@@ -1251,8 +1256,8 @@ describe('SyncBridge', () => {
     it('forwards proxied method calls with arguments to syncApi when initialized', async () => {
       await SyncBridge.initialize('test-account')
 
-      const person = getBlankPerson('item-2' as ItemId, false)
-      const person3 = getBlankPerson('item-3' as ItemId, false)
+      const person = { id: 'item-2' as ItemId, name: 'Person 2' }
+      const person3 = { id: 'item-3' as ItemId, name: 'Person 3' }
 
       await SyncBridge.mutateItem('item-1' as ItemId, { name: 'Updated' })
       expect(mockSyncApi.mutateItem).toHaveBeenCalledWith('item-1', { name: 'Updated' })
@@ -1302,7 +1307,7 @@ describe('SyncBridge', () => {
     it('handles custom override methods correctly', async () => {
       await SyncBridge.initialize('test-account')
 
-      const incrementSpy = vi.spyOn(useAppStore.getState(), 'incrementGeneration')
+      const incrementSpy = sink.onDataRestored
       const restoreResult = await SyncBridge.restoreFromBinaries({ doc1: 'data' })
       expect(mockSyncApi.restoreFromBinaries).toHaveBeenCalledWith({ doc1: 'data' })
       expect(incrementSpy).toHaveBeenCalledTimes(1)

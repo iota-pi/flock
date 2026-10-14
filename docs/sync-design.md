@@ -113,9 +113,10 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 
 ## Local storage layout
 
-- Automerge docs: `FlockIndexedDBStorageAdapter`.
+- Automerge docs: `VaultIndexedDBStorageAdapter`.
 - WAL: its own IndexedDB database.
-- Sync metadata: one database per account, `flock-sync-metadata-${accountId}` (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `cursors`, `indexDoc`, `lastModified` (including `baseVersion`), `syncedHeads` and `manualRecoveryMigrated`. When a key is missing on read, the stores lazily migrate the legacy per-store databases (`flock-sync-cursors`, `flock-item-metadata`, `flock-sync-last-modified`, `flock-sync-synced-heads`, `manual-recovery-metadata`) but only if those exist, so no phantom databases are created.
+- Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `cursors`, `indexDoc`, `lastModified` (including `baseVersion`), `syncedHeads` and `manualRecoveryMigrated`. When a key is missing on read, the stores lazily migrate the legacy per-store databases named in `VaultStorageNames.legacySyncDatabases` (Flock's are `flock-sync-cursors`, `flock-item-metadata`, `flock-sync-last-modified` and `flock-sync-synced-heads`, plus `manual-recovery-metadata`) but only if those exist, so no phantom databases are created.
+- All storage names come from `VaultStorageNames` (`src/sync/shared/storageNames.ts`). Renaming one orphans the data stored under the old name.
 - Logout or reset: `clearAccountLocalData` → `clearSyncMetadataStorage` drops the whole metadata database. The store-level `.clear()` only clears its own key.
 
 ## Shutdown order (`ServiceLifecycleManager`)

@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
+import type { SyncStatus } from '../../sync/shared/types'
 
-export type SyncStatus = 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded' | 'dead'
 
 interface SyncState {
   syncStatus: SyncStatus

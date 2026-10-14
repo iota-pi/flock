@@ -7,7 +7,7 @@ import {
   type DocHandle,
 } from '@automerge/automerge-repo/slim'
 import type { $brand } from 'zod'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import { isPlainObject } from './objectUtils'
 
 export type IndexDocId = string & $brand<'IndexDocId'>

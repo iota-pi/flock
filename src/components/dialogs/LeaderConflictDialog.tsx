@@ -10,7 +10,7 @@ import DialogTitle from '@mui/material/DialogTitle'
 import Typography from '@mui/material/Typography'
 
 import { useAppStore } from '../../state/store'
-import { SyncBridge } from '../../sync/client/SyncBridge'
+import { SyncBridge } from '../../app/vault/syncBridge'
 
 export default function LeaderConflictDialog() {
   const isLeaderConflict = useAppStore(state => state.isLeaderConflict)

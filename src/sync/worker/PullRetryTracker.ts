@@ -1,6 +1,6 @@
 import { hasVaultKey } from 'src/api/vault'
-import { ItemId } from 'src/shared/schemas/items'
-import type { SyncMessageLastEvaluatedKey } from 'src/shared/schemas/trpc'
+import { ItemId } from 'src/shared/vault/ids'
+import type { SyncMessageLastEvaluatedKey } from 'src/shared/vault/api'
 
 export interface ItemPullState {
   cursor: number

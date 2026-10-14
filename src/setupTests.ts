@@ -1,4 +1,6 @@
 import crypto from 'node:crypto'
+import { configureVaultStorageNames } from './sync/shared/storageNames'
+import { FLOCK_STORAGE_NAMES } from './app/vault/storageNames'
 
 
 vi.mock('./env', () => ({
@@ -10,6 +12,8 @@ vi.mock('./env', () => ({
 }))
 
 globalThis.isSecureContext = true
+
+configureVaultStorageNames(FLOCK_STORAGE_NAMES)
 
 // Some test environments (jsdom/vitest) already provide a read-only `crypto` accessor.
 // Assign only if absent, and use Object.defineProperty in a try/catch to avoid
@@ -51,5 +55,9 @@ if (typeof (globalThis as any).TextDecoder === 'undefined') {
 if (!process.env.DYNAMODB_ENDPOINT) {
   process.env.DYNAMODB_ENDPOINT = 'http://127.0.0.1:8000'
 }
+// Table names used by the vault's DynamoDriver (created locally by `yarn initdb`)
+process.env.ACCOUNTS_TABLE ??= 'FlockAccounts'
+process.env.ITEMS_TABLE ??= 'FlockItems'
+process.env.SYNC_MESSAGES_TABLE ??= 'FlockSyncMessages'
 
 import '@automerge/automerge'

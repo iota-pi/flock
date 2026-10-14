@@ -1,13 +1,13 @@
-import type { Item } from '../../state/items'
-import type { ItemId } from 'src/shared/schemas/items'
-import type { ManifestEntry } from 'src/shared/schemas/trpc'
+import type { VaultDoc } from '../shared/types'
+import type { ItemId } from 'src/shared/vault/ids'
+import type { ManifestEntry } from 'src/shared/vault/api'
 
 export const SKEW_BUFFER_MS = 60 * 1000
 
 export interface SyncDeltas {
   missingIds: ItemId[]
   upstreamIds: ItemId[]
-  locallyTombstonedSnapshots: Item[]
+  locallyTombstonedSnapshots: VaultDoc[]
   deletedLastModifiedUpdates: [ItemId, number][]
   deletedVersionUpdates?: [ItemId, number][]
   knownSet: Set<ItemId>
@@ -51,7 +51,7 @@ export interface CalculateUpstreamDeltasParams {
 
 export class ManifestDeltaCalculator {
   static calculateInboundDeltas(params: CalculateInboundDeltasParams) {
-    const locallyTombstonedSnapshots: Item[] = []
+    const locallyTombstonedSnapshots: VaultDoc[] = []
     const deletedLastModifiedUpdates: [ItemId, number][] = []
     const deletedVersionUpdates: [ItemId, number][] = []
     const missingIds: ItemId[] = []
@@ -79,7 +79,7 @@ export class ManifestDeltaCalculator {
         if (params.activeSet.has(id)) {
           // Item exists locally and is active, but the server manifest indicates it is deleted.
           // Apply tombstone locally and record timestamp to prevent resurrection.
-          locallyTombstonedSnapshots.push({ id, deleted: true } as unknown as Item)
+          locallyTombstonedSnapshots.push({ id, deleted: true })
           deletedLastModifiedUpdates.push([id, serverTime])
           deletedVersionUpdates.push([id, serverVersion])
         } else if (

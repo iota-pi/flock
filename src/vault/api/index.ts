@@ -4,7 +4,7 @@ import cors from '@fastify/cors'
 import * as Sentry from '@sentry/node'
 import { TRPCError } from '@trpc/server'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
-import getDriver from '../drivers'
+import { createFlockDriver } from '../flockDriver'
 import { appRouter } from '../trpc/root'
 import { createContext } from '../trpc/trpc'
 
@@ -28,7 +28,7 @@ async function createServer(devMode = false) {
     credentials: true,
   })
 
-  const vault = getDriver('dynamo', devMode)
+  const vault = createFlockDriver(devMode)
   server.decorate('vault', vault)
 
   await server.register(fastifyTRPCPlugin, {

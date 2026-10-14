@@ -1,10 +1,7 @@
 import type BaseDriver from '../drivers/base'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { StoredSyncMessage } from '../drivers/base'
-import type {
-  SyncMessageLastEvaluatedKey,
-  GlobalSyncLastEvaluatedKey,
-} from 'src/shared/schemas/trpc'
+import type { SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
 
 type AppendSyncMessageInput = {
   account: string

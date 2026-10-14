@@ -1,4 +1,4 @@
-export const AUTO_LOCK_STORAGE_KEY = 'FlockAutoLockSettings'
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
 
 export type AutoLockMode = 'focus' | 'inactivity' | 'never'
 
@@ -17,7 +17,7 @@ export const DEFAULT_AUTO_LOCK_SETTINGS: AutoLockSettings = {
 export function readAutoLockSettings(): AutoLockSettings {
   if (typeof localStorage === 'undefined') return DEFAULT_AUTO_LOCK_SETTINGS
   try {
-    const raw = localStorage.getItem(AUTO_LOCK_STORAGE_KEY)
+    const raw = localStorage.getItem(getVaultStorageNames().autoLockSettingsKey)
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<AutoLockSettings>
       if (parsed?.mode && ['focus', 'inactivity', 'never'].includes(parsed.mode)) {
@@ -35,12 +35,12 @@ export function readAutoLockSettings(): AutoLockSettings {
 
 export function writeAutoLockSettings(settings: AutoLockSettings): void {
   if (typeof localStorage === 'undefined') return
-  localStorage.setItem(AUTO_LOCK_STORAGE_KEY, JSON.stringify(settings))
+  localStorage.setItem(getVaultStorageNames().autoLockSettingsKey, JSON.stringify(settings))
 }
 
 export function clearAutoLockSettings(): void {
   if (typeof localStorage === 'undefined') return
-  localStorage.removeItem(AUTO_LOCK_STORAGE_KEY)
+  localStorage.removeItem(getVaultStorageNames().autoLockSettingsKey)
 }
 
 export function getAutoLockSummary(settings = readAutoLockSettings()): string {

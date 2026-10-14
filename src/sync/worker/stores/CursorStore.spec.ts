@@ -3,9 +3,9 @@ import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
   LEGACY_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
 } from './syncMetadataStorage'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 import {
   createMockLocalForage,
@@ -23,9 +23,11 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../../utils/storageManager', () => ({
+vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
+
+const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('CursorStore', () => {
   let store: CursorStore
@@ -89,11 +91,11 @@ describe('CursorStore', () => {
   it('migrates legacy database flock-sync-cursors to consolidated storage', async () => {
     const originalIndexedDb = (globalThis as any).indexedDB
     ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: LEGACY_DB_NAMES.CURSORS }]),
+      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.cursors }]),
     }
     try {
-      const legacyStoreKey = `${LEGACY_DB_NAMES.CURSORS}#cursors-${accountId}`
-      const legacyStore = createMockLocalForage({ name: LEGACY_DB_NAMES.CURSORS, storeName: `cursors-${accountId}` })
+      const legacyStoreKey = `${legacyDbNames.cursors}#cursors-${accountId}`
+      const legacyStore = createMockLocalForage({ name: legacyDbNames.cursors, storeName: `cursors-${accountId}` })
       const legacyCursors: [ItemId, number][] = [['item-from-db' as ItemId, 77]]
       await legacyStore.setItem(LEGACY_KEYS.CURSORS, legacyCursors)
       instances.set(legacyStoreKey, legacyStore)

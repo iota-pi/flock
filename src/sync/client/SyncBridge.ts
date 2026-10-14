@@ -1,38 +1,52 @@
 import type * as Comlink from 'comlink'
-import * as Sentry from '@sentry/react'
 
-import { useAppStore } from 'src/state/store'
 import {
   hasVaultKey,
-  lockVault,
   reloadKeyringFromStorage,
   syncKeyringFromServer,
   handleSessionExpired,
   getVaultSession,
 } from 'src/api/vault'
-import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
-import type { BackupSyncState } from 'src/types/backup'
-import type { ItemId } from 'src/shared/schemas/items'
-import type { AccountMetadata } from 'src/state/metadata'
+import type { BackupSyncState } from 'src/sync/shared/backupSyncState'
+import type { ItemId } from 'src/shared/vault/ids'
+import type { VaultDoc, VaultMetadata } from '../shared/types'
 import type { SyncApi } from '../worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'
 import { attemptSessionRecovery } from 'src/api/vault/sessionRecovery'
 import { resumePendingReencryption } from 'src/api/vault/reencrypt'
-import { getOnlineState } from 'src/utils/onlineStatus'
+import { getOnlineState } from 'src/sync/utils/onlineStatus'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './host'
 
-class SyncBridgeService {
-  private eventProcessor: SyncEventProcessor
+export interface SyncBridgeOptions<TDoc extends VaultDoc, TMeta extends VaultMetadata> {
+  /** Creates the app's sync worker (whose entry file calls exposeSyncWorker) */
+  createWorker: () => Worker
+  sink: SyncStateSink<TDoc, TMeta>
+  getAccountId: () => string | null
+  telemetry?: SyncTelemetry
+  /** Locks the vault, for example after the password was changed on another device */
+  lockVault: () => Promise<void>
+}
+
+/**
+ * Main-thread facade over the sync worker. Apps create one instance with createSyncBridge.
+ */
+export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMetadata = VaultMetadata> {
+  private readonly sink: SyncStateSink<TDoc, TMeta>
+  private readonly telemetry: SyncTelemetry
+  private eventProcessor: SyncEventProcessor<TDoc, TMeta>
   private domListeners: SyncDOMListeners
   private lifecycleManager: WorkerLifecycleManager
   private keyringUpdateGuard = new SingleFlightGuard<void>()
   private pendingMissingKeyVersions = new Set<string>()
 
-  constructor() {
-    this.eventProcessor = new SyncEventProcessor({
+  constructor(private readonly options: SyncBridgeOptions<TDoc, TMeta>) {
+    this.sink = options.sink
+    this.telemetry = options.telemetry ?? noopTelemetry
+    this.eventProcessor = new SyncEventProcessor<TDoc, TMeta>(this.sink, {
       onKeyVersionMissing: kver => {
         void this.handleKeyringUpdate(kver)
       },
@@ -42,18 +56,20 @@ class SyncBridgeService {
       onActivity: () => {
         this.lifecycleManager.recordWorkerActivity()
       },
-    })
+    }, this.telemetry)
 
     this.domListeners = new SyncDOMListeners()
 
     this.lifecycleManager = new WorkerLifecycleManager({
+      createWorker: options.createWorker,
+      telemetry: this.telemetry,
       onEvent: event => {
         this.eventProcessor.handleSyncEvent(event)
       },
       onStatusChange: status => {
-        useAppStore.getState().setSyncStatus(status)
-        Sentry.setTag('syncStatus', status)
-        Sentry.addBreadcrumb({
+        this.sink.setSyncStatus(status)
+        this.telemetry.setTag('syncStatus', status)
+        this.telemetry.addBreadcrumb({
           category: 'sync',
           message: `Sync status changed to ${status}`,
           level: status === 'offline' ? 'warning' : 'info',
@@ -61,25 +77,25 @@ class SyncBridgeService {
       },
       onSyncWarning: warning => {
         if (warning) {
-          useAppStore.getState().setSyncWarning(warning)
-          Sentry.addBreadcrumb({
+          this.sink.setSyncWarning(warning)
+          this.telemetry.addBreadcrumb({
             category: 'sync',
             message: `Sync warning: ${warning}`,
             level: 'warning',
           })
         } else {
-          useAppStore.getState().clearSyncWarning()
+          this.sink.clearSyncWarning()
         }
       },
       onFatalError: error => {
-        useAppStore.getState().setFatalError(error)
+        this.sink.setFatalError(error)
       },
-      getAccountId: () => useAppStore.getState().account,
+      getAccountId: options.getAccountId,
       onReady: () => {
         this.domListeners.start({
           setOnlineState: async isOnline => {
-            Sentry.setTag('online', isOnline)
-            Sentry.addBreadcrumb({
+            this.telemetry.setTag('online', isOnline)
+            this.telemetry.addBreadcrumb({
               category: 'network',
               message: isOnline ? 'Network online' : 'Network offline',
               level: isOnline ? 'info' : 'warning',
@@ -102,11 +118,11 @@ class SyncBridgeService {
       onRestart: async (accountId: string) => {
         await this.initialize(accountId)
       },
-      onShutdownCleanup: options => {
-        if (!options?.internalRestart) {
-          Sentry.setUser(null)
+      onShutdownCleanup: shutdownOptions => {
+        if (!shutdownOptions?.internalRestart) {
+          this.telemetry.setUser(null)
           this.eventProcessor.reset(true)
-          useAppStore.getState().reset()
+          this.sink.reset()
           this.domListeners.stop()
           this.keyringUpdateGuard.clear()
           this.pendingMissingKeyVersions.clear()
@@ -139,7 +155,7 @@ class SyncBridgeService {
     }
 
     if (recovered) {
-      useAppStore.getState().clearSyncWarning()
+      this.sink.clearSyncWarning()
       const api = this.lifecycleManager.getSyncApi()
       if (api) {
         try {
@@ -151,7 +167,7 @@ class SyncBridgeService {
     }
 
     try {
-      await resumePendingReencryption(account)
+      await resumePendingReencryption(this, account)
     } catch (error) {
       console.warn('[SyncBridge] resumePendingReencryption failed on reconnect:', error)
     }
@@ -173,7 +189,7 @@ class SyncBridgeService {
         if (result.passwordChanged) {
           console.warn('[SyncBridge] Password changed in another tab/device. Locking vault.')
           this.pendingMissingKeyVersions.clear()
-          await lockVault()
+          await this.options.lockVault()
           return
         }
         const keysToCheck = Array.from(this.pendingMissingKeyVersions)
@@ -244,8 +260,8 @@ class SyncBridgeService {
   }
 
   initialize(accountId: string, options?: { clearLocalData?: boolean }): Promise<void> {
-    Sentry.setUser({ id: accountId })
-    Sentry.setTag('accountId', accountId)
+    this.telemetry.setUser(accountId)
+    this.telemetry.setTag('accountId', accountId)
     return this.lifecycleManager.initialize(accountId, options)
   }
 
@@ -274,7 +290,7 @@ class SyncBridgeService {
   restoreFromBinaries(documents: Partial<Record<string, string>>): Promise<string[]> {
     return this.execute(async api => {
       const result = await api.restoreFromBinaries(documents)
-      useAppStore.getState().incrementGeneration()
+      this.sink.onDataRestored?.()
       return result
     })
   }
@@ -291,19 +307,19 @@ class SyncBridgeService {
     return this.execute(api => api.bootstrapItems())
   }
 
-  mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
+  mutateItem(id: ItemId, changes: Partial<TDoc>): Promise<void> {
     return this.execute(api => api.mutateItem(id, changes))
   }
 
-  createItem(item: Item): Promise<void> {
+  createItem(item: TDoc): Promise<void> {
     return this.execute(api => api.createItem(item))
   }
 
-  storeItems(items: Item[]): Promise<void> {
+  storeItems(items: TDoc[]): Promise<void> {
     return this.execute(api => api.storeItems(items))
   }
 
-  mutateMetadata(changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }): Promise<void> {
+  mutateMetadata(changes: Partial<TMeta>, options?: { pushRemote?: boolean }): Promise<void> {
     return this.execute(api => api.mutateMetadata(changes, options))
   }
 
@@ -391,4 +407,8 @@ class SyncBridgeService {
   }
 }
 
-export const SyncBridge = new SyncBridgeService()
+export function createSyncBridge<TDoc extends VaultDoc, TMeta extends VaultMetadata>(
+  options: SyncBridgeOptions<TDoc, TMeta>,
+): SyncBridgeService<TDoc, TMeta> {
+  return new SyncBridgeService(options)
+}

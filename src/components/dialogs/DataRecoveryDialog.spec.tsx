@@ -1,8 +1,9 @@
 import { act, render, screen, fireEvent } from '@testing-library/react'
 import DataRecoveryDialog from './DataRecoveryDialog'
 import { useAppStore } from '../../state/store'
-import type { ErrorItem, ItemId } from 'src/shared/schemas/items'
-import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
+import type { ErrorItem } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/vault/limits'
 import * as itemMutations from '../../features/items/mutations/itemMutations'
 import * as dataRecoveryHook from '../../hooks/useDataRecovery'
 

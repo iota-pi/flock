@@ -18,7 +18,8 @@ import {
 import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './ui/InlineText'
-import type { GroupItem, ItemId } from 'src/shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import { useItem, useItemsByIds } from 'src/state/selectors'
 import { useAppStore } from 'src/state/store'
 

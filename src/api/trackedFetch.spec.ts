@@ -1,7 +1,7 @@
 import type { Mock } from 'vitest'
 import { getTrackedFetch, ApiHttpError } from './trackedFetch'
 import * as runtime from './runtime'
-import * as onlineStatus from '../utils/onlineStatus'
+import * as onlineStatus from '../sync/utils/onlineStatus'
 
 describe('trackedFetch', () => {
   const originalFetch = global.fetch

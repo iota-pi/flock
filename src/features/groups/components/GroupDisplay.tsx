@@ -6,7 +6,8 @@ import ItemList from '../../items/components/ItemList'
 import { mutateItem } from '../../items/mutations/itemMutations'
 import Search from 'src/components/Search'
 import { useAppStore } from 'src/state/store'
-import type { GroupItem, ItemId } from 'src/shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import { RemoveIcon } from 'src/components/Icons'
 
 interface Props {

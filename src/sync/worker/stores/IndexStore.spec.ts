@@ -2,7 +2,7 @@ import { IndexStore } from './IndexStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
   LEGACY_KEYS,
 } from './syncMetadataStorage'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
@@ -23,9 +23,11 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../../utils/storageManager', () => ({
+vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
+
+const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('IndexStore', () => {
   let store: IndexStore
@@ -66,11 +68,11 @@ describe('IndexStore', () => {
   it('migrates legacy index database to consolidated storage', async () => {
     const originalIndexedDb = (globalThis as any).indexedDB
     ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: LEGACY_DB_NAMES.INDEX_DOC }]),
+      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.indexDoc }]),
     }
     try {
-      const legacyStoreKey = `${LEGACY_DB_NAMES.INDEX_DOC}#index-${accountId}`
-      const legacyStore = createMockLocalForage({ name: LEGACY_DB_NAMES.INDEX_DOC, storeName: `index-${accountId}` })
+      const legacyStoreKey = `${legacyDbNames.indexDoc}#index-${accountId}`
+      const legacyStore = createMockLocalForage({ name: legacyDbNames.indexDoc, storeName: `index-${accountId}` })
       const legacyDoc = { itemIds: ['legacy-1'] } as unknown as AutomergeIndexDocument
       await legacyStore.setItem(LEGACY_KEYS.INDEX_DOC, legacyDoc)
       instances.set(legacyStoreKey, legacyStore)

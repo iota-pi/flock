@@ -1,32 +1,43 @@
 /// <reference lib="webworker" />
 import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
-import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
 import type { DocHandle } from '@automerge/automerge-repo/slim'
 import type { SyncApi } from './syncProtocol'
 import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 
-import type { Item } from '../../state/items'
-import type { AccountMetadata } from '../../state/metadata'
+import type { VaultDoc, VaultMetadata } from '../shared/types'
 import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
 import { initWorkerVault } from '../../api/vault'
 import { SyncStatusManager } from './SyncStatusManager'
-import { resetQuotaExceededStatus } from '../../utils/storageManager'
-import { type BackupSyncState } from '../../types/backup'
-import { ItemId } from 'src/shared/schemas/items'
+import { resetQuotaExceededStatus } from '../utils/storageManager'
+import type { BackupSyncState } from '../shared/backupSyncState'
+import { ItemId } from 'src/shared/vault/ids'
 import { SyncWorkerContext } from './SyncWorkerContext'
 import type { WalEntry } from './SyncWriteAheadLog'
-import { normalizeItemSnapshot, RepoDoc } from './docStore'
+import type { RepoDoc } from './docStore'
 import { toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { PollOutcome } from './SyncPoller'
-import { initTrpcClient } from 'src/api/trpcClient'
+import { configureVaultEndpoint, initVaultTrpcClient } from 'src/api/vaultTrpcClient'
+import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
+import type { SyncDomain } from './domain'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncWorker')
+
+/** Everything the host app supplies to the sync worker (see exposeSyncWorker) */
+export interface SyncWorkerConfig {
+  /** URL of Automerge's wasm binary, as resolved by the app's bundler */
+  automergeWasmUrl: string
+  /** Vault API base URL */
+  endpoint: string
+  storageNames: VaultStorageNames
+  /** The app's document codec and hooks */
+  domain?: SyncDomain
+}
 
 let globalEventPort: MessagePort | null = null
 
@@ -43,43 +54,45 @@ function forwardWorkerError(errorData: { message: string; stack?: string; name?:
   }
 }
 
-self.addEventListener('error', (event: ErrorEvent) => {
-  const errorObj = event.error instanceof Error ? event.error : null
-  const errorData = {
-    message: event.message || errorObj?.message || 'Sync Worker Error',
-    stack: errorObj?.stack,
-    name: errorObj?.name || 'WorkerError',
-  }
-  forwardWorkerError(errorData)
-})
+function installWorkerListeners(): void {
+  self.addEventListener('error', (event: ErrorEvent) => {
+    const errorObj = event.error instanceof Error ? event.error : null
+    const errorData = {
+      message: event.message || errorObj?.message || 'Sync Worker Error',
+      stack: errorObj?.stack,
+      name: errorObj?.name || 'WorkerError',
+    }
+    forwardWorkerError(errorData)
+  })
 
-self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
-  const reason = event.reason
-  const isError = reason instanceof Error
-  const errorData = {
-    message: isError ? reason.message : String(reason),
-    stack: isError ? reason.stack : undefined,
-    name: isError ? reason.name : 'UnhandledRejection',
-  }
-  forwardWorkerError(errorData)
-})
+  self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+    const reason = event.reason
+    const isError = reason instanceof Error
+    const errorData = {
+      message: isError ? reason.message : String(reason),
+      stack: isError ? reason.stack : undefined,
+      name: isError ? reason.name : 'UnhandledRejection',
+    }
+    forwardWorkerError(errorData)
+  })
 
-self.addEventListener('message', ev => {
-  if (ev.data && ev.data.type === 'EVENT_PORT') {
-    globalEventPort = ev.data.port
-  }
-  if (ev.data && ev.data.type === 'INIT_PING_PORT') {
-    const pingPort: MessagePort = ev.data.port
-    pingPort.onmessage = event => {
-      if (event.data === 'ping') {
-        pingPort.postMessage('pong')
+  self.addEventListener('message', ev => {
+    if (ev.data && ev.data.type === 'EVENT_PORT') {
+      globalEventPort = ev.data.port
+    }
+    if (ev.data && ev.data.type === 'INIT_PING_PORT') {
+      const pingPort: MessagePort = ev.data.port
+      pingPort.onmessage = event => {
+        if (event.data === 'ping') {
+          pingPort.postMessage('pong')
+        }
+      }
+      if (typeof pingPort.start === 'function') {
+        pingPort.start()
       }
     }
-    if (typeof pingPort.start === 'function') {
-      pingPort.start()
-    }
-  }
-})
+  })
+}
 
 export class SyncWorker implements SyncApi {
   private _context: SyncWorkerContext | null = null
@@ -100,7 +113,7 @@ export class SyncWorker implements SyncApi {
   private tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
   private latestAuthToken: string | null = null
 
-  constructor() {
+  constructor(private readonly config: SyncWorkerConfig) {
     this.initReadyPromise()
   }
 
@@ -192,12 +205,12 @@ export class SyncWorker implements SyncApi {
       () => this.clientEventHub.emit({ type: 'startRequest' }),
       () => this.clientEventHub.emit({ type: 'finishRequest' })
     )
-    initTrpcClient(trackedFetch)
+    initVaultTrpcClient(trackedFetch)
   }
 
   private async initGlobalPrerequisites(vaultKey: string): Promise<void> {
     await initWorkerVault(vaultKey)
-    await Automerge.initializeWasm(wasmUrl)
+    await Automerge.initializeWasm(this.config.automergeWasmUrl)
   }
 
   private subscribeClientEvents(): void {
@@ -303,6 +316,7 @@ export class SyncWorker implements SyncApi {
         onDocumentReceived: itemId => this.subscribeToItems([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
+        domain: this.config.domain,
       })
       if (this.latestAuthToken) {
         context.apiClient.setToken(this.latestAuthToken)
@@ -350,7 +364,7 @@ export class SyncWorker implements SyncApi {
     const handleChange = () => {
       try {
         const doc = handle.doc() || null
-        const item = normalizeItemSnapshot(id, doc)
+        const item = this.context.docStore.decodeSnapshot(id, doc)
         if (item?.deleted) {
           fireAndForget(
             this.context.indexManager.removeAutomergeItemIdsFromIndex([id]),
@@ -433,16 +447,16 @@ export class SyncWorker implements SyncApi {
       await ctx.manifestSyncManager.sync()
     })
 
-  mutateItem = (id: ItemId, changes: Partial<Item>) =>
+  mutateItem = (id: ItemId, changes: Partial<VaultDoc>) =>
     this.withContext(ctx => ctx.itemOperations.mutateItem(id, changes))
 
-  createItem = (item: Item) =>
+  createItem = (item: VaultDoc) =>
     this.withContext(ctx => ctx.itemOperations.createItem(item))
 
-  storeItems = (items: Item[]) =>
+  storeItems = (items: VaultDoc[]) =>
     this.withContext(ctx => ctx.itemOperations.storeItems(items))
 
-  mutateMetadata = (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) =>
+  mutateMetadata = (changes: Partial<VaultMetadata>, options?: { pushRemote?: boolean }) =>
     this.withContext(ctx => ctx.itemOperations.mutateMetadata(changes, options))
 
   exportAllBinaries = () =>
@@ -608,4 +622,13 @@ export class SyncWorker implements SyncApi {
   }
 }
 
-Comlink.expose(new SyncWorker())
+/**
+ * Starts the sync worker. Call this from the app's worker entry file, which lets the app's bundler
+ * resolve the Automerge wasm and bundle the app's codec into the worker.
+ */
+export function exposeSyncWorker(config: SyncWorkerConfig): void {
+  configureVaultStorageNames(config.storageNames)
+  configureVaultEndpoint(config.endpoint)
+  installWorkerListeners()
+  Comlink.expose(new SyncWorker(config))
+}

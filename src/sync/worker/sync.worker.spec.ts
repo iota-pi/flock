@@ -1,5 +1,6 @@
-import { SyncWorker } from './sync.worker'
-import type { ItemId } from 'src/shared/schemas/items'
+import { SyncWorker, type SyncWorkerConfig } from './sync.worker'
+import { getVaultStorageNames } from '../shared/storageNames'
+import type { ItemId } from 'src/shared/vault/ids'
 
 const { realtimeListeners } = vi.hoisted(() => ({
   realtimeListeners: [] as Array<(itemIds: string[]) => void>,
@@ -21,18 +22,11 @@ vi.mock('@automerge/automerge/slim', () => ({
   from: vi.fn(),
 }))
 
-vi.mock('@automerge/automerge/automerge.wasm?url', () => ({
-  default: 'mock-wasm-url'
-}))
-
 vi.mock('../../api/vault', () => ({
   initWorkerVault: vi.fn().mockResolvedValue(undefined),
 }))
 
-// normalizeItemSnapshot is used inside SyncWorker.bindItemHandle; mock it so tests
-// receive a clean item shape without needing real Automerge doc parsing.
 vi.mock('./docStore', () => ({
-  normalizeItemSnapshot: vi.fn().mockImplementation((id: string, doc: unknown) => (doc ? ({ ...(doc as object), id }) : null)),
   RepoDoc: undefined,
   AutomergeDocStore: class {},
 }))
@@ -120,6 +114,8 @@ vi.mock('./SyncWorkerContext', () => {
       }
 
       docStore = {
+        // SyncWorker.bindItemHandle decodes through the doc store; return a clean item shape
+        decodeSnapshot: vi.fn().mockImplementation((id: string, doc: unknown) => (doc ? ({ ...(doc as object), id }) : null)),
         onDocHandleReplaced: mockDocStoreOnDocHandleReplaced,
         exportAllBinaries: vi.fn().mockResolvedValue({}),
         restoreFromBinaries: vi.fn().mockResolvedValue([]),
@@ -164,6 +160,12 @@ vi.mock('./utils/automerge', () => ({
   ACCOUNT_INDEX_DOCUMENT_ID: '__account_index__',
 }))
 
+const workerConfig: SyncWorkerConfig = {
+  automergeWasmUrl: 'mock-wasm-url',
+  endpoint: '',
+  storageNames: getVaultStorageNames(),
+}
+
 describe('SyncWorker initRepo cleanup on re-init', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -174,7 +176,7 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
   })
 
   it('shuts down previous context when initRepo is called a second time', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
 
     // First init
     await worker.initRepo('account-1', 'vault-key-1')
@@ -200,7 +202,7 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
       callOrder.push(`adapter.setAccount:brokerFinished=${brokerFinished}`)
     })
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     expect(mockBrokerSetAccount).toHaveBeenCalledWith('account-1')
@@ -213,7 +215,7 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
   })
 
   it('shuts down context and clears listeners on shutdown', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     await worker.shutdown()
@@ -223,14 +225,14 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
   })
 
   it('delegates initialize to SyncWorkerContext.initialize', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
     expect(mockContextInitialize).toHaveBeenCalledTimes(1)
   })
 
   it('pauses BroadcastChannel sync via context.repoManager on multipleLeadersDetected', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     // Fire the internal event subscription
@@ -244,7 +246,7 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
 
   it('resumes BroadcastChannel sync via context.repoManager on soleLeaderRestored', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     ;(worker as any).internalEventHub.emit({ type: 'soleLeaderRestored' })
@@ -270,7 +272,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
 
     mockRepoFind.mockResolvedValue(handleA)
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     const clientEvents: any[] = []
@@ -332,7 +334,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
   })
 
   it('does not bind listener when onDocHandleReplaced is called for an unsubscribed item', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     const handle = {
@@ -356,7 +358,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     }
     mockRepoFind.mockResolvedValue(handle)
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     worker.subscribeToItems(['item-2' as any])
@@ -382,7 +384,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     }
     mockRepoFind.mockResolvedValue(handle)
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     worker.subscribeToItems(['item-3' as any])
@@ -406,7 +408,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     }
     mockRepoFind.mockResolvedValue(handle)
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     worker.subscribeToItems(['item-4' as any])
@@ -420,7 +422,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
   })
 
   it('delegates claimLeader to context.claimLeader', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     await worker.claimLeader()
@@ -453,7 +455,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     const initDeferred = createDeferred<void>()
     mockContextInitialize.mockImplementation(() => initDeferred.promise)
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     // Start initRepo without awaiting it yet
     const initPromise = worker.initRepo('account-1', 'vault-key-1')
 
@@ -486,7 +488,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
   })
 
   it('queues API calls made before initRepo is even invoked', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
 
     // Fire API call before initRepo is called
     let mutateDone = false
@@ -510,7 +512,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     const initDeferred = createDeferred<void>()
     mockContextInitialize.mockImplementation(() => initDeferred.promise)
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     const initPromise = worker.initRepo('account-1', 'vault-key-1')
 
     const onlinePromise = worker.setOnlineState(false)
@@ -529,7 +531,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     const initDeferred = createDeferred<void>()
     mockContextInitialize.mockImplementation(() => initDeferred.promise)
 
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     const initPromise = worker.initRepo('account-1', 'vault-key-1')
 
     const mutatePromise = worker.mutateItem('item-1' as any, { name: 'Fail' })
@@ -542,7 +544,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
   })
 
   it('rejects API calls invoked after shutdown', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
     await worker.shutdown()
 
@@ -552,7 +554,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
   })
 
   it('queues API calls during second initRepo (account switch) until new context is ready', async () => {
-    const worker = new SyncWorker()
+    const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
     // Second init begins with delayed initialization
@@ -579,7 +581,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
   describe('Auth token refresh and progress events without Comlink proxies', () => {
     it('emits tokenRefreshNeeded and resolves when updateAuthToken is called', async () => {
-      const worker = new SyncWorker()
+      const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
 
       const eventSpy = vi.fn()
@@ -598,7 +600,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     })
 
     it('emits reencryptProgress event during reencryptAllItems', async () => {
-      const worker = new SyncWorker()
+      const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
 
       const eventSpy = vi.fn()
@@ -624,7 +626,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
     it('does not touch manual recovery entries when a realtime bus ping arrives', async () => {
       realtimeListeners.length = 0
-      const worker = new SyncWorker()
+      const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
       expect(realtimeListeners.length).toBeGreaterThan(0)
 
@@ -637,7 +639,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     })
 
     it('clears the oversized flag, unquarantines and re-marks the item dirty on retryRecoveryItem', async () => {
-      const worker = new SyncWorker()
+      const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
 
       await worker.retryRecoveryItem('item-1' as ItemId)
@@ -649,7 +651,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     })
 
     it('delegates recreateOversizedItem to itemOperations and flushes snapshots', async () => {
-      const worker = new SyncWorker()
+      const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
 
       const newItemId = await worker.recreateOversizedItem('item-old' as ItemId)
@@ -661,7 +663,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
     })
 
     it('delegates flushSync to orchestrator.flush and returns a Promise<void>', async () => {
-      const worker = new SyncWorker()
+      const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
 
       const result = worker.flushSync()

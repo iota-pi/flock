@@ -1,8 +1,8 @@
-import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
+import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 
 type Callback = (_: any) => void
 
-describe('FlockIndexedDBStorageAdapter', () => {
+describe('VaultIndexedDBStorageAdapter', () => {
   const originalIndexedDB = globalThis.indexedDB
   let mockOpenRequest: any
   let mockDb: any
@@ -76,7 +76,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
 
   describe('clear()', () => {
     it('waits for transaction.oncomplete before resolving and does NOT resolve prematurely', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
 
       let resolved = false
       const clearPromise = adapter.clear().then(() => {
@@ -100,7 +100,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('rejects when transaction.onerror fires', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
 
       const clearPromise = adapter.clear()
       await new Promise(r => setTimeout(r, 10))
@@ -113,7 +113,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('rejects when transaction.onabort fires', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
 
       const clearPromise = adapter.clear()
       await new Promise(r => setTimeout(r, 10))
@@ -127,7 +127,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
 
   describe('save() and remove()', () => {
     it('save() waits for transaction.oncomplete', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       let resolved = false
       const savePromise = adapter.save(['doc-1'], new Uint8Array([1, 2, 3])).then(() => {
         resolved = true
@@ -146,7 +146,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('remove() waits for transaction.oncomplete', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       let resolved = false
       const removePromise = adapter.remove(['doc-1']).then(() => {
         resolved = true
@@ -172,7 +172,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('waits for transaction.oncomplete', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       let resolved = false
       const removeRangePromise = adapter.removeRange(['doc-prefix']).then(() => {
         resolved = true
@@ -193,7 +193,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       const mockRequest: any = { onsuccess: null, onerror: null, result: { binary: new Uint8Array([1, 2, 3]) } }
       mockStore.get.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const loadPromise = adapter.load(['doc-1'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -207,7 +207,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       const mockRequest: any = { onsuccess: null, onerror: null, result: undefined }
       mockStore.get.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const loadPromise = adapter.load(['doc-1'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -220,7 +220,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       const mockRequest: any = { onsuccess: null, onerror: null, error: new Error('Get failed') }
       mockStore.get.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const loadPromise = adapter.load(['doc-1'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -254,7 +254,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       mockRequest.result = mockCursor
       mockStore.openCursor.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const rangePromise = adapter.loadRange(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -274,7 +274,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       }
       mockStore.openCursor.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const rangePromise = adapter.loadRange(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -304,7 +304,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       mockRequest.result = mockCursor
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const hasPromise = adapter.has(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -323,7 +323,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       }
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const hasPromise = adapter.has(['non-existent-doc'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -346,7 +346,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       mockRequest.result = mockCursor
       mockStore.openCursor.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const hasPromise = adapter.has(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -365,7 +365,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       }
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const hasPromise = adapter.has([])
       await new Promise(r => setTimeout(r, 10))
 
@@ -383,7 +383,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
       }
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const hasPromise = adapter.has(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -394,7 +394,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
 
   describe('close()', () => {
     it('awaits in-flight transactions before closing db', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       let clearFinished = false
       const clearPromise = adapter.clear().then(() => {
         clearFinished = true
@@ -428,7 +428,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('rejects new transactions while closing or once closed', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const clearPromise = adapter.clear()
       await new Promise(r => setTimeout(r, 10))
 
@@ -451,14 +451,14 @@ describe('FlockIndexedDBStorageAdapter', () => {
         mockDb._emit('close')
       })
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       await adapter.close()
 
       expect(mockDb.close).toHaveBeenCalledTimes(1)
     })
 
     it('resolves safely via fallback timer if close event is not emitted', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       // mockDb.close does not emit 'close' event
       await adapter.close()
 
@@ -470,7 +470,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
         mockDb._emit('close')
       })
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       const p1 = adapter.close()
       const p2 = adapter.close()
 
@@ -481,7 +481,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('closes database connection on versionchange event', async () => {
-      new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      new VaultIndexedDBStorageAdapter('test-db', 'documents')
       // Wait for connect
       await new Promise(r => setTimeout(r, 10))
 
@@ -493,7 +493,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('reopens database connection on subsequent operation after versionchange event', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       await new Promise(r => setTimeout(r, 10))
       expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(1)
 
@@ -539,7 +539,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('retries transaction if connection was closed concurrently with InvalidStateError', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       await new Promise(r => setTimeout(r, 10))
 
       // First db.transaction throws InvalidStateError (simulating race with versionchange close)
@@ -583,7 +583,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
     })
 
     it('clears cached database reference on unexpected close event and reconnects on next operation', async () => {
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       await new Promise(r => setTimeout(r, 10))
       expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(1)
 
@@ -621,7 +621,7 @@ describe('FlockIndexedDBStorageAdapter', () => {
         }),
       } as any
 
-      const adapter = new FlockIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
       await new Promise(r => setTimeout(r, 10))
 
       // Subsequent operation should attempt a new connection and succeed

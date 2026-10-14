@@ -2,7 +2,7 @@ import {
   SizeAwareBatchAccumulator,
   type SizeAwareBatchAccumulatorOptions,
 } from '../utils/SizeAwareBatchAccumulator'
-import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
+import type { VaultSnapshotInput } from '../../shared/vault/snapshots'
 
 export interface PreparedSnapshotItem {
   snapshot: VaultSnapshotInput

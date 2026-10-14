@@ -1,5 +1,5 @@
-import type { ItemId } from 'src/shared/schemas/items'
-import type { GlobalSyncLastEvaluatedKey, SyncMessageLastEvaluatedKey } from 'src/shared/schemas/trpc'
+import type { ItemId } from 'src/shared/vault/ids'
+import type { GlobalSyncLastEvaluatedKey, SyncMessageLastEvaluatedKey } from 'src/shared/vault/api'
 import type { StoredSyncMessage } from 'src/vault/drivers/base'
 import { syncRouter } from 'src/vault/trpc/routers/sync'
 import { SyncPoller } from './SyncPoller'

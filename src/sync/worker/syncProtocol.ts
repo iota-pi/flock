@@ -1,10 +1,13 @@
-import type { Item } from '../../state/items'
-import type { AccountMetadata } from '../../state/metadata'
+import type { VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
-import type { BackupSyncState } from '../../types/backup'
-import { ItemId } from 'src/shared/schemas/items'
+import type { BackupSyncState } from '../shared/backupSyncState'
+import { ItemId } from 'src/shared/vault/ids'
 
-export interface SyncApi {
+/**
+ * The sync worker's Comlink API. `TDoc` and `TMeta` are the app's document and metadata types,
+ * as produced by its DocCodec.
+ */
+export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMetadata = VaultMetadata> {
   initRepo: (
     accountId: string,
     vaultKey: string,
@@ -12,10 +15,10 @@ export interface SyncApi {
   ) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
   bootstrapItems: () => Promise<void>
-  mutateItem: (id: ItemId, changes: Partial<Item>) => Promise<void>
-  createItem: (item: Item) => Promise<void>
-  storeItems: (items: Item[]) => Promise<void>
-  mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>
+  mutateItem: (id: ItemId, changes: Partial<TDoc>) => Promise<void>
+  createItem: (item: TDoc) => Promise<void>
+  storeItems: (items: TDoc[]) => Promise<void>
+  mutateMetadata: (changes: Partial<TMeta>, options?: { pushRemote?: boolean }) => Promise<void>
   exportAllBinaries: () => Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   flushSync: () => Promise<void>

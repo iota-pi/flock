@@ -1,20 +1,12 @@
 import { z } from 'zod'
 
-export const WebPushSubscriptionSchema = z.object({
-  endpoint: z.string(),
-  keys: z.object({
-    p256dh: z.string(),
-    auth: z.string(),
-  }),
-})
-
 export const VaultKeySchema = z.object({
   account: z.string(),
   item: z.string(),
 })
 
 const VaultMetaDataSchema = z.object({
-  type: z.enum(['person', 'group', 'topic']),
+  type: z.string().min(1),
   iv: z.string(),
   modified: z.number(),
   deleted: z.boolean().optional(),
@@ -30,11 +22,6 @@ export const VaultAccountSchema = z.object({
   account: z.string(),
   metadata: z.record(z.string(), z.unknown()),
   sessions: z.array(VaultSessionRecordSchema).optional(),
-  pushSubscriptions: z.array(WebPushSubscriptionSchema).optional(),
-  reminderEnabled: z.boolean().optional(),
-  reminderTime: z.string().optional(),
-  reminderTimezone: z.string().optional(),
-  snoozeRemindersUntil: z.string().optional(),
   authToken: z.string(),
   salt: z.string(),
   iterations: z.number(),

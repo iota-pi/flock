@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { mergeWith } from 'lodash-es'
 
-import { generateItemId } from '../utils'
+import { generateItemId, ItemId } from '../shared/vault/ids'
 import type { ItemType } from '../shared/itemTypes'
 import {
   standardItemSchema,
@@ -12,7 +12,6 @@ import {
   type PersonItem,
   type TopicItem,
   ITEM_TYPES,
-  ItemId,
   ERROR_ITEM_TYPE,
 } from '../shared/schemas/items'
 

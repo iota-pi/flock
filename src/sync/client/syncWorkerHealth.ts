@@ -1,4 +1,4 @@
-import { useAppStore } from 'src/state/store'
+import type { SyncStatus } from '../shared/types'
 
 const HEARTBEAT_INTERVAL_MS = 15000
 const HEARTBEAT_TIMEOUT_MS = 30000
@@ -113,7 +113,23 @@ function isExternalAbort(signal: AbortSignal): boolean {
   return msg !== 'Heartbeat timeout'
 }
 
+/** Where the health monitor reports problems with the sync worker */
+export interface WorkerHealthReporter {
+  setSyncStatus(status: SyncStatus): void
+  /** null clears the warning */
+  setSyncWarning(message: string | null): void
+  setFatalError(message: string): void
+}
+
+const noopReporter: WorkerHealthReporter = {
+  setSyncStatus: () => {},
+  setSyncWarning: () => {},
+  setFatalError: () => {},
+}
+
 export class SyncWorkerHealthMonitor {
+  constructor(private readonly reporter: WorkerHealthReporter = noopReporter) {}
+
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private crashCount = 0
   private timeoutCrashCount = 0
@@ -129,7 +145,7 @@ export class SyncWorkerHealthMonitor {
     this.lastWorkerActivityTime = Date.now()
     if (this.consecutiveMissedPings > 0) {
       this.consecutiveMissedPings = 0
-      useAppStore.getState().clearSyncWarning()
+      this.reporter.setSyncWarning(null)
     }
   }
 
@@ -202,14 +218,14 @@ export class SyncWorkerHealthMonitor {
       const errorMsg = isTimeout
         ? 'Sync worker became unresponsive repeatedly. Please refresh the page to try again.'
         : 'Sync worker crashed repeatedly. Please refresh the page to try again.'
-      useAppStore.getState().setFatalError(errorMsg)
-      useAppStore.getState().setSyncStatus('dead')
+      this.reporter.setFatalError(errorMsg)
+      this.reporter.setSyncStatus('dead')
     } else {
       console.warn(
         `[SyncBridge] Attempting automatic restart (${isTimeout ? 'timeout' : 'crash'} count: ${currentCount}/${maxAllowed})...`
       )
-      useAppStore.getState().setSyncStatus('connecting')
-      useAppStore.getState().setSyncWarning('Sync connection lost. Reconnecting...')
+      this.reporter.setSyncStatus('connecting')
+      this.reporter.setSyncWarning('Sync connection lost. Reconnecting...')
       onRestart()
     }
   }
@@ -335,7 +351,7 @@ export class SyncWorkerHealthMonitor {
           console.warn(
             `[SyncBridge] Worker heartbeat missed (attempt ${this.consecutiveMissedPings}/${maxMissedPings}). Probing before termination...`
           )
-          useAppStore.getState().setSyncWarning('Sync connection is slow. Checking...')
+          this.reporter.setSyncWarning('Sync connection is slow. Checking...')
           return
         }
 

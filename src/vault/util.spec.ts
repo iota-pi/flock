@@ -1,6 +1,14 @@
-import { generateAccountId } from './util'
+import { generateAccountId, hashString } from './util'
 
 describe('vault util', () => {
+  it('hashString produces consistent base64 output', () => {
+    const a = hashString('hello')
+    const b = hashString('hello')
+    expect(typeof a).toBe('string')
+    expect(a).toBe(b)
+    expect(a.length).toBeGreaterThan(0)
+  })
+
   describe('generateAccountId', () => {
     it('returns a 4-character alphanumeric lowercase id', () => {
       const id = generateAccountId()

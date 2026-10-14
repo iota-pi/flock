@@ -23,7 +23,7 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../utils/storageManager', () => ({
+vi.mock('../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
 
@@ -36,7 +36,6 @@ describe('createAccountStore', () => {
 
   describe('database name resolution', () => {
     it('resolves expected db names for known store types', () => {
-      expect(getAccountDatabaseName('sync-batch-messages', 'acc-1')).toBe('FlockVault_SyncBatchDB_acc-1')
       expect(getAccountDatabaseName('manual-recovery-items', 'acc-1')).toBe('FlockVault_ManualRecoveryDB_acc-1')
       expect(getAccountDatabaseName('manual-recovery-metadata', 'acc-1')).toBe('FlockVault_ManualRecoveryDB_acc-1')
       expect(getAccountDatabaseName('wal-entries', 'acc-1')).toBe('FlockVault_SyncWAL_acc-1')
@@ -58,7 +57,7 @@ describe('createAccountStore', () => {
 
     it('resolves default description for sync-metadata', () => {
       const config = resolveAccountStoreConfig('sync-metadata', 'acc-1')
-      expect(config.description).toBe('Consolidated sync metadata for Flock account')
+      expect(config.description).toBe('Consolidated vault sync metadata for an account')
     })
   })
 

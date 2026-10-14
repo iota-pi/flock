@@ -4,7 +4,8 @@ import FrequencyControls from './FrequencyControls'
 import { ThemeProvider } from '@mui/material/styles'
 import getTheme from '../theme'
 import { useItem, useItemsByIds } from '../state/selectors'
-import { GroupItem, ItemId } from '../shared/schemas/items'
+import { GroupItem } from '../shared/schemas/items'
+import { ItemId } from '../shared/vault/ids'
 
 vi.mock('../state/selectors', () => ({
   useItem: vi.fn(),

@@ -1,10 +1,8 @@
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
+
 const isCypress = typeof window !== 'undefined' && window.Cypress
 export const DEFAULT_CRYPTO_ITERATIONS = isCypress ? 1 : 600000
 export const LEGACY_CRYPTO_ITERATIONS = isCypress ? 1 : 100000
-
-export const VAULT_STORAGE_KEY = 'FlockVaultMeta'
-export const KEYRING_CACHE_KEY = 'FlockKeyringCache'
-export const VAULT_EVENTS_CHANNEL = 'flock-vault-events'
 
 export type VaultBroadcastEvent =
   | { type: 'KEY_ROTATED'; account: string; keyVersion: string }
@@ -18,7 +16,7 @@ export type VaultStoredMetadata = {
 }
 
 export function readStoredMetadata(): VaultStoredMetadata | null {
-  const serialized = localStorage.getItem(VAULT_STORAGE_KEY)
+  const serialized = localStorage.getItem(getVaultStorageNames().vaultMetadataKey)
   if (serialized) {
     try {
       const parsed = JSON.parse(serialized) as Partial<VaultStoredMetadata>
@@ -31,7 +29,7 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
         }
       }
     } catch {
-      localStorage.removeItem(VAULT_STORAGE_KEY)
+      localStorage.removeItem(getVaultStorageNames().vaultMetadataKey)
     }
   }
 

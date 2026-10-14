@@ -1,7 +1,18 @@
-import type { WebPushSubscription } from '../../vault/types'
-import { getTrpcClient } from '../trpcClient'
-import { assertSuccess } from './clientUtils'
-import type { ReminderSettingsResponse } from './clientTypes'
+import type { z } from 'zod'
+import type { WebPushSubscription } from '../vault/types'
+import type { ReminderSettingsResponseSchema } from '../shared/schemas/notifications'
+import { getTrpcClient } from './trpcClient'
+import { assertSuccess } from './vault/clientUtils'
+
+export type ReminderSettingsResponse = z.infer<typeof ReminderSettingsResponseSchema>
+
+export async function snoozeReminders(account: string, snoozeUntilDate?: string | null): Promise<void> {
+  const response = await getTrpcClient().accounts.snoozeReminders.mutate({
+    account,
+    snoozeUntilDate,
+  })
+  assertSuccess(response, 'snoozeReminders')
+}
 
 export async function addPushSubscription(account: string, subscription: WebPushSubscription): Promise<void> {
   const response = await getTrpcClient().accounts.addPushSubscription.mutate({

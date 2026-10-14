@@ -1,5 +1,5 @@
 import { ManifestDeltaCalculator, SKEW_BUFFER_MS } from './ManifestDeltaCalculator'
-import type { ItemId } from '../../shared/schemas/items'
+import type { ItemId } from '../../shared/vault/ids'
 
 describe('ManifestDeltaCalculator', () => {
   describe('calculateSyncDeltas', () => {

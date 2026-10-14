@@ -1,43 +1,31 @@
-import * as Sentry from '@sentry/react'
 import { SyncEventProcessor } from './SyncEventProcessor'
-import { useAppStore } from 'src/state/store'
+import { createFakeSink, createFakeTelemetry } from './__test__/fakeHost'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import type { ItemId } from 'src/shared/schemas/items'
-
-vi.mock('@sentry/react', () => ({
-  captureException: vi.fn(),
-  addBreadcrumb: vi.fn(),
-  setTag: vi.fn(),
-  setUser: vi.fn(),
-}))
+import type { ItemId } from 'src/shared/vault/ids'
 
 describe('SyncEventProcessor', () => {
   let processor: SyncEventProcessor
   let onKeyVersionMissing: ReturnType<typeof vi.fn<(kver?: string) => void>>
-  let updateItemsSpy: any
+  let sink: ReturnType<typeof createFakeSink>
+  let telemetry: ReturnType<typeof createFakeTelemetry>
+  let updateItemsSpy: ReturnType<typeof createFakeSink>['updateItems']
 
   beforeEach(() => {
-    useAppStore.setState({
-      syncStatus: 'idle',
-      fatalError: null,
-      syncWarning: null,
-      isQuotaExceeded: false,
-      isLeaderConflict: false,
-    })
+    sink = createFakeSink()
+    telemetry = createFakeTelemetry()
     onKeyVersionMissing = vi.fn<(kver?: string) => void>()
-    processor = new SyncEventProcessor({ onKeyVersionMissing })
-    updateItemsSpy = vi.spyOn(useAppStore.getState(), 'updateItemsFromServer').mockImplementation(() => {})
+    processor = new SyncEventProcessor(sink, { onKeyVersionMissing }, telemetry)
+    updateItemsSpy = sink.updateItems
   })
 
   afterEach(() => {
     processor.reset(true)
-    updateItemsSpy?.mockRestore()
     vi.useRealTimers()
   })
 
   it('updates sync status on statusChange event', () => {
     processor.handleSyncEvent({ type: 'statusChange', status: 'syncing' })
-    expect(useAppStore.getState().syncStatus).toBe('syncing')
+    expect(sink.state.syncStatus).toBe('syncing')
   })
 
   it('batches item updates below ITEM_UPDATE_BATCH_MAX via setTimeout', async () => {
@@ -85,22 +73,22 @@ describe('SyncEventProcessor', () => {
       type: 'quotaExceeded',
       message: 'Storage quota exceeded',
     })
-    expect(useAppStore.getState().syncStatus).toBe('degraded')
-    expect(useAppStore.getState().isQuotaExceeded).toBe(true)
-    expect(useAppStore.getState().syncWarning).toBe('Storage quota exceeded')
+    expect(sink.state.syncStatus).toBe('degraded')
+    expect(sink.state.isQuotaExceeded).toBe(true)
+    expect(sink.state.syncWarning).toBe('Storage quota exceeded')
 
     processor.handleSyncEvent({ type: 'quotaResolved' })
-    expect(useAppStore.getState().isQuotaExceeded).toBe(false)
-    expect(useAppStore.getState().syncStatus).toBe('idle')
-    expect(useAppStore.getState().syncWarning).toBeNull()
+    expect(sink.state.isQuotaExceeded).toBe(false)
+    expect(sink.state.syncStatus).toBe('idle')
+    expect(sink.state.syncWarning).toBeNull()
   })
 
   it('handles leaderConflict events', () => {
     processor.handleSyncEvent({ type: 'leaderConflict', hasConflict: true })
-    expect(useAppStore.getState().isLeaderConflict).toBe(true)
+    expect(sink.state.isLeaderConflict).toBe(true)
 
     processor.handleSyncEvent({ type: 'leaderConflict', hasConflict: false })
-    expect(useAppStore.getState().isLeaderConflict).toBe(false)
+    expect(sink.state.isLeaderConflict).toBe(false)
   })
 
   it('manages recovery entries and subscriber notifications', () => {
@@ -189,10 +177,9 @@ describe('SyncEventProcessor', () => {
     errorSpy.mockRestore()
   })
 
-  it('captures workerError events to Sentry with stack and tags', () => {
+  it('captures workerError events to telemetry with stack and tags', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const captureMock = vi.mocked(Sentry.captureException)
-    captureMock.mockClear()
+    const captureMock = telemetry.captureException
 
     processor.handleSyncEvent({
       type: 'workerError',
@@ -209,11 +196,7 @@ describe('SyncEventProcessor', () => {
         message: 'Out of memory during sync commit',
         stack: 'Error: Out of memory\n    at Automerge.change (automerge.wasm:1:123)',
       }),
-      {
-        tags: {
-          origin: 'sync-worker',
-        },
-      }
+      { origin: 'sync-worker' }
     )
 
     errorSpy.mockRestore()

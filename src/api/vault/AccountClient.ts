@@ -1,4 +1,4 @@
-import { getTrpcClient } from '../trpcClient'
+import { getVaultTrpcClient } from '../vaultTrpcClient'
 import { assertSuccess } from './clientUtils'
 import type {
   AccountCreationResponse,
@@ -9,7 +9,7 @@ import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
 export async function createAccount(
   { salt, authToken, saltVersion }: CreateAccountBody,
 ): Promise<AccountCreationResponse> {
-  return getTrpcClient().accounts.createAccount.mutate({
+  return getVaultTrpcClient().accounts.createAccount.mutate({
     salt,
     authToken,
     iterations: DEFAULT_CRYPTO_ITERATIONS,
@@ -18,7 +18,7 @@ export async function createAccount(
 }
 
 export async function getSecurityParams(account: string): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
-  const response = await getTrpcClient().accounts.getSecurityParams.query({ account })
+  const response = await getVaultTrpcClient().accounts.getSecurityParams.query({ account })
   return {
     salt: response.salt,
     iterations: response.iterations || LEGACY_CRYPTO_ITERATIONS,
@@ -27,7 +27,7 @@ export async function getSecurityParams(account: string): Promise<{ salt: string
 }
 
 export async function getSession(account: string, authToken: string): Promise<string> {
-  const response = await getTrpcClient().accounts.login.mutate({
+  const response = await getVaultTrpcClient().accounts.login.mutate({
     account,
     authToken,
   })
@@ -38,16 +38,8 @@ export async function getSession(account: string, authToken: string): Promise<st
   return response.session
 }
 
-export async function snoozeReminders(account: string, snoozeUntilDate?: string | null): Promise<void> {
-  const response = await getTrpcClient().accounts.snoozeReminders.mutate({
-    account,
-    snoozeUntilDate,
-  })
-  assertSuccess(response, 'snoozeReminders')
-}
-
 export async function getKeyring(account: string): Promise<string | undefined> {
-  const response = await getTrpcClient().accounts.getKeyring.query({ account })
+  const response = await getVaultTrpcClient().accounts.getKeyring.query({ account })
   assertSuccess(response, 'getKeyring')
   return response.keyring
 }
@@ -58,7 +50,7 @@ export async function updateKeyring(
   expectedKeyringVersion?: number,
   keyringVersion?: number,
 ): Promise<void> {
-  const response = await getTrpcClient().accounts.updateKeyring.mutate({
+  const response = await getVaultTrpcClient().accounts.updateKeyring.mutate({
     account,
     keyring,
     ...(typeof expectedKeyringVersion === 'number' ? { expectedKeyringVersion } : {}),
@@ -88,7 +80,7 @@ export async function changePassword({
   keyringVersion?: number,
   expectedKeyringVersion?: number,
 }): Promise<void> {
-  const response = await getTrpcClient().accounts.changePassword.mutate({
+  const response = await getVaultTrpcClient().accounts.changePassword.mutate({
     account,
     currentAuthToken,
     newAuthToken,
@@ -103,7 +95,7 @@ export async function changePassword({
 }
 
 export async function getMetadata(account: string): Promise<Record<string, unknown> | undefined> {
-  const response = await getTrpcClient().accounts.getMetadata.query({ account })
+  const response = await getVaultTrpcClient().accounts.getMetadata.query({ account })
   assertSuccess(response, 'getMetadata')
   return response.metadata
 }
@@ -112,7 +104,7 @@ export async function updateMetadata(
   account: string,
   metadata: Record<string, unknown>,
 ): Promise<void> {
-  const response = await getTrpcClient().accounts.updateMetadata.mutate({
+  const response = await getVaultTrpcClient().accounts.updateMetadata.mutate({
     account,
     metadata,
   })

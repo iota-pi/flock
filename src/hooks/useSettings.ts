@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { SyncBridge } from '../sync/client/SyncBridge'
+import { SyncBridge } from '../app/vault/syncBridge'
 
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
-  lockVault,
-  removeVaultFromDevice,
   enableBiometrics,
   disableBiometrics,
   hasBiometricData,
   subscribeBiometrics,
   isWebAuthnPrfSupported,
 } from '../api/vault'
+import { lockVault, removeVaultFromDevice } from '../app/vault/session'
 import { useMetadata } from '../state/selectors'
 import { useAppStore } from '../state/store'
 import type { Frequency } from '../utils/frequencies'

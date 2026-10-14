@@ -1,9 +1,5 @@
 import { router, protectedProcedure } from '../trpc'
-import {
-  FetchItemsInputSchema,
-  FetchSnapshotsByIdsInputSchema,
-  PutSnapshotBatchSchema,
-} from 'src/shared/schemas/trpc'
+import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema, PutSnapshotBatchSchema } from 'src/shared/vault/api'
 import {
   fetchManifest,
   fetchSnapshotsByIds,

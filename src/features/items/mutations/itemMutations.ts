@@ -1,10 +1,18 @@
 import { convertItem, getBlankItem, type Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
-import { ERROR_ITEM_TYPE, ITEM_TYPES, type ItemId, GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from 'src/shared/schemas/items'
+import {
+  ERROR_ITEM_TYPE,
+  ITEM_TYPES,
+  GroupItem,
+  groupItemSchema,
+  personItemSchema,
+  topicItemSchema,
+} from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { AccountMetadata } from 'src/state/metadata'
 import { useAppStore } from 'src/state/store'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'
-import { SyncBridge } from 'src/sync/client/SyncBridge'
+import { SyncBridge } from 'src/app/vault/syncBridge'
 
 
 const stripItemWriteSchema = personItemSchema.strip()

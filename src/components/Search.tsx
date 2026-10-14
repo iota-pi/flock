@@ -39,7 +39,8 @@ import {
   sortSearchables,
 } from './search/utils'
 import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
-import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/schemas/items'
+import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 
 function ThemedPaper({ children, ...props }: PaperProps) {

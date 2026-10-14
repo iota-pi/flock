@@ -1,4 +1,5 @@
 import { fireAndForget } from '../../utils/fireAndForget'
+import { getVaultStorageNames } from '../../shared/storageNames'
 
 export interface LeaderElectionCallbacks {
   onLeaderGranted: () => void
@@ -140,7 +141,7 @@ export class LeaderElection {
         this.leaderId = `leader-${Math.random().toString(36).slice(2, 10)}-${this.createdAt}`
       }
       if (!this.presenceChannel) {
-        this.presenceChannel = new BroadcastChannel(`flock-leader-presence-${this.accountId}`)
+        this.presenceChannel = new BroadcastChannel(`${getVaultStorageNames().accountPrefixes.leaderPresenceChannel}${this.accountId}`)
 
         this.presenceChannel.onmessage = (event: MessageEvent<PresenceMessage>) => {
           this.handlePresenceMessage(event.data)
@@ -309,7 +310,7 @@ export class LeaderElection {
       return
     }
 
-    const lockName = `flock-sync-leader-${this.accountId}`
+    const lockName = `${getVaultStorageNames().accountPrefixes.leaderLock}${this.accountId}`
     const abortController = new AbortController()
     this.abortController = abortController
 

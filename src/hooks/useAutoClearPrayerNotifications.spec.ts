@@ -20,7 +20,7 @@ vi.mock('../utils/pushNotifications', () => ({
   clearReminderNotifications: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../api/vault', () => ({
+vi.mock('../api/notificationClient', () => ({
   snoozeReminders: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -28,7 +28,7 @@ import { useLoggedIn, usePrayerScheduleInputs, useMetadata } from '../state/sele
 import { useToday } from './useToday'
 import { isPrayerCompletedForToday } from '../utils/prayer'
 import { clearReminderNotifications } from '../utils/pushNotifications'
-import { snoozeReminders } from '../api/vault'
+import { snoozeReminders } from '../api/notificationClient'
 
 describe('useAutoClearPrayerNotifications', () => {
   beforeEach(() => {

@@ -1,9 +1,6 @@
-import { getOnlineState } from 'src/utils/onlineStatus'
-import {
-  KEYRING_CACHE_KEY,
-  VAULT_EVENTS_CHANNEL,
-  type VaultBroadcastEvent,
-} from 'src/api/vault'
+import { getOnlineState } from 'src/sync/utils/onlineStatus'
+import type { VaultBroadcastEvent } from 'src/api/vault'
+import { getVaultStorageNames } from '../shared/storageNames'
 import { fireAndForget } from '../utils/fireAndForget'
 
 export interface SyncDOMListenersCallbacks {
@@ -47,7 +44,7 @@ export class SyncDOMListeners {
 
     if (!this.storageHandler && typeof window !== 'undefined') {
       this.storageHandler = (event: StorageEvent) => {
-        if (event.key === KEYRING_CACHE_KEY) {
+        if (event.key === getVaultStorageNames().keyringCacheKey) {
           this.callbacks?.onKeyringChange()
         }
       }
@@ -56,7 +53,7 @@ export class SyncDOMListeners {
 
     if (!this.vaultEventsChannel && typeof BroadcastChannel !== 'undefined') {
       try {
-        this.vaultEventsChannel = new BroadcastChannel(VAULT_EVENTS_CHANNEL)
+        this.vaultEventsChannel = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
         this.vaultEventsChannel.onmessage = (ev: MessageEvent<VaultBroadcastEvent>) => {
           if (ev.data?.type === 'KEY_ROTATED' || ev.data?.type === 'PASSWORD_CHANGED') {
             this.callbacks?.onKeyringChange()
