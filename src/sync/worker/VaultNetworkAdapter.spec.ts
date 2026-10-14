@@ -386,10 +386,12 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const decodedAck = decodeSyncMessage(receivedPayload)
     expect(decodedAck.heads).toEqual(testHeads)
     expect(decodedAck.need).toEqual([])
+    expect(decodedAck.have).toHaveLength(1)
+    expect(decodedAck.have[0].lastSync).toEqual(testHeads)
     expect(decodedAck.changes).toEqual([])
   })
 
-  it('requests document heads when document is not yet in sync or has offline edits', async () => {
+  it('declares an empty vault state when the document has no synced heads', async () => {
     const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
     const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
     const initialSyncMsg = encodeSyncMessage({
@@ -421,8 +423,77 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const receivedPayload = receiveMessageSpy.mock.calls[0][1] as Uint8Array
     const decodedAck = decodeSyncMessage(receivedPayload)
     expect(decodedAck.heads).toEqual([])
-    expect(decodedAck.need).toEqual(testHeads)
+    expect(decodedAck.need).toEqual([])
+    expect(decodedAck.have).toHaveLength(1)
+    expect(decodedAck.have[0].lastSync).toEqual([])
     expect(decodedAck.changes).toEqual([])
+  })
+
+  it('ignores synced heads that are unknown to the local document', async () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
+    const staleHeads = ['1111111111111111111111111111111111111111111111111111111111111111']
+    const validator = vi.fn(() => false)
+
+    adapter.setSendEnabled(true)
+    adapter.setAccount('test')
+    adapter.setHeadsValidator(validator)
+    adapter.loadSyncedHeads([['automerge:item-stale' as DocumentId, staleHeads]])
+    adapter.connect('vault' as PeerId)
+
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-stale' as DocumentId,
+      data: encodeSyncMessage({ heads: testHeads, need: [], have: [], changes: [] }),
+    })
+
+    await Promise.resolve()
+
+    expect(validator).toHaveBeenCalledWith('automerge:item-stale', staleHeads)
+    const decodedAck = decodeSyncMessage(receiveMessageSpy.mock.calls[0][1] as Uint8Array)
+    expect(decodedAck.heads).toEqual([])
+    expect(decodedAck.have[0].lastSync).toEqual([])
+  })
+
+  it('restates the vault state on server messages while preserving changes and heads', () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const syncedHeads = ['0000000000000000000000000000000000000000000000000000000000000000']
+    const foreignHeads = ['2222222222222222222222222222222222222222222222222222222222222222' as any]
+    const change = Automerge.getLastLocalChange(Automerge.from({ a: 1 }))!
+    adapter.loadSyncedHeads([['automerge:item-server' as DocumentId, syncedHeads]])
+    adapter.connect('vault' as PeerId)
+
+    adapter.receiveServerMessage(
+      'automerge:item-server' as DocumentId,
+      encodeSyncMessage({
+        heads: foreignHeads,
+        need: foreignHeads,
+        have: [{ lastSync: foreignHeads, bloom: new Uint8Array() }],
+        changes: [change],
+      }),
+    )
+
+    const delivered = decodeSyncMessage(receiveMessageSpy.mock.calls[0][1] as Uint8Array)
+    expect(delivered.heads).toEqual(foreignHeads)
+    expect(delivered.need).toEqual([])
+    expect(delivered.have).toHaveLength(1)
+    expect(delivered.have[0].lastSync).toEqual(syncedHeads)
+    expect(delivered.changes).toHaveLength(1)
+    expect(delivered.changes[0]).toEqual(change)
+  })
+
+  it('delivers undecodable server messages unchanged', () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    adapter.connect('vault' as PeerId)
+    const raw = new Uint8Array([1, 2, 3])
+
+    adapter.receiveServerMessage('automerge:item-raw' as DocumentId, raw)
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith('automerge:item-raw', raw)
+    warnSpy.mockRestore()
   })
 
   it('does not fire reflected ACK microtask after adapter is disconnected', async () => {

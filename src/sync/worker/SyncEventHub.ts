@@ -44,6 +44,7 @@ export type WorkerInternalEvent =
   | { type: 'itemMessageParsed'; itemId: ItemId }
   | { type: 'walAppendFailed'; itemId: ItemId; error: unknown }
   | { type: 'walEntriesPruned'; itemIds: ItemId[] }
+  | { type: 'snapshotFallbackRequested'; itemId: ItemId }
   | { type: 'messageParsed'; itemId: ItemId; documentId: DocumentId; message: Uint8Array }
   | { type: 'decryptionFailure'; itemId: ItemId; error: unknown }
   | { type: 'retryingStateChange'; isRetrying: boolean }
