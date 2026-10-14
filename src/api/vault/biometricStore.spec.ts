@@ -4,12 +4,12 @@ import {
   clearBiometricData,
   hasBiometricData,
   subscribeBiometrics,
-  BIOMETRIC_STORAGE_KEY,
 } from './biometricStore'
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
 
 describe('biometricStore', () => {
   beforeEach(() => {
-    localStorage.removeItem(BIOMETRIC_STORAGE_KEY)
+    localStorage.removeItem(getVaultStorageNames().biometricDataKey)
   })
 
   it('returns null when no biometric data is stored', () => {
@@ -49,7 +49,7 @@ describe('biometricStore', () => {
   })
 
   it('handles invalid JSON gracefully', () => {
-    localStorage.setItem(BIOMETRIC_STORAGE_KEY, 'invalid-json')
+    localStorage.setItem(getVaultStorageNames().biometricDataKey, 'invalid-json')
     expect(readBiometricData()).toBeNull()
     expect(hasBiometricData()).toBe(false)
   })

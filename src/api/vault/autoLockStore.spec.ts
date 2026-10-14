@@ -4,8 +4,8 @@ import {
   clearAutoLockSettings,
   getAutoLockSummary,
   DEFAULT_AUTO_LOCK_SETTINGS,
-  AUTO_LOCK_STORAGE_KEY,
 } from './autoLockStore'
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
 
 describe('autoLockStore', () => {
   beforeEach(() => {
@@ -33,12 +33,12 @@ describe('autoLockStore', () => {
   it('clears auto-lock settings', () => {
     writeAutoLockSettings({ mode: 'focus', inactivityMinutes: 5 })
     clearAutoLockSettings()
-    expect(localStorage.getItem(AUTO_LOCK_STORAGE_KEY)).toBeNull()
+    expect(localStorage.getItem(getVaultStorageNames().autoLockSettingsKey)).toBeNull()
     expect(readAutoLockSettings()).toEqual(DEFAULT_AUTO_LOCK_SETTINGS)
   })
 
   it('handles invalid JSON gracefully', () => {
-    localStorage.setItem(AUTO_LOCK_STORAGE_KEY, 'invalid-json')
+    localStorage.setItem(getVaultStorageNames().autoLockSettingsKey, 'invalid-json')
     expect(readAutoLockSettings()).toEqual(DEFAULT_AUTO_LOCK_SETTINGS)
   })
 })

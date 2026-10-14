@@ -9,7 +9,8 @@ import ItemList from '../../items/components/ItemList'
 import { sortItems } from 'src/utils/customSort'
 import Search from 'src/components/Search'
 import { useAppStore } from 'src/state/store'
-import type { GroupItem, ItemId, PersonItem, TopicItem } from 'src/shared/schemas/items'
+import type { GroupItem, PersonItem, TopicItem } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import { RemoveIcon } from 'src/components/Icons'
 
 

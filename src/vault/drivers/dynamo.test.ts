@@ -1,9 +1,8 @@
 import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
-import { generateItemId } from '../../utils'
+import type { VaultAccountWithAuth } from './base'
+import { generateItemId, type ItemId } from '../../shared/vault/ids'
 import { generateAccountId } from '../util'
-import type { ItemType } from 'src/shared/itemTypes'
-import { ItemId } from 'src/shared/schemas/items'
-import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
+import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from 'src/shared/vault/limits'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -14,7 +13,7 @@ describe('DynamoDriver', function () {
   it('set can create and update', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: ItemType = 'person'
+    const type = 'person'
     let cipher = 'hello'
     let iv = 'there'
     const modified = new Date().getTime()
@@ -30,7 +29,7 @@ describe('DynamoDriver', function () {
   it('set can create and update without version', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: ItemType = 'person'
+    const type = 'person'
     const modified = Date.now()
 
     await driver.set({ account, item, cipher: 'initial', metadata: { type, iv: 'iv-1', modified } })
@@ -45,7 +44,7 @@ describe('DynamoDriver', function () {
   it('set rejects oversized items', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: ItemType = 'person'
+    const type = 'person'
     const modified = new Date().getTime()
     const cipher = 'x'.repeat(360_000)
 
@@ -321,7 +320,7 @@ describe('DynamoDriver', function () {
 
   it('fetchManifest returns item and modifiedAt tuples without payload', async () => {
     const account = generateAccountId()
-    const type: ItemType = 'person'
+    const type = 'person'
     const cipher = 'test-cipher'
     const iv = 'test-iv'
     const modified = 1234567890
@@ -345,7 +344,7 @@ describe('DynamoDriver', function () {
 
   it('fetchByIds retrieves exact items in batches', async () => {
     const account = generateAccountId()
-    const type: ItemType = 'person'
+    const type = 'person'
     const cipher = 'targeted-cipher'
     const iv = 'targeted-iv'
 
@@ -368,7 +367,7 @@ describe('DynamoDriver', function () {
   it('stores small snapshot inline as binary and returns as base64', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: ItemType = 'person'
+    const type = 'person'
     const payload = Buffer.from('hello-binary-snapshot').toString('base64')
     const modified = Date.now()
 
@@ -392,7 +391,7 @@ describe('DynamoDriver', function () {
   it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: ItemType = 'person'
+    const type = 'person'
     const payload = Buffer.from('last-real-snapshot').toString('base64')
     const modified = Date.now()
 
@@ -422,7 +421,7 @@ describe('DynamoDriver', function () {
   it(`rejects snapshots exceeding ${MAX_ITEM_SIZE_KB}KB`, async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: ItemType = 'person'
+    const type = 'person'
     const largeBuffer = Buffer.alloc(MAX_ITEM_SIZE_BYTES + 10 * 1024, 0x41)
     const payload = largeBuffer.toString('base64')
     const modified = Date.now()
@@ -446,7 +445,8 @@ describe('DynamoDriver', function () {
     await expect(driver.updateAccountData({ account })).resolves.toBeUndefined()
   })
 
-  it('updateAccountData updates arbitrary fields including reminder settings and clears snooze with null', async () => {
+  it('updateAccountData updates app-specific fields and clears them with null', async () => {
+    type ExtraFields = { displayName?: string, pausedUntil?: string | null }
     const account = generateAccountId()
     await driver.createAccount({
       account,
@@ -456,28 +456,40 @@ describe('DynamoDriver', function () {
       iterations,
     })
 
-    await driver.updateAccountData({
+    await driver.updateAccountData<ExtraFields>({
       account,
-      reminderEnabled: true,
-      reminderTime: '09:30',
-      reminderTimezone: 'America/New_York',
-      snoozeRemindersUntil: '2026-10-01T00:00:00Z',
+      displayName: 'Test',
+      pausedUntil: '2026-10-01T00:00:00Z',
     })
 
-    let stored = await driver.getAccount({ account, session: authToken, isLogin: true })
-    expect(stored.reminderEnabled).toBe(true)
-    expect(stored.reminderTime).toBe('09:30')
-    expect(stored.reminderTimezone).toBe('America/New_York')
-    expect(stored.snoozeRemindersUntil).toBe('2026-10-01T00:00:00Z')
+    let stored = await driver.getAccount({ account, session: authToken, isLogin: true }) as VaultAccountWithAuth & ExtraFields
+    expect(stored.displayName).toBe('Test')
+    expect(stored.pausedUntil).toBe('2026-10-01T00:00:00Z')
 
-    // Now clear snooze with null
-    await driver.updateAccountData({
+    // Now clear the field with null
+    await driver.updateAccountData<ExtraFields>({
       account,
-      snoozeRemindersUntil: null,
+      pausedUntil: null,
     })
 
-    stored = await driver.getAccount({ account, session: authToken, isLogin: true })
-    expect(stored.snoozeRemindersUntil).toBeNull()
+    stored = await driver.getAccount({ account, session: authToken, isLogin: true }) as VaultAccountWithAuth & ExtraFields
+    expect(stored.pausedUntil).toBeNull()
+  })
+
+  it('createAccount writes the configured account defaults', async () => {
+    const driverWithDefaults = new DynamoDriver({ accountDefaults: { displayName: 'Default' } })
+    driverWithDefaults.connect(getConnectionParams())
+    const account = generateAccountId()
+    await driverWithDefaults.createAccount({
+      account,
+      authToken,
+      metadata: {},
+      salt,
+      iterations,
+    })
+
+    const stored = await driverWithDefaults.getAccount({ account, session: authToken, isLogin: true })
+    expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
   })
 
   describe('exclusiveStartKey validation', () => {

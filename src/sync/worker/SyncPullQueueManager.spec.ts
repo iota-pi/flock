@@ -5,7 +5,7 @@ import localforage from 'localforage'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import { CursorStore } from './stores/CursorStore'
 import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 
@@ -46,7 +46,7 @@ vi.mock('./realtimeBus', () => ({
 }))
 
 const mockReportQuotaExceeded = vi.fn()
-vi.mock('../../utils/storageManager', () => ({
+vi.mock('../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: any) => {
     try {
       return await op()

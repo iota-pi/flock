@@ -4,7 +4,7 @@ import {
   type DocumentId,
   stringifyAutomergeUrl,
 } from '@automerge/automerge-repo/slim'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import {
   readObjectSnapshot,
   toAutomergeUrlFromItemId,

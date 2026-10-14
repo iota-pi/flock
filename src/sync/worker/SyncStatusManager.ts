@@ -1,5 +1,5 @@
 import { ClientEventHub } from './SyncEventHub'
-import type { SyncStatus } from '../../state/slices/syncSlice'
+import type { SyncStatus } from '../shared/types'
 import type { PollOutcome } from './SyncPoller'
 
 export class SyncStatusManager {

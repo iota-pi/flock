@@ -5,10 +5,8 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
 import type { WebPushSubscription } from '../types'
-import {
-  ACCOUNT_TABLE_NAME,
-  getConnectionParams,
-} from '../drivers/dynamo'
+import { getConnectionParams } from '../drivers/dynamo'
+import { FLOCK_TABLES } from '../flockDriver'
 import { sendPushNotification } from './webpush'
 
 type ReminderMessage = {
@@ -29,7 +27,7 @@ const docClient = DynamoDBDocumentClient.from(ddb)
 
 export async function removeSubscription(accountId: string, endpoint: string) {
   const accountResponse = await docClient.send(new GetCommand({
-    TableName: ACCOUNT_TABLE_NAME,
+    TableName: FLOCK_TABLES.accounts,
     Key: { account: accountId },
     ProjectionExpression: 'account, pushSubscriptions',
   }))
@@ -39,7 +37,7 @@ export async function removeSubscription(accountId: string, endpoint: string) {
   const nextSubscriptions = currentSubscriptions.filter(sub => sub.endpoint !== endpoint)
 
   await docClient.send(new UpdateCommand({
-    TableName: ACCOUNT_TABLE_NAME,
+    TableName: FLOCK_TABLES.accounts,
     Key: { account: accountId },
     UpdateExpression: 'SET pushSubscriptions = :pushSubscriptions',
     ExpressionAttributeValues: {

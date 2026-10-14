@@ -1,8 +1,8 @@
 import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
 import { ClientEventHub } from './SyncEventHub'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import { toDocumentIdFromItemId } from './utils/automerge'
-import * as storageManager from '../../utils/storageManager'
+import * as storageManager from '../utils/storageManager'
 
 describe('StorageRecoveryService', () => {
   let clientEventHub: ClientEventHub

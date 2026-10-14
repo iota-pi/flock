@@ -1,5 +1,5 @@
 import localforage from 'localforage'
-import { runStorageOperation, type RunStorageOperationOptions } from '../../../utils/storageManager'
+import { runStorageOperation, type RunStorageOperationOptions } from '../../utils/storageManager'
 import {
   createAccountStore,
   clearAccountStore,
@@ -7,6 +7,7 @@ import {
   getAccountDatabaseName,
 } from '../../shared/createAccountStore'
 import { BaseLocalForageStore } from './BaseLocalForageStore'
+import { getVaultStorageNames } from '../../shared/storageNames'
 
 export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
 
@@ -18,12 +19,10 @@ export const SYNC_METADATA_KEYS = {
   MANUAL_RECOVERY_MIGRATED: 'manualRecoveryMigrated',
 } as const
 
-export const LEGACY_DB_NAMES = {
-  CURSORS: 'flock-sync-cursors',
-  INDEX_DOC: 'flock-item-metadata',
-  LAST_MODIFIED: 'flock-sync-last-modified',
-  SYNCED_HEADS: 'flock-sync-synced-heads',
-} as const
+/** Per-store databases from an older layout, if the app had one (see VaultStorageNames) */
+export function getLegacySyncDatabaseNames() {
+  return getVaultStorageNames().legacySyncDatabases
+}
 
 export const LEGACY_KEYS = {
   CURSORS: 'cursorByItemId',
@@ -174,13 +173,14 @@ export async function clearSyncMetadataStorage(accountId: string): Promise<void>
  * Cleans up legacy separate singleton IndexedDB databases for an account.
  */
 export async function clearLegacySyncDatabases(accountId: string): Promise<void> {
-  if (!accountId) return
+  const legacyNames = getLegacySyncDatabaseNames()
+  if (!accountId || !legacyNames) return
 
   const legacyStoreConfigs = [
-    { name: LEGACY_DB_NAMES.CURSORS, storeName: `cursors-${accountId}` },
-    { name: LEGACY_DB_NAMES.INDEX_DOC, storeName: `index-${accountId}` },
-    { name: LEGACY_DB_NAMES.LAST_MODIFIED, storeName: `last-modified-${accountId}` },
-    { name: LEGACY_DB_NAMES.SYNCED_HEADS, storeName: `synced-heads-${accountId}` },
+    { name: legacyNames.cursors, storeName: `cursors-${accountId}` },
+    { name: legacyNames.indexDoc, storeName: `index-${accountId}` },
+    { name: legacyNames.lastModified, storeName: `last-modified-${accountId}` },
+    { name: legacyNames.syncedHeads, storeName: `synced-heads-${accountId}` },
   ]
 
   await Promise.allSettled(

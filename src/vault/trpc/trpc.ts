@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type BaseDriver from '../drivers/base'
 import type { VaultAccountWithAuth } from '../drivers/base'
-import { AccountInputSchema } from '../../shared/schemas/trpc'
+import { AccountInputSchema } from '../../shared/vault/api'
 import { safeEqual } from '../util'
 
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -57,6 +57,7 @@ export function createContext({ req }: CreateFastifyContextOptions): TrpcContext
 const t = initTRPC.context<typeof createContext>().create()
 
 export const router = t.router
+export const mergeRouters = t.mergeRouters
 export const publicProcedure = t.procedure
 
 export const protectedProcedure = t.procedure

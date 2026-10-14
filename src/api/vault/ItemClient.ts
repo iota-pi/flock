@@ -1,15 +1,15 @@
-import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema, type ManifestEntry } from '../../shared/schemas/trpc'
+import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema, type ManifestEntry } from '../../shared/vault/api'
 import { assertSuccess } from './clientUtils'
 import type { VaultItem } from './clientTypes'
-import type { ItemId } from '../../shared/schemas/items'
-import { getTrpcClient } from '../trpcClient'
+import type { ItemId } from '../../shared/vault/ids'
+import { getVaultTrpcClient } from '../vaultTrpcClient'
 
 export async function fetchManifest(
   { account }: { account: string },
   options?: { signal?: AbortSignal }
 ): Promise<{ manifest: Array<ManifestEntry>; serverTime: number }> {
   const input = FetchItemsInputSchema.parse({ account })
-  const data = await getTrpcClient().items.fetchManifest.query(input, options?.signal ? { signal: options.signal } : undefined)
+  const data = await getVaultTrpcClient().items.fetchManifest.query(input, options?.signal ? { signal: options.signal } : undefined)
   assertSuccess(data, 'fetchManifest')
 
   const serverTime = typeof data.serverTime === 'number' ? data.serverTime : Date.now()
@@ -24,7 +24,7 @@ export async function fetchSnapshotsByIds(
   options?: { signal?: AbortSignal }
 ): Promise<{ items: VaultItem[]; serverTime: number }> {
   const input = FetchSnapshotsByIdsInputSchema.parse({ account, itemIds })
-  const data = await getTrpcClient().items.fetchSnapshotsByIds.query(input, options?.signal ? { signal: options.signal } : undefined)
+  const data = await getVaultTrpcClient().items.fetchSnapshotsByIds.query(input, options?.signal ? { signal: options.signal } : undefined)
   assertSuccess(data, 'fetchSnapshotsByIds')
 
   const serverTime = typeof data.serverTime === 'number' ? data.serverTime : Date.now()

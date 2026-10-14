@@ -3,9 +3,9 @@ import {
   createAutomergeSyncService,
   DEFAULT_PULL_BATCH_CONCURRENCY,
 } from './automergeSyncService'
-import { mapWithConcurrency } from '../../shared/concurrency'
+import { mapWithConcurrency } from '../../shared/vault/concurrency'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 describe('AutomergeSyncService', () => {
   const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z

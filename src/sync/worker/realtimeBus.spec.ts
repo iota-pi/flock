@@ -1,4 +1,4 @@
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 // Create the mock BroadcastChannel class
 class MockBroadcastChannel {

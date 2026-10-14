@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useDataRecovery } from './useDataRecovery'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 
 const mocks = vi.hoisted(() => ({
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   shutdown: vi.fn(),
 }))
 
-vi.mock('../sync/client/SyncBridge', () => ({
+vi.mock('../app/vault/syncBridge', () => ({
   SyncBridge: {
     dismissRecoveryItem: mocks.dismissRecoveryItem,
     retryRecoveryItem: mocks.retryRecoveryItem,

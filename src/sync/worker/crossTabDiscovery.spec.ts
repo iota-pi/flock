@@ -1,6 +1,6 @@
 import { toDocumentIdFromItemId } from './utils/automerge'
-import type { ItemId } from 'src/shared/schemas/items'
-import type { Item } from 'src/state/items'
+import type { ItemId } from 'src/shared/vault/ids'
+import type { VaultDoc } from 'src/sync/shared/types'
 import { ItemOperations } from './ItemOperations'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import type { Message, PeerId } from '@automerge/automerge-repo/slim'
@@ -79,7 +79,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
       markDocumentDirty: markDocumentDirtyMock,
     })
 
-    const newItem: Item = {
+    const newItem: VaultDoc = {
       id: 'offline-item-123' as ItemId,
       type: 'person',
       name: 'Offline Prayer',

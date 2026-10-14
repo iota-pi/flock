@@ -1,5 +1,5 @@
 import { SyncDOMListeners, type SyncDOMListenersCallbacks } from './SyncDOMListeners'
-import { KEYRING_CACHE_KEY, VAULT_EVENTS_CHANNEL } from 'src/api/vault'
+import { getVaultStorageNames } from '../shared/storageNames'
 
 describe('SyncDOMListeners', () => {
   let listeners: SyncDOMListeners
@@ -59,20 +59,20 @@ describe('SyncDOMListeners', () => {
     expect(callbacks.onVisibilityHidden).toHaveBeenCalledTimes(2)
   })
 
-  it('handles storage events matching KEYRING_CACHE_KEY', () => {
+  it('handles storage events for the keyring cache key', () => {
     listeners.start(callbacks)
 
     window.dispatchEvent(new StorageEvent('storage', { key: 'OTHER_KEY' }))
     expect(callbacks.onKeyringChange).not.toHaveBeenCalled()
 
-    window.dispatchEvent(new StorageEvent('storage', { key: KEYRING_CACHE_KEY }))
+    window.dispatchEvent(new StorageEvent('storage', { key: getVaultStorageNames().keyringCacheKey }))
     expect(callbacks.onKeyringChange).toHaveBeenCalledTimes(1)
   })
 
   it('handles BroadcastChannel vault events', async () => {
     listeners.start(callbacks)
 
-    const channel = new BroadcastChannel(VAULT_EVENTS_CHANNEL)
+    const channel = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
     channel.postMessage({ type: 'OTHER_EVENT' })
     expect(callbacks.onKeyringChange).not.toHaveBeenCalled()
 

@@ -1,22 +1,25 @@
 import * as Comlink from 'comlink'
-import * as Sentry from '@sentry/react'
 
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
-import type { SyncStatus } from 'src/state/slices/syncSlice'
+import type { SyncStatus } from 'src/sync/shared/types'
 import { exportKeyringData, getVaultSession } from 'src/api/vault'
 import {
   SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
-import { getOnlineState } from 'src/utils/onlineStatus'
+import { getOnlineState } from 'src/sync/utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import { createLogger } from '../utils/logger'
+import { noopTelemetry, type SyncTelemetry } from './host'
 
 const log = createLogger('WorkerLifecycleManager')
 
 export interface WorkerLifecycleCallbacks {
+  /** Creates the app's sync worker (whose entry file calls exposeSyncWorker) */
+  createWorker: () => Worker
+  telemetry?: SyncTelemetry
   onEvent: (event: ClientEvent) => void
   onReady?: () => void
   onRestart: (accountId: string) => Promise<void>
@@ -61,9 +64,17 @@ export class WorkerLifecycleManager {
 
   private _restartResolve: (() => void) | null = null
 
-  private readonly healthMonitor = new SyncWorkerHealthMonitor()
+  private readonly healthMonitor = new SyncWorkerHealthMonitor({
+    setSyncStatus: status => this.callbacks.onStatusChange(status),
+    setSyncWarning: message => this.callbacks.onSyncWarning?.(message),
+    setFatalError: message => this.callbacks.onFatalError?.(message),
+  })
 
   constructor(private callbacks: WorkerLifecycleCallbacks) {}
+
+  private get telemetry(): SyncTelemetry {
+    return this.callbacks.telemetry ?? noopTelemetry
+  }
 
   getHealthMonitor(): SyncWorkerHealthMonitor {
     return this.healthMonitor
@@ -196,13 +207,11 @@ export class WorkerLifecycleManager {
           return
         }
 
-        worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
+        worker = this.callbacks.createWorker()
         worker.addEventListener('error', (event: ErrorEvent) => {
           const error = event.error || new Error(event.message || 'Sync Worker Error')
           log.error('Worker error:', error)
-          Sentry.captureException(error, {
-            tags: { origin: 'sync-worker-host' },
-          })
+          this.telemetry.captureException(error, { origin: 'sync-worker-host' })
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
           }

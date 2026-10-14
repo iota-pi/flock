@@ -1,5 +1,5 @@
 import { parseBatchedMessages, DEFAULT_MAX_MESSAGE_SIZE } from './messageParser'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import { DocumentId } from '@automerge/automerge-repo/slim'
 
 describe('parseBatchedMessages', () => {

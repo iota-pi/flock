@@ -6,7 +6,8 @@ import {
   isPrayerCompletedForToday,
 } from './prayer'
 import type { Item } from '../state/items'
-import type { GroupItem, ItemId } from 'src/shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayedFor: number[] = []): Item {
   return {

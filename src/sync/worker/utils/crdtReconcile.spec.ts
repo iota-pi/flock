@@ -5,7 +5,9 @@ import {
   getElementKey,
   updateObjectInPlace,
 } from './crdtReconcile'
-import type { Note, ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
+
+type Note = { id: string; text: string; archived: boolean; time: number }
 
 describe('crdtReconcile', () => {
   describe('reconcileAutomergeList - primitive values', () => {

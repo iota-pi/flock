@@ -1,6 +1,6 @@
 import { persistSnapshots } from './snapshotService'
 import type { VaultDriver } from '../drivers/base'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 function createMockVault(): VaultDriver {
   return {

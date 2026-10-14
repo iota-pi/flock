@@ -1,8 +1,8 @@
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import {
   ScopedMetadataStore,
   SYNC_METADATA_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
   LEGACY_KEYS,
 } from './syncMetadataStorage'
 
@@ -42,7 +42,7 @@ export class CursorStore extends ScopedMetadataStore<PersistedSyncCursors> {
     super(accountIdOrStore, {
       metadataKey: SYNC_METADATA_KEYS.CURSORS,
       legacyKey: LEGACY_KEYS.CURSORS,
-      legacyDbName: LEGACY_DB_NAMES.CURSORS,
+      legacyDbName: getLegacySyncDatabaseNames()?.cursors,
       legacyStorePrefix: 'cursors',
       storeLabel: 'CursorStore',
       normalize: (raw: unknown): PersistedSyncCursors | null => {

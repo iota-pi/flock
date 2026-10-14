@@ -3,7 +3,8 @@ import { DynamoDBDocumentClient, ScanCommand, ScanCommandOutput, UpdateCommand }
 
 import { createHash } from 'crypto'
 import { VaultItem } from '../drivers/base'
-import { ACCOUNT_TABLE_NAME, getConnectionParams, ITEM_TABLE_NAME } from '../drivers/dynamo'
+import { getConnectionParams } from '../drivers/dynamo'
+import { FLOCK_TABLES } from '../flockDriver'
 
 const ddb = new DynamoDBClient(getConnectionParams())
 const client = DynamoDBDocumentClient.from(ddb)
@@ -11,14 +12,14 @@ const client = DynamoDBDocumentClient.from(ddb)
 const migrations: { [name: string]: () => Promise<void> } = {
   async backupAuthToken () {
     const results = await client.send(new ScanCommand({
-      TableName: ACCOUNT_TABLE_NAME,
+      TableName: FLOCK_TABLES.accounts,
       AttributesToGet: ['account', 'authToken'],
     }))
     const items = results.Items as { account: string, authToken: string }[] | undefined
     if (items) {
       for (const { account, authToken } of items) {
         await client.send(new UpdateCommand({
-          TableName: ACCOUNT_TABLE_NAME,
+          TableName: FLOCK_TABLES.accounts,
           Key: { account },
           UpdateExpression: 'SET rawAuthToken = :token',
           ExpressionAttributeValues: {
@@ -31,7 +32,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
   },
   async hashAuthToken () {
     const results = await client.send(new ScanCommand({
-      TableName: ACCOUNT_TABLE_NAME,
+      TableName: FLOCK_TABLES.accounts,
       AttributesToGet: ['account', 'authToken'],
     }))
     const items = results.Items as { account: string, authToken: string }[] | undefined
@@ -40,7 +41,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
         const hash = createHash('sha512')
         hash.update(Buffer.from(authToken, 'utf8'))
         await client.send(new UpdateCommand({
-          TableName: ACCOUNT_TABLE_NAME,
+          TableName: FLOCK_TABLES.accounts,
           Key: { account },
           UpdateExpression: 'SET hashAuthToken = :token',
           ExpressionAttributeValues: {
@@ -53,14 +54,14 @@ const migrations: { [name: string]: () => Promise<void> } = {
   },
   async installHashAuthToken () {
     const results = await client.send(new ScanCommand({
-      TableName: ACCOUNT_TABLE_NAME,
+      TableName: FLOCK_TABLES.accounts,
       AttributesToGet: ['account'],
     }))
     const items = results.Items as { account: string, authToken: string }[] | undefined
     if (items) {
       for (const { account } of items) {
         await client.send(new UpdateCommand({
-          TableName: ACCOUNT_TABLE_NAME,
+          TableName: FLOCK_TABLES.accounts,
           Key: { account },
           UpdateExpression: 'SET authToken = hashAuthToken',
         }))
@@ -70,14 +71,14 @@ const migrations: { [name: string]: () => Promise<void> } = {
   },
   async cleanUpAuthToken () {
     const results = await client.send(new ScanCommand({
-      TableName: ACCOUNT_TABLE_NAME,
+      TableName: FLOCK_TABLES.accounts,
       AttributesToGet: ['account'],
     }))
     const items = results.Items as { account: string }[] | undefined
     if (items) {
       for (const { account } of items) {
         await client.send(new UpdateCommand({
-          TableName: ACCOUNT_TABLE_NAME,
+          TableName: FLOCK_TABLES.accounts,
           Key: { account },
           UpdateExpression: 'REMOVE rawAuthToken, hashAuthToken',
         }))
@@ -90,7 +91,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
     const items: VaultItem[] = []
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     while (items.length < maxItems) {
-      const response = await client.send(new ScanCommand({ TableName: ITEM_TABLE_NAME }))
+      const response = await client.send(new ScanCommand({ TableName: FLOCK_TABLES.items }))
       if (response?.Items) {
         items.push(...response?.Items as VaultItem[])
       }
@@ -104,7 +105,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
     for (const item of items) {
       if (!item.metadata.modified) {
         await client.send(new UpdateCommand({
-          TableName: ITEM_TABLE_NAME,
+          TableName: FLOCK_TABLES.items,
           Key: { account: item.account, item: item.item },
           UpdateExpression: 'SET metadata.modified = :modified',
           ExpressionAttributeValues: {
@@ -121,7 +122,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
     const items: VaultItem[] = []
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     while (items.length < maxItems) {
-      const response = await client.send(new ScanCommand({ TableName: ITEM_TABLE_NAME }))
+      const response = await client.send(new ScanCommand({ TableName: FLOCK_TABLES.items }))
       if (response?.Items) {
         items.push(...response?.Items as VaultItem[])
       }
@@ -134,7 +135,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
     for (const item of items) {
       if ((item.metadata.type as string) === 'general') {
         await client.send(new UpdateCommand({
-          TableName: ITEM_TABLE_NAME,
+          TableName: FLOCK_TABLES.items,
           Key: { account: item.account, item: item.item },
           UpdateExpression: 'SET metadata.type = :type',
           ExpressionAttributeValues: {
@@ -147,12 +148,11 @@ const migrations: { [name: string]: () => Promise<void> } = {
     console.info(`Updated ${updated} items`)
   },
   async backfillSyncMessageAccounts () {
-    const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     let updated = 0
     do {
       const response = await client.send(new ScanCommand({
-        TableName: SYNC_MESSAGES_TABLE_NAME,
+        TableName: FLOCK_TABLES.syncMessages,
         ExclusiveStartKey: lastEvaluatedKey,
       }))
       
@@ -163,7 +163,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
           const accountId = item.syncId.split('#')[0]
           if (accountId) {
             await client.send(new UpdateCommand({
-              TableName: SYNC_MESSAGES_TABLE_NAME,
+              TableName: FLOCK_TABLES.syncMessages,
               Key: { syncId: item.syncId, cursor: item.cursor },
               UpdateExpression: 'SET account = :account',
               ExpressionAttributeValues: {

@@ -8,12 +8,12 @@ import {
   type PollSyncBatchResponse,
 } from '../../api/vault/SyncWorkerClient'
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
-import { getTrpcClient } from 'src/api/trpcClient'
-import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
-import type { ItemId } from 'src/shared/schemas/items'
+import { getVaultTrpcClient } from 'src/api/vaultTrpcClient'
+import type { VaultSnapshotInput } from 'src/shared/vault/snapshots'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { VaultItem } from '../../api/vault/clientTypes'
-import type { AccountMetadata } from '../../state/metadata'
-import type { ManifestEntry, SyncPollBatchSchema, PutSnapshotResultItem } from 'src/shared/schemas/trpc'
+import type { VaultMetadata } from '../shared/types'
+import type { ManifestEntry, SyncPollBatchSchema, PutSnapshotResultItem } from 'src/shared/vault/api'
 
 function safeSetApiAuthToken(token: string) {
   try {
@@ -304,9 +304,9 @@ export class SyncApiClient {
 
   async getAccountMetadata(input: {
     account: string
-  }): Promise<AccountMetadata | null> {
+  }): Promise<VaultMetadata | null> {
     return this.executeWithAuth(async () => {
-      const response = await getTrpcClient().accounts.getMetadata.query({
+      const response = await getVaultTrpcClient().accounts.getMetadata.query({
         account: input.account,
       })
       if (
@@ -315,7 +315,7 @@ export class SyncApiClient {
         typeof response.metadata === 'object' &&
         !Array.isArray(response.metadata)
       ) {
-        return response.metadata as AccountMetadata
+        return response.metadata as VaultMetadata
       }
       return null
     })
@@ -323,10 +323,10 @@ export class SyncApiClient {
 
   async updateAccountMetadata(input: {
     account: string
-    metadata: AccountMetadata
+    metadata: VaultMetadata
   }): Promise<void> {
     return this.executeWithAuth(async () => {
-      await getTrpcClient().accounts.updateMetadata.mutate({
+      await getVaultTrpcClient().accounts.updateMetadata.mutate({
         account: input.account,
         metadata: input.metadata,
       })

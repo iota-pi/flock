@@ -1,5 +1,5 @@
-import { ItemId } from 'src/shared/schemas/items'
-import { MAX_ITEM_SIZE_KB } from 'src/shared/constants/limits'
+import { ItemId } from 'src/shared/vault/ids'
+import { MAX_ITEM_SIZE_KB } from 'src/shared/vault/limits'
 import { SnapshotManager } from './SnapshotManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getActiveSessionToken } from '../shared/workerAuthStore'

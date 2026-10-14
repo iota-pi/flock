@@ -1,15 +1,11 @@
 import { nanoid } from 'nanoid'
 import { useEffect, useRef } from 'react'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 export const APP_NAME = 'Flock'
 
 export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | undefined> {
   return x !== undefined && x !== null
-}
-
-export function generateItemId() {
-  return nanoid() as ItemId
 }
 
 export function generateNoteId() {

@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
-import type { ItemId } from 'src/shared/schemas/items'
-import { runStorageOperation } from '../../utils/storageManager'
+import type { ItemId } from 'src/shared/vault/ids'
+import { runStorageOperation } from '../utils/storageManager'
 import { packBatchedMessages } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'

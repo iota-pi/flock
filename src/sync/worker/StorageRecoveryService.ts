@@ -1,11 +1,11 @@
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import { toDocumentIdFromItemId } from './utils/automerge'
-import { isQuotaError } from '../../utils/storageQuota'
+import { isQuotaError } from '../utils/storageQuota'
 import {
   resetQuotaExceededStatus,
   registerQuotaRecoveryHandler,
   registerQuotaReporter,
-} from '../../utils/storageManager'
+} from '../utils/storageManager'
 import type { ClientEventHub } from './SyncEventHub'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { AutomergeDocStore } from './docStore'
@@ -118,7 +118,7 @@ export class StorageRecoveryService implements LifecycleAware {
     const message =
       typeof errorOrMessage === 'string'
         ? errorOrMessage
-        : 'Storage quota exceeded. Flock cannot save changes or synchronize, risking data loss. Please free up space and check your connection to sync.'
+        : 'Storage quota exceeded. Changes cannot be saved or synchronized, risking data loss. Please free up space and check your connection to sync.'
 
     this.deps.clientEventHub.emit({
       type: 'quotaExceeded',

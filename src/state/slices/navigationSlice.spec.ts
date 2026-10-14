@@ -1,5 +1,5 @@
 import { useAppStore } from 'src/state/store'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 describe('navigationSlice (drawer & selection behavior)', () => {
   beforeEach(() => {

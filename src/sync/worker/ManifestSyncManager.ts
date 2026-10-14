@@ -1,18 +1,16 @@
-import type { Item } from '../../state/items'
-import type { AccountMetadata } from '../../state/metadata'
+import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { MetadataSyncAdapter } from './domain'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { RecoveryManager } from './RecoveryManager'
-import { reconcileAccountMetadata } from './utils/metadataSync'
-import { extractSyncableMetadata } from '../../shared/schemas/metadata'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { isAuthError } from './utils/errorClassifier'
-import type { ManifestEntry } from 'src/shared/schemas/trpc'
+import type { ManifestEntry } from 'src/shared/vault/api'
 import {
   ManifestDeltaCalculator,
   type SyncDeltas,
@@ -37,10 +35,12 @@ export interface ManifestSyncManagerDeps {
   recoveryManager?: RecoveryManager
   apiClient?: SyncApiClient
   onKeyVersionMissing?: (kver: string) => void
-  storeItems: (items: Item[], options?: StoreItemsOptions) => Promise<void>
-  mutateMetadata: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>
+  storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
+  mutateMetadata: (changes: Partial<VaultMetadata>, options?: { pushRemote?: boolean }) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
+  /** Without an adapter, account metadata is not synced with the server */
+  metadataSync?: MetadataSyncAdapter
 }
 
 export type ManifestSyncManagerLegacyDeps = Omit<
@@ -67,8 +67,8 @@ export class ManifestSyncManager implements LifecycleAware {
 
   constructor(
     deps: ManifestSyncManagerDeps | ManifestSyncManagerLegacyDeps,
-    storeItems?: (items: Item[], options?: StoreItemsOptions) => Promise<void>,
-    mutateMetadata?: (changes: Partial<AccountMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
+    storeItems?: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>,
+    mutateMetadata?: (changes: Partial<VaultMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
     onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
     onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {
@@ -402,9 +402,10 @@ export class ManifestSyncManager implements LifecycleAware {
   }
 
   private async syncMetadata() {
-    if (!this.deps.accountId) return
+    const metadataSync = this.deps.metadataSync
+    if (!this.deps.accountId || !metadataSync) return
 
-    let remoteMetadata: AccountMetadata | null
+    let remoteMetadata: VaultMetadata | null
     try {
       remoteMetadata = await this.apiClient.getAccountMetadata({
         account: this.deps.accountId,
@@ -416,7 +417,7 @@ export class ManifestSyncManager implements LifecycleAware {
 
     try {
       const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
-      const { merged, needsRemotePush, hasLocalChanges } = reconcileAccountMetadata(
+      const { merged, needsRemotePush, hasLocalChanges } = metadataSync.reconcile(
         localMetadata,
         remoteMetadata || undefined,
       )
@@ -426,7 +427,7 @@ export class ManifestSyncManager implements LifecycleAware {
       }
 
       if (needsRemotePush) {
-        const syncablePayload = extractSyncableMetadata(merged)
+        const syncablePayload = metadataSync.extractSyncable(merged)
         await this.apiClient.updateAccountMetadata({
           account: this.deps.accountId,
           metadata: syncablePayload,

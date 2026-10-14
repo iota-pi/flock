@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { readAutoLockSettings } from '../api/vault/autoLockStore'
-import { lockVault } from '../api/vault'
+import { lockVault } from '../app/vault/session'
 import { useLoggedIn } from '../state/selectors'
 
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'touchstart', 'scroll'] as const

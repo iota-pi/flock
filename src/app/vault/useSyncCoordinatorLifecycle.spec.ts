@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react'
 import useSyncCoordinatorLifecycle from './useSyncCoordinatorLifecycle'
-import { SyncBridge } from './SyncBridge'
+import { SyncBridge } from './syncBridge'
 import { useAppStore } from 'src/state/store'
 import { resumePendingReencryption } from 'src/api/vault/reencrypt'
 
@@ -56,7 +56,7 @@ describe('useSyncCoordinatorLifecycle', () => {
     renderHook(() => useSyncCoordinatorLifecycle('test-acc-3', true))
 
     await vi.waitFor(() => {
-      expect(resumePendingReencryption).toHaveBeenCalledWith('test-acc-3')
+      expect(resumePendingReencryption).toHaveBeenCalledWith(SyncBridge, 'test-acc-3')
     })
   })
 

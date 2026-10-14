@@ -2,7 +2,7 @@ import {
   hasSyncableChanges,
   reconcileAccountMetadata,
 } from './metadataSync'
-import type { AccountMetadata } from '../../../state/metadata'
+import type { AccountMetadata } from '../../state/metadata'
 
 describe('metadataSync', () => {
   describe('hasSyncableChanges', () => {

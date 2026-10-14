@@ -1,3 +1,5 @@
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
+
 function bufferToBase64(buf: ArrayBuffer): string {
   return new Uint8Array(buf).toBase64()
 }
@@ -51,7 +53,7 @@ export async function registerPrfCredential(account: string): Promise<RegisterPr
     publicKey: {
       challenge,
       rp: {
-        name: 'Flock',
+        name: getVaultStorageNames().webAuthnRpName,
         id: window.location.hostname,
       },
       user: {

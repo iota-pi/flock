@@ -3,8 +3,8 @@ import { AutomergeDocStore } from './AutomergeDocStore'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID, BackupDocId } from '../utils/automerge'
-import type { Item } from '../../../state/items'
-import type { ItemId } from '../../../shared/schemas/items'
+import type { VaultDoc } from '../../shared/types'
+import type { ItemId } from '../../../shared/vault/ids'
 
 const testRepo = new Repo()
 
@@ -24,7 +24,7 @@ describe('backup operations', () => {
   })
 
   it('should export all binaries and restore them successfully', async () => {
-    const item: Item = {
+    const item: VaultDoc = {
       id: 'test-item-backup' as ItemId,
       type: 'person',
       name: 'Backup Prayer',

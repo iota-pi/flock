@@ -1,5 +1,3 @@
-import type { Item } from 'src/state/items'
-
 export type AutomergeListItem = { id?: string; [key: string]: unknown }
 
 /**
@@ -195,12 +193,12 @@ export function reconcileAutomergeList<T = unknown>(
 
 /**
  * Applies updates to an Automerge document draft in place.
- * Ensures array fields (notes, members, prayedFor) are reconciled in place
+ * Ensures array fields are reconciled in place
  * on existing Automerge list proxies rather than replaced with new objects.
  */
 export function applyItemUpdatesToDraft(
   draft: Record<string, unknown>,
-  updates: Partial<Item>,
+  updates: Record<string, unknown>,
 ): void {
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined) {

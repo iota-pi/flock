@@ -58,14 +58,11 @@ class MockWorker {
 }
 
 describe('WorkerLifecycleManager', () => {
-  let originalWorker: any
   let callbacks: WorkerLifecycleCallbacks
   let manager: WorkerLifecycleManager
   let clearAccountLocalDataSpy: any
 
   beforeEach(() => {
-    originalWorker = globalThis.Worker
-    globalThis.Worker = MockWorker as any
     vi.clearAllMocks()
 
     mockSyncApi.setOnlineState.mockResolvedValue(undefined)
@@ -76,6 +73,7 @@ describe('WorkerLifecycleManager', () => {
     clearAccountLocalDataSpy = vi.spyOn(localDataCleanup, 'clearAccountLocalData').mockResolvedValue(undefined)
 
     callbacks = {
+      createWorker: () => new MockWorker('vault.worker.js', { type: 'module' }) as unknown as Worker,
       onEvent: vi.fn(),
       onReady: vi.fn(),
       onRestart: vi.fn().mockResolvedValue(undefined),
@@ -90,7 +88,6 @@ describe('WorkerLifecycleManager', () => {
   })
 
   afterEach(async () => {
-    globalThis.Worker = originalWorker
     await manager.shutdown()
     vi.restoreAllMocks()
   })

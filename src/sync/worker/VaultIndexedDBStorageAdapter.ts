@@ -1,6 +1,6 @@
 import { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge-repo/slim'
 
-export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
+export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
   private db: IDBDatabase | null = null
   private dbPromise: Promise<IDBDatabase> | null = null
   private isExplicitlyClosed = false
@@ -51,7 +51,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
 
   private handleVersionChange(db: IDBDatabase): void {
     console.warn(
-      `[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection to yield to upgrade/deletion.`
+      `[VaultIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection to yield to upgrade/deletion.`
     )
 
     if (this.db === db) {
@@ -62,7 +62,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
     try {
       db.close()
     } catch (err) {
-      console.warn(`[FlockIndexedDBStorageAdapter] Error closing db on versionchange:`, err)
+      console.warn(`[VaultIndexedDBStorageAdapter] Error closing db on versionchange:`, err)
     }
   }
 
@@ -72,7 +72,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
     }
 
     console.warn(
-      `[FlockIndexedDBStorageAdapter] Database connection unexpectedly closed for ${this.databaseName}.`
+      `[VaultIndexedDBStorageAdapter] Database connection unexpectedly closed for ${this.databaseName}.`
     )
 
     if (this.db === db) {
@@ -177,7 +177,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
 
           if (isInvalidState && !this.isExplicitlyClosed && !this.isClosing && attempt < MAX_RETRIES) {
             console.warn(
-              `[FlockIndexedDBStorageAdapter] Transaction creation failed on closing/closed connection for ${this.databaseName}. Reconnecting... (attempt ${attempt + 1})`,
+              `[VaultIndexedDBStorageAdapter] Transaction creation failed on closing/closed connection for ${this.databaseName}. Reconnecting... (attempt ${attempt + 1})`,
               err
             )
             if (this.db === db) {

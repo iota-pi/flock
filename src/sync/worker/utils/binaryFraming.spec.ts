@@ -1,6 +1,6 @@
 import { packBatchedMessages } from './binaryFraming'
 import { parseBatchedMessages } from './messageParser'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
 describe('binaryFraming', () => {

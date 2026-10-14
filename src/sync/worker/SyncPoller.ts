@@ -2,7 +2,7 @@ import { chunk } from 'lodash-es'
 
 import { encryptBytes } from '../../api/vault'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore'
 import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'

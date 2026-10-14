@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CryptoResultSchema } from 'src/shared/schemas/crypto'
+import { CryptoResultSchema } from 'src/shared/vault/crypto'
 import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 
 

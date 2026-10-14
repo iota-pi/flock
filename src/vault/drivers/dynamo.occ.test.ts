@@ -1,9 +1,8 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
-import DynamoDriver, { ACCOUNT_TABLE_NAME, getConnectionParams } from './dynamo'
-import { generateItemId } from '../../utils'
+import DynamoDriver, { getConnectionParams } from './dynamo'
+import { generateItemId } from '../../shared/vault/ids'
 import { generateAccountId } from '../util'
-import type { ItemType } from 'src/shared/itemTypes'
-import { VersionConflictError } from '../../shared/syncErrors'
+import { VersionConflictError } from '../../shared/vault/syncErrors'
 
 const driver = new DynamoDriver()
 
@@ -20,7 +19,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     it('succeeds on first write to new item and sets version to 1', async () => {
       const account = uniqueAccountId()
       const item = generateItemId()
-      const type: ItemType = 'person'
+      const type = 'person'
       const cipher = 'first-write'
       const iv = 'iv-1'
       const modified = Date.now()
@@ -36,7 +35,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     it('succeeds on second write when expected version matches and increments version to 2', async () => {
       const account = uniqueAccountId()
       const item = generateItemId()
-      const type: ItemType = 'person'
+      const type = 'person'
       const modified = Date.now()
 
       await driver.set({ account, item, cipher: 'v1', metadata: { type, iv: 'iv-1', modified } })
@@ -56,7 +55,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     it('throws VersionConflictError when writing with a stale version', async () => {
       const account = uniqueAccountId()
       const item = generateItemId()
-      const type: ItemType = 'person'
+      const type = 'person'
       const modified = Date.now()
 
       // Create v1
@@ -80,7 +79,7 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
     it('allows updating an already existing item when writing without version', async () => {
       const account = uniqueAccountId()
       const item = generateItemId()
-      const type: ItemType = 'person'
+      const type = 'person'
       const modified = Date.now()
 
       await driver.set({ account, item, cipher: 'v1', metadata: { type, iv: 'iv-1', modified } })
@@ -229,11 +228,11 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       const originalSend = driver.client.send.bind(driver.client)
       const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
         const res = await originalSend(command as never)
-        if (!intercepted && command instanceof GetCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === driver.tables.accounts) {
           intercepted = true
           // Simulate a concurrent login adding sessionB right after extendSession reads the old sessions list
           await originalSend(new UpdateCommand({
-            TableName: ACCOUNT_TABLE_NAME,
+            TableName: driver.tables.accounts,
             Key: { account },
             UpdateExpression: 'SET sessions = :sessions',
             ExpressionAttributeValues: {
@@ -290,11 +289,11 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       const originalSend = driver.client.send.bind(driver.client)
       const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
         const res = await originalSend(command as never)
-        if (!intercepted && command instanceof GetCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === driver.tables.accounts) {
           intercepted = true
           // Simulate concurrent changePassword revoking sessionA and keeping only sessionB
           await originalSend(new UpdateCommand({
-            TableName: ACCOUNT_TABLE_NAME,
+            TableName: driver.tables.accounts,
             Key: { account },
             UpdateExpression: 'SET sessions = :sessions',
             ExpressionAttributeValues: {
@@ -345,15 +344,15 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       let updateCalls = 0
       const originalSend = driver.client.send.bind(driver.client)
       const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
-        if (command instanceof UpdateCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+        if (command instanceof UpdateCommand && command.input.TableName === driver.tables.accounts) {
           updateCalls += 1
         }
         const res = await originalSend(command as never)
-        if (!intercepted && command instanceof GetCommand && command.input.TableName === ACCOUNT_TABLE_NAME) {
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === driver.tables.accounts) {
           intercepted = true
           // Simulate another concurrent request for sessionA extending it first
           await originalSend(new UpdateCommand({
-            TableName: ACCOUNT_TABLE_NAME,
+            TableName: driver.tables.accounts,
             Key: { account },
             UpdateExpression: 'SET sessions = :sessions',
             ExpressionAttributeValues: {

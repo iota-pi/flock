@@ -2,10 +2,10 @@ import { LastModifiedStore, type ItemSyncTimestamps } from './LastModifiedStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
   LEGACY_KEYS,
 } from './syncMetadataStorage'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 import {
   createMockLocalForage,
@@ -23,9 +23,11 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../../utils/storageManager', () => ({
+vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
+
+const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('LastModifiedStore', () => {
   let store: LastModifiedStore
@@ -132,11 +134,11 @@ describe('LastModifiedStore', () => {
   it('migrates legacy database flock-sync-last-modified', async () => {
     const originalIndexedDb = (globalThis as any).indexedDB
     ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: LEGACY_DB_NAMES.LAST_MODIFIED }]),
+      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.lastModified }]),
     }
     try {
-      const legacyStoreKey = `${LEGACY_DB_NAMES.LAST_MODIFIED}#last-modified-${accountId}`
-      const legacyStore = createMockLocalForage({ name: LEGACY_DB_NAMES.LAST_MODIFIED, storeName: `last-modified-${accountId}` })
+      const legacyStoreKey = `${legacyDbNames.lastModified}#last-modified-${accountId}`
+      const legacyStore = createMockLocalForage({ name: legacyDbNames.lastModified, storeName: `last-modified-${accountId}` })
       await legacyStore.setItem(LEGACY_KEYS.LAST_MODIFIED, [
         ['item-from-old-db', 8888],
       ])

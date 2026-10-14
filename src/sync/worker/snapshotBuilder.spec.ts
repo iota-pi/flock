@@ -1,7 +1,10 @@
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import { buildSnapshot, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
 import { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/vault'
+import { passthroughCodec, type DocCodec } from './domain'
+
+const kindFromTypeCodec: DocCodec = { ...passthroughCodec, snapshotKind: doc => String(doc.type) }
 
 const mockEncryptBytes = vi.fn()
 const mockNormalizeItemSnapshot = vi.fn()
@@ -60,7 +63,7 @@ describe('buildSnapshot helper function', () => {
   })
 
   it('builds a snapshot successfully under normal conditions', async () => {
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, { codec: kindFromTypeCodec })
 
     expect(result).toEqual({
       type: 'success',
@@ -79,7 +82,13 @@ describe('buildSnapshot helper function', () => {
     expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', undefined)
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]))
-    expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' })
+    expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, kindFromTypeCodec)
+  })
+
+  it('uses the passthrough codec kind when no codec is given', async () => {
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+
+    expect(result).toMatchObject({ type: 'success', snapshot: { type: 'doc' } })
   })
 
   it('forwards abort signal to repo.find when provided in options', async () => {

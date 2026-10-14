@@ -2,10 +2,11 @@ import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from 
 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { runStorageOperation } from '../../utils/storageManager'
-import { isQuotaError } from '../../utils/storageQuota'
-import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
+import { runStorageOperation } from '../utils/storageManager'
+import { isQuotaError } from '../utils/storageQuota'
+import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { getVaultStorageNames } from '../shared/storageNames'
 
 export interface AutomergeStorageAdapter extends StorageAdapterInterface {
   has(key: string[]): Promise<boolean>
@@ -50,7 +51,7 @@ class QuotaHandlingStorageAdapter implements AutomergeStorageAdapter {
 }
 
 export function getAutomergeDBName(accountId: string): string {
-  return `flock-automerge-db-${accountId}`
+  return `${getVaultStorageNames().accountPrefixes.automergeDatabase}${accountId}`
 }
 
 export interface AutomergeRepoManagerOptions {
@@ -62,7 +63,7 @@ export interface AutomergeRepoManagerOptions {
 export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: boolean }> {
   readonly lifecycleName = 'RepoManager'
   private repo: Repo | null = null
-  private indexedDbAdapter: FlockIndexedDBStorageAdapter | null = null
+  private indexedDbAdapter: VaultIndexedDBStorageAdapter | null = null
   private quotaAdapter: QuotaHandlingStorageAdapter | null = null
   private broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter | null = null
 
@@ -78,11 +79,11 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     }
 
     const dbName = getAutomergeDBName(this.accountId)
-    this.indexedDbAdapter = new FlockIndexedDBStorageAdapter(dbName)
+    this.indexedDbAdapter = new VaultIndexedDBStorageAdapter(dbName)
     this.quotaAdapter = new QuotaHandlingStorageAdapter(this.indexedDbAdapter, options?.onQuotaError)
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
-      channelName: `flock-automerge-broadcast-${this.accountId}`,
+      channelName: `${getVaultStorageNames().accountPrefixes.automergeBroadcastChannel}${this.accountId}`,
       accountId: this.accountId,
       onKeyVersionMissing: options?.onKeyVersionMissing,
       onDocumentReceived: options?.onDocumentReceived,

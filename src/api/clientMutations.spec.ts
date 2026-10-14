@@ -1,10 +1,10 @@
 import { getBlankGroup, getBlankItem, getBlankPerson, type Item } from '../state/items'
 import { convertItemType, createItem, deleteItems, mutateItem, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
-import { SyncBridge } from '../sync/client/SyncBridge'
+import { SyncBridge } from '../app/vault/syncBridge'
 import { setApiAuthToken } from './runtime'
 import { useAppStore } from '../state/store'
 import type { AccountMetadata } from '../state/metadata'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 
 const metadataState: Partial<AccountMetadata> = {}
 
@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
 }))
 
-vi.mock('../sync/client/SyncBridge', () => ({
+vi.mock('../app/vault/syncBridge', () => ({
   SyncBridge: {
     mutateItem: vi.fn(async () => {}),
     storeItems: vi.fn(async () => {}),

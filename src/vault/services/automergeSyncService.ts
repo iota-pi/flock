@@ -1,11 +1,8 @@
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
 import type { StoredSyncMessage } from '../drivers/base'
-import type {
-  SyncMessageLastEvaluatedKey,
-  GlobalSyncLastEvaluatedKey,
-} from 'src/shared/schemas/trpc'
-import { mapWithConcurrency, resolveConcurrency } from '../../shared/concurrency'
+import type { SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
+import { mapWithConcurrency, resolveConcurrency } from '../../shared/vault/concurrency'
 
 type SyncMessagePayload = {
   iv: string

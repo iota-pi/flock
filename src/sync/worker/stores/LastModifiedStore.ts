@@ -1,8 +1,8 @@
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 import {
   ScopedMetadataStore,
   SYNC_METADATA_KEYS,
-  LEGACY_DB_NAMES,
+  getLegacySyncDatabaseNames,
   LEGACY_KEYS,
 } from './syncMetadataStorage'
 
@@ -36,7 +36,7 @@ export class LastModifiedStore extends ScopedMetadataStore<[ItemId, ItemSyncTime
     super(accountIdOrStore, {
       metadataKey: SYNC_METADATA_KEYS.LAST_MODIFIED,
       legacyKey: LEGACY_KEYS.LAST_MODIFIED,
-      legacyDbName: LEGACY_DB_NAMES.LAST_MODIFIED,
+      legacyDbName: getLegacySyncDatabaseNames()?.lastModified,
       legacyStorePrefix: 'last-modified',
       storeLabel: 'LastModifiedStore',
       normalize: (raw: unknown) =>

@@ -1,12 +1,12 @@
 import * as Automerge from '@automerge/automerge/slim'
 import type { Repo } from '@automerge/automerge-repo/slim'
 
-import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
+import type { VaultSnapshotInput } from '../../shared/vault/snapshots'
 import { normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { encryptBytes } from '../../api/vault'
-import { normalizeSnapshotType } from './utils/snapshot'
-import { ItemId } from 'src/shared/schemas/items'
+import { passthroughCodec, type DocCodec } from './domain'
+import { ItemId } from 'src/shared/vault/ids'
 import { classifySyncError } from './utils/errorClassifier'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 
@@ -17,6 +17,7 @@ export type BuildSnapshotResult =
 
 export interface BuildSnapshotOptions {
   signal?: AbortSignal
+  codec?: DocCodec
 }
 
 export async function buildSnapshot(
@@ -26,7 +27,7 @@ export async function buildSnapshot(
   options?: BuildSnapshotOptions,
 ): Promise<BuildSnapshotResult> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
-  const handle = await repo.find(documentUrl, options).catch(() => undefined)
+  const handle = await repo.find(documentUrl, options?.signal ? { signal: options.signal } : undefined).catch(() => undefined)
   if (!handle) {
     return { type: 'error', reason: 'Document handle not found' }
   }
@@ -57,23 +58,19 @@ export async function buildSnapshot(
     throw error
   }
 
-  const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>)
+  const codec = options?.codec ?? passthroughCodec
+  const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, codec)
   if (!itemSnapshot) {
     return { type: 'error', reason: 'Failed to normalize item snapshot' }
   }
 
-  const originalType = (
-    itemSnapshot.type === 'error'
-      ? itemSnapshot.originalType
-      : itemSnapshot.type
-  )
   return {
     type: 'success',
     snapshot: {
       itemId,
       snapshot: encryptedDoc,
       snapshotCursor,
-      type: normalizeSnapshotType(itemSnapshot.type, originalType),
+      type: codec.snapshotKind(itemSnapshot),
       modified: snapshotTimestamp,
       deleted: !!itemSnapshot.deleted || undefined,
     },
@@ -100,7 +97,10 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
 }
 
 export class SnapshotBuilder {
-  constructor(private readonly repo: Repo) {}
+  constructor(
+    private readonly repo: Repo,
+    private readonly codec: DocCodec = passthroughCodec,
+  ) {}
 
   async build(
     itemId: ItemId,
@@ -108,7 +108,7 @@ export class SnapshotBuilder {
     options?: BuildSnapshotOptions,
   ): Promise<BuildSnapshotResult> {
     try {
-      return await buildSnapshot(this.repo, itemId, snapshotCursor, options)
+      return await buildSnapshot(this.repo, itemId, snapshotCursor, { codec: this.codec, ...options })
     } catch (error: unknown) {
       const classified = classifySyncError(error)
       if (classified.isTransientVault) {

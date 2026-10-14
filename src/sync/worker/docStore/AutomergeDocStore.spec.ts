@@ -15,10 +15,10 @@ import {
   ACCOUNT_INDEX_DOCUMENT_ID,
   type BackupDocId,
 } from '../utils/automerge'
-import { ItemId } from '../../../shared/schemas/items'
-import type { Item } from '../../../state/items'
+import { ItemId } from '../../../shared/vault/ids'
+import type { VaultDoc } from '../../shared/types'
 
-function createTestItem(id: ItemId, overrides: Partial<Item> = {}): Item {
+function createTestItem(id: ItemId, overrides: Partial<VaultDoc> = {}): VaultDoc {
   return {
     id,
     type: 'person',
@@ -30,10 +30,10 @@ function createTestItem(id: ItemId, overrides: Partial<Item> = {}): Item {
     notes: [],
     prayedFor: [],
     ...overrides,
-  } as Item
+  } as VaultDoc
 }
 
-function createDocBinary(id: ItemId, overrides: Partial<Item> = {}): Uint8Array {
+function createDocBinary(id: ItemId, overrides: Partial<VaultDoc> = {}): Uint8Array {
   const item = createTestItem(id, overrides)
   const doc = Automerge.change(Automerge.init<Record<string, unknown>>(), d => {
     for (const [key, value] of Object.entries(item)) {
@@ -93,7 +93,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       })
 
       // Create divergent remote snapshot from baseDoc
-      const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+      const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
         d.description = 'Remote Description Edit'
       })
       const remoteBinary = Automerge.save(remoteDoc)
@@ -118,7 +118,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       await docStore.seedImportedDocument(itemId, baseBinary)
 
       // Remote advances baseDoc without any local edits made
-      const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+      const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
         d.name = 'Remote Advanced Name'
       })
       const remoteBinary = Automerge.save(remoteDoc)
@@ -151,12 +151,12 @@ describe('AutomergeDocStore Unit Tests', () => {
       const documentId = toDocumentIdFromItemId(itemId)
 
       const baseBinary = createDocBinary(itemId, { name: 'Base Name', description: 'Base Desc' })
-      const localDoc = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+      const localDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
         d.name = 'Local Edit Before Ready'
       })
       const localBinary = Automerge.save(localDoc)
 
-      const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+      const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
         d.description = 'Remote Description Edit'
       })
       const remoteBinary = Automerge.save(remoteDoc)
@@ -196,12 +196,12 @@ describe('AutomergeDocStore Unit Tests', () => {
       const itemId = 'branch3a-storage-merge' as ItemId
 
       const baseBinary = createDocBinary(itemId, { name: 'Base', description: 'Base Desc' })
-      const localDoc = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+      const localDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
         d.name = 'Local Storage Name'
       })
       const localBinary = Automerge.save(localDoc)
 
-      const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+      const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
         d.description = 'Remote Server Desc'
       })
       const remoteBinary = Automerge.save(remoteDoc)
@@ -967,7 +967,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const baseBinary = createDocBinary(itemId, { name: 'Existing Ready' })
       const existingHandle = repo.import(baseBinary, { docId })
 
-      const remoteDoc = Automerge.change(Automerge.load<Item>(baseBinary), d => {
+      const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
         d.description = 'Merged Via Seed'
       })
       const remoteBinary = Automerge.save(remoteDoc)

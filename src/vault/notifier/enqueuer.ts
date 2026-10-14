@@ -11,10 +11,8 @@ import {
   toZonedTime,
 } from 'date-fns-tz'
 import type { WebPushSubscription } from '../types'
-import {
-  ACCOUNT_TABLE_NAME,
-  getConnectionParams,
-} from '../drivers/dynamo'
+import { getConnectionParams } from '../drivers/dynamo'
+import { FLOCK_TABLES } from '../flockDriver'
 
 type ReminderAccount = {
   account: string,
@@ -95,7 +93,7 @@ async function getEnabledReminderAccounts() {
 
   do {
     const response = await docClient.send(new ScanCommand({
-      TableName: ACCOUNT_TABLE_NAME,
+      TableName: FLOCK_TABLES.accounts,
       ExclusiveStartKey: lastEvaluatedKey,
       FilterExpression: 'reminderEnabled = :enabled',
       ExpressionAttributeValues: {

@@ -1,5 +1,5 @@
 import { getApiAuthToken, getSessionExpiredHandler } from './runtime'
-import { getOnlineState } from 'src/utils/onlineStatus'
+import { getOnlineState } from 'src/sync/utils/onlineStatus'
 
 export class ApiHttpError extends Error {
   readonly status: number

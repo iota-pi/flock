@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CryptoResultSchema } from './crypto'
+import { ItemIdSchema } from '../vault/ids'
 import { ITEM_LIMITS } from '../constants/limits'
 
 export const ITEM_TYPES = ['person', 'group', 'topic'] as const
@@ -15,8 +15,6 @@ const FREQUENCY_VALUES = [
   'annually',
   'none',
 ] as const
-
-export const ItemIdSchema = z.string().min(1).trim().brand<'ItemId'>()
 
 export const frequencySchema = z.union([
   z.number(),
@@ -79,7 +77,6 @@ export const standardItemSchema = z.discriminatedUnion('type', [
   topicItemSchema,
 ])
 
-export type ItemId = z.infer<typeof ItemIdSchema>
 export type Note = z.infer<typeof noteSchema>
 export type BaseItem = z.infer<typeof baseItemSchema>
 export type PersonItem = z.infer<typeof personItemSchema>
@@ -87,30 +84,6 @@ export type GroupItem = z.infer<typeof groupItemSchema>
 export type TopicItem = z.infer<typeof topicItemSchema>
 export type StandardItem = z.infer<typeof standardItemSchema>
 export type ErrorItem = z.infer<typeof errorItemSchema>
-
-export const ItemEnvelopeMetadataSchema = z.object({
-  type: z.enum(ITEM_TYPES),
-  iv: z.string(),
-  modified: z.number(),
-  deleted: z.boolean().optional(),
-  compactedAt: z.number().optional(),
-})
-
-export const StandardItemEnvelopeSchema = z.object({
-  item: ItemIdSchema,
-  cipher: z.undefined().optional(),
-  snapshot: CryptoResultSchema.optional(),
-  metadata: ItemEnvelopeMetadataSchema,
-})
-
-export const TombstoneItemEnvelopeSchema = z.object({
-  item: ItemIdSchema,
-  cipher: z.undefined().optional(),
-  snapshot: z.undefined().optional(),
-  metadata: ItemEnvelopeMetadataSchema.extend({
-    deleted: z.literal(true),
-  }),
-})
 
 export const GroupLookupDataSchema = z.object({
   groupNames: z.array(z.string()),

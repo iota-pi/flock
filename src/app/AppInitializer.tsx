@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
-import { loadAccount } from '../api/vault'
+import { loadAccount } from './vault/session'
 import { useAppStore } from '../state/store'
 import { useLoggedIn } from '../state/selectors'
-import useSyncCoordinatorLifecycle from '../sync/client/useSyncCoordinatorLifecycle'
-import { ensurePersistentStorage } from '../utils/storageQuota'
+import useSyncCoordinatorLifecycle from './vault/useSyncCoordinatorLifecycle'
+import { ensurePersistentStorage } from '../sync/utils/storageQuota'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 import { initTrpcClient } from 'src/api/trpcClient'
+import { initVaultTrpcClient } from 'src/api/vaultTrpcClient'
 import { useNavigate } from 'react-router'
 import { syncReminderTimezone } from '../utils/pushNotifications'
 import { useAutoClearPrayerNotifications } from '../hooks/useAutoClearPrayerNotifications'
@@ -22,6 +23,7 @@ export default function AppInitializer() {
       useAppStore.getState().finishRequest,
     )
     initTrpcClient(trackedFetch)
+    initVaultTrpcClient(trackedFetch)
     void ensurePersistentStorage()
     void loadAccount().catch(console.error)
   }, [setFatalError])

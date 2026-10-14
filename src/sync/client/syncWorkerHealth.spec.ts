@@ -4,7 +4,7 @@ import {
   MAX_CONSECUTIVE_TIMEOUTS,
   SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
-import { useAppStore } from 'src/state/store'
+import { createFakeSink } from './__test__/fakeHost'
 
 describe('sendPing', () => {
   let channel: MessageChannel
@@ -107,12 +107,17 @@ describe('sendPing', () => {
 describe('syncWorkerHealth', () => {
   let mockWorker: any
   let healthMonitor: SyncWorkerHealthMonitor
+  let sink: ReturnType<typeof createFakeSink>
 
   beforeEach(() => {
     vi.useFakeTimers()
-    healthMonitor = new SyncWorkerHealthMonitor()
+    sink = createFakeSink()
+    healthMonitor = new SyncWorkerHealthMonitor({
+      setSyncStatus: sink.setSyncStatus,
+      setSyncWarning: message => (message === null ? sink.clearSyncWarning() : sink.setSyncWarning(message)),
+      setFatalError: sink.setFatalError,
+    })
     healthMonitor.resetCrashMetrics()
-    useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
     const listeners: Record<string, ((ev: any) => void)[]> = {}
     mockWorker = {
       terminate: vi.fn(),
@@ -196,14 +201,14 @@ describe('syncWorkerHealth', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(onCrash).not.toHaveBeenCalled()
     expect(mockWorker.terminate).not.toHaveBeenCalled()
-    expect(useAppStore.getState().syncWarning).toBe('Sync connection is slow. Checking...')
+    expect(sink.state.syncWarning).toBe('Sync connection is slow. Checking...')
 
     // Advance another 45s (15s interval + 30s timeout) -> total 90s (2nd consecutive timeout)
     await vi.advanceTimersByTimeAsync(45000)
     expect(onCrash).toHaveBeenCalledTimes(1)
     expect(mockWorker.terminate).toHaveBeenCalledTimes(1)
     expect(onRestart).toHaveBeenCalledTimes(1)
-    expect(useAppStore.getState().syncStatus).toBe('connecting')
+    expect(sink.state.syncStatus).toBe('connecting')
 
     channel.port1.close()
     channel.port2.close()
@@ -375,7 +380,7 @@ describe('syncWorkerHealth', () => {
 
     // First ping times out at 45s
     await vi.advanceTimersByTimeAsync(45000)
-    expect(useAppStore.getState().syncWarning).toBe('Sync connection is slow. Checking...')
+    expect(sink.state.syncWarning).toBe('Sync connection is slow. Checking...')
     expect(onCrash).not.toHaveBeenCalled()
 
     // Setup pong response for the second ping
@@ -389,7 +394,7 @@ describe('syncWorkerHealth', () => {
     await vi.advanceTimersByTimeAsync(15000)
 
     // Warning should be cleared on pong, worker not crashed
-    expect(useAppStore.getState().syncWarning).toBeNull()
+    expect(sink.state.syncWarning).toBeNull()
     expect(onCrash).not.toHaveBeenCalled()
     expect(mockWorker.terminate).not.toHaveBeenCalled()
 
@@ -586,13 +591,13 @@ describe('syncWorkerHealth', () => {
     })
     mockWorker.dispatchEvent(new ErrorEvent('error', { message: 'Explicit crash' }))
     expect(finalOnCrash).toHaveBeenCalledWith(false)
-    expect(useAppStore.getState().syncStatus).toBe('dead')
+    expect(sink.state.syncStatus).toBe('dead')
     finalErrorChannel.port1.close()
     finalErrorChannel.port2.close()
 
     // 2. Timeouts allow up to MAX_CONSECUTIVE_TIMEOUTS (5)
     healthMonitor.resetCrashMetrics()
-    useAppStore.setState({ syncStatus: 'idle', fatalError: null })
+    Object.assign(sink.state, { syncStatus: 'idle', fatalError: null })
     for (let i = 1; i < MAX_CONSECUTIVE_TIMEOUTS; i++) {
       const onCrash = vi.fn()
       const onRestart = vi.fn()
@@ -623,8 +628,8 @@ describe('syncWorkerHealth', () => {
     })
     await vi.advanceTimersByTimeAsync(45000)
     expect(finalTimeoutCrash).toHaveBeenCalledWith(false)
-    expect(useAppStore.getState().syncStatus).toBe('dead')
-    expect(useAppStore.getState().fatalError).toContain('became unresponsive')
+    expect(sink.state.syncStatus).toBe('dead')
+    expect(sink.state.fatalError).toContain('became unresponsive')
     finalChannel.port1.close()
     finalChannel.port2.close()
   })

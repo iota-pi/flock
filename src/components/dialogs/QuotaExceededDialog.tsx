@@ -12,7 +12,7 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 
 import { useAppStore } from '../../state/store'
-import { SyncBridge } from '../../sync/client/SyncBridge'
+import { SyncBridge } from '../../app/vault/syncBridge'
 import { ResetIcon, SyncIcon, DownloadIcon } from '../Icons'
 
 interface Props {

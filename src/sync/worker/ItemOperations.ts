@@ -1,17 +1,14 @@
-import type { Item } from '../../state/items'
-import type { AccountMetadata } from '../../state/metadata'
+import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { MetadataSyncAdapter, SyncDomainHooks } from './domain'
 import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
-import { ERROR_ITEM_TYPE, type ItemId } from 'src/shared/schemas/items'
-import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/constants/limits'
+import { generateItemId, type ItemId } from 'src/shared/vault/ids'
+import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/vault/limits'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { SyncApiClient } from './SyncApiClient'
-import { extractSyncableMetadata } from '../../shared/schemas/metadata'
-import { hasSyncableChanges } from './utils/metadataSync'
 import { RecoveryManager } from './RecoveryManager'
-import { generateItemId } from '../../utils'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export interface ItemOperationsDeps {
@@ -22,6 +19,8 @@ export interface ItemOperationsDeps {
   markDocumentDirty: (itemId: ItemId) => void
   recoveryManager?: RecoveryManager
   apiClient?: SyncApiClient
+  hooks?: SyncDomainHooks
+  metadataSync?: MetadataSyncAdapter
 }
 
 export interface StoreItemsOptions {
@@ -45,7 +44,7 @@ export class ItemOperations {
 
   private async applyDocumentChange(
     id: ItemId,
-    itemOrChanges: Partial<Item>,
+    itemOrChanges: Partial<VaultDoc>,
     options?: { createIfMissing?: boolean; knownToExist?: boolean },
   ): Promise<boolean> {
     return await this.deps.docStore.changeDocument(
@@ -78,7 +77,7 @@ export class ItemOperations {
     }
   }
 
-  async mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
+  async mutateItem(id: ItemId, changes: Partial<VaultDoc>): Promise<void> {
     try {
       const updated = await this.applyDocumentChange(id, changes, { knownToExist: true })
       if (updated) {
@@ -100,7 +99,7 @@ export class ItemOperations {
    * Creates and indexes a document, throwing on any failure.
    * `documentCreated` on the thrown error distinguishes a refused change from an exception.
    */
-  private async createDocumentOrThrow(item: Item): Promise<void> {
+  private async createDocumentOrThrow(item: VaultDoc): Promise<void> {
     const updated = await this.applyDocumentChange(item.id, item, {
       createIfMissing: true,
       knownToExist: false,
@@ -113,7 +112,7 @@ export class ItemOperations {
     publishRealtimeBusSyncPing(this.deps.accountId, [item.id])
   }
 
-  async createItem(item: Item): Promise<void> {
+  async createItem(item: VaultDoc): Promise<void> {
     try {
       await this.createDocumentOrThrow(item)
     } catch (err) {
@@ -122,9 +121,9 @@ export class ItemOperations {
     }
   }
 
-  async storeItems(items: Item[], options: StoreItemsOptions = {}): Promise<void> {
+  async storeItems(items: VaultDoc[], options: StoreItemsOptions = {}): Promise<void> {
     const { markDirty = true } = options
-    const failedItems: Item[] = []
+    const failedItems: VaultDoc[] = []
     const succeededActiveIds: ItemId[] = []
     const succeededDeletedIds: ItemId[] = []
     const existingIds = new Set(await this.deps.indexManager.listAutomergeItemIds())
@@ -167,24 +166,25 @@ export class ItemOperations {
   }
 
   async mutateMetadata(
-    changes: Partial<AccountMetadata>,
+    changes: Partial<VaultMetadata>,
     options?: { pushRemote?: boolean },
   ): Promise<void> {
+    const metadataSync = this.deps.metadataSync
     try {
-      const isSyncable = hasSyncableChanges(changes)
-      const nextChanges: Partial<AccountMetadata> = isSyncable
+      const isSyncable = metadataSync?.hasSyncableChanges(changes) ?? false
+      const nextChanges: Partial<VaultMetadata> = isSyncable
         ? { ...changes, updatedAt: changes.updatedAt ?? Date.now() }
         : changes
 
       const updated = await this.deps.indexManager.updateAutomergeMetadata(nextChanges)
 
       const shouldPush = (options?.pushRemote ?? true) && isSyncable
-      if (shouldPush && (await this.apiClient.hasAuthToken()) && this.deps.accountId) {
-        const syncablePayload = extractSyncableMetadata(updated)
+      if (shouldPush && metadataSync && (await this.apiClient.hasAuthToken()) && this.deps.accountId) {
+        const syncablePayload = metadataSync.extractSyncable(updated)
         try {
           await this.apiClient.updateAccountMetadata({
             account: this.deps.accountId,
-            metadata: syncablePayload as AccountMetadata,
+            metadata: syncablePayload,
           })
         } catch (pushErr) {
           console.warn('[ItemOperations] Failed to push metadata to server (will retry on next sync):', pushErr)
@@ -205,14 +205,11 @@ export class ItemOperations {
     if (!localItem) {
       throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
     }
-    if (localItem.type === ERROR_ITEM_TYPE) {
+    if (this.deps.docStore.codec.isCorrupt(localItem)) {
       throw new Error(`Cannot overwrite with corrupt local item ${itemId}. Force delete is available instead.`)
     }
 
     const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
-    if (Array.isArray(localItem.prayedFor)) {
-      localSnapshot.prayedFor = [...localItem.prayedFor]
-    }
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -290,13 +287,13 @@ export class ItemOperations {
     }
 
     const newItemId = generateItemId()
-    const cleanItemSnapshot = JSON.parse(payloadJson) as Item
-    const newItem: Item = {
+    const cleanItemSnapshot = JSON.parse(payloadJson) as VaultDoc
+    const copiedItem: VaultDoc = {
       ...cleanItemSnapshot,
       id: newItemId,
-      created: Date.now(),
       deleted: false,
     }
+    const newItem = this.deps.hooks?.prepareRecreatedDoc?.(copiedItem) ?? copiedItem
 
     // 1. Create the new clean document and register in index
     try {
@@ -323,33 +320,26 @@ export class ItemOperations {
       )
     }
 
-    // 2. Scan active groups and remap any references from oldItemId -> newItemId
-    try {
-      const activeItemIds = await this.deps.indexManager.listAutomergeItemIds()
-      for (const id of activeItemIds) {
-        if (id === oldItemId || id === newItemId) continue
-        const candidate = await this.deps.docStore.getAutomergeItem(id)
-        if (
-          candidate &&
-          candidate.type === 'group' &&
-          Array.isArray(candidate.members) &&
-          candidate.members.includes(oldItemId)
-        ) {
-          const updatedMembers = candidate.members.map(m => (m === oldItemId ? newItemId : m))
-          const updated = await this.applyDocumentChange(
-            id,
-            { members: updatedMembers },
-            { knownToExist: true },
-          )
+    // 2. Repoint references from other active items to the new id
+    const remapReferences = this.deps.hooks?.remapReferences
+    if (remapReferences) {
+      try {
+        const activeItemIds = await this.deps.indexManager.listAutomergeItemIds()
+        for (const id of activeItemIds) {
+          if (id === oldItemId || id === newItemId) continue
+          const candidate = await this.deps.docStore.getAutomergeItem(id)
+          const changes = candidate ? remapReferences(candidate, oldItemId, newItemId) : null
+          if (!changes) continue
+          const updated = await this.applyDocumentChange(id, changes, { knownToExist: true })
           if (updated) {
             this.deps.markDocumentDirty(id)
-            const updatedGroup = await this.deps.docStore.getAutomergeItem(id)
-            this.deps.eventHub.emit({ type: 'itemUpdated', id, item: updatedGroup })
+            const updatedItem = await this.deps.docStore.getAutomergeItem(id)
+            this.deps.eventHub.emit({ type: 'itemUpdated', id, item: updatedItem })
           }
         }
+      } catch (remapErr) {
+        console.warn(`[ItemOperations] Error remapping references to ${oldItemId}:`, remapErr)
       }
-    } catch (groupRemapErr) {
-      console.warn(`[ItemOperations] Error remapping group references for ${oldItemId}:`, groupRemapErr)
     }
 
     // 3. Mark old oversized item as deleted in Automerge document & remove from active index

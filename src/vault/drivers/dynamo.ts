@@ -34,24 +34,51 @@ import BaseDriver, {
   VaultItem,
   VaultSessionRecord,
 } from './base'
-import { ExpiredSessionError } from '../api/errors'
-import { VersionConflictError } from '../../shared/syncErrors'
-import type { ItemId } from 'src/shared/schemas/items'
+import { ExpiredSessionError } from './errors'
+import { VersionConflictError } from '../../shared/vault/syncErrors'
+import type { ItemId } from 'src/shared/vault/ids'
 import {
   isConditionalCheckFailure,
   isResourceInUseError,
   isTransientDynamoError,
 } from './dynamoErrors'
-import type {
-  ManifestEntry,
-  SyncMessageLastEvaluatedKey,
-  GlobalSyncLastEvaluatedKey,
-} from 'src/shared/schemas/trpc'
-import { MAX_ITEM_SIZE } from 'src/shared/constants/limits'
+import type { ManifestEntry, SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
+import { MAX_ITEM_SIZE } from 'src/shared/vault/limits'
 
-export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
-export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
+export interface VaultTableNames {
+  accounts: string
+  items: string
+  syncMessages: string
+}
+
+const TABLE_NAME_ENV_VARS: Record<keyof VaultTableNames, string> = {
+  accounts: 'ACCOUNTS_TABLE',
+  items: 'ITEMS_TABLE',
+  syncMessages: 'SYNC_MESSAGES_TABLE',
+}
+
+/**
+ * Resolves table names from explicit options, falling back to the ACCOUNTS_TABLE, ITEMS_TABLE
+ * and SYNC_MESSAGES_TABLE environment variables.
+ */
+export function resolveVaultTableNames(tables: Partial<VaultTableNames> = {}): VaultTableNames {
+  const resolved = {} as VaultTableNames
+  for (const key of Object.keys(TABLE_NAME_ENV_VARS) as Array<keyof VaultTableNames>) {
+    const envVar = TABLE_NAME_ENV_VARS[key]
+    const name = tables[key] ?? process.env[envVar]
+    if (!name) {
+      throw new Error(`Missing DynamoDB table name for "${key}". Pass it to DynamoDriver or set ${envVar}.`)
+    }
+    resolved[key] = name
+  }
+  return resolved
+}
+
+export interface DynamoDriverOptions {
+  tables?: Partial<VaultTableNames>
+  /** App-specific fields written to every new account record */
+  accountDefaults?: Record<string, unknown>
+}
 
 const SYNC_MESSAGE_TTL = 90 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
@@ -123,7 +150,7 @@ function validateItem(item: VaultItem) {
   }
 }
 
-function getItemPutParams(item: VaultItem): PutCommandInput {
+function getItemPutParams(item: VaultItem, tableName: string): PutCommandInput {
   validateItem(item)
 
   const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
@@ -138,7 +165,7 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
   }
 
   const params: PutCommandInput = {
-    TableName: ITEM_TABLE_NAME,
+    TableName: tableName,
     Item: persistedItem,
     ConditionExpression: typeof item.version === 'number'
       ? 'attribute_not_exists(account) OR version = :expectedVersion'
@@ -199,6 +226,14 @@ export function buildDynamoUpdate(fields: Record<string, unknown>): {
 
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
+  readonly tables: VaultTableNames
+  private readonly accountDefaults: Record<string, unknown>
+
+  constructor(options: DynamoDriverOptions = {}) {
+    super()
+    this.tables = resolveVaultTableNames(options.tables)
+    this.accountDefaults = options.accountDefaults ?? {}
+  }
 
   private getDocumentClient(ddb: DynamoDBClient) {
     return DynamoDBDocumentClient.from(ddb, {
@@ -220,7 +255,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   async init(_: T | undefined = undefined) {
     const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions' | 'GlobalSecondaryIndexes'>[] = [
       {
-        TableName: ITEM_TABLE_NAME,
+        TableName: this.tables.items,
         KeySchema: [
           { AttributeName: 'account', KeyType: 'HASH' },
           { AttributeName: 'item', KeyType: 'RANGE' },
@@ -231,7 +266,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ],
       },
       {
-        TableName: ACCOUNT_TABLE_NAME,
+        TableName: this.tables.accounts,
         KeySchema: [
           { AttributeName: 'account', KeyType: 'HASH' },
         ],
@@ -240,7 +275,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ],
       },
       {
-        TableName: SYNC_MESSAGES_TABLE_NAME,
+        TableName: this.tables.syncMessages,
         KeySchema: [
           { AttributeName: 'syncId', KeyType: 'HASH' },
           { AttributeName: 'cursor', KeyType: 'RANGE' },
@@ -309,17 +344,14 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   ): Promise<boolean> {
     let success = true
     await this.client.send(new PutCommand({
-      TableName: ACCOUNT_TABLE_NAME,
+      TableName: this.tables.accounts,
       Item: {
+        ...this.accountDefaults,
         account,
         authToken,
         created: Date.now(),
         lastAccess: Date.now(),
         metadata,
-        pushSubscriptions: [],
-        reminderEnabled: false,
-        reminderTime: '08:00',
-        reminderTimezone: 'UTC',
         salt,
         iterations,
         saltVersion,
@@ -344,7 +376,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
     const response = await this.client.send(new GetCommand(
       {
-        TableName: ACCOUNT_TABLE_NAME,
+        TableName: this.tables.accounts,
         Key: { account },
         ConsistentRead: true,
       },
@@ -379,7 +411,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
     const response = await this.client.send(new GetCommand(
       {
-        TableName: ACCOUNT_TABLE_NAME,
+        TableName: this.tables.accounts,
         Key: { account },
       },
     ))
@@ -404,7 +436,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       try {
         const response = await this.client.send(new GetCommand({
-          TableName: ACCOUNT_TABLE_NAME,
+          TableName: this.tables.accounts,
           Key: { account },
         }))
         if (!response?.Item) {
@@ -420,13 +452,13 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error('Could not generate new account ID')
   }
 
-  async updateAccountData({
+  async updateAccountData<TExtra extends object = Record<never, never>>({
     account,
     expectedKeyringVersion,
     sessions,
     session,
     ...rest
-  }: UpdateAccountDataParams): Promise<void> {
+  }: UpdateAccountDataParams & Partial<TExtra>): Promise<void> {
     const updateFields: Record<string, unknown> = {
       ...rest,
       ...(sessions !== undefined ? { sessions: normalizeSessionRecords(sessions) } : {}),
@@ -441,7 +473,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     const params: UpdateCommandInput = {
-      TableName: ACCOUNT_TABLE_NAME,
+      TableName: this.tables.accounts,
       Key: { account },
       UpdateExpression: expression,
       ExpressionAttributeValues: values,
@@ -459,7 +491,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const maxRetries = 3
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const response = await this.client.send(new GetCommand({
-        TableName: ACCOUNT_TABLE_NAME,
+        TableName: this.tables.accounts,
         Key: { account },
         ConsistentRead: true,
       }))
@@ -485,7 +517,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const nextSessions = normalizeSessionRecords(activeSessions, now)
 
       const params: UpdateCommandInput = {
-        TableName: ACCOUNT_TABLE_NAME,
+        TableName: this.tables.accounts,
         Key: { account },
         UpdateExpression: 'SET sessions = :sessions',
         ExpressionAttributeValues: {
@@ -551,7 +583,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         : Date.now()
 
       const updateParams: UpdateCommandInput = {
-        TableName: ITEM_TABLE_NAME,
+        TableName: this.tables.items,
         Key: {
           account: itemToPersist.account,
           item: itemToPersist.item,
@@ -589,7 +621,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       return { version: assignedVersion }
     }
 
-    const params = getItemPutParams(itemToPersist)
+    const params = getItemPutParams(itemToPersist, this.tables.items)
 
     try {
       await this.client.send(new PutCommand(params))
@@ -610,7 +642,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
     while (true) {
       const queryInput: QueryCommandInput = {
-        TableName: ITEM_TABLE_NAME,
+        TableName: this.tables.items,
         KeyConditionExpression: 'account = :accountid',
         ExpressionAttributeNames: {
           '#itemKey': 'item',
@@ -734,7 +766,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
     for (const batch of batches) {
       const requestItems: BatchGetCommandInput['RequestItems'] = {
-        [ITEM_TABLE_NAME]: {
+        [this.tables.items]: {
           Keys: batch.map(itemId => ({
             account,
             item: itemId,
@@ -744,7 +776,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
       }
       const responses = await this.executeBatchGetWithRetry(requestItems)
-      const items = responses[ITEM_TABLE_NAME] as VaultItem[] | undefined
+      const items = responses[this.tables.items] as VaultItem[] | undefined
       if (items) {
         results.push(...items)
       }
@@ -821,7 +853,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     entry: StoredSyncMessage
   }): Promise<void> {
     await this.client.send(new PutCommand({
-      TableName: SYNC_MESSAGES_TABLE_NAME,
+      TableName: this.tables.syncMessages,
       Item: {
         syncId: `${input.account}#${input.itemId}`,
         cursor: input.entry.cursor,
@@ -846,7 +878,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     await Promise.all(
       batches.map(async batch => {
         const requestItems: BatchWriteCommandInput['RequestItems'] = {
-          [SYNC_MESSAGES_TABLE_NAME]: batch.map(message => ({
+          [this.tables.syncMessages]: batch.map(message => ({
             PutRequest: {
               Item: {
                 syncId: `${input.account}#${message.itemId}`,
@@ -891,7 +923,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     const response = await this.client.send(new QueryCommand({
-      TableName: SYNC_MESSAGES_TABLE_NAME,
+      TableName: this.tables.syncMessages,
       KeyConditionExpression: hasCursor
         ? 'syncId = :syncId AND #c > :fromCursor'
         : 'syncId = :syncId',
@@ -942,7 +974,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     const response = await this.client.send(new QueryCommand({
-      TableName: SYNC_MESSAGES_TABLE_NAME,
+      TableName: this.tables.syncMessages,
       IndexName: 'AccountCursorIndex',
       KeyConditionExpression: hasCursor
         ? 'account = :account AND #c > :cursor'

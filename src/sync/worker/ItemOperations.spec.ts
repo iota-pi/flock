@@ -1,8 +1,9 @@
 import { ItemOperations, ItemOperationsDeps } from './ItemOperations'
 import { SyncApiClient } from './SyncApiClient'
-import type { Item } from '../../state/items'
-import type { ItemId } from 'src/shared/schemas/items'
-import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/constants/limits'
+import type { VaultDoc } from '../shared/types'
+import { passthroughCodec, type MetadataSyncAdapter } from './domain'
+import type { ItemId } from 'src/shared/vault/ids'
+import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/vault/limits'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({
@@ -22,6 +23,18 @@ vi.mock('../shared/manualRecoveryStore', () => ({
   removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
   upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
 }))
+
+const SYNCABLE_METADATA_KEYS = ['prayerGoal', 'defaultPrayerFrequency', 'updatedAt']
+
+const testMetadataSync: MetadataSyncAdapter = {
+  hasSyncableChanges: changes => SYNCABLE_METADATA_KEYS.some(key => changes[key] !== undefined),
+  extractSyncable: metadata => Object.fromEntries(
+    Object.entries(metadata ?? {}).filter(([key]) => SYNCABLE_METADATA_KEYS.includes(key)),
+  ),
+  reconcile: () => {
+    throw new Error('Not used by ItemOperations')
+  },
+}
 
 describe('ItemOperations', () => {
   let deps: ItemOperationsDeps
@@ -62,6 +75,7 @@ describe('ItemOperations', () => {
         changeDocument: changeDocumentMock,
         getAutomergeItem: getAutomergeItemMock,
         removeAutomergeItem: vi.fn(),
+        codec: { ...passthroughCodec, isCorrupt: (doc: VaultDoc) => doc.type === 'error' },
       } as any,
       indexManager: {
         addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,
@@ -75,13 +89,14 @@ describe('ItemOperations', () => {
       } as any,
       markDocumentDirty: markDocumentDirtyMock,
       apiClient: mockApiClient as unknown as SyncApiClient,
+      metadataSync: testMetadataSync,
     }
 
     operations = new ItemOperations(deps)
   })
 
   describe('createItem', () => {
-    const testItem = { id: 'item-1' as ItemId, type: 'note', text: 'hello' } as unknown as Item
+    const testItem = { id: 'item-1' as ItemId, type: 'note', text: 'hello' } as unknown as VaultDoc
 
     it('indexes and marks document dirty when changeDocument succeeds', async () => {
       changeDocumentMock.mockResolvedValue(true)
@@ -221,8 +236,8 @@ describe('ItemOperations', () => {
   describe('storeItems', () => {
     it('handles successful items and thrown exceptions gracefully', async () => {
       const items = [
-        { id: 'item-1' as ItemId, text: 'one' } as unknown as Item,
-        { id: 'item-2' as ItemId, text: 'two' } as unknown as Item,
+        { id: 'item-1' as ItemId, text: 'one' } as unknown as VaultDoc,
+        { id: 'item-2' as ItemId, text: 'two' } as unknown as VaultDoc,
       ]
 
       changeDocumentMock.mockImplementation(async (id: ItemId) => {
@@ -245,7 +260,7 @@ describe('ItemOperations', () => {
 
     it('removes deleted items from index and marks them dirty by default without adding to index', async () => {
       const items = [
-        { id: 'item-del-1' as ItemId, deleted: true } as unknown as Item,
+        { id: 'item-del-1' as ItemId, deleted: true } as unknown as VaultDoc,
       ]
 
       changeDocumentMock.mockResolvedValue(true)
@@ -259,8 +274,8 @@ describe('ItemOperations', () => {
 
     it('does not mark items dirty when markDirty: false is passed', async () => {
       const items = [
-        { id: 'item-active' as ItemId, text: 'active note' } as unknown as Item,
-        { id: 'item-del-1' as ItemId, deleted: true } as unknown as Item,
+        { id: 'item-active' as ItemId, text: 'active note' } as unknown as VaultDoc,
+        { id: 'item-del-1' as ItemId, deleted: true } as unknown as VaultDoc,
       ]
 
       changeDocumentMock.mockResolvedValue(true)
@@ -274,8 +289,8 @@ describe('ItemOperations', () => {
 
     it('handles mixed batch of active and deleted items appropriately by default', async () => {
       const items = [
-        { id: 'item-active' as ItemId, text: 'active note' } as unknown as Item,
-        { id: 'item-deleted' as ItemId, deleted: true } as unknown as Item,
+        { id: 'item-active' as ItemId, text: 'active note' } as unknown as VaultDoc,
+        { id: 'item-deleted' as ItemId, deleted: true } as unknown as VaultDoc,
       ]
 
       changeDocumentMock.mockResolvedValue(true)
@@ -292,7 +307,7 @@ describe('ItemOperations', () => {
 
     it('handles failed deleted items gracefully without modifying index', async () => {
       const items = [
-        { id: 'item-del-fail' as ItemId, deleted: true } as unknown as Item,
+        { id: 'item-del-fail' as ItemId, deleted: true } as unknown as VaultDoc,
       ]
 
       changeDocumentMock.mockResolvedValue(false)
@@ -315,7 +330,7 @@ describe('ItemOperations', () => {
   describe('recreateOversizedItem', () => {
     it('creates new document with clean history, soft-deletes old item, unquarantines, and returns new ID', async () => {
       changeDocumentMock.mockResolvedValue(true)
-      const localItem = { id: 'item-1' as ItemId, type: 'note', text: 'survived content' } as unknown as Item
+      const localItem = { id: 'item-1' as ItemId, type: 'note', text: 'survived content' } as unknown as VaultDoc
       getAutomergeItemMock.mockResolvedValue(localItem)
 
       const newItemId = await operations.recreateOversizedItem('item-1' as ItemId)
@@ -346,7 +361,7 @@ describe('ItemOperations', () => {
     })
 
     it(`throws error if content size alone exceeds ${MAX_ITEM_CONTENT_KB} KB`, async () => {
-      const hugeItem = { id: 'item-huge' as ItemId, type: 'note', text: 'x'.repeat(MAX_ITEM_CONTENT_BYTES + 5 * 1024) } as unknown as Item
+      const hugeItem = { id: 'item-huge' as ItemId, type: 'note', text: 'x'.repeat(MAX_ITEM_CONTENT_BYTES + 5 * 1024) } as unknown as VaultDoc
       getAutomergeItemMock.mockResolvedValue(hugeItem)
 
       await expect(operations.recreateOversizedItem('item-huge' as ItemId)).rejects.toThrow(`over ${MAX_ITEM_CONTENT_KB} KB`)
@@ -429,6 +444,16 @@ describe('ItemOperations', () => {
         expect.any(Error),
       )
       warnSpy.mockRestore()
+    })
+
+    it('keeps metadata local when there is no metadata adapter', async () => {
+      operations = new ItemOperations({ ...deps, metadataSync: undefined })
+      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue({ prayerGoal: 10 })
+
+      await operations.mutateMetadata({ prayerGoal: 10 })
+
+      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalledWith({ prayerGoal: 10 })
+      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
     })
 
     it('emits mutationFailed and rolls back metadata if updateAutomergeMetadata throws', async () => {
@@ -608,7 +633,14 @@ describe('ItemOperations', () => {
         )
       })
 
-      it('recreates document, remaps groups, clears recovery state, and emits updates', async () => {
+      it('recreates document, remaps references, clears recovery state, and emits updates', async () => {
+        const remapReferences = vi.fn((doc: VaultDoc, oldId: ItemId, newId: ItemId) => (
+          Array.isArray(doc.members) && doc.members.includes(oldId)
+            ? { members: doc.members.map(member => (member === oldId ? newId : member)) }
+            : null
+        ))
+        const prepareRecreatedDoc = vi.fn((doc: VaultDoc) => ({ ...doc, recreated: true }))
+        operations = new ItemOperations({ ...deps, hooks: { remapReferences, prepareRecreatedDoc } })
         changeDocumentMock.mockResolvedValue(true)
         const localItem = { id: 'item-5', type: 'note', text: 'hello' }
         getAutomergeItemMock.mockImplementation(async (id: string) => {
@@ -638,8 +670,15 @@ describe('ItemOperations', () => {
         expect(emitMock).toHaveBeenCalledWith({
           type: 'itemUpdated',
           id: newItemId,
-          item: expect.objectContaining({ id: newItemId, text: 'hello' }),
+          item: expect.objectContaining({ id: newItemId, text: 'hello', recreated: true }),
         })
+        expect(remapReferences).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'group-1' }),
+          'item-5',
+          newItemId,
+        )
+        expect(changeDocumentMock).toHaveBeenCalledWith('group-1', expect.any(Function), { knownToExist: true })
+        expect(markDocumentDirtyMock).toHaveBeenCalledWith('group-1')
       })
 
       it('does not clear recovery state if item creation throws', async () => {

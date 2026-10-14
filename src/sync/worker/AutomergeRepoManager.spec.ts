@@ -1,6 +1,6 @@
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import * as storageManager from '../../utils/storageManager'
+import * as storageManager from '../utils/storageManager'
 
 vi.mock('@automerge/automerge-repo/slim', () => {
   return {
@@ -28,9 +28,9 @@ vi.mock('./EncryptedBroadcastChannelNetworkAdapter', () => {
   }
 })
 
-vi.mock('./FlockIndexedDBStorageAdapter', () => {
+vi.mock('./VaultIndexedDBStorageAdapter', () => {
   return {
-    FlockIndexedDBStorageAdapter: class MockIndexedDBAdapter {
+    VaultIndexedDBStorageAdapter: class MockIndexedDBAdapter {
       save = vi.fn().mockResolvedValue(undefined)
       load = vi.fn().mockResolvedValue(undefined)
       remove = vi.fn().mockResolvedValue(undefined)

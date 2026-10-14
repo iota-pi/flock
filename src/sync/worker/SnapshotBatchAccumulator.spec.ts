@@ -3,8 +3,8 @@ import {
   estimateSnapshotSize,
   type PreparedSnapshotItem,
 } from './SnapshotBatchAccumulator'
-import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
-import { ItemId } from 'src/shared/schemas/items'
+import type { VaultSnapshotInput } from '../../shared/vault/snapshots'
+import { ItemId } from 'src/shared/vault/ids'
 
 function createMockSnapshot(itemId: string, cipherLength: number): VaultSnapshotInput {
   return {

@@ -1,9 +1,9 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import LeaderConflictDialog from './LeaderConflictDialog'
 import { useAppStore } from '../../state/store'
-import { SyncBridge } from '../../sync/client/SyncBridge'
+import { SyncBridge } from '../../app/vault/syncBridge'
 
-vi.mock('../../sync/client/SyncBridge', () => ({
+vi.mock('../../app/vault/syncBridge', () => ({
   SyncBridge: {
     claimLeader: vi.fn().mockResolvedValue(undefined),
   },

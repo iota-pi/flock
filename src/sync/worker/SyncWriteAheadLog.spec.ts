@@ -1,7 +1,7 @@
 import { SyncWriteAheadLog, clearWalInstancesCacheForTesting, toUint8Array } from './SyncWriteAheadLog'
 import { packBatchedMessages } from './utils/binaryFraming'
-import type { ItemId } from 'src/shared/schemas/items'
-import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../../utils/storageManager'
+import type { ItemId } from 'src/shared/vault/ids'
+import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
 
 import {
   MockLocalforage,

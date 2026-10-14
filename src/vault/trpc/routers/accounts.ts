@@ -5,17 +5,11 @@ import {
   AccountInputSchema,
   CreateAccountBodySchema,
   LoginBodySchema,
-  SnoozeRemindersBodySchema,
-  PushSubscriptionBodySchema,
-  PushSubscriptionDeleteBodySchema,
-  ReminderSettingsBodySchema,
   UpdateMetadataBodySchema,
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
-} from 'src/shared/schemas/trpc'
-import { toZonedTime } from 'date-fns-tz'
-import { hashString } from '../../api/util'
-import { safeEqual } from 'src/vault/util'
+} from 'src/shared/vault/api'
+import { hashString, safeEqual } from 'src/vault/util'
 
 
 const MAX_ACTIVE_SESSIONS = 8
@@ -114,87 +108,6 @@ export const accountsRouter = router({
       })
 
       return { success: true }
-    }),
-
-  addPushSubscription: protectedProcedure
-    .input(PushSubscriptionBodySchema)
-    .mutation(async ({ ctx, input }) => {
-      const existing = ctx.accountData.pushSubscriptions ?? []
-      const incoming = {
-        endpoint: input.endpoint,
-        keys: input.keys,
-      }
-      const next = existing.some(sub => sub.endpoint === incoming.endpoint)
-        ? existing
-        : [...existing, incoming]
-
-      await ctx.vault.updateAccountData({
-        account: input.account,
-        pushSubscriptions: next,
-      })
-
-      return { success: true }
-    }),
-
-  deletePushSubscription: protectedProcedure
-    .input(PushSubscriptionDeleteBodySchema)
-    .mutation(async ({ ctx, input }) => {
-      const existing = ctx.accountData.pushSubscriptions ?? []
-      const next = existing.filter(sub => sub.endpoint !== input.endpoint)
-
-      await ctx.vault.updateAccountData({
-        account: input.account,
-        pushSubscriptions: next,
-      })
-
-      return { success: true }
-    }),
-
-  getReminderSettings: protectedProcedure
-    .input(AccountInputSchema)
-    .query(async ({ ctx }) => {
-      return {
-        success: true,
-        reminderEnabled: ctx.accountData.reminderEnabled ?? false,
-        reminderTime: ctx.accountData.reminderTime ?? '08:00',
-        reminderTimezone: ctx.accountData.reminderTimezone ?? 'UTC',
-        snoozeRemindersUntil: ctx.accountData.snoozeRemindersUntil,
-      }
-    }),
-
-  updateReminderSettings: protectedProcedure
-    .input(ReminderSettingsBodySchema)
-    .mutation(async ({ ctx, input }) => {
-      await ctx.vault.updateAccountData({
-        account: input.account,
-        reminderEnabled: input.reminderEnabled,
-        reminderTime: input.reminderTime,
-        reminderTimezone: input.reminderTimezone,
-      })
-
-      return { success: true }
-    }),
-
-  snoozeReminders: protectedProcedure
-    .input(SnoozeRemindersBodySchema)
-    .mutation(async ({ ctx, input }) => {
-      let targetDate = input.snoozeUntilDate
-      if (targetDate === undefined) {
-        const timezone = ctx.accountData.reminderTimezone ?? 'UTC'
-        const zoned = toZonedTime(new Date(), timezone)
-        const tomorrow = new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate() + 1)
-        const year = tomorrow.getFullYear()
-        const month = String(tomorrow.getMonth() + 1).padStart(2, '0')
-        const day = String(tomorrow.getDate()).padStart(2, '0')
-        targetDate = `${year}-${month}-${day}`
-      }
-
-      await ctx.vault.updateAccountData({
-        account: input.account,
-        snoozeRemindersUntil: targetDate,
-      })
-
-      return { success: true, snoozeRemindersUntil: targetDate }
     }),
 
   getKeyring: protectedProcedure

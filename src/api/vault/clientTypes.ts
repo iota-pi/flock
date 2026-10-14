@@ -1,14 +1,10 @@
 import { z } from 'zod'
 import {
+  LegacyItemEnvelopeSchema,
   StandardItemEnvelopeSchema,
   TombstoneItemEnvelopeSchema,
-} from '../../shared/schemas/items'
-import { LegacyItemEnvelopeSchema } from '../../shared/schemas/legacyTypes'
-import {
-  CreateAccountBodySchema,
-  AccountCreationResponseSchema,
-  ReminderSettingsResponseSchema,
-} from '../../shared/schemas/trpc'
+} from '../../shared/vault/envelopes'
+import { CreateAccountBodySchema, AccountCreationResponseSchema } from '../../shared/vault/api'
 
 const VaultEnvelopeSchema = z.union([
   LegacyItemEnvelopeSchema,
@@ -39,6 +35,4 @@ const VaultItemSchema = VaultEnvelopeSchema.and(
 )
 
 export type VaultItem = z.infer<typeof VaultItemSchema>
-
-export type ReminderSettingsResponse = z.infer<typeof ReminderSettingsResponseSchema>
 

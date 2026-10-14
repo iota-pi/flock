@@ -8,14 +8,14 @@ import {
   CIRCUIT_BREAKER_COOLDOWN_MS,
 } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { registerQuotaReporter } from '../../utils/storageManager'
+import { registerQuotaReporter } from '../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 import { createTestEventHubs } from './__test__/testUtils'
 
@@ -328,7 +328,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     const wal = (broker as any).wal
     const appendSpy = vi.spyOn(wal, 'append').mockImplementation(async () => {
-      const { runStorageOperation } = await import('../../utils/storageManager')
+      const { runStorageOperation } = await import('../utils/storageManager')
       await runStorageOperation(async () => {
         throw new DOMException('Quota exceeded', 'QuotaExceededError')
       })

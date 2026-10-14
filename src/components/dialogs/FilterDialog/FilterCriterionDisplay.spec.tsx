@@ -7,7 +7,8 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import getTheme from 'src/theme'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from 'src/utils/customFilter'
-import type { GroupItem, ItemId } from 'src/shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
+import type { ItemId } from 'src/shared/vault/ids'
 
 
 const mockGroups: GroupItem[] = [

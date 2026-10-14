@@ -9,6 +9,7 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 
 import { reencryptAllItems } from 'src/api/vault/reencrypt'
+import { SyncBridge } from 'src/app/vault/syncBridge'
 import { useAppStore } from 'src/state/store'
 
 interface Props {
@@ -35,7 +36,7 @@ export default function ReencryptVaultDialog({ open, onClose }: Props) {
     setStatus('running')
     setErrorMsg('')
     try {
-      const result = await reencryptAllItems(account, (done, total) => {
+      const result = await reencryptAllItems(SyncBridge, account, (done, total) => {
         setProgress({ done, total })
       })
 

@@ -1,5 +1,5 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { ItemId } from 'src/shared/schemas/items'
+import { ItemId } from 'src/shared/vault/ids'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { ClientEventHub } from './SyncEventHub'
@@ -7,6 +7,7 @@ import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
+import type { DocCodec } from './domain'
 import { SnapshotPusher } from './SnapshotPusher'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -41,11 +42,12 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       eventHub?: ClientEventHub
       recoveryManager?: RecoveryManager
       apiClient?: SyncApiClient
+      codec?: DocCodec
     },
     lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
-    this.builder = new SnapshotBuilder(deps.repo)
+    this.builder = new SnapshotBuilder(deps.repo, deps.codec)
     const recoveryManager = deps.recoveryManager ?? new RecoveryManager({
       accountId: deps.accountId,
       eventHub: deps.eventHub,

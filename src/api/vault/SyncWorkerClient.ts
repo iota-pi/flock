@@ -1,15 +1,15 @@
 import { createTRPCProxyClient, httpBatchLink } from '@trpc/client'
-import type { AppRouter } from '../../vault/trpc/root'
-import env from '../../env'
-import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
-import type { ItemId } from 'src/shared/schemas/items'
+import type { VaultRouter } from '../../vault/trpc/vaultRouter'
+import { getVaultTrpcUrl } from '../vaultTrpcClient'
+import type { VaultSnapshotInput } from 'src/shared/vault/snapshots'
+import type { ItemId } from 'src/shared/vault/ids'
 import type { z } from 'zod'
 import type {
   SyncPollBatchSchema,
   SyncMessageLastEvaluatedKey,
   GlobalSyncLastEvaluatedKey,
   PutSnapshotResultItem,
-} from 'src/shared/schemas/trpc'
+} from 'src/shared/vault/api'
 type SyncMessageEnvelope = {
   iv: string
   cipher: string
@@ -17,17 +17,17 @@ type SyncMessageEnvelope = {
   kver?: string
 }
 
-let cachedClient: { authToken: string; client: ReturnType<typeof createTRPCProxyClient<AppRouter>> } | null = null
+let cachedClient: { authToken: string; client: ReturnType<typeof createTRPCProxyClient<VaultRouter>> } | null = null
 
 function createWorkerSyncClient(authToken: string) {
   if (cachedClient && cachedClient.authToken === authToken) {
     return cachedClient.client
   }
 
-  const client = createTRPCProxyClient<AppRouter>({
+  const client = createTRPCProxyClient<VaultRouter>({
     links: [
       httpBatchLink({
-        url: `${env.VAULT_ENDPOINT}/trpc`,
+        url: getVaultTrpcUrl(),
         headers: {
           Authorization: `Basic ${authToken}`,
         },

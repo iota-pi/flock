@@ -1,14 +1,15 @@
-import type { ItemId } from '../../../shared/schemas/items'
-import type { AccountMetadata } from '../../../state/metadata'
+import type { ItemId } from '../../../shared/vault/ids'
+import type { VaultMetadata } from '../../shared/types'
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import { AsyncMutex } from '../../utils/AsyncMutex'
 import type { LifecycleAware } from '../ServiceLifecycleManager'
+import { getVaultStorageNames } from '../../shared/storageNames'
 
 interface IndexBroadcastMessage {
   type: 'indexUpdated' | 'metadataUpdated'
   itemIds?: ItemId[]
-  metadata?: AccountMetadata
+  metadata?: VaultMetadata
 }
 
 const INDEX_LOCK_TIMEOUT_MS = 10000
@@ -32,7 +33,7 @@ export class AutomergeIndexManager implements LifecycleAware {
     private readonly accountId: string,
     public readonly indexStore: IndexStore,
     private readonly onIndexUpdated?: (itemIds: ItemId[]) => void,
-    private readonly onMetadataUpdated?: (metadata: AccountMetadata) => void,
+    private readonly onMetadataUpdated?: (metadata: VaultMetadata) => void,
   ) {
     this.setupBroadcastChannel()
   }
@@ -43,7 +44,7 @@ export class AutomergeIndexManager implements LifecycleAware {
     }
 
     try {
-      this.broadcastChannel = new BroadcastChannel(`flock-index-channel-${this.accountId}`)
+      this.broadcastChannel = new BroadcastChannel(`${getVaultStorageNames().accountPrefixes.indexChannel}${this.accountId}`)
       this.broadcastChannel.onmessage = (event: MessageEvent<IndexBroadcastMessage>) => {
         if (this.isClosed || !event.data) return
 
@@ -77,7 +78,7 @@ export class AutomergeIndexManager implements LifecycleAware {
     this.onIndexUpdated?.(itemIds)
   }
 
-  private handleRemoteMetadataUpdated(metadata: AccountMetadata): void {
+  private handleRemoteMetadataUpdated(metadata: VaultMetadata): void {
     this.onMetadataUpdated?.(metadata)
   }
 
@@ -99,11 +100,11 @@ export class AutomergeIndexManager implements LifecycleAware {
     }
   }
 
-  private notifyLocalMetadataUpdated(metadata: AccountMetadata): void {
+  private notifyLocalMetadataUpdated(metadata: VaultMetadata): void {
     this.onMetadataUpdated?.(metadata)
   }
 
-  private broadcastMetadataUpdated(metadata: AccountMetadata): void {
+  private broadcastMetadataUpdated(metadata: VaultMetadata): void {
     if (!this.broadcastChannel || this.isClosed) return
     try {
       this.broadcastChannel.postMessage({
@@ -130,7 +131,7 @@ export class AutomergeIndexManager implements LifecycleAware {
   private async withLock<T>(task: () => Promise<T>): Promise<T> {
     return this.mutex.runExclusive(async () => {
       if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
-        const lockName = `flock-index-lock-${this.accountId}`
+        const lockName = `${getVaultStorageNames().accountPrefixes.indexLock}${this.accountId}`
         const controller = new AbortController()
         const timeoutId = setTimeout(() => {
           controller.abort(new Error(`Index lock request timed out after ${INDEX_LOCK_TIMEOUT_MS}ms`))
@@ -264,12 +265,12 @@ export class AutomergeIndexManager implements LifecycleAware {
     return index.tombstoneIds || []
   }
 
-  async getAutomergeMetadata(): Promise<AccountMetadata> {
+  async getAutomergeMetadata(): Promise<VaultMetadata> {
     const index = await this.getIndexSnapshot()
     return index.metadata || {}
   }
 
-  async updateLocalMetadata(metadata: AccountMetadata): Promise<void> {
+  async updateLocalMetadata(metadata: VaultMetadata): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       doc.metadata = metadata
@@ -279,7 +280,7 @@ export class AutomergeIndexManager implements LifecycleAware {
     })
   }
 
-  async updateAutomergeMetadata(changes: Partial<AccountMetadata>): Promise<AccountMetadata> {
+  async updateAutomergeMetadata(changes: Partial<VaultMetadata>): Promise<VaultMetadata> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       doc.metadata = { ...doc.metadata, ...changes }

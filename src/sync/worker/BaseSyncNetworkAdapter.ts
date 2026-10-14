@@ -18,7 +18,7 @@ export interface BaseSyncNetworkAdapterOptions {
 /**
  * BaseSyncNetworkAdapter provides a consolidated connection state machine,
  * disconnect buffering and replay queue, and Automerge Repo adapter event
- * dispatching for Flock network adapters.
+ * dispatching for the vault network adapters.
  */
 export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
   protected connected = false

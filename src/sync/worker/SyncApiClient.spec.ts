@@ -16,8 +16,8 @@ vi.mock('../../api/vault/ItemClient', () => ({
 
 const mockGetMetadata = vi.fn()
 const mockUpdateMetadata = vi.fn()
-vi.mock('src/api/trpcClient', () => ({
-  getTrpcClient: () => ({
+vi.mock('src/api/vaultTrpcClient', () => ({
+  getVaultTrpcClient: () => ({
     accounts: {
       getMetadata: {
         query: (...args: any[]) => mockGetMetadata(...args),
