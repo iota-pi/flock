@@ -97,7 +97,6 @@ vi.mock('./SyncWorkerContext', () => {
       snapshotManager = {
         onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
         markItemDirty: vi.fn(),
-        recordInboundChange: vi.fn(),
         flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
         exportLastModified: vi.fn().mockReturnValue({}),
         importLastModified: vi.fn().mockResolvedValue(undefined),

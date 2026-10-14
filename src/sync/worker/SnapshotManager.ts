@@ -130,10 +130,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     return this.tracker.deleteDirtyItem(itemId)
   }
 
-  recordInboundChange(itemId: ItemId, timestamp: number = Date.now()): void {
-    this.tracker.recordInboundChange(itemId, timestamp)
-  }
-
   getLastSnapshotAt(itemId: ItemId): number | undefined {
     return this.tracker.getLastSnapshotAt(itemId)
   }

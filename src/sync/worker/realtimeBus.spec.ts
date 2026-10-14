@@ -332,6 +332,52 @@ describe('realtimeBus', () => {
     consoleWarnSpy.mockRestore()
   })
 
+  it('delivers item_dirty messages only to item-dirty listeners', async () => {
+    const { subscribeRealtimeBusSyncPing, subscribeRealtimeBusItemDirty } = await import('./realtimeBus')
+    const pingListener = vi.fn()
+    const dirtyListener = vi.fn()
+    const unsubPing = subscribeRealtimeBusSyncPing('acc-1', pingListener)
+    const unsubDirty = subscribeRealtimeBusItemDirty('acc-1', dirtyListener)
+
+    expect(MockBroadcastChannel.instances).toHaveLength(1)
+    const channel = MockBroadcastChannel.instances[0]
+
+    channel.onmessage!({ data: { type: 'item_dirty', itemIds: ['item-a'] } } as MessageEvent)
+    expect(dirtyListener).toHaveBeenCalledWith(['item-a'])
+    expect(pingListener).not.toHaveBeenCalled()
+
+    channel.onmessage!({ data: { type: 'sync_ping', itemIds: ['item-b'] } } as MessageEvent)
+    expect(pingListener).toHaveBeenCalledWith(['item-b'])
+    expect(dirtyListener).toHaveBeenCalledTimes(1)
+
+    unsubPing()
+    unsubDirty()
+  })
+
+  it('publishes item_dirty messages', async () => {
+    const { subscribeRealtimeBusItemDirty, publishRealtimeBusItemDirty } = await import('./realtimeBus')
+    const unsubscribe = subscribeRealtimeBusItemDirty('acc-1', vi.fn())
+    const channel = MockBroadcastChannel.instances[0]
+
+    publishRealtimeBusItemDirty('acc-1', ['item-1'] as ItemId[])
+    expect(channel.postMessage).toHaveBeenCalledWith({ type: 'item_dirty', itemIds: ['item-1'] })
+
+    unsubscribe()
+  })
+
+  it('keeps the channel open until both ping and item-dirty listeners unsubscribe', async () => {
+    const { subscribeRealtimeBusSyncPing, subscribeRealtimeBusItemDirty } = await import('./realtimeBus')
+    const unsubPing = subscribeRealtimeBusSyncPing('acc-1', vi.fn())
+    const unsubDirty = subscribeRealtimeBusItemDirty('acc-1', vi.fn())
+    const channel = MockBroadcastChannel.instances[0]
+
+    unsubPing()
+    expect(channel.close).not.toHaveBeenCalled()
+
+    unsubDirty()
+    expect(channel.close).toHaveBeenCalledTimes(1)
+  })
+
   it('logs a warning on message deserialization error', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { subscribeRealtimeBusSyncPing } = await import('./realtimeBus')

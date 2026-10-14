@@ -1276,13 +1276,6 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(lastSnapshotAt).toBeGreaterThan(0)
     })
 
-    it('recordInboundChange updates localModifiedAt without adding to dirtyItems', () => {
-      manager.recordInboundChange('item-inbound' as ItemId, 9999)
-
-      expect(manager.getLocalModifiedAt('item-inbound' as ItemId)).toBe(9999)
-      expect(manager['dirtyItems'].has('item-inbound' as ItemId)).toBe(false)
-    })
-
     it('markItemDirty respects custom debounce delay (e.g. 2000ms)', async () => {
       mockPutSnapshotsWithToken.mockResolvedValue({
         success: true,
@@ -1310,10 +1303,11 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(manager.getLastSnapshotAt('item-2' as ItemId)).toBe(2000)
       })
 
-      it('preserves lastSnapshotAt for unsaved dirty items when mod <= localModifiedAt', async () => {
+      it('preserves lastSnapshotAt for unsaved dirty items', async () => {
         // item-1 has local edits (localMod: 5000 > lastSnap: 2000)
         manager['lastModifiedByItemId'].set('item-1' as ItemId, 5000)
         manager['lastSnapshotAtByItemId'].set('item-1' as ItemId, 2000)
+        manager.markItemDirty('item-1' as ItemId)
 
         // importLastModified is called with local timestamp (e.g. 5000)
         await manager.importLastModified([['item-1' as ItemId, 5000]])
@@ -1324,6 +1318,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       it('preserves undefined lastSnapshotAt for newly created unsaved offline items', async () => {
         manager['lastModifiedByItemId'].set('item-new' as ItemId, 5000)
+        manager.markItemDirty('item-new' as ItemId)
 
         await manager.importLastModified([['item-new' as ItemId, 5000]])
 
@@ -1434,7 +1429,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(manager.exportLastModified()).toEqual([['item-1', 33000]])
       })
 
-      it('retains newer localModifiedAt and re-enqueues item if inbound change occurs during snapshot encryption (C3 fix)', async () => {
+      it('retains newer localModifiedAt and re-enqueues item if a local edit occurs during snapshot encryption (C3 fix)', async () => {
         vi.setSystemTime(1000)
         manager.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
@@ -1444,9 +1439,9 @@ describe('SnapshotManager Retry Mechanism', () => {
 
         const { encryptBytes } = await import('../../api/vault')
         vi.mocked(encryptBytes).mockImplementationOnce(async () => {
-          // Inbound change arrives at T2 (31000) while encryption is in-flight
+          // Local edit arrives at T2 (31000) while encryption is in-flight
           vi.setSystemTime(31000)
-          manager.recordInboundChange('item-1' as ItemId, 31000)
+          manager.markItemDirty('item-1' as ItemId)
           // Encryption completes at T3 (32000)
           vi.setSystemTime(32000)
           return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
@@ -1462,8 +1457,12 @@ describe('SnapshotManager Retry Mechanism', () => {
 
         // Snapshot timestamp was captured at T1 (30000), so lastSnapshotAt must be 30000
         expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(30000)
-        // Inbound edit was at T2 (31000), so localModifiedAt must be 31000 (> lastSnapshotAt 30000)
-        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(31000)
+        // The edit made during encryption keeps the item dirty
+        expect(manager.getDirtyItemIds()).toContain('item-1')
+
+        // Debounced flush records the edit as newer than the uploaded snapshot
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBeGreaterThan(30000)
 
         // Persist timestamps and simulate restart / promotion audit
         await manager.persistLastModified()
@@ -1471,7 +1470,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(manager.getDirtyItemIds()).not.toContain('item-1')
 
         await manager.loadLastModified()
-        // Startup audit should detect localMod (31000) > lastSnap (30000) and re-enqueue item-1
+        // Startup audit should detect localMod > lastSnap (30000) and re-enqueue item-1
         expect(manager.getDirtyItemIds()).toContain('item-1')
       })
 
@@ -1496,7 +1495,6 @@ describe('SnapshotManager Retry Mechanism', () => {
     describe('shutdown', () => {
       it('cancels debounced timers and persists timestamps on shutdown', async () => {
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
-        manager.recordInboundChange('item-inbound' as ItemId, 1234)
         manager.markItemDirty('item-dirty' as ItemId)
 
         await manager.shutdown()
@@ -1533,12 +1531,11 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(saveSpy).toHaveBeenCalledTimes(1)
       })
 
-      it('ignores markItemDirty and recordInboundChange after shutdown', async () => {
+      it('ignores markItemDirty after shutdown', async () => {
         await manager.shutdown()
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
 
         manager.markItemDirty('item-after-shutdown' as ItemId)
-        manager.recordInboundChange('item-after-shutdown' as ItemId)
         vi.advanceTimersByTime(5000)
 
         expect(saveSpy).not.toHaveBeenCalled()
