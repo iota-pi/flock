@@ -209,23 +209,25 @@ export class SyncPoller {
 
     // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
     // and clientLatestCursor (for global updates across all other healthy items).
-    const globalLastEvaluatedKey = this.pullQueueManager.getGlobalLastEvaluatedKey()
+    const globalPageToken = this.pullQueueManager.getGlobalPageToken()
+    const pullCursors = this.pullQueueManager.getCursors()
+    const hasPageTokens = !!globalPageToken || pullCursors.some(c => c.pageToken)
     let response: PollSyncBatchResponse
     try {
       response = await this.apiClient.pollSyncBatch(
         {
           account: this.account!,
           pushMessages,
-          pullCursors: this.pullQueueManager.getCursors(),
+          pullCursors,
           clientLatestCursor: this.pullQueueManager.getGlobalScanCursor(),
-          globalLastEvaluatedKey,
+          globalPageToken,
         },
         { signal }
       )
     } catch (error) {
-      if (globalLastEvaluatedKey && this.isRejectedRequest(error)) {
-        console.warn('[SyncPoller] Server rejected global pagination; restarting the global scan', error)
-        this.pullQueueManager.resetGlobalPagination()
+      if (hasPageTokens && this.isRejectedRequest(error)) {
+        console.warn('[SyncPoller] Server rejected a page token; restarting pagination from the cursors', error)
+        this.pullQueueManager.resetPagination()
       }
       throw error
     }
@@ -365,7 +367,7 @@ export class SyncPoller {
         await this.pullQueueManager.processPullResults(
           response.pullResults ?? [],
           hasMoreGlobal,
-          response.globalLastEvaluatedKey,
+          response.globalNextPageToken,
           response.globalScannedThroughCursor,
         )
       } else if (response.pullResults) {

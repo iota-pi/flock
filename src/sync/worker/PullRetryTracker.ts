@@ -1,13 +1,13 @@
 import { hasVaultKey } from 'src/api/vault'
 import { ItemId } from 'src/shared/vault/ids'
-import type { SyncMessageLastEvaluatedKey } from 'src/shared/vault/api'
+import type { PageToken } from 'src/shared/vault/api'
 
 export interface ItemPullState {
   cursor: number
   pending: boolean
   retryCount: number
   blockedOnKey?: string
-  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
+  pageToken?: PageToken
 }
 
 export interface RecordPullOutcomeParams {
@@ -21,7 +21,7 @@ export interface RecordPullOutcomeParams {
   failingCursor?: number
   hasMore: boolean
   nextCursor?: number
-  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
+  pageToken?: PageToken
   /**
    * Whether this outcome may advance the global scan cursor. Only legacy servers, which don't
    * report the global scan position, rely on per-item results for this. Defaults to true.
@@ -54,7 +54,7 @@ export interface PullStateTransition {
   pending: boolean
   retryCount: number
   blockedOnKey?: string
-  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
+  pageToken?: PageToken
   permanentlyFailed: boolean
   advanceCursor?: number
   cursorUpdated: boolean
@@ -154,15 +154,15 @@ export class PullRetryTracker {
     return unblockedAny
   }
 
-  getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
-    const cursors: Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> = []
+  getCursors(): Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> {
+    const cursors: Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> = []
 
     for (const [itemId, state] of this.retryQueue.entries()) {
       if (state.blockedOnKey && !hasVaultKey(state.blockedOnKey)) {
         continue
       }
       if (state.pending) {
-        cursors.push({ itemId, cursor: state.cursor, lastEvaluatedKey: state.lastEvaluatedKey })
+        cursors.push({ itemId, cursor: state.cursor, pageToken: state.pageToken })
       }
     }
 
@@ -294,6 +294,13 @@ export class PullRetryTracker {
     }
   }
 
+  /** Drops every per-item page token, so pending items continue from their cursors */
+  clearPageTokens(): void {
+    for (const state of this.retryQueue.values()) {
+      state.pageToken = undefined
+    }
+  }
+
   clear(): void {
     this.globalCursor = 0
     this.retryQueue.clear()
@@ -314,7 +321,7 @@ export class PullRetryTracker {
       failingCursor,
       hasMore,
       nextCursor,
-      lastEvaluatedKey,
+      pageToken,
     } = outcome
 
     let highestCursor = outcome.highestCursor
@@ -322,7 +329,7 @@ export class PullRetryTracker {
     let pending: boolean
     let retryCount = state.retryCount
     let nextBlockedOnKey = state.blockedOnKey
-    let nextLastEvaluatedKey: SyncMessageLastEvaluatedKey | undefined
+    let nextPageToken: PageToken | undefined
     let permanentlyFailed = false
     let advanceCursor: number | undefined
     let removeFromRetryQueue = false
@@ -332,7 +339,7 @@ export class PullRetryTracker {
     if (hasKeyFailure) {
       kind = 'key-failure'
       pending = true
-      nextLastEvaluatedKey = undefined
+      nextPageToken = undefined
       if (blockedOnKey) {
         nextBlockedOnKey = blockedOnKey
       }
@@ -341,13 +348,13 @@ export class PullRetryTracker {
       pending = true
       retryCount = 0
       nextBlockedOnKey = undefined
-      nextLastEvaluatedKey = lastEvaluatedKey
+      nextPageToken = pageToken
       if (highestCursor > targetCursor) {
         targetCursor = highestCursor
       }
       updateGlobalCursor = true
     } else if (hasParseFailure) {
-      nextLastEvaluatedKey = undefined
+      nextPageToken = undefined
       const nextRetries = state.retryCount + 1
 
       if (nextRetries >= maxRetries) {
@@ -382,7 +389,7 @@ export class PullRetryTracker {
       pending = false
       retryCount = 0
       nextBlockedOnKey = undefined
-      nextLastEvaluatedKey = undefined
+      nextPageToken = undefined
       targetCursor = highestCursor
       removeFromRetryQueue = true
       updateGlobalCursor = true
@@ -404,7 +411,7 @@ export class PullRetryTracker {
       pending,
       retryCount,
       blockedOnKey: nextBlockedOnKey,
-      lastEvaluatedKey: nextLastEvaluatedKey,
+      pageToken: nextPageToken,
       permanentlyFailed,
       advanceCursor,
       cursorUpdated,
@@ -418,7 +425,7 @@ export class PullRetryTracker {
     state.pending = transition.pending
     state.retryCount = transition.retryCount
     state.blockedOnKey = transition.blockedOnKey
-    state.lastEvaluatedKey = transition.lastEvaluatedKey
+    state.pageToken = transition.pageToken
   }
 
   advanceGlobalCursor(itemId: ItemId, transition: PullStateTransition, allowGlobalAdvance = true): void {

@@ -7,8 +7,7 @@ import type { DOC_BOUND_FORMAT } from 'src/shared/vault/crypto'
 import type { z } from 'zod'
 import type {
   SyncPollBatchSchema,
-  SyncMessageLastEvaluatedKey,
-  GlobalSyncLastEvaluatedKey,
+  PageToken,
   PutSnapshotResultItem,
 } from 'src/shared/vault/api'
 type SyncMessageEnvelope = {
@@ -51,7 +50,7 @@ export type PullSyncMessagesResponse = {
     encryptedMessage: SyncMessageEnvelope
   }>
   hasMore: boolean
-  lastEvaluatedKey?: SyncMessageLastEvaluatedKey
+  nextPageToken?: PageToken
 }
 
 export type PushResultItem = {
@@ -66,7 +65,7 @@ export type PollSyncBatchResponse = {
   pushResults: Array<PushResultItem>
   pullResults: Array<PullSyncMessagesResponse>
   hasMore?: boolean
-  globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey
+  globalNextPageToken?: PageToken
   // Whether the account-wide scan has more pages
   globalHasMore?: boolean
   // Highest cursor examined by the account-wide scan

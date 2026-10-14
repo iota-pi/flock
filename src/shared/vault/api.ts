@@ -79,23 +79,17 @@ export const SyncPushBatchSchema = z.object({
   })).min(1).max(1000),
 })
 
-export const SyncMessageLastEvaluatedKeySchema = z.object({
-  syncId: z.string().min(1),
-  cursor: z.number().int().min(0),
-}).strict()
-export type SyncMessageLastEvaluatedKey = z.infer<typeof SyncMessageLastEvaluatedKeySchema>
-
-export const GlobalSyncLastEvaluatedKeySchema = z.object({
-  account: z.string().min(1),
-  cursor: z.number().int().min(0),
-  syncId: z.string().min(1),
-}).strict()
-export type GlobalSyncLastEvaluatedKey = z.infer<typeof GlobalSyncLastEvaluatedKeySchema>
+/**
+ * Continues a paginated pull where the previous page stopped. Only the driver that issued it
+ * knows what it contains; clients pass it back unchanged.
+ */
+export const PageTokenSchema = z.string().min(1).max(2048)
+export type PageToken = z.infer<typeof PageTokenSchema>
 
 export const SyncPollBatchSchema = z.object({
   account: z.string().min(1),
   clientLatestCursor: z.number().int().min(0).optional(),
-  globalLastEvaluatedKey: GlobalSyncLastEvaluatedKeySchema.optional(),
+  globalPageToken: PageTokenSchema.optional(),
   pushMessages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
@@ -103,7 +97,7 @@ export const SyncPollBatchSchema = z.object({
   pullCursors: z.array(z.object({
     itemId: ItemIdSchema,
     cursor: z.number().int().min(0).optional(),
-    lastEvaluatedKey: SyncMessageLastEvaluatedKeySchema.optional(),
+    pageToken: PageTokenSchema.optional(),
   })).max(100).default([]),
 })
 

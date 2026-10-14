@@ -9,7 +9,7 @@ import {
   VaultItemSchema,
   StoredSyncMessageSchema,
 } from '../../shared/vault/storage'
-import type { ManifestEntry, SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
+import type { ManifestEntry, PageToken } from 'src/shared/vault/api'
 
 export type VaultKey = z.infer<typeof VaultKeySchema>
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
@@ -88,17 +88,40 @@ export default abstract class BaseDriver<T = unknown> {
     }>
   }): Promise<void>
 
+  /**
+   * Returns an item's messages with a cursor after `fromCursor`, in pages. Pass a page's
+   * `nextPageToken` back as `pageToken` (with the same `fromCursor`) to get the next page. Throws
+   * `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
+   * starts before `fromCursor`.
+   */
   abstract getSyncMessages(input: {
     account: string
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: SyncMessageLastEvaluatedKey
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }>
+    pageToken?: PageToken
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: PageToken }>
+
+  /**
+   * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
+   * as in `getSyncMessages`, except that a token is not checked against `cursor`.
+   * `scannedThroughCursor` is the highest cursor the page examined.
+   */
+  /**
+   * Throws `InvalidPageTokenError` if the matching query would reject `pageToken`: the per-item
+   * query when `itemId` is given, otherwise the account-wide one. Lets callers reject a request
+   * before acting on any of it.
+   */
+  abstract validatePageToken(input: {
+    account: string
+    itemId?: ItemId
+    cursor?: number
+    pageToken: PageToken
+  }): void
 
   abstract getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }>
+    pageToken?: PageToken
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: PageToken; scannedThroughCursor: number }>
 }

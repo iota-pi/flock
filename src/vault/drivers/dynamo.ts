@@ -20,6 +20,7 @@ import {
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
+import { z } from 'zod'
 import {
   safeEqual,
   generateAccountId,
@@ -34,7 +35,7 @@ import BaseDriver, {
   VaultItem,
   VaultSessionRecord,
 } from './base'
-import { ExpiredSessionError } from './errors'
+import { ExpiredSessionError, InvalidPageTokenError } from './errors'
 import { VersionConflictError } from '../../shared/vault/syncErrors'
 import type { ItemId } from 'src/shared/vault/ids'
 import {
@@ -42,7 +43,7 @@ import {
   isResourceInUseError,
   isTransientDynamoError,
 } from './dynamoErrors'
-import type { ManifestEntry, SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
+import type { ManifestEntry, PageToken } from 'src/shared/vault/api'
 import { MAX_ITEM_SIZE } from 'src/shared/vault/limits'
 
 export interface VaultTableNames {
@@ -897,25 +898,15 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: SyncMessageLastEvaluatedKey
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
-    const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
-    const hasCursor = typeof fromCursor === 'number'
+    pageToken?: PageToken
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: PageToken }> {
     const expectedSyncId = `${input.account}#${input.itemId}`
-    let exclusiveStartKey: Record<string, unknown> | undefined = undefined
-    if (input.exclusiveStartKey) {
-      if (input.exclusiveStartKey.syncId !== expectedSyncId) {
-        throw new Error(`Invalid exclusiveStartKey syncId: expected ${expectedSyncId}`)
-      }
-      const cursor = input.exclusiveStartKey.cursor
-      if (typeof cursor !== 'number' || !Number.isFinite(cursor) || cursor < 0) {
-        throw new Error('Invalid exclusiveStartKey cursor: must be a non-negative number')
-      }
-      exclusiveStartKey = {
-        syncId: expectedSyncId,
-        cursor,
-      }
-    }
+    const exclusiveStartKey = input.pageToken
+      ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
+      : undefined
+    // A continuation starts from the token, which already lies after fromCursor
+    const fromCursor = exclusiveStartKey ? undefined : input.fromCursor
+    const hasCursor = typeof fromCursor === 'number'
 
     const response = await this.client.send(new QueryCommand({
       TableName: this.tables.syncMessages,
@@ -936,37 +927,36 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return {
       messages: (response.Items as StoredSyncMessage[]) || [],
       hasMore: !!response.LastEvaluatedKey,
-      lastEvaluatedKey: response.LastEvaluatedKey as SyncMessageLastEvaluatedKey | undefined,
+      nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
+    }
+  }
+
+  validatePageToken(input: {
+    account: string
+    itemId?: ItemId
+    cursor?: number
+    pageToken: PageToken
+  }): void {
+    if (input.itemId) {
+      decodeItemPageToken(input.pageToken, `${input.account}#${input.itemId}`, input.cursor)
+    } else {
+      decodeGlobalPageToken(input.pageToken, input.account)
     }
   }
 
   async getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }> {
+    pageToken?: PageToken
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: PageToken; scannedThroughCursor: number }> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
-    const hasCursor = typeof input.cursor === 'number'
 
-    let exclusiveStartKey: Record<string, unknown> | undefined = undefined
-    if (input.exclusiveStartKey) {
-      if (input.exclusiveStartKey.account !== input.account) {
-        throw new Error(`Invalid exclusiveStartKey account: expected ${input.account}`)
-      }
-      const syncId = input.exclusiveStartKey.syncId
-      if (typeof syncId !== 'string' || !syncId.startsWith(`${input.account}#`)) {
-        throw new Error(`Invalid exclusiveStartKey syncId: expected prefix ${input.account}#`)
-      }
-      const cursor = input.exclusiveStartKey.cursor
-      if (typeof cursor !== 'number' || !Number.isFinite(cursor) || cursor < 0) {
-        throw new Error('Invalid exclusiveStartKey cursor: must be a non-negative number')
-      }
-      exclusiveStartKey = {
-        account: input.account,
-        cursor,
-        syncId,
-      }
-    }
+    const exclusiveStartKey = input.pageToken
+      ? decodeGlobalPageToken(input.pageToken, input.account)
+      : undefined
+    // A continuation starts from the token, which already lies after the cursor
+    const cursor = exclusiveStartKey ? undefined : input.cursor
+    const hasCursor = typeof cursor === 'number'
 
     const response = await this.client.send(new QueryCommand({
       TableName: this.tables.syncMessages,
@@ -979,7 +969,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         : undefined,
       ExpressionAttributeValues: {
         ':account': input.account,
-        ...(hasCursor ? { ':cursor': input.cursor } : undefined),
+        ...(hasCursor ? { ':cursor': cursor } : undefined),
       },
       Limit: DEFAULT_SYNC_MESSAGE_LIMIT,
       ExclusiveStartKey: exclusiveStartKey,
@@ -987,9 +977,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
     // Highest cursor examined by this page (before any caller-side filtering), so clients can
     // track the global scan position independently of per-item cursors.
-    let scannedThroughCursor = typeof input.exclusiveStartKey?.cursor === 'number'
-      ? input.exclusiveStartKey.cursor
-      : (input.cursor ?? 0)
+    let scannedThroughCursor = exclusiveStartKey?.cursor ?? input.cursor ?? 0
 
     for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
       if (typeof item.cursor === 'number' && item.cursor > scannedThroughCursor) {
@@ -1016,10 +1004,62 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         messages: messages.sort((a, b) => a.cursor - b.cursor),
       })),
       hasMore: !!response.LastEvaluatedKey,
-      lastEvaluatedKey: response.LastEvaluatedKey as GlobalSyncLastEvaluatedKey | undefined,
+      nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
       scannedThroughCursor,
     }
   }
+}
+
+// Page tokens wrap DynamoDB's LastEvaluatedKey. Clients can read and forge them, which only lets
+// them page through their own account's messages, so the keys are validated but not signed.
+const SyncMessageKeySchema = z.object({
+  syncId: z.string().min(1),
+  cursor: z.number().int().min(0),
+}).strict()
+type SyncMessageKey = z.infer<typeof SyncMessageKeySchema>
+
+const GlobalSyncMessageKeySchema = z.object({
+  account: z.string().min(1),
+  cursor: z.number().int().min(0),
+  syncId: z.string().min(1),
+}).strict()
+type GlobalSyncMessageKey = z.infer<typeof GlobalSyncMessageKeySchema>
+
+function encodePageToken(key: Record<string, unknown>): PageToken {
+  return Buffer.from(JSON.stringify(key), 'utf8').toString('base64url')
+}
+
+function decodeItemPageToken(token: PageToken, expectedSyncId: string, fromCursor?: number): SyncMessageKey {
+  const key = decodePageToken(token, SyncMessageKeySchema)
+  if (key.syncId !== expectedSyncId) {
+    throw new InvalidPageTokenError(`Page token is for another item: expected ${expectedSyncId}`)
+  }
+  if (typeof fromCursor === 'number' && key.cursor < fromCursor) {
+    throw new InvalidPageTokenError(`Page token cannot start before cursor ${fromCursor}`)
+  }
+  return key
+}
+
+function decodeGlobalPageToken(token: PageToken, account: string): GlobalSyncMessageKey {
+  const key = decodePageToken(token, GlobalSyncMessageKeySchema)
+  if (key.account !== account || !key.syncId.startsWith(`${account}#`)) {
+    throw new InvalidPageTokenError(`Page token is for another account: expected ${account}`)
+  }
+  return key
+}
+
+function decodePageToken<T>(token: PageToken, schema: z.ZodType<T>): T {
+  let key: unknown
+  try {
+    key = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'))
+  } catch {
+    throw new InvalidPageTokenError('Page token is malformed')
+  }
+  const parsed = schema.safeParse(key)
+  if (!parsed.success) {
+    throw new InvalidPageTokenError('Page token is malformed')
+  }
+  return parsed.data
 }
 
 export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBClientConfig {

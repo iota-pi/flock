@@ -7,7 +7,7 @@ import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from './utils/errorClassifier'
 import { ItemId } from 'src/shared/vault/ids'
-import type { GlobalSyncLastEvaluatedKey, SyncMessageLastEvaluatedKey } from 'src/shared/vault/api'
+import type { PageToken } from 'src/shared/vault/api'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
@@ -44,7 +44,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   private readonly retryTracker = new PullRetryTracker()
   private hasMoreGlobal = false
-  private globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey
+  private globalPageToken?: PageToken
   public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
 
   private readonly batchProgress = new BoundedMap<string, number>(BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
@@ -135,7 +135,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     this.batchProgress.clear()
     this.ownPushedMessageKeys.clear()
     this.hasMoreGlobal = false
-    this.globalLastEvaluatedKey = undefined
+    this.globalPageToken = undefined
     this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
 
     if (account) {
@@ -267,7 +267,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  getCursors(): Array<{ itemId: ItemId; cursor: number; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
+  getCursors(): Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> {
     return this.retryTracker.getCursors()
   }
 
@@ -297,16 +297,18 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   }
 
   /**
-   * Abandons an in-progress global pagination so the next poll restarts the account-wide scan
-   * from the persisted scan cursor (e.g. after the server rejected the continuation key).
+   * Abandons in-progress paginations after the server rejected a page token: the next poll
+   * restarts the account-wide scan from the persisted scan cursor, and pending items continue
+   * from their cursors.
    */
-  resetGlobalPagination(): void {
+  resetPagination(): void {
     this.hasMoreGlobal = false
-    this.globalLastEvaluatedKey = undefined
+    this.globalPageToken = undefined
+    this.retryTracker.clearPageTokens()
   }
 
-  getGlobalLastEvaluatedKey(): GlobalSyncLastEvaluatedKey | undefined {
-    return this.hasMoreGlobal ? this.globalLastEvaluatedKey : undefined
+  getGlobalPageToken(): PageToken | undefined {
+    return this.hasMoreGlobal ? this.globalPageToken : undefined
   }
 
   private async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
@@ -433,7 +435,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       failingCursor: messageResult.failingCursor,
       hasMore,
       nextCursor: result.nextCursor,
-      lastEvaluatedKey: result.lastEvaluatedKey,
+      pageToken: result.nextPageToken,
       advanceGlobalCursor,
     })
 
@@ -479,13 +481,13 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   async processPullResults(
     results: PullSyncMessagesResponse[],
     hasMoreGlobal?: boolean,
-    globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey,
+    globalNextPageToken?: PageToken,
     globalScannedThroughCursor?: number,
   ): Promise<void> {
     if (!this.account || this.isShutdown) return
     if (typeof hasMoreGlobal === 'boolean') {
       this.hasMoreGlobal = hasMoreGlobal
-      this.globalLastEvaluatedKey = hasMoreGlobal ? globalLastEvaluatedKey : undefined
+      this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
     }
 
     const successfullyPulledItemIds = new Set<ItemId>()

@@ -1,7 +1,7 @@
 import type BaseDriver from '../drivers/base'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { StoredSyncMessage } from '../drivers/base'
-import type { SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
+import type { PageToken } from 'src/shared/vault/api'
 
 type AppendSyncMessageInput = {
   account: string
@@ -23,13 +23,14 @@ export interface AutomergeSyncRepository {
     itemId: ItemId
     fromCursor?: number
     limit?: number
-    exclusiveStartKey?: SyncMessageLastEvaluatedKey
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }>
+    pageToken?: PageToken
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: PageToken }>
   getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number
-    exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }>
+    pageToken?: PageToken
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: PageToken; scannedThroughCursor: number }>
+  validatePageToken(input: { account: string; itemId?: ItemId; cursor?: number; pageToken: PageToken }): void
 }
 
 export function createDynamoAutomergeSyncRepository(driver: BaseDriver): AutomergeSyncRepository {
@@ -54,17 +55,21 @@ export function createDynamoAutomergeSyncRepository(driver: BaseDriver): Automer
       itemId: ItemId
       fromCursor?: number
       limit?: number
-      exclusiveStartKey?: SyncMessageLastEvaluatedKey
-    }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: SyncMessageLastEvaluatedKey }> {
+      pageToken?: PageToken
+    }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: PageToken }> {
       return driver.getSyncMessages(input)
     },
 
     async getGlobalSyncMessagesAfterCursor(input: {
       account: string
       cursor?: number
-      exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }> {
+      pageToken?: PageToken
+    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: PageToken; scannedThroughCursor: number }> {
       return driver.getGlobalSyncMessagesAfterCursor(input)
+    },
+
+    validatePageToken(input: { account: string; itemId?: ItemId; cursor?: number; pageToken: PageToken }): void {
+      driver.validatePageToken(input)
     },
   }
 }

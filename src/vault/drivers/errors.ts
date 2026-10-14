@@ -13,3 +13,11 @@ export class ExpiredSessionError extends HttpError {
     this.name = 'ExpiredSessionError'
   }
 }
+
+/** A page token that is malformed, or was issued for another account, item or query */
+export class InvalidPageTokenError extends HttpError {
+  constructor(message: string) {
+    super(400, message)
+    this.name = 'InvalidPageTokenError'
+  }
+}
