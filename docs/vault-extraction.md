@@ -39,7 +39,7 @@ Extraction is feasible. Most of the engine is already generic. The WAL, poller, 
 
 1. **Account settings are stored on the server in plaintext** (`accounts.updateMetadata`). Make settings an encrypted Automerge doc with a fixed per-account ID created with the account. Keep its top level flat, because concurrent creation of the same nested map loses one side.
 2. **Drop the plaintext item `type`** sent with snapshots. The client never reads it back.
-3. **Bind ciphertexts to their context.** AES-GCM is used without associated data, so a malicious server could serve one item's snapshot as another's. Add `account|docId|kind` as associated data, with a format version on `CryptoResult`.
+3. **Bind ciphertexts to their document.** AES-GCM is used without associated data, so a malicious server could serve one item's snapshot as another's. Add the doc ID as associated data, with a format version on `CryptoResult`.
 4. **Opaque pagination tokens** instead of DynamoDB keys (`{account, syncId, cursor}`) on the wire, so non-Dynamo drivers are possible.
 5. **Legacy code** to delete or move into Flock-only plugins: the `cipher` item format (`decryptLegacyCipher`), the old salt encoding, lazy migration from per-store IndexedDB databases, the timestamp fallback in `ManifestDeltaCalculator` and the `compactItem` alias. Scan production `FlockItems` for rows with `cipher` and no `snapshot` before removing the first.
 
@@ -109,6 +109,10 @@ Each item under "Protocol choices" above, with a Flock data migration.
   - Flock's router keeps `accounts.getMetadata` (read-only), `accounts.updateMetadata` (accepts and discards writes from cached clients, whose settings stop syncing until they update) and adds `accounts.clearMetadata`. Deploy the server before the client.
   - After a deprecation window, run the `removeLegacyAccountMetadata` migration, then delete the legacy procedures, `LegacySettingsSource`, `legacySettings.ts` and `FlockAccountFieldsSchema.metadata`.
 - [x] 2.2: Snapshots no longer carry a plaintext `type`, and `DocCodec.snapshotKind` is gone. The server stops requiring `metadata.type`, and each new snapshot write replaces the whole `metadata` map, so it drops the field. Run the `removeItemTypeMetadata` migration to strip it from older rows. Deploy the server before the client: the old server rejects snapshots without `type`, while the new one ignores the `type` that cached old clients still send.
+- [x] 2.3: Snapshots and sync messages are encrypted with the item ID as AES-GCM associated data and carry `format: 2` (`DOC_BOUND_FORMAT`), so a ciphertext only decrypts as the item it was written for. Only the doc ID is bound: an account binding adds nothing while keys are per account, and swapping a snapshot for a message of the same item already fails to parse. The keyring, cross-tab messages and backup files stay unbound, because the server cannot swap them for anything useful.
+  - Unbound ciphertexts still decrypt, so the binding protects nothing against a malicious server yet: it can keep serving unbound ciphertexts it has stored. After each manifest sync without failures, `SnapshotFormatUpgrade` rewrites every snapshot once per device through `ItemReencryptor` (no key rotation). Sync messages expire after 90 days.
+  - Deploy the server before the client. The server schemas and the Dynamo driver keep `format`; an old server drops it, which leaves bound ciphertexts undecryptable. Cached old clients cannot read bound ciphertexts until they update.
+  - Still to do: once the `countUnboundSnapshots` migration reports zero (or the remaining accounts are accepted as lost to new devices), reject unbound snapshots and messages. An account whose devices never ran the rewrite keeps unbound snapshots: its existing devices hold the data locally and would rewrite it, but a new device could not load it.
 
 ### Stage 3: workspaces
 

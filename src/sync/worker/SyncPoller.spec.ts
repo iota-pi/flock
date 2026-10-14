@@ -8,6 +8,7 @@ import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from 'src/shared/vault/ids'
 import type { RecoveryManager } from './RecoveryManager'
+import { encryptBytes } from '../../api/vault'
 
 const mockPollSyncBatchWithToken = vi.fn()
 vi.mock('../../api/vault/SyncWorkerClient', () => ({
@@ -324,6 +325,31 @@ describe('SyncPoller', () => {
     expect(mockWal.remove).toHaveBeenCalledTimes(2)
     expect(mockWal.remove).toHaveBeenNthCalledWith(1, ['msg-0', 'msg-1', 'msg-2', 'msg-3', 'msg-4'])
     expect(mockWal.remove).toHaveBeenNthCalledWith(2, ['msg-5'])
+  })
+
+  it('binds each pushed message to its item and sends the ciphertext format', async () => {
+    vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+      ['item-a' as ItemId, [{ id: 'msg-a', itemId: 'item-a' as ItemId, data: new Uint8Array([1]), createdAt: 1 }]],
+    ]))
+    vi.mocked(encryptBytes).mockResolvedValueOnce({ iv: 'iv-a', cipher: 'cipher-a', kver: '2', format: 2 })
+    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      success: true,
+      pushResults: [{ itemId: 'item-a', cursor: 1 }],
+      pullResults: [],
+    })
+
+    await poller.executePoll()
+
+    expect(encryptBytes).toHaveBeenCalledWith(expect.any(Uint8Array), 'item-a')
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pushMessages: [{
+          itemId: 'item-a',
+          encryptedMessage: { iv: 'iv-a', cipher: 'cipher-a', kver: '2', format: 2, version: '1.0' },
+        }],
+      }),
+      expect.anything(),
+    )
   })
 
   describe('isAuthError classification', () => {

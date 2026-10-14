@@ -30,16 +30,14 @@ describe('decryptWithKeyResolution', () => {
     expect(result).toEqual(new Uint8Array([1, 2, 3]))
     expect(mockHasVaultKey).toHaveBeenCalledWith('1')
     expect(mockWaitForKeyVersion).not.toHaveBeenCalled()
-    expect(mockDecryptBytes).toHaveBeenCalledWith(payload)
+    expect(mockDecryptBytes).toHaveBeenCalledWith(payload, undefined)
   })
 
-  it('decrypts immediately when key is available in keyring (4-arg form)', async () => {
-    const result = await decryptWithKeyResolution('c-1', 'iv-1', '2', { timeoutMs: 1000 })
+  it('passes the document ID through for doc-bound ciphertexts', async () => {
+    const payload = { cipher: 'c-1', iv: 'iv-1', kver: '2', format: 2 as const }
+    await decryptWithKeyResolution(payload, { docId: 'item-1' })
 
-    expect(result).toEqual(new Uint8Array([1, 2, 3]))
-    expect(mockHasVaultKey).toHaveBeenCalledWith('2')
-    expect(mockWaitForKeyVersion).not.toHaveBeenCalled()
-    expect(mockDecryptBytes).toHaveBeenCalledWith({ cipher: 'c-1', iv: 'iv-1', kver: '2' })
+    expect(mockDecryptBytes).toHaveBeenCalledWith(payload, 'item-1')
   })
 
   it('defaults kver to "1" if undefined', async () => {
@@ -47,7 +45,7 @@ describe('decryptWithKeyResolution', () => {
 
     expect(result).toEqual(new Uint8Array([1, 2, 3]))
     expect(mockHasVaultKey).toHaveBeenCalledWith('1')
-    expect(mockDecryptBytes).toHaveBeenCalledWith({ cipher: 'c-1', iv: 'iv-1', kver: '1' })
+    expect(mockDecryptBytes).toHaveBeenCalledWith({ cipher: 'c-1', iv: 'iv-1', kver: '1' }, undefined)
   })
 
   it('fires onKeyVersionMissing and waits for key when key is not initially available', async () => {

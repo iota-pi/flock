@@ -23,6 +23,7 @@ import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycle
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
+import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { fireAndForget } from '../utils/fireAndForget'
 import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
@@ -93,6 +94,7 @@ export class SyncWorkerContext {
   public storageRecoveryService!: StorageRecoveryService
   public itemReencryptor!: ItemReencryptor
   public accountSettings!: AccountSettings
+  public snapshotFormatUpgrade!: SnapshotFormatUpgrade
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unsubscribers: Array<() => void> = []
@@ -141,6 +143,18 @@ export class SyncWorkerContext {
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
     this.itemReencryptor = new ItemReencryptor({ codec: this.domain.codec })
+    this.snapshotFormatUpgrade = new SnapshotFormatUpgrade({
+      accountId: config.accountId,
+      rewriteSnapshots: signal => this.itemReencryptor.reencryptAllItems({
+        accountId: config.accountId,
+        signal,
+        repo: this.repo,
+        indexManager: this.indexManager,
+        apiClient: this.apiClient,
+        recoveryManager: this.recoveryManager,
+        reencryptor: this.itemReencryptor,
+      }),
+    })
   }
 
   private wireEvents(): void {
@@ -279,6 +293,7 @@ export class SyncWorkerContext {
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       storeItems: (items, options) => itemOperations.storeItems(items, options),
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
+      onSyncedWithoutFailures: () => this.snapshotFormatUpgrade.onSyncedWithoutFailures(),
       onDecryptionFailure: (itemId, error) => {
         fireAndForget(this.recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error), 'SyncWorkerContext:reportDecryptionFailure')
       },
@@ -371,6 +386,7 @@ export class SyncWorkerContext {
       switch (event.type) {
         case 'leaderChange':
           this.snapshotManager.setLeader(event.isLeader)
+          this.snapshotFormatUpgrade.onLeaderChange(event.isLeader)
           break
         case 'decryptionFailure':
           fireAndForget(
@@ -409,6 +425,7 @@ export class SyncWorkerContext {
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
+    this.snapshotFormatUpgrade?.stop()
     this.itemReencryptor?.cancelScheduled()
     await this.lifecycle.stop(options)
     for (const unsub of this.unsubscribers) {

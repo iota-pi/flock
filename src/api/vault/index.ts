@@ -539,13 +539,14 @@ export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
   return JSON.parse(plainData) as T
 }
 
-export async function encryptBytes(bytes: Uint8Array): Promise<CryptoResult> {
-  return encryptBytesWithKey(getActiveKey(), bytes, activeKeyVersion)
+/** Encrypts with the active key. Pass the `docId` of the document the bytes belong to, to bind them to it. */
+export async function encryptBytes(bytes: Uint8Array, docId?: string): Promise<CryptoResult> {
+  return encryptBytesWithKey(getActiveKey(), bytes, activeKeyVersion, docId)
 }
 
-export async function decryptBytes(data: CryptoResult): Promise<Uint8Array> {
+export async function decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array> {
   const kver = data.kver || '1'
-  return decryptBytesWithKey(getVaultKey(kver), data)
+  return decryptBytesWithKey(getVaultKey(kver), data, docId)
 }
 
 export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {

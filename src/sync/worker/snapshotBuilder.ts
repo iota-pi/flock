@@ -50,7 +50,7 @@ export async function buildSnapshot(
 
   let encryptedDoc
   try {
-    encryptedDoc = await encryptBytes(binary)
+    encryptedDoc = await encryptBytes(binary, itemId)
   } catch (error) {
     if (classifySyncError(error).isTransientVault) {
       return { type: 'not-ready' }

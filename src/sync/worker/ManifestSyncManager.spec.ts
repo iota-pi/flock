@@ -269,7 +269,7 @@ describe('ManifestSyncManager', () => {
         itemIds: ['item-snap', 'item-legacy', 'item-deleted'],
       })
 
-      expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'cipher-1', kver: '1' })
+      expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'cipher-1', kver: '1' }, 'item-snap')
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-snap', new Uint8Array([1, 2, 3]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-snap'])
 
@@ -449,6 +449,48 @@ describe('ManifestSyncManager', () => {
         expect.any(Error),
       )
       warnSpy.mockRestore()
+    })
+  })
+
+  describe('onSyncedWithoutFailures', () => {
+    it('is called after a sync in which every item hydrated', async () => {
+      const onSyncedWithoutFailures = vi.fn()
+      const manager = new ManifestSyncManager({ ...depsObj, onSyncedWithoutFailures } as any)
+      mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
+      mockListAutomergeItemIds.mockResolvedValue([])
+
+      await expect(manager.sync()).resolves.toEqual({ added: [], success: true })
+      expect(onSyncedWithoutFailures).toHaveBeenCalledTimes(1)
+    })
+
+    it('is called when the sync is skipped because a clean sync ran recently', async () => {
+      const onSyncedWithoutFailures = vi.fn()
+      const manager = new ManifestSyncManager({ ...depsObj, onSyncedWithoutFailures } as any)
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 1000)
+
+      await expect(manager.sync()).resolves.toEqual({ added: [], success: true })
+      expect(mockFetchManifest).not.toHaveBeenCalled()
+      expect(onSyncedWithoutFailures).toHaveBeenCalledTimes(1)
+    })
+
+    it('is not called when an item failed to hydrate', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const onSyncedWithoutFailures = vi.fn()
+      const manager = new ManifestSyncManager({ ...depsObj, onSyncedWithoutFailures } as any)
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
+        serverTime: Date.now(),
+      })
+      mockFetchSnapshotsByIds.mockRejectedValue(new Error('Network error fetching batch'))
+
+      await manager.sync()
+
+      expect(onSyncedWithoutFailures).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
     })
   })
 

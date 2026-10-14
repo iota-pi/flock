@@ -53,6 +53,7 @@ Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing any
 6. **DocHandle listeners must use the same function reference** for `.on()` and `.off()`.
 7. **`SyncEventHub.emit` doesn't await listeners.** Async listeners must synchronize themselves.
 8. **Snapshot reconciliation compares server-assigned `version` with the local `baseVersion`**, not timestamps.
+9. **Encrypt and decrypt snapshots and sync messages with the ID of the item they belong to** (`encryptBytes(bytes, itemId)`, `decryptWithKeyResolution(payload, { docId })`). Every server path must keep the ciphertext's `format` field.
 
 ## Intentional designs (don't "fix" or flag these)
 

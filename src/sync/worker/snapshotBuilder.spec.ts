@@ -80,7 +80,7 @@ describe('buildSnapshot helper function', () => {
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
     expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', undefined)
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
-    expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]))
+    expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'item-1')
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, testCodec)
   })
 

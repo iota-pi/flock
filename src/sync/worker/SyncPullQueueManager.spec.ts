@@ -214,6 +214,8 @@ describe('SyncPullQueueManager', () => {
 
       expect(manager.exportCursors()).toContainEqual(['item-1', 5])
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-1'])
+      // Decrypted as the item the message is applied to
+      expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'abc', kver: '1' }, 'item-1')
 
       // Check debounce persistence
       await vi.advanceTimersByTimeAsync(1000)

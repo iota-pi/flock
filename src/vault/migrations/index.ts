@@ -186,6 +186,34 @@ const migrations: { [name: string]: () => Promise<void> } = {
     } while (lastEvaluatedKey)
     console.info(`Removed legacy plaintext metadata from ${updated} accounts`)
   },
+  async countUnboundSnapshots () {
+    // Read-only report. Clients rewrite their snapshots bound to the document once they update;
+    // unbound ciphertexts can only be rejected once this reaches zero (sync messages expire on their own).
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
+    let unbound = 0
+    const accounts = new Set<string>()
+    do {
+      const response = await client.send(new ScanCommand({
+        TableName: FLOCK_TABLES.items,
+        ProjectionExpression: '#account',
+        FilterExpression: 'attribute_exists(#snapshot.#cipher) AND attribute_not_exists(#snapshot.#format)',
+        ExpressionAttributeNames: {
+          '#account': 'account',
+          '#snapshot': 'snapshot',
+          '#cipher': 'cipher',
+          '#format': 'format',
+        },
+        ExclusiveStartKey: lastEvaluatedKey,
+      }))
+
+      for (const item of response?.Items || []) {
+        unbound += 1
+        accounts.add(item.account)
+      }
+      lastEvaluatedKey = response?.LastEvaluatedKey
+    } while (lastEvaluatedKey)
+    console.info(`${unbound} snapshots across ${accounts.size} accounts are not bound to their document`)
+  },
   async backfillSyncMessageAccounts () {
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     let updated = 0

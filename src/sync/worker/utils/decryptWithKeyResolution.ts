@@ -11,6 +11,8 @@ export class MissingKeyError extends Error {
 }
 
 export interface DecryptKeyResolutionOptions {
+  /** The document the ciphertext belongs to. Required to decrypt doc-bound ciphertexts. */
+  docId?: string
   timeoutMs?: number
   onKeyVersionMissing?: (kver: string) => void
   timedOutKeys?: Set<string>
@@ -20,37 +22,8 @@ export interface DecryptKeyResolutionOptions {
 export async function decryptWithKeyResolution(
   payload: CryptoResult,
   options?: DecryptKeyResolutionOptions,
-): Promise<Uint8Array>
-export async function decryptWithKeyResolution(
-  cipher: string,
-  iv: string,
-  kver?: string,
-  options?: DecryptKeyResolutionOptions,
-): Promise<Uint8Array>
-export async function decryptWithKeyResolution(
-  arg1: CryptoResult | string,
-  arg2?: DecryptKeyResolutionOptions | string,
-  arg3?: string,
-  arg4?: DecryptKeyResolutionOptions,
 ): Promise<Uint8Array> {
-  let cipher: string
-  let iv: string
-  let kver: string | undefined
-  let options: DecryptKeyResolutionOptions | undefined
-
-  if (typeof arg1 === 'object' && arg1 !== null) {
-    cipher = arg1.cipher
-    iv = arg1.iv
-    kver = arg1.kver
-    options = arg2 as DecryptKeyResolutionOptions | undefined
-  } else {
-    cipher = arg1
-    iv = arg2 as string
-    kver = arg3
-    options = arg4
-  }
-
-  const resolvedKver = kver || '1'
+  const resolvedKver = payload.kver || '1'
   const timeoutMs = options?.timeoutMs ?? 5000
 
   if (!hasVaultKey(resolvedKver)) {
@@ -72,9 +45,5 @@ export async function decryptWithKeyResolution(
     }
   }
 
-  const payload: CryptoResult =
-    typeof arg1 === 'object' && arg1 !== null
-      ? { ...arg1, kver: resolvedKver }
-      : { cipher, iv, kver: resolvedKver }
-  return await decryptBytes(payload)
+  return await decryptBytes({ ...payload, kver: resolvedKver }, options?.docId)
 }

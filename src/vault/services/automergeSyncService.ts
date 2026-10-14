@@ -1,4 +1,5 @@
 import type { ItemId } from 'src/shared/vault/ids'
+import type { DOC_BOUND_FORMAT } from 'src/shared/vault/crypto'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
 import type { StoredSyncMessage } from '../drivers/base'
 import type { SyncMessageLastEvaluatedKey, GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
@@ -7,6 +8,8 @@ import { mapWithConcurrency, resolveConcurrency } from '../../shared/vault/concu
 type SyncMessagePayload = {
   iv: string
   cipher: string
+  kver?: string
+  format?: typeof DOC_BOUND_FORMAT
   version?: string
 }
 

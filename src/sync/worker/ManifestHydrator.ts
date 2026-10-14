@@ -282,7 +282,7 @@ export class ManifestHydrator {
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
     if (!item.snapshot) return null
-    const binary = await this.decryptSnapshotBinary(item.snapshot)
+    const binary = await this.decryptSnapshotBinary(itemId, item.snapshot)
     if (!binary) return null
 
     const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
@@ -375,10 +375,12 @@ export class ManifestHydrator {
   }
 
   private async decryptSnapshotBinary(
+    itemId: ItemId,
     encryptedAutomergeDoc: CryptoResult,
   ): Promise<Uint8Array | null> {
     try {
       return await decryptWithKeyResolution(encryptedAutomergeDoc, {
+        docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         onKeyVersionMissing: this.deps.onKeyVersionMissing,
       })

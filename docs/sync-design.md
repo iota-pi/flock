@@ -87,6 +87,16 @@ Account settings the app syncs (`SyncDomain.syncedMetadataKeys`) live in an encr
 - **An ordinary document otherwise.** It is in the item index, so the WAL, snapshots, manifest sync, key rotation and backups all handle it. The worker filters it out of the `indexUpdated` event sent to the app (`SyncWorkerContextConfig.onIndexUpdated` still sees it, so the worker subscribes to it) and routes its changes to `AccountSettings` instead of `itemUpdated`. `withSettingsDocPassthrough` keeps it away from the app's codec.
 - **Legacy migration.** After each manifest sync, so that the server's copy has been hydrated first, `migrateLegacySettings` copies settings from the app's `LegacySettingsSource` and from local metadata into the keys the document lacks, clears the source and then strips the local keys. Keys already in the document win, because another device migrated them first. A failure leaves everything in place for the next sync. Failures are logged and never fail the manifest sync.
 
+## Doc-bound ciphertexts
+
+Snapshots and sync messages are encrypted with `vault-doc:<itemId>` as AES-GCM associated data and marked `format: 2` (`DOC_BOUND_FORMAT` in `src/shared/vault/crypto.ts`). Without it, the server could serve item A's snapshot as item B's, and B's device would merge A's whole history into B, which cannot be undone.
+
+- **Bind the ID the plaintext is applied to.** `snapshotBuilder` and `SyncPoller` encrypt with the item ID; `ManifestHydrator` and `SyncPullQueueManager` decrypt with the ID of the doc they apply the result to. Taking the ID from a separate field in the server's response would defeat the check.
+- **The flag cannot be used to downgrade.** Stripping `format` from a bound ciphertext makes it decrypt without associated data, which fails. An unknown `format` is rejected.
+- **Unbound ciphertexts still decrypt for now**, because older snapshots and messages are unbound. Until they are rejected, a malicious server can still serve unbound ciphertexts it kept. `SnapshotFormatUpgrade` rewrites every snapshot once per device after a manifest sync without failures (or one skipped because a clean sync ran within the day), when local docs include everything in the server's snapshots. It runs only in the leader tab and at most once per session, so a persistently failing item doesn't re-upload everything on every sync.
+- **Every server path must keep `format`.** zod strips unknown keys and the Dynamo driver copies snapshot fields by name, so a field missed anywhere silently makes bound ciphertexts undecryptable.
+- **Not bound:** the keyring, cross-tab BroadcastChannel messages and backup files. The server holds only one keyring per account and never sees the other two. Binding also does not stop the server replaying an older snapshot of the same item; hydration merges, so that only matters to a device that has never seen the newer state.
+
 ## Oversized items (ID rotation, never in-place compaction)
 
 Snapshots are limited to 350 KB. A fresh `Automerge.init()` doc under the same `documentId` would have disjoint heads. Any peer or snapshot carrying the old history would then merge back in and resurrect it. So `ItemOperations.recreateOversizedItem` (`compactItem` is a deprecated alias for it) works like this:

@@ -39,6 +39,11 @@ export interface ManifestSyncManagerDeps {
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   /** Moves settings that predate the settings document into it (see AccountSettings) */
   migrateLegacySettings?: () => Promise<void>
+  /**
+   * Called, without waiting for it, after a sync in which every item hydrated, or one skipped because
+   * such a sync ran recently
+   */
+  onSyncedWithoutFailures?: () => void
 }
 
 export type ManifestSyncManagerLegacyDeps = Omit<
@@ -259,6 +264,8 @@ export class ManifestSyncManager implements LifecycleAware {
       const gating = await this.checkGating(force, signal, isAlive)
       hasKnownItems = gating.hasKnownItems
       if (gating.skip) {
+        // Only a sync without failures records the time that lets later syncs be skipped
+        this.deps.onSyncedWithoutFailures?.()
         return { added: [], success: true }
       }
 
@@ -314,6 +321,10 @@ export class ManifestSyncManager implements LifecycleAware {
       checkAlive(signal, isAlive)
 
       await this.recordSyncCompletion(hasFailures)
+
+      if (!hasFailures) {
+        this.deps.onSyncedWithoutFailures?.()
+      }
 
       return { added, success: !hasFailures }
     } catch (e) {

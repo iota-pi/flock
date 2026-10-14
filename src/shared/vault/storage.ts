@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DOC_BOUND_FORMAT } from './crypto'
 
 export const VaultKeySchema = z.object({
   account: z.string(),
@@ -36,6 +37,7 @@ const VaultItemSnapshotSchema = z.object({
   iv: z.string(),
   cipher: z.union([z.string(), z.instanceof(Uint8Array), z.any()]).optional(),
   kver: z.string().optional(),
+  format: z.literal(DOC_BOUND_FORMAT).optional(),
 })
 
 export const VaultItemSchema = VaultKeySchema.extend({
@@ -51,6 +53,8 @@ export const StoredSyncMessageSchema = z.object({
   encryptedMessage: z.object({
     iv: z.string(),
     cipher: z.string(),
+    kver: z.string().optional(),
+    format: z.literal(DOC_BOUND_FORMAT).optional(),
     version: z.string().optional(),
   }),
   createdAt: z.number(),

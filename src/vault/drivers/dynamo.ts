@@ -566,6 +566,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         snapshot: {
           iv: item.snapshot.iv,
           kver: item.snapshot.kver,
+          ...(item.snapshot.format === undefined ? {} : { format: item.snapshot.format }),
           cipher: cipherBytes,
         },
       }

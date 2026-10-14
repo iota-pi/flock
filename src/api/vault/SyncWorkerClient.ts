@@ -3,6 +3,7 @@ import type { VaultRouter } from '../../vault/trpc/vaultRouter'
 import { getVaultTrpcUrl } from '../vaultTrpcClient'
 import type { VaultSnapshotInput } from 'src/shared/vault/snapshots'
 import type { ItemId } from 'src/shared/vault/ids'
+import type { DOC_BOUND_FORMAT } from 'src/shared/vault/crypto'
 import type { z } from 'zod'
 import type {
   SyncPollBatchSchema,
@@ -15,6 +16,7 @@ type SyncMessageEnvelope = {
   cipher: string
   version?: string
   kver?: string
+  format?: typeof DOC_BOUND_FORMAT
 }
 
 let cachedClient: { authToken: string; client: ReturnType<typeof createTRPCProxyClient<VaultRouter>> } | null = null
