@@ -102,12 +102,6 @@ export class SnapshotTracker {
     this.scheduleDebouncedSnapshotPush(customDebounceDelayMs)
   }
 
-  recordInboundChange(itemId: ItemId, timestamp: number = Date.now()): void {
-    if (this.isShutdown || !itemId) return
-    this.lastModifiedByItemId.set(itemId, timestamp)
-    this.saveLastModifiedDebounced()
-  }
-
   getLastSnapshotAt(itemId: ItemId): number | undefined {
     return this.lastSnapshotAtByItemId.get(itemId)
   }
@@ -346,15 +340,9 @@ export class SnapshotTracker {
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {
     for (const [itemId, mod] of data) {
-      const existingLocalMod = this.lastModifiedByItemId.get(itemId)
-      const existingLastSnap = this.lastSnapshotAtByItemId.get(itemId)
-
-      const isUnsavedLocalEdit =
-        existingLocalMod !== undefined &&
-        existingLocalMod > (existingLastSnap ?? 0) &&
-        mod <= existingLocalMod
-
-      if (isUnsavedLocalEdit) {
+      if (this.dirtyItems.has(itemId)) {
+        // Unsaved local edit: keep it pending upload
+        const existingLocalMod = this.lastModifiedByItemId.get(itemId) ?? 0
         this.lastModifiedByItemId.set(itemId, Math.max(existingLocalMod, mod))
       } else {
         this.lastModifiedByItemId.set(itemId, mod)
