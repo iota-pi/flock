@@ -291,6 +291,22 @@ export class AutomergeIndexManager implements LifecycleAware {
     })
   }
 
+  async removeMetadataKeys(keys: readonly string[]): Promise<void> {
+    return this.withLock(async () => {
+      const doc = await this.getIndexSnapshotInternal()
+      const metadata = { ...doc.metadata }
+      const present = keys.filter(key => key in metadata)
+      if (present.length === 0) return
+      for (const key of present) {
+        delete metadata[key]
+      }
+      doc.metadata = metadata
+      await this.indexStore.saveIndex(doc)
+      this.notifyLocalMetadataUpdated(metadata)
+      this.broadcastMetadataUpdated(metadata)
+    })
+  }
+
   async getLastSyncTime(): Promise<number> {
     const doc = await this.getIndexSnapshot()
     return doc.lastSyncTime || 0

@@ -22,7 +22,7 @@ Extraction is feasible. Most of the engine is already generic. The WAL, poller, 
 | `ItemOperations.recreateOversizedItem` | Rewrites `group.members`, resets `created` | `remapReferences` and `prepareRecreatedDoc` hooks |
 | `ItemOperations.forceOverwriteRecoveryItem` | Special-cases `prayedFor` | Removed. The JSON round-trip already copies it. |
 | `utils/metadataSync.ts` | Field-by-field merge of Flock settings | `MetadataSyncAdapter` (stage 1), then deleted (stage 2) |
-| `snapshotBuilder` / `utils/snapshot.ts` | Sends `person`/`group`/`topic` to the server | `DocCodec.snapshotKind` (stage 1), then dropped (stage 2) |
+| `snapshotBuilder` / `utils/snapshot.ts` | Sends `person`/`group`/`topic` to the server | `DocCodec.snapshotKind` (stage 1), then dropped (stage 2, done) |
 | `syncProtocol`, `SyncEventHub`, `SyncBridge` | `Item`, `AccountMetadata`, `BackupSyncState` types | Generic `VaultDoc` / `VaultMetadata` types and a library-owned sync state export schema |
 | `generateItemId` in `src/utils` | Rule 2 depends on it | Library-owned ID generation |
 
@@ -99,11 +99,16 @@ Follow-ups noticed along the way:
 
 - `getAuthToken` in `src/vault/api/util.ts` is only used by its test.
 - `dynamo.test.ts › getGlobalSyncMessagesAfterCursor reports the highest cursor scanned` fails on `master` too.
-- `mutateMetadata` still stamps `updatedAt` in the engine; it goes away with the settings document in stage 2.
 
 ### Stage 2: protocol changes
 
 Each item under "Protocol choices" above, with a Flock data migration.
+
+- [x] 2.1: Account settings live in an encrypted settings document (`AccountSettings`) with the fixed ID `settings-${account}` (`settingsDocId`). It syncs like any other document and stays in the item index, so manifest sync, key rotation and backups include it, but the worker keeps it out of the app's item stream and emits its keys as `metadataUpdated` instead. The app lists the synced keys in `SyncDomain.syncedMetadataKeys`; other keys stay on the device. The document is created on the first write, never deleted or recreated, and edits nested values in place so concurrent edits merge. `MetadataSyncAdapter`, the engine's `updatedAt` stamping and the library's `accounts.getMetadata`/`updateMetadata` and account `metadata` field are gone.
+  - Migration has to run on the client, because only clients can encrypt. After each manifest sync, `AccountSettings.migrateLegacySettings` asks the app's `LegacySettingsSource` for legacy settings, writes the keys the document lacks, clears the source and removes the synced keys from local metadata. Running it again is harmless. Flock's source (`src/app/vault/legacySettings.ts`) merges the server's plaintext copy with the device's copy by `updatedAt`, as before, and clears the server copy.
+  - Flock's router keeps `accounts.getMetadata` (read-only), `accounts.updateMetadata` (accepts and discards writes from cached clients, whose settings stop syncing until they update) and adds `accounts.clearMetadata`. Deploy the server before the client.
+  - After a deprecation window, run the `removeLegacyAccountMetadata` migration, then delete the legacy procedures, `LegacySettingsSource`, `legacySettings.ts` and `FlockAccountFieldsSchema.metadata`.
+- [x] 2.2: Snapshots no longer carry a plaintext `type`, and `DocCodec.snapshotKind` is gone. The server stops requiring `metadata.type`, and each new snapshot write replaces the whole `metadata` map, so it drops the field. Run the `removeItemTypeMetadata` migration to strip it from older rows. Deploy the server before the client: the old server rejects snapshots without `type`, while the new one ignores the `type` that cached old clients still send.
 
 ### Stage 3: workspaces
 

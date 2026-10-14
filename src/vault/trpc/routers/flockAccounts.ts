@@ -6,6 +6,7 @@ import {
   PushSubscriptionDeleteBodySchema,
   ReminderSettingsBodySchema,
 } from 'src/shared/schemas/notifications'
+import { LegacyMetadataBodySchema } from 'src/shared/schemas/metadata'
 import { AccountInputSchema } from 'src/shared/vault/api'
 import { toZonedTime } from 'date-fns-tz'
 import type { FlockAccountFields } from '../../types'
@@ -16,6 +17,35 @@ function flockAccount(accountData: VaultAccountWithAuth): VaultAccountWithAuth &
 
 /** Flock's account procedures (push subscriptions and reminders), merged into `accounts` in root.ts */
 export const flockAccountsRouter = router({
+  // Legacy plaintext settings. Clients now keep settings in an encrypted settings document and
+  // migrate these into it once (see LegacySettingsSource). Remove after the deprecation window.
+  getMetadata: protectedProcedure
+    .input(AccountInputSchema)
+    .query(async ({ ctx }) => {
+      return {
+        success: true,
+        metadata: flockAccount(ctx.accountData).metadata ?? {},
+      }
+    }),
+
+  /** Cached clients still push their settings here. They are discarded rather than stored in plaintext. */
+  updateMetadata: protectedProcedure
+    .input(LegacyMetadataBodySchema)
+    .mutation(async () => {
+      return { success: true }
+    }),
+
+  clearMetadata: protectedProcedure
+    .input(AccountInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await ctx.vault.updateAccountData<FlockAccountFields>({
+        account: input.account,
+        metadata: {},
+      })
+
+      return { success: true }
+    }),
+
   addPushSubscription: protectedProcedure
     .input(PushSubscriptionBodySchema)
     .mutation(async ({ ctx, input }) => {

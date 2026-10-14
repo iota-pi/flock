@@ -59,30 +59,10 @@ vi.mock('../../api/runtime', () => ({
   hasApiAuthToken: () => mockHasApiAuthToken(),
 }))
 
-const mockGetMetadataQuery = vi.fn()
-const mockUpdateMetadataMutate = vi.fn().mockResolvedValue({ success: true })
-vi.mock('../../api/vaultTrpcClient', () => ({
-  getVaultTrpcClient: () => ({
-    accounts: {
-      getMetadata: {
-        query: (...args: any[]) => mockGetMetadataQuery(...args),
-      },
-      updateMetadata: {
-        mutate: (...args: any[]) => mockUpdateMetadataMutate(...args),
-      },
-    },
-  }),
-}))
-
 describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager
   let storeItemsSpy: any
-  let mockMetadataSync: {
-    hasSyncableChanges: ReturnType<typeof vi.fn>
-    extractSyncable: ReturnType<typeof vi.fn>
-    reconcile: ReturnType<typeof vi.fn>
-  }
-  let mutateMetadataSpy: any
+  let migrateLegacySettingsSpy: any
   let depsObj: { accountId: string | null; docStore: any; indexManager: any; snapshotManager: any }
 
   beforeEach(() => {
@@ -121,12 +101,7 @@ describe('ManifestSyncManager', () => {
     } as any
 
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
-    mutateMetadataSpy = vi.fn().mockResolvedValue(undefined)
-    mockMetadataSync = {
-      hasSyncableChanges: vi.fn(() => true),
-      extractSyncable: vi.fn((metadata?: Record<string, unknown>) => ({ ...(metadata ?? {}) })),
-      reconcile: vi.fn(),
-    }
+    migrateLegacySettingsSpy = vi.fn().mockResolvedValue(undefined)
 
     depsObj = {
       accountId: 'acc-123',
@@ -134,8 +109,7 @@ describe('ManifestSyncManager', () => {
       indexManager: mockIndexManager,
       snapshotManager: mockSnapshotManager,
       storeItems: storeItemsSpy,
-      mutateMetadata: mutateMetadataSpy,
-      metadataSync: mockMetadataSync,
+      migrateLegacySettings: migrateLegacySettingsSpy,
     } as any
 
     manifestSyncManager = new ManifestSyncManager(depsObj as any)
@@ -148,7 +122,6 @@ describe('ManifestSyncManager', () => {
     mockGetAutomergeMetadata.mockResolvedValue({})
     mockGetLastManifestSyncTime.mockResolvedValue(0)
     mockUpdateLastManifestSyncTime.mockResolvedValue(undefined)
-    mockGetMetadataQuery.mockResolvedValue({ success: false })
     mockHydrateAutomergeDocumentBinary.mockResolvedValue(undefined)
     mockHasVaultKey.mockReturnValue(true)
     mockWaitForKeyVersion.mockResolvedValue(true)
@@ -160,14 +133,12 @@ describe('ManifestSyncManager', () => {
       const unifiedManager = new ManifestSyncManager({
         ...(depsObj as any),
         storeItems: storeItemsSpy,
-        mutateMetadata: mutateMetadataSpy,
       })
       expect(unifiedManager).toBeInstanceOf(ManifestSyncManager)
 
       const legacyManager = new ManifestSyncManager(
         depsObj as any,
         storeItemsSpy,
-        mutateMetadataSpy,
       )
       expect(legacyManager).toBeInstanceOf(ManifestSyncManager)
     })
@@ -289,8 +260,7 @@ describe('ManifestSyncManager', () => {
 
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
       mockDecryptObject.mockResolvedValue({ type: 'person', name: 'Alice' })
-      mockGetMetadataQuery.mockResolvedValue({ success: false })
-
+  
       const result = await manifestSyncManager.sync()
 
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
@@ -447,7 +417,7 @@ describe('ManifestSyncManager', () => {
     })
   })
 
-  describe('syncMetadata', () => {
+  describe('legacy settings migration', () => {
     beforeEach(() => {
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
@@ -457,77 +427,27 @@ describe('ManifestSyncManager', () => {
       mockGetLastManifestSyncTime.mockResolvedValue(0)
     })
 
-    it('reconciles local and remote metadata with the adapter', async () => {
-      mockGetAutomergeMetadata.mockResolvedValue({ local: 1 })
-      mockGetMetadataQuery.mockResolvedValue({ success: true, metadata: { remote: 2 } })
-      mockMetadataSync.reconcile.mockReturnValue({ merged: {}, needsRemotePush: false, hasLocalChanges: false })
-
+    it('migrates legacy settings after each manifest sync', async () => {
       await manifestSyncManager.sync()
 
-      expect(mockGetMetadataQuery).toHaveBeenCalledWith({ account: 'acc-123' })
-      expect(mockMetadataSync.reconcile).toHaveBeenCalledWith({ local: 1 }, { remote: 2 })
-      expect(mutateMetadataSpy).not.toHaveBeenCalled()
-      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
+      expect(migrateLegacySettingsSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('pushes the syncable part of the merged metadata when the adapter asks for it', async () => {
-      mockGetAutomergeMetadata.mockResolvedValue({ shared: 'local', deviceOnly: true })
-      mockGetMetadataQuery.mockResolvedValue({ success: true, metadata: {} })
-      mockMetadataSync.reconcile.mockReturnValue({
-        merged: { shared: 'local', deviceOnly: true },
-        needsRemotePush: true,
-        hasLocalChanges: false,
-      })
-      mockMetadataSync.extractSyncable.mockReturnValue({ shared: 'local' })
+    it('does nothing without a migration hook', async () => {
+      const manager = new ManifestSyncManager({ ...depsObj, migrateLegacySettings: undefined } as any)
 
-      await manifestSyncManager.sync()
-
-      expect(mockMetadataSync.extractSyncable).toHaveBeenCalledWith({ shared: 'local', deviceOnly: true })
-      expect(mockUpdateMetadataMutate).toHaveBeenCalledWith({
-        account: 'acc-123',
-        metadata: { shared: 'local' },
-      })
-      expect(mutateMetadataSpy).not.toHaveBeenCalled()
+      await expect(manager.sync()).resolves.toEqual({ added: [], success: true })
     })
 
-    it('stores merged metadata locally without pushing it back to the server', async () => {
-      mockGetAutomergeMetadata.mockResolvedValue({ deviceOnly: true })
-      mockGetMetadataQuery.mockResolvedValue({ success: true, metadata: { shared: 'remote' } })
-      mockMetadataSync.reconcile.mockReturnValue({
-        merged: { shared: 'remote', deviceOnly: true },
-        needsRemotePush: false,
-        hasLocalChanges: true,
-      })
-
-      await manifestSyncManager.sync()
-
-      expect(mutateMetadataSpy).toHaveBeenCalledWith({ shared: 'remote', deviceOnly: true }, { pushRemote: false })
-      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
-    })
-
-    it('leaves metadata local when there is no metadata adapter', async () => {
-      const manager = new ManifestSyncManager({ ...depsObj, metadataSync: undefined } as any)
-      mockGetAutomergeMetadata.mockResolvedValue({ shared: 'local' })
-
-      await manager.sync()
-
-      expect(mockGetMetadataQuery).not.toHaveBeenCalled()
-      expect(mockUpdateMetadataMutate).not.toHaveBeenCalled()
-    })
-
-    it('swallows errors if remote metadata query fails', async () => {
+    it('treats a failed migration as non-fatal so it retries on the next sync', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 100 }],
-        serverTime: Date.now(),
-      })
-      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-      mockGetLastManifestSyncTime.mockResolvedValue(0)
-      mockGetAutomergeMetadata.mockResolvedValue({})
-      mockGetMetadataQuery.mockRejectedValue(new Error('TRPC error'))
+      migrateLegacySettingsSpy.mockRejectedValueOnce(new Error('TRPC error'))
 
       await expect(manifestSyncManager.sync()).resolves.toEqual({ added: [], success: true })
-      expect(mutateMetadataSpy).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Legacy settings migration skipped'),
+        expect.any(Error),
+      )
       warnSpy.mockRestore()
     })
   })
@@ -604,7 +524,6 @@ describe('ManifestSyncManager', () => {
       const manager = new ManifestSyncManager({
         ...(depsObj as any),
         storeItems: storeItemsSpy,
-        mutateMetadata: mutateMetadataSpy,
         onDecryptionFailure,
       })
 

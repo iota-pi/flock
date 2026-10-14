@@ -53,17 +53,6 @@ describe('flockItemCodec', () => {
     expect(decoded.rawSnapshot).toEqual(raw)
     expect(flockItemCodec.isCorrupt(decoded)).toBe(true)
   })
-
-  it('reports the item type as the snapshot kind, using the original type for error items', () => {
-    const group = getBlankGroup('group-1' as ItemId, false)
-    expect(flockItemCodec.snapshotKind(group)).toBe('group')
-
-    const corrupt = flockItemCodec.decode('bad-1' as ItemId, { id: 'bad-1', type: 'topic', name: 42 })
-    expect(flockItemCodec.snapshotKind(corrupt)).toBe('topic')
-
-    const unknown = flockItemCodec.decode('bad-2' as ItemId, { id: 'bad-2' })
-    expect(flockItemCodec.snapshotKind(unknown)).toBe('person')
-  })
 })
 
 describe('flockSyncHooks', () => {

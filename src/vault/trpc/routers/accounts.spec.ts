@@ -1,4 +1,3 @@
-import { TRPCError } from '@trpc/server'
 import { accountsRouter } from './accounts'
 import { hashString } from '../../util'
 
@@ -28,54 +27,6 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
 describe('accountsRouter security contracts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  it('rejects invalid metadata schema for updateMetadata', async () => {
-    const ctx = createContext()
-    const caller = accountsRouter.createCaller(ctx as any)
-
-    await expect(caller.updateMetadata({
-      account: 'acct-1',
-      metadata: 'invalid-metadata' as unknown as Record<string, unknown>,
-    })).rejects.toBeDefined()
-
-    expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
-  })
-
-  it('updates account metadata when authorized', async () => {
-    const ctx = createContext()
-    const caller = accountsRouter.createCaller(ctx as any)
-
-    const metadata = { prayerGoal: 10, defaultPrayerFrequency: { person: 'daily' } }
-    const result = await caller.updateMetadata({
-      account: 'acct-1',
-      metadata,
-    })
-
-    expect(result).toEqual({ success: true })
-    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
-      account: 'acct-1',
-      metadata,
-    })
-  })
-
-
-  it('blocks unauthorized metadata access when auth token is missing', async () => {
-    const ctx = createContext({ authToken: '' })
-    const caller = accountsRouter.createCaller(ctx as any)
-
-    await expect(caller.getMetadata({ account: 'acct-1' })).rejects.toMatchObject({
-      code: 'UNAUTHORIZED',
-    } satisfies Partial<TRPCError>)
-  })
-
-  it('blocks unauthorized metadata access when session validation fails', async () => {
-    const ctx = createContext({ sessionValid: false })
-    const caller = accountsRouter.createCaller(ctx as any)
-
-    await expect(caller.getMetadata({ account: 'acct-1' })).rejects.toMatchObject({
-      code: 'UNAUTHORIZED',
-    } satisfies Partial<TRPCError>)
   })
 
   it('rotates session on login without mutating account metadata payloads', async () => {
@@ -296,17 +247,17 @@ describe('accountsRouter security contracts', () => {
   })
 
   describe('single getAccount round-trip efficiency in protectedProcedure', () => {
-    it('calls getAccount exactly once for getMetadata', async () => {
+    it('calls getAccount exactly once for getKeyring', async () => {
       const ctx = createContext()
       ctx.vault.getAccount.mockResolvedValueOnce({
         account: 'acct-1',
-        metadata: { theme: 'dark', language: 'en' },
+        keyring: 'encrypted-keyring',
       } as any)
       const caller = accountsRouter.createCaller(ctx as any)
 
-      const result = await caller.getMetadata({ account: 'acct-1' })
+      const result = await caller.getKeyring({ account: 'acct-1' })
 
-      expect(result).toEqual({ success: true, metadata: { theme: 'dark', language: 'en' } })
+      expect(result).toEqual({ success: true, keyring: 'encrypted-keyring' })
       expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
       expect(ctx.vault.getAccount).toHaveBeenCalledWith({
         account: 'acct-1',

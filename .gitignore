@@ -51,3 +51,6 @@ pnpm-debug.log*
 
 # GCP Config Files
 gcp-*.json
+
+# Claude
+.claude/settings.local.json

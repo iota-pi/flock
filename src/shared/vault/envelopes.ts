@@ -3,7 +3,6 @@ import { CryptoResultSchema } from './crypto'
 import { ItemIdSchema } from './ids'
 
 export const ItemEnvelopeMetadataSchema = z.object({
-  type: z.string().min(1),
   iv: z.string(),
   modified: z.number(),
   deleted: z.boolean().optional(),

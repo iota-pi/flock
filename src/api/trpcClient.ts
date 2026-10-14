@@ -3,7 +3,9 @@ import type { AppRouter } from '../vault/trpc/root'
 import env from '../env'
 import { getApiAuthToken } from './runtime'
 
-let trpcClient: ReturnType<typeof createTRPCProxyClient<AppRouter>>
+export type AppTrpcClient = ReturnType<typeof createTRPCProxyClient<AppRouter>>
+
+let trpcClient: AppTrpcClient
 
 function getTrpcLinks(customFetch?: typeof fetch) {
   return [
@@ -18,10 +20,14 @@ function getTrpcLinks(customFetch?: typeof fetch) {
   ]
 }
 
-export function initTrpcClient(customFetch: typeof fetch) {
-  trpcClient = createTRPCProxyClient<AppRouter>({
+export function createTrpcClient(customFetch?: typeof fetch): AppTrpcClient {
+  return createTRPCProxyClient<AppRouter>({
     links: getTrpcLinks(customFetch),
   })
+}
+
+export function initTrpcClient(customFetch: typeof fetch) {
+  trpcClient = createTrpcClient(customFetch)
 }
 
 export function getTrpcClient() {

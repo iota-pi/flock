@@ -1,5 +1,4 @@
-import type { VaultDoc, VaultMetadata } from '../shared/types'
-import type { MetadataSyncAdapter } from './domain'
+import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
 import type { ItemId } from 'src/shared/vault/ids'
@@ -36,16 +35,15 @@ export interface ManifestSyncManagerDeps {
   apiClient?: SyncApiClient
   onKeyVersionMissing?: (kver: string) => void
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
-  mutateMetadata: (changes: Partial<VaultMetadata>, options?: { pushRemote?: boolean }) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
-  /** Without an adapter, account metadata is not synced with the server */
-  metadataSync?: MetadataSyncAdapter
+  /** Moves settings that predate the settings document into it (see AccountSettings) */
+  migrateLegacySettings?: () => Promise<void>
 }
 
 export type ManifestSyncManagerLegacyDeps = Omit<
   ManifestSyncManagerDeps,
-  'storeItems' | 'mutateMetadata' | 'onDecryptionFailure' | 'onItemSnapshotHydrated'
+  'storeItems' | 'onDecryptionFailure' | 'onItemSnapshotHydrated'
 >
 
 export type SyncResult = { added: ItemId[], success: boolean }
@@ -68,7 +66,6 @@ export class ManifestSyncManager implements LifecycleAware {
   constructor(
     deps: ManifestSyncManagerDeps | ManifestSyncManagerLegacyDeps,
     storeItems?: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>,
-    mutateMetadata?: (changes: Partial<VaultMetadata>, options?: { pushRemote?: boolean }) => Promise<void>,
     onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
     onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
   ) {
@@ -76,7 +73,6 @@ export class ManifestSyncManager implements LifecycleAware {
       this.deps = {
         ...deps,
         storeItems,
-        mutateMetadata: mutateMetadata!,
         onDecryptionFailure,
         onItemSnapshotHydrated,
       } as ManifestSyncManagerDeps
@@ -314,7 +310,7 @@ export class ManifestSyncManager implements LifecycleAware {
         checkAlive(signal, isAlive)
       }
 
-      await this.syncMetadata()
+      await this.migrateLegacySettings()
       checkAlive(signal, isAlive)
 
       await this.recordSyncCompletion(hasFailures)
@@ -401,40 +397,12 @@ export class ManifestSyncManager implements LifecycleAware {
     return this.hydrator.hydrateRemoteItem(item, manifest, knownSet, tombstoneSet, serverTimeFallback)
   }
 
-  private async syncMetadata() {
-    const metadataSync = this.deps.metadataSync
-    if (!this.deps.accountId || !metadataSync) return
-
-    let remoteMetadata: VaultMetadata | null
+  private async migrateLegacySettings() {
+    if (!this.deps.migrateLegacySettings) return
     try {
-      remoteMetadata = await this.apiClient.getAccountMetadata({
-        account: this.deps.accountId,
-      })
+      await this.deps.migrateLegacySettings()
     } catch (error) {
-      console.warn('[ManifestSyncManager] Metadata sync skipped (failed to query remote metadata):', error)
-      return
-    }
-
-    try {
-      const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
-      const { merged, needsRemotePush, hasLocalChanges } = metadataSync.reconcile(
-        localMetadata,
-        remoteMetadata || undefined,
-      )
-
-      if (hasLocalChanges) {
-        await this.deps.mutateMetadata(merged, { pushRemote: false })
-      }
-
-      if (needsRemotePush) {
-        const syncablePayload = metadataSync.extractSyncable(merged)
-        await this.apiClient.updateAccountMetadata({
-          account: this.deps.accountId,
-          metadata: syncablePayload,
-        })
-      }
-    } catch (error) {
-      console.error('[ManifestSyncManager] Metadata reconciliation skipped', error)
+      console.warn('[ManifestSyncManager] Legacy settings migration skipped (will retry on next sync):', error)
     }
   }
 }

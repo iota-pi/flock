@@ -165,7 +165,7 @@ describe('itemsRouter.fetchSnapshotsByIds', () => {
       {
         account: 'acct-1',
         item: 'item-1',
-        metadata: { type: 'person', iv: 'iv-1', modified: 123 },
+        metadata: { iv: 'iv-1', modified: 123 },
       },
     ]
     ;(ctx.vault as any).fetchByIds = vi.fn().mockResolvedValue(mockItems)

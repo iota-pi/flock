@@ -4,7 +4,7 @@ import { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils
 import { VaultNotInitializedError } from '../../api/vault'
 import { passthroughCodec, type DocCodec } from './domain'
 
-const kindFromTypeCodec: DocCodec = { ...passthroughCodec, snapshotKind: doc => String(doc.type) }
+const testCodec: DocCodec = { ...passthroughCodec }
 
 const mockEncryptBytes = vi.fn()
 const mockNormalizeItemSnapshot = vi.fn()
@@ -63,7 +63,7 @@ describe('buildSnapshot helper function', () => {
   })
 
   it('builds a snapshot successfully under normal conditions', async () => {
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, { codec: kindFromTypeCodec })
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, { codec: testCodec })
 
     expect(result).toEqual({
       type: 'success',
@@ -71,7 +71,6 @@ describe('buildSnapshot helper function', () => {
         itemId: 'item-1',
         snapshot: { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' },
         snapshotCursor: 42,
-        type: 'topic',
         modified: expect.any(Number),
         deleted: undefined,
       },
@@ -82,13 +81,13 @@ describe('buildSnapshot helper function', () => {
     expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', undefined)
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]))
-    expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, kindFromTypeCodec)
+    expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, testCodec)
   })
 
-  it('uses the passthrough codec kind when no codec is given', async () => {
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+  it('uses the passthrough codec when no codec is given', async () => {
+    await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
 
-    expect(result).toMatchObject({ type: 'success', snapshot: { type: 'doc' } })
+    expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, passthroughCodec)
   })
 
   it('forwards abort signal to repo.find when provided in options', async () => {
@@ -268,7 +267,6 @@ describe('SnapshotBuilder class', () => {
       itemId: 'item-1' as ItemId,
       snapshot: { cipher: '1234567890', iv: '1234', kver: '1' },
       snapshotCursor: 10,
-      type: 'note',
       modified: 12345,
     }
     const size = builder.estimateSize(snapshot)
@@ -281,7 +279,6 @@ describe('toTombstoneSnapshot', () => {
     itemId: 'item-1' as ItemId,
     snapshot: { cipher: 'abc', iv: '123', kver: '1' },
     snapshotCursor: 7,
-    type: 'note',
     modified: 1234,
   }
 
@@ -291,7 +288,6 @@ describe('toTombstoneSnapshot', () => {
     expect(tombstone).toEqual({
       itemId: 'item-1',
       snapshotCursor: 7,
-      type: 'note',
       modified: 1234,
       deleted: true,
     })

@@ -4,7 +4,6 @@ describe('VaultSnapshotSchema', () => {
   const base = {
     itemId: 'item-1',
     snapshotCursor: 3,
-    type: 'note',
     modified: 1000,
   }
   const cipher = { cipher: 'abc', iv: '123', kver: '1' }

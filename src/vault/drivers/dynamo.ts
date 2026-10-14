@@ -111,7 +111,7 @@ type PersistedVaultItem = VaultItem & {
  * Supports both legacy cipher and snapshot format
  * - Legacy: must have cipher and iv
  * - Snapshot: must have snapshot payload or external storage pointer
- * - Tombstone: needs only metadata.type
+ * - Tombstone: needs no payload
  */
 function validateItem(item: VaultItem) {
   const isTombstone = item.metadata.deleted === true
@@ -119,8 +119,7 @@ function validateItem(item: VaultItem) {
   const isSnapshot = !!item.snapshot
 
   const hasValidPayload = isTombstone
-    ? !!item.metadata.type
-    : (isLegacy || isSnapshot) && !!item.metadata.type && (isLegacy ? !!item.metadata.iv : true)
+    || (isLegacy ? !!item.metadata.iv : isSnapshot)
 
   if (!hasValidPayload) {
     throw new Error(
@@ -336,7 +335,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     {
       account,
       authToken,
-      metadata,
       salt,
       iterations,
       saltVersion,
@@ -351,7 +349,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         authToken,
         created: Date.now(),
         lastAccess: Date.now(),
-        metadata,
         salt,
         iterations,
         saltVersion,
@@ -462,9 +459,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const updateFields: Record<string, unknown> = {
       ...rest,
       ...(sessions !== undefined ? { sessions: normalizeSessionRecords(sessions) } : {}),
-    }
-    if (updateFields.metadata === null) {
-      delete updateFields.metadata
     }
 
     const { expression, values } = buildDynamoUpdate(updateFields)

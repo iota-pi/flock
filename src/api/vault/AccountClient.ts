@@ -93,20 +93,3 @@ export async function changePassword({
   })
   assertSuccess(response, 'changePassword')
 }
-
-export async function getMetadata(account: string): Promise<Record<string, unknown> | undefined> {
-  const response = await getVaultTrpcClient().accounts.getMetadata.query({ account })
-  assertSuccess(response, 'getMetadata')
-  return response.metadata
-}
-
-export async function updateMetadata(
-  account: string,
-  metadata: Record<string, unknown>,
-): Promise<void> {
-  const response = await getVaultTrpcClient().accounts.updateMetadata.mutate({
-    account,
-    metadata,
-  })
-  assertSuccess(response, 'updateMetadata')
-}

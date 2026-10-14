@@ -77,6 +77,16 @@ OCC would be harmful. A blind relay cannot resolve conflicts, so concurrent or o
 - `AutomergeDocStore.findOrCreateHandle` refuses to create a blank doc when `hasDataInStorage(itemId)`. This guard prevents data loss: without it, a handle-lookup timeout would overwrite an existing doc.
 - Selectors filter `!item.deleted`, and `AutomergeIndexManager` excludes tombstones from the active index.
 
+## Account settings document
+
+Account settings the app syncs (`SyncDomain.syncedMetadataKeys`) live in an encrypted Automerge document managed by `AccountSettings`. Other metadata keys stay in the device's local index. The worker merges both and emits them as `metadataUpdated`, with the document's values winning.
+
+- **Fixed ID.** The ID is `settingsDocId(account)` (`settings-${account}`), so every device agrees on it without coordinating. This is the one exception to "never recreate a doc under an existing ID": two devices can create it concurrently, for example while migrating. Their histories merge because each setting is a top-level key. Two devices that first create the same nested object concurrently keep only one of them, so prefer flat values.
+- **Created lazily, never deleted.** The document is created on the first write of a synced key and never seeded with defaults, which would overwrite real values from other devices. `forceDeleteRecoveryItem` and `recreateOversizedItem` refuse it.
+- **Writes are diffs.** The app sends whole objects, so `AccountSettings` skips unchanged keys and edits nested maps and lists in place. Replacing a map would discard a concurrent edit to another field.
+- **An ordinary document otherwise.** It is in the item index, so the WAL, snapshots, manifest sync, key rotation and backups all handle it. The worker filters it out of the `indexUpdated` event sent to the app (`SyncWorkerContextConfig.onIndexUpdated` still sees it, so the worker subscribes to it) and routes its changes to `AccountSettings` instead of `itemUpdated`. `withSettingsDocPassthrough` keeps it away from the app's codec.
+- **Legacy migration.** After each manifest sync, so that the server's copy has been hydrated first, `migrateLegacySettings` copies settings from the app's `LegacySettingsSource` and from local metadata into the keys the document lacks, clears the source and then strips the local keys. Keys already in the document win, because another device migrated them first. A failure leaves everything in place for the next sync. Failures are logged and never fail the manifest sync.
+
 ## Oversized items (ID rotation, never in-place compaction)
 
 Snapshots are limited to 350 KB. A fresh `Automerge.init()` doc under the same `documentId` would have disjoint heads. Any peer or snapshot carrying the old history would then merge back in and resurrect it. So `ItemOperations.recreateOversizedItem` (`compactItem` is a deprecated alias for it) works like this:

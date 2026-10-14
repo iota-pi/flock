@@ -5,7 +5,6 @@ import {
   AccountInputSchema,
   CreateAccountBodySchema,
   LoginBodySchema,
-  UpdateMetadataBodySchema,
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
 } from 'src/shared/vault/api'
@@ -23,7 +22,6 @@ export const accountsRouter = router({
       const success = await ctx.vault.createAccount({
         account,
         authToken: hashString(input.authToken),
-        metadata: {},
         salt: input.salt,
         iterations: input.iterations,
         saltVersion: input.saltVersion,
@@ -88,26 +86,6 @@ export const accountsRouter = router({
         iterations,
         saltVersion,
       }
-    }),
-
-  getMetadata: protectedProcedure
-    .input(AccountInputSchema)
-    .query(async ({ ctx }) => {
-      return {
-        success: true,
-        metadata: ctx.accountData.metadata,
-      }
-    }),
-
-  updateMetadata: protectedProcedure
-    .input(UpdateMetadataBodySchema)
-    .mutation(async ({ ctx, input }) => {
-      await ctx.vault.updateAccountData({
-        account: input.account,
-        metadata: input.metadata || {},
-      })
-
-      return { success: true }
     }),
 
   getKeyring: protectedProcedure

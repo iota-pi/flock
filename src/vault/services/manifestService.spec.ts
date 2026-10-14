@@ -45,7 +45,7 @@ describe('manifestService.fetchSnapshotsByIds', () => {
   it('fetches items by ids from vault', async () => {
     const vault = createMockVault()
     const mockItems: VaultItem[] = [
-      { account: 'test-account', item: 'item-1', metadata: { type: 'person', iv: 'iv', modified: 1000 } },
+      { account: 'test-account', item: 'item-1', metadata: { iv: 'iv', modified: 1000 } },
     ]
     vi.mocked(vault.fetchByIds).mockResolvedValue(mockItems)
 

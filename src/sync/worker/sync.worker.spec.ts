@@ -50,6 +50,7 @@ const mockOrchestratorSetOnlineState = vi.fn()
 const mockOrchestratorFlush = vi.fn()
 const mockSnapshotManagerOnOnlineStateChange = vi.fn()
 const mockDocStoreOnDocHandleReplaced = vi.fn()
+const mockAccountSettingsHandleSettingsDoc = vi.fn()
 
 const { mockRepoFind } = vi.hoisted(() => ({
   mockRepoFind: vi.fn().mockImplementation(() => Promise.resolve({
@@ -80,6 +81,12 @@ vi.mock('./SyncWorkerContext', () => {
         listAutomergeItemIds: mockIndexManagerListAutomergeItemIds,
         addAutomergeItemIdsToIndex: mockIndexManagerAddAutomergeItemIdsToIndex,
         removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
+      }
+
+      accountSettings = {
+        isSettingsDoc: (id: string) => id === 'settings-test-account',
+        handleSettingsDoc: mockAccountSettingsHandleSettingsDoc,
+        mutate: vi.fn().mockResolvedValue(undefined),
       }
 
       itemOperations = {
@@ -370,6 +377,49 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     worker.updateItemSubscriptions([])
 
     expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
+  })
+
+  it('routes settings document changes to accountSettings instead of the item stream', async () => {
+    const handle = {
+      documentId: 'doc-settings',
+      on: vi.fn(),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ prayerGoal: 4 }),
+    }
+    mockRepoFind.mockResolvedValue(handle)
+    mockAccountSettingsHandleSettingsDoc.mockClear()
+    mockIndexManagerAddAutomergeItemIdsToIndex.mockClear()
+
+    const worker = new SyncWorker(workerConfig)
+    await worker.initRepo('account-1', 'vault-key-1')
+    const clientEvents: any[] = []
+    ;(worker as any).clientEventHub.subscribe((evt: any) => clientEvents.push(evt))
+
+    worker.subscribeToItems(['settings-test-account' as any])
+    await Promise.resolve()
+
+    expect(mockAccountSettingsHandleSettingsDoc).toHaveBeenCalledWith({ prayerGoal: 4 })
+    expect(clientEvents.filter(evt => evt.type === 'itemUpdated')).toEqual([])
+    expect(mockIndexManagerAddAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+  })
+
+  it('keeps the settings document out of the initial index sent to the app but still subscribes to it', async () => {
+    const handle = { documentId: 'doc', on: vi.fn(), off: vi.fn(), doc: vi.fn().mockReturnValue(null) }
+    mockRepoFind.mockResolvedValue(handle)
+    mockIndexManagerListAutomergeItemIds.mockResolvedValueOnce(['item-1', 'settings-test-account'])
+
+    const worker = new SyncWorker(workerConfig)
+    const clientEvents: any[] = []
+    ;(worker as any).clientEventHub.subscribe((evt: any) => clientEvents.push(evt))
+    const originalInitState = (worker as any).initWorkerState.bind(worker)
+    ;(worker as any).initWorkerState = () => {
+      originalInitState()
+      ;(worker as any).clientEventHub.subscribe((evt: any) => clientEvents.push(evt))
+    }
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    expect(clientEvents).toContainEqual({ type: 'indexUpdated', itemIds: ['item-1'] })
+    expect((worker as any).subscribedIds.has('settings-test-account')).toBe(true)
   })
 
   it('unsubscribes and detaches the exact registered listener reference when an item is deleted', async () => {

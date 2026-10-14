@@ -60,7 +60,7 @@ describe('Backup and restore', () => {
                     { doc: branchA, versionId: versionA, parentIds: [] },
                     { doc: branchB, versionId: versionB, parentIds: [versionA] },
                   ],
-                  metadata: { type: 'person', iv: '', modified: Date.now() },
+                  metadata: { iv: '', modified: Date.now() },
                 }],
                 serverTime: Date.now(),
                 nextCursor: null,

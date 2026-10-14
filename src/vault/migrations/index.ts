@@ -117,35 +117,74 @@ const migrations: { [name: string]: () => Promise<void> } = {
     }
     console.info(`Updated ${updated} items`)
   },
-  async updateItemTypeMetadata () {
-    const maxItems = 10000
-    const items: VaultItem[] = []
+  async removeItemTypeMetadata () {
+    // Clients no longer send the plaintext item type, so strip it from rows written before that
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
-    while (items.length < maxItems) {
-      const response = await client.send(new ScanCommand({ TableName: FLOCK_TABLES.items }))
-      if (response?.Items) {
-        items.push(...response?.Items as VaultItem[])
+    let updated = 0
+    do {
+      const response = await client.send(new ScanCommand({
+        TableName: FLOCK_TABLES.items,
+        ProjectionExpression: '#account, #item, #metadata.#type',
+        ExpressionAttributeNames: {
+          '#account': 'account',
+          '#item': 'item',
+          '#metadata': 'metadata',
+          '#type': 'type',
+        },
+        ExclusiveStartKey: lastEvaluatedKey,
+      }))
+
+      for (const item of response?.Items || []) {
+        if (item.metadata?.type !== undefined) {
+          await client.send(new UpdateCommand({
+            TableName: FLOCK_TABLES.items,
+            Key: { account: item.account, item: item.item },
+            UpdateExpression: 'REMOVE #metadata.#type',
+            ConditionExpression: 'attribute_exists(#metadata)',
+            ExpressionAttributeNames: {
+              '#metadata': 'metadata',
+              '#type': 'type',
+            },
+          }))
+          updated += 1
+        }
       }
       lastEvaluatedKey = response?.LastEvaluatedKey
-      if (!lastEvaluatedKey) {
-        break
-      }
-    }
+    } while (lastEvaluatedKey)
+    console.info(`Removed plaintext type from ${updated} items`)
+  },
+  async removeLegacyAccountMetadata () {
+    // Clients copy the plaintext settings into their encrypted settings document and then clear them.
+    // Run this only after the deprecation window: an account that has not migrated yet loses the
+    // server's copy and falls back to the settings stored on its devices.
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     let updated = 0
-    for (const item of items) {
-      if ((item.metadata.type as string) === 'general') {
+    do {
+      const response = await client.send(new ScanCommand({
+        TableName: FLOCK_TABLES.accounts,
+        ProjectionExpression: '#account, #metadata',
+        FilterExpression: 'attribute_exists(#metadata)',
+        ExpressionAttributeNames: {
+          '#account': 'account',
+          '#metadata': 'metadata',
+        },
+        ExclusiveStartKey: lastEvaluatedKey,
+      }))
+
+      for (const item of response?.Items || []) {
         await client.send(new UpdateCommand({
-          TableName: FLOCK_TABLES.items,
-          Key: { account: item.account, item: item.item },
-          UpdateExpression: 'SET metadata.type = :type',
-          ExpressionAttributeValues: {
-            ':type': 'person',
+          TableName: FLOCK_TABLES.accounts,
+          Key: { account: item.account },
+          UpdateExpression: 'REMOVE #metadata',
+          ExpressionAttributeNames: {
+            '#metadata': 'metadata',
           },
         }))
         updated += 1
       }
-    }
-    console.info(`Updated ${updated} items`)
+      lastEvaluatedKey = response?.LastEvaluatedKey
+    } while (lastEvaluatedKey)
+    console.info(`Removed legacy plaintext metadata from ${updated} accounts`)
   },
   async backfillSyncMessageAccounts () {
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined

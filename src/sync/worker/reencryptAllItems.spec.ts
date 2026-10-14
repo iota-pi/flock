@@ -830,7 +830,6 @@ describe('ItemReencryptor class', () => {
           itemId: 'item-1',
           snapshot: { cipher: 'c', iv: 'i', kver: '1' },
           snapshotCursor: 0,
-          type: 'note',
           modified: 1000,
         },
       ]
@@ -854,7 +853,6 @@ describe('ItemReencryptor class', () => {
           itemId: 'item-1',
           snapshot: { cipher: 'c', iv: 'i', kver: '1' },
           snapshotCursor: 0,
-          type: 'note',
           modified: 1000,
         },
       ]

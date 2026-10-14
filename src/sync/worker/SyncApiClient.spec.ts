@@ -14,21 +14,6 @@ vi.mock('../../api/vault/ItemClient', () => ({
   fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
 }))
 
-const mockGetMetadata = vi.fn()
-const mockUpdateMetadata = vi.fn()
-vi.mock('src/api/vaultTrpcClient', () => ({
-  getVaultTrpcClient: () => ({
-    accounts: {
-      getMetadata: {
-        query: (...args: any[]) => mockGetMetadata(...args),
-      },
-      updateMetadata: {
-        mutate: (...args: any[]) => mockUpdateMetadata(...args),
-      },
-    },
-  }),
-}))
-
 const mockSetApiAuthToken = vi.fn()
 const mockHasApiAuthToken = vi.fn().mockReturnValue(false)
 const mockGetApiAuthToken = vi.fn().mockReturnValue('')
@@ -219,32 +204,6 @@ describe('SyncApiClient', () => {
       const result = await client.fetchSnapshotsByIds({ account: 'acc-1', itemIds: ['i1' as any] })
       expect(result).toEqual({ items: [{ item: 'i1' }], serverTime: 5000 })
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({ account: 'acc-1', itemIds: ['i1'] })
-    })
-
-    it('passes through getAccountMetadata successfully', async () => {
-      mockGetMetadata.mockResolvedValue({
-        success: true,
-        metadata: { theme: 'dark' },
-      })
-      const client = new SyncApiClient()
-
-      const result = await client.getAccountMetadata({ account: 'acc-1' })
-      expect(result).toEqual({ theme: 'dark' })
-      expect(mockGetMetadata).toHaveBeenCalledWith({ account: 'acc-1' })
-    })
-
-    it('passes through updateAccountMetadata successfully', async () => {
-      mockUpdateMetadata.mockResolvedValue({ success: true })
-      const client = new SyncApiClient()
-
-      await client.updateAccountMetadata({
-        account: 'acc-1',
-        metadata: { theme: 'light' } as any,
-      })
-      expect(mockUpdateMetadata).toHaveBeenCalledWith({
-        account: 'acc-1',
-        metadata: { theme: 'light' },
-      })
     })
 
     it('passes through pollSyncBatch successfully', async () => {

@@ -1,13 +1,12 @@
-import type { VaultDoc, VaultMetadata } from '../shared/types'
-import type { MetadataSyncAdapter, SyncDomainHooks } from './domain'
+import type { VaultDoc } from '../shared/types'
+import type { SyncDomainHooks } from './domain'
 import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
-import { generateItemId, type ItemId } from 'src/shared/vault/ids'
+import { generateItemId, settingsDocId, type ItemId } from 'src/shared/vault/ids'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/vault/limits'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
 
@@ -18,9 +17,7 @@ export interface ItemOperationsDeps {
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
   recoveryManager?: RecoveryManager
-  apiClient?: SyncApiClient
   hooks?: SyncDomainHooks
-  metadataSync?: MetadataSyncAdapter
 }
 
 export interface StoreItemsOptions {
@@ -31,7 +28,6 @@ class DocumentCreateRefusedError extends Error {}
 
 export class ItemOperations {
   public readonly recoveryManager: RecoveryManager
-  private readonly apiClient: SyncApiClient
   private readonly recreateGuard = new KeyedSingleFlightGuard<ItemId, ItemId>()
 
   constructor(private deps: ItemOperationsDeps) {
@@ -39,7 +35,6 @@ export class ItemOperations {
       accountId: deps.accountId,
       eventHub: deps.eventHub,
     })
-    this.apiClient = deps.apiClient ?? new SyncApiClient()
   }
 
   private async applyDocumentChange(
@@ -165,35 +160,10 @@ export class ItemOperations {
     }
   }
 
-  async mutateMetadata(
-    changes: Partial<VaultMetadata>,
-    options?: { pushRemote?: boolean },
-  ): Promise<void> {
-    const metadataSync = this.deps.metadataSync
-    try {
-      const isSyncable = metadataSync?.hasSyncableChanges(changes) ?? false
-      const nextChanges: Partial<VaultMetadata> = isSyncable
-        ? { ...changes, updatedAt: changes.updatedAt ?? Date.now() }
-        : changes
-
-      const updated = await this.deps.indexManager.updateAutomergeMetadata(nextChanges)
-
-      const shouldPush = (options?.pushRemote ?? true) && isSyncable
-      if (shouldPush && metadataSync && (await this.apiClient.hasAuthToken()) && this.deps.accountId) {
-        const syncablePayload = metadataSync.extractSyncable(updated)
-        try {
-          await this.apiClient.updateAccountMetadata({
-            account: this.deps.accountId,
-            metadata: syncablePayload,
-          })
-        } catch (pushErr) {
-          console.warn('[ItemOperations] Failed to push metadata to server (will retry on next sync):', pushErr)
-        }
-      }
-    } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'metadata', error: (err as Error).message })
-      const metadata = await this.deps.indexManager.getAutomergeMetadata()
-      this.deps.eventHub.emit({ type: 'metadataUpdated', metadata })
+  /** The settings document has a fixed ID, so deleting or recreating it would lose it for good */
+  private assertNotSettingsDoc(itemId: ItemId, action: string): void {
+    if (this.deps.accountId && itemId === settingsDocId(this.deps.accountId)) {
+      throw new Error(`Cannot ${action} the account settings document.`)
     }
   }
 
@@ -232,6 +202,7 @@ export class ItemOperations {
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
     if (!this.deps.accountId) return
+    this.assertNotSettingsDoc(itemId, 'delete')
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -265,6 +236,7 @@ export class ItemOperations {
     if (!this.deps.accountId) {
       throw new Error('Account ID is required to recreate oversized item.')
     }
+    this.assertNotSettingsDoc(oldItemId, 'recreate')
     const localItem = await this.deps.docStore.getAutomergeItem(oldItemId)
     if (!localItem) {
       throw new Error(`No local item found for ${oldItemId} to recreate.`)

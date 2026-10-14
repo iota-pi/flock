@@ -5,8 +5,6 @@ import {
   getKeyring,
   updateKeyring,
   changePassword,
-  getMetadata,
-  updateMetadata,
 } from './AccountClient'
 import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
 import { getVaultTrpcClient } from '../vaultTrpcClient'
@@ -19,8 +17,6 @@ const mockTrpcClient = {
     getKeyring: { query: vi.fn() },
     updateKeyring: { mutate: vi.fn() },
     changePassword: { mutate: vi.fn() },
-    getMetadata: { query: vi.fn() },
-    updateMetadata: { mutate: vi.fn() },
   },
 }
 
@@ -149,32 +145,4 @@ describe('AccountClient', () => {
       newKeyring: 'new-keyring',
     })
   })
-
-  it('fetches metadata for the active account', async () => {
-    const mockMetadata = { prayerGoal: 5 }
-    vi.mocked(getVaultTrpcClient().accounts.getMetadata.query).mockResolvedValue({
-      success: true,
-      metadata: mockMetadata,
-    })
-
-    const metadata = await getMetadata('acc-1')
-    expect(metadata).toEqual(mockMetadata)
-    expect(getVaultTrpcClient().accounts.getMetadata.query).toHaveBeenCalledWith({
-      account: 'acc-1',
-    })
-  })
-
-  it('updates metadata for the active account', async () => {
-    const mockMetadata = { prayerGoal: 10 }
-    vi.mocked(getVaultTrpcClient().accounts.updateMetadata.mutate).mockResolvedValue({
-      success: true,
-    })
-
-    await updateMetadata('acc-1', mockMetadata)
-    expect(getVaultTrpcClient().accounts.updateMetadata.mutate).toHaveBeenCalledWith({
-      account: 'acc-1',
-      metadata: mockMetadata,
-    })
-  })
 })
-
