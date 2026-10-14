@@ -1,4 +1,5 @@
 import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
+import { InvalidPageTokenError } from './errors'
 import type { VaultAccountWithAuth } from './base'
 import { generateItemId, type ItemId } from '../../shared/vault/ids'
 import { generateAccountId } from '../util'
@@ -502,38 +503,65 @@ describe('DynamoDriver', function () {
     expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
   })
 
-  describe('exclusiveStartKey validation', () => {
-    it('getSyncMessages rejects exclusiveStartKey with mismatched syncId', async () => {
-      const account = generateAccountId()
-      const itemId = generateItemId() as ItemId
+  describe('page tokens', () => {
+    const encryptedMessage = { iv: 'iv', cipher: 'cipher' }
+    const pageToken = (key: Record<string, unknown>) => Buffer.from(JSON.stringify(key)).toString('base64url')
 
-      await expect(
-        driver.getSyncMessages({
-          account,
-          itemId,
-          exclusiveStartKey: { syncId: 'wrong-account#item-1', cursor: 100 },
-        })
-      ).rejects.toThrow(`Invalid exclusiveStartKey syncId: expected ${account}#${itemId}`)
+    it('getSyncMessages pages through an item with opaque tokens', async () => {
+      const account = generateAccountId()
+      const itemId = generateItemId()
+      await driver.pushSyncMessagesBatch({
+        account,
+        messages: [110, 120, 130, 140, 150].map(cursor => ({
+          itemId, entry: { cursor, encryptedMessage, createdAt: 1 }, lastModified: 1,
+        })),
+      })
+
+      const cursors: number[] = []
+      let token: string | undefined
+      let pages = 0
+      do {
+        const page = await driver.getSyncMessages({ account, itemId, fromCursor: 100, limit: 2, pageToken: token })
+        cursors.push(...page.messages.map(m => m.cursor))
+        token = page.nextPageToken
+        expect(page.hasMore).toBe(!!token)
+        pages += 1
+      } while (token && pages < 10)
+
+      expect(cursors).toEqual([110, 120, 130, 140, 150])
     })
 
-    it('getSyncMessages rejects exclusiveStartKey with invalid cursor', async () => {
+    it('getSyncMessages rejects a token for another item', async () => {
       const account = generateAccountId()
       const itemId = generateItemId() as ItemId
 
       await expect(
-        driver.getSyncMessages({
-          account,
-          itemId,
-          exclusiveStartKey: { syncId: `${account}#${itemId}`, cursor: -5 },
-        })
-      ).rejects.toThrow('Invalid exclusiveStartKey cursor: must be a non-negative number')
+        driver.getSyncMessages({ account, itemId, pageToken: pageToken({ syncId: 'wrong-account#item-1', cursor: 100 }) })
+      ).rejects.toThrow(InvalidPageTokenError)
+    })
+
+    it('getSyncMessages rejects a token that starts before fromCursor', async () => {
+      const account = generateAccountId()
+      const itemId = generateItemId() as ItemId
+
+      await expect(
+        driver.getSyncMessages({ account, itemId, fromCursor: 500, pageToken: pageToken({ syncId: `${account}#${itemId}`, cursor: 499 }) })
+      ).rejects.toThrow('Page token cannot start before cursor 500')
+    })
+
+    it('getSyncMessages rejects malformed tokens', async () => {
+      const account = generateAccountId()
+      const itemId = generateItemId() as ItemId
+
+      for (const token of ['not-a-token', pageToken({ syncId: `${account}#${itemId}`, cursor: -5 })]) {
+        await expect(driver.getSyncMessages({ account, itemId, pageToken: token })).rejects.toThrow('Page token is malformed')
+      }
     })
 
     it('getGlobalSyncMessagesAfterCursor reports the highest cursor scanned', async () => {
       const account = generateAccountId()
       const itemA = generateItemId()
       const itemB = generateItemId()
-      const encryptedMessage = { iv: 'iv', cipher: 'cipher' }
       await driver.pushSyncMessagesBatch({
         account,
         messages: [
@@ -546,6 +574,7 @@ describe('DynamoDriver', function () {
       const page = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 100 })
       expect(page.scannedThroughCursor).toBe(130)
       expect(page.hasMore).toBe(false)
+      expect(page.nextPageToken).toBeUndefined()
 
       const empty = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 500 })
       expect(empty.items).toEqual([])
@@ -553,32 +582,34 @@ describe('DynamoDriver', function () {
 
       const continuation = await driver.getGlobalSyncMessagesAfterCursor({
         account,
-        exclusiveStartKey: { account, cursor: 120, syncId: `${account}#${itemB}` },
+        cursor: 100,
+        pageToken: pageToken({ account, cursor: 120, syncId: `${account}#${itemB}` }),
       })
       expect(continuation.items.flatMap(i => i.messages.map(m => m.cursor))).toEqual([130])
       expect(continuation.scannedThroughCursor).toBe(130)
     })
 
-    it('getGlobalSyncMessagesAfterCursor rejects exclusiveStartKey with mismatched account', async () => {
+    it('getGlobalSyncMessagesAfterCursor rejects a token for another account', async () => {
       const account = generateAccountId()
 
-      await expect(
-        driver.getGlobalSyncMessagesAfterCursor({
-          account,
-          exclusiveStartKey: { account: 'other-account', cursor: 100, syncId: 'other-account#item-1' },
-        })
-      ).rejects.toThrow(`Invalid exclusiveStartKey account: expected ${account}`)
+      for (const key of [
+        { account: 'other-account', cursor: 100, syncId: 'other-account#item-1' },
+        { account, cursor: 100, syncId: 'wrong-account#item-1' },
+      ]) {
+        await expect(
+          driver.getGlobalSyncMessagesAfterCursor({ account, pageToken: pageToken(key) })
+        ).rejects.toThrow(`Page token is for another account: expected ${account}`)
+      }
     })
 
-    it('getGlobalSyncMessagesAfterCursor rejects exclusiveStartKey with mismatched syncId prefix', async () => {
-      const account = generateAccountId()
+    it('validatePageToken applies the same checks without querying', () => {
+      const account = 'acct'
+      const itemId = 'item-1' as ItemId
 
-      await expect(
-        driver.getGlobalSyncMessagesAfterCursor({
-          account,
-          exclusiveStartKey: { account, cursor: 100, syncId: 'wrong-account#item-1' },
-        })
-      ).rejects.toThrow(`Invalid exclusiveStartKey syncId: expected prefix ${account}#`)
+      expect(() => driver.validatePageToken({ account, itemId, cursor: 10, pageToken: pageToken({ syncId: 'acct#item-1', cursor: 10 }) })).not.toThrow()
+      expect(() => driver.validatePageToken({ account, itemId, cursor: 11, pageToken: pageToken({ syncId: 'acct#item-1', cursor: 10 }) })).toThrow(InvalidPageTokenError)
+      expect(() => driver.validatePageToken({ account, pageToken: pageToken({ account, cursor: 1, syncId: 'acct#item-9' }) })).not.toThrow()
+      expect(() => driver.validatePageToken({ account, pageToken: pageToken({ syncId: 'acct#item-1', cursor: 10 }) })).toThrow(InvalidPageTokenError)
     })
   })
 })

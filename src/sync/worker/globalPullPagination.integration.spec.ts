@@ -1,5 +1,4 @@
 import type { ItemId } from 'src/shared/vault/ids'
-import type { GlobalSyncLastEvaluatedKey, SyncMessageLastEvaluatedKey } from 'src/shared/vault/api'
 import type { StoredSyncMessage } from 'src/vault/drivers/base'
 import { syncRouter } from 'src/vault/trpc/routers/sync'
 import { SyncPoller } from './SyncPoller'
@@ -35,6 +34,9 @@ function createInMemoryVault(rows: StoredRow[]) {
     createdAt,
   })
 
+  // Page tokens are opaque to the client and router; this vault encodes its scan position as JSON
+  const decode = (token?: string) => (token ? JSON.parse(token) as { cursor: number; syncId: string } : undefined)
+
   return {
     extendSession: vi.fn(async () => undefined),
     getAccount: vi.fn(async ({ account, session }: { account: string; session: string }) => ({
@@ -42,21 +44,22 @@ function createInMemoryVault(rows: StoredRow[]) {
       sessions: [{ token: session, expires: Date.now() + 60_000 }],
     })),
     pushSyncMessagesBatch: vi.fn(async () => undefined),
+    validatePageToken: vi.fn(),
     getSyncMessages: vi.fn(async (input: {
       itemId: ItemId
       fromCursor?: number
-      exclusiveStartKey?: SyncMessageLastEvaluatedKey
+      pageToken?: string
     }) => {
       const syncId = `${ACCOUNT}#${input.itemId}`
-      const after = input.exclusiveStartKey?.cursor ?? input.fromCursor ?? -1
+      const after = decode(input.pageToken)?.cursor ?? input.fromCursor ?? -1
       const messages = rows.filter(r => r.syncId === syncId && r.cursor > after).sort(byCursor)
       return { messages: messages.map(toMessage), hasMore: false }
     }),
     getGlobalSyncMessagesAfterCursor: vi.fn(async (input: {
       cursor?: number
-      exclusiveStartKey?: GlobalSyncLastEvaluatedKey
+      pageToken?: string
     }) => {
-      const start = input.exclusiveStartKey
+      const start = decode(input.pageToken)
       const sorted = [...rows].sort(byCursor)
       const remaining = start
         ? sorted.filter(r => r.cursor > start.cursor || (r.cursor === start.cursor && r.syncId > start.syncId))
@@ -73,7 +76,7 @@ function createInMemoryVault(rows: StoredRow[]) {
       return {
         items: Array.from(items, ([itemId, messages]) => ({ itemId, messages })),
         hasMore,
-        lastEvaluatedKey: hasMore ? { account: ACCOUNT, cursor: last.cursor, syncId: last.syncId } : undefined,
+        nextPageToken: hasMore ? JSON.stringify({ cursor: last.cursor, syncId: last.syncId }) : undefined,
         scannedThroughCursor: last?.cursor ?? start?.cursor ?? input.cursor ?? 0,
       }
     }),

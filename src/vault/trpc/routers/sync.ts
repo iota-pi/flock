@@ -1,9 +1,10 @@
 import { TRPCError } from '@trpc/server'
 import { protectedProcedure, router } from '../trpc'
-import { SyncPushBatchSchema, SyncPollBatchSchema, type GlobalSyncLastEvaluatedKey } from 'src/shared/vault/api'
+import { SyncPushBatchSchema, SyncPollBatchSchema, type PageToken } from 'src/shared/vault/api'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
 import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
 import { ItemId } from 'src/shared/vault/ids'
+import { InvalidPageTokenError } from '../../drivers/errors'
 
 
 export const syncRouter = router({
@@ -21,42 +22,30 @@ export const syncRouter = router({
   pollSync: protectedProcedure
     .input(SyncPollBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      if (input.globalLastEvaluatedKey) {
-        if (input.globalLastEvaluatedKey.account !== ctx.account) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'globalLastEvaluatedKey account mismatch',
-          })
-        }
-        if (!input.globalLastEvaluatedKey.syncId.startsWith(`${ctx.account}#`)) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'globalLastEvaluatedKey syncId mismatch',
-          })
-        }
-      }
-
-      for (const pullCursor of input.pullCursors) {
-        if (pullCursor.lastEvaluatedKey) {
-          const expectedSyncId = `${ctx.account}#${pullCursor.itemId}`
-          if (pullCursor.lastEvaluatedKey.syncId !== expectedSyncId) {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: `pullCursor lastEvaluatedKey syncId mismatch for item ${pullCursor.itemId}`,
-            })
-          }
-          const baseCursor = pullCursor.cursor ?? 0
-          if (pullCursor.lastEvaluatedKey.cursor < baseCursor) {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: `pullCursor lastEvaluatedKey cursor cannot precede pull cursor for item ${pullCursor.itemId}`,
-            })
-          }
-        }
-      }
-
       const repository = createDynamoAutomergeSyncRepository(ctx.vault)
       const service = createAutomergeSyncService({ repository })
+
+      // Reject bad page tokens before storing any pushed messages, or the client would push them again
+      try {
+        if (input.globalPageToken) {
+          repository.validatePageToken({ account: ctx.account, pageToken: input.globalPageToken })
+        }
+        for (const pullCursor of input.pullCursors) {
+          if (pullCursor.pageToken) {
+            repository.validatePageToken({
+              account: ctx.account,
+              itemId: pullCursor.itemId,
+              cursor: pullCursor.cursor ?? 0,
+              pageToken: pullCursor.pageToken,
+            })
+          }
+        }
+      } catch (error) {
+        if (error instanceof InvalidPageTokenError) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error })
+        }
+        throw error
+      }
 
       let pushResults: Array<{ itemId: ItemId; cursor: number }> = []
       if (input.pushMessages.length > 0) {
@@ -69,11 +58,11 @@ export const syncRouter = router({
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
       let globalHasMore = false
-      let globalLastEvaluatedKey: GlobalSyncLastEvaluatedKey | undefined = undefined
+      let globalNextPageToken: PageToken | undefined = undefined
       let globalScannedThroughCursor: number | undefined = undefined
 
       const shouldPullBatch = input.pullCursors.length > 0
-      const shouldPullGlobal = typeof input.clientLatestCursor === 'number' || !!input.globalLastEvaluatedKey
+      const shouldPullGlobal = typeof input.clientLatestCursor === 'number' || !!input.globalPageToken
 
       if (shouldPullBatch || shouldPullGlobal) {
         const [batchPullResult, globalPullResult] = await Promise.all([
@@ -87,7 +76,7 @@ export const syncRouter = router({
             ? service.pullAutomergeSyncGlobal({
               account: ctx.account,
               cursor: input.clientLatestCursor ?? 0,
-              lastEvaluatedKey: input.globalLastEvaluatedKey,
+              pageToken: input.globalPageToken,
             })
             : null,
         ])
@@ -105,7 +94,7 @@ export const syncRouter = router({
 
         pullResults = [...batchResults, ...filteredGlobalResults]
         globalHasMore = globalPullResult?.hasMore ?? false
-        globalLastEvaluatedKey = globalPullResult?.lastEvaluatedKey
+        globalNextPageToken = globalPullResult?.nextPageToken
         globalScannedThroughCursor = globalPullResult?.scannedThroughCursor
       }
 
@@ -116,7 +105,7 @@ export const syncRouter = router({
         pushResults,
         pullResults,
         hasMore,
-        globalLastEvaluatedKey,
+        globalNextPageToken,
         globalHasMore: globalHasMore,
         globalScannedThroughCursor,
       }

@@ -323,17 +323,17 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasImmediatePendingPulls()).toBe(false)
     })
 
-    it('attaches lastEvaluatedKey to getCursors when hasMore is true, and clears it on completion', async () => {
+    it('attaches the page token to getCursors when hasMore is true, and clears it on completion', async () => {
       const msg = new Uint8Array([1, 2, 3])
       mockDecryptBytes.mockResolvedValue(msg)
 
-      const itemKey = { syncId: 'account#item-pagination', cursor: 200 }
+      const itemKey = 'item-pagination-token'
       const pullResultsWithKey: PullSyncMessagesResponse[] = [
         {
           success: true,
           itemId: 'item-pagination' as ItemId,
           hasMore: true,
-          lastEvaluatedKey: itemKey,
+          nextPageToken: itemKey,
           nextCursor: 200,
           messages: [
             {
@@ -355,7 +355,7 @@ describe('SyncPullQueueManager', () => {
       expect(cursors[0]).toEqual({
         itemId: 'item-pagination',
         cursor: 200,
-        lastEvaluatedKey: itemKey,
+        pageToken: itemKey,
       })
 
       // Next page finishes with hasMore: false
@@ -383,23 +383,23 @@ describe('SyncPullQueueManager', () => {
       expect(manager.getCursors()).toHaveLength(0)
     })
 
-    it('stores globalLastEvaluatedKey when hasMoreGlobal is true, and clears it when false', async () => {
-      const sampleGlobalKey = { account: 'test-account', cursor: 500, syncId: 'test-account#item-1' }
+    it('stores the global page token when hasMoreGlobal is true, and clears it when false', async () => {
+      const sampleGlobalKey = 'global-page-token'
 
       await manager.processPullResults([], true, sampleGlobalKey)
 
       expect(manager.hasImmediatePendingPulls()).toBe(true)
-      expect(manager.getGlobalLastEvaluatedKey()).toEqual(sampleGlobalKey)
+      expect(manager.getGlobalPageToken()).toEqual(sampleGlobalKey)
 
-      // Completing global backlog clears globalLastEvaluatedKey
+      // Completing global backlog clears the global page token
       await manager.processPullResults([], false)
 
       expect(manager.hasImmediatePendingPulls()).toBe(false)
-      expect(manager.getGlobalLastEvaluatedKey()).toBeUndefined()
+      expect(manager.getGlobalPageToken()).toBeUndefined()
     })
 
     it('advances the global scan cursor only from the server-reported scan position', async () => {
-      const sampleGlobalKey = { account: 'account-1', cursor: 100, syncId: 'account-1#item-scanned' }
+      const sampleGlobalKey = 'global-page-token'
       manager.addPendingItem('item-ahead' as ItemId)
 
       await manager.processPullResults(
@@ -424,11 +424,11 @@ describe('SyncPullQueueManager', () => {
 
       expect(manager.getGlobalScanCursor()).toBe(100)
       expect(manager.getGlobalLatestCursor()).toBe(500)
-      expect(manager.getGlobalLastEvaluatedKey()).toEqual(sampleGlobalKey)
+      expect(manager.getGlobalPageToken()).toEqual(sampleGlobalKey)
     })
 
     it('resumes the global scan from the scan position after a restart mid-pagination', async () => {
-      const sampleGlobalKey = { account: 'account-1', cursor: 100, syncId: 'account-1#item-scanned' }
+      const sampleGlobalKey = 'global-page-token'
       manager.addPendingItem('item-ahead' as ItemId)
       await manager.processPullResults(
         [
@@ -437,7 +437,7 @@ describe('SyncPullQueueManager', () => {
             messages: [{ cursor: 500, encryptedMessage: { iv: 'iv', cipher: 'ahead' } }],
             nextCursor: 500,
             hasMore: true,
-            lastEvaluatedKey: { syncId: 'account-1#item-ahead', cursor: 500 },
+            nextPageToken: 'item-ahead-page-token',
           },
         ] as any,
         true,
@@ -449,7 +449,7 @@ describe('SyncPullQueueManager', () => {
       const restarted = new SyncPullQueueManager(cursorStore)
       await restarted.setAccount('account-1')
 
-      expect(restarted.getGlobalLastEvaluatedKey()).toBeUndefined()
+      expect(restarted.getGlobalPageToken()).toBeUndefined()
       expect(restarted.getGlobalScanCursor()).toBe(100)
       expect(restarted.getCursors()).toEqual([
         expect.objectContaining({ itemId: 'item-ahead', cursor: 500 }),
@@ -472,15 +472,31 @@ describe('SyncPullQueueManager', () => {
       expect(manager.getGlobalScanCursor()).toBe(250)
     })
 
-    it('resetGlobalPagination discards the continuation key', async () => {
-      const sampleGlobalKey = { account: 'account-1', cursor: 100, syncId: 'account-1#item-1' }
+    it('resetPagination discards the global page token', async () => {
+      const sampleGlobalKey = 'global-page-token'
       await manager.processPullResults([], true, sampleGlobalKey, 100)
 
-      manager.resetGlobalPagination()
+      manager.resetPagination()
 
-      expect(manager.getGlobalLastEvaluatedKey()).toBeUndefined()
+      expect(manager.getGlobalPageToken()).toBeUndefined()
       expect(manager.hasPendingPulls()).toBe(false)
       expect(manager.getGlobalScanCursor()).toBe(100)
+    })
+
+    it('resetPagination discards item page tokens but keeps the items pending from their cursors', async () => {
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      await manager.processPullResults([{
+        success: true,
+        itemId: 'item-pagination' as ItemId,
+        hasMore: true,
+        nextPageToken: 'item-pagination-token',
+        nextCursor: 200,
+        messages: [{ cursor: 200, encryptedMessage: { iv: 'iv', cipher: 'cipher' } }],
+      }])
+
+      manager.resetPagination()
+
+      expect(manager.getCursors()).toEqual([{ itemId: 'item-pagination', cursor: 200, pageToken: undefined }])
     })
 
     it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {

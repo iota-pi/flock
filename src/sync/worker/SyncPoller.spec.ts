@@ -167,8 +167,8 @@ describe('SyncPoller', () => {
     )
   })
 
-  it('forwards response.globalLastEvaluatedKey to processPullResults when present', async () => {
-    const sampleKey = { account: 'test-account', cursor: 12345, syncId: 'test-account#item-1' }
+  it('forwards response.globalNextPageToken to processPullResults when present', async () => {
+    const sampleKey = 'global-page-token'
     mockPollSyncBatchWithToken.mockResolvedValueOnce({
       success: true,
       pushResults: [],
@@ -181,7 +181,7 @@ describe('SyncPoller', () => {
         },
       ],
       hasMore: true,
-      globalLastEvaluatedKey: sampleKey,
+      globalNextPageToken: sampleKey,
     })
 
     const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
@@ -216,38 +216,61 @@ describe('SyncPoller', () => {
     expect(processPullResultsSpy).toHaveBeenCalledWith([], false, undefined, 4321)
   })
 
-  it('restarts global pagination when the server rejects the continuation key', async () => {
+  it('restarts pagination when the server rejects a page token', async () => {
     await pullQueueManager.setAccount('test-account')
-    const sampleKey = { account: 'test-account', cursor: 100, syncId: 'test-account#item-1' }
+    const sampleKey = 'global-page-token'
     await pullQueueManager.processPullResults([], true, sampleKey, 100)
-    expect(pullQueueManager.getGlobalLastEvaluatedKey()).toEqual(sampleKey)
+    expect(pullQueueManager.getGlobalPageToken()).toEqual(sampleKey)
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockPollSyncBatchWithToken.mockRejectedValueOnce(
-      Object.assign(new Error('bad continuation key'), { data: { httpStatus: 400 } }),
+      Object.assign(new Error('bad page token'), { data: { httpStatus: 400 } }),
     )
 
     expect(await poller.executePoll()).toBe('failure')
     expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
-      expect.objectContaining({ globalLastEvaluatedKey: sampleKey }),
+      expect.objectContaining({ globalPageToken: sampleKey }),
       expect.anything(),
     )
-    expect(pullQueueManager.getGlobalLastEvaluatedKey()).toBeUndefined()
+    expect(pullQueueManager.getGlobalPageToken()).toBeUndefined()
 
     mockPollSyncBatchWithToken.mockResolvedValueOnce({ success: true, pushResults: [], pullResults: [] })
     expect(await poller.executePoll()).toBe('success')
     expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
-      expect.objectContaining({ globalLastEvaluatedKey: undefined, clientLatestCursor: 100 }),
+      expect.objectContaining({ globalPageToken: undefined, clientLatestCursor: 100 }),
       expect.anything(),
     )
     errorSpy.mockRestore()
     warnSpy.mockRestore()
   })
 
+  it('drops item page tokens when the server rejects one', async () => {
+    await pullQueueManager.setAccount('test-account')
+    await pullQueueManager.processPullResults([{
+      success: true,
+      itemId: 'item-1' as ItemId,
+      hasMore: true,
+      nextPageToken: 'item-page-token',
+      messages: [],
+    }])
+    expect(pullQueueManager.getCursors()).toEqual([expect.objectContaining({ pageToken: 'item-page-token' })])
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+      Object.assign(new Error('bad page token'), { data: { httpStatus: 400 } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(pullQueueManager.getCursors()).toEqual([expect.objectContaining({ itemId: 'item-1', pageToken: undefined })])
+    errorSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
   it('keeps global pagination state on transient failures', async () => {
     await pullQueueManager.setAccount('test-account')
-    const sampleKey = { account: 'test-account', cursor: 100, syncId: 'test-account#item-1' }
+    const sampleKey = 'global-page-token'
     await pullQueueManager.processPullResults([], true, sampleKey, 100)
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -256,7 +279,7 @@ describe('SyncPoller', () => {
     )
 
     expect(await poller.executePoll()).toBe('failure')
-    expect(pullQueueManager.getGlobalLastEvaluatedKey()).toEqual(sampleKey)
+    expect(pullQueueManager.getGlobalPageToken()).toEqual(sampleKey)
     errorSpy.mockRestore()
   })
 

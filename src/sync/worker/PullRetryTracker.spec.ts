@@ -125,7 +125,7 @@ describe('PullRetryTracker', () => {
       mockHasVaultKey.mockImplementation((k: string) => k !== 'missing-k')
 
       const cursors = tracker.getCursors()
-      expect(cursors).toEqual([{ itemId: 'item-1', cursor: 10, lastEvaluatedKey: undefined }])
+      expect(cursors).toEqual([{ itemId: 'item-1', cursor: 10, pageToken: undefined }])
     })
 
     it('returns global latest cursor', () => {
@@ -193,7 +193,7 @@ describe('PullRetryTracker', () => {
     })
 
     it('handles pagination success outcome (hasMore: true)', () => {
-      const evalKey = { syncId: 'test-acc#item-page', cursor: 100 }
+      const evalKey = 'item-page-token'
       const outcome = tracker.recordPullOutcome({
         itemId: 'item-page' as ItemId,
         initialCursor: 0,
@@ -202,12 +202,12 @@ describe('PullRetryTracker', () => {
         hasKeyFailure: false,
         hasParseFailure: false,
         hasMore: true,
-        lastEvaluatedKey: evalKey,
+        pageToken: evalKey,
       })
 
       const state = tracker.getState('item-page' as ItemId)
       expect(state?.pending).toBe(true)
-      expect(state?.lastEvaluatedKey).toEqual(evalKey)
+      expect(state?.pageToken).toEqual(evalKey)
       expect(state?.cursor).toBe(100)
       expect(outcome.cursorUpdated).toBe(true)
       expect(outcome.permanentlyFailed).toBe(false)
@@ -226,7 +226,7 @@ describe('PullRetryTracker', () => {
 
       const state = tracker.getState('item-done' as ItemId)
       expect(state?.pending).toBe(false)
-      expect(state?.lastEvaluatedKey).toBeUndefined()
+      expect(state?.pageToken).toBeUndefined()
       expect(state?.cursor).toBe(150)
       expect(outcome.cursorUpdated).toBe(true)
       expect(outcome.permanentlyFailed).toBe(false)
@@ -344,7 +344,7 @@ describe('PullRetryTracker', () => {
       tracker2.loadState(state)
       expect(tracker2.getGlobalLatestCursor()).toBe(1000)
       expect(tracker2.hasPendingPulls()).toBe(true)
-      expect(tracker2.getCursors()).toEqual([{ itemId: 'item-retrying', cursor: 400, lastEvaluatedKey: undefined }])
+      expect(tracker2.getCursors()).toEqual([{ itemId: 'item-retrying', cursor: 400, pageToken: undefined }])
     })
 
     it('does not raise the global scan cursor from per-item outcomes when advanceGlobalCursor is false', () => {
@@ -420,7 +420,7 @@ describe('PullRetryTracker', () => {
         pending: true,
         retryCount: 2,
         blockedOnKey: 'new-key',
-        lastEvaluatedKey: undefined,
+        pageToken: undefined,
         permanentlyFailed: false,
         advanceCursor: undefined,
         cursorUpdated: false,
@@ -436,7 +436,7 @@ describe('PullRetryTracker', () => {
         retryCount: 1,
         blockedOnKey: 'some-key',
       }
-      const evalKey = { syncId: 'test-acc#item-1', cursor: 120 }
+      const evalKey = 'item-1-page-token'
 
       const transition = tracker.computeTransition(state, {
         itemId: 'item-1' as ItemId,
@@ -446,7 +446,7 @@ describe('PullRetryTracker', () => {
         hasKeyFailure: false,
         hasParseFailure: false,
         hasMore: true,
-        lastEvaluatedKey: evalKey,
+        pageToken: evalKey,
       })
 
       expect(transition).toEqual({
@@ -456,7 +456,7 @@ describe('PullRetryTracker', () => {
         pending: true,
         retryCount: 0,
         blockedOnKey: undefined,
-        lastEvaluatedKey: evalKey,
+        pageToken: evalKey,
         permanentlyFailed: false,
         advanceCursor: undefined,
         cursorUpdated: true,
@@ -557,7 +557,7 @@ describe('PullRetryTracker', () => {
         pending: true,
         retryCount: 3,
         blockedOnKey: 'k1',
-        lastEvaluatedKey: { syncId: 'test-acc#item-1', cursor: 10 },
+        pageToken: 'item-1-page-token',
       }
 
       const transition: PullStateTransition = {
@@ -567,7 +567,7 @@ describe('PullRetryTracker', () => {
         pending: false,
         retryCount: 0,
         blockedOnKey: undefined,
-        lastEvaluatedKey: undefined,
+        pageToken: undefined,
         permanentlyFailed: false,
         advanceCursor: undefined,
         cursorUpdated: true,
@@ -582,7 +582,7 @@ describe('PullRetryTracker', () => {
         pending: false,
         retryCount: 0,
         blockedOnKey: undefined,
-        lastEvaluatedKey: undefined,
+        pageToken: undefined,
       })
     })
   })

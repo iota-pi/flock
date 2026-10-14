@@ -2,6 +2,12 @@ import { TRPCError } from '@trpc/server'
 import { syncRouter } from './sync'
 import { StoredSyncMessage } from 'src/vault/drivers/base'
 import { ItemId } from 'src/shared/vault/ids'
+import DynamoDriver from 'src/vault/drivers/dynamo'
+
+/** A page token as the Dynamo driver issues it */
+function pageToken(key: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(key)).toString('base64url')
+}
 
 function createContext(overrides?: {
   authToken?: string
@@ -20,9 +26,11 @@ function createContext(overrides?: {
       }
     }),
     updateAccountData: vi.fn(async () => undefined),
-    getGlobalSyncMessagesAfterCursor: vi.fn(async (): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> => ({ items: [], hasMore: false })),
-    getSyncMessages: vi.fn(async (): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; lastEvaluatedKey?: Record<string, unknown> }> => ({ messages: [], hasMore: false })),
+    getGlobalSyncMessagesAfterCursor: vi.fn(async (): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: string }> => ({ items: [], hasMore: false })),
+    getSyncMessages: vi.fn(async (): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: string }> => ({ messages: [], hasMore: false })),
     pushSyncMessagesBatch: vi.fn(async () => undefined),
+    // The Dynamo driver's token checks, which need no connection
+    validatePageToken: vi.fn((input: Parameters<DynamoDriver['validatePageToken']>[0]) => new DynamoDriver().validatePageToken(input)),
   }
 
   return {
@@ -354,9 +362,9 @@ describe('pollSync behavior and account isolation', () => {
       expect(result.pullResults[0].hasMore).toBe(false)
     })
 
-    it('forwards lastEvaluatedKey in pullCursors and returns it in item pull results', async () => {
+    it('forwards the page token in pullCursors and returns the next one in item pull results', async () => {
       const ctx = createContext()
-      const sampleItemKey = { syncId: 'target-account#item-1', cursor: 200 }
+      const itemToken = pageToken({ syncId: 'target-account#item-1', cursor: 200 })
       ctx.vault.getSyncMessages.mockResolvedValueOnce({
         messages: [
           {
@@ -365,34 +373,34 @@ describe('pollSync behavior and account isolation', () => {
             createdAt: 1000,
           },
         ],
-        hasMore: false,
-        lastEvaluatedKey: undefined,
+        hasMore: true,
+        nextPageToken: 'next-item-token',
       })
 
       const caller = syncRouter.createCaller(ctx as any)
       const result = await caller.pollSync({
         account: 'target-account',
         pushMessages: [],
-        pullCursors: [{ itemId: 'item-1' as ItemId, cursor: 200, lastEvaluatedKey: sampleItemKey }],
+        pullCursors: [{ itemId: 'item-1' as ItemId, cursor: 200, pageToken: itemToken }],
       })
 
       expect(result.success).toBe(true)
       expect(ctx.vault.getSyncMessages).toHaveBeenCalledWith({
         account: 'target-account',
         itemId: 'item-1',
-        fromCursor: undefined,
+        fromCursor: 200,
         limit: 200,
-        exclusiveStartKey: sampleItemKey,
+        pageToken: itemToken,
       })
       expect(result.pullResults).toHaveLength(1)
       expect(result.pullResults[0].itemId).toBe('item-1')
       expect(result.pullResults[0].nextCursor).toBe(250)
+      expect(result.pullResults[0].nextPageToken).toBe('next-item-token')
     })
 
-    it('forwards globalLastEvaluatedKey and returns top-level globalLastEvaluatedKey in response', async () => {
+    it('forwards the global page token and returns the next one in the response', async () => {
       const ctx = createContext()
-      const inputGlobalKey = { account: 'target-account', cursor: 500, syncId: 'target-account#item-x' }
-      const outputGlobalKey = { account: 'target-account', cursor: 700, syncId: 'target-account#item-y' }
+      const globalToken = pageToken({ account: 'target-account', cursor: 500, syncId: 'target-account#item-x' })
 
       ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
         items: [
@@ -408,7 +416,7 @@ describe('pollSync behavior and account isolation', () => {
           },
         ],
         hasMore: true,
-        lastEvaluatedKey: outputGlobalKey,
+        nextPageToken: 'next-global-token',
       })
 
       const caller = syncRouter.createCaller(ctx as any)
@@ -416,54 +424,26 @@ describe('pollSync behavior and account isolation', () => {
         account: 'target-account',
         pushMessages: [],
         pullCursors: [],
-        globalLastEvaluatedKey: inputGlobalKey,
+        globalPageToken: globalToken,
       })
 
       expect(result.success).toBe(true)
       expect(ctx.vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith({
         account: 'target-account',
-        cursor: undefined,
-        exclusiveStartKey: inputGlobalKey,
+        cursor: 0,
+        pageToken: globalToken,
       })
       expect(result.hasMore).toBe(true)
-      expect(result.globalLastEvaluatedKey).toEqual(outputGlobalKey)
+      expect(result.globalNextPageToken).toBe('next-global-token')
       expect(result.pullResults).toHaveLength(1)
     })
 
-    it('rejects globalLastEvaluatedKey when account does not match authenticated account', async () => {
-      const ctx = createContext()
-      const caller = syncRouter.createCaller(ctx as any)
-
-      await expect(
-        caller.pollSync({
-          account: 'target-account',
-          pushMessages: [],
-          pullCursors: [],
-          globalLastEvaluatedKey: { account: 'other-account', cursor: 500, syncId: 'target-account#item-x' },
-        })
-      ).rejects.toThrow('globalLastEvaluatedKey account mismatch')
-    })
-
-    it('rejects globalLastEvaluatedKey when syncId does not match authenticated account prefix', async () => {
-      const ctx = createContext()
-      const caller = syncRouter.createCaller(ctx as any)
-
-      await expect(
-        caller.pollSync({
-          account: 'target-account',
-          pushMessages: [],
-          pullCursors: [],
-          globalLastEvaluatedKey: { account: 'target-account', cursor: 500, syncId: 'other-account#item-x' },
-        })
-      ).rejects.toThrow('globalLastEvaluatedKey syncId mismatch')
-    })
-
-    it('accepts a globalLastEvaluatedKey whose cursor precedes clientLatestCursor', async () => {
+    it('accepts a global page token whose cursor precedes clientLatestCursor', async () => {
       const ctx = createContext()
       ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
         items: [{ itemId: 'item-a' as ItemId, messages: [{ cursor: 1200, encryptedMessage: { iv: 'iv', cipher: 'c' }, createdAt: 1 }] }],
         hasMore: true,
-        lastEvaluatedKey: { account: 'target-account', cursor: 1200, syncId: 'target-account#item-a' },
+        nextPageToken: 'next-global-token',
         scannedThroughCursor: 1200,
       } as any)
       const caller = syncRouter.createCaller(ctx as any)
@@ -473,7 +453,7 @@ describe('pollSync behavior and account isolation', () => {
         clientLatestCursor: 1000,
         pushMessages: [],
         pullCursors: [],
-        globalLastEvaluatedKey: { account: 'target-account', cursor: 999, syncId: 'target-account#item-x' },
+        globalPageToken: pageToken({ account: 'target-account', cursor: 999, syncId: 'target-account#item-x' }),
       })
 
       expect(result.success).toBe(true)
@@ -486,7 +466,7 @@ describe('pollSync behavior and account isolation', () => {
       ctx.vault.getSyncMessages.mockResolvedValueOnce({
         messages: [{ cursor: 5000, encryptedMessage: { iv: 'iv', cipher: 'c' }, createdAt: 1 }],
         hasMore: true,
-        lastEvaluatedKey: { syncId: 'target-account#item-lagging', cursor: 5000 },
+        nextPageToken: 'item-lagging-token',
       })
       ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
         items: [
@@ -512,61 +492,53 @@ describe('pollSync behavior and account isolation', () => {
       expect(result.hasMore).toBe(true)
     })
 
-    it('rejects pullCursors lastEvaluatedKey when syncId does not match account and itemId', async () => {
+    it.each([
+      {
+        name: 'a global page token for another account',
+        input: { globalPageToken: pageToken({ account: 'other-account', cursor: 500, syncId: 'other-account#item-x' }) },
+        message: 'Page token is for another account',
+      },
+      {
+        name: 'a global page token whose syncId belongs to another account',
+        input: { globalPageToken: pageToken({ account: 'target-account', cursor: 500, syncId: 'other-account#item-x' }) },
+        message: 'Page token is for another account',
+      },
+      {
+        name: 'an item page token for another item',
+        input: { pullCursors: [{ itemId: 'item-1', cursor: 100, pageToken: pageToken({ syncId: 'target-account#item-2', cursor: 150 }) }] },
+        message: 'Page token is for another item',
+      },
+      {
+        name: 'an item page token that starts before the pull cursor',
+        input: { pullCursors: [{ itemId: 'item-1', cursor: 500, pageToken: pageToken({ syncId: 'target-account#item-1', cursor: 499 }) }] },
+        message: 'Page token cannot start before cursor 500',
+      },
+      {
+        name: 'an undecodable page token',
+        input: { pullCursors: [{ itemId: 'item-1', cursor: 500, pageToken: 'not-a-token' }] },
+        message: 'Page token is malformed',
+      },
+      {
+        name: 'a page token with unexpected fields',
+        input: { pullCursors: [{ itemId: 'item-1', cursor: 500, pageToken: pageToken({ syncId: 'target-account#item-1', cursor: 500, extra: true }) }] },
+        message: 'Page token is malformed',
+      },
+    ])('rejects $name before storing pushed messages', async ({ input, message }) => {
       const ctx = createContext()
       const caller = syncRouter.createCaller(ctx as any)
 
-      await expect(
-        caller.pollSync({
-          account: 'target-account',
-          pushMessages: [],
-          pullCursors: [
-            {
-              itemId: 'item-1' as ItemId,
-              cursor: 100,
-              lastEvaluatedKey: { syncId: 'target-account#item-2', cursor: 150 },
-            },
-          ],
-        })
-      ).rejects.toThrow('pullCursor lastEvaluatedKey syncId mismatch for item item-1')
-    })
+      const error = await caller.pollSync({
+        account: 'target-account',
+        pushMessages: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv', cipher: 'c' } }],
+        pullCursors: [],
+        ...input,
+      } as Parameters<typeof caller.pollSync>[0]).catch(e => e)
 
-    it('rejects pullCursors lastEvaluatedKey when cursor precedes item pull cursor', async () => {
-      const ctx = createContext()
-      const caller = syncRouter.createCaller(ctx as any)
-
-      await expect(
-        caller.pollSync({
-          account: 'target-account',
-          pushMessages: [],
-          pullCursors: [
-            {
-              itemId: 'item-1' as ItemId,
-              cursor: 500,
-              lastEvaluatedKey: { syncId: 'target-account#item-1', cursor: 499 },
-            },
-          ],
-        })
-      ).rejects.toThrow('pullCursor lastEvaluatedKey cursor cannot precede pull cursor for item item-1')
-    })
-
-    it('rejects extra unknown properties on lastEvaluatedKey via strict schema', async () => {
-      const ctx = createContext()
-      const caller = syncRouter.createCaller(ctx as any)
-
-      await expect(
-        caller.pollSync({
-          account: 'target-account',
-          pushMessages: [],
-          pullCursors: [
-            {
-              itemId: 'item-1' as ItemId,
-              cursor: 500,
-              lastEvaluatedKey: { syncId: 'target-account#item-1', cursor: 500, unexpectedField: true } as any,
-            },
-          ],
-        })
-      ).rejects.toThrow()
+      expect(error).toBeInstanceOf(TRPCError)
+      expect(error.code).toBe('BAD_REQUEST')
+      expect(error.message).toContain(message)
+      // The client would push the stored messages again with its retried poll
+      expect(ctx.vault.pushSyncMessagesBatch).not.toHaveBeenCalled()
     })
   })
 })
