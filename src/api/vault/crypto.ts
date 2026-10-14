@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CryptoResultSchema } from 'src/shared/vault/crypto'
+import { CryptoResultSchema, DOC_BOUND_FORMAT } from 'src/shared/vault/crypto'
 import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 
 
@@ -115,12 +115,27 @@ export async function decryptWithKey(key: CryptoKey, payload: CryptoResult): Pro
   return new TextDecoder().decode(plaintext)
 }
 
-export async function encryptBytesWithKey(key: CryptoKey, bytes: Uint8Array, kver?: string): Promise<CryptoResult> {
+function docAssociatedData(docId: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`vault-doc:${docId}`)
+}
+
+/**
+ * Encrypts bytes. With a `docId`, the ciphertext is bound to that document and only decrypts when
+ * the same `docId` is given.
+ */
+export async function encryptBytesWithKey(
+  key: CryptoKey,
+  bytes: Uint8Array,
+  kver?: string,
+  docId?: string,
+): Promise<CryptoResult> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const normalizedBytes = new Uint8Array(bytes.byteLength)
   normalizedBytes.set(bytes)
   const cipher = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    docId === undefined
+      ? { name: 'AES-GCM', iv }
+      : { name: 'AES-GCM', iv, additionalData: docAssociatedData(docId) },
     key,
     normalizedBytes,
   )
@@ -129,12 +144,33 @@ export async function encryptBytesWithKey(key: CryptoKey, bytes: Uint8Array, kve
     iv: fromBytes(iv.buffer),
     cipher: fromBytes(cipher),
     kver,
+    ...(docId === undefined ? {} : { format: DOC_BOUND_FORMAT }),
   }
 }
 
-export async function decryptBytesWithKey(key: CryptoKey, payload: CryptoResult): Promise<Uint8Array> {
+/**
+ * Decrypts bytes. A doc-bound ciphertext needs the `docId` it was written for. Unbound ciphertexts
+ * written before binding still decrypt.
+ */
+export async function decryptBytesWithKey(
+  key: CryptoKey,
+  payload: CryptoResult,
+  docId?: string,
+): Promise<Uint8Array> {
+  let additionalData: Uint8Array<ArrayBuffer> | undefined
+  if (payload.format === DOC_BOUND_FORMAT) {
+    if (docId === undefined) {
+      throw new Error('A doc-bound ciphertext needs its document ID to decrypt')
+    }
+    additionalData = docAssociatedData(docId)
+  } else if (payload.format !== undefined) {
+    throw new Error(`Unsupported ciphertext format ${String(payload.format)}`)
+  }
+
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: toBytes(payload.iv) },
+    additionalData
+      ? { name: 'AES-GCM', iv: toBytes(payload.iv), additionalData }
+      : { name: 'AES-GCM', iv: toBytes(payload.iv) },
     key,
     toBytes(payload.cipher),
   )

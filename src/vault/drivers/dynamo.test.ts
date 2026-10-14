@@ -373,6 +373,35 @@ describe('DynamoDriver', function () {
     expect(results[0].snapshot?.iv).toBe('snapshot-iv')
   })
 
+  it('keeps the ciphertext format of snapshots and sync messages', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const payload = Buffer.from('doc-bound-snapshot').toString('base64')
+
+    await driver.set({
+      account,
+      item,
+      metadata: { iv: 'iv', modified: Date.now() },
+      snapshot: { cipher: payload, iv: 'snapshot-iv', kver: '1', format: 2 },
+    })
+    await driver.appendSyncMessage({
+      account,
+      itemId: item,
+      entry: {
+        cursor: 1,
+        encryptedMessage: { iv: 'message-iv', cipher: 'message-cipher', kver: '1', format: 2, version: '1.0' },
+        createdAt: Date.now(),
+      },
+    })
+
+    const [stored] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(stored.snapshot).toEqual({ cipher: payload, iv: 'snapshot-iv', kver: '1', format: 2 })
+    const { messages } = await driver.getSyncMessages({ account, itemId: item })
+    expect(messages[0].encryptedMessage).toEqual({
+      iv: 'message-iv', cipher: 'message-cipher', kver: '1', format: 2, version: '1.0',
+    })
+  })
+
   it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
     const account = generateAccountId()
     const item = generateItemId()

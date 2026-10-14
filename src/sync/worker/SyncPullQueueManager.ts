@@ -208,6 +208,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     let decrypted: Uint8Array
     try {
       decrypted = await decryptWithKeyResolution(entry.encryptedMessage, {
+        docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         timedOutKeys,
         onKeyVersionMissing: missingKver => {

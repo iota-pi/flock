@@ -194,13 +194,11 @@ export class SyncPoller {
           messages.map(m => m.id)
         )
         const combined = packBatchedMessages(messages)
-        const encryptedMessage = await encryptBytes(combined)
+        const encryptedMessage = await encryptBytes(combined, itemId)
         return {
           itemId,
           encryptedMessage: {
-            iv: encryptedMessage.iv,
-            cipher: encryptedMessage.cipher,
-            kver: encryptedMessage.kver,
+            ...encryptedMessage,
             version: PROTOCOL_VERSION,
           },
         }
