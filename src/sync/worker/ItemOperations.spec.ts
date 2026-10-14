@@ -645,10 +645,83 @@ describe('ItemOperations', () => {
       it('does not clear recovery state if item creation throws', async () => {
         const localItem = { id: 'item-5', type: 'note', text: 'hello' }
         getAutomergeItemMock.mockResolvedValue(localItem)
-        changeDocumentMock.mockRejectedValue(new Error('Creation failed'))
+        changeDocumentMock.mockImplementation(async (id: string) => {
+          if (id !== 'item-5') throw new Error('Creation failed')
+          return true
+        })
 
         await expect(operations.recreateOversizedItem('item-5' as ItemId)).rejects.toThrow('Creation failed')
 
+        expect(changeDocumentMock).not.toHaveBeenCalledWith('item-5', expect.anything(), expect.anything())
+        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
+
+      it('does not delete or unquarantine the old item when the new document cannot be created', async () => {
+        getAutomergeItemMock.mockResolvedValue({ id: 'item-1', type: 'note', text: 'hello' })
+        changeDocumentMock.mockImplementation(async (id: string) => id === 'item-1')
+
+        await expect(operations.recreateOversizedItem('item-1' as ItemId)).rejects.toThrow('Failed to recreate')
+
+        expect(changeDocumentMock).not.toHaveBeenCalledWith('item-1', expect.anything(), expect.anything())
+        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+        expect(markDocumentDirtyMock).not.toHaveBeenCalledWith('item-1')
+      })
+
+      it('retires the new document and leaves the old item untouched when indexing fails', async () => {
+        getAutomergeItemMock.mockResolvedValue({ id: 'item-1', type: 'note', text: 'hello' })
+        changeDocumentMock.mockResolvedValue(true)
+        addAutomergeItemIdsToIndexMock.mockRejectedValue(new Error('Index failed'))
+
+        await expect(operations.recreateOversizedItem('item-1' as ItemId)).rejects.toThrow('Index failed')
+
+        expect(changeDocumentMock).not.toHaveBeenCalledWith('item-1', expect.anything(), expect.anything())
+        const newId = changeDocumentMock.mock.calls[0][0]
+        expect(newId).not.toBe('item-1')
+        expect(changeDocumentMock).toHaveBeenCalledTimes(2)
+        expect(changeDocumentMock).toHaveBeenLastCalledWith(newId, expect.any(Function), { knownToExist: true })
+        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
+
+      it('finalises a previous recreation without creating a new item when the source is already deleted', async () => {
+        getAutomergeItemMock.mockResolvedValue({ id: 'item-1', type: 'note', deleted: true })
+
+        const result = await operations.recreateOversizedItem('item-1' as ItemId)
+
+        expect(result).toBe('item-1')
+        expect(changeDocumentMock).not.toHaveBeenCalled()
+        expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+        expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-1'])
+        expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
+        expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-1')
+        expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-1', item: null })
+      })
+
+      it('merges concurrent calls for the same item into one recreation', async () => {
+        getAutomergeItemMock.mockResolvedValue({ id: 'item-1', type: 'note', text: 'hello' })
+        changeDocumentMock.mockResolvedValue(true)
+
+        const [first, second] = await Promise.all([
+          operations.recreateOversizedItem('item-1' as ItemId),
+          operations.recreateOversizedItem('item-1' as ItemId),
+        ])
+
+        expect(first).toBe(second)
+        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledTimes(1)
+        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith([first])
+      })
+
+      it('does not remove the old item from the index when it cannot be marked deleted', async () => {
+        getAutomergeItemMock.mockResolvedValue({ id: 'item-1', type: 'note', text: 'hello' })
+        changeDocumentMock.mockImplementation(async (id: string) => id !== 'item-1')
+
+        await expect(operations.recreateOversizedItem('item-1' as ItemId)).rejects.toThrow(
+          'could not be marked deleted',
+        )
+
+        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       })
     })

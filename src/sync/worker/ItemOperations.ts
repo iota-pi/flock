@@ -12,6 +12,7 @@ import { extractSyncableMetadata } from '../../shared/schemas/metadata'
 import { hasSyncableChanges } from './utils/metadataSync'
 import { RecoveryManager } from './RecoveryManager'
 import { generateItemId } from '../../utils'
+import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
 
 export interface ItemOperationsDeps {
   accountId: string
@@ -27,9 +28,12 @@ export interface StoreItemsOptions {
   markDirty?: boolean
 }
 
+class DocumentCreateRefusedError extends Error {}
+
 export class ItemOperations {
   public readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
+  private readonly recreateGuard = new KeyedSingleFlightGuard<ItemId, ItemId>()
 
   constructor(private deps: ItemOperationsDeps) {
     this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
@@ -92,21 +96,29 @@ export class ItemOperations {
     }
   }
 
+  /**
+   * Creates and indexes a document, throwing on any failure.
+   * `documentCreated` on the thrown error distinguishes a refused change from an exception.
+   */
+  private async createDocumentOrThrow(item: Item): Promise<void> {
+    const updated = await this.applyDocumentChange(item.id, item, {
+      createIfMissing: true,
+      knownToExist: false,
+    })
+    if (updated !== true) {
+      throw new DocumentCreateRefusedError(`Failed to create document ${item.id}`)
+    }
+    await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
+    this.deps.markDocumentDirty(item.id)
+    publishRealtimeBusSyncPing(this.deps.accountId, [item.id])
+  }
+
   async createItem(item: Item): Promise<void> {
     try {
-      const updated = await this.applyDocumentChange(item.id, item, {
-        createIfMissing: true,
-        knownToExist: false,
-      })
-      if (updated) {
-        await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
-        this.deps.markDocumentDirty(item.id)
-        publishRealtimeBusSyncPing(this.deps.accountId, [item.id])
-      } else {
-        await this.handleMutationFailure(item.id, 'create', `Failed to create document ${item.id}`)
-      }
+      await this.createDocumentOrThrow(item)
     } catch (err) {
-      await this.handleMutationFailure(item.id, 'create', (err as Error).message, false)
+      const refused = err instanceof DocumentCreateRefusedError
+      await this.handleMutationFailure(item.id, 'create', (err as Error).message, refused)
     }
   }
 
@@ -242,13 +254,32 @@ export class ItemOperations {
     await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
   }
 
+  /**
+   * Replaces an oversized item with a fresh copy (new id, no edit history) and soft-deletes the old one.
+   * The old item is only touched once the new document exists and is indexed, so a failure leaves it
+   * intact (and quarantined) and the call is safe to retry. If the source is already deleted, a previous
+   * recreation is finalised instead: no new copy is made and the old id is returned.
+   */
   async recreateOversizedItem(oldItemId: ItemId): Promise<ItemId> {
+    return this.recreateGuard.run(oldItemId, () => this.performRecreateOversizedItem(oldItemId))
+  }
+
+  private async performRecreateOversizedItem(oldItemId: ItemId): Promise<ItemId> {
     if (!this.deps.accountId) {
       throw new Error('Account ID is required to recreate oversized item.')
     }
     const localItem = await this.deps.docStore.getAutomergeItem(oldItemId)
     if (!localItem) {
       throw new Error(`No local item found for ${oldItemId} to recreate.`)
+    }
+
+    if (localItem.deleted === true) {
+      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([oldItemId])
+      this.deps.markDocumentDirty(oldItemId)
+      await this.recoveryManager.unquarantine(oldItemId)
+      await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
+      this.deps.eventHub.emit({ type: 'itemUpdated', id: oldItemId, item: null })
+      return oldItemId
     }
 
     const payloadJson = JSON.stringify(localItem)
@@ -264,10 +295,33 @@ export class ItemOperations {
       ...cleanItemSnapshot,
       id: newItemId,
       created: Date.now(),
+      deleted: false,
     }
 
     // 1. Create the new clean document and register in index
-    await this.createItem(newItem)
+    try {
+      await this.createDocumentOrThrow(newItem)
+    } catch (cause) {
+      if (!(cause instanceof DocumentCreateRefusedError)) {
+        // The document may exist without being indexed, so retire it on a best-effort basis
+        try {
+          await this.deps.docStore.changeDocument(
+            newItemId,
+            doc => {
+              doc.deleted = true
+            },
+            { knownToExist: true },
+          )
+          this.deps.markDocumentDirty(newItemId)
+        } catch {
+          // Cleanup is best-effort; the old item is untouched either way
+        }
+      }
+      throw new Error(
+        `Failed to recreate item ${oldItemId}: ${(cause as Error).message}`,
+        { cause },
+      )
+    }
 
     // 2. Scan active groups and remap any references from oldItemId -> newItemId
     try {
@@ -299,13 +353,16 @@ export class ItemOperations {
     }
 
     // 3. Mark old oversized item as deleted in Automerge document & remove from active index
-    await this.deps.docStore.changeDocument(
+    const oldMarkedDeleted = await this.deps.docStore.changeDocument(
       oldItemId,
       doc => {
         doc.deleted = true
       },
       { knownToExist: true },
     )
+    if (!oldMarkedDeleted) {
+      throw new Error(`New item ${newItemId} was created but ${oldItemId} could not be marked deleted`)
+    }
     await this.deps.indexManager.removeAutomergeItemIdsFromIndex([oldItemId])
     this.deps.markDocumentDirty(oldItemId)
 

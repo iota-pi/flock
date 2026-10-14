@@ -1,5 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { buildSnapshot, SnapshotBuilder } from './snapshotBuilder'
+import { buildSnapshot, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
 import { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/vault'
 
@@ -267,3 +267,29 @@ describe('SnapshotBuilder class', () => {
   })
 })
 
+describe('toTombstoneSnapshot', () => {
+  const base = {
+    itemId: 'item-1' as ItemId,
+    snapshot: { cipher: 'abc', iv: '123', kver: '1' },
+    snapshotCursor: 7,
+    type: 'note',
+    modified: 1234,
+  }
+
+  it('strips the snapshot payload and keeps the other fields', () => {
+    const tombstone = toTombstoneSnapshot({ ...base, deleted: true })
+
+    expect(tombstone).toEqual({
+      itemId: 'item-1',
+      snapshotCursor: 7,
+      type: 'note',
+      modified: 1234,
+      deleted: true,
+    })
+    expect('snapshot' in tombstone).toBe(false)
+  })
+
+  it('throws when the snapshot is not deleted', () => {
+    expect(() => toTombstoneSnapshot(base)).toThrow('Cannot create a tombstone')
+  })
+})
