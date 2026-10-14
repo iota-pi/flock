@@ -89,8 +89,9 @@ describe('SnapshotTracker', () => {
     ])
 
     mockRecoveryManager.listRecoveryItems.mockResolvedValue([
-      { itemId: 'item-quarantined', reason: 'Decryption failed' },
-      { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit` },
+      { itemId: 'item-quarantined', reason: 'Decryption failed', kind: 'pullDecryption' },
+      { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, kind: 'oversized' },
+      { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'pushFailure' },
     ])
 
     const { auditCount, oversizedItemIds } = await tracker.loadLastModified()
@@ -100,6 +101,7 @@ describe('SnapshotTracker', () => {
     expect(tracker.hasDirty('item-synced' as ItemId)).toBe(false)
     expect(tracker.hasDirty('item-quarantined' as ItemId)).toBe(false)
     expect(oversizedItemIds.has('item-oversized' as ItemId)).toBe(true)
+    expect(oversizedItemIds.has('item-rate-limited' as ItemId)).toBe(false)
   })
 
   it('recordSnapshotSuccess clears matching tick and updates lastSnapshotAt', () => {

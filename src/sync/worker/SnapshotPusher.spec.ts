@@ -109,8 +109,100 @@ describe('SnapshotPusher', () => {
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
+      'oversized',
       expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
     )
+  })
+
+  describe('deleted oversized items', () => {
+    const deletedSnapshot = (itemId: string) => ({
+      type: 'success',
+      snapshot: {
+        itemId: itemId as ItemId,
+        snapshot: { cipher: 'abc', iv: '123', kver: '1' },
+        snapshotCursor: 10,
+        type: 'note',
+        modified: 1000,
+        deleted: true,
+      },
+      heads: ['head-1'],
+    })
+
+    beforeEach(() => {
+      // Only snapshots carrying a cipher are over the limit
+      mockBuilder.estimateSize.mockImplementation((s: any) => (s.snapshot ? 5000 : 200))
+      mockBuilder.build.mockResolvedValue(deletedSnapshot('item-1'))
+    })
+
+    it('uploads a metadata-only tombstone for a deleted oversized item instead of quarantining', async () => {
+      const result = await pusher.pushSnapshots()
+
+      expect(result).toEqual({ persisted: 1, total: 1 })
+      const payload = mockApiClient.putSnapshots.mock.calls[0][0]
+      expect(payload.snapshots).toHaveLength(1)
+      expect(payload.snapshots[0]).toEqual({
+        itemId: 'item-1',
+        deleted: true,
+        type: 'note',
+        modified: 1000,
+        snapshotCursor: 10,
+      })
+      expect('snapshot' in payload.snapshots[0]).toBe(false)
+      expect(mockTracker.recordOversized).not.toHaveBeenCalled()
+      expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+      expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
+      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
+      expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
+      expect(mockBroker.setSyncedHeads).not.toHaveBeenCalled()
+      expect(pusher.oversizedItems.has('item-1' as ItemId)).toBe(false)
+    })
+
+    it('does not re-quarantine after the oversized flag was cleared by a recreation', async () => {
+      pusher.addOversized('item-1' as ItemId)
+      pusher.clearOversized('item-1' as ItemId)
+
+      await pusher.pushSnapshots()
+
+      expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
+      expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+      expect(mockTracker.recordOversized).not.toHaveBeenCalled()
+    })
+
+    it('batches a tombstone alongside normal snapshots and only records heads for the normal one', async () => {
+      mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      mockBuilder.build.mockImplementation(async (itemId: string) => {
+        if (itemId === 'item-1') return deletedSnapshot('item-1')
+        return {
+          type: 'success',
+          snapshot: {
+            itemId: 'item-2' as ItemId,
+            snapshot: { cipher: 'def', iv: '456', kver: '1' },
+            snapshotCursor: 10,
+            type: 'note',
+            modified: 2000,
+          },
+          heads: ['head-2'],
+        }
+      })
+      mockBuilder.estimateSize.mockImplementation((s: any) => (s.deleted ? 200 : 300))
+      // Make item-1's full snapshot look oversized only during preparation
+      mockBuilder.estimateSize.mockImplementationOnce(() => 5000)
+      mockApiClient.putSnapshots.mockResolvedValue({
+        success: true,
+        persisted: 2,
+        results: [{ itemId: 'item-1', version: 3 }, { itemId: 'item-2', version: 4 }],
+      })
+
+      const result = await pusher.pushSnapshots()
+
+      expect(result).toEqual({ persisted: 2, total: 2 })
+      expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
+      expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots).toHaveLength(2)
+      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 3)
+      expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', 2000, 1, 4)
+      expect(mockBroker.setSyncedHeads).toHaveBeenCalledTimes(1)
+      expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-2', ['head-2'])
+    })
   })
 
   it('quarantines item after 5 consecutive failures', async () => {
@@ -136,6 +228,7 @@ describe('SnapshotPusher', () => {
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
+      'snapshotFailure',
       expect.stringContaining('Snapshot failure'),
     )
   })

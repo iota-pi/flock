@@ -81,6 +81,24 @@ export async function buildSnapshot(
   }
 }
 
+/**
+ * Strips the payload from a deleted snapshot, leaving only the metadata needed
+ * for the server to record the tombstone. Used when the full document history
+ * is too large to upload.
+ */
+export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshotInput {
+  if (snapshot.deleted !== true) {
+    throw new Error(`Cannot create a tombstone for non-deleted item ${snapshot.itemId}`)
+  }
+  return {
+    itemId: snapshot.itemId,
+    snapshotCursor: snapshot.snapshotCursor,
+    type: snapshot.type,
+    modified: snapshot.modified,
+    deleted: true,
+  }
+}
+
 export class SnapshotBuilder {
   constructor(private readonly repo: Repo) {}
 

@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
@@ -1493,6 +1494,96 @@ describe('SyncPullQueueManager', () => {
         SYNC_METADATA_KEYS.CURSORS,
         expect.objectContaining({ globalCursor: 77 })
       )
+    })
+  })
+
+  describe('remoteMessagesParsed', () => {
+    const makeResult = (cursors: number[], itemId = 'item-1'): PullSyncMessagesResponse => ({
+      success: true,
+      itemId: itemId as ItemId,
+      hasMore: false,
+      nextCursor: Math.max(...cursors),
+      messages: cursors.map(cursor => ({
+        cursor,
+        encryptedMessage: { iv: `iv-${cursor}`, cipher: 'abc' },
+      })),
+    })
+
+    let remoteSpy: Mock
+    let parsedSpy: Mock
+
+    beforeEach(async () => {
+      await manager.setAccount('account-1')
+      remoteSpy = vi.fn()
+      parsedSpy = vi.fn()
+      manager.eventHub.subscribe(e => {
+        if (e.type === 'remoteMessagesParsed') remoteSpy(e.itemId)
+        if (e.type === 'messageParsed') parsedSpy(e.itemId)
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+    })
+
+    it('does not emit for echoes of own pushes, but still parses and advances the cursor', async () => {
+      manager.recordOwnPushedMessage('item-1' as ItemId, 10)
+
+      await manager.processPullResults([makeResult([10])])
+
+      expect(remoteSpy).not.toHaveBeenCalled()
+      expect(parsedSpy).toHaveBeenCalledTimes(1)
+      expect(manager.exportCursors()).toContainEqual(['item-1', 10])
+    })
+
+    it('emits once per pull result for unrecorded cursors', async () => {
+      await manager.processPullResults([makeResult([10, 11])])
+
+      expect(remoteSpy).toHaveBeenCalledTimes(1)
+      expect(remoteSpy).toHaveBeenCalledWith('item-1')
+    })
+
+    it('emits for a mixed batch of own and remote messages', async () => {
+      manager.recordOwnPushedMessage('item-1' as ItemId, 10)
+
+      await manager.processPullResults([makeResult([10, 11])])
+
+      expect(remoteSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not emit when a message fails to parse', async () => {
+      mockDecryptBytes.mockReset()
+      mockDecryptBytes.mockRejectedValue(new Error('bad data'))
+
+      await manager.processPullResults([makeResult([10])])
+
+      expect(remoteSpy).not.toHaveBeenCalled()
+    })
+
+    it('removes the own-push key once the echo has been processed', async () => {
+      manager.recordOwnPushedMessage('item-1' as ItemId, 10)
+      await manager.processPullResults([makeResult([10])])
+      expect(remoteSpy).not.toHaveBeenCalled()
+
+      // A later re-delivery of the same cursor is no longer treated as an echo
+      await manager.resetCursors()
+      await manager.processPullResults([makeResult([10])])
+      expect(remoteSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('clears recorded own pushes on resetCursors', async () => {
+      manager.recordOwnPushedMessage('item-1' as ItemId, 10)
+      await manager.resetCursors()
+
+      await manager.processPullResults([makeResult([10])])
+
+      expect(remoteSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('clears recorded own pushes on setAccount', async () => {
+      manager.recordOwnPushedMessage('item-1' as ItemId, 10)
+      await manager.setAccount('account-1')
+
+      await manager.processPullResults([makeResult([10])])
+
+      expect(remoteSpy).toHaveBeenCalledTimes(1)
     })
   })
 

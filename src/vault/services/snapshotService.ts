@@ -33,7 +33,8 @@ export async function persistSnapshots(
           modified: snapshot.modified,
           ...(snapshot.deleted ? { deleted: true } : {}),
         },
-        snapshot: snapshot.snapshot,
+        // Payload-less tombstones intentionally omit the snapshot so the previous one is kept
+        ...(snapshot.snapshot ? { snapshot: snapshot.snapshot } : {}),
       }
 
       const setResult = await vault.set(item)

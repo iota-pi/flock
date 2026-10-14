@@ -1,6 +1,19 @@
 import { SyncWorker } from './sync.worker'
 import type { ItemId } from 'src/shared/schemas/items'
 
+const { realtimeListeners } = vi.hoisted(() => ({
+  realtimeListeners: [] as Array<(itemIds: string[]) => void>,
+}))
+
+vi.mock('./realtimeBus', () => ({
+  subscribeRealtimeBusSyncPing: vi.fn((_accountId: string, listener: (itemIds: string[]) => void) => {
+    realtimeListeners.push(listener)
+    return () => {}
+  }),
+  publishRealtimeBusSyncPing: vi.fn(),
+  teardownRealtimeBus: vi.fn(),
+}))
+
 // Mock Automerge WASM
 vi.mock('@automerge/automerge/slim', () => ({
   initializeWasm: vi.fn().mockResolvedValue(undefined),
@@ -35,7 +48,8 @@ const mockBrokerSetAccount = vi.fn().mockResolvedValue(undefined)
 const mockAdapterSetAccount = vi.fn()
 const mockIndexManagerListAutomergeItemIds = vi.fn().mockResolvedValue([])
 const mockIndexManagerAddAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
-const mockRecoveryManagerUnquarantineBatch = vi.fn().mockResolvedValue(undefined)
+const mockRecoveryManagerResolveQuarantines = vi.fn().mockResolvedValue(undefined)
+const mockRecoveryManagerUnquarantine = vi.fn().mockResolvedValue(undefined)
 const mockItemOperationsMutateItem = vi.fn().mockResolvedValue(undefined)
 const mockRecoveryManagerListRecoveryItems = vi.fn().mockResolvedValue([])
 const mockOrchestratorSetOnlineState = vi.fn()
@@ -113,9 +127,9 @@ vi.mock('./SyncWorkerContext', () => {
       }
 
       recoveryManager = {
-        unquarantineBatch: mockRecoveryManagerUnquarantineBatch,
+        resolveQuarantines: mockRecoveryManagerResolveQuarantines,
         listRecoveryItems: mockRecoveryManagerListRecoveryItems,
-        unquarantine: vi.fn().mockResolvedValue(undefined),
+        unquarantine: mockRecoveryManagerUnquarantine,
         dismissEntry: vi.fn().mockResolvedValue(undefined),
       }
 
@@ -607,6 +621,32 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       expect(onProgressParam).toHaveBeenCalledWith(10, 10)
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 3, total: 10 })
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 10, total: 10 })
+    })
+
+    it('does not touch manual recovery entries when a realtime bus ping arrives', async () => {
+      realtimeListeners.length = 0
+      const worker = new SyncWorker()
+      await worker.initRepo('account-1', 'vault-key-1')
+      expect(realtimeListeners.length).toBeGreaterThan(0)
+
+      realtimeListeners[realtimeListeners.length - 1](['item-1'])
+
+      const ctx = (worker as any)._context
+      expect(ctx.indexManager.addAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-1'])
+      expect(mockRecoveryManagerResolveQuarantines).not.toHaveBeenCalled()
+      expect(mockRecoveryManagerUnquarantine).not.toHaveBeenCalled()
+    })
+
+    it('clears the oversized flag, unquarantines and re-marks the item dirty on retryRecoveryItem', async () => {
+      const worker = new SyncWorker()
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      await worker.retryRecoveryItem('item-1' as ItemId)
+
+      const ctx = (worker as any)._context
+      expect(mockRecoveryManagerUnquarantine).toHaveBeenCalledWith('item-1')
+      expect(ctx.snapshotManager.clearOversized).toHaveBeenCalledWith('item-1')
+      expect(ctx.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1')
     })
 
     it('delegates recreateOversizedItem to itemOperations and flushes snapshots', async () => {

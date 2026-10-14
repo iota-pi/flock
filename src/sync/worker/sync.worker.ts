@@ -278,10 +278,6 @@ export class SyncWorker implements SyncApi {
           this._context.indexManager.addAutomergeItemIdsToIndex(itemIds),
           'SyncWorker:addAutomergeItemIdsToIndex',
         )
-        fireAndForget(
-          this._context.recoveryManager.unquarantineBatch(itemIds),
-          'SyncWorker:unquarantineBatch',
-        )
       }
     })
   }
@@ -483,6 +479,7 @@ export class SyncWorker implements SyncApi {
   retryRecoveryItem = (itemId: ItemId) =>
     this.withContext(async ctx => {
       await ctx.recoveryManager.unquarantine(itemId)
+      ctx.snapshotManager.clearOversized(itemId)
       ctx.snapshotManager.markItemDirty(itemId)
       fireAndForget(
         ctx.snapshotManager.flushPendingSnapshots(),
@@ -499,6 +496,7 @@ export class SyncWorker implements SyncApi {
   recreateOversizedItem = (itemId: ItemId): Promise<ItemId> =>
     this.withContext(async ctx => {
       const newItemId = await ctx.itemOperations.recreateOversizedItem(itemId)
+      // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
       ctx.snapshotManager.clearOversized(itemId)
       fireAndForget(
         ctx.snapshotManager.flushPendingSnapshots(),

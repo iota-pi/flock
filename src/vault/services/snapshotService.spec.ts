@@ -84,6 +84,29 @@ describe('snapshotService.persistSnapshots', () => {
     })
   })
 
+  it('persists a payload-less tombstone without a snapshot key', async () => {
+    const vault = createMockVault()
+    ;(vault.set as any).mockResolvedValueOnce({ version: 7 })
+
+    const result = await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [
+        {
+          itemId: 'item-1' as ItemId,
+          type: 'person',
+          modified: 500,
+          deleted: true,
+          snapshotCursor: 10,
+        },
+      ],
+    })
+
+    expect(result.results).toEqual([{ itemId: 'item-1', version: 7 }])
+    const item = (vault.set as any).mock.calls[0][0]
+    expect('snapshot' in item).toBe(false)
+    expect(item.metadata.deleted).toBe(true)
+  })
+
   it('handles partial failures and logs errors', async () => {
     const vault = createMockVault()
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})

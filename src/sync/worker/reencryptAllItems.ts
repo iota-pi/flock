@@ -29,7 +29,7 @@ async function quarantineItem(
   reason: string
 ): Promise<void> {
   try {
-    await recoveryManager.quarantine(itemId, reason)
+    await recoveryManager.quarantine(itemId, 'snapshotFailure', reason)
   } catch (storageErr) {
     console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
   }

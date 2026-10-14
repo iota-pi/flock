@@ -101,6 +101,7 @@ describe('DataRecoveryDialog', () => {
           id: 'rec-1',
           itemId: 'item-oversized' as ItemId,
           reason: `Snapshot size (360 KB) exceeds ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
+          kind: 'oversized',
           createdAt: Date.now(),
         },
       ],
@@ -122,5 +123,33 @@ describe('DataRecoveryDialog', () => {
     fireEvent.click(compactButton)
 
     expect(handleRecreateItem).toHaveBeenCalledWith('item-oversized')
+  })
+
+  it('does not offer Recreate Item for non-oversized entries whose reason mentions a limit', () => {
+    vi.spyOn(dataRecoveryHook, 'useDataRecovery').mockReturnValue({
+      recoveryItems: [
+        {
+          id: 'rec-2',
+          itemId: 'item-push' as ItemId,
+          reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded',
+          kind: 'pushFailure',
+          createdAt: Date.now(),
+        },
+      ],
+      isRetrying: null,
+      handleDismissRecoveryItem: vi.fn(),
+      handleRetryCorruptedItem: vi.fn(),
+      handleForceOverwriteCorruptedItem: vi.fn(),
+      handleForceDeleteCorruptedItem: vi.fn(),
+      handleRecreateItem: vi.fn(),
+      handleCompactItem: vi.fn(),
+    })
+
+    render(<DataRecoveryDialog open={true} onClose={onClose} />)
+
+    expect(screen.queryByRole('button', { name: /recreate item/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /retry/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /overwrite/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /delete/i })).toBeDefined()
   })
 })

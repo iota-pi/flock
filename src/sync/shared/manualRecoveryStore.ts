@@ -1,4 +1,5 @@
 import { runStorageOperation } from '../../utils/storageManager'
+import { KeyedAsyncMutex } from '../utils/AsyncMutex'
 import { ItemId } from 'src/shared/schemas/items'
 import {
   createAccountStore,
@@ -13,11 +14,72 @@ import {
 
 const STORE_NAME = 'manual-recovery-items'
 
+export const MANUAL_RECOVERY_KINDS = [
+  'pullDecryption',
+  'snapshotDecryption',
+  'oversized',
+  'snapshotFailure',
+  'pushFailure',
+  'unknown',
+] as const
+export type ManualRecoveryKind = typeof MANUAL_RECOVERY_KINDS[number]
+
 export type ManualRecoveryEntry = {
   id: string
   itemId: ItemId
   reason: string
+  kind: ManualRecoveryKind
   createdAt: number
+}
+
+// Entries persisted before `kind` existed may lack it (or hold garbage)
+type StoredManualRecoveryEntry = Omit<ManualRecoveryEntry, 'kind'> & { kind?: unknown }
+
+const entryMutex = new KeyedAsyncMutex<string>()
+
+function entryLockKey(accountId: string, itemId: string): string {
+  return `${accountId}:${itemId}`
+}
+
+function isManualRecoveryKind(value: unknown): value is ManualRecoveryKind {
+  return typeof value === 'string' && (MANUAL_RECOVERY_KINDS as readonly string[]).includes(value)
+}
+
+export function inferLegacyManualRecoveryKind(reason: string): ManualRecoveryKind {
+  const text = reason.toLowerCase()
+  if (text.includes('exceeds') && text.includes('kb limit')) return 'oversized'
+  if (text.includes('push failed after')) return 'pushFailure'
+  if (text.includes('snapshot failure:') || text.includes('re-encryption')) return 'snapshotFailure'
+  if (
+    text.includes('corrupted branches:')
+    || text.includes('automated recovery is unavailable')
+    || text.includes('decrypt')
+    || text.includes('failed to parse')
+  ) {
+    return 'pullDecryption'
+  }
+  return 'unknown'
+}
+
+export function normalizeManualRecoveryEntry(value: unknown): ManualRecoveryEntry | null {
+  if (!value || typeof value !== 'object') return null
+  const stored = value as StoredManualRecoveryEntry
+  if (
+    typeof stored.id !== 'string'
+    || typeof stored.itemId !== 'string'
+    || typeof stored.reason !== 'string'
+    || typeof stored.createdAt !== 'number'
+  ) {
+    return null
+  }
+  const kind = isManualRecoveryKind(stored.kind) ? stored.kind : inferLegacyManualRecoveryKind(stored.reason)
+  return { ...stored, kind }
+}
+
+function kindRank(kind: ManualRecoveryKind): number {
+  if (kind === 'pullDecryption') return 0
+  if (kind === 'oversized') return 2
+  return 1
 }
 
 function getManualRecoveryStorage(accountId: string) {
@@ -62,11 +124,11 @@ async function runMigration(accountId: string): Promise<void> {
     }
 
     const keys = await storage.keys()
-    const entriesByItemId = new Map<ItemId, ManualRecoveryEntry[]>()
+    const entriesByItemId = new Map<ItemId, StoredManualRecoveryEntry[]>()
     const keysToRemove = new Set<string>()
 
     for (const key of keys) {
-      const value = await storage.getItem<ManualRecoveryEntry>(key)
+      const value = await storage.getItem<StoredManualRecoveryEntry>(key)
       if (value && typeof value === 'object' && typeof value.itemId === 'string') {
         const list = entriesByItemId.get(value.itemId) ?? []
         list.push(value)
@@ -82,7 +144,7 @@ async function runMigration(accountId: string): Promise<void> {
     for (const [itemId, entries] of entriesByItemId.entries()) {
       if (entries.length === 1) {
         const single = entries[0]
-        const newItem: ManualRecoveryEntry = {
+        const newItem: StoredManualRecoveryEntry = {
           ...single,
           id: itemId,
         }
@@ -102,7 +164,7 @@ async function runMigration(accountId: string): Promise<void> {
         const combinedReason = uniqueReasons.join('; ') || 'Manual recovery required'
         const latestCreatedAt = Math.max(...entries.map(e => e.createdAt || 0))
 
-        const mergedEntry: ManualRecoveryEntry = {
+        const mergedEntry: StoredManualRecoveryEntry = {
           id: itemId,
           itemId,
           reason: combinedReason,
@@ -199,15 +261,9 @@ export async function readManualRecoveryEntries(
   const candidates: ManualRecoveryEntry[] = []
   const storage = getManualRecoveryStorage(accountId)
 
-  await storage.iterate<ManualRecoveryEntry, void>(value => {
-    if (
-      value
-      && typeof value === 'object'
-      && typeof value.id === 'string'
-      && typeof value.itemId === 'string'
-      && typeof value.reason === 'string'
-      && typeof value.createdAt === 'number'
-    ) {
+  await storage.iterate<unknown, void>(raw => {
+    const value = normalizeManualRecoveryEntry(raw)
+    if (value) {
       if (candidates.length < maxNeeded) {
         insertSorted(candidates, value, maxNeeded)
       } else if (sortEntries(value, candidates[candidates.length - 1]) < 0) {
@@ -231,40 +287,63 @@ export async function upsertManualRecoveryEntry(
   input: {
     itemId: ItemId
     reason: string
+    kind: ManualRecoveryKind
   }
 ): Promise<ManualRecoveryEntry> {
   if (!accountId) throw new Error('accountId is required')
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  const existing = await storage.getItem<ManualRecoveryEntry>(input.itemId)
-  const entry: ManualRecoveryEntry = existing || {
-    id: input.itemId,
-    itemId: input.itemId,
-    reason: input.reason,
-    createdAt: Date.now(),
-  }
+  return entryMutex.runExclusive(entryLockKey(accountId, input.itemId), async () => {
+    const existing = normalizeManualRecoveryEntry(await storage.getItem<unknown>(input.itemId))
+    // A weaker quarantine must not replace a stronger one (e.g. oversized)
+    if (existing && kindRank(input.kind) < kindRank(existing.kind)) {
+      return existing
+    }
 
-  if (existing) {
-    entry.reason = input.reason
-    entry.createdAt = Date.now()
-  }
+    const entry: ManualRecoveryEntry = {
+      id: input.itemId,
+      itemId: input.itemId,
+      reason: input.reason,
+      kind: input.kind,
+      createdAt: Date.now(),
+    }
+    await runStorageOperation(() => storage.setItem(entry.id, entry))
+    return entry
+  })
+}
 
-  await runStorageOperation(() => storage.setItem(entry.id, entry))
-  return entry
+export async function removeManualRecoveryEntryIfKind(
+  accountId: string,
+  itemId: ItemId,
+  kinds: ReadonlySet<ManualRecoveryKind>,
+): Promise<boolean> {
+  if (!accountId) return false
+  await ensureMigrated(accountId)
+  const storage = getManualRecoveryStorage(accountId)
+  return entryMutex.runExclusive(entryLockKey(accountId, itemId), async () => {
+    const existing = normalizeManualRecoveryEntry(await storage.getItem<unknown>(itemId))
+    if (!existing || !kinds.has(existing.kind)) return false
+    await runStorageOperation(() => storage.removeItem(itemId))
+    return true
+  })
 }
 
 export async function removeManualRecoveryEntryByItemId(accountId: string, itemId: ItemId): Promise<void> {
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await runStorageOperation(() => storage.removeItem(itemId))
+  await entryMutex.runExclusive(entryLockKey(accountId, itemId), () => (
+    runStorageOperation(() => storage.removeItem(itemId))
+  ))
 }
 
 export async function removeManualRecoveryEntryById(accountId: string, id: string): Promise<void> {
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)
-  await runStorageOperation(() => storage.removeItem(id))
+  await entryMutex.runExclusive(entryLockKey(accountId, id), () => (
+    runStorageOperation(() => storage.removeItem(id))
+  ))
 }
 
 export async function clearManualRecoveryEntries(accountId: string): Promise<void> {

@@ -273,6 +273,9 @@ export class SyncPoller {
         if (ids && ids.length > 0) {
           acknowledgedIds.push(...ids)
         }
+        if (typeof result.cursor === 'number' && Number.isFinite(result.cursor)) {
+          this.pullQueueManager.recordOwnPushedMessage(result.itemId, result.cursor)
+        }
         this.acknowledgeSuccessfulPush(chunkEntry, result)
       } else {
         console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
@@ -298,6 +301,7 @@ export class SyncPoller {
             try {
               await this.recoveryManager.quarantine(
                 sentItemId,
+                'pushFailure',
                 `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
               )
             } catch (qErr) {

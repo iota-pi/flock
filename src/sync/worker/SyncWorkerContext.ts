@@ -10,7 +10,7 @@ import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
-import { RecoveryManager } from './RecoveryManager'
+import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -243,7 +243,7 @@ export class SyncWorkerContext {
       storeItems: (items, options) => itemOperations.storeItems(items, options),
       mutateMetadata: changes => itemOperations.mutateMetadata(changes),
       onDecryptionFailure: (itemId, error) => {
-        fireAndForget(this.recoveryManager.reportDecryptionFailure(itemId, error), 'SyncWorkerContext:reportDecryptionFailure')
+        fireAndForget(this.recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error), 'SyncWorkerContext:reportDecryptionFailure')
       },
       onItemSnapshotHydrated: (itemId, heads) => {
         const docId = toDocumentIdFromItemId(itemId)
@@ -327,14 +327,14 @@ export class SyncWorkerContext {
           break
         case 'decryptionFailure':
           fireAndForget(
-            this.recoveryManager.reportDecryptionFailure(event.itemId, event.error),
+            this.recoveryManager.reportDecryptionFailure(event.itemId, 'pullDecryption', event.error),
             'SyncWorkerContext:internalEvent:decryptionFailure',
           )
           break
-        case 'itemMessageParsed':
+        case 'remoteMessagesParsed':
           fireAndForget(
-            this.recoveryManager.unquarantineBatch([event.itemId]),
-            'SyncWorkerContext:internalEvent:itemMessageParsed',
+            this.recoveryManager.resolveQuarantines([event.itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
+            'SyncWorkerContext:internalEvent:remoteMessagesParsed',
           )
           break
         case 'renegotiationTriggered': {

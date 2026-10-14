@@ -13,7 +13,7 @@ import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
 import { WorkerInternalEventHub } from './SyncEventHub'
-import { BoundedMap } from '../utils/boundedCollections'
+import { BoundedMap, BoundedSet } from '../utils/boundedCollections'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -25,9 +25,11 @@ interface ProcessItemMessagesResult {
   blockedOnKey?: string
   failingCursor?: number
   hasParsedMessages: boolean
+  hasParsedRemoteMessages: boolean
 }
 
 const BATCH_PROGRESS_CACHE_MAX = 500
+const OWN_PUSH_CACHE_MAX = 1000
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
 const PROTOCOL_VERSION = '1.0'
 
@@ -46,6 +48,8 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
 
   private readonly batchProgress = new BoundedMap<string, number>(BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
+  // "itemId:cursor" of messages this device pushed, so their server echoes aren't mistaken for remote edits
+  private readonly ownPushedMessageKeys = new BoundedSet<string>(OWN_PUSH_CACHE_MAX)
 
   private readonly saveCursorsDebounced = debounce(() => fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors'), 1000)
 
@@ -75,6 +79,10 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   private makeBatchProgressKey(itemId: ItemId, cursor: number): string {
     return `${itemId}:${cursor}`
+  }
+
+  recordOwnPushedMessage(itemId: ItemId, cursor: number): void {
+    this.ownPushedMessageKeys.add(this.makeBatchProgressKey(itemId, cursor))
   }
 
   private getBatchProgress(itemId: ItemId, cursor: number): number {
@@ -125,6 +133,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
     this.retryTracker.clear()
     this.batchProgress.clear()
+    this.ownPushedMessageKeys.clear()
     this.hasMoreGlobal = false
     this.globalLastEvaluatedKey = undefined
     this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
@@ -171,6 +180,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
     this.retryTracker.clear()
     this.batchProgress.clear()
+    this.ownPushedMessageKeys.clear()
     this.hasMoreGlobal = false
     this.account = null
   }
@@ -329,6 +339,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         hasParseFailure: false,
         hasKeyFailure: false,
         hasParsedMessages: false,
+        hasParsedRemoteMessages: false,
       }
     }
 
@@ -339,6 +350,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       let blockedOnKey: string | undefined
       let failingCursor: number | undefined
       let hasParsedMessages = false
+      let hasParsedRemoteMessages = false
 
       for (const entry of sortedMessages) {
         if (Number.isFinite(entry.cursor) && (entry.cursor as number) <= initialCursor) {
@@ -351,6 +363,11 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         if (handled.parsed) {
           hasParsedMessages = true
           if (Number.isFinite(handled.cursor)) {
+            const ownKey = this.makeBatchProgressKey(itemId, handled.cursor!)
+            if (!this.ownPushedMessageKeys.has(ownKey)) {
+              hasParsedRemoteMessages = true
+            }
+            this.ownPushedMessageKeys.delete(ownKey)
             this.clearBatchProgress(itemId, handled.cursor!)
             highestCursor = Math.max(highestCursor, handled.cursor!)
           }
@@ -372,6 +389,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         blockedOnKey,
         failingCursor,
         hasParsedMessages,
+        hasParsedRemoteMessages,
       }
     })
   }
@@ -427,6 +445,15 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       (!messageResult.hasParseFailure && !messageResult.hasKeyFailure && !hasMore)
     ) {
       this.clearBatchProgressForItem(itemId)
+    }
+
+    if (
+      messageResult.hasParsedRemoteMessages &&
+      !messageResult.hasParseFailure &&
+      !messageResult.hasKeyFailure &&
+      !outcome.permanentlyFailed
+    ) {
+      this.internalEventHub.emit({ type: 'remoteMessagesParsed', itemId })
     }
 
     if (outcome.permanentlyFailed) {
@@ -534,6 +561,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     if (!this.account) return
     this.retryTracker.clear()
     this.batchProgress.clear()
+    this.ownPushedMessageKeys.clear()
     await this.cursorStore.clear()
     this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
   }
