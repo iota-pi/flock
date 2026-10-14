@@ -8,11 +8,9 @@ import {
   type PollSyncBatchResponse,
 } from '../../api/vault/SyncWorkerClient'
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
-import { getVaultTrpcClient } from 'src/api/vaultTrpcClient'
 import type { VaultSnapshotInput } from 'src/shared/vault/snapshots'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { VaultItem } from '../../api/vault/clientTypes'
-import type { VaultMetadata } from '../shared/types'
 import type { ManifestEntry, SyncPollBatchSchema, PutSnapshotResultItem } from 'src/shared/vault/api'
 
 function safeSetApiAuthToken(token: string) {
@@ -299,37 +297,6 @@ export class SyncApiClient {
         { account: input.account, itemIds: input.itemIds },
         ...(options ? [options] : []),
       )
-    })
-  }
-
-  async getAccountMetadata(input: {
-    account: string
-  }): Promise<VaultMetadata | null> {
-    return this.executeWithAuth(async () => {
-      const response = await getVaultTrpcClient().accounts.getMetadata.query({
-        account: input.account,
-      })
-      if (
-        response?.success &&
-        response.metadata &&
-        typeof response.metadata === 'object' &&
-        !Array.isArray(response.metadata)
-      ) {
-        return response.metadata as VaultMetadata
-      }
-      return null
-    })
-  }
-
-  async updateAccountMetadata(input: {
-    account: string
-    metadata: VaultMetadata
-  }): Promise<void> {
-    return this.executeWithAuth(async () => {
-      await getVaultTrpcClient().accounts.updateMetadata.mutate({
-        account: input.account,
-        metadata: input.metadata,
-      })
     })
   }
 

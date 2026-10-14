@@ -12,3 +12,12 @@ export type ItemId = z.infer<typeof ItemIdSchema>
 export function generateItemId(): ItemId {
   return nanoid() as ItemId
 }
+
+/**
+ * The ID of an account's settings document. It is derived from the account so that every device
+ * agrees on it without coordinating. Two devices can therefore create it concurrently, which is
+ * safe because the settings document's top level is flat (see docs/sync-design.md).
+ */
+export function settingsDocId(accountId: string): ItemId {
+  return `settings-${accountId}` as ItemId
+}

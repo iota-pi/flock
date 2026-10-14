@@ -6,7 +6,6 @@ export const VaultKeySchema = z.object({
 })
 
 const VaultMetaDataSchema = z.object({
-  type: z.string().min(1),
   iv: z.string(),
   modified: z.number(),
   deleted: z.boolean().optional(),
@@ -20,7 +19,6 @@ export const VaultSessionRecordSchema = z.object({
 
 export const VaultAccountSchema = z.object({
   account: z.string(),
-  metadata: z.record(z.string(), z.unknown()),
   sessions: z.array(VaultSessionRecordSchema).optional(),
   authToken: z.string(),
   salt: z.string(),

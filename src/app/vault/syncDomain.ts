@@ -1,17 +1,13 @@
 import {
   ERROR_ITEM_TYPE,
-  ITEM_TYPES,
   errorItemSchema,
   standardItemSchema,
   type ErrorItem,
 } from '../../shared/schemas/items'
 import type { Item } from '../../state/items'
 import type { DocCodec, SyncDomain, SyncDomainHooks } from '../../sync/worker/domain'
-import { flockMetadataSync } from './metadataSync'
-
-function isItemType(type: unknown): type is (typeof ITEM_TYPES)[number] {
-  return ITEM_TYPES.includes(type as (typeof ITEM_TYPES)[number])
-}
+import { SYNCED_METADATA_KEYS } from '../../shared/schemas/metadata'
+import { flockLegacySettings } from './legacySettings'
 
 /** Validates documents against Flock's item schemas, turning anything invalid into an error item */
 export const flockItemCodec: DocCodec = {
@@ -52,12 +48,6 @@ export const flockItemCodec: DocCodec = {
   isCorrupt(doc) {
     return (doc as Item).type === ERROR_ITEM_TYPE
   },
-
-  snapshotKind(doc) {
-    const item = doc as Item
-    const type = item.type === ERROR_ITEM_TYPE ? item.originalType : item.type
-    return isItemType(type) ? type : 'person'
-  },
 }
 
 export const flockSyncHooks: SyncDomainHooks = {
@@ -77,5 +67,6 @@ export const flockSyncHooks: SyncDomainHooks = {
 export const flockSyncDomain: SyncDomain = {
   codec: flockItemCodec,
   hooks: flockSyncHooks,
-  metadataSync: flockMetadataSync,
+  syncedMetadataKeys: SYNCED_METADATA_KEYS,
+  legacySettings: flockLegacySettings,
 }

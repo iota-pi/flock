@@ -15,11 +15,6 @@ export interface DocCodec {
   decode(id: ItemId, raw: RawDoc): VaultDoc
   /** True for documents `decode` could not validate. Their content is never pushed over remote state. */
   isCorrupt(doc: VaultDoc): boolean
-  /**
-   * Plaintext kind stored alongside each snapshot on the server.
-   * Stage 2 of docs/vault-extraction.md removes it.
-   */
-  snapshotKind(doc: VaultDoc): string
 }
 
 /** App-specific behaviour the engine calls out to */
@@ -33,33 +28,44 @@ export interface SyncDomainHooks {
   prepareRecreatedDoc?(doc: VaultDoc): VaultDoc
 }
 
-export interface ReconcileMetadataResult {
-  merged: VaultMetadata
-  needsRemotePush: boolean
-  hasLocalChanges: boolean
+export interface LegacySettingsContext {
+  accountId: string
+  /** Runs a request with the session token set, refreshing the token once if it has expired */
+  withAuth<T>(request: () => Promise<T>): Promise<T>
 }
 
 /**
- * Syncs selected account metadata fields through the server's plaintext account record.
- * Stage 2 of docs/vault-extraction.md replaces this with an encrypted settings document.
+ * Settings the app kept somewhere else before the settings document existed. After each manifest
+ * sync, the engine copies them into the settings document and then calls `clear`.
  */
-export interface MetadataSyncAdapter {
-  hasSyncableChanges(changes: Partial<VaultMetadata>): boolean
-  extractSyncable(metadata: VaultMetadata | undefined): VaultMetadata
-  reconcile(local: VaultMetadata | undefined, remote: VaultMetadata | undefined): ReconcileMetadataResult
+export interface LegacySettingsSource {
+  /**
+   * Returns the settings to migrate, or null when there are none. `local` is this device's local
+   * metadata, which still holds synced keys until they are migrated. Keys the settings document
+   * already has are kept.
+   */
+  load(local: VaultMetadata, context: LegacySettingsContext): Promise<VaultMetadata | null>
+  /** Removes the legacy copy once its settings are in the settings document */
+  clear(context: LegacySettingsContext): Promise<void>
+  /** Local metadata keys only the legacy mechanism used. They are removed along with the synced keys. */
+  obsoleteLocalKeys?: readonly string[]
 }
 
 export interface SyncDomain {
   codec: DocCodec
   hooks: SyncDomainHooks
-  /** Without an adapter, account metadata stays local to the device */
-  metadataSync?: MetadataSyncAdapter
+  /**
+   * Metadata keys stored in the account's encrypted settings document, which syncs like any other
+   * document. Other keys stay local to the device. Keep the values flat where possible: two devices
+   * that first set the same nested object concurrently keep only one of them.
+   */
+  syncedMetadataKeys?: readonly string[]
+  legacySettings?: LegacySettingsSource
 }
 
 export const passthroughCodec: DocCodec = {
   decode: (_id, raw) => raw as VaultDoc,
   isCorrupt: () => false,
-  snapshotKind: () => 'doc',
 }
 
 export const DEFAULT_SYNC_DOMAIN: SyncDomain = {

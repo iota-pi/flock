@@ -18,6 +18,8 @@ export const FlockAccountFieldsSchema = z.object({
   reminderTime: z.string().optional(),
   reminderTimezone: z.string().optional(),
   snoozeRemindersUntil: z.string().nullable().optional(),
+  /** Plaintext settings from before the encrypted settings document. Cleared once a client migrates them. */
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const ReminderSettingsResponseSchema = z.object({

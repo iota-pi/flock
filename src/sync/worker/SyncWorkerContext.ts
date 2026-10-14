@@ -26,6 +26,7 @@ import { ItemReencryptor } from './reencryptAllItems'
 import { fireAndForget } from '../utils/fireAndForget'
 import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
+import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -43,6 +44,11 @@ export interface SyncWorkerContextConfig {
   onDocumentReceived?: (itemId: ItemId) => void
   /** Called when a doc handle is replaced (e.g. after compaction/import). */
   onDocHandleReplaced?: DocHandleReplacedListener
+  /**
+   * Called with every indexed document ID, including the settings document, which the
+   * `indexUpdated` event sent to the app leaves out.
+   */
+  onIndexUpdated?: (itemIds: ItemId[]) => void
   /**
    * Called when storage quota state changes (exceeded / resolved).
    */
@@ -86,6 +92,7 @@ export class SyncWorkerContext {
   public itemOperations!: ItemOperations
   public storageRecoveryService!: StorageRecoveryService
   public itemReencryptor!: ItemReencryptor
+  public accountSettings!: AccountSettings
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unsubscribers: Array<() => void> = []
@@ -94,7 +101,8 @@ export class SyncWorkerContext {
     this.accountId = config.accountId
     this.clientEventHub = config.clientEventHub
     this.internalEventHub = config.internalEventHub
-    this.domain = config.domain ?? DEFAULT_SYNC_DOMAIN
+    const domain = config.domain ?? DEFAULT_SYNC_DOMAIN
+    this.domain = { ...domain, codec: withSettingsDocPassthrough(domain.codec, config.accountId) }
     this.apiClient = config.apiClient ?? new SyncApiClient({
       refreshAuthToken: config.refreshAuthToken,
     })
@@ -129,6 +137,7 @@ export class SyncWorkerContext {
     const ops = this.createOrchestrationAndOperations(config)
     this.orchestrator = ops.orchestrator
     this.itemOperations = ops.itemOperations
+    this.accountSettings = ops.accountSettings
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
     this.itemReencryptor = new ItemReencryptor({ codec: this.domain.codec })
@@ -176,8 +185,12 @@ export class SyncWorkerContext {
     const indexManager = new AutomergeIndexManager(
       config.accountId,
       this.indexStore,
-      itemIds => config.clientEventHub.emit({ type: 'indexUpdated', itemIds }),
-      metadata => config.clientEventHub.emit({ type: 'metadataUpdated', metadata })
+      itemIds => {
+        config.onIndexUpdated?.(itemIds)
+        const settingsId = this.accountSettings?.docId
+        config.clientEventHub.emit({ type: 'indexUpdated', itemIds: itemIds.filter(id => id !== settingsId) })
+      },
+      metadata => this.accountSettings?.handleLocalMetadata(metadata),
     )
 
     const pullQueueManager = new SyncPullQueueManager(
@@ -229,20 +242,31 @@ export class SyncWorkerContext {
       this.pullQueueManager
     )
 
+    const markDocumentDirty = (id: ItemId) => {
+      this.snapshotManager.markItemDirty(id)
+      // Only the leader uploads snapshots, so tell it about edits made in this tab
+      publishRealtimeBusItemDirty(config.accountId, [id])
+    }
+
     const itemOperations = new ItemOperations({
       accountId: config.accountId,
       docStore: this.docStore,
       indexManager: this.indexManager,
       eventHub: config.clientEventHub,
-      markDocumentDirty: id => {
-        this.snapshotManager.markItemDirty(id)
-        // Only the leader uploads snapshots, so tell it about edits made in this tab
-        publishRealtimeBusItemDirty(config.accountId, [id])
-      },
+      markDocumentDirty,
       recoveryManager: this.recoveryManager,
-      apiClient: this.apiClient,
       hooks: this.domain.hooks,
-      metadataSync: this.domain.metadataSync,
+    })
+
+    const accountSettings = new AccountSettings({
+      accountId: config.accountId,
+      docStore: this.docStore,
+      indexManager: this.indexManager,
+      eventHub: config.clientEventHub,
+      markDocumentDirty,
+      syncedKeys: this.domain.syncedMetadataKeys,
+      legacySettings: this.domain.legacySettings,
+      withAuth: request => this.apiClient.executeWithAuth(() => request()),
     })
 
     const manifestSyncManager = new ManifestSyncManager({
@@ -254,7 +278,7 @@ export class SyncWorkerContext {
       apiClient: this.apiClient,
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       storeItems: (items, options) => itemOperations.storeItems(items, options),
-      mutateMetadata: changes => itemOperations.mutateMetadata(changes),
+      migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
       onDecryptionFailure: (itemId, error) => {
         fireAndForget(this.recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error), 'SyncWorkerContext:reportDecryptionFailure')
       },
@@ -262,7 +286,6 @@ export class SyncWorkerContext {
         const docId = toDocumentIdFromItemId(itemId)
         this.adapter.setSyncedHeads(docId, heads)
       },
-      metadataSync: this.domain.metadataSync,
     })
 
     const storageRecoveryService = new StorageRecoveryService({
@@ -278,7 +301,7 @@ export class SyncWorkerContext {
       onQuotaStatusChange: config.onQuotaStatusChange,
     })
 
-    return { orchestrator, itemOperations, manifestSyncManager, storageRecoveryService }
+    return { orchestrator, itemOperations, accountSettings, manifestSyncManager, storageRecoveryService }
   }
 
   private wireCrossServiceDependencies(): void {
@@ -382,6 +405,7 @@ export class SyncWorkerContext {
 
   async initialize(): Promise<void> {
     await this.lifecycle.start()
+    await this.accountSettings.load()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {

@@ -15,7 +15,6 @@ function createMockSnapshot(itemId: string, cipherLength: number): VaultSnapshot
       kver: '1',
     },
     snapshotCursor: 1,
-    type: 'note',
     modified: 1000,
   }
 }
@@ -36,7 +35,6 @@ describe('estimateSnapshotSize', () => {
         cipher: '',
       },
       snapshotCursor: 0,
-      type: 'note',
       modified: 0,
     }
     const estimated = estimateSnapshotSize(snapshot)

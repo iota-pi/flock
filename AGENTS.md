@@ -38,7 +38,7 @@ The vault (sync engine, client crypto and server) is being extracted into a reus
 - `src/shared/vault/` holds the wire schemas, IDs and size limits shared by client and server.
 - `src/app/vault/` is Flock's vault wiring: the worker entry, item codec and hooks, the `SyncBridge` instance and session (lock/remove) flows.
 - `src/state/` is the Zustand store (composed slices).
-- `src/vault/` is server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `flockAccounts.ts` (reminders and push subscriptions), `root.ts`, `flockDriver.ts`, the notifier and migrations are Flock's.
+- `src/vault/` is server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `flockAccounts.ts` (reminders, push subscriptions and the legacy plaintext settings), `root.ts`, `flockDriver.ts`, the notifier and migrations are Flock's.
 - DynamoDB has three tables. `FlockAccounts` is keyed by `account`. `FlockItems` is keyed by `account` + `item`. `FlockSyncMessages` is keyed by `syncId` + `cursor` and has a 90-day TTL.
 
 ## Sync: rules that must hold
@@ -46,7 +46,7 @@ The vault (sync engine, client crypto and server) is being extracted into a reus
 Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing anything in `src/sync/` or `src/vault/services/`. It explains why each rule below exists.
 
 1. **The local Automerge doc in IndexedDB is the source of truth.** The WAL (incremental messages) and snapshots (full binaries) only deliver it. The server is a blind relay and never merges.
-2. **Never reuse an item ID or recreate a doc under an existing ID.** Deletes are terminal soft-deletes (tombstones). Oversized items (>350 KB) are handled by `recreateOversizedItem` with a new ID, never by in-place compaction. Keep the `hasDataInStorage` guard in `findOrCreateHandle`.
+2. **Never reuse an item ID or recreate a doc under an existing ID.** Deletes are terminal soft-deletes (tombstones). Oversized items (>350 KB) are handled by `recreateOversizedItem` with a new ID, never by in-place compaction. Keep the `hasDataInStorage` guard in `findOrCreateHandle`. The one exception is the account settings document, whose fixed ID devices may create concurrently; it is never deleted or recreated.
 3. **Never hard-delete server items.** Manifest sync would treat a missing item as an offline creation and re-upload it.
 4. **`SyncPoller.executePoll` must return `'failure'` if anything threw.** Reporting `'success'` resets backoff and can cause a 0ms re-poll loop.
 5. **Shut down the Repo before clearing IndexedDB.** Don't run `clearSyncMetadataStorage` concurrently with per-store `.clear()` calls.

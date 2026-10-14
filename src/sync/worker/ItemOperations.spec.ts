@@ -1,8 +1,7 @@
 import { ItemOperations, ItemOperationsDeps } from './ItemOperations'
-import { SyncApiClient } from './SyncApiClient'
 import type { VaultDoc } from '../shared/types'
-import { passthroughCodec, type MetadataSyncAdapter } from './domain'
-import type { ItemId } from 'src/shared/vault/ids'
+import { passthroughCodec } from './domain'
+import { settingsDocId, type ItemId } from 'src/shared/vault/ids'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from 'src/shared/vault/limits'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
@@ -24,25 +23,9 @@ vi.mock('../shared/manualRecoveryStore', () => ({
   upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
 }))
 
-const SYNCABLE_METADATA_KEYS = ['prayerGoal', 'defaultPrayerFrequency', 'updatedAt']
-
-const testMetadataSync: MetadataSyncAdapter = {
-  hasSyncableChanges: changes => SYNCABLE_METADATA_KEYS.some(key => changes[key] !== undefined),
-  extractSyncable: metadata => Object.fromEntries(
-    Object.entries(metadata ?? {}).filter(([key]) => SYNCABLE_METADATA_KEYS.includes(key)),
-  ),
-  reconcile: () => {
-    throw new Error('Not used by ItemOperations')
-  },
-}
-
 describe('ItemOperations', () => {
   let deps: ItemOperationsDeps
   let operations: ItemOperations
-  let mockApiClient: {
-    hasAuthToken: ReturnType<typeof vi.fn>
-    updateAccountMetadata: ReturnType<typeof vi.fn>
-  }
   let emitMock: any
   let changeDocumentMock: any
   let addAutomergeItemIdsToIndexMock: any
@@ -53,10 +36,6 @@ describe('ItemOperations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPublishRealtimeBusSyncPing.mockClear()
-    mockApiClient = {
-      hasAuthToken: vi.fn().mockResolvedValue(true),
-      updateAccountMetadata: vi.fn().mockResolvedValue(undefined),
-    }
     mockReadManualRecoveryEntries.mockResolvedValue([])
     mockReadManualRecoveryCount.mockResolvedValue(0)
     mockRemoveManualRecoveryEntryById.mockResolvedValue(undefined)
@@ -81,15 +60,11 @@ describe('ItemOperations', () => {
         addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,
         listAutomergeItemIds: vi.fn().mockResolvedValue([]),
         removeAutomergeItemIdsFromIndex: removeAutomergeItemIdsFromIndexMock,
-        updateAutomergeMetadata: vi.fn(),
-        getAutomergeMetadata: vi.fn(),
       } as any,
       eventHub: {
         emit: emitMock,
       } as any,
       markDocumentDirty: markDocumentDirtyMock,
-      apiClient: mockApiClient as unknown as SyncApiClient,
-      metadataSync: testMetadataSync,
     }
 
     operations = new ItemOperations(deps)
@@ -368,118 +343,19 @@ describe('ItemOperations', () => {
     })
   })
 
-  describe('mutateMetadata', () => {
-    it('updates index manager and pushes syncable metadata to server via apiClient when authenticated', async () => {
-      const updatedMetadata = {
-        prayerGoal: 10,
-        defaultPrayerFrequency: { person: 'daily' as const },
-        updatedAt: 12345,
-      }
-      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
+  describe('settings document', () => {
+    const settingsId = settingsDocId('account-1')
 
-      await operations.mutateMetadata({ prayerGoal: 10, defaultPrayerFrequency: { person: 'daily' } })
-
-      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prayerGoal: 10,
-          defaultPrayerFrequency: { person: 'daily' },
-          updatedAt: expect.any(Number),
-        }),
-      )
-      expect(mockApiClient.hasAuthToken).toHaveBeenCalled()
-      expect(mockApiClient.updateAccountMetadata).toHaveBeenCalledWith({
-        account: 'account-1',
-        metadata: {
-          prayerGoal: 10,
-          defaultPrayerFrequency: { person: 'daily' },
-          updatedAt: 12345,
-        },
-      })
+    it('refuses to force-delete the settings document', async () => {
+      await expect(operations.forceDeleteRecoveryItem(settingsId)).rejects.toThrow('account settings document')
+      expect(changeDocumentMock).not.toHaveBeenCalled()
     })
 
-    it('does not push to server when only device-local sortCriteria is changed', async () => {
-      const updatedMetadata = {
-        sortCriteria: [{ type: 'name' as const, reverse: false }],
-      }
-      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
+    it('refuses to recreate the settings document under a new ID', async () => {
+      getAutomergeItemMock.mockResolvedValue({ id: settingsId, prayerGoal: 3 })
 
-      await operations.mutateMetadata({ sortCriteria: [{ type: 'name', reverse: false }] })
-
-      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalledWith({
-        sortCriteria: [{ type: 'name', reverse: false }],
-      })
-      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
-    })
-
-    it('does not push to server when pushRemote is false', async () => {
-      const updatedMetadata = { prayerGoal: 20, updatedAt: 555 }
-      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
-
-      await operations.mutateMetadata({ prayerGoal: 20 }, { pushRemote: false })
-
-      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalled()
-      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
-    })
-
-    it('does not push to server when apiClient reports no auth token', async () => {
-      mockApiClient.hasAuthToken.mockResolvedValue(false)
-      const updatedMetadata = { prayerGoal: 20, updatedAt: 555 }
-      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue(updatedMetadata)
-
-      await operations.mutateMetadata({ prayerGoal: 20 })
-
-      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalled()
-      expect(mockApiClient.hasAuthToken).toHaveBeenCalled()
-      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
-    })
-
-    it('catches and warns on server push error from apiClient without throwing', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockApiClient.updateAccountMetadata.mockRejectedValueOnce(new Error('Network error'))
-      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue({ prayerGoal: 5 })
-
-      await expect(operations.mutateMetadata({ prayerGoal: 5 })).resolves.not.toThrow()
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to push metadata to server'),
-        expect.any(Error),
-      )
-      warnSpy.mockRestore()
-    })
-
-    it('keeps metadata local when there is no metadata adapter', async () => {
-      operations = new ItemOperations({ ...deps, metadataSync: undefined })
-      deps.indexManager.updateAutomergeMetadata = vi.fn().mockResolvedValue({ prayerGoal: 10 })
-
-      await operations.mutateMetadata({ prayerGoal: 10 })
-
-      expect(deps.indexManager.updateAutomergeMetadata).toHaveBeenCalledWith({ prayerGoal: 10 })
-      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
-    })
-
-    it('emits mutationFailed and rolls back metadata if updateAutomergeMetadata throws', async () => {
-      deps.indexManager.updateAutomergeMetadata = vi.fn().mockRejectedValue(new Error('Storage failure'))
-      deps.indexManager.getAutomergeMetadata = vi.fn().mockResolvedValue({ prayerGoal: 3 })
-
-      await operations.mutateMetadata({ prayerGoal: 10 })
-
-      expect(emitMock).toHaveBeenCalledWith({
-        type: 'mutationFailed',
-        mutationType: 'metadata',
-        error: 'Storage failure',
-      })
-      expect(emitMock).toHaveBeenCalledWith({
-        type: 'metadataUpdated',
-        metadata: { prayerGoal: 3 },
-      })
-      expect(mockApiClient.updateAccountMetadata).not.toHaveBeenCalled()
-    })
-
-    it('defaults to constructing SyncApiClient when not provided in deps', () => {
-      const ops = new ItemOperations({
-        ...deps,
-        apiClient: undefined,
-      })
-      expect((ops as any).apiClient).toBeInstanceOf(SyncApiClient)
+      await expect(operations.recreateOversizedItem(settingsId)).rejects.toThrow('account settings document')
+      expect(changeDocumentMock).not.toHaveBeenCalled()
     })
   })
 

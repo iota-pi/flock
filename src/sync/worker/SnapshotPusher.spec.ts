@@ -36,7 +36,6 @@ describe('SnapshotPusher', () => {
           itemId: 'item-1' as ItemId,
           snapshot: { cipher: 'abc', iv: '123', kver: '1' },
           snapshotCursor: 10,
-          type: 'note',
           modified: 1000,
         },
         heads: ['head-1'],
@@ -121,7 +120,6 @@ describe('SnapshotPusher', () => {
         itemId: itemId as ItemId,
         snapshot: { cipher: 'abc', iv: '123', kver: '1' },
         snapshotCursor: 10,
-        type: 'note',
         modified: 1000,
         deleted: true,
       },
@@ -143,7 +141,6 @@ describe('SnapshotPusher', () => {
       expect(payload.snapshots[0]).toEqual({
         itemId: 'item-1',
         deleted: true,
-        type: 'note',
         modified: 1000,
         snapshotCursor: 10,
       })
@@ -178,7 +175,6 @@ describe('SnapshotPusher', () => {
             itemId: 'item-2' as ItemId,
             snapshot: { cipher: 'def', iv: '456', kver: '1' },
             snapshotCursor: 10,
-            type: 'note',
             modified: 2000,
           },
           heads: ['head-2'],

@@ -70,7 +70,6 @@ export async function buildSnapshot(
       itemId,
       snapshot: encryptedDoc,
       snapshotCursor,
-      type: codec.snapshotKind(itemSnapshot),
       modified: snapshotTimestamp,
       deleted: !!itemSnapshot.deleted || undefined,
     },
@@ -90,7 +89,6 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
   return {
     itemId: snapshot.itemId,
     snapshotCursor: snapshot.snapshotCursor,
-    type: snapshot.type,
     modified: snapshot.modified,
     deleted: true,
   }

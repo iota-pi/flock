@@ -24,11 +24,6 @@ export const AccountInputSchema = z.looseObject({
   account: z.string().min(1),
 })
 
-export const UpdateMetadataBodySchema = z.object({
-  account: z.string().min(1),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-})
-
 export const UpdateKeyringBodySchema = z.object({
   account: z.string().min(1),
   keyring: z.string().min(1),

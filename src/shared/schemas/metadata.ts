@@ -29,23 +29,35 @@ export const accountMetadataSchema = z.looseObject({
   updatedAt: z.number().optional(),
 })
 
-export const SYNCABLE_METADATA_KEYS = [
+/** Settings that sync across devices through the encrypted settings document. Other keys stay on the device. */
+export const SYNCED_METADATA_KEYS = [
   'defaultPrayerFrequency',
   'prayerGoal',
   'autoSnoozeWhenCompleted',
   'completedMigrations',
+] as const satisfies readonly (keyof z.infer<typeof accountMetadataSchema>)[]
+
+/** Settings the server stored in plaintext before the settings document, plus the timestamp used to merge them */
+export const LEGACY_SYNCABLE_METADATA_KEYS = [
+  ...SYNCED_METADATA_KEYS,
   'updatedAt',
 ] as const satisfies readonly (keyof z.infer<typeof accountMetadataSchema>)[]
 
-type SyncableMetadataKey = (typeof SYNCABLE_METADATA_KEYS)[number]
-export type SyncableMetadata = Pick<z.infer<typeof accountMetadataSchema>, SyncableMetadataKey>
+type LegacySyncableMetadataKey = (typeof LEGACY_SYNCABLE_METADATA_KEYS)[number]
+export type LegacySyncableMetadata = Pick<z.infer<typeof accountMetadataSchema>, LegacySyncableMetadataKey>
 
-export function extractSyncableMetadata(
+/** Input of the legacy `accounts.updateMetadata` procedure, which cached clients still call */
+export const LegacyMetadataBodySchema = z.object({
+  account: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+})
+
+export function extractLegacySyncableMetadata(
   metadata: Record<string, unknown> | undefined,
-): SyncableMetadata {
+): LegacySyncableMetadata {
   if (!metadata || typeof metadata !== 'object') return {}
-  const result: SyncableMetadata = {}
-  for (const key of SYNCABLE_METADATA_KEYS) {
+  const result: LegacySyncableMetadata = {}
+  for (const key of LEGACY_SYNCABLE_METADATA_KEYS) {
     if (metadata[key] !== undefined) {
       result[key] = metadata[key] as never
     }

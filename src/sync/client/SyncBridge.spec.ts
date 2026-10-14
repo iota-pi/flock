@@ -1269,7 +1269,7 @@ describe('SyncBridge', () => {
       expect(mockSyncApi.storeItems).toHaveBeenCalledWith([person3])
 
       await SyncBridge.mutateMetadata({ prayerGoal: 10 })
-      expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 }, undefined)
+      expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 })
 
       await SyncBridge.flushSync()
       expect(mockSyncApi.flushSync).toHaveBeenCalledTimes(1)

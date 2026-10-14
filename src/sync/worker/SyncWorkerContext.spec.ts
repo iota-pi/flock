@@ -59,6 +59,7 @@ vi.mock('./docStore', () => ({
     readonly lifecycleName = 'DocStore'
     shutdown = vi.fn().mockResolvedValue(undefined)
     saveDocToStorage = vi.fn().mockResolvedValue(undefined)
+    readItemSnapshot = vi.fn().mockResolvedValue(null)
     onLifecycleStop = vi.fn().mockImplementation(async () => {
       await this.shutdown()
     })
@@ -67,6 +68,7 @@ vi.mock('./docStore', () => ({
     readonly lifecycleName = 'IndexManager'
     ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
     addAutomergeItemIdsToIndex = vi.fn()
+    getAutomergeMetadata = vi.fn().mockResolvedValue({})
     close = vi.fn()
     onLifecycleStart = vi.fn().mockImplementation(async () => {
       await this.ensureIndexDocument()

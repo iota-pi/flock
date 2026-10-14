@@ -222,9 +222,6 @@ export class SyncWorker implements SyncApi {
         case 'finishRequest':
           this.syncStatusManager.finishRequest()
           break
-        case 'indexUpdated':
-          this.updateItemSubscriptions(event.itemIds)
-          break
         case 'quotaExceeded':
           this.syncStatusManager.setQuotaExceeded(true)
           break
@@ -280,7 +277,10 @@ export class SyncWorker implements SyncApi {
 
     const localItemIds = await context.indexManager.listAutomergeItemIds()
     this.updateItemSubscriptions(localItemIds)
-    this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
+    this.clientEventHub.emit({
+      type: 'indexUpdated',
+      itemIds: localItemIds.filter(id => !context.accountSettings.isSettingsDoc(id)),
+    })
   }
 
   private setupRealtimeBus(accountId: string): void {
@@ -315,6 +315,9 @@ export class SyncWorker implements SyncApi {
         refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
         onDocumentReceived: itemId => this.subscribeToItems([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
+        onIndexUpdated: itemIds => {
+          if (this._context === context) this.updateItemSubscriptions(itemIds)
+        },
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
         domain: this.config.domain,
       })
@@ -364,6 +367,10 @@ export class SyncWorker implements SyncApi {
     const handleChange = () => {
       try {
         const doc = handle.doc() || null
+        if (this.context.accountSettings.isSettingsDoc(id)) {
+          this.context.accountSettings.handleSettingsDoc(doc)
+          return
+        }
         const item = this.context.docStore.decodeSnapshot(id, doc)
         if (item?.deleted) {
           fireAndForget(
@@ -456,8 +463,8 @@ export class SyncWorker implements SyncApi {
   storeItems = (items: VaultDoc[]) =>
     this.withContext(ctx => ctx.itemOperations.storeItems(items))
 
-  mutateMetadata = (changes: Partial<VaultMetadata>, options?: { pushRemote?: boolean }) =>
-    this.withContext(ctx => ctx.itemOperations.mutateMetadata(changes, options))
+  mutateMetadata = (changes: Partial<VaultMetadata>) =>
+    this.withContext(ctx => ctx.accountSettings.mutate(changes))
 
   exportAllBinaries = () =>
     this.withContext(ctx => ctx.docStore.exportAllBinaries(ctx.indexManager))

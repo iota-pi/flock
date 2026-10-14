@@ -27,7 +27,6 @@ export async function persistSnapshots(
         account: input.account,
         item: snapshot.itemId,
         metadata: {
-          type: snapshot.type,
           iv: '',
           modified: snapshot.modified,
           ...(snapshot.deleted ? { deleted: true } : {}),

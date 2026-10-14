@@ -44,7 +44,6 @@ type NetworkMode = 'online' | 'offline' | 'server-error'
 const TRPC_MUTATION_PATTERNS = [
   '**/trpc/items.put*',
   '**/trpc/items.putMany*',
-  '**/trpc/accounts.updateMetadata*',
 ]
 
 const REST_MUTATION_PATTERNS = [
@@ -60,10 +59,6 @@ function getMutationAliasFromUrl(url: string, mode: NetworkMode): string {
 
   if (url.includes('/items') && !url.includes('/trpc/')) {
     return mode === 'offline' ? 'offlinePut' : mode === 'server-error' ? 'errorPut' : 'onlinePut'
-  }
-
-  if (url.includes('/trpc/accounts.updateMetadata')) {
-    return mode === 'offline' ? 'offlineUpdateMetadata' : mode === 'server-error' ? 'errorUpdateMetadata' : 'onlineUpdateMetadata'
   }
 
   if (url.includes('/metadata') && !url.includes('/trpc/')) {
@@ -367,9 +362,9 @@ Cypress.Commands.add(
       const networkMode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       const shouldWaitForNetwork = networkMode !== 'offline'
 
-      // Wait for React state, DebouncedTextField flushes, and Automerge worker 
-      // optimistic updates to settle. This prevents a race condition where the 
-      // UI temporarily receives an `itemUpdated(blank)` from the worker just as 
+      // Wait for React state, DebouncedTextField flushes, and Automerge worker
+      // optimistic updates to settle. This prevents a race condition where the
+      // UI temporarily receives an `itemUpdated(blank)` from the worker just as
       // the drawer closes, causing the item to be incorrectly deleted as invalid.
       cy.wait(250, { log: false })
 

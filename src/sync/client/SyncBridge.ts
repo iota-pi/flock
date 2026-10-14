@@ -319,8 +319,8 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.execute(api => api.storeItems(items))
   }
 
-  mutateMetadata(changes: Partial<TMeta>, options?: { pushRemote?: boolean }): Promise<void> {
-    return this.execute(api => api.mutateMetadata(changes, options))
+  mutateMetadata(changes: Partial<TMeta>): Promise<void> {
+    return this.execute(api => api.mutateMetadata(changes))
   }
 
   exportAllBinaries(): Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }> {

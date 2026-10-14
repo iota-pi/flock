@@ -13,28 +13,26 @@ describe('DynamoDriver', function () {
   it('set can create and update', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type = 'person'
     let cipher = 'hello'
     let iv = 'there'
     const modified = new Date().getTime()
 
-    await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
+    await driver.set({ account, item, cipher, metadata: { iv, modified } })
     cipher = 'good'
     iv = 'bye'
-    await driver.set({ account, item, cipher, metadata: { type, iv, modified }, version: 1 })
+    await driver.set({ account, item, cipher, metadata: { iv, modified }, version: 1 })
     const results = await driver.fetchByIds({ account, itemIds: [item] })
-    expect(results[0]).toEqual({ item, cipher, metadata: { type, iv, modified }, version: 2 })
+    expect(results[0]).toEqual({ item, cipher, metadata: { iv, modified }, version: 2 })
   })
 
   it('set can create and update without version', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type = 'person'
     const modified = Date.now()
 
-    await driver.set({ account, item, cipher: 'initial', metadata: { type, iv: 'iv-1', modified } })
-    await driver.set({ account, item, cipher: 'second-write', metadata: { type, iv: 'iv-2', modified: modified + 100 } })
-    await driver.set({ account, item, cipher: 'third-write', metadata: { type, iv: 'iv-3', modified: modified + 200 } })
+    await driver.set({ account, item, cipher: 'initial', metadata: { iv: 'iv-1', modified } })
+    await driver.set({ account, item, cipher: 'second-write', metadata: { iv: 'iv-2', modified: modified + 100 } })
+    await driver.set({ account, item, cipher: 'third-write', metadata: { iv: 'iv-3', modified: modified + 200 } })
 
     const results = await driver.fetchByIds({ account, itemIds: [item] })
     expect(results[0].cipher).toBe('third-write')
@@ -44,17 +42,15 @@ describe('DynamoDriver', function () {
   it('set rejects oversized items', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type = 'person'
     const modified = new Date().getTime()
     const cipher = 'x'.repeat(360_000)
 
     await expect(
-      driver.set({ account, item, cipher, metadata: { type, iv: 'iv', modified } })
+      driver.set({ account, item, cipher, metadata: { iv: 'iv', modified } })
     ).rejects.toThrow('exceeds maximum')
   })
 
   const authToken = 'an_example_auth_token_for_testing'
-  const metadata = {}
   const salt = 'an_example_salt_for_testing'
   const iterations = 100_000
   const session = 'an_example_session_token_for_testing'
@@ -64,7 +60,6 @@ describe('DynamoDriver', function () {
     const success = await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -76,7 +71,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -97,7 +91,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -130,7 +123,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -153,7 +145,7 @@ describe('DynamoDriver', function () {
 
   it('repeated createAccount calls fail', async () => {
     const account = generateAccountId()
-    const params = { account, authToken, metadata, salt, iterations }
+    const params = { account, authToken, salt, iterations }
     const result1 = await driver.createAccount(params)
     expect(result1).toBe(true)
     const result2 = await driver.createAccount(params)
@@ -167,7 +159,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -198,7 +189,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -231,7 +221,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -286,7 +275,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata,
       salt,
       iterations,
     })
@@ -320,7 +308,6 @@ describe('DynamoDriver', function () {
 
   it('fetchManifest returns item and modifiedAt tuples without payload', async () => {
     const account = generateAccountId()
-    const type = 'person'
     const cipher = 'test-cipher'
     const iv = 'test-iv'
     const modified = 1234567890
@@ -328,8 +315,8 @@ describe('DynamoDriver', function () {
     const item1 = generateItemId()
     const item2 = generateItemId()
 
-    await driver.set({ account, item: item1, cipher, metadata: { type, iv, modified } })
-    await driver.set({ account, item: item2, cipher, metadata: { type, iv, modified: modified + 100 } })
+    await driver.set({ account, item: item1, cipher, metadata: { iv, modified } })
+    await driver.set({ account, item: item2, cipher, metadata: { iv, modified: modified + 100 } })
 
     const manifest = await driver.fetchManifest({ account })
     expect(manifest.length).toBe(2)
@@ -344,7 +331,6 @@ describe('DynamoDriver', function () {
 
   it('fetchByIds retrieves exact items in batches', async () => {
     const account = generateAccountId()
-    const type = 'person'
     const cipher = 'targeted-cipher'
     const iv = 'targeted-iv'
 
@@ -352,9 +338,9 @@ describe('DynamoDriver', function () {
     const item2 = generateItemId()
     const item3 = generateItemId()
 
-    await driver.set({ account, item: item1, cipher, metadata: { type, iv, modified: 100 } })
-    await driver.set({ account, item: item2, cipher, metadata: { type, iv, modified: 200 } })
-    await driver.set({ account, item: item3, cipher, metadata: { type, iv, modified: 300 } })
+    await driver.set({ account, item: item1, cipher, metadata: { iv, modified: 100 } })
+    await driver.set({ account, item: item2, cipher, metadata: { iv, modified: 200 } })
+    await driver.set({ account, item: item3, cipher, metadata: { iv, modified: 300 } })
 
     const result = await driver.fetchByIds({ account, itemIds: [item1, item3] })
     expect(result.length).toBe(2)
@@ -367,14 +353,13 @@ describe('DynamoDriver', function () {
   it('stores small snapshot inline as binary and returns as base64', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type = 'person'
     const payload = Buffer.from('hello-binary-snapshot').toString('base64')
     const modified = Date.now()
 
     await driver.set({
       account,
       item,
-      metadata: { type, iv: 'iv', modified },
+      metadata: { iv: 'iv', modified },
       snapshot: {
         cipher: payload,
         iv: 'snapshot-iv',
@@ -391,14 +376,13 @@ describe('DynamoDriver', function () {
   it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type = 'person'
     const payload = Buffer.from('last-real-snapshot').toString('base64')
     const modified = Date.now()
 
     await driver.set({
       account,
       item,
-      metadata: { type, iv: 'iv', modified },
+      metadata: { iv: 'iv', modified },
       snapshot: { cipher: payload, iv: 'snapshot-iv', kver: '1' },
     })
     const before = (await driver.fetchByIds({ account, itemIds: [item] }))[0]
@@ -406,7 +390,7 @@ describe('DynamoDriver', function () {
     await driver.set({
       account,
       item,
-      metadata: { type, iv: '', modified: modified + 1, deleted: true },
+      metadata: { iv: '', modified: modified + 1, deleted: true },
     })
 
     const after = (await driver.fetchByIds({ account, itemIds: [item] }))[0]
@@ -421,7 +405,6 @@ describe('DynamoDriver', function () {
   it(`rejects snapshots exceeding ${MAX_ITEM_SIZE_KB}KB`, async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type = 'person'
     const largeBuffer = Buffer.alloc(MAX_ITEM_SIZE_BYTES + 10 * 1024, 0x41)
     const payload = largeBuffer.toString('base64')
     const modified = Date.now()
@@ -430,7 +413,7 @@ describe('DynamoDriver', function () {
       driver.set({
         account,
         item,
-        metadata: { type, iv: 'iv', modified },
+        metadata: { iv: 'iv', modified },
         snapshot: {
           cipher: payload,
           iv: 'snapshot-iv',
@@ -451,7 +434,6 @@ describe('DynamoDriver', function () {
     await driver.createAccount({
       account,
       authToken,
-      metadata: {},
       salt,
       iterations,
     })
@@ -483,7 +465,6 @@ describe('DynamoDriver', function () {
     await driverWithDefaults.createAccount({
       account,
       authToken,
-      metadata: {},
       salt,
       iterations,
     })

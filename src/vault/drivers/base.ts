@@ -28,7 +28,6 @@ export interface AuthData extends BaseData {
 
 
 export type UpdateAccountDataParams = Partial<AuthData> & {
-  metadata?: Record<string, unknown>,
   session?: string,
   sessions?: VaultSessionRecord[],
   keyring?: string,
@@ -59,7 +58,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update
-  // either `metadata` or `session` independently. Apps can store their own fields on
+  // fields independently. Apps can store their own fields on
   // the account record by passing them via `TExtra`.
   abstract updateAccountData<TExtra extends object = Record<never, never>>(
     data: UpdateAccountDataParams & Partial<TExtra>,

@@ -18,7 +18,6 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          type: 'person',
           modified: 12345,
           snapshot: {
             iv: 'iv-1',
@@ -28,7 +27,6 @@ describe('snapshotService.persistSnapshots', () => {
         },
         {
           itemId: 'item-2' as ItemId,
-          type: 'group',
           modified: 12346,
           deleted: true,
           snapshot: {
@@ -58,7 +56,6 @@ describe('snapshotService.persistSnapshots', () => {
       account: 'acct-1',
       item: 'item-1',
       metadata: {
-        type: 'person',
         iv: '',
         modified: 12345,
       },
@@ -71,7 +68,6 @@ describe('snapshotService.persistSnapshots', () => {
       account: 'acct-1',
       item: 'item-2',
       metadata: {
-        type: 'group',
         iv: '',
         modified: 12346,
         deleted: true,
@@ -93,7 +89,6 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          type: 'person',
           modified: 500,
           deleted: true,
           snapshotCursor: 10,
@@ -120,14 +115,12 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          type: 'topic',
           modified: 100,
           snapshot: { iv: 'iv-1', cipher: 'c-1' },
           snapshotCursor: 50,
         },
         {
           itemId: 'item-2' as ItemId,
-          type: 'topic',
           modified: 200,
           snapshot: { iv: 'iv-2', cipher: 'c-2' },
           snapshotCursor: 90,
@@ -165,7 +158,6 @@ describe('snapshotService.persistSnapshots', () => {
       snapshots: [
         {
           itemId: 'item-1' as ItemId,
-          type: 'person',
           modified: 100,
           snapshot: { iv: 'iv-1', cipher: 'c-1' },
           snapshotCursor: 15,
