@@ -24,6 +24,7 @@ import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
 import { fireAndForget } from '../utils/fireAndForget'
+import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -227,7 +228,11 @@ export class SyncWorkerContext {
       docStore: this.docStore,
       indexManager: this.indexManager,
       eventHub: config.clientEventHub,
-      markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
+      markDocumentDirty: id => {
+        this.snapshotManager.markItemDirty(id)
+        // Only the leader uploads snapshots, so tell it about edits made in this tab
+        publishRealtimeBusItemDirty(config.accountId, [id])
+      },
       recoveryManager: this.recoveryManager,
       apiClient: this.apiClient,
     })
@@ -273,6 +278,16 @@ export class SyncWorkerContext {
     this.broker.setStorageRecoveryService(this.storageRecoveryService)
     this.broker.setRecoveryManager(this.recoveryManager)
     this.subscribeInternalEvents()
+    this.subscribeCrossTabDirtyItems()
+  }
+
+  private subscribeCrossTabDirtyItems(): void {
+    const unsub = subscribeRealtimeBusItemDirty(this.accountId, itemIds => {
+      for (const itemId of itemIds) {
+        this.snapshotManager.markItemDirty(itemId)
+      }
+    })
+    this.unsubscribers.push(unsub)
   }
 
   private get syncedHeadsService(): LifecycleAware {

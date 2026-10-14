@@ -73,9 +73,12 @@ describe('SnapshotTracker', () => {
     expect(onTriggerPush).toHaveBeenCalledTimes(1)
   })
 
-  it('records inbound change and updates lastModified', async () => {
-    tracker.recordInboundChange('item-1' as ItemId, 12345)
-    expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(12345)
+  it('records local modification time for dirty items and persists it', async () => {
+    vi.setSystemTime(12345)
+    tracker.markItemDirty('item-1' as ItemId)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(13345)
 
     await vi.advanceTimersByTimeAsync(1000)
     expect(mockStore.saveTimestamps).toHaveBeenCalled()
@@ -138,7 +141,7 @@ describe('SnapshotTracker', () => {
   })
 
   it('exports and imports last modified timestamps properly', async () => {
-    tracker.recordInboundChange('item-1' as ItemId, 1000)
+    tracker.lastModifiedByItemId.set('item-1' as ItemId, 1000)
     tracker.recordSnapshotSuccess('item-2' as ItemId, 2000, 0)
 
     const exported = tracker.exportLastModified()
@@ -159,6 +162,36 @@ describe('SnapshotTracker', () => {
     expect(newTracker.getLastSnapshotAt('item-2' as ItemId)).toBe(2000)
   })
 
+  describe('importLastModified', () => {
+    it('marks a non-dirty item as in sync even when its stored localModifiedAt is newer', async () => {
+      // e.g. a stale timestamp left behind by a remote change
+      tracker.lastModifiedByItemId.set('item-1' as ItemId, 9000)
+      tracker.lastSnapshotAtByItemId.set('item-1' as ItemId, 1000)
+
+      await tracker.importLastModified([['item-1' as ItemId, 5000]])
+
+      expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(5000)
+      expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(5000)
+
+      mockStore.loadTimestamps.mockResolvedValue([])
+      const { auditCount } = await tracker.loadLastModified()
+      expect(auditCount).toBe(0)
+      expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
+    })
+
+    it('keeps a dirty item pending upload', async () => {
+      tracker.lastModifiedByItemId.set('item-1' as ItemId, 9000)
+      tracker.lastSnapshotAtByItemId.set('item-1' as ItemId, 1000)
+      tracker.markItemDirty('item-1' as ItemId)
+
+      await tracker.importLastModified([['item-1' as ItemId, 5000]])
+
+      expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(1000)
+      expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(9000)
+      expect(tracker.hasDirty('item-1' as ItemId)).toBe(true)
+    })
+  })
+
   describe('deleteDirtyItem', () => {
     it('removes item from dirtyItems and clears timers when dirtyItems becomes empty', () => {
       tracker.markItemDirty('item-1' as ItemId)
@@ -174,7 +207,7 @@ describe('SnapshotTracker', () => {
     })
 
     it('advances lastSnapshotAt to localModifiedAt to prevent startup audit resurrection', async () => {
-      tracker.recordInboundChange('item-1' as ItemId, 5000)
+      tracker.lastModifiedByItemId.set('item-1' as ItemId, 5000)
       tracker.markItemDirty('item-1' as ItemId)
       // item-1 has localMod: 5000 and undefined lastSnapshotAt
 

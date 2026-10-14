@@ -347,7 +347,7 @@ export class SyncWorker implements SyncApi {
       existing.handle.off('change', existing.listener)
     }
 
-    const handleChange = (isDocChange = false) => {
+    const handleChange = () => {
       try {
         const doc = handle.doc() || null
         const item = normalizeItemSnapshot(id, doc)
@@ -363,18 +363,14 @@ export class SyncWorker implements SyncApi {
             'SyncWorker:addAutomergeItemIdsToIndex',
           )
         }
-        if (isDocChange) {
-          this.context.snapshotManager.recordInboundChange(id)
-        }
         this.clientEventHub.emit({ type: 'itemUpdated', id, item })
       } catch (err) {
         log.error(`Error handling Automerge doc change for item ${id}:`, err)
       }
     }
-    const changeListener = () => handleChange(true)
-    handle.on('change', changeListener)
-    this.changeListenersByItemId.set(id, { handle, listener: changeListener })
-    handleChange(false)
+    handle.on('change', handleChange)
+    this.changeListenersByItemId.set(id, { handle, listener: handleChange })
+    handleChange()
   }
 
   private handleDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>) {

@@ -5,6 +5,7 @@ import { createTestEventHubs } from './__test__/testUtils'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
+import { publishRealtimeBusItemDirty } from './realtimeBus'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
 
@@ -191,7 +192,23 @@ vi.mock('./stores/SyncedHeadsStore', () => ({
 }))
 
 vi.mock('./ItemOperations', () => ({
-  ItemOperations: class MockItemOperations {},
+  ItemOperations: class MockItemOperations {
+    constructor(public deps: { markDocumentDirty: (id: ItemId) => void }) {}
+  },
+}))
+
+const mockRealtimeBus = vi.hoisted(() => ({
+  itemDirtyListeners: [] as Array<(itemIds: string[]) => void>,
+}))
+
+vi.mock('./realtimeBus', () => ({
+  publishRealtimeBusItemDirty: vi.fn(),
+  subscribeRealtimeBusItemDirty: vi.fn((_accountId: string, listener: (itemIds: string[]) => void) => {
+    mockRealtimeBus.itemDirtyListeners.push(listener)
+    return () => {
+      mockRealtimeBus.itemDirtyListeners = mockRealtimeBus.itemDirtyListeners.filter(l => l !== listener)
+    }
+  }),
 }))
 
 // The real RecoveryManager is used (backed by the in-memory store mock above) so that
@@ -216,6 +233,7 @@ describe('SyncWorkerContext', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRealtimeBus.itemDirtyListeners = []
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
@@ -265,6 +283,28 @@ describe('SyncWorkerContext', () => {
     expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
     expect(context.indexStore.clear).not.toHaveBeenCalled()
     expect(context.cursorStore.clear).not.toHaveBeenCalled()
+  })
+
+  it('marks local edits dirty and announces them to other tabs', () => {
+    const { deps } = context.itemOperations as unknown as { deps: { markDocumentDirty: (id: ItemId) => void } }
+    deps.markDocumentDirty('edited-item' as ItemId)
+
+    expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('edited-item')
+    expect(publishRealtimeBusItemDirty).toHaveBeenCalledWith('test-account', ['edited-item'])
+  })
+
+  it('marks items dirty when another tab announces local edits', () => {
+    expect(mockRealtimeBus.itemDirtyListeners).toHaveLength(1)
+    mockRealtimeBus.itemDirtyListeners[0](['tab-item-1', 'tab-item-2'])
+
+    expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('tab-item-1')
+    expect(context.snapshotManager.markItemDirty).toHaveBeenCalledWith('tab-item-2')
+    expect(publishRealtimeBusItemDirty).not.toHaveBeenCalled()
+  })
+
+  it('stops listening for cross-tab edits on shutdown', async () => {
+    await context.shutdown()
+    expect(mockRealtimeBus.itemDirtyListeners).toHaveLength(0)
   })
 
   it('forwards leaderChange to snapshotManager.setLeader', () => {
