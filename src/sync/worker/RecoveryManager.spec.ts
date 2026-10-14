@@ -1,4 +1,4 @@
-import { RecoveryManager } from './RecoveryManager'
+import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import type { ItemId } from 'src/shared/schemas/items'
 
@@ -6,6 +6,7 @@ const mockReadManualRecoveryEntries = vi.fn()
 const mockReadManualRecoveryCount = vi.fn()
 const mockRemoveManualRecoveryEntryById = vi.fn()
 const mockRemoveManualRecoveryEntryByItemId = vi.fn()
+const mockRemoveManualRecoveryEntryIfKind = vi.fn()
 const mockUpsertManualRecoveryEntry = vi.fn()
 
 vi.mock('../shared/manualRecoveryStore', () => ({
@@ -13,6 +14,7 @@ vi.mock('../shared/manualRecoveryStore', () => ({
   readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
   removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
   removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
+  removeManualRecoveryEntryIfKind: (...args: any[]) => mockRemoveManualRecoveryEntryIfKind(...args),
   upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
 }))
 
@@ -32,6 +34,7 @@ describe('RecoveryManager', () => {
     mockReadManualRecoveryCount.mockResolvedValue(0)
     mockRemoveManualRecoveryEntryById.mockResolvedValue(undefined)
     mockRemoveManualRecoveryEntryByItemId.mockResolvedValue(undefined)
+    mockRemoveManualRecoveryEntryIfKind.mockResolvedValue(true)
     mockUpsertManualRecoveryEntry.mockResolvedValue(undefined)
 
     recoveryManager = new RecoveryManager({
@@ -42,14 +45,15 @@ describe('RecoveryManager', () => {
 
   describe('quarantine', () => {
     it('upserts recovery entry, sets cooldown, and emits recoveryItemsChanged', async () => {
-      const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'bad decrypt', createdAt: 12345 }]
+      const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'bad decrypt', kind: 'pullDecryption', createdAt: 12345 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.quarantine('item-1' as ItemId, new Error('bad decrypt'))
+      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', new Error('bad decrypt'))
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
         reason: 'bad decrypt',
+        kind: 'pushFailure',
       })
       expect(onEventMock).toHaveBeenCalledWith({
         type: 'recoveryItemsChanged',
@@ -60,29 +64,31 @@ describe('RecoveryManager', () => {
     })
 
     it('works when accountId is provided in constructor and called without explicit accountId', async () => {
-      await recoveryManager.quarantine('item-2' as ItemId, 'Snapshot failed')
+      await recoveryManager.quarantine('item-2' as ItemId, 'pushFailure', 'Snapshot failed')
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-2',
         reason: 'Snapshot failed',
+        kind: 'pushFailure',
       })
     })
 
     it('formats branch hints when failedBranches are provided', async () => {
-      await recoveryManager.quarantine('item-3' as ItemId, new Error('fail'), {
+      await recoveryManager.quarantine('item-3' as ItemId, 'pushFailure', new Error('fail'), {
         failedBranches: ['branch-a', 'branch-b'],
       })
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-3',
         reason: 'Corrupted branches: branch-a, branch-b',
+        kind: 'pushFailure',
       })
     })
 
     it('respects checkCooldown option when in cooldown', async () => {
       recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 10000)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'another fail', {
+      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'another fail', {
         checkCooldown: true,
       })
 
@@ -92,7 +98,7 @@ describe('RecoveryManager', () => {
     it('respects in-flight protection', async () => {
       recoveryManager.setInFlight('item-1' as ItemId, true)
 
-      await recoveryManager.quarantine('item-1' as ItemId, 'fail')
+      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'fail')
 
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
@@ -102,7 +108,7 @@ describe('RecoveryManager', () => {
       mockUpsertManualRecoveryEntry.mockRejectedValueOnce(new Error('Storage failure'))
 
       await expect(
-        recoveryManager.quarantine('item-fail' as ItemId, 'fail')
+        recoveryManager.quarantine('item-fail' as ItemId, 'pushFailure', 'fail')
       ).rejects.toThrow('Storage failure')
 
       expect(recoveryManager.isInFlight('item-fail' as ItemId)).toBe(false)
@@ -111,7 +117,7 @@ describe('RecoveryManager', () => {
 
     it('no-ops if accountId is missing', async () => {
       recoveryManager.setAccountId(null)
-      await recoveryManager.quarantine('item-1' as ItemId, 'fail')
+      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'fail')
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
   })
@@ -141,37 +147,59 @@ describe('RecoveryManager', () => {
     })
   })
 
-  describe('unquarantineBatch', () => {
-    it('clears cooldown and in-flight without DB calls when manual recovery count is 0', async () => {
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 50000)
-      recoveryManager.setInFlight('item-1' as ItemId, true)
+  describe('resolveQuarantines', () => {
+    const kinds = INBOUND_MESSAGE_RESOLVABLE_KINDS
+
+    it('does nothing when manual recovery count is 0', async () => {
       mockReadManualRecoveryCount.mockResolvedValue(0)
 
-      await recoveryManager.unquarantineBatch(['item-1' as ItemId])
+      await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
 
-      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      expect(mockRemoveManualRecoveryEntryIfKind).not.toHaveBeenCalled()
       expect(onEventMock).not.toHaveBeenCalled()
     })
 
-    it('removes all items and emits event once when count changed', async () => {
-      mockReadManualRecoveryCount
-        .mockResolvedValueOnce(2) // previous count
-        .mockResolvedValueOnce(0) // next count
+    it('removes once per unique id and emits once', async () => {
+      mockReadManualRecoveryCount.mockResolvedValue(2)
 
-      await recoveryManager.unquarantineBatch(['item-1' as ItemId, 'item-2' as ItemId])
+      await recoveryManager.resolveQuarantines(['item-1', 'item-2', 'item-1'] as ItemId[], kinds)
 
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-1')
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-2')
+      expect(mockRemoveManualRecoveryEntryIfKind).toHaveBeenCalledTimes(2)
+      expect(mockRemoveManualRecoveryEntryIfKind).toHaveBeenCalledWith('account-123', 'item-1', kinds)
+      expect(mockRemoveManualRecoveryEntryIfKind).toHaveBeenCalledWith('account-123', 'item-2', kinds)
       expect(onEventMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('clears cooldown and in-flight only for removed ids', async () => {
+      mockReadManualRecoveryCount.mockResolvedValue(2)
+      mockRemoveManualRecoveryEntryIfKind.mockImplementation(async (_acc: string, id: string) => id === 'item-1')
+      for (const id of ['item-1', 'item-2'] as ItemId[]) {
+        recoveryManager.setRecoveryCooldown(id, Date.now() + 50000)
+        recoveryManager.setInFlight(id, true)
+      }
+
+      await recoveryManager.resolveQuarantines(['item-1', 'item-2'] as ItemId[], kinds)
+
+      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
+      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      expect(recoveryManager.getRecoveryCooldownUntil('item-2' as ItemId)).toBeGreaterThan(0)
+      expect(recoveryManager.isInFlight('item-2' as ItemId)).toBe(true)
+    })
+
+    it('does not emit when nothing was removed', async () => {
+      mockReadManualRecoveryCount.mockResolvedValue(1)
+      mockRemoveManualRecoveryEntryIfKind.mockResolvedValue(false)
+
+      await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
+
+      expect(onEventMock).not.toHaveBeenCalled()
     })
 
     it('no-ops if accountId is missing', async () => {
       recoveryManager.setAccountId(null)
-      await recoveryManager.unquarantineBatch(['item-1' as ItemId])
+      await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
 
-      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      expect(mockRemoveManualRecoveryEntryIfKind).not.toHaveBeenCalled()
     })
   })
 
@@ -186,7 +214,7 @@ describe('RecoveryManager', () => {
 
   describe('listRecoveryItems', () => {
     it('returns entries from manual recovery store', async () => {
-      const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'err', createdAt: 1 }]
+      const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'err', kind: 'pullDecryption', createdAt: 1 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
       const result = await recoveryManager.listRecoveryItems('account-123')
@@ -231,16 +259,28 @@ describe('RecoveryManager', () => {
   describe('reportDecryptionFailure and attemptAutoRecovery', () => {
     it('creates manual recovery entry and emits recoveryItemsChanged', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      const mockEntries = [{ id: 'entry-1', itemId: 'item-1', reason: 'fail', createdAt: 1 }]
+      const mockEntries = [{ id: 'entry-1', itemId: 'item-1', reason: 'fail', kind: 'pullDecryption', createdAt: 1 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('bad decrypt'))
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('bad decrypt'))
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
         reason: 'Automated recovery is unavailable for this revision',
+        kind: 'pullDecryption',
       })
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
+      consoleSpy.mockRestore()
+    })
+
+    it('upserts with the snapshotDecryption kind when reported from manifest hydration', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'snapshotDecryption', new Error('bad'))
+
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', expect.objectContaining({
+        itemId: 'item-1',
+        kind: 'snapshotDecryption',
+      }))
       consoleSpy.mockRestore()
     })
 
@@ -248,6 +288,7 @@ describe('RecoveryManager', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       await recoveryManager.reportDecryptionFailure(
         'item-1' as ItemId,
+        'pullDecryption',
         new Error('bad decrypt'),
         ['branch-A', 'branch-B']
       )
@@ -255,6 +296,7 @@ describe('RecoveryManager', () => {
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
         reason: 'Corrupted branches: branch-A, branch-B',
+        kind: 'pullDecryption',
       })
       consoleSpy.mockRestore()
     })
@@ -263,17 +305,17 @@ describe('RecoveryManager', () => {
       vi.useFakeTimers()
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 1'))
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('fail 1'))
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
 
       // Immediate second call should be blocked by cooldown
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 2'))
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('fail 2'))
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
 
       // Advance past 60s cooldown
       vi.advanceTimersByTime(61 * 1000)
 
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 3'))
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('fail 3'))
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(2)
 
       consoleSpy.mockRestore()
@@ -282,11 +324,11 @@ describe('RecoveryManager', () => {
 
     it('does nothing if accountId or itemId is not set', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      await recoveryManager.reportDecryptionFailure('' as ItemId, new Error('fail'))
+      await recoveryManager.reportDecryptionFailure('' as ItemId, 'pullDecryption', new Error('fail'))
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
 
       recoveryManager.setAccountId(null)
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail'))
+      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('fail'))
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
       consoleSpy.mockRestore()
     })

@@ -2,17 +2,22 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub } from './SyncEventHub'
 import {
   type ManualRecoveryEntry,
+  type ManualRecoveryKind,
   type ReadManualRecoveryOptions,
   readManualRecoveryEntries,
   readManualRecoveryCount,
   removeManualRecoveryEntryById,
   removeManualRecoveryEntryByItemId,
+  removeManualRecoveryEntryIfKind,
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
 import { normalizeSyncError } from 'src/shared/syncErrors'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 
+
+// Quarantines that a fresh, successfully parsed remote message proves were transient
+export const INBOUND_MESSAGE_RESOLVABLE_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['pullDecryption'])
 
 export interface RecoveryManagerDeps {
   accountId?: string | null
@@ -112,6 +117,7 @@ export class RecoveryManager implements LifecycleAware {
 
   async quarantine(
     itemId: ItemId,
+    kind: ManualRecoveryKind,
     error?: unknown,
     options?: QuarantineOptions,
   ): Promise<void> {
@@ -141,7 +147,7 @@ export class RecoveryManager implements LifecycleAware {
         reason = 'Automated recovery is unavailable for this revision'
       }
 
-      await upsertManualRecoveryEntry(accountId, { itemId, reason })
+      await upsertManualRecoveryEntry(accountId, { itemId, reason, kind })
       await this.pushRecoveryItems(accountId)
 
       const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
@@ -171,29 +177,25 @@ export class RecoveryManager implements LifecycleAware {
     await this.pushRecoveryItems(accountId)
   }
 
-  async unquarantineBatch(itemIds: ItemId[]): Promise<void> {
+  async resolveQuarantines(itemIds: ItemId[], kinds: ReadonlySet<ManualRecoveryKind>): Promise<void> {
     const accountId = this.accountId
     if (!accountId) return
     const uniqueItemIds = Array.from(new Set(itemIds.filter(id => Boolean(id))))
     if (uniqueItemIds.length === 0) return
 
-    const previousCount = await readManualRecoveryCount(accountId)
-    if (previousCount === 0) {
-      for (const itemId of uniqueItemIds) {
+    if (await readManualRecoveryCount(accountId) === 0) return
+
+    let removedAny = false
+    for (const itemId of uniqueItemIds) {
+      const removed = await removeManualRecoveryEntryIfKind(accountId, itemId, kinds)
+      if (removed) {
+        removedAny = true
         this.clearRecoveryCooldown(itemId)
         this.setInFlight(itemId, false)
       }
-      return
     }
 
-    for (const itemId of uniqueItemIds) {
-      await removeManualRecoveryEntryByItemId(accountId, itemId)
-      this.clearRecoveryCooldown(itemId)
-      this.setInFlight(itemId, false)
-    }
-
-    const nextCount = await readManualRecoveryCount(accountId)
-    if (nextCount !== previousCount) {
+    if (removedAny) {
       await this.pushRecoveryItems(accountId)
     }
   }
@@ -216,11 +218,16 @@ export class RecoveryManager implements LifecycleAware {
     await this.pushRecoveryItems(accountId)
   }
 
-  async attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): Promise<void> {
+  async attemptAutoRecovery(
+    itemId: ItemId,
+    kind: 'pullDecryption' | 'snapshotDecryption',
+    failedBranches?: string[],
+  ): Promise<void> {
     if (!this.accountId) return
     try {
       await this.quarantine(
         itemId,
+        kind,
         null,
         { checkCooldown: true, failedBranches },
       )
@@ -229,7 +236,12 @@ export class RecoveryManager implements LifecycleAware {
     }
   }
 
-  async reportDecryptionFailure(itemId: ItemId, error: unknown, failedBranches?: string[]): Promise<void> {
+  async reportDecryptionFailure(
+    itemId: ItemId,
+    kind: 'pullDecryption' | 'snapshotDecryption',
+    error: unknown,
+    failedBranches?: string[],
+  ): Promise<void> {
     const normalizedError = normalizeSyncError(error)
     console.error('[RecoveryManager] Failed to decrypt item', {
       itemId,
@@ -237,6 +249,6 @@ export class RecoveryManager implements LifecycleAware {
     })
 
     if (!itemId) return
-    await this.attemptAutoRecovery(itemId, failedBranches)
+    await this.attemptAutoRecovery(itemId, kind, failedBranches)
   }
 }

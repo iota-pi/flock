@@ -111,7 +111,7 @@ describe('SyncEventProcessor', () => {
     expect(listener).toHaveBeenCalledWith([])
 
     const mockEntries: ManualRecoveryEntry[] = [
-      { id: 'r1', itemId: 'item-1' as ItemId, reason: 'error', createdAt: 123 },
+      { id: 'r1', itemId: 'item-1' as ItemId, reason: 'error', kind: 'pullDecryption', createdAt: 123 },
     ]
     processor.handleSyncEvent({ type: 'recoveryItemsChanged', entries: mockEntries })
 

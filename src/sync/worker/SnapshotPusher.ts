@@ -233,6 +233,7 @@ export class SnapshotPusher {
         try {
           await this.recoveryManager.quarantine(
             itemId,
+            'snapshotFailure',
             `Snapshot failure: ${detailedReason}`,
           )
         } catch (recoveryError) {
@@ -265,6 +266,7 @@ export class SnapshotPusher {
       fireAndForget(
         this.recoveryManager.quarantine(
           itemId,
+          'oversized',
           `Snapshot size (${Math.round(snapshotSize / 1024)} KB) exceeds ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
         ),
         'SnapshotPusher:quarantine',

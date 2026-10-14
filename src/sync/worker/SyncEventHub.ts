@@ -42,6 +42,7 @@ export type WorkerInternalEvent =
   | { type: 'leaderConflict'; hasConflict: boolean }
   | { type: 'flushNeeded' }
   | { type: 'itemMessageParsed'; itemId: ItemId }
+  | { type: 'remoteMessagesParsed'; itemId: ItemId }
   | { type: 'walAppendFailed'; itemId: ItemId; error: unknown }
   | { type: 'walEntriesPruned'; itemIds: ItemId[] }
   | { type: 'snapshotFallbackRequested'; itemId: ItemId }

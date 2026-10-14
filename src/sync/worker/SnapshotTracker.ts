@@ -207,10 +207,7 @@ export class SnapshotTracker {
           checkAlive(null, () => !this.isShutdown)
           for (const entry of recoveryEntries) {
             quarantinedIds.add(entry.itemId)
-            if (
-              entry.reason?.toLowerCase().includes('limit') ||
-              entry.reason?.toLowerCase().includes('exceeds')
-            ) {
+            if (entry.kind === 'oversized') {
               oversizedItemIds.add(entry.itemId)
               this.onOversizedFound?.(entry.itemId)
             }

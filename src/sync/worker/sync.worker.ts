@@ -278,10 +278,6 @@ export class SyncWorker implements SyncApi {
           this._context.indexManager.addAutomergeItemIdsToIndex(itemIds),
           'SyncWorker:addAutomergeItemIdsToIndex',
         )
-        fireAndForget(
-          this._context.recoveryManager.unquarantineBatch(itemIds),
-          'SyncWorker:unquarantineBatch',
-        )
       }
     })
   }
@@ -483,6 +479,7 @@ export class SyncWorker implements SyncApi {
   retryRecoveryItem = (itemId: ItemId) =>
     this.withContext(async ctx => {
       await ctx.recoveryManager.unquarantine(itemId)
+      ctx.snapshotManager.clearOversized(itemId)
       ctx.snapshotManager.markItemDirty(itemId)
       fireAndForget(
         ctx.snapshotManager.flushPendingSnapshots(),

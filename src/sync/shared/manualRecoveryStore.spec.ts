@@ -31,6 +31,7 @@ let removeManualRecoveryEntryById: any
 let removeManualRecoveryEntryByItemId: any
 let resetMigrationForTesting: any
 let upsertManualRecoveryEntry: any
+let removeManualRecoveryEntryIfKind: any
 
 describe('manualRecoveryStore', () => {
   const accountId = 'test-account-id'
@@ -45,6 +46,7 @@ describe('manualRecoveryStore', () => {
     removeManualRecoveryEntryByItemId = mod.removeManualRecoveryEntryByItemId
     resetMigrationForTesting = mod.resetMigrationForTesting
     upsertManualRecoveryEntry = mod.upsertManualRecoveryEntry
+    removeManualRecoveryEntryIfKind = mod.removeManualRecoveryEntryIfKind
   })
   beforeEach(async () => {
     createdInstances.length = 0
@@ -64,8 +66,8 @@ describe('manualRecoveryStore', () => {
   })
 
   it('upserts entries by item id and updates count', async () => {
-    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'first failure' })
-    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'second failure' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'first failure', kind: 'unknown' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'second failure', kind: 'unknown' })
 
     const entries = await readManualRecoveryEntries(accountId)
     expect(entries).toHaveLength(1)
@@ -74,9 +76,127 @@ describe('manualRecoveryStore', () => {
     expect(await readManualRecoveryCount(accountId)).toBe(1)
   })
 
+  it('persists kind on upsert and returns it on read', async () => {
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'too big', kind: 'oversized' })
+
+    const entries = await readManualRecoveryEntries(accountId)
+    expect(entries[0].kind).toBe('oversized')
+  })
+
+  describe('legacy kind inference', () => {
+    const cases: Array<[string, string, string?]> = [
+      ['Snapshot size (400 KB) exceeds 350 KB limit. Recreating the item.', 'oversized'],
+      ['Push failed after 5 consecutive attempts: Rate limit exceeded', 'pushFailure'],
+      ['Snapshot failure: x', 'snapshotFailure'],
+      ['Re-encryption upload failed: x', 'snapshotFailure'],
+      ['Automated recovery is unavailable for this revision', 'pullDecryption'],
+      ['Corrupted branches: a', 'pullDecryption'],
+      ['something else', 'unknown'],
+      ['something else', 'unknown', 'bogus'],
+    ]
+
+    it.each(cases)('infers kind for %j as %s', async (reason, expected, storedKind) => {
+      // Ensure migration has run so the raw write below is not rewritten
+      await readManualRecoveryEntries(accountId)
+      const storage = localforage.createInstance({
+        name: 'FlockVault_ManualRecoveryDB_test-account-id',
+        storeName: 'manual-recovery-items',
+      })
+      await storage.setItem('item-legacy', {
+        id: 'item-legacy',
+        itemId: 'item-legacy',
+        reason,
+        createdAt: 1,
+        ...(storedKind ? { kind: storedKind } : {}),
+      })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries).toHaveLength(1)
+      expect(entries[0].kind).toBe(expected)
+    })
+  })
+
+  describe('upsert precedence', () => {
+    it.each([
+      ['pullDecryption'],
+      ['pushFailure'],
+      ['snapshotFailure'],
+    ])('does not replace an oversized entry with %s', async weaker => {
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
+      const first = await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'too big', kind: 'oversized' })
+      dateSpy.mockReturnValue(2000)
+
+      const result = await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'weaker', kind: weaker })
+      dateSpy.mockRestore()
+
+      expect(result).toEqual(first)
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'oversized', reason: 'too big', createdAt: 1000 }))
+    })
+
+    it('replaces pullDecryption with pushFailure', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'decrypt', kind: 'pullDecryption' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'push', kind: 'pushFailure' })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'pushFailure', reason: 'push' }))
+    })
+
+    it('replaces pushFailure with snapshotFailure', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'push', kind: 'pushFailure' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'snap', kind: 'snapshotFailure' })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'snapshotFailure', reason: 'snap' }))
+    })
+
+    it('refreshes an oversized entry with a new oversized quarantine', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'old', kind: 'oversized' })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'new', kind: 'oversized' })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'oversized', reason: 'new' }))
+    })
+  })
+
+  describe('removeManualRecoveryEntryIfKind', () => {
+    it('removes an entry with a matching kind', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'decrypt', kind: 'pullDecryption' })
+
+      expect(await removeManualRecoveryEntryIfKind(accountId, 'item-1', new Set(['pullDecryption']))).toBe(true)
+      expect(await readManualRecoveryCount(accountId)).toBe(0)
+    })
+
+    it('keeps an entry with a non-matching kind', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'big', kind: 'oversized' })
+
+      expect(await removeManualRecoveryEntryIfKind(accountId, 'item-1', new Set(['pullDecryption']))).toBe(false)
+      expect(await readManualRecoveryCount(accountId)).toBe(1)
+    })
+
+    it('returns false for a missing entry', async () => {
+      expect(await removeManualRecoveryEntryIfKind(accountId, 'missing', new Set(['pullDecryption']))).toBe(false)
+    })
+
+    it('serializes with concurrent upserts so an oversized quarantine is never lost', async () => {
+      for (const upsertFirst of [true, false]) {
+        await clearManualRecoveryEntries(accountId)
+        await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'decrypt', kind: 'pullDecryption' })
+
+        const upsert = () => upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'big', kind: 'oversized' })
+        const remove = () => removeManualRecoveryEntryIfKind(accountId, 'item-1', new Set(['pullDecryption']))
+        await (upsertFirst ? Promise.all([upsert(), remove()]) : Promise.all([remove(), upsert()]))
+
+        const entries = await readManualRecoveryEntries(accountId)
+        expect(entries).toHaveLength(1)
+        expect(entries[0].kind).toBe('oversized')
+      }
+    })
+  })
+
   it('removes entries by id and by item id', async () => {
-    const first = await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'failed' })
-    await upsertManualRecoveryEntry(accountId, { itemId: 'item-2', reason: 'failed' })
+    const first = await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'failed', kind: 'unknown' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-2', reason: 'failed', kind: 'unknown' })
 
     await removeManualRecoveryEntryById(accountId, first.id)
     expect(await readManualRecoveryCount(accountId)).toBe(1)
@@ -241,13 +361,13 @@ describe('manualRecoveryStore', () => {
     const dateSpy = vi.spyOn(Date, 'now')
 
     dateSpy.mockReturnValueOnce(now - 1000)
-    await upsertManualRecoveryEntry(accountId, { itemId: 'item-b', reason: 'error-b' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-b', reason: 'error-b', kind: 'unknown' })
 
     dateSpy.mockReturnValueOnce(now)
-    await upsertManualRecoveryEntry(accountId, { itemId: 'item-c', reason: 'error-c' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-c', reason: 'error-c', kind: 'unknown' })
 
     dateSpy.mockReturnValueOnce(now - 1000)
-    await upsertManualRecoveryEntry(accountId, { itemId: 'item-a', reason: 'error-a' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-a', reason: 'error-a', kind: 'unknown' })
 
     const entries = await readManualRecoveryEntries(accountId)
     expect(entries).toHaveLength(3)
@@ -265,7 +385,7 @@ describe('manualRecoveryStore', () => {
     const setItemSpy = vi.spyOn(storage, 'setItem').mockRejectedValueOnce(quotaError)
 
     await expect(
-      upsertManualRecoveryEntry(accountId, { itemId: 'item-quota', reason: 'quota' })
+      upsertManualRecoveryEntry(accountId, { itemId: 'item-quota', reason: 'quota', kind: 'unknown' })
     ).rejects.toThrow(quotaError)
 
     expect(mockReportQuotaExceeded).toHaveBeenCalled()
@@ -297,7 +417,7 @@ describe('manualRecoveryStore', () => {
 
     for (let i = 1; i <= 5; i++) {
       dateSpy.mockReturnValueOnce(baseTime + i * 1000)
-      await upsertManualRecoveryEntry(accountId, { itemId: `item-${i}`, reason: `error-${i}` })
+      await upsertManualRecoveryEntry(accountId, { itemId: `item-${i}`, reason: `error-${i}`, kind: 'unknown' })
     }
 
     // Page 1: limit 2, offset 0 -> newest items: item-5, item-4
@@ -329,7 +449,7 @@ describe('manualRecoveryStore', () => {
     expect(mod.MAX_MANUAL_RECOVERY_LIMIT).toBe(500)
     expect(mod.DEFAULT_MANUAL_RECOVERY_LIMIT).toBe(100)
 
-    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'err' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'err', kind: 'unknown' })
     const entries = await readManualRecoveryEntries(accountId, { limit: 9999 })
     expect(entries).toHaveLength(1)
   })

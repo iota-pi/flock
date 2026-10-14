@@ -150,6 +150,7 @@ describe('reencryptAllItems', () => {
     })
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-1',
+      kind: 'snapshotFailure',
       reason: expect.stringContaining('Re-encryption upload failed'),
     })
   })
@@ -213,6 +214,7 @@ describe('reencryptAllItems', () => {
     ])
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-bad',
+      kind: 'snapshotFailure',
       reason: expect.stringContaining('Corrupt document'),
     })
 
@@ -260,6 +262,7 @@ describe('reencryptAllItems', () => {
     ])
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-bad-doc',
+      kind: 'snapshotFailure',
       reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-bad-doc: Document data not available',
     })
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
@@ -325,6 +328,7 @@ describe('reencryptAllItems', () => {
     ])
     expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
       itemId: 'item-always-not-ready',
+      kind: 'snapshotFailure',
       reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-always-not-ready: Item item-always-not-ready document or vault was not ready',
     })
     expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
@@ -359,6 +363,7 @@ describe('reencryptAllItems', () => {
     ])
     expect(processContext.recoveryManager.quarantine).toHaveBeenCalledWith(
       'item-unready',
+      'snapshotFailure',
       'Re-encryption snapshot build failed: Failed to build snapshot for item item-unready: Document or vault was not ready after retries'
     )
 
@@ -596,6 +601,7 @@ describe('reencryptAllItems', () => {
       expect(result.failed[0].itemId).toBe('item-perm-fail')
       expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
         itemId: 'item-perm-fail',
+        kind: 'snapshotFailure',
         reason: expect.stringContaining('Re-encryption upload failed'),
       })
     })
@@ -747,6 +753,7 @@ describe('reencryptAllItems', () => {
       expect(result.failed[0].itemId).toBe('item-1')
       expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
         itemId: 'item-1',
+        kind: 'snapshotFailure',
         reason: expect.stringContaining('Re-encryption upload failed'),
       })
     })

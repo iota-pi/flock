@@ -109,6 +109,7 @@ describe('SnapshotPusher', () => {
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
+      'oversized',
       expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
     )
   })
@@ -136,6 +137,7 @@ describe('SnapshotPusher', () => {
     )
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
+      'snapshotFailure',
       expect.stringContaining('Snapshot failure'),
     )
   })

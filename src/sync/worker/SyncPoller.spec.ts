@@ -753,6 +753,35 @@ describe('SyncPoller', () => {
       expect(poller.consecutivePushFailures.has('item-1' as ItemId)).toBe(false)
     })
 
+    it('records successful push cursors as own messages before processing pull results', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      const recordSpy = vi.spyOn(pullQueueManager, 'recordOwnPushedMessage')
+      const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 123, success: true },
+          { itemId: 'item-2', success: false, error: 'DatabaseWriteFailed' },
+        ],
+        pullResults: [],
+      })
+
+      await poller.executePoll()
+
+      expect(recordSpy).toHaveBeenCalledTimes(1)
+      expect(recordSpy).toHaveBeenCalledWith('item-1', 123)
+      expect(recordSpy.mock.invocationCallOrder[0]).toBeLessThan(processPullResultsSpy.mock.invocationCallOrder[0])
+    })
+
     it('processes pullResults without backoff on partial push failure in multi-item chunk (Option B)', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
@@ -826,6 +855,7 @@ describe('SyncPoller', () => {
       // Recovery manager was asked to quarantine the item
       expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
         itemId,
+        'pushFailure',
         expect.stringContaining('Push failed after 5 consecutive attempts: PayloadTooLarge')
       )
 

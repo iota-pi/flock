@@ -214,6 +214,9 @@ When a tab receives a message encrypted with a key version not yet in its keyrin
 #### Error Recovery
 
 - **Manual Recovery Store**: Items that fail decryption are quarantined in `manualRecoveryStore` (IndexedDB) and surfaced to the user for manual intervention.
+  - Each entry carries a `kind` (`pullDecryption`, `snapshotDecryption`, `oversized`, `snapshotFailure`, `pushFailure`, `unknown`). Legacy entries without one are inferred from their reason text when read.
+  - Only `pullDecryption` entries are auto-cleared, and only by successfully parsed inbound messages from other devices (own push echoes are excluded via `SyncPullQueueManager.recordOwnPushedMessage`). A server-confirmed snapshot upload and explicit user actions (retry, overwrite, delete, recreate, dismiss) clear every kind.
+  - A weaker quarantine never overwrites an `oversized` entry. Oversized detection (`SnapshotTracker`, `DataRecoveryDialog`) uses `kind`, not reason text.
 - **SyncPullQueueManager retry**: Failed pull messages are retried up to `MAX_PULL_RETRIES` (5) before quarantining the item.
 - **SnapshotManager retry**: Failed snapshot pushes use exponential backoff (2s → 5s → 10s → 30s → 60s). After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5), the item is removed from the dirty queue.
 - **Worker crash recovery**: `syncWorkerHealth.ts` monitors the worker via heartbeat ping/pong (15s interval, 30s timeout). On crash, the worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3).

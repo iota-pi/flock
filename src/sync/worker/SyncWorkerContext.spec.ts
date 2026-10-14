@@ -1,4 +1,5 @@
 import { SyncWorkerContext } from './SyncWorkerContext'
+import { INBOUND_MESSAGE_RESOLVABLE_KINDS } from './RecoveryManager'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createTestEventHubs } from './__test__/testUtils'
 import type { ItemId } from 'src/shared/schemas/items'
@@ -6,6 +7,26 @@ import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
+
+const mockRecoveryEntries = vi.hoisted(() => new Map<string, any>())
+
+vi.mock('../shared/manualRecoveryStore', () => ({
+  readManualRecoveryEntries: vi.fn(async () => Array.from(mockRecoveryEntries.values())),
+  readManualRecoveryCount: vi.fn(async () => mockRecoveryEntries.size),
+  removeManualRecoveryEntryById: vi.fn(async (_acc: string, id: string) => { mockRecoveryEntries.delete(id) }),
+  removeManualRecoveryEntryByItemId: vi.fn(async (_acc: string, id: string) => { mockRecoveryEntries.delete(id) }),
+  removeManualRecoveryEntryIfKind: vi.fn(async (_acc: string, id: string, kinds: ReadonlySet<string>) => {
+    const entry = mockRecoveryEntries.get(id)
+    if (!entry || !kinds.has(entry.kind)) return false
+    mockRecoveryEntries.delete(id)
+    return true
+  }),
+  upsertManualRecoveryEntry: vi.fn(async (_acc: string, input: any) => {
+    const entry = { id: input.itemId, createdAt: Date.now(), ...input }
+    mockRecoveryEntries.set(input.itemId, entry)
+    return entry
+  }),
+}))
 
 vi.mock('./stores/syncMetadataStorage', () => ({
   clearSyncMetadataStorage: vi.fn().mockResolvedValue(undefined),
@@ -173,17 +194,8 @@ vi.mock('./ItemOperations', () => ({
   ItemOperations: class MockItemOperations {},
 }))
 
-vi.mock('./RecoveryManager', () => ({
-  RecoveryManager: class MockRecoveryManager {
-    readonly lifecycleName = 'RecoveryManager'
-    resetRecoveryState = vi.fn()
-    unquarantineBatch = vi.fn().mockResolvedValue(undefined)
-    reportDecryptionFailure = vi.fn().mockResolvedValue(undefined)
-    onLifecycleStop = vi.fn().mockImplementation(() => {
-      this.resetRecoveryState()
-    })
-  },
-}))
+// The real RecoveryManager is used (backed by the in-memory store mock above) so that
+// event handling can be verified end to end
 
 vi.mock('./ManifestSyncManager', () => ({
   ManifestSyncManager: class MockManifestSyncManager {
@@ -263,18 +275,55 @@ describe('SyncWorkerContext', () => {
     expect(context.snapshotManager.setLeader).toHaveBeenCalledWith(false)
   })
 
-  it('clears manual recovery when itemMessageParsed is received', () => {
-    const { clientEventHub: ctxClientHub, internalEventHub: ctxInternalHub } = createTestEventHubs()
-    const ctx = new SyncWorkerContext({
-      accountId: 'test-account',
-      clientEventHub: ctxClientHub,
-      internalEventHub: ctxInternalHub,
+  describe('manual recovery event handling', () => {
+    function createContext() {
+      const { clientEventHub: ctxClientHub, internalEventHub: ctxInternalHub } = createTestEventHubs()
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account',
+        clientEventHub: ctxClientHub,
+        internalEventHub: ctxInternalHub,
+      })
+      return { ctx, ctxInternalHub }
+    }
+
+    beforeEach(() => {
+      mockRecoveryEntries.clear()
     })
 
-    const clearSpy = vi.spyOn(ctx.recoveryManager, 'unquarantineBatch').mockResolvedValue(undefined)
-    ctxInternalHub.emit({ type: 'itemMessageParsed', itemId: 'item-parsed-1' as ItemId })
+    it('does not remove a manual recovery entry when itemMessageParsed is received', async () => {
+      const { ctx, ctxInternalHub } = createContext()
+      await ctx.recoveryManager.quarantine(
+        'item-1' as ItemId,
+        'oversized',
+        'Snapshot size (400 KB) exceeds 350 KB limit.',
+      )
 
-    expect(clearSpy).toHaveBeenCalledWith(['item-parsed-1'])
+      ctxInternalHub.emit({ type: 'itemMessageParsed', itemId: 'item-1' as ItemId })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      const entries = await ctx.recoveryManager.listRecoveryItems('test-account')
+      expect(entries).toHaveLength(1)
+      expect(entries[0].kind).toBe('oversized')
+    })
+
+    it('resolves pullDecryption quarantines when remoteMessagesParsed is received', () => {
+      const { ctx, ctxInternalHub } = createContext()
+      const resolveSpy = vi.spyOn(ctx.recoveryManager, 'resolveQuarantines').mockResolvedValue(undefined)
+
+      ctxInternalHub.emit({ type: 'remoteMessagesParsed', itemId: 'item-1' as ItemId })
+
+      expect(resolveSpy).toHaveBeenCalledWith(['item-1'], INBOUND_MESSAGE_RESOLVABLE_KINDS)
+    })
+
+    it('reports decryptionFailure events as pullDecryption', () => {
+      const { ctx, ctxInternalHub } = createContext()
+      const reportSpy = vi.spyOn(ctx.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
+      const error = new Error('bad')
+
+      ctxInternalHub.emit({ type: 'decryptionFailure', itemId: 'item-1' as ItemId, error })
+
+      expect(reportSpy).toHaveBeenCalledWith('item-1', 'pullDecryption', error)
+    })
   })
 
   describe('retrySave', () => {

@@ -14,11 +14,28 @@ import { useQuarantinedItems } from '../../state/selectors'
 import { deleteItems } from '../../features/items/mutations/itemMutations'
 import ConfirmationDialog from './ConfirmationDialog'
 import type { ItemId } from 'src/shared/schemas/items'
+import type { ManualRecoveryKind } from '../../sync/shared/manualRecoveryStore'
 
 
 interface Props {
   onClose: () => void
   open: boolean
+}
+
+function getRecoveryTitle(kind: ManualRecoveryKind): string {
+  switch (kind) {
+    case 'oversized':
+      return 'Item edit history too large to sync'
+    case 'pullDecryption':
+    case 'snapshotDecryption':
+      return 'Decryption failure requires manual recovery'
+    case 'snapshotFailure':
+      return 'Snapshot upload failed'
+    case 'pushFailure':
+      return 'Changes failed to upload'
+    default:
+      return 'Item requires manual recovery'
+  }
 }
 
 function DataRecoveryDialog({ onClose, open }: Props) {
@@ -63,7 +80,7 @@ function DataRecoveryDialog({ onClose, open }: Props) {
           ) : (
             <Stack spacing={2}>
               {recoveryItems.map(item => {
-                const isOversized = item.reason?.toLowerCase().includes('limit') || item.reason?.toLowerCase().includes('exceeds')
+                const isOversized = item.kind === 'oversized'
 
                 return (
                   <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
@@ -76,7 +93,7 @@ function DataRecoveryDialog({ onClose, open }: Props) {
                         <Typography variant="subtitle1" sx={{
                           fontWeight: 500
                         }}>
-                          {isOversized ? 'Item edit history too large to sync' : 'Decryption failure requires manual recovery'}
+                          {getRecoveryTitle(item.kind)}
                         </Typography>
                         <Typography variant="body2" color="textSecondary">
                           Item ID: {item.itemId}
