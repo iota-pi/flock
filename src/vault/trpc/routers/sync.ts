@@ -38,13 +38,6 @@ export const syncRouter = router({
             message: 'globalLastEvaluatedKey syncId mismatch',
           })
         }
-        const clientLatestCursor = input.clientLatestCursor ?? 0
-        if (input.globalLastEvaluatedKey.cursor < clientLatestCursor) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'globalLastEvaluatedKey cursor cannot precede clientLatestCursor',
-          })
-        }
       }
 
       for (const pullCursor of input.pullCursors) {
@@ -81,6 +74,7 @@ export const syncRouter = router({
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
       let globalHasMore = false
       let globalLastEvaluatedKey: GlobalSyncLastEvaluatedKey | undefined = undefined
+      let globalScannedThroughCursor: number | undefined = undefined
 
       const shouldPullBatch = input.pullCursors.length > 0
       const shouldPullGlobal = typeof input.clientLatestCursor === 'number' || !!input.globalLastEvaluatedKey
@@ -116,10 +110,19 @@ export const syncRouter = router({
         pullResults = [...batchResults, ...filteredGlobalResults]
         globalHasMore = globalPullResult?.hasMore ?? false
         globalLastEvaluatedKey = globalPullResult?.lastEvaluatedKey
+        globalScannedThroughCursor = globalPullResult?.scannedThroughCursor
       }
 
       const hasMore = globalHasMore || pullResults.some(r => r.hasMore)
 
-      return { success: true, pushResults, pullResults, hasMore, globalLastEvaluatedKey }
+      return {
+        success: true,
+        pushResults,
+        pullResults,
+        hasMore,
+        globalLastEvaluatedKey,
+        globalHasMore: globalHasMore,
+        globalScannedThroughCursor,
+      }
     }),
 })

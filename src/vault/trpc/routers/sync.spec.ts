@@ -458,19 +458,58 @@ describe('pollSync behavior and account isolation', () => {
       ).rejects.toThrow('globalLastEvaluatedKey syncId mismatch')
     })
 
-    it('rejects globalLastEvaluatedKey when cursor precedes clientLatestCursor', async () => {
+    it('accepts a globalLastEvaluatedKey whose cursor precedes clientLatestCursor', async () => {
       const ctx = createContext()
+      ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
+        items: [{ itemId: 'item-a' as ItemId, messages: [{ cursor: 1200, encryptedMessage: { iv: 'iv', cipher: 'c' }, createdAt: 1 }] }],
+        hasMore: true,
+        lastEvaluatedKey: { account: 'target-account', cursor: 1200, syncId: 'target-account#item-a' },
+        scannedThroughCursor: 1200,
+      } as any)
       const caller = syncRouter.createCaller(ctx as any)
 
-      await expect(
-        caller.pollSync({
-          account: 'target-account',
-          clientLatestCursor: 1000,
-          pushMessages: [],
-          pullCursors: [],
-          globalLastEvaluatedKey: { account: 'target-account', cursor: 999, syncId: 'target-account#item-x' },
-        })
-      ).rejects.toThrow('globalLastEvaluatedKey cursor cannot precede clientLatestCursor')
+      const result = await caller.pollSync({
+        account: 'target-account',
+        clientLatestCursor: 1000,
+        pushMessages: [],
+        pullCursors: [],
+        globalLastEvaluatedKey: { account: 'target-account', cursor: 999, syncId: 'target-account#item-x' },
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.globalHasMore).toBe(true)
+      expect(result.globalScannedThroughCursor).toBe(1200)
+    })
+
+    it('reports global scan state separately from per-item pagination', async () => {
+      const ctx = createContext()
+      ctx.vault.getSyncMessages.mockResolvedValueOnce({
+        messages: [{ cursor: 5000, encryptedMessage: { iv: 'iv', cipher: 'c' }, createdAt: 1 }],
+        hasMore: true,
+        lastEvaluatedKey: { syncId: 'target-account#item-lagging', cursor: 5000 },
+      })
+      ctx.vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({
+        items: [
+          { itemId: 'item-lagging' as ItemId, messages: [{ cursor: 300, encryptedMessage: { iv: 'iv', cipher: 'c' }, createdAt: 1 }] },
+          { itemId: 'item-other' as ItemId, messages: [{ cursor: 200, encryptedMessage: { iv: 'iv', cipher: 'c' }, createdAt: 1 }] },
+        ],
+        hasMore: false,
+        scannedThroughCursor: 300,
+      } as any)
+      const caller = syncRouter.createCaller(ctx as any)
+
+      const result = await caller.pollSync({
+        account: 'target-account',
+        clientLatestCursor: 100,
+        pushMessages: [],
+        pullCursors: [{ itemId: 'item-lagging' as ItemId, cursor: 4000 }],
+      })
+
+      expect(result.pullResults.map(r => r.itemId).sort()).toEqual(['item-lagging', 'item-other'])
+      // The filtered-out global message for item-lagging still counts towards the scan position
+      expect(result.globalScannedThroughCursor).toBe(300)
+      expect(result.globalHasMore).toBe(false)
+      expect(result.hasMore).toBe(true)
     })
 
     it('rejects pullCursors lastEvaluatedKey when syncId does not match account and itemId', async () => {

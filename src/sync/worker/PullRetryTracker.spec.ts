@@ -347,6 +347,37 @@ describe('PullRetryTracker', () => {
       expect(tracker2.getCursors()).toEqual([{ itemId: 'item-retrying', cursor: 400, lastEvaluatedKey: undefined }])
     })
 
+    it('does not raise the global scan cursor from per-item outcomes when advanceGlobalCursor is false', () => {
+      tracker.setGlobalCursor(100)
+      tracker.recordPullOutcome({
+        itemId: 'item-ahead' as ItemId,
+        initialCursor: 0,
+        highestCursor: 500,
+        isNewItem: false,
+        hasKeyFailure: false,
+        hasParseFailure: false,
+        hasMore: false,
+        advanceGlobalCursor: false,
+      })
+
+      expect(tracker.getGlobalScanCursor()).toBe(100)
+      expect(tracker.getGlobalLatestCursor()).toBe(500)
+    })
+
+    it('persists the global scan position rather than the highest per-item cursor', () => {
+      tracker.setGlobalCursor(100)
+      tracker.addPendingItem('item-ahead' as ItemId)
+      tracker.getOrCreateState('item-ahead' as ItemId).cursor = 500
+
+      const state = tracker.exportState()
+      expect(state.globalCursor).toBe(100)
+      expect(state.retries).toEqual([['item-ahead', 500]])
+
+      const restored = new PullRetryTracker()
+      restored.loadState(state)
+      expect(restored.getGlobalScanCursor()).toBe(100)
+    })
+
     it('loads legacy [ItemId, number][] format cleanly into globalCursor without populating retryQueue', () => {
       tracker.loadState([
         ['item-1' as ItemId, 50],

@@ -211,16 +211,26 @@ export class SyncPoller {
 
     // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
     // and clientLatestCursor (for global updates across all other healthy items).
-    const response = await this.apiClient.pollSyncBatch(
-      {
-        account: this.account!,
-        pushMessages,
-        pullCursors: this.pullQueueManager.getCursors(),
-        clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
-        globalLastEvaluatedKey: this.pullQueueManager.getGlobalLastEvaluatedKey(),
-      },
-      { signal }
-    )
+    const globalLastEvaluatedKey = this.pullQueueManager.getGlobalLastEvaluatedKey()
+    let response: PollSyncBatchResponse
+    try {
+      response = await this.apiClient.pollSyncBatch(
+        {
+          account: this.account!,
+          pushMessages,
+          pullCursors: this.pullQueueManager.getCursors(),
+          clientLatestCursor: this.pullQueueManager.getGlobalScanCursor(),
+          globalLastEvaluatedKey,
+        },
+        { signal }
+      )
+    } catch (error) {
+      if (globalLastEvaluatedKey && this.isRejectedRequest(error)) {
+        console.warn('[SyncPoller] Server rejected global pagination; restarting the global scan', error)
+        this.pullQueueManager.resetGlobalPagination()
+      }
+      throw error
+    }
 
     checkAlive(signal, () => this.isOperational)
 
@@ -348,11 +358,13 @@ export class SyncPoller {
     if (!response) return
 
     try {
-      if (typeof response.hasMore === 'boolean') {
+      const hasMoreGlobal = response.globalHasMore ?? response.hasMore
+      if (typeof hasMoreGlobal === 'boolean') {
         await this.pullQueueManager.processPullResults(
           response.pullResults ?? [],
-          response.hasMore,
-          response.globalLastEvaluatedKey
+          hasMoreGlobal,
+          response.globalLastEvaluatedKey,
+          response.globalScannedThroughCursor,
         )
       } else if (response.pullResults) {
         await this.pullQueueManager.processPullResults(response.pullResults)
@@ -361,6 +373,12 @@ export class SyncPoller {
       console.error('[SyncPoller] Error processing pull results', pullErr)
       throw pullErr
     }
+  }
+
+  private isRejectedRequest(error: unknown): boolean {
+    const classified = classifySyncError(error)
+    if (classified.isAuth || classified.isAbort) return false
+    return typeof classified.status === 'number' && classified.status >= 400 && classified.status < 500
   }
 
   private isPushResultSuccessful(result: PushResultItem): boolean {

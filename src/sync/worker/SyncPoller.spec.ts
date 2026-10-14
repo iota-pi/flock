@@ -95,7 +95,8 @@ describe('SyncPoller', () => {
     vi.spyOn(pullQueueManager, 'getCursors').mockReturnValue([
       { itemId: 'item-2' as ItemId, cursor: 50 },
     ])
-    vi.spyOn(pullQueueManager, 'getGlobalLatestCursor').mockReturnValue(2000000)
+    vi.spyOn(pullQueueManager, 'getGlobalScanCursor').mockReturnValue(2000000)
+    vi.spyOn(pullQueueManager, 'getGlobalLatestCursor').mockReturnValue(9000000)
 
     mockPollSyncBatchWithToken.mockResolvedValueOnce({
       success: true,
@@ -160,7 +161,8 @@ describe('SyncPoller', () => {
         expect.objectContaining({ itemId: 'item-1' }),
       ]),
       true,
-      undefined
+      undefined,
+      undefined,
     )
   })
 
@@ -191,8 +193,70 @@ describe('SyncPoller', () => {
         expect.objectContaining({ itemId: 'item-1' }),
       ]),
       true,
-      sampleKey
+      sampleKey,
+      undefined,
     )
+  })
+
+  it('prefers globalHasMore over hasMore and forwards the global scan cursor', async () => {
+    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [],
+      hasMore: true,
+      globalHasMore: false,
+      globalScannedThroughCursor: 4321,
+    })
+
+    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+    await poller.executePoll()
+
+    expect(processPullResultsSpy).toHaveBeenCalledWith([], false, undefined, 4321)
+  })
+
+  it('restarts global pagination when the server rejects the continuation key', async () => {
+    await pullQueueManager.setAccount('test-account')
+    const sampleKey = { account: 'test-account', cursor: 100, syncId: 'test-account#item-1' }
+    await pullQueueManager.processPullResults([], true, sampleKey, 100)
+    expect(pullQueueManager.getGlobalLastEvaluatedKey()).toEqual(sampleKey)
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+      Object.assign(new Error('bad continuation key'), { data: { httpStatus: 400 } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ globalLastEvaluatedKey: sampleKey }),
+      expect.anything(),
+    )
+    expect(pullQueueManager.getGlobalLastEvaluatedKey()).toBeUndefined()
+
+    mockPollSyncBatchWithToken.mockResolvedValueOnce({ success: true, pushResults: [], pullResults: [] })
+    expect(await poller.executePoll()).toBe('success')
+    expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ globalLastEvaluatedKey: undefined, clientLatestCursor: 100 }),
+      expect.anything(),
+    )
+    errorSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  it('keeps global pagination state on transient failures', async () => {
+    await pullQueueManager.setAccount('test-account')
+    const sampleKey = { account: 'test-account', cursor: 100, syncId: 'test-account#item-1' }
+    await pullQueueManager.processPullResults([], true, sampleKey, 100)
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+      Object.assign(new Error('unavailable'), { data: { httpStatus: 503 } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(pullQueueManager.getGlobalLastEvaluatedKey()).toEqual(sampleKey)
+    errorSpy.mockRestore()
   })
 
   it('sends cursors and removes sent IDs from WAL with every chunk in multi-chunk batch', async () => {

@@ -108,5 +108,5 @@ export default abstract class BaseDriver<T = unknown> {
     account: string
     cursor?: number
     exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }>
 }

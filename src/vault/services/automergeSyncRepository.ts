@@ -32,7 +32,7 @@ export interface AutomergeSyncRepository {
     account: string
     cursor?: number
     exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }>
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }>
 }
 
 export function createDynamoAutomergeSyncRepository(driver: BaseDriver): AutomergeSyncRepository {
@@ -66,7 +66,7 @@ export function createDynamoAutomergeSyncRepository(driver: BaseDriver): Automer
       account: string
       cursor?: number
       exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }> {
+    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }> {
       return driver.getGlobalSyncMessagesAfterCursor(input)
     },
   }

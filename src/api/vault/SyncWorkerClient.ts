@@ -65,6 +65,10 @@ export type PollSyncBatchResponse = {
   pullResults: Array<PullSyncMessagesResponse>
   hasMore?: boolean
   globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey
+  // Whether the account-wide scan has more pages
+  globalHasMore?: boolean
+  // Highest cursor examined by the account-wide scan
+  globalScannedThroughCursor?: number
 }
 
 

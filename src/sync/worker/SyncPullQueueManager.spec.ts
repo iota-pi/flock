@@ -395,6 +395,91 @@ describe('SyncPullQueueManager', () => {
       expect(manager.getGlobalLastEvaluatedKey()).toBeUndefined()
     })
 
+    it('advances the global scan cursor only from the server-reported scan position', async () => {
+      const sampleGlobalKey = { account: 'account-1', cursor: 100, syncId: 'account-1#item-scanned' }
+      manager.addPendingItem('item-ahead' as ItemId)
+
+      await manager.processPullResults(
+        [
+          {
+            itemId: 'item-ahead' as ItemId,
+            messages: [{ cursor: 500, encryptedMessage: { iv: 'iv', cipher: 'ahead' } }],
+            nextCursor: 500,
+            hasMore: false,
+          },
+          {
+            itemId: 'item-scanned' as ItemId,
+            messages: [{ cursor: 100, encryptedMessage: { iv: 'iv', cipher: 'scanned' } }],
+            nextCursor: 100,
+            hasMore: false,
+          },
+        ] as any,
+        true,
+        sampleGlobalKey,
+        100,
+      )
+
+      expect(manager.getGlobalScanCursor()).toBe(100)
+      expect(manager.getGlobalLatestCursor()).toBe(500)
+      expect(manager.getGlobalLastEvaluatedKey()).toEqual(sampleGlobalKey)
+    })
+
+    it('resumes the global scan from the scan position after a restart mid-pagination', async () => {
+      const sampleGlobalKey = { account: 'account-1', cursor: 100, syncId: 'account-1#item-scanned' }
+      manager.addPendingItem('item-ahead' as ItemId)
+      await manager.processPullResults(
+        [
+          {
+            itemId: 'item-ahead' as ItemId,
+            messages: [{ cursor: 500, encryptedMessage: { iv: 'iv', cipher: 'ahead' } }],
+            nextCursor: 500,
+            hasMore: true,
+            lastEvaluatedKey: { syncId: 'account-1#item-ahead', cursor: 500 },
+          },
+        ] as any,
+        true,
+        sampleGlobalKey,
+        100,
+      )
+      await manager.persistCursors()
+
+      const restarted = new SyncPullQueueManager(cursorStore)
+      await restarted.setAccount('account-1')
+
+      expect(restarted.getGlobalLastEvaluatedKey()).toBeUndefined()
+      expect(restarted.getGlobalScanCursor()).toBe(100)
+      expect(restarted.getCursors()).toEqual([
+        expect.objectContaining({ itemId: 'item-ahead', cursor: 500 }),
+      ])
+    })
+
+    it('falls back to per-item results for the global cursor when the server omits the scan position', async () => {
+      await manager.processPullResults(
+        [
+          {
+            itemId: 'item-legacy' as ItemId,
+            messages: [{ cursor: 250, encryptedMessage: { iv: 'iv', cipher: 'legacy' } }],
+            nextCursor: 250,
+            hasMore: false,
+          },
+        ] as any,
+        false,
+      )
+
+      expect(manager.getGlobalScanCursor()).toBe(250)
+    })
+
+    it('resetGlobalPagination discards the continuation key', async () => {
+      const sampleGlobalKey = { account: 'account-1', cursor: 100, syncId: 'account-1#item-1' }
+      await manager.processPullResults([], true, sampleGlobalKey, 100)
+
+      manager.resetGlobalPagination()
+
+      expect(manager.getGlobalLastEvaluatedKey()).toBeUndefined()
+      expect(manager.hasPendingPulls()).toBe(false)
+      expect(manager.getGlobalScanCursor()).toBe(100)
+    })
+
     it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {
       const mockOnDecryptionFailure = vi.fn()
       manager.eventHub.subscribe(e => {

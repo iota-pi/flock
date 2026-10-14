@@ -440,17 +440,28 @@ describe('AutomergeSyncService', () => {
       ).rejects.toThrow('Invalid global lastEvaluatedKey syncId: must start with test-account#')
     })
 
-    it('throws when pullAutomergeSyncGlobal receives lastEvaluatedKey with cursor preceding input cursor', async () => {
+    it('continues pagination when lastEvaluatedKey cursor precedes the input cursor', async () => {
       const repository = createMockRepository()
+      repository.getGlobalSyncMessagesAfterCursor = vi.fn().mockResolvedValueOnce({
+        items: [],
+        hasMore: false,
+        scannedThroughCursor: 999,
+      })
       const service = createAutomergeSyncService({ repository })
+      const lastEvaluatedKey = { account: 'test-account', cursor: 999, syncId: 'test-account#item-1' }
 
-      await expect(
-        service.pullAutomergeSyncGlobal({
-          account: 'test-account',
-          cursor: 1000,
-          lastEvaluatedKey: { account: 'test-account', cursor: 999, syncId: 'test-account#item-1' },
-        })
-      ).rejects.toThrow('Invalid global lastEvaluatedKey cursor: cursor cannot precede 1000')
+      const result = await service.pullAutomergeSyncGlobal({
+        account: 'test-account',
+        cursor: 1000,
+        lastEvaluatedKey,
+      })
+
+      expect(repository.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith({
+        account: 'test-account',
+        cursor: undefined,
+        exclusiveStartKey: lastEvaluatedKey,
+      })
+      expect(result.scannedThroughCursor).toBe(999)
     })
   })
 

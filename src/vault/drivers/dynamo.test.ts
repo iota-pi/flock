@@ -477,6 +477,36 @@ describe('DynamoDriver', function () {
       ).rejects.toThrow('Invalid exclusiveStartKey cursor: must be a non-negative number')
     })
 
+    it('getGlobalSyncMessagesAfterCursor reports the highest cursor scanned', async () => {
+      const account = generateAccountId()
+      const itemA = generateItemId()
+      const itemB = generateItemId()
+      const encryptedMessage = { iv: 'iv', cipher: 'cipher' }
+      await driver.pushSyncMessagesBatch({
+        account,
+        messages: [
+          { itemId: itemA, entry: { cursor: 110, encryptedMessage, createdAt: 1 }, lastModified: 1 },
+          { itemId: itemB, entry: { cursor: 120, encryptedMessage, createdAt: 1 }, lastModified: 1 },
+          { itemId: itemA, entry: { cursor: 130, encryptedMessage, createdAt: 1 }, lastModified: 1 },
+        ],
+      })
+
+      const page = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 100 })
+      expect(page.scannedThroughCursor).toBe(130)
+      expect(page.hasMore).toBe(false)
+
+      const empty = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 500 })
+      expect(empty.items).toEqual([])
+      expect(empty.scannedThroughCursor).toBe(500)
+
+      const continuation = await driver.getGlobalSyncMessagesAfterCursor({
+        account,
+        exclusiveStartKey: { account, cursor: 120, syncId: `${account}#${itemB}` },
+      })
+      expect(continuation.items.flatMap(i => i.messages.map(m => m.cursor))).toEqual([130])
+      expect(continuation.scannedThroughCursor).toBe(130)
+    })
+
     it('getGlobalSyncMessagesAfterCursor rejects exclusiveStartKey with mismatched account', async () => {
       const account = generateAccountId()
 
