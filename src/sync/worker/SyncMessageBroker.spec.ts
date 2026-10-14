@@ -9,6 +9,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { MAX_INCREMENTAL_MESSAGE_BYTES } from 'src/shared/constants/limits'
 
 function createSyncMessage(itemId: string, data: number[]): Message {
   const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))
@@ -95,6 +96,35 @@ describe('SyncMessageBroker', () => {
     expect(flushSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('falls back to snapshot sync instead of appending oversized messages to the WAL', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const fallbackSpy = vi.fn()
+    internalEventHub.subscribe(e => {
+      if (e.type === 'snapshotFallbackRequested') fallbackSpy(e.itemId)
+    })
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+    broker.setWal(mockWal)
+
+    const msg = createSyncMessage('item-big', [])
+    msg.data = new Uint8Array(MAX_INCREMENTAL_MESSAGE_BYTES + 1)
+    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    await Promise.resolve()
+
+    expect(mockWal.append).not.toHaveBeenCalled()
+    expect(fallbackSpy).toHaveBeenCalledWith('item-big')
+    expect(broker.isSnapshotOnly('item-big' as ItemId)).toBe(true)
+
+    // Subsequent incremental messages are dropped until a snapshot succeeds
+    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage('item-big', [1]) })
+    await Promise.resolve()
+    expect(mockWal.append).not.toHaveBeenCalled()
+
+    broker.setSyncedHeads('item-big' as ItemId, ['heads'])
+    expect(broker.isSnapshotOnly('item-big' as ItemId)).toBe(false)
+    warnSpy.mockRestore()
+  })
+
   it('handles request type message by adding pending item and triggering flush', async () => {
     const flushSpy = vi.fn()
     internalEventHub.subscribe(e => {
@@ -121,7 +151,7 @@ describe('SyncMessageBroker', () => {
 
   it('notifies onItemMessageParsed and delivers message to adapter when messageParsed is emitted', async () => {
     const mockOnItemParsed = vi.fn()
-    const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
+    const receiveSpy = vi.spyOn(adapter, 'receiveServerMessage')
     internalEventHub.subscribe(e => {
       if (e.type === 'itemMessageParsed') {
         mockOnItemParsed(e.itemId)

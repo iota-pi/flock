@@ -1,4 +1,5 @@
-import type { Repo } from '@automerge/automerge-repo/slim'
+import type { Repo, DocHandle } from '@automerge/automerge-repo/slim'
+import * as Automerge from '@automerge/automerge/slim'
 
 import { AutomergeDocStore, AutomergeIndexManager, type DocHandleReplacedListener } from './docStore'
 import { IndexStore } from './stores/IndexStore'
@@ -150,6 +151,12 @@ export class SyncWorkerContext {
       },
     })
     adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
+    adapter.setHeadsValidator?.((documentId, heads) => {
+      const handle = repo.handles[documentId] as DocHandle<unknown> | undefined
+      if (!handle?.isReady()) return false
+      const doc = handle.doc()
+      return doc ? Automerge.hasHeads(doc, heads) : false
+    })
     return { adapter, repoManager, repo }
   }
 
@@ -336,6 +343,7 @@ export class SyncWorkerContext {
           break
         }
         case 'walAppendFailed':
+        case 'snapshotFallbackRequested':
           this.snapshotManager.markItemDirty(event.itemId, 0)
           break
         case 'walEntriesPruned':

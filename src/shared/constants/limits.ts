@@ -23,6 +23,13 @@ export const MAX_ITEM_CONTENT_KB = 300
  */
 export const MAX_ITEM_CONTENT_BYTES = MAX_ITEM_CONTENT_KB * 1024
 
+/**
+ * Maximum size in bytes for a single incremental sync message. Encryption and base64 encoding
+ * add roughly 37% overhead, so this keeps stored messages well under DynamoDB's 400 KB item limit.
+ * Larger messages fall back to snapshot sync.
+ */
+export const MAX_INCREMENTAL_MESSAGE_BYTES = 256 * 1024
+
 export const ITEM_LIMITS = {
   NAME_MAX: 500,
   NAME_WARN: 400, // 80% of 500

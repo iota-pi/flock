@@ -8,6 +8,7 @@ import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/au
 import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../../utils/storageQuota'
+import { MAX_INCREMENTAL_MESSAGE_BYTES } from 'src/shared/constants/limits'
 import type { StorageRecoveryService } from './StorageRecoveryService'
 import type { SyncApiClient } from './SyncApiClient'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -64,7 +65,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
           if (this.account) {
             this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
           }
-          this.adapter.receiveMessage(event.documentId, event.message)
+          this.adapter.receiveServerMessage(event.documentId, event.message)
           break
         case 'pushAcknowledged':
           this.unblockItem(event.itemId)
@@ -168,6 +169,14 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.snapshotOnlyItems.add(itemId)
   }
 
+  /**
+   * Routes an item to snapshot-only sync until its next successful snapshot push.
+   */
+  fallbackToSnapshot(itemId: ItemId): void {
+    this.snapshotOnlyItems.add(itemId)
+    this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId })
+  }
+
   getSnapshotOnlyItemCount(): number {
     return this.snapshotOnlyItems.size
   }
@@ -250,6 +259,14 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
         if (this.snapshotOnlyItems.has(itemId)) {
           // Item was pruned from WAL and is flagged for snapshot-only sync.
           // Drop incremental sync message to avoid re-filling WAL and causing thrashing.
+          return
+        }
+
+        if (message.data.byteLength > MAX_INCREMENTAL_MESSAGE_BYTES) {
+          console.warn(
+            `[SyncMessageBroker] Sync message for item ${itemId} (${message.data.byteLength} bytes) exceeds the incremental limit; falling back to snapshot sync`
+          )
+          this.fallbackToSnapshot(itemId)
           return
         }
 
