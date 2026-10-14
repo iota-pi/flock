@@ -197,6 +197,7 @@ export function createAutomergeSyncService({
     }>
     hasMore: boolean
     lastEvaluatedKey?: GlobalSyncLastEvaluatedKey
+    scannedThroughCursor: number
   }> {
     const isContinuation = !!input.lastEvaluatedKey
     if (input.lastEvaluatedKey) {
@@ -206,11 +207,8 @@ export function createAutomergeSyncService({
       if (typeof input.lastEvaluatedKey.syncId !== 'string' || !input.lastEvaluatedKey.syncId.startsWith(`${input.account}#`)) {
         throw new Error(`Invalid global lastEvaluatedKey syncId: must start with ${input.account}#`)
       }
-      if (typeof input.lastEvaluatedKey.cursor === 'number' && input.lastEvaluatedKey.cursor < input.cursor) {
-        throw new Error(`Invalid global lastEvaluatedKey cursor: cursor cannot precede ${input.cursor}`)
-      }
     }
-    const { items, hasMore, lastEvaluatedKey } = await repository.getGlobalSyncMessagesAfterCursor({
+    const { items, hasMore, lastEvaluatedKey, scannedThroughCursor } = await repository.getGlobalSyncMessagesAfterCursor({
       account: input.account,
       cursor: isContinuation ? undefined : input.cursor,
       exclusiveStartKey: input.lastEvaluatedKey,
@@ -227,7 +225,7 @@ export function createAutomergeSyncService({
       }
     })
 
-    return { success: true, results, hasMore, lastEvaluatedKey }
+    return { success: true, results, hasMore, lastEvaluatedKey, scannedThroughCursor }
   }
 
   return {

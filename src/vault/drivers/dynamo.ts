@@ -917,7 +917,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     account: string
     cursor?: number
     exclusiveStartKey?: GlobalSyncLastEvaluatedKey
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey }> {
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; lastEvaluatedKey?: GlobalSyncLastEvaluatedKey; scannedThroughCursor: number }> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
     const hasCursor = typeof input.cursor === 'number'
 
@@ -958,7 +958,16 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       ExclusiveStartKey: exclusiveStartKey,
     }))
 
+    // Highest cursor examined by this page (before any caller-side filtering), so clients can
+    // track the global scan position independently of per-item cursors.
+    let scannedThroughCursor = typeof input.exclusiveStartKey?.cursor === 'number'
+      ? input.exclusiveStartKey.cursor
+      : (input.cursor ?? 0)
+
     for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
+      if (typeof item.cursor === 'number' && item.cursor > scannedThroughCursor) {
+        scannedThroughCursor = item.cursor
+      }
       const itemId = item.syncId.split('#')[1] as ItemId
       if (!itemId) continue
 
@@ -981,6 +990,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       })),
       hasMore: !!response.LastEvaluatedKey,
       lastEvaluatedKey: response.LastEvaluatedKey as GlobalSyncLastEvaluatedKey | undefined,
+      scannedThroughCursor,
     }
   }
 }

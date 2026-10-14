@@ -281,6 +281,19 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     return this.retryTracker.getGlobalLatestCursor()
   }
 
+  getGlobalScanCursor(): number {
+    return this.retryTracker.getGlobalScanCursor()
+  }
+
+  /**
+   * Abandons an in-progress global pagination so the next poll restarts the account-wide scan
+   * from the persisted scan cursor (e.g. after the server rejected the continuation key).
+   */
+  resetGlobalPagination(): void {
+    this.hasMoreGlobal = false
+    this.globalLastEvaluatedKey = undefined
+  }
+
   getGlobalLastEvaluatedKey(): GlobalSyncLastEvaluatedKey | undefined {
     return this.hasMoreGlobal ? this.globalLastEvaluatedKey : undefined
   }
@@ -365,7 +378,8 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   private async processSinglePullResult(
     result: PullSyncMessagesResponse,
-    timedOutKeys: Set<string>
+    timedOutKeys: Set<string>,
+    advanceGlobalCursor: boolean,
   ): Promise<{ itemId: ItemId; hasParsedMessages: boolean; cursorUpdated: boolean }> {
     const itemId = result.itemId
     const hasMore = result.hasMore === true
@@ -401,6 +415,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       hasMore,
       nextCursor: result.nextCursor,
       lastEvaluatedKey: result.lastEvaluatedKey,
+      advanceGlobalCursor,
     })
 
     if (highestCursor > initialCursor) {
@@ -428,10 +443,16 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
+  /**
+   * @param globalScannedThroughCursor Global scan position reported by the server. When provided,
+   * it alone advances the global cursor; per-item results (which may run ahead of the scan) do not.
+   * Older servers omit it, in which case per-item results advance the global cursor as before.
+   */
   async processPullResults(
     results: PullSyncMessagesResponse[],
     hasMoreGlobal?: boolean,
-    globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey
+    globalLastEvaluatedKey?: GlobalSyncLastEvaluatedKey,
+    globalScannedThroughCursor?: number,
   ): Promise<void> {
     if (!this.account || this.isShutdown) return
     if (typeof hasMoreGlobal === 'boolean') {
@@ -446,7 +467,11 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     try {
       for (const result of results || []) {
         try {
-          const itemOutcome = await this.processSinglePullResult(result, timedOutKeys)
+          const itemOutcome = await this.processSinglePullResult(
+            result,
+            timedOutKeys,
+            globalScannedThroughCursor === undefined,
+          )
           if (itemOutcome.hasParsedMessages) {
             successfullyPulledItemIds.add(itemOutcome.itemId)
           }
@@ -455,6 +480,14 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
           }
         } catch (innerError) {
           console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)
+        }
+      }
+
+      if (typeof globalScannedThroughCursor === 'number') {
+        const previous = this.retryTracker.getGlobalScanCursor()
+        this.retryTracker.setGlobalCursor(globalScannedThroughCursor)
+        if (this.retryTracker.getGlobalScanCursor() !== previous) {
+          cursorsUpdated = true
         }
       }
 

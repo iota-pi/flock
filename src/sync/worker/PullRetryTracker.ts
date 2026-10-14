@@ -22,6 +22,11 @@ export interface RecordPullOutcomeParams {
   hasMore: boolean
   nextCursor?: number
   lastEvaluatedKey?: SyncMessageLastEvaluatedKey
+  /**
+   * Whether this outcome may advance the global scan cursor. Only legacy servers, which don't
+   * report the global scan position, rely on per-item results for this. Defaults to true.
+   */
+  advanceGlobalCursor?: boolean
 }
 
 export interface RecordPullOutcomeResult {
@@ -164,6 +169,17 @@ export class PullRetryTracker {
     return cursors
   }
 
+  /**
+   * Position of the account-wide scan: every message at or below this cursor has been examined
+   * by a global pull. Unlike getGlobalLatestCursor, per-item cursors never raise it.
+   */
+  getGlobalScanCursor(): number {
+    return this.globalCursor
+  }
+
+  /**
+   * Highest cursor known across the global scan and every per-item cursor.
+   */
   getGlobalLatestCursor(): number {
     let max = this.globalCursor
     for (const state of this.retryQueue.values()) {
@@ -189,7 +205,7 @@ export class PullRetryTracker {
       }
     }
     return {
-      globalCursor: this.getGlobalLatestCursor(),
+      globalCursor: this.globalCursor,
       retries: retries.length > 0 ? retries : undefined,
     }
   }
@@ -405,14 +421,14 @@ export class PullRetryTracker {
     state.lastEvaluatedKey = transition.lastEvaluatedKey
   }
 
-  advanceGlobalCursor(itemId: ItemId, transition: PullStateTransition): void {
+  advanceGlobalCursor(itemId: ItemId, transition: PullStateTransition, allowGlobalAdvance = true): void {
     if (transition.cursorUpdated) {
       this.itemCursors.set(itemId, transition.targetCursor)
     }
     if (transition.removeFromRetryQueue) {
       this.retryQueue.delete(itemId)
     }
-    if (transition.updateGlobalCursor) {
+    if (transition.updateGlobalCursor && allowGlobalAdvance) {
       this.setGlobalCursor(transition.effectiveHighestCursor)
     }
   }
@@ -432,7 +448,7 @@ export class PullRetryTracker {
     const state = this.getOrCreateState(itemId)
     const transition = this.computeTransition(state, params)
     this.applyTransition(state, transition)
-    this.advanceGlobalCursor(itemId, transition)
+    this.advanceGlobalCursor(itemId, transition, params.advanceGlobalCursor ?? true)
 
     return {
       cursorUpdated: transition.cursorUpdated,
