@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
+import { registerAppUpdates } from './app/appUpdate'
 import ThemedApp from './ThemedApp'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
@@ -80,15 +81,7 @@ function initializeApp() {
     const root = createRoot(rootElement)
     root.render(<ThemedApp />)
 
-    const updateSW = registerSW({
-      onNeedRefresh() {
-        console.info('[PWA] New content available, updating service worker...')
-        updateSW(true)
-      },
-      onOfflineReady() {
-        console.info('[PWA] App is ready to work offline.')
-      },
-    })
+    registerAppUpdates(registerSW)
 
     if (window.Cypress) {
       window.vault = import('./api/vault')

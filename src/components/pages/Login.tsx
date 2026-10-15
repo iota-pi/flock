@@ -13,6 +13,7 @@ import { styled } from '@mui/material/styles'
 import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { useAppStore } from 'src/state/store'
+import { checkForAppUpdate, whileLoggingIn } from 'src/app/appUpdate'
 import {
   FingerprintIcon,
   HomeIcon,
@@ -99,6 +100,19 @@ function LoginPage() {
   })
   const hasAutoPromptedRef = useRef(false)
 
+  // Pick up a new version of the app before signing in: applying it reloads the page, which would
+  // lock a signed-in session (see appUpdate.ts)
+  useEffect(() => {
+    void checkForAppUpdate()
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkForAppUpdate()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
   const handleClickHome = useCallback(
     () => navigate(ROUTES.welcome.path),
     [navigate],
@@ -128,14 +142,17 @@ function LoginPage() {
 
       if (securityParams.salt.length) {
         try {
-          const { keyDerivationUpgraded, biometricsCleared } = await loginVault({
-            account: accountInput,
-            password,
-            salt: securityParams.salt,
-            iterations: securityParams.iterations,
-            saltVersion: securityParams.saltVersion,
+          const { keyDerivationUpgraded, biometricsCleared } = await whileLoggingIn(async () => {
+            const result = await loginVault({
+              account: accountInput,
+              password,
+              salt: securityParams.salt,
+              iterations: securityParams.iterations,
+              saltVersion: securityParams.saltVersion,
+            })
+            updateAuth({ loggedIn: true })
+            return result
           })
-          updateAuth({ loggedIn: true })
           setUi({ justCreatedAccount: false })
           if (keyDerivationUpgraded) {
             let message = 'We upgraded the encryption on your account, so your other devices will ask you to log in again.'
@@ -173,8 +190,10 @@ function LoginPage() {
       setError('')
       try {
         updateAuth({ account: accountInput })
-        await unlockWithBiometrics(accountInput)
-        updateAuth({ loggedIn: true })
+        await whileLoggingIn(async () => {
+          await unlockWithBiometrics(accountInput)
+          updateAuth({ loggedIn: true })
+        })
         setUi({ justCreatedAccount: false })
 
         const nextRoute = resolveRedirectRoute(
