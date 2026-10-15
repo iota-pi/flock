@@ -173,6 +173,14 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
           }
         }
         break
+      case 'migrationRequired':
+        this.telemetry.addBreadcrumb({
+          category: 'sync',
+          message: `Migration required (${event.reason})`,
+          level: 'info',
+        })
+        this.sink.onMigrationRequired?.(event.reason)
+        break
       case 'workerError': {
         const error = new Error(event.error.message)
         if (event.error.name) {

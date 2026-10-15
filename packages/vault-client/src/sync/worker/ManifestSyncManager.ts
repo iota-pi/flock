@@ -40,6 +40,10 @@ export interface ManifestSyncManagerDeps {
   onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
+  /** Called when the server holds legacy rows and there is no `decodeLegacyItem` hook to read them */
+  onMigrationRequired?: () => void
+  /** Fetches the manifest on every sync, rather than at most daily on a device that has items */
+  fetchManifestEverySync?: boolean
   /** Moves settings that predate the settings document into it (see AccountSettings) */
   migrateLegacySettings?: () => Promise<void>
   /**
@@ -102,6 +106,7 @@ export class ManifestSyncManager implements LifecycleAware {
       onItemSnapshotHydrated: this.deps.onItemSnapshotHydrated,
       onKeyVersionMissing: this.deps.onKeyVersionMissing,
       decodeLegacyItem: this.deps.decodeLegacyItem,
+      onMigrationRequired: this.deps.onMigrationRequired,
       isShutdown: () => this.isShutdown,
     })
   }
@@ -124,6 +129,7 @@ export class ManifestSyncManager implements LifecycleAware {
   }
 
   private shouldSkipSync(force: boolean, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
+    if (this.deps.fetchManifestEverySync) return false
     const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
     const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
     return !force && !isOfflineTooLong && isWithinDailyWindow

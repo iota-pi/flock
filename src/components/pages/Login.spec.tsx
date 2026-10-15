@@ -5,6 +5,12 @@ import LoginPage from './Login'
 import getTheme from '../../theme'
 import * as vault from '@vault/client'
 import { useAppStore } from '../../state/store'
+import { goToMigration } from 'src/migrate/detection'
+
+vi.mock('src/migrate/detection', async importOriginal => ({
+  ...await importOriginal<typeof import('src/migrate/detection')>(),
+  goToMigration: vi.fn(),
+}))
 
 const lightTheme = getTheme(false)
 const NOT_UPGRADED = { keyDerivationUpgraded: false, biometricsCleared: false }
@@ -195,7 +201,7 @@ describe('LoginPage', () => {
 
   it('tells the user when logging in upgraded their account encryption', async () => {
     useAppStore.setState({ message: null })
-    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', dataVersion: 0 })
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', dataVersion: 1 })
     vi.spyOn(vault, 'loginVault').mockResolvedValue({ keyDerivationUpgraded: true, biometricsCleared: true })
 
     renderLoginPage()
@@ -233,5 +239,51 @@ describe('LoginPage', () => {
       expect(screen.getByLabelText(/Password/i)).toBeDefined()
     })
     expect(useAppStore.getState().loggedIn).toBe(false)
+  })
+
+  describe('migration', () => {
+    async function logIn() {
+      renderLoginPage()
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'old-account' } })
+        fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'password' } })
+        fireEvent.click(screen.getByRole('button', { name: /Login/i }))
+      })
+    }
+
+    beforeEach(() => {
+      vi.mocked(goToMigration).mockClear()
+    })
+
+    it('sends an account below the minimum level to the migration app before deriving keys', async () => {
+      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, dataVersion: 0 })
+      const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+      await logIn()
+
+      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old-account'))
+      expect(loginVaultSpy).not.toHaveBeenCalled()
+    })
+
+    it('lets an account whose migration was deferred log in', async () => {
+      localStorage.setItem('flock-migration-deferred', JSON.stringify({ 'old-account': Date.now() + 60_000 }))
+      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, dataVersion: 0 })
+      const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+      await logIn()
+
+      await waitFor(() => expect(loginVaultSpy).toHaveBeenCalled())
+      expect(goToMigration).not.toHaveBeenCalled()
+    })
+
+    it('sends a legacy key derivation to the migration app', async () => {
+      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', dataVersion: 1 })
+      vi.spyOn(vault, 'loginVault').mockRejectedValue(new vault.UnsupportedKeyDerivationError(0))
+
+      await logIn()
+
+      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old-account'))
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
   })
 })

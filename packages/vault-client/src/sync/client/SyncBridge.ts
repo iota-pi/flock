@@ -10,7 +10,7 @@ import {
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
-import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { DataVersionStatus, VaultDoc, VaultMetadata } from '../shared/types'
 import type { SyncApi } from '../worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
@@ -341,6 +341,10 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
 
   retrySave(): Promise<{ success: boolean; error?: string }> {
     return this.execute(api => api.retrySave())
+  }
+
+  checkDataVersion(): Promise<DataVersionStatus> {
+    return this.execute(api => api.checkDataVersion())
   }
 
   retryRecoveryItem(itemId: ItemId): Promise<void> {

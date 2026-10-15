@@ -77,4 +77,16 @@ describe('DataVersionTracker', () => {
     expect(storage.has(SYNC_METADATA_KEYS.DEVICE_DATA_VERSION)).toBe(false)
     expect(raiseAccountDataVersion).not.toHaveBeenCalled()
   })
+
+  it('reports the device level and the account level the server raised it to', async () => {
+    storage.set(SYNC_METADATA_KEYS.DEVICE_DATA_VERSION, 2)
+    const { tracker, raiseAccountDataVersion } = createTracker(2, ['legacyCipherItems'])
+
+    await expect(tracker.checkStatus()).resolves.toEqual({
+      device: 2,
+      account: 1,
+      blockers: ['legacyCipherItems'],
+    })
+    expect(raiseAccountDataVersion).toHaveBeenCalledTimes(1)
+  })
 })

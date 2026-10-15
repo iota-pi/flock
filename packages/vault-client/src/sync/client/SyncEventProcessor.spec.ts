@@ -23,6 +23,15 @@ describe('SyncEventProcessor', () => {
     vi.useRealTimers()
   })
 
+  it('passes migrationRequired to the sink', () => {
+    const onMigrationRequired = vi.fn()
+    const migratingProcessor = new SyncEventProcessor({ ...sink, onMigrationRequired }, {}, telemetry)
+
+    migratingProcessor.handleSyncEvent({ type: 'migrationRequired', reason: 'account' })
+
+    expect(onMigrationRequired).toHaveBeenCalledWith('account')
+  })
+
   it('updates sync status on statusChange event', () => {
     processor.handleSyncEvent({ type: 'statusChange', status: 'syncing' })
     expect(sink.state.syncStatus).toBe('syncing')

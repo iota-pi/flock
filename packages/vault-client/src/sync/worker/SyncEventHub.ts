@@ -1,4 +1,4 @@
-import type { SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
+import type { MigrationRequiredReason, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { PollOutcome } from './SyncPoller'
@@ -24,6 +24,7 @@ export type ClientEvent =
   | { type: 'leaderConflict'; hasConflict: boolean }
   | { type: 'tokenRefreshNeeded' }
   | { type: 'reencryptProgress'; done: number; total: number }
+  | { type: 'migrationRequired'; reason: MigrationRequiredReason }
   | {
     type: 'workerError'
     error: {

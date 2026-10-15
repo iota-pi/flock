@@ -4,8 +4,9 @@ import type { SyncStateSink, SyncTelemetry } from '@vault/client'
 import { useAppStore } from '../../state/store'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
+import { goToMigration } from '../../migrate/detection'
 
-const storeSink: SyncStateSink<Item, AccountMetadata> = {
+export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   updateItems: updates => useAppStore.getState().updateItemsFromServer(updates),
   updateIndex: itemIds => useAppStore.getState().updateIndexFromServer(itemIds),
   updateMetadata: metadata => useAppStore.getState().updateMetadata(metadata),
@@ -21,6 +22,14 @@ const storeSink: SyncStateSink<Item, AccountMetadata> = {
   finishRequest: () => useAppStore.getState().finishRequest(),
   reset: () => useAppStore.getState().reset(),
   onDataRestored: () => useAppStore.getState().incrementGeneration(),
+  onMigrationRequired: () => {
+    const { account } = useAppStore.getState()
+    void (async () => {
+      const { lockVault } = await import('./session')
+      await lockVault()
+      goToMigration(account)
+    })()
+  },
 }
 
 const sentryTelemetry: SyncTelemetry = {

@@ -8,6 +8,7 @@ import {
   SYNC_METADATA_KEYS,
 } from '@vault/client/worker'
 import type { PersistedSyncCursors, ItemSyncTimestamps } from '@vault/client/worker'
+import { hasLegacyDatabase } from '../detection'
 
 /**
  * Brings a device's local sync metadata from Flock's older layouts into the current one:
@@ -116,119 +117,6 @@ const LEGACY_METADATA_VALUES: LegacyMetadataValue[] = [
 
 function isPresent(value: unknown): boolean {
   return value !== null && value !== undefined
-}
-
-/**
- * Probes whether an IndexedDB database exists without creating it,
- * by opening without a version and aborting versionchange if oldVersion === 0.
- */
-export function probeDatabaseExists(dbName: string): Promise<boolean> {
-  return new Promise(resolve => {
-    if (typeof indexedDB === 'undefined' || typeof indexedDB.open !== 'function') {
-      return resolve(false)
-    }
-
-    let isSettled = false
-
-    const timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => {
-      finish(false)
-    }, 2000)
-
-    function finish(result: boolean, dbToClose?: IDBDatabase): void {
-      if (!isSettled) {
-        isSettled = true
-        clearTimeout(timeoutId)
-        if (dbToClose) {
-          try {
-            dbToClose.close()
-          } catch {
-            // Ignore database close error
-          }
-        }
-        resolve(result)
-      }
-    }
-
-    try {
-      const request = indexedDB.open(dbName)
-
-      request.onupgradeneeded = event => {
-        if (event.oldVersion === 0) {
-          try {
-            const transaction = (event.target as IDBOpenDBRequest)?.transaction || request.transaction
-            transaction?.abort()
-          } catch {
-            // Ignore transaction abort error
-          }
-          try {
-            indexedDB.deleteDatabase(dbName)
-          } catch {
-            // Ignore database delete error
-          }
-          finish(false)
-        } else {
-          finish(true)
-        }
-      }
-
-      request.onsuccess = event => {
-        const db = (event.target as IDBOpenDBRequest)?.result
-        finish(true, db)
-      }
-
-      request.onerror = event => {
-        try {
-          event.preventDefault()
-          event.stopPropagation()
-        } catch {
-          // Ignore error cancellation failure
-        }
-        finish(false)
-      }
-
-      request.onblocked = () => {
-        finish(true)
-      }
-    } catch {
-      finish(false)
-    }
-  })
-}
-
-/**
- * Checks if a legacy database exists in IndexedDB before attempting to open it,
- * preventing accidental creation of legacy databases.
- * Uses indexedDB.databases() where supported, with fallback to probeDatabaseExists()
- * when indexedDB.databases() is unavailable, rejects, or hangs (e.g. Safari/Firefox workers).
- */
-export async function hasLegacyDatabase(dbName: string): Promise<boolean> {
-  if (typeof indexedDB === 'undefined') {
-    return false
-  }
-
-  if (typeof indexedDB.databases === 'function') {
-    try {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const dbs = await Promise.race([
-        indexedDB.databases(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('timeout')), 1500)
-        }),
-      ]).finally(() => {
-        if (timer !== undefined) {
-          clearTimeout(timer)
-        }
-      })
-      if (Array.isArray(dbs)) {
-        return dbs.some(db => db && db.name === dbName)
-      }
-    } catch {
-      // indexedDB.databases() failed or timed out (common in Safari/Firefox workers);
-      // fall back to probing via indexedDB.open
-    }
-  }
-
-  return probeDatabaseExists(dbName)
 }
 
 function openLegacyDatabase(database: LegacyDatabase, accountId: string): LocalForage {

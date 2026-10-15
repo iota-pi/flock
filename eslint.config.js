@@ -11,15 +11,9 @@ import jsxA11y from 'eslint-plugin-jsx-a11y'
 // The vault library's packages (see docs/vault-extraction.md)
 const VAULT_PACKAGES = ['vault-shared', 'vault-client', 'vault-server']
 
-// Flock's compatibility code for legacy formats, extracted into the migration app later (see
-// docs/vault-extraction.md). Only these wiring files may import it.
-const LEGACY_PATH = 'app/vault/legacy'
-const LEGACY_IMPORTERS = [
-  'app/vault/setup.ts',
-  'app/vault/session.ts',
-  'app/vault/syncDomain.ts',
-  'app/vault/vault.worker.ts',
-]
+// Flock's migration app, which holds the compatibility code for legacy formats (see "Backwards
+// compatibility" in docs/vault-extraction.md). The main app may only use its detection module.
+const MIGRATE_PATH = 'src/migrate'
 
 const vaultPackageZones = [
   {
@@ -158,7 +152,7 @@ export default defineConfig([
   })),
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: [`src/${LEGACY_PATH}/**`, ...LEGACY_IMPORTERS.map(path => `src/${path}`)],
+    ignores: [`${MIGRATE_PATH}/**`],
     rules: {
       'import-x/no-restricted-paths': [
         'error',
@@ -166,8 +160,26 @@ export default defineConfig([
           zones: [
             {
               target: './src',
-              from: `./src/${LEGACY_PATH}`,
-              message: "Only Flock's vault wiring may import legacy compatibility code (see docs/vault-extraction.md).",
+              from: `./${MIGRATE_PATH}`,
+              except: ['./detection.ts'],
+              message: 'The main app may only import the migration app detection module (see docs/vault-extraction.md).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: [`${MIGRATE_PATH}/detection.ts`],
+    rules: {
+      'import-x/no-restricted-paths': [
+        'error',
+        {
+          zones: [
+            {
+              target: `./${MIGRATE_PATH}/detection.ts`,
+              from: `./${MIGRATE_PATH}/legacy`,
+              message: 'The main app imports detection.ts, so it must not pull in legacy code.',
             },
           ],
         },

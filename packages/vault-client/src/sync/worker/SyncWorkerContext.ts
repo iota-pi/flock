@@ -24,7 +24,7 @@ import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
-import { DataVersionTracker } from './DataVersionTracker'
+import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
 import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
@@ -69,6 +69,14 @@ export interface SyncWorkerContextConfig {
   domain?: SyncDomain
   /** Brings local data from older layouts into the current one (see SyncWorkerConfig) */
   migrateLocalData?: (accountId: string) => Promise<void>
+  /** The lowest device level sync starts with (see SyncWorkerConfig) */
+  minDataVersion?: number
+  /** Whether the device holds data in layouts the app no longer reads (see SyncWorkerConfig) */
+  hasLegacyLocalData?: (accountId: string) => Promise<boolean>
+  /** Rewrites this device's unbound snapshots once (see SyncWorkerConfig) */
+  upgradeSnapshotFormat?: boolean
+  /** Fetches the manifest on every sync (see SyncWorkerConfig) */
+  fetchManifestEverySync?: boolean
   /** The account's data keys */
   keys: KeyProvider
 }
@@ -101,16 +109,20 @@ export class SyncWorkerContext {
   public storageRecoveryService!: StorageRecoveryService
   public itemReencryptor!: ItemReencryptor
   public accountSettings!: AccountSettings
-  public snapshotFormatUpgrade!: SnapshotFormatUpgrade
+  public snapshotFormatUpgrade: SnapshotFormatUpgrade | null = null
   public dataVersionTracker!: DataVersionTracker
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unsubscribers: Array<() => void> = []
   private readonly migrateLocalDataHook?: (accountId: string) => Promise<void>
+  private readonly minDataVersion: number
+  private readonly hasLegacyLocalData?: (accountId: string) => Promise<boolean>
 
   constructor(config: SyncWorkerContextConfig) {
     this.accountId = config.accountId
     this.migrateLocalDataHook = config.migrateLocalData
+    this.minDataVersion = config.minDataVersion ?? 0
+    this.hasLegacyLocalData = config.hasLegacyLocalData
     this.clientEventHub = config.clientEventHub
     this.internalEventHub = config.internalEventHub
     const domain = config.domain ?? DEFAULT_SYNC_DOMAIN
@@ -158,6 +170,7 @@ export class SyncWorkerContext {
       dataVersion: this.domain.dataVersion ?? 0,
       raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: config.accountId }),
     })
+    if (!config.upgradeSnapshotFormat) return
     this.snapshotFormatUpgrade = new SnapshotFormatUpgrade({
       accountId: config.accountId,
       onUpgraded: () => fireAndForget(
@@ -317,8 +330,10 @@ export class SyncWorkerContext {
       storeItems: (items, options) => itemOperations.storeItems(items, options),
       decodeLegacyItem: this.domain.decodeLegacyItem,
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
+      onMigrationRequired: () => config.clientEventHub.emit({ type: 'migrationRequired', reason: 'account' }),
+      fetchManifestEverySync: config.fetchManifestEverySync,
       onSyncedWithoutFailures: () => {
-        this.snapshotFormatUpgrade.onSyncedWithoutFailures()
+        this.snapshotFormatUpgrade?.onSyncedWithoutFailures()
         fireAndForget(this.dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
       },
       onDecryptionFailure: (itemId, error) => {
@@ -413,7 +428,7 @@ export class SyncWorkerContext {
       switch (event.type) {
         case 'leaderChange':
           this.snapshotManager.setLeader(event.isLeader)
-          this.snapshotFormatUpgrade.onLeaderChange(event.isLeader)
+          this.snapshotFormatUpgrade?.onLeaderChange(event.isLeader)
           break
         case 'decryptionFailure':
           fireAndForget(
@@ -447,6 +462,9 @@ export class SyncWorkerContext {
   }
 
   async initialize(): Promise<void> {
+    // Checked before anything else: starting would record the current level for a device whose
+    // only data is in a layout the app no longer reads, stranding that data
+    await this.checkDeviceDataVersion()
     // Stores only read the current layout, so this runs first. A failure must stop initialization:
     // starting would create an empty index, and a later migration would then keep it over the old one.
     await this.migrateLocalData()
@@ -455,6 +473,19 @@ export class SyncWorkerContext {
     await this.lifecycle.start()
     await this.accountSettings.load()
     fireAndForget(this.dataVersionTracker.onStart(hasLocalData), 'SyncWorkerContext:recordDeviceDataVersion')
+  }
+
+  /**
+   * Refuses to start when this device's local data is below the app's minimum level, so the app can
+   * send it through its migration app. A device without local data starts at the current level.
+   */
+  private async checkDeviceDataVersion(): Promise<void> {
+    if (this.minDataVersion === 0) return
+    if (await readDeviceDataVersion(this.accountId) >= this.minDataVersion) return
+    const hasLocalData = (await this.indexStore.getIndex()) !== null
+    if (!hasLocalData && !(await this.hasLegacyLocalData?.(this.accountId))) return
+    this.clientEventHub.emit({ type: 'migrationRequired', reason: 'device' })
+    throw new MigrationRequiredError('device')
   }
 
   /**

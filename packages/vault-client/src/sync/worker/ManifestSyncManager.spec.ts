@@ -284,6 +284,27 @@ describe('ManifestSyncManager', () => {
       expect(result).toEqual({ added: ['item-snap'], success: true })
     })
 
+    it('reports legacy rows without a hook as needing migration, and does not count the sync as complete', async () => {
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-legacy', modifiedAt: 200 }],
+        serverTime: Date.now(),
+      })
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [{ item: 'item-legacy', cipher: 'legacy-cipher', metadata: { iv: 'legacy-iv' } }],
+      })
+      const onMigrationRequired = vi.fn()
+      const onSyncedWithoutFailures = vi.fn()
+      const manager = new ManifestSyncManager({ ...depsObj, onMigrationRequired, onSyncedWithoutFailures } as any)
+
+      const result = await manager.sync()
+
+      expect(result).toEqual({ added: [], success: false })
+      expect(onMigrationRequired).toHaveBeenCalledTimes(1)
+      expect(onSyncedWithoutFailures).not.toHaveBeenCalled()
+      expect(storeItemsSpy).not.toHaveBeenCalled()
+    })
+
     it('performs warm path: fetches missing items and outdated known items', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
@@ -448,6 +469,19 @@ describe('ManifestSyncManager', () => {
         expect.any(Error),
       )
       warnSpy.mockRestore()
+    })
+  })
+
+  describe('fetchManifestEverySync', () => {
+    it('fetches the manifest even when a sync ran within the day', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-1' as ItemId])
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now() - 1000)
+      mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
+      const manager = new ManifestSyncManager({ ...depsObj, fetchManifestEverySync: true } as any)
+
+      await manager.sync()
+
+      expect(mockFetchManifest).toHaveBeenCalledTimes(1)
     })
   })
 

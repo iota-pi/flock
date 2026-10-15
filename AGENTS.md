@@ -36,9 +36,10 @@ The vault (sync engine, client crypto and server) is a reusable library in three
 - `packages/vault-client/src/sync/shared/storageNames.ts` names every IndexedDB database, BroadcastChannel, Web Lock and localStorage key. Flock's names (`src/app/vault/storageNames.ts`, pinned by its spec) must never change. Library specs use `createVaultStorageNames('test')`.
 - `packages/vault-client/src/api/` is the client crypto, keyring (`Keyring`, which the worker receives as a `KeyProvider`) and API calls.
 - `packages/vault-shared/src/` holds the wire schemas, IDs and size limits shared by client and server.
-- `src/app/vault/` is Flock's vault wiring: the worker entry, item codec and hooks, the `SyncBridge` instance and session (lock/remove) flows. `src/app/vault/legacy/` holds compatibility code for legacy formats, which will move to a separate migration app; only the wiring files may import it (see "Backwards compatibility" in the extraction doc).
+- `src/app/vault/` is Flock's vault wiring: the worker entry, item codec and hooks, the `SyncBridge` instance and session (lock/remove) flows.
+- `src/migrate/` is the migration app, a second page served at `/migrate/`. It holds the compatibility code for legacy formats (`legacy/`) and runs it for devices and accounts below `MIN_DATA_VERSION`, which the main app sends there. The main app may only import `src/migrate/detection.ts`, and lint enforces this. See "Backwards compatibility" in the extraction doc.
 - `src/state/` is the Zustand store (composed slices).
-- `packages/vault-server/src/` is the vault's server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `src/vault/` is Flock's server: `flockAccounts.ts` (reminders, push subscriptions and the legacy plaintext settings), `root.ts`, `flockDriver.ts`, `flockDataVersion.ts` (what counts as migrated), the notifier and migrations are Flock's.
+- `packages/vault-server/src/` is the vault's server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `src/vault/` is Flock's server: `flockAccounts.ts` (reminders, push subscriptions and shims for cached builds), `migration.ts` (the migration app's legacy procedures), `root.ts`, `flockDriver.ts`, `flockDataVersion.ts` (what counts as migrated), the notifier and migrations are Flock's.
 - DynamoDB has three tables. `FlockAccounts` is keyed by `account`. `FlockItems` is keyed by `account` + `item`. `FlockSyncMessages` is keyed by `syncId` + `cursor` and has a 90-day TTL.
 
 ## Sync: rules that must hold

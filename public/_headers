@@ -1,6 +1,9 @@
 /index.html
   Cache-Control: no-cache, must-revalidate
 
+/migrate/index.html
+  Cache-Control: no-cache, must-revalidate
+
 /sw.js
   Cache-Control: no-cache, must-revalidate
 
