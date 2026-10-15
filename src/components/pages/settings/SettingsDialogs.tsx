@@ -2,7 +2,7 @@ import { Suspense, lazy } from 'react'
 import type { Frequency } from 'src/utils/frequencies'
 import type { Item } from 'src/state/items'
 import type { BackupPayloadV2 } from 'src/types/backup'
-import type { AutoLockSettings } from 'src/api/vault/autoLockStore'
+import type { AutoLockSettings } from '@vault/client/autoLockStore'
 
 const GoalDialog = lazy(() => import('../../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../../dialogs/RestoreBackupDialog'))

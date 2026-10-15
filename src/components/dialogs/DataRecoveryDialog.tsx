@@ -13,8 +13,8 @@ import { useDataRecovery } from '../../hooks/useDataRecovery'
 import { useQuarantinedItems } from '../../state/selectors'
 import { deleteItems } from '../../features/items/mutations/itemMutations'
 import ConfirmationDialog from './ConfirmationDialog'
-import type { ItemId } from 'src/shared/vault/ids'
-import type { ManualRecoveryKind } from '../../sync/shared/manualRecoveryStore'
+import type { ItemId } from '@vault/shared/ids'
+import type { ManualRecoveryKind } from '@vault/client/sync/shared/manualRecoveryStore'
 
 
 interface Props {

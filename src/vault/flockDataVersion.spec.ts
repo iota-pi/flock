@@ -1,5 +1,5 @@
 import { flockDataVersionPolicy } from './flockDataVersion'
-import type { ItemFormatSummary } from './drivers/base'
+import type { ItemFormatSummary } from '@vault/server/drivers/base'
 
 const migratedAccount = {
   account: 'acct-1',

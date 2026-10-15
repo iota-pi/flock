@@ -3,9 +3,9 @@ import {
   setMetadata,
   storeItems,
 } from '../features/items/mutations/itemMutations'
-import { exportData } from '../api/vault'
+import { exportData } from '@vault/client'
 import type { BackupPayloadV2 } from '../types/backup'
-import type { BackupSyncState } from '../sync/shared/backupSyncState'
+import type { BackupSyncState } from '@vault/client/sync/shared/backupSyncState'
 import type { Item } from '../state/items'
 import { SyncBridge } from '../app/vault/syncBridge'
 import { useAppStore } from '../state/store'

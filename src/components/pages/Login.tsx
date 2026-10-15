@@ -31,7 +31,7 @@ import {
   unlockWithBiometrics,
   getBiometricLabel,
   StaleBiometricKeyError,
-} from 'src/api/vault'
+} from '@vault/client'
 
 
 const Root = styled('div')({

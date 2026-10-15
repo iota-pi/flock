@@ -1,6 +1,6 @@
 import { sortItems } from './customSort'
 import { getBlankPerson, getBlankGroup, Item } from '../state/items'
-import { ItemId } from 'src/shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 
 describe('customSort', () => {
   const baseTime = 1000000

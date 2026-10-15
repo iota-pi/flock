@@ -1,0 +1,594 @@
+import { Repo } from '@automerge/automerge-repo/slim'
+import * as Automerge from '@automerge/automerge/slim'
+import { AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocStore'
+import type { VaultDoc } from '../../shared/types'
+import { passthroughCodec } from '../domain'
+
+type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string }> }
+import { ItemId } from '@vault/shared/ids'
+
+const testRepo = new Repo()
+
+describe('items operations', () => {
+  let docStore: AutomergeDocStore
+
+  beforeEach(async () => {
+    docStore = new AutomergeDocStore(testRepo)
+  })
+
+  it('should create and retrieve an item successfully', async () => {
+    const item: VaultDoc = {
+      id: 'test-item-id' as ItemId,
+      type: 'person',
+      name: 'Test Prayer',
+      description: 'A test prayer item',
+      created: Date.now(),
+      archived: false,
+      prayerFrequency: 'none',
+      notes: [],
+      prayedFor: [],
+    }
+
+    const created = await docStore.changeDocument(
+      item.id,
+      (doc: any) => {
+        for (const [key, value] of Object.entries(item)) {
+          doc[key] = value
+        }
+      },
+      { createIfMissing: true }
+    )
+
+    expect(created).toBe(true)
+
+    const retrieved = await docStore.getAutomergeItem(item.id)
+    expect(retrieved).toEqual(item)
+  })
+
+  it('should remove an item successfully', async () => {
+    const item: VaultDoc = {
+      id: 'test-item-remove' as ItemId,
+      type: 'person',
+      name: 'Test Prayer Remove',
+      description: 'A test prayer item to remove',
+      created: Date.now(),
+      archived: false,
+      prayerFrequency: 'none',
+      notes: [],
+      prayedFor: [],
+    }
+
+    await docStore.changeDocument(
+      item.id,
+      (doc: any) => {
+        for (const [key, value] of Object.entries(item)) {
+          doc[key] = value
+        }
+      },
+      { createIfMissing: true }
+    )
+
+    await docStore.removeAutomergeItem(item.id)
+
+    const retrieved = await docStore.getAutomergeItem(item.id)
+    expect(retrieved).toBeNull()
+  })
+
+  it('normalizeItemSnapshot fills in a missing id and decodes with the codec', () => {
+    const codec = { ...passthroughCodec, decode: vi.fn((_id: ItemId, raw: Record<string, unknown>) => ({ ...raw, decoded: true }) as unknown as VaultDoc) }
+
+    const normalized = normalizeItemSnapshot('doc-1' as ItemId, { name: 'No id' }, codec)
+
+    expect(codec.decode).toHaveBeenCalledWith('doc-1', { name: 'No id', id: 'doc-1' })
+    expect(normalized).toEqual({ name: 'No id', id: 'doc-1', decoded: true })
+    expect(normalizeItemSnapshot('doc-1' as ItemId, {}, codec)).toBeNull()
+  })
+
+  it('should not delete existing storage document or overwrite with blank doc when load times out', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem to indicate doc exists in storage
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    // Mock repo.find to time out / fail
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const result = await customDocStore.changeDocument(
+      'existing-item' as ItemId,
+      draft => {
+        draft.name = 'New Name'
+      },
+      { createIfMissing: true }
+    )
+
+    // Should return false rather than deleting or overwriting
+    expect(result).toBe(false)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should not delete existing storage document or overwrite with blank doc when loadDocData throws a storage error (e.g. quota or lock contention)', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem to throw an error (e.g. QuotaExceededError or Lock contention)
+    const mockStorage = {
+      loadDocData: vi.fn().mockRejectedValue(new Error('QuotaExceededError: Storage quota exceeded')),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    // Mock repo.find to fail as well
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Storage failure'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const result = await customDocStore.changeDocument(
+      'quota-error-item' as ItemId,
+      draft => {
+        draft.name = 'New Name'
+      },
+      { createIfMissing: true }
+    )
+
+    // Must refuse to create/overwrite and return false rather than deleting or wiping with blank doc
+    expect(result).toBe(false)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should rethrow storage errors in loadDocDataFromStorage and hasDataInStorage', async () => {
+    const customRepo = new Repo()
+    const mockStorage = {
+      loadDocData: vi.fn().mockRejectedValue(new Error('IDBDatabase transaction aborted')),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await expect(
+      customDocStore.loadDocDataFromStorage('error-item' as ItemId)
+    ).rejects.toThrow('IDBDatabase transaction aborted')
+
+    await expect(
+      customDocStore.hasDataInStorage('error-item' as ItemId)
+    ).rejects.toThrow('IDBDatabase transaction aborted')
+  })
+
+  it('should not overwrite document in findOrCreateHandle when knownToExist is true even if findHandle times out', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem returning undefined, but options specify knownToExist: true
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(undefined),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const handle = await customDocStore.findOrCreateHandle('known-item' as ItemId, { knownToExist: true })
+
+    expect(handle).toBeUndefined()
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should create document if it genuinely does not exist in storage', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem to indicate doc does NOT exist
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(undefined),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const result = await customDocStore.changeDocument(
+      'new-item' as ItemId,
+      draft => {
+        draft.id = 'new-item'
+        draft.type = 'person'
+        draft.name = 'New Person'
+      },
+      { createIfMissing: true }
+    )
+
+    expect(result).toBe(true)
+    expect(importSpy).toHaveBeenCalled()
+  })
+
+  it('should handle concurrent findOrCreateHandle calls without duplicate creation or orphaned handles', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockImplementation(async () => {
+        // Yield to allow concurrent calls to interleave
+        await new Promise(resolve => setTimeout(resolve, 10))
+        return undefined
+      }),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const [handleA, handleB] = await Promise.all([
+      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
+      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
+    ])
+
+    expect(handleA).toBeDefined()
+    expect(handleB).toBeDefined()
+    expect(handleA).toBe(handleB)
+    expect(importSpy).toHaveBeenCalledTimes(1)
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('should use storageAdapter.has() without calling loadDocData or loading binary payload', async () => {
+    const customRepo = new Repo()
+    const mockStorageAdapter = {
+      has: vi.fn().mockResolvedValue(true),
+    }
+    const mockStorageSubsystem = {
+      loadDocData: vi.fn(),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorageSubsystem
+
+    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+
+    const exists = await customDocStore.hasDataInStorage('check-item' as ItemId)
+
+    expect(exists).toBe(true)
+    expect(mockStorageAdapter.has).toHaveBeenCalledTimes(1)
+    expect(mockStorageSubsystem.loadDocData).not.toHaveBeenCalled()
+  })
+
+  it('should rethrow storage errors from storageAdapter.has and abort document creation safely', async () => {
+    const customRepo = new Repo()
+    const mockStorageAdapter = {
+      has: vi.fn().mockRejectedValue(new Error('IndexedDB cursor read error')),
+    }
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+
+    await expect(
+      customDocStore.hasDataInStorage('error-item' as ItemId)
+    ).rejects.toThrow('IndexedDB cursor read error')
+
+    const result = await customDocStore.changeDocument(
+      'error-item' as ItemId,
+      draft => { draft.name = 'Test' },
+      { createIfMissing: true }
+    )
+
+    expect(result).toBe(false)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should safely refuse to overwrite existing document when storageAdapter.has returns true', async () => {
+    const customRepo = new Repo()
+    const mockStorageAdapter = {
+      has: vi.fn().mockResolvedValue(true),
+    }
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+
+    const result = await customDocStore.changeDocument(
+      'existing-doc' as ItemId,
+      draft => { draft.name = 'Test' },
+      { createIfMissing: true }
+    )
+
+    expect(result).toBe(false)
+    expect(mockStorageAdapter.has).toHaveBeenCalled()
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should cleanly import snapshot when document does not exist locally', async () => {
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
+      doc.id = 'imported-item-1' as ItemId
+      doc.type = 'person'
+      doc.name = 'Remote Prayer'
+      doc.description = 'Remote Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = []
+      doc.prayedFor = []
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('imported-item-1', remoteBinary)
+    expect(hydrationResult).toEqual({
+      hasLocalChanges: false,
+      incomingHeads: Automerge.getHeads(remoteDoc),
+    })
+
+    const retrieved = await docStore.getAutomergeItem('imported-item-1' as ItemId)
+    expect(retrieved).not.toBeNull()
+    expect(retrieved?.name).toBe('Remote Prayer')
+    expect(retrieved?.description).toBe('Remote Description')
+  })
+
+  it('should MERGE local CRDT history with incoming snapshot when document already exists locally', async () => {
+    const baseNote = { id: 'note-base', text: 'Base Note', archived: false, time: 1000 }
+    const localNote = { id: 'note-local', text: 'Local Note', archived: false, time: 2000 }
+    const remoteNote = { id: 'note-remote', text: 'Remote Note', archived: false, time: 3000 }
+
+    // 1. Initial base document
+    const baseDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
+      doc.id = 'merged-item-1' as ItemId
+      doc.type = 'person'
+      doc.name = 'Base Name'
+      doc.description = 'Base Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = [baseNote]
+      doc.prayedFor = []
+    })
+    const baseBinary = Automerge.save(baseDoc)
+
+    // Load base doc into local docStore
+    await docStore.hydrateAutomergeDocumentBinary('merged-item-1', baseBinary)
+
+    // 2. Make concurrent local edits in docStore
+    await docStore.changeDocument('merged-item-1' as ItemId, (doc: any) => {
+      doc.name = 'Locally Updated Name'
+      doc.notes.push(localNote)
+    })
+
+    // 3. Simultaneously, remote branch makes different edits from baseDoc
+    const remoteBranch = Automerge.load<NotesDoc>(baseBinary)
+    const remoteUpdatedDoc = Automerge.change(remoteBranch, doc => {
+      doc.description = 'Remotely Updated Description'
+      doc.notes.push(remoteNote)
+    })
+    const remoteSnapshotBinary = Automerge.save(remoteUpdatedDoc)
+
+    // 4. Hydrate the incoming snapshot into docStore
+    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('merged-item-1', remoteSnapshotBinary)
+    expect(hydrationResult).toEqual({
+      hasLocalChanges: true,
+      incomingHeads: Automerge.getHeads(remoteUpdatedDoc),
+    })
+
+    // 5. Verify that local and remote changes are both merged seamlessly
+    const mergedResult = await docStore.getAutomergeItem('merged-item-1' as ItemId) as NotesDoc | null
+    expect(mergedResult).not.toBeNull()
+    // Local edit preserved
+    expect(mergedResult?.name).toBe('Locally Updated Name')
+    // Remote edit merged in
+    expect(mergedResult?.description).toBe('Remotely Updated Description')
+    // Both notes present in merged CRDT state
+    const noteTexts = mergedResult?.notes?.map(n => n.text)
+    expect(noteTexts).toContain('Local Note')
+    expect(noteTexts).toContain('Remote Note')
+  })
+
+  it('should report hasLocalChanges: false when incoming snapshot is a fast-forward of existing local document without local edits', async () => {
+    // 1. Initial base document
+    const baseDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
+      doc.id = 'ff-item-1' as ItemId
+      doc.type = 'person'
+      doc.name = 'Base Name'
+      doc.description = 'Base Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = []
+      doc.prayedFor = []
+    })
+    const baseBinary = Automerge.save(baseDoc)
+
+    // Load base doc into local docStore
+    await docStore.hydrateAutomergeDocumentBinary('ff-item-1', baseBinary)
+
+    // 2. Remote makes an update on top of baseDoc (no local edits made)
+    const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), doc => {
+      doc.name = 'Remote Name Update'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    // 3. Hydrate remote snapshot into docStore
+    const result = await docStore.hydrateAutomergeDocumentBinary('ff-item-1', remoteBinary)
+
+    // 4. Since local had no unique edits, hasLocalChanges must be false
+    expect(result.hasLocalChanges).toBe(false)
+    expect(result.incomingHeads).toEqual(Automerge.getHeads(remoteDoc))
+
+    const retrieved = await docStore.getAutomergeItem('ff-item-1' as ItemId)
+    expect(retrieved?.name).toBe('Remote Name Update')
+  })
+
+  it('should non-destructively merge local storage edits with incoming snapshot when findHandle times out and doc exists in storage', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Create a base doc with a common ancestor
+    const baseDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
+      doc.id = 'timeout-item' as ItemId
+      doc.type = 'person'
+      doc.name = 'Base Name'
+      doc.description = 'Base Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = []
+      doc.prayedFor = []
+    })
+    const baseBinary = Automerge.save(baseDoc)
+
+    // Local edit (stored in IndexedDB storage)
+    const localDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), doc => {
+      doc.name = 'Unsynced Local Name'
+    })
+    const localBinary = Automerge.save(localDoc)
+
+    // Remote snapshot (from server)
+    const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), doc => {
+      doc.description = 'Server Updated Description'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    // Mock storageSubsystem to return the local doc data
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(localBinary),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    // Mock repo.find to time out
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    // Hydrate should NOT clobber unsynced local edits; it should perform non-destructive CRDT merge
+    const fallbackResult = await customDocStore.hydrateAutomergeDocumentBinary('timeout-item', remoteBinary)
+    expect(fallbackResult.hasLocalChanges).toBe(true)
+    expect(fallbackResult.incomingHeads).toEqual(Automerge.getHeads(remoteDoc))
+
+    // Verify import was called with the merged binary
+    expect(importSpy).toHaveBeenCalled()
+    const importedBinary = importSpy.mock.calls[0][0] as Uint8Array
+    const importedDoc = Automerge.load<VaultDoc>(importedBinary)
+    expect(importedDoc.name).toBe('Unsynced Local Name')
+    expect(importedDoc.description).toBe('Server Updated Description')
+  })
+
+  it('should refuse to overwrite existing storage document and throw error when findHandle times out and fallback merge fails', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Corrupt binary in storage that cannot be merged
+    const corruptBinary = new Uint8Array([0, 1, 2, 3])
+
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
+      doc.id = 'timeout-corrupt' as ItemId
+      doc.type = 'person'
+      doc.name = 'Remote Name'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(corruptBinary),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await expect(
+      customDocStore.hydrateAutomergeDocumentBinary('timeout-corrupt', remoteBinary)
+    ).rejects.toThrow('Refusing to overwrite existing storage data')
+
+    // Must NOT import the remote binary over existing storage
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should not overwrite local document when loadDocData throws storage error during hydration', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
+      doc.id = 'error-hydrate-item' as ItemId
+      doc.type = 'person'
+      doc.name = 'Remote Name'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockRejectedValue(new Error('IndexedDB lock contention')),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await expect(
+      customDocStore.hydrateAutomergeDocumentBinary('error-hydrate-item', remoteBinary)
+    ).rejects.toThrow('IndexedDB lock contention')
+
+    // Must NOT import the remote binary over local storage when storage fails
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should cleanly seed imported document if doc does NOT exist in storage when findHandle returns undefined', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    const remoteDoc = Automerge.change(Automerge.init<VaultDoc>(), doc => {
+      doc.id = 'clean-new-item' as ItemId
+      doc.type = 'person'
+      doc.name = 'Brand New Item'
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(undefined),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    await customDocStore.hydrateAutomergeDocumentBinary('clean-new-item', remoteBinary)
+
+    expect(importSpy).toHaveBeenCalledWith(remoteBinary, expect.objectContaining({ docId: expect.any(String) }))
+  })
+
+  it('should notify onDocHandleReplaced when seedImportedDocument imports a document', async () => {
+    const handleReplacedListener = vi.fn()
+    docStore.onDocHandleReplaced = handleReplacedListener
+
+    const doc = Automerge.change(Automerge.init<VaultDoc>(), d => {
+      d.id = 'seeded-item' as ItemId
+      d.name = 'Seeded Item'
+    })
+    const binary = Automerge.save(doc)
+
+    const handle = await docStore.seedImportedDocument('seeded-item' as ItemId, binary)
+
+    expect(handle).toBeDefined()
+    expect(handleReplacedListener).toHaveBeenCalledTimes(1)
+    expect(handleReplacedListener).toHaveBeenCalledWith('seeded-item', handle)
+  })
+})
+

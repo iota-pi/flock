@@ -8,7 +8,7 @@ import {
   hasBiometricData,
   subscribeBiometrics,
   isWebAuthnPrfSupported,
-} from '../api/vault'
+} from '@vault/client'
 import { lockVault, removeVaultFromDevice } from '../app/vault/session'
 import { useMetadata } from '../state/selectors'
 import { useAppStore } from '../state/store'
@@ -24,7 +24,7 @@ import {
   writeAutoLockSettings,
   getAutoLockSummary,
   type AutoLockSettings,
-} from '../api/vault/autoLockStore'
+} from '@vault/client/autoLockStore'
 
 export default function useSettings(items: Item[]) {
   const account = useAppStore(state => state.account)

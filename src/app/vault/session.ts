@@ -1,4 +1,4 @@
-import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '../../api/vault'
+import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/client'
 import { useAppStore } from '../../state/store'
 import { unsubscribe as unsubscribeFromNotifications } from '../../utils/pushNotifications'
 import { SyncBridge } from './syncBridge'

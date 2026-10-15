@@ -7,7 +7,7 @@ import {
 } from 'react'
 import { useTheme } from '@mui/material/styles'
 import { useAppStore } from '../state/store'
-import { ItemId } from 'src/shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 
 const CHIP_BASE_STYLE: CSSProperties = {
   alignItems: 'center',

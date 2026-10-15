@@ -5,7 +5,7 @@ import Grid from '@mui/material/Grid'
 import { getItemName, type Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
-import type { ItemId } from 'src/shared/vault/ids'
+import type { ItemId } from '@vault/shared/ids'
 import DuplicateAlert from 'src/components/drawers/utils/DuplicateAlert'
 import { useVisibleItems } from 'src/state/selectors'
 

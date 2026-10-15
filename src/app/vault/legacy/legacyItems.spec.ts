@@ -1,7 +1,7 @@
-import { generateVaultKey } from '../../../api/vault/crypto'
-import { Keyring } from '../../../api/vault/Keyring'
-import type { LegacyItemContext } from '../../../sync/worker/domain'
-import type { ItemId } from '../../../shared/vault/ids'
+import { generateVaultKey } from '@vault/client/crypto'
+import { Keyring } from '@vault/client/Keyring'
+import type { LegacyItemContext } from '@vault/client/sync/worker/domain'
+import type { ItemId } from '@vault/shared/ids'
 import { decodeLegacyCipherItem } from './legacyItems'
 
 const ITEM_ID = 'item-1' as ItemId

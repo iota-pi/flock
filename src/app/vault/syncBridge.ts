@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react'
-import { createSyncBridge } from '../../sync/client/SyncBridge'
-import type { SyncStateSink, SyncTelemetry } from '../../sync/client/host'
+import { createSyncBridge } from '@vault/client/sync/client/SyncBridge'
+import type { SyncStateSink, SyncTelemetry } from '@vault/client/sync/client/host'
 import { useAppStore } from '../../state/store'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'

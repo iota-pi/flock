@@ -9,7 +9,7 @@ import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import IconButton from '@mui/material/IconButton'
 
-import { changePassword, hasBiometricData } from 'src/api/vault'
+import { changePassword, hasBiometricData } from '@vault/client'
 import { useAppStore } from 'src/state/store'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'

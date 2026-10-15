@@ -5,7 +5,7 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
 import type { WebPushSubscription } from '../types'
-import { getConnectionParams } from '../drivers/dynamo'
+import { getConnectionParams } from '@vault/server/drivers/dynamo'
 import { FLOCK_TABLES } from '../flockDriver'
 import { sendPushNotification } from './webpush'
 

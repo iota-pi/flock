@@ -1,6 +1,6 @@
 import { loadAccount, lockVault, removeVaultFromDevice } from './session'
 import { SyncBridge } from './syncBridge'
-import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '../../api/vault'
+import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/client'
 import { unsubscribe } from '../../utils/pushNotifications'
 
 const mocks = vi.hoisted(() => ({
@@ -15,7 +15,7 @@ vi.mock('./syncBridge', () => ({
   },
 }))
 
-vi.mock('../../api/vault', () => ({
+vi.mock('@vault/client', () => ({
   clearVaultDeviceData: vi.fn().mockResolvedValue(undefined),
   lockVaultKeys: vi.fn().mockResolvedValue(undefined),
   readStoredMetadata: vi.fn(),

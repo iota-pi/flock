@@ -25,7 +25,7 @@ import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../ut
 import { useToday } from './useToday'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import type { Item } from 'src/state/items'
-import type { ItemId } from 'src/shared/vault/ids'
+import type { ItemId } from '@vault/shared/ids'
 
 describe('usePrayerSchedule', () => {
   beforeEach(() => {

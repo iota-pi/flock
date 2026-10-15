@@ -3,7 +3,7 @@ import { ThemeProvider } from '@mui/material/styles'
 import getTheme from 'src/theme'
 import MemberDisplay from './MemberDisplay'
 import type { GroupItem } from 'src/shared/schemas/items'
-import type { ItemId } from 'src/shared/vault/ids'
+import type { ItemId } from '@vault/shared/ids'
 
 vi.mock('src/components/Search', () => ({
   default: ({ label, noItemsText }: { label: string, noItemsText: string }) => (

@@ -5,9 +5,9 @@ import {
   normalizeCursors,
   probeDatabaseExists,
 } from './localData'
-import { clearAccountStoreInstancesCacheForTesting } from '../../../sync/shared/createAccountStore'
-import type { ItemId } from '../../../shared/vault/ids'
-import { createMockLocalForagePool, type MockLocalforage } from '../../../sync/worker/__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '@vault/client/sync/shared/createAccountStore'
+import type { ItemId } from '@vault/shared/ids'
+import { createMockLocalForagePool, type MockLocalforage } from '@vault/client/testing'
 
 const pool = createMockLocalForagePool()
 
@@ -17,7 +17,7 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../../sync/utils/storageManager', () => ({
+vi.mock('@vault/client/sync/utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
 

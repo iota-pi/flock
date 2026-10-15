@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import { useEffect, useRef } from 'react'
-import type { ItemId } from 'src/shared/vault/ids'
+import type { ItemId } from '@vault/shared/ids'
 
 export const APP_NAME = 'Flock'
 

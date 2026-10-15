@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ItemIdSchema } from '../vault/ids'
+import { ItemIdSchema } from '@vault/shared/ids'
 import { ITEM_LIMITS } from '../constants/limits'
 
 export const ITEM_TYPES = ['person', 'group', 'topic'] as const

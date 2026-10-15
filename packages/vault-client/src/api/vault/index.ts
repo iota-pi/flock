@@ -1,0 +1,673 @@
+import {
+  clearActiveSessionToken,
+  setActiveSessionToken,
+} from '../../sync/shared/workerAuthStore'
+import { clearManualRecoveryEntries } from '../../sync/shared/manualRecoveryStore'
+import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
+import {
+  createAccount,
+  getSecurityParams,
+  getSession,
+  getKeyring,
+  updateKeyring,
+  changePassword as changePasswordClient,
+} from './client'
+import {
+  decryptWithKey,
+  deriveVaultKey,
+  encryptWithKey,
+  exportVaultKey,
+  hashVaultKey,
+  importVaultKey,
+  generateSalt,
+  generateVaultKey,
+  CURRENT_SALT_VERSION,
+  type CryptoResult,
+} from './crypto'
+import {
+  broadcastVaultEvent,
+  readStoredMetadata,
+  VaultStoredMetadata,
+  DEFAULT_CRYPTO_ITERATIONS,
+  type VaultBroadcastEvent,
+} from './util'
+import { SyncWriteAheadLog } from '../../sync/worker/SyncWriteAheadLog'
+import {
+  clearBiometricData,
+  readBiometricData,
+  writeBiometricData,
+  hasBiometricData,
+  subscribeBiometrics,
+} from './biometricStore'
+import {
+  registerPrfCredential,
+  getPrfOutput,
+  isWebAuthnPrfSupported,
+} from './webauthn'
+import { getVaultStorageNames } from '../../sync/shared/storageNames'
+import { ApiHttpError } from '../trackedFetch'
+import { importKeyring, Keyring, VaultNotInitializedError, type KeyProvider } from './Keyring'
+
+export {
+  createAccount,
+  getSecurityParams,
+  clearBiometricData,
+  readBiometricData,
+  hasBiometricData,
+  subscribeBiometrics,
+  isWebAuthnPrfSupported,
+  readStoredMetadata,
+}
+export type { CryptoResult }
+export type { VaultBroadcastEvent }
+
+export function readCachedKeyring(): string | null {
+  if (typeof localStorage === 'undefined') return null
+  return localStorage.getItem(getVaultStorageNames().keyringCacheKey)
+}
+
+export function writeCachedKeyring(encryptedKeyring: string): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(getVaultStorageNames().keyringCacheKey, encryptedKeyring)
+}
+
+export function clearCachedKeyring(): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.removeItem(getVaultStorageNames().keyringCacheKey)
+}
+
+export interface VaultImportExportData {
+  key: string,
+}
+
+export interface VaultHostHooks {
+  /** Account to restore the session for when none has been established in this realm yet */
+  getAccountId?: () => string | undefined
+  /** Called when the session has expired and could not be silently re-established */
+  onSessionLost?: (message: string) => void
+  /**
+   * Called when the server turned away a write because this build is too old, from any realm or
+   * tab. The app should update itself (fetch the new service worker and reload).
+   */
+  onClientOutdated?: () => void
+  /**
+   * Decodes salts from before `saltVersion` 1, so accounts that still use them can log in (and be
+   * upgraded). Without it, logging in to such an account fails.
+   */
+  decodeLegacySalt?: (salt: string) => ArrayBuffer
+}
+
+let hostHooks: VaultHostHooks = {}
+let vaultEventsListener: BroadcastChannel | null = null
+
+/** Connects the vault to the host app. Call once at startup on the main thread. */
+export function configureVaultHost(hooks: VaultHostHooks): void {
+  hostHooks = hooks
+
+  vaultEventsListener?.close()
+  vaultEventsListener = null
+  if (hooks.onClientOutdated && typeof BroadcastChannel !== 'undefined') {
+    vaultEventsListener = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
+    vaultEventsListener.onmessage = (event: MessageEvent<VaultBroadcastEvent>) => {
+      if (event.data?.type === 'CLIENT_OUTDATED') {
+        hostHooks.onClientOutdated?.()
+      }
+    }
+  }
+}
+
+export class StaleBiometricKeyError extends Error {
+  constructor() {
+    super('The key saved for biometric unlock no longer matches the account')
+    this.name = 'StaleBiometricKeyError'
+  }
+}
+
+export { VaultNotInitializedError }
+export type { KeyProvider }
+
+/** This realm's keys. The sync worker keeps its own `Keyring`, loaded from `exportKeyringData`. */
+const keyring = new Keyring()
+let masterKey: CryptoKey | null = null
+let keyHash = ''
+let session = ''
+let activeAccount = ''
+let sessionExpiryPromise: Promise<void> | null = null
+
+export function getKeyHash(): string {
+  return keyHash
+}
+
+export function hasVaultKey(kver?: string): boolean {
+  return keyring.hasKey(kver)
+}
+
+export function waitForKeyVersion(kver: string, timeoutMs = 5000): Promise<boolean> {
+  return keyring.waitForKey(kver, timeoutMs)
+}
+
+export async function reloadKeyringFromStorage(): Promise<{
+  success: boolean
+  passwordChanged?: boolean
+  keyringData?: string
+}> {
+  const cachedKeyring = readCachedKeyring()
+  if (!cachedKeyring) {
+    return { success: false }
+  }
+
+  try {
+    await loadKeyringFromEncrypted(cachedKeyring)
+    const keyringData = await exportKeyringData()
+    return { success: true, keyringData }
+  } catch (err) {
+    console.warn('[vault] Failed to decrypt cached keyring with current masterKey:', err)
+    return { success: false, passwordChanged: true }
+  }
+}
+
+export function getVaultKey(kver?: string): CryptoKey {
+  return keyring.getKey(kver)
+}
+
+export function getVaultSession() {
+  return session
+}
+
+async function writeStoredMetadata(
+  account: string,
+  params?: { salt?: string; iterations?: number; saltVersion?: number }
+) {
+  const existing = readStoredMetadata()
+  localStorage.setItem(
+    getVaultStorageNames().vaultMetadataKey,
+    JSON.stringify({
+      account,
+      salt: params?.salt ?? existing?.salt,
+      iterations: params?.iterations ?? existing?.iterations,
+      saltVersion: params?.saltVersion ?? existing?.saltVersion,
+    } satisfies VaultStoredMetadata),
+  )
+}
+
+function clearStoredMetadata() {
+  localStorage.removeItem(getVaultStorageNames().vaultMetadataKey)
+}
+
+export async function establishSessionFromKeyHash(account: string, nextKeyHash: string) {
+  activeAccount = account
+  keyHash = nextKeyHash
+  session = await getSession(account, nextKeyHash)
+  setApiAuthToken(session)
+  await setActiveSessionToken(session)
+  setApiSessionExpiredHandler(handleSessionExpired)
+}
+
+export function handleSessionExpired(): Promise<void> {
+  if (sessionExpiryPromise) {
+    return sessionExpiryPromise
+  }
+
+  sessionExpiryPromise = (async () => {
+    try {
+      const account = activeAccount || readStoredMetadata()?.account || hostHooks.getAccountId?.()
+
+      if (account && keyHash) {
+        try {
+          await establishSessionFromKeyHash(account, keyHash)
+          console.info('[vault] Session silently re-established')
+          return
+        } catch (err) {
+          console.warn('[vault] Silent session re-establishment failed:', err)
+        }
+      }
+
+      session = ''
+      setApiAuthToken('')
+      await clearActiveSessionToken()
+      hostHooks.onSessionLost?.(
+        'Sync paused: unable to re-establish session. Please re-enter your password to resume syncing.'
+      )
+    } finally {
+      sessionExpiryPromise = null
+    }
+  })()
+
+  return sessionExpiryPromise
+}
+
+export async function initialiseVault({
+  password,
+  iterations,
+  salt,
+  saltVersion,
+}: {
+  password: string,
+  isNewAccount?: boolean,
+  iterations?: number,
+  salt: string,
+  saltVersion?: number,
+}) {
+  const derivedKey = await deriveVaultKey({
+    password,
+    salt,
+    iterations,
+    saltVersion,
+    decodeLegacySalt: hostHooks.decodeLegacySalt,
+  })
+  masterKey = derivedKey
+  keyring.replace(new Map([['1', derivedKey]]), '1')
+  keyHash = await hashVaultKey(derivedKey)
+  return keyHash
+}
+
+export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Promise<void> {
+  const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
+  const decryptionKey = masterKey || getVaultKey('1')
+  const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
+  const keyringData = JSON.parse(plaintext)
+  if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
+    const { keys, activeVersion } = await importKeyring(keyringData)
+    keyring.merge(keys, activeVersion)
+  }
+}
+
+/** Loads the server's keyring. Returns whether it was loaded (rather than missing or unreachable). */
+export async function syncKeyringFromServer(account: string): Promise<boolean> {
+  let encryptedKeyringStr: string | undefined
+  try {
+    encryptedKeyringStr = await getKeyring(account)
+  } catch (err) {
+    console.warn('[vault] Failed to retrieve keyring from server (network error):', err)
+    return false
+  }
+
+  if (encryptedKeyringStr) {
+    try {
+      await loadKeyringFromEncrypted(encryptedKeyringStr)
+      writeCachedKeyring(encryptedKeyringStr)
+      return true
+    } catch (err) {
+      clearKeyData()
+      console.error('[vault] Failed to decrypt keyring from server during login:', err)
+      throw new Error(
+        `Failed to decrypt keyring from server during login: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      )
+    }
+  } else {
+    try {
+      await storeVault(account)
+    } catch (err) {
+      console.warn('[vault] Failed to seed keyring to server (network error):', err)
+    }
+    return false
+  }
+}
+
+export async function loginVault({
+  account,
+  password,
+  salt,
+  iterations,
+  saltVersion,
+}: {
+  account: string,
+  password: string,
+  salt: string,
+  iterations?: number,
+  saltVersion?: number,
+}): Promise<{ keyDerivationUpgraded: boolean, biometricsCleared: boolean }> {
+  await initialiseVault({ password, salt, iterations, saltVersion })
+
+  let passwordVerified = false
+
+  // Phase 1: Load cached keyring for offline operation
+  const cachedKeyring = readCachedKeyring()
+  if (cachedKeyring) {
+    try {
+      await loadKeyringFromEncrypted(cachedKeyring)
+      passwordVerified = true
+    } catch {
+      clearCachedKeyring()
+    }
+  }
+
+  // Phase 2: Best-effort server session
+  try {
+    await establishSessionFromKeyHash(account, keyHash)
+    passwordVerified = true
+  } catch (err) {
+    console.info('[vault] Operating in offline mode — sync deferred:', err)
+  }
+
+  if (!passwordVerified) {
+    clearKeyData()
+    throw new Error('Incorrect password. Please try again.')
+  }
+
+  // If session was established, sync latest keyring from server
+  const serverKeyringLoaded = session ? await syncKeyringFromServer(account) : false
+
+  await writeStoredMetadata(account, { salt, iterations, saltVersion })
+
+  // Upgrade outdated key derivation by changing the password to itself. The re-wrapped keyring must
+  // hold every key, so this waits until the server's keyring has been loaded.
+  if (serverKeyringLoaded && needsKeyDerivationUpgrade({ saltVersion, iterations })) {
+    const hadBiometrics = hasBiometricData()
+    try {
+      await rewrapMasterKey({ account, currentAuthToken: keyHash, newPassword: password })
+      return { keyDerivationUpgraded: true, biometricsCleared: hadBiometrics }
+    } catch (err) {
+      console.warn('[vault] Failed to upgrade key derivation; will retry at the next login:', err)
+    }
+  }
+  return { keyDerivationUpgraded: false, biometricsCleared: false }
+}
+
+/** Whether keys derived with these parameters should be re-derived with a new salt at the next login */
+export function needsKeyDerivationUpgrade(
+  { saltVersion, iterations }: { saltVersion?: number, iterations?: number },
+): boolean {
+  return saltVersion !== CURRENT_SALT_VERSION || (iterations ?? 0) < DEFAULT_CRYPTO_ITERATIONS
+}
+
+/** Exports the keyring as JSON, for the sync worker's `Keyring.load` */
+export async function exportKeyringData(): Promise<string> {
+  return JSON.stringify(await keyring.export())
+}
+
+export async function storeVault(account: string, activeVersionOverride?: string) {
+  const effectiveVersion = activeVersionOverride ?? keyring.activeVersion
+  const meta = readStoredMetadata()
+  await writeStoredMetadata(account, {
+    salt: meta?.salt,
+    iterations: meta?.iterations,
+    saltVersion: meta?.saltVersion,
+  })
+  const plaintext = JSON.stringify(await keyring.export(effectiveVersion))
+  const encryptionKey = masterKey || getVaultKey('1')
+  const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
+  const encryptedStr = JSON.stringify(encrypted)
+
+  if (session) {
+    const currentVer = parseInt(effectiveVersion, 10)
+    const expectedVer = Math.max(currentVer - 1, 1)
+    await updateKeyring(account, encryptedStr, expectedVer, currentVer)
+  }
+
+  writeCachedKeyring(encryptedStr)
+}
+
+function clearKeyData() {
+  keyring.clear()
+  masterKey = null
+  keyHash = ''
+  session = ''
+  activeAccount = ''
+  setApiAuthToken('')
+}
+
+/**
+ * Forgets the in-memory keys and the session token. The host app is responsible for stopping sync
+ * and updating its own state.
+ */
+export async function lockVaultKeys() {
+  clearKeyData()
+  await clearActiveSessionToken()
+}
+
+/**
+ * Removes every trace of the vault from this device: keys, the session, cached keyring, biometric
+ * unlock data and stored metadata, plus the account's WAL and manual recovery entries. Shut the sync
+ * worker down (clearing its local data) before calling this.
+ */
+export async function clearVaultDeviceData(account?: string) {
+  if (account) {
+    await SyncWriteAheadLog.clear(account)
+    await clearManualRecoveryEntries(account)
+  }
+  clearKeyData()
+  clearBiometricData()
+  clearCachedKeyring()
+  await clearActiveSessionToken()
+  clearStoredMetadata()
+}
+
+export async function encrypt(plaintext: string): Promise<CryptoResult> {
+  return keyring.encrypt(plaintext)
+}
+
+export async function decrypt(data: CryptoResult): Promise<string> {
+  return keyring.decrypt(data)
+}
+
+export function exportData<T>(payload: T): Promise<CryptoResult> {
+  return encrypt(JSON.stringify(payload))
+}
+
+export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
+  const plainData = await decrypt(data)
+  return JSON.parse(plainData) as T
+}
+
+/** Encrypts with the active key. Pass the `docId` of the document the bytes belong to, to bind them to it. */
+export async function encryptBytes(bytes: Uint8Array, docId?: string): Promise<CryptoResult> {
+  return keyring.encryptBytes(bytes, docId)
+}
+
+export async function decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array> {
+  return keyring.decryptBytes(data, docId)
+}
+
+export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {
+  const {
+    salt: currentSalt,
+    iterations: currentIterations,
+    saltVersion: currentSaltVersion,
+  } = await getSecurityParams(account)
+  const currentMasterKey = await deriveVaultKey({
+    password: currentPassword,
+    salt: currentSalt,
+    iterations: currentIterations,
+    saltVersion: currentSaltVersion,
+    decodeLegacySalt: hostHooks.decodeLegacySalt,
+  })
+  const currentAuthToken = await hashVaultKey(currentMasterKey)
+  await rewrapMasterKey({ account, currentAuthToken, newPassword })
+}
+
+/**
+ * Derives a new master key from `newPassword` with a fresh salt and the current parameters,
+ * re-wraps the keyring with it and replaces the account's credentials. This signs out every other
+ * session and clears biometric unlock on this device.
+ */
+async function rewrapMasterKey({
+  account,
+  currentAuthToken,
+  newPassword,
+}: {
+  account: string,
+  currentAuthToken: string,
+  newPassword: string,
+}): Promise<void> {
+  const newSalt = generateSalt()
+  const newIterations = DEFAULT_CRYPTO_ITERATIONS
+  const newSaltVersion = CURRENT_SALT_VERSION
+
+  const newMasterKey = await deriveVaultKey({
+    password: newPassword,
+    salt: newSalt,
+    iterations: newIterations,
+    saltVersion: newSaltVersion,
+  })
+  const newAuthToken = await hashVaultKey(newMasterKey)
+
+  const plaintext = JSON.stringify(await keyring.export())
+  const encryptedKeyring = await encryptWithKey(newMasterKey, plaintext, 'master')
+
+  const currentKeyringVer = parseInt(keyring.activeVersion, 10)
+
+  await changePasswordClient({
+    account,
+    currentAuthToken,
+    newAuthToken,
+    newSalt,
+    newIterations,
+    newKeyring: JSON.stringify(encryptedKeyring),
+    saltVersion: newSaltVersion,
+    expectedKeyringVersion: currentKeyringVer,
+    keyringVersion: currentKeyringVer,
+  })
+
+  masterKey = newMasterKey
+  clearBiometricData()
+  writeCachedKeyring(JSON.stringify(encryptedKeyring))
+  await writeStoredMetadata(account, {
+    salt: newSalt,
+    iterations: newIterations,
+    saltVersion: newSaltVersion,
+  })
+  await establishSessionFromKeyHash(account, newAuthToken)
+  broadcastVaultEvent({ type: 'PASSWORD_CHANGED', account })
+}
+
+export async function rotateVaultKey(account: string): Promise<void> {
+  const newKey = await generateVaultKey()
+  const currentActiveVer = parseInt(keyring.activeVersion, 10)
+  const nextActiveVer = (currentActiveVer + 1).toString()
+  keyring.addKey(nextActiveVer, newKey)
+  try {
+    await storeVault(account, nextActiveVer)
+  } catch (err) {
+    keyring.removeKey(nextActiveVer)
+    throw new Error(
+      `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    )
+  }
+  keyring.setActiveVersion(nextActiveVer)
+  broadcastVaultEvent({ type: 'KEY_ROTATED', account, keyVersion: nextActiveVer })
+}
+
+export async function enableBiometrics(account: string): Promise<void> {
+  const currentKey = masterKey || getVaultKey('1')
+
+  const { credentialId, prfSalt, prfOutput } = await registerPrfCredential(account)
+
+  const prfKey = await crypto.subtle.importKey(
+    'raw',
+    prfOutput,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+
+  const exportedMasterKey = await exportVaultKey(currentKey)
+  const encrypted = await encryptWithKey(prfKey, exportedMasterKey, 'master')
+
+  writeBiometricData({
+    account,
+    credentialId,
+    prfSalt,
+    encryptedMasterKey: {
+      iv: encrypted.iv,
+      cipher: encrypted.cipher,
+    },
+  })
+}
+
+export function getBiometricLabel(): string {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return 'Biometrics'
+  }
+  const ua = navigator.userAgent || ''
+  if (/iPhone|iPad|iPod/.test(ua)) {
+    return 'Touch ID / Face ID'
+  }
+  if (/Macintosh|Mac OS X/.test(ua)) {
+    return 'Touch ID'
+  }
+  if (/Windows/.test(ua)) {
+    return 'Windows Hello'
+  }
+  if (/Android/.test(ua)) {
+    return 'Fingerprint / Face Unlock'
+  }
+  return 'Biometrics'
+}
+
+export function disableBiometrics(): void {
+  clearBiometricData()
+}
+
+export async function unlockWithBiometrics(account: string): Promise<void> {
+  const data = readBiometricData()
+  if (!data) {
+    throw new Error('No biometric credential saved on this device')
+  }
+
+  const prfOutput = await getPrfOutput(data.credentialId, data.prfSalt)
+
+  const prfKey = await crypto.subtle.importKey(
+    'raw',
+    prfOutput,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+
+  const exportedMasterKey = await decryptWithKey(prfKey, {
+    iv: data.encryptedMasterKey.iv,
+    cipher: data.encryptedMasterKey.cipher,
+  })
+
+  const derivedKey = await importVaultKey(exportedMasterKey)
+  masterKey = derivedKey
+  keyring.replace(new Map([['1', derivedKey]]), '1')
+  keyHash = await hashVaultKey(derivedKey)
+
+  // Phase 1: Load cached keyring for offline access
+  const cachedKeyring = readCachedKeyring()
+  if (cachedKeyring) {
+    try {
+      await loadKeyringFromEncrypted(cachedKeyring)
+    } catch {
+      clearCachedKeyring()
+    }
+  }
+
+  // Phase 2: Best-effort server session + keyring sync
+  try {
+    await establishSessionFromKeyHash(account, keyHash)
+    await syncKeyringFromServer(account)
+  } catch (err) {
+    if (isUnauthorizedError(err)) {
+      // The password was changed (or the key derivation upgraded) on another device, so the saved
+      // key is stale. The cached keyring is wrapped with it too.
+      clearKeyData()
+      clearBiometricData()
+      clearCachedKeyring()
+      throw new StaleBiometricKeyError()
+    }
+    console.info('[vault] Biometric unlock in offline mode:', err)
+  }
+
+  const meta = readStoredMetadata()
+  await writeStoredMetadata(account, {
+    salt: meta?.salt,
+    iterations: meta?.iterations,
+    saltVersion: meta?.saltVersion,
+  })
+}
+
+/** Whether the server rejected a request's credentials (as opposed to a network failure) */
+function isUnauthorizedError(err: unknown): boolean {
+  let current: unknown = err
+  while (current && typeof current === 'object') {
+    if (current instanceof ApiHttpError && current.status === 401) return true
+    if ((current as { data?: { code?: unknown } }).data?.code === 'UNAUTHORIZED') return true
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}

@@ -6,7 +6,7 @@ import {
   BatchWriteCommand
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
-import { getConnectionParams } from 'src/vault/drivers/dynamo'
+import { getConnectionParams } from '@vault/server/drivers/dynamo'
 
 const SOURCE_TABLE = process.env.SOURCE_TABLE || 'FlockItems_production'
 const DEST_TABLE = process.env.DEST_TABLE || 'FlockItems_staging'
