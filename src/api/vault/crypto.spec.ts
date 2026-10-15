@@ -4,6 +4,7 @@ import {
   decryptWithKey,
   encryptBytesWithKey,
   decryptBytesWithKey,
+  UnsupportedKeyDerivationError,
 } from './crypto'
 
 describe('Vault Cryptography', () => {
@@ -12,6 +13,7 @@ describe('Vault Cryptography', () => {
       password: 'password123',
       salt: 'somesalt',
       iterations: 1000,
+      saltVersion: 1,
     })
     expect(key).toBeDefined()
     expect(key.type).toBe('secret')
@@ -22,6 +24,7 @@ describe('Vault Cryptography', () => {
       password: 'password123',
       salt: 'somesalt',
       iterations: 1000,
+      saltVersion: 1,
     })
     const payload = await encryptWithKey(key, 'hello world', '2')
     expect(payload.kver).toBe('2')
@@ -35,6 +38,7 @@ describe('Vault Cryptography', () => {
       password: 'password123',
       salt: 'somesalt',
       iterations: 1000,
+      saltVersion: 1,
     })
     const bytes = new Uint8Array([10, 20, 30, 40])
     const payload = await encryptBytesWithKey(key, bytes, '3')
@@ -49,7 +53,7 @@ describe('Vault Cryptography', () => {
     let key: CryptoKey
 
     beforeAll(async () => {
-      key = await deriveVaultKey({ password: 'password123', salt: 'somesalt', iterations: 1000 })
+      key = await deriveVaultKey({ password: 'password123', salt: 'somesalt', iterations: 1000, saltVersion: 1 })
     })
 
     it('round-trips with the same document ID', async () => {
@@ -91,23 +95,34 @@ describe('Vault Cryptography', () => {
     })
   })
 
-  it('correctly uses legacy salt decoding without saltVersion', async () => {
-    const keyLegacy = await deriveVaultKey({
+  it('rejects salts from before saltVersion 1 without a legacy decoder', async () => {
+    await expect(deriveVaultKey({ password: 'password123', salt: 'somesalt', iterations: 1000 }))
+      .rejects.toBeInstanceOf(UnsupportedKeyDerivationError)
+  })
+
+  it('decodes salts from before saltVersion 1 with the legacy decoder', async () => {
+    const decodeLegacySalt = vi.fn((salt: string) => new TextEncoder().encode(salt).buffer)
+    const key = await deriveVaultKey({
       password: 'password123',
       salt: 'somesalt',
       iterations: 1000,
+      decodeLegacySalt,
     })
 
-    const keyModern = await deriveVaultKey({
-      password: 'password123',
-      salt: 'somesalt',
-      iterations: 1000,
-      saltVersion: 1,
-    })
+    const keyBase = await crypto.subtle.importKey('raw', new TextEncoder().encode('password123'), 'PBKDF2', false, ['deriveBits'])
+    const expected = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: new TextEncoder().encode('somesalt'), iterations: 1000, hash: 'SHA-256' },
+      keyBase,
+      256,
+    )
 
-    const rawLegacy = await crypto.subtle.exportKey('raw', keyLegacy)
-    const rawModern = await crypto.subtle.exportKey('raw', keyModern)
+    expect(decodeLegacySalt).toHaveBeenCalledWith('somesalt')
+    expect(new Uint8Array(await crypto.subtle.exportKey('raw', key))).toEqual(new Uint8Array(expected))
+  })
 
-    expect(new Uint8Array(rawLegacy)).not.toEqual(new Uint8Array(rawModern))
+  it('ignores the legacy decoder for current salts', async () => {
+    const decodeLegacySalt = vi.fn((salt: string) => new TextEncoder().encode(salt).buffer)
+    await deriveVaultKey({ password: 'password123', salt: 'somesalt', iterations: 1000, saltVersion: 1, decodeLegacySalt })
+    expect(decodeLegacySalt).not.toHaveBeenCalled()
   })
 })

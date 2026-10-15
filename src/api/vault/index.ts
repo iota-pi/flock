@@ -24,6 +24,7 @@ import {
   decryptBytesWithKey,
   generateSalt,
   generateVaultKey,
+  CURRENT_SALT_VERSION,
   type CryptoResult,
 } from './crypto'
 import {
@@ -47,6 +48,7 @@ import {
   isWebAuthnPrfSupported,
 } from './webauthn'
 import { getVaultStorageNames } from '../../sync/shared/storageNames'
+import { ApiHttpError } from '../trackedFetch'
 
 export {
   createAccount,
@@ -90,6 +92,11 @@ export interface VaultHostHooks {
    * tab. The app should update itself (fetch the new service worker and reload).
    */
   onClientOutdated?: () => void
+  /**
+   * Decodes salts from before `saltVersion` 1, so accounts that still use them can log in (and be
+   * upgraded). Without it, logging in to such an account fails.
+   */
+  decodeLegacySalt?: (salt: string) => ArrayBuffer
 }
 
 let hostHooks: VaultHostHooks = {}
@@ -108,6 +115,13 @@ export function configureVaultHost(hooks: VaultHostHooks): void {
         hostHooks.onClientOutdated?.()
       }
     }
+  }
+}
+
+export class StaleBiometricKeyError extends Error {
+  constructor() {
+    super('The key saved for biometric unlock no longer matches the account')
+    this.name = 'StaleBiometricKeyError'
   }
 }
 
@@ -293,7 +307,13 @@ export async function initialiseVault({
   salt: string,
   saltVersion?: number,
 }) {
-  const derivedKey = await deriveVaultKey({ password, salt, iterations, saltVersion })
+  const derivedKey = await deriveVaultKey({
+    password,
+    salt,
+    iterations,
+    saltVersion,
+    decodeLegacySalt: hostHooks.decodeLegacySalt,
+  })
   masterKey = derivedKey
   keyring.clear()
   keyring.set('1', derivedKey)
@@ -320,19 +340,21 @@ export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Pro
   }
 }
 
-export async function syncKeyringFromServer(account: string): Promise<void> {
+/** Loads the server's keyring. Returns whether it was loaded (rather than missing or unreachable). */
+export async function syncKeyringFromServer(account: string): Promise<boolean> {
   let encryptedKeyringStr: string | undefined
   try {
     encryptedKeyringStr = await getKeyring(account)
   } catch (err) {
     console.warn('[vault] Failed to retrieve keyring from server (network error):', err)
-    return
+    return false
   }
 
   if (encryptedKeyringStr) {
     try {
       await loadKeyringFromEncrypted(encryptedKeyringStr)
       writeCachedKeyring(encryptedKeyringStr)
+      return true
     } catch (err) {
       clearKeyData()
       console.error('[vault] Failed to decrypt keyring from server during login:', err)
@@ -347,6 +369,7 @@ export async function syncKeyringFromServer(account: string): Promise<void> {
     } catch (err) {
       console.warn('[vault] Failed to seed keyring to server (network error):', err)
     }
+    return false
   }
 }
 
@@ -396,7 +419,7 @@ export async function loginVault({
   salt: string,
   iterations?: number,
   saltVersion?: number,
-}) {
+}): Promise<{ keyDerivationUpgraded: boolean, biometricsCleared: boolean }> {
   await initialiseVault({ password, salt, iterations, saltVersion })
 
   let passwordVerified = false
@@ -426,11 +449,29 @@ export async function loginVault({
   }
 
   // If session was established, sync latest keyring from server
-  if (session) {
-    await syncKeyringFromServer(account)
-  }
+  const serverKeyringLoaded = session ? await syncKeyringFromServer(account) : false
 
   await writeStoredMetadata(account, { salt, iterations, saltVersion })
+
+  // Upgrade outdated key derivation by changing the password to itself. The re-wrapped keyring must
+  // hold every key, so this waits until the server's keyring has been loaded.
+  if (serverKeyringLoaded && needsKeyDerivationUpgrade({ saltVersion, iterations })) {
+    const hadBiometrics = hasBiometricData()
+    try {
+      await rewrapMasterKey({ account, currentAuthToken: keyHash, newPassword: password })
+      return { keyDerivationUpgraded: true, biometricsCleared: hadBiometrics }
+    } catch (err) {
+      console.warn('[vault] Failed to upgrade key derivation; will retry at the next login:', err)
+    }
+  }
+  return { keyDerivationUpgraded: false, biometricsCleared: false }
+}
+
+/** Whether keys derived with these parameters should be re-derived with a new salt at the next login */
+export function needsKeyDerivationUpgrade(
+  { saltVersion, iterations }: { saltVersion?: number, iterations?: number },
+): boolean {
+  return saltVersion !== CURRENT_SALT_VERSION || (iterations ?? 0) < DEFAULT_CRYPTO_ITERATIONS
 }
 
 export async function exportKeyringData(): Promise<string> {
@@ -555,12 +596,29 @@ export async function changePassword(account: string, currentPassword: string, n
     salt: currentSalt,
     iterations: currentIterations,
     saltVersion: currentSaltVersion,
+    decodeLegacySalt: hostHooks.decodeLegacySalt,
   })
   const currentAuthToken = await hashVaultKey(currentMasterKey)
+  await rewrapMasterKey({ account, currentAuthToken, newPassword })
+}
 
+/**
+ * Derives a new master key from `newPassword` with a fresh salt and the current parameters,
+ * re-wraps the keyring with it and replaces the account's credentials. This signs out every other
+ * session and clears biometric unlock on this device.
+ */
+async function rewrapMasterKey({
+  account,
+  currentAuthToken,
+  newPassword,
+}: {
+  account: string,
+  currentAuthToken: string,
+  newPassword: string,
+}): Promise<void> {
   const newSalt = generateSalt()
   const newIterations = DEFAULT_CRYPTO_ITERATIONS
-  const newSaltVersion = 1
+  const newSaltVersion = CURRENT_SALT_VERSION
 
   const newMasterKey = await deriveVaultKey({
     password: newPassword,
@@ -718,6 +776,14 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
     await establishSessionFromKeyHash(account, keyHash)
     await syncKeyringFromServer(account)
   } catch (err) {
+    if (isUnauthorizedError(err)) {
+      // The password was changed (or the key derivation upgraded) on another device, so the saved
+      // key is stale. The cached keyring is wrapped with it too.
+      clearKeyData()
+      clearBiometricData()
+      clearCachedKeyring()
+      throw new StaleBiometricKeyError()
+    }
     console.info('[vault] Biometric unlock in offline mode:', err)
   }
 
@@ -729,3 +795,13 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
   })
 }
 
+/** Whether the server rejected a request's credentials (as opposed to a network failure) */
+function isUnauthorizedError(err: unknown): boolean {
+  let current: unknown = err
+  while (current && typeof current === 'object') {
+    if (current instanceof ApiHttpError && current.status === 401) return true
+    if ((current as { data?: { code?: unknown } }).data?.code === 'UNAUTHORIZED') return true
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}

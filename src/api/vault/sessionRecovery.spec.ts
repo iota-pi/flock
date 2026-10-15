@@ -23,7 +23,7 @@ describe('sessionRecovery', () => {
     vi.spyOn(vault, 'getVaultSession').mockReturnValue('')
     vi.spyOn(vault, 'getKeyHash').mockReturnValue('mock-key-hash')
     const establishSpy = vi.spyOn(vault, 'establishSessionFromKeyHash').mockResolvedValue(undefined)
-    const syncSpy = vi.spyOn(vault, 'syncKeyringFromServer').mockResolvedValue(undefined)
+    const syncSpy = vi.spyOn(vault, 'syncKeyringFromServer').mockResolvedValue(true)
 
     const result = await attemptSessionRecovery('test-account')
 

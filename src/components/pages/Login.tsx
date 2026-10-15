@@ -29,6 +29,7 @@ import {
   readStoredMetadata,
   unlockWithBiometrics,
   getBiometricLabel,
+  StaleBiometricKeyError,
 } from 'src/api/vault'
 
 
@@ -72,6 +73,7 @@ function LoginPage() {
   const createdAccountId = useAppStore(state => state.account)
   const justCreatedAccount = useAppStore(state => state.justCreatedAccount)
   const updateAuth = useAppStore(state => state.updateAuth)
+  const setMessage = useAppStore(state => state.setMessage)
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
@@ -126,7 +128,7 @@ function LoginPage() {
 
       if (securityParams.salt.length) {
         try {
-          await loginVault({
+          const { keyDerivationUpgraded, biometricsCleared } = await loginVault({
             account: accountInput,
             password,
             salt: securityParams.salt,
@@ -135,6 +137,13 @@ function LoginPage() {
           })
           updateAuth({ loggedIn: true })
           setUi({ justCreatedAccount: false })
+          if (keyDerivationUpgraded) {
+            let message = 'We upgraded the encryption on your account, so your other devices will ask you to log in again.'
+            if (biometricsCleared) {
+              message += ` ${biometricLabel} unlock was turned off on this device; you can re-enable it in Settings.`
+            }
+            setMessage({ severity: 'info', message })
+          }
 
           const nextRoute = resolveRedirectRoute(
             location.state as RedirectRouteState | null,
@@ -156,7 +165,7 @@ function LoginPage() {
         setLoading(false)
       }
     },
-    [accountInput, location.state, location.pathname, navigate, password, setUi, updateAuth],
+    [accountInput, biometricLabel, location.state, location.pathname, navigate, password, setMessage, setUi, updateAuth],
   )
   const handleClickBiometricUnlock = useCallback(
     async () => {
@@ -178,7 +187,12 @@ function LoginPage() {
       } catch (err: unknown) {
         console.error('[Login] Biometric unlock failed', err)
         setShowPasswordForm(true)
-        if (err instanceof Error && err.name === 'NotAllowedError') {
+        if (err instanceof StaleBiometricKeyError) {
+          setError(
+            `Your password or account security changed on another device, so ${biometricLabel} unlock was turned off. `
+            + 'Please log in with your password.',
+          )
+        } else if (err instanceof Error && err.name === 'NotAllowedError') {
           setError(`${biometricLabel} unlock was cancelled. Enter your password instead or try again.`)
         } else {
           setError(`${biometricLabel} unlock failed. Please use your password.`)

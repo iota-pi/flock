@@ -7,6 +7,7 @@ import * as vault from '../../api/vault'
 import { useAppStore } from '../../state/store'
 
 const lightTheme = getTheme(false)
+const NOT_UPGRADED = { keyDerivationUpgraded: false, biometricsCleared: false }
 
 const renderLoginPage = () => {
   const router = createMemoryRouter([
@@ -51,7 +52,7 @@ describe('LoginPage', () => {
     }))
 
     vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
-    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(undefined)
+    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
 
     renderLoginPage()
 
@@ -79,7 +80,7 @@ describe('LoginPage', () => {
 
   it('displays error if getSecurityParams fails and no cached metadata is present', async () => {
     vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
-    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(undefined)
+    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
 
     renderLoginPage()
 
@@ -190,5 +191,47 @@ describe('LoginPage', () => {
     })
 
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('tells the user when logging in upgraded their account encryption', async () => {
+    useAppStore.setState({ message: null })
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', dataVersion: 0 })
+    vi.spyOn(vault, 'loginVault').mockResolvedValue({ keyDerivationUpgraded: true, biometricsCleared: true })
+
+    renderLoginPage()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'my-account' } })
+      fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'pass' } })
+      fireEvent.click(screen.getByRole('button', { name: /Login/i }))
+    })
+
+    await waitFor(() => {
+      expect(useAppStore.getState().loggedIn).toBe(true)
+      const message = useAppStore.getState().message
+      expect(message?.severity).toBe('info')
+      expect(message?.message).toMatch(/other devices will ask you to log in again/)
+      expect(message?.message).toMatch(/unlock was turned off on this device/)
+    })
+  })
+
+  it('asks for the password when the biometric key is stale', async () => {
+    vi.spyOn(vault, 'hasBiometricData').mockReturnValue(true)
+    vi.spyOn(vault, 'readBiometricData').mockReturnValue({
+      account: 'my-account',
+      credentialId: 'cred',
+      prfSalt: 'salt',
+      encryptedMasterKey: { iv: '', cipher: '' },
+    })
+    const unlockSpy = vi.spyOn(vault, 'unlockWithBiometrics').mockRejectedValue(new vault.StaleBiometricKeyError())
+
+    renderLoginPage()
+
+    await waitFor(() => {
+      expect(unlockSpy).toHaveBeenCalledWith('my-account')
+      expect(screen.getByText(/changed on another device/i)).toBeDefined()
+      expect(screen.getByLabelText(/Password/i)).toBeDefined()
+    })
+    expect(useAppStore.getState().loggedIn).toBe(false)
   })
 })
