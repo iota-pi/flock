@@ -51,6 +51,7 @@ describe('accountsRouter security contracts', () => {
           expiry: expect.any(Number),
         },
       ],
+      lastAccess: expect.any(Number),
     })
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.anything() }),
@@ -263,6 +264,75 @@ describe('accountsRouter security contracts', () => {
         account: 'acct-1',
         session: 'session-token',
       })
+    })
+  })
+
+  describe('data version', () => {
+    it('returns the account data version with the security params, before login', async () => {
+      const ctx = createContext({ authToken: '' })
+      const getSecurityParams = vi.fn(async () => ({ salt: 'salt-1', iterations: 1000, saltVersion: 1, dataVersion: 1 }))
+      const caller = accountsRouter.createCaller({ ...ctx, vault: { ...ctx.vault, getSecurityParams } } as any)
+
+      await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toEqual({
+        success: true,
+        salt: 'salt-1',
+        iterations: 1000,
+        saltVersion: 1,
+        dataVersion: 1,
+      })
+    })
+
+    it('reports accounts that never recorded a data version as version 0', async () => {
+      const ctx = createContext({ authToken: '' })
+      const getSecurityParams = vi.fn(async () => ({ salt: 'salt-1' }))
+      const caller = accountsRouter.createCaller({ ...ctx, vault: { ...ctx.vault, getSecurityParams } } as any)
+
+      await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toMatchObject({ dataVersion: 0 })
+    })
+
+    it('raises the data version when the policy finds nothing left to migrate', async () => {
+      const ctx = createContext()
+      const raiseDataVersion = vi.fn(async () => undefined)
+      const findBlockers = vi.fn(async () => [])
+      const caller = accountsRouter.createCaller({
+        ...ctx,
+        vault: { ...ctx.vault, raiseDataVersion },
+        dataVersionPolicy: { current: 2, findBlockers },
+      } as any)
+
+      await expect(caller.raiseDataVersion({ account: 'acct-1' }))
+        .resolves.toEqual({ success: true, dataVersion: 2, blockers: [] })
+      expect(raiseDataVersion).toHaveBeenCalledWith({ account: 'acct-1', dataVersion: 2 })
+    })
+
+    it('reports what is left to migrate instead of raising the data version', async () => {
+      const ctx = createContext()
+      const raiseDataVersion = vi.fn(async () => undefined)
+      const findBlockers = vi.fn(async () => ['unboundSnapshots'])
+      const caller = accountsRouter.createCaller({
+        ...ctx,
+        vault: { ...ctx.vault, raiseDataVersion },
+        dataVersionPolicy: { current: 2, findBlockers },
+      } as any)
+
+      await expect(caller.raiseDataVersion({ account: 'acct-1' }))
+        .resolves.toEqual({ success: true, dataVersion: 0, blockers: ['unboundSnapshots'] })
+      expect(raiseDataVersion).not.toHaveBeenCalled()
+    })
+
+    it('does not check accounts already at the current data version', async () => {
+      const ctx = createContext()
+      const findBlockers = vi.fn(async () => ['unboundSnapshots'])
+      const getAccount = vi.fn(async () => ({ dataVersion: 2 }))
+      const caller = accountsRouter.createCaller({
+        ...ctx,
+        vault: { ...ctx.vault, getAccount },
+        dataVersionPolicy: { current: 2, findBlockers },
+      } as any)
+
+      await expect(caller.raiseDataVersion({ account: 'acct-1' }))
+        .resolves.toEqual({ success: true, dataVersion: 2, blockers: [] })
+      expect(findBlockers).not.toHaveBeenCalled()
     })
   })
 })

@@ -6,6 +6,8 @@ export interface SnapshotFormatUpgradeDeps {
   accountId: string
   /** Re-encrypts and uploads the snapshot of every item */
   rewriteSnapshots: (signal: AbortSignal) => Promise<{ failed: unknown[] }>
+  /** Called once this device's snapshots are all bound, whether rewritten now or in an earlier session */
+  onUpgraded?: () => void
 }
 
 /**
@@ -49,7 +51,10 @@ export class SnapshotFormatUpgrade {
   private async run(): Promise<void> {
     const { signal } = this.abortController
     const storage = getSyncMetadataStorage(this.deps.accountId)
-    if (await storage.getItem<boolean>(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND)) return
+    if (await storage.getItem<boolean>(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND)) {
+      this.deps.onUpgraded?.()
+      return
+    }
     if (signal.aborted) return
 
     const { failed } = await this.deps.rewriteSnapshots(signal)
@@ -60,5 +65,6 @@ export class SnapshotFormatUpgrade {
     }
 
     await runStorageOperation(() => storage.setItem(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND, true))
+    this.deps.onUpgraded?.()
   }
 }

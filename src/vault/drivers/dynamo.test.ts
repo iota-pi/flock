@@ -183,6 +183,45 @@ describe('DynamoDriver', function () {
     const acc = await driver.getAccount({ account, session: sessionA })
     const updatedSession = acc.sessions?.find(s => s.token === sessionA)
     expect(updatedSession?.expiry).toBeGreaterThan(Date.now() + 10000)
+    expect(acc.lastAccess).toBeGreaterThan(Date.now() - 60_000)
+  })
+
+  it('raiseDataVersion raises the version but never lowers it', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({ account, authToken, salt, iterations })
+    expect((await driver.getSecurityParams({ account })).dataVersion).toBeUndefined()
+
+    await driver.raiseDataVersion({ account, dataVersion: 2 })
+    expect((await driver.getSecurityParams({ account })).dataVersion).toBe(2)
+
+    await driver.raiseDataVersion({ account, dataVersion: 1 })
+    expect((await driver.getSecurityParams({ account })).dataVersion).toBe(2)
+  })
+
+  it('raiseDataVersion does not create a missing account', async () => {
+    const account = generateAccountId()
+    await driver.raiseDataVersion({ account, dataVersion: 1 })
+    await expect(driver.getSecurityParams({ account })).rejects.toThrow()
+  })
+
+  it('listItemFormats describes how each item is stored', async () => {
+    const account = generateAccountId()
+    const [legacy, unbound, bound, deleted] = [generateItemId(), generateItemId(), generateItemId(), generateItemId()]
+    const modified = Date.now()
+    const payload = Buffer.from('snapshot').toString('base64')
+
+    await driver.set({ account, item: legacy, cipher: 'legacy-cipher', metadata: { iv: 'iv', modified } })
+    await driver.set({ account, item: unbound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1' } })
+    await driver.set({ account, item: bound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1', format: 2 } })
+    await driver.set({ account, item: deleted, metadata: { iv: '', modified, deleted: true } })
+
+    const formats = await driver.listItemFormats({ account })
+    expect(new Map(formats.map(format => [format.itemId, format]))).toEqual(new Map([
+      [legacy, { itemId: legacy, deleted: false, hasSnapshot: false, hasCipher: true }],
+      [unbound, { itemId: unbound, deleted: false, hasSnapshot: true, hasCipher: false }],
+      [bound, { itemId: bound, deleted: false, hasSnapshot: true, snapshotFormat: 2, hasCipher: false }],
+      [deleted, { itemId: deleted, deleted: true, hasSnapshot: false, hasCipher: false }],
+    ]))
   })
 
   it('normalizes sessions when updating account data', async () => {

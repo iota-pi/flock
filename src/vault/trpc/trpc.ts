@@ -3,6 +3,8 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type BaseDriver from '../drivers/base'
 import type { VaultAccountWithAuth } from '../drivers/base'
 import { AccountInputSchema } from '../../shared/vault/api'
+import { CLIENT_OUTDATED_MESSAGE, parseProtocolVersion, PROTOCOL_VERSION_HEADER } from '../../shared/vault/protocol'
+import type { DataVersionPolicy } from '../services/dataVersion'
 import { safeEqual } from '../util'
 
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -28,9 +30,23 @@ export function shouldRenewSession(
   return expiry - now < SESSION_RENEWAL_THRESHOLD_MS
 }
 
+export interface VaultServerOptions {
+  /**
+   * Writes from builds below this protocol version are rejected with `CLIENT_OUTDATED_MESSAGE`,
+   * which makes the client update itself. Raise it to retire server code that only old builds need.
+   */
+  minProtocolVersion?: number
+  /** Decides when an account's `dataVersion` can be raised. Without one, it never is. */
+  dataVersionPolicy?: DataVersionPolicy
+}
+
 type TrpcContext = {
   authToken: string,
   vault: BaseDriver,
+  /** The protocol version the client sent (0 for builds that predate the header) */
+  protocolVersion?: number,
+  minProtocolVersion?: number,
+  dataVersionPolicy?: DataVersionPolicy,
 }
 
 function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
@@ -44,23 +60,36 @@ function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
   return latestHeaderValue.replace(/^[a-z]+\s+/i, '').trim()
 }
 
-export function createContext({ req }: CreateFastifyContextOptions): TrpcContext {
-  const authToken = getTokenFromAuthorizationHeader(req.headers.authorization)
-  const serverWithVault = req.server as typeof req.server & { vault: BaseDriver }
+export function createVaultContext(options: VaultServerOptions = {}) {
+  return ({ req }: CreateFastifyContextOptions): TrpcContext => {
+    const authToken = getTokenFromAuthorizationHeader(req.headers.authorization)
+    const serverWithVault = req.server as typeof req.server & { vault: BaseDriver }
 
-  return {
-    authToken,
-    vault: serverWithVault.vault,
+    return {
+      authToken,
+      vault: serverWithVault.vault,
+      protocolVersion: parseProtocolVersion(req.headers[PROTOCOL_VERSION_HEADER]),
+      minProtocolVersion: options.minProtocolVersion ?? 0,
+      dataVersionPolicy: options.dataVersionPolicy,
+    }
   }
 }
 
-const t = initTRPC.context<typeof createContext>().create()
+const t = initTRPC.context<TrpcContext>().create()
 
 export const router = t.router
 export const mergeRouters = t.mergeRouters
-export const publicProcedure = t.procedure
 
-export const protectedProcedure = t.procedure
+/** Rejects writes from builds below the minimum protocol version. Reads stay open to them. */
+export const publicProcedure = t.procedure.use(({ ctx, type, next }) => {
+  const minProtocolVersion = ctx.minProtocolVersion ?? 0
+  if (type === 'mutation' && (ctx.protocolVersion ?? 0) < minProtocolVersion) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: CLIENT_OUTDATED_MESSAGE })
+  }
+  return next()
+})
+
+export const protectedProcedure = publicProcedure
   .input(AccountInputSchema)
   .use(async ({ ctx, input, next }) => {
     if (!ctx.authToken) {

@@ -7,7 +7,8 @@ import {
 import type { Item } from '../../state/items'
 import type { DocCodec, SyncDomain, SyncDomainHooks } from '../../sync/worker/domain'
 import { SYNCED_METADATA_KEYS } from '../../shared/schemas/metadata'
-import { flockLegacySettings } from './legacySettings'
+import { flockLegacySettings } from './legacy/legacySettings'
+import { FLOCK_DATA_VERSION } from '../../shared/flockDataVersion'
 
 /** Validates documents against Flock's item schemas, turning anything invalid into an error item */
 export const flockItemCodec: DocCodec = {
@@ -69,4 +70,5 @@ export const flockSyncDomain: SyncDomain = {
   hooks: flockSyncHooks,
   syncedMetadataKeys: SYNCED_METADATA_KEYS,
   legacySettings: flockLegacySettings,
+  dataVersion: FLOCK_DATA_VERSION,
 }

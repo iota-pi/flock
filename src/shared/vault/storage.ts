@@ -26,6 +26,10 @@ export const VaultAccountSchema = z.object({
   keyring: z.string().optional(),
   keyringVersion: z.number().optional(),
   saltVersion: z.number().optional(),
+  /** The app's data version this account's stored data has been migrated to (see DataVersionPolicy) */
+  dataVersion: z.number().optional(),
+  /** When the account last logged in or renewed a session */
+  lastAccess: z.number().optional(),
 })
 
 export const VaultAccountWithAuthSchema = VaultAccountSchema.extend({

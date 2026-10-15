@@ -42,6 +42,7 @@ vi.mock('./stores/CursorStore', () => ({
 vi.mock('./stores/IndexStore', () => ({
   IndexStore: class MockIndexStore {
     clear = vi.fn().mockResolvedValue(undefined)
+    getIndex = vi.fn().mockResolvedValue(null)
   },
 }))
 

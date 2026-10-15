@@ -104,6 +104,7 @@ describe('LoginPage', () => {
       salt: 'test-salt',
       iterations: 5000,
       saltVersion: 1,
+      dataVersion: 1,
     })
     vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
 
@@ -131,6 +132,7 @@ describe('LoginPage', () => {
       salt: 'test-salt',
       iterations: 5000,
       saltVersion: 1,
+      dataVersion: 1,
     })
     vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
 
@@ -163,6 +165,7 @@ describe('LoginPage', () => {
       salt: 'test-salt',
       iterations: 5000,
       saltVersion: 1,
+      dataVersion: 1,
     })
     vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
 

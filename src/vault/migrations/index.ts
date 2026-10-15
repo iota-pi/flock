@@ -2,9 +2,10 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, ScanCommand, ScanCommandOutput, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 
 import { createHash } from 'crypto'
-import { VaultItem } from '../drivers/base'
+import { VaultAccount, VaultItem } from '../drivers/base'
 import { getConnectionParams } from '../drivers/dynamo'
-import { FLOCK_TABLES } from '../flockDriver'
+import { flockDataVersionPolicy } from '../flockDataVersion'
+import { createFlockDriver, FLOCK_TABLES } from '../flockDriver'
 
 const ddb = new DynamoDBClient(getConnectionParams())
 const client = DynamoDBDocumentClient.from(ddb)
@@ -186,33 +187,46 @@ const migrations: { [name: string]: () => Promise<void> } = {
     } while (lastEvaluatedKey)
     console.info(`Removed legacy plaintext metadata from ${updated} accounts`)
   },
-  async countUnboundSnapshots () {
-    // Read-only report. Clients rewrite their snapshots bound to the document once they update;
-    // unbound ciphertexts can only be rejected once this reaches zero (sync messages expire on their own).
+  async countAccountsByDataVersion () {
+    // Read-only report of how far each account's stored data has been migrated (see "Backwards
+    // compatibility" in docs/vault-extraction.md) and what holds back the accounts below the
+    // current version. Their clients raise the version once nothing is left.
+    const vault = createFlockDriver()
+    const accountsByVersion = new Map<number, number>()
+    const accountsByBlocker = new Map<string, number>()
+    let readyToRaise = 0
+    let oldestAccessBelowCurrent = Infinity
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
-    let unbound = 0
-    const accounts = new Set<string>()
     do {
       const response = await client.send(new ScanCommand({
-        TableName: FLOCK_TABLES.items,
-        ProjectionExpression: '#account',
-        FilterExpression: 'attribute_exists(#snapshot.#cipher) AND attribute_not_exists(#snapshot.#format)',
-        ExpressionAttributeNames: {
-          '#account': 'account',
-          '#snapshot': 'snapshot',
-          '#cipher': 'cipher',
-          '#format': 'format',
-        },
+        TableName: FLOCK_TABLES.accounts,
         ExclusiveStartKey: lastEvaluatedKey,
       }))
 
-      for (const item of response?.Items || []) {
-        unbound += 1
-        accounts.add(item.account)
+      for (const accountData of (response?.Items || []) as VaultAccount[]) {
+        const dataVersion = accountData.dataVersion ?? 0
+        accountsByVersion.set(dataVersion, (accountsByVersion.get(dataVersion) ?? 0) + 1)
+        if (dataVersion >= flockDataVersionPolicy.current) continue
+
+        oldestAccessBelowCurrent = Math.min(oldestAccessBelowCurrent, accountData.lastAccess ?? 0)
+        const blockers = await flockDataVersionPolicy.findBlockers({ account: accountData.account, accountData, vault })
+        if (blockers.length === 0) {
+          readyToRaise += 1
+        }
+        for (const blocker of blockers) {
+          accountsByBlocker.set(blocker, (accountsByBlocker.get(blocker) ?? 0) + 1)
+        }
       }
       lastEvaluatedKey = response?.LastEvaluatedKey
     } while (lastEvaluatedKey)
-    console.info(`${unbound} snapshots across ${accounts.size} accounts are not bound to their document`)
+
+    console.info('Accounts by data version:', Object.fromEntries(accountsByVersion))
+    console.info('Accounts below the current version, by what they still need:', Object.fromEntries(accountsByBlocker))
+    console.info(`${readyToRaise} accounts below the current version have nothing left to migrate`)
+    if (Number.isFinite(oldestAccessBelowCurrent)) {
+      const lastAccess = oldestAccessBelowCurrent > 0 ? new Date(oldestAccessBelowCurrent).toISOString() : 'never recorded'
+      console.info(`Oldest last access below the current version: ${lastAccess}`)
+    }
   },
   async backfillSyncMessageAccounts () {
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined

@@ -5,8 +5,16 @@ import * as Sentry from '@sentry/node'
 import { TRPCError } from '@trpc/server'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { createFlockDriver } from '../flockDriver'
+import { flockDataVersionPolicy } from '../flockDataVersion'
 import { appRouter } from '../trpc/root'
-import { createContext } from '../trpc/trpc'
+import { createVaultContext } from '../trpc/trpc'
+import { PROTOCOL_VERSION_HEADER } from '../../shared/vault/protocol'
+
+/**
+ * Writes from builds below this protocol version are rejected, which makes them update. Raising it
+ * retires the server code kept only for older builds (see docs/vault-extraction.md).
+ */
+const MIN_PROTOCOL_VERSION = 0
 
 
 async function createServer(devMode = false) {
@@ -24,7 +32,7 @@ async function createServer(devMode = false) {
       /^https?:\/\/localhost(:[0-9]+)?$/,
     ],
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', PROTOCOL_VERSION_HEADER],
     credentials: true,
   })
 
@@ -35,7 +43,10 @@ async function createServer(devMode = false) {
     prefix: '/trpc',
     trpcOptions: {
       router: appRouter,
-      createContext,
+      createContext: createVaultContext({
+        minProtocolVersion: MIN_PROTOCOL_VERSION,
+        dataVersionPolicy: flockDataVersionPolicy,
+      }),
       onError: ({ path, error }: { path: string | undefined, error: unknown }) => {
         console.error(`[TRPC Error] path=${path}:`, error)
         if (process.env.SENTRY_DSN) {

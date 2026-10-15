@@ -4,6 +4,7 @@ import { configureVaultHost } from '../../api/vault'
 import { configureVaultStorageNames } from '../../sync/shared/storageNames'
 import { useAppStore } from '../../state/store'
 import { FLOCK_STORAGE_NAMES } from './storageNames'
+import { handleClientOutdated } from './clientOutdated'
 
 // Configures the vault on the main thread. Imported first by src/index.tsx so it runs before any vault code.
 configureVaultStorageNames(FLOCK_STORAGE_NAMES)
@@ -13,5 +14,8 @@ configureVaultHost({
   onSessionLost: message => {
     useAppStore.getState().setSyncStatus('offline')
     useAppStore.getState().setSyncWarning(message)
+  },
+  onClientOutdated: () => {
+    void handleClientOutdated({ showWarning: message => useAppStore.getState().setSyncWarning(message) })
   },
 })

@@ -16,8 +16,9 @@ vi.mock('./stores/syncMetadataStorage', async importOriginal => ({
 function createUpgrade(result: { failed: unknown[] } = { failed: [] }) {
   const rewriteSnapshots = vi.fn<(signal: AbortSignal) => Promise<{ failed: unknown[] }>>()
     .mockResolvedValue(result)
-  const upgrade = new SnapshotFormatUpgrade({ accountId: 'acct', rewriteSnapshots })
-  return { upgrade, rewriteSnapshots }
+  const onUpgraded = vi.fn()
+  const upgrade = new SnapshotFormatUpgrade({ accountId: 'acct', rewriteSnapshots, onUpgraded })
+  return { upgrade, rewriteSnapshots, onUpgraded }
 }
 
 describe('SnapshotFormatUpgrade', () => {
@@ -26,13 +27,14 @@ describe('SnapshotFormatUpgrade', () => {
   })
 
   it('rewrites every snapshot once synced as leader, and records that it is done', async () => {
-    const { upgrade, rewriteSnapshots } = createUpgrade()
+    const { upgrade, rewriteSnapshots, onUpgraded } = createUpgrade()
 
     upgrade.onSyncedWithoutFailures()
     expect(rewriteSnapshots).not.toHaveBeenCalled()
     upgrade.onLeaderChange(true)
 
-    await vi.waitFor(() => expect(storage.get(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND)).toBe(true))
+    await vi.waitFor(() => expect(onUpgraded).toHaveBeenCalledTimes(1))
+    expect(storage.get(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND)).toBe(true)
     expect(rewriteSnapshots).toHaveBeenCalledTimes(1)
   })
 
@@ -60,12 +62,12 @@ describe('SnapshotFormatUpgrade', () => {
 
   it('skips a device that has already rewritten its snapshots', async () => {
     storage.set(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND, true)
-    const { upgrade, rewriteSnapshots } = createUpgrade()
+    const { upgrade, rewriteSnapshots, onUpgraded } = createUpgrade()
 
     upgrade.onSyncedWithoutFailures()
     upgrade.onLeaderChange(true)
-    await new Promise(resolve => setTimeout(resolve, 0))
 
+    await vi.waitFor(() => expect(onUpgraded).toHaveBeenCalledTimes(1))
     expect(rewriteSnapshots).not.toHaveBeenCalled()
   })
 
@@ -84,7 +86,7 @@ describe('SnapshotFormatUpgrade', () => {
 
   it('leaves an incomplete rewrite for the next session', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { upgrade, rewriteSnapshots } = createUpgrade({ failed: [{ itemId: 'item-1', error: 'boom' }] })
+    const { upgrade, rewriteSnapshots, onUpgraded } = createUpgrade({ failed: [{ itemId: 'item-1', error: 'boom' }] })
 
     upgrade.onSyncedWithoutFailures()
     upgrade.onLeaderChange(true)
@@ -93,6 +95,7 @@ describe('SnapshotFormatUpgrade', () => {
 
     expect(rewriteSnapshots).toHaveBeenCalledTimes(1)
     expect(storage.has(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND)).toBe(false)
+    expect(onUpgraded).not.toHaveBeenCalled()
 
     const next = createUpgrade()
     next.upgrade.onSyncedWithoutFailures()
