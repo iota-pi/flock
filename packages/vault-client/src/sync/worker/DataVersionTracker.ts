@@ -1,5 +1,16 @@
 import { runStorageOperation } from '../utils/storageManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
+import type { DataVersionStatus, MigrationRequiredReason } from '../shared/types'
+
+/** Thrown when sync can't start until the app's migration app has run */
+export class MigrationRequiredError extends Error {
+  constructor(readonly reason: MigrationRequiredReason) {
+    super(reason === 'device'
+      ? "This device's local data needs migrating before sync can start"
+      : "This account's data needs migrating before sync can start")
+    this.name = 'MigrationRequiredError'
+  }
+}
 
 /** The data version this device's local data has been migrated to (0 when it was never recorded) */
 export async function readDeviceDataVersion(accountId: string): Promise<number> {
@@ -40,6 +51,13 @@ export class DataVersionTracker {
 
   async onSyncedWithoutFailures(): Promise<void> {
     await this.recordDeviceVersion()
+  }
+
+  /** Reads the device level and asks the server to raise the account level, reporting both */
+  async checkStatus(): Promise<DataVersionStatus> {
+    const device = await readDeviceDataVersion(this.deps.accountId)
+    const { dataVersion, blockers } = await this.deps.raiseAccountDataVersion()
+    return { device, account: dataVersion, blockers }
   }
 
   async onSnapshotsUpgraded(): Promise<void> {

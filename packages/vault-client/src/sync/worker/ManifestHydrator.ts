@@ -40,6 +40,11 @@ export type HydrateItemResult =
     itemId: ItemId
     error: unknown
   }
+  | {
+    /** A legacy row, and the app has no `decodeLegacyItem` hook: only its migration app can read it */
+    status: 'migration_required'
+    itemId: ItemId
+  }
 
 export interface FetchAndHydrateParams {
   missingIds: ItemId[]
@@ -63,6 +68,11 @@ export interface ManifestHydratorDeps {
   isShutdown?: () => boolean
   hydrationConcurrency?: number
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
+  /**
+   * Called once per batch that contains legacy rows when there is no `decodeLegacyItem` hook. Such
+   * rows are skipped rather than quarantined, so the app's migration app can still decode them.
+   */
+  onMigrationRequired?: () => void
 }
 
 export class ManifestHydrator {
@@ -123,6 +133,7 @@ export class ManifestHydrator {
     const lastModifiedUpdates: [ItemId, number][] = []
     const versionUpdates: [ItemId, number][] = []
     let hasHydrationFailures = false
+    let hasMigrationRequired = false
 
     const hydrationConcurrency = this.deps.hydrationConcurrency ?? SYNC_BATCH_SIZES.hydrationConcurrency
 
@@ -189,7 +200,16 @@ export class ManifestHydrator {
             error: result.error,
           })
           break
+        case 'migration_required':
+          // Not synced, so this sync must not count as complete (see DataVersionTracker)
+          hasHydrationFailures = true
+          hasMigrationRequired = true
+          break
       }
+    }
+
+    if (hasMigrationRequired) {
+      this.deps.onMigrationRequired?.()
     }
 
     if (hydratedIds.length > 0) {
@@ -268,6 +288,10 @@ export class ManifestHydrator {
         }
       }
 
+      if (!this.deps.decodeLegacyItem) {
+        return { status: 'migration_required', itemId }
+      }
+
       const legacyResult = await this.hydrateLegacyItem(
         itemId,
         item,
@@ -342,8 +366,9 @@ export class ManifestHydrator {
     serverVersion: number,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
-    if (!this.deps.decodeLegacyItem) return null
-    const decoded = await this.deps.decodeLegacyItem(
+    const decodeLegacyItem = this.deps.decodeLegacyItem
+    if (!decodeLegacyItem) return null
+    const decoded = await decodeLegacyItem(
       item as unknown as LegacyItemEnvelope,
       {
         ensureKey: kver => this.ensureKey(kver),

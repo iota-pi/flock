@@ -1,5 +1,5 @@
 import type { ItemId } from '@vault/shared'
-import type { SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
+import type { MigrationRequiredReason, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 
 /**
  * Where the main-thread sync client writes the state it receives from the sync worker.
@@ -24,6 +24,11 @@ export interface SyncStateSink<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   reset(): void
   /** Called after documents have been restored from a backup */
   onDataRestored?(): void
+  /**
+   * Called when sync can't run until the app's migration app has run (see
+   * `SyncWorkerConfig.minDataVersion`). The app should stop sync and send the user there.
+   */
+  onMigrationRequired?(reason: MigrationRequiredReason): void
 }
 
 /** Error reporting and diagnostics, for example backed by Sentry */

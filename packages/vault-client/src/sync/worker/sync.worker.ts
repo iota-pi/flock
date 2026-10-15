@@ -44,6 +44,28 @@ export interface SyncWorkerConfig {
    * session before any store is read, one tab at a time. Stores only read the current layout.
    */
   migrateLocalData?: (accountId: string) => Promise<void>
+  /**
+   * The lowest level of local data this app reads (see `SyncDomain.dataVersion`). Below it, if the
+   * device holds any data for the account, sync doesn't start: the worker emits `migrationRequired`
+   * and `initRepo` rejects with `MigrationRequiredError`, so the app can send the user to its
+   * migration app. Leave it unset in the migration app itself.
+   */
+  minDataVersion?: number
+  /**
+   * Whether the device holds the account's data in a layout the app no longer reads. Checked with
+   * `minDataVersion` for devices with no data in the current layout.
+   */
+  hasLegacyLocalData?: (accountId: string) => Promise<boolean>
+  /**
+   * Rewrites every snapshot once per device, so snapshots from before ciphertexts were bound to
+   * their document are replaced (see SnapshotFormatUpgrade). For an app's migration app.
+   */
+  upgradeSnapshotFormat?: boolean
+  /**
+   * Fetches the manifest on every sync, rather than at most daily on a device that has items, so
+   * every row on the server is seen. For an app's migration app.
+   */
+  fetchManifestEverySync?: boolean
 }
 
 let globalEventPort: MessagePort | null = null
@@ -341,6 +363,10 @@ export class SyncWorker implements SyncApi {
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
         domain: this.config.domain,
         migrateLocalData: this.config.migrateLocalData,
+        minDataVersion: this.config.minDataVersion,
+        hasLegacyLocalData: this.config.hasLegacyLocalData,
+        upgradeSnapshotFormat: this.config.upgradeSnapshotFormat,
+        fetchManifestEverySync: this.config.fetchManifestEverySync,
         keys: this.keyring,
       })
       if (this.latestAuthToken) {
@@ -514,6 +540,9 @@ export class SyncWorker implements SyncApi {
       success: false,
       error: 'Sync worker not initialized',
     }))
+
+  checkDataVersion = () =>
+    this.withContext(ctx => ctx.dataVersionTracker.checkStatus())
 
   retryRecoveryItem = (itemId: ItemId) =>
     this.withContext(async ctx => {

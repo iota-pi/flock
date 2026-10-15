@@ -1,4 +1,4 @@
-import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { DataVersionStatus, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import { ItemId } from '@vault/shared'
@@ -43,5 +43,10 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   claimLeader: () => Promise<void>
+  /**
+   * Reports this device's data level and asks the server to raise the account's, which it does only
+   * once the account's data has none of the app's blockers. For an app's migration app.
+   */
+  checkDataVersion: () => Promise<DataVersionStatus>
   shutdown: (options?: { clearLocalData?: boolean }) => Promise<void>
 }

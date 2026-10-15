@@ -6,6 +6,8 @@ import type { ItemId } from '@vault/shared'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { publishRealtimeBusItemDirty } from './realtimeBus'
+import { MigrationRequiredError } from './DataVersionTracker'
+import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
 
@@ -225,6 +227,13 @@ vi.mock('./ManifestSyncManager', () => ({
       this.shutdown()
     })
   },
+}))
+
+const mockReadDeviceDataVersion = vi.hoisted(() => vi.fn(async () => 0))
+
+vi.mock('./DataVersionTracker', async importOriginal => ({
+  ...await importOriginal<typeof import('./DataVersionTracker')>(),
+  readDeviceDataVersion: mockReadDeviceDataVersion,
 }))
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -491,6 +500,93 @@ describe('SyncWorkerContext', () => {
 
       await expect(ctx.initialize()).rejects.toThrow('migration failed')
       expect(startSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('device data version gate', () => {
+    function createGatedContext(options: { hasLegacyLocalData?: () => Promise<boolean> } = {}) {
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-gated',
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        internalEventHub,
+        minDataVersion: 1,
+        hasLegacyLocalData: options.hasLegacyLocalData,
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+      return ctx
+    }
+
+    it('refuses to start a device with local data below the minimum level', async () => {
+      mockReadDeviceDataVersion.mockResolvedValueOnce(0)
+      const emitSpy = vi.spyOn(clientEventHub, 'emit')
+      const migrate = vi.fn()
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-gated',
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        internalEventHub,
+        minDataVersion: 1,
+        migrateLocalData: migrate,
+      })
+      vi.spyOn(ctx.indexStore, 'getIndex').mockResolvedValue({} as any)
+      const startSpy = vi.spyOn(ctx.lifecycle, 'start')
+
+      await expect(ctx.initialize()).rejects.toThrow(MigrationRequiredError)
+
+      expect(emitSpy).toHaveBeenCalledWith({ type: 'migrationRequired', reason: 'device' })
+      expect(migrate).not.toHaveBeenCalled()
+      expect(startSpy).not.toHaveBeenCalled()
+    })
+
+    it('refuses to start a device whose only data is in a legacy layout', async () => {
+      mockReadDeviceDataVersion.mockResolvedValueOnce(0)
+      const hasLegacyLocalData = vi.fn().mockResolvedValue(true)
+      const ctx = createGatedContext({ hasLegacyLocalData })
+
+      await expect(ctx.initialize()).rejects.toThrow(MigrationRequiredError)
+      expect(hasLegacyLocalData).toHaveBeenCalledWith('test-account-gated')
+    })
+
+    it('starts a device without any data for the account', async () => {
+      mockReadDeviceDataVersion.mockResolvedValueOnce(0)
+      const ctx = createGatedContext({ hasLegacyLocalData: vi.fn().mockResolvedValue(false) })
+
+      await ctx.initialize()
+
+      expect(ctx.lifecycle.start).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts a device at the minimum level', async () => {
+      mockReadDeviceDataVersion.mockResolvedValueOnce(1)
+      const ctx = createGatedContext()
+      vi.spyOn(ctx.indexStore, 'getIndex').mockResolvedValue({} as any)
+
+      await ctx.initialize()
+
+      expect(ctx.lifecycle.start).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not check the level without a minimum', async () => {
+      await context.initialize()
+      expect(mockReadDeviceDataVersion).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('snapshot format upgrade', () => {
+    it('is off unless the app opts in', () => {
+      expect(context.snapshotFormatUpgrade).toBeNull()
+    })
+
+    it('is created when the app opts in', () => {
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-upgrade',
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        internalEventHub,
+        upgradeSnapshotFormat: true,
+      })
+      expect(ctx.snapshotFormatUpgrade).toBeInstanceOf(SnapshotFormatUpgrade)
     })
   })
 

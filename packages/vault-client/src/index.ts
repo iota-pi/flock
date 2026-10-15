@@ -3,7 +3,7 @@
 // through `@vault/client/storageNames`.
 
 export * from './api/vault'
-export { generateSalt, generateVaultKey } from './api/crypto'
+export { generateSalt, generateVaultKey, UnsupportedKeyDerivationError } from './api/crypto'
 export {
   type AutoLockMode,
   type AutoLockSettings,
@@ -22,7 +22,13 @@ export { configureVaultEndpoint, createVaultLinks, initVaultTrpcClient } from '.
 
 export { createSyncBridge, type SyncBridgeOptions, type SyncBridgeService } from './sync/client/SyncBridge'
 export { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './sync/client/host'
-export type { SyncStatus, VaultDoc, VaultMetadata } from './sync/shared/types'
+export type {
+  DataVersionStatus,
+  MigrationRequiredReason,
+  SyncStatus,
+  VaultDoc,
+  VaultMetadata,
+} from './sync/shared/types'
 export { BackupSyncStateSchema, type BackupSyncState } from './sync/shared/backupSyncState'
 export type { ManualRecoveryEntry, ManualRecoveryKind } from './sync/shared/manualRecoveryStore'
 export { getOnlineState } from './sync/utils/onlineStatus'

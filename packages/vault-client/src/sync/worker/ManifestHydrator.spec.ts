@@ -286,9 +286,40 @@ describe('ManifestHydrator', () => {
       expect(result.status).toBe('decryption_failure')
     })
 
-    it('reports a decryption failure without a hook', async () => {
+    it('reports that migration is required without a hook', async () => {
       const result = await hydrator.hydrateRemoteItem(legacyRow as any, [], new Set())
-      expect(result.status).toBe('decryption_failure')
+      expect(result).toEqual({ status: 'migration_required', itemId: 'item-legacy' })
+    })
+
+    it('skips legacy rows without a hook rather than quarantining them, and reports it once', async () => {
+      const onMigrationRequired = vi.fn()
+      const withoutHook = new ManifestHydrator({
+        accountId: 'acc-test',
+        apiClient: mockApiClient,
+        docStore: mockDocStore,
+        indexManager: mockIndexManager,
+        snapshotManager: mockSnapshotManager,
+        keys,
+        storeItems: storeItemsSpy,
+        onDecryptionFailure: onDecryptionFailureSpy,
+        onMigrationRequired,
+      })
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({
+        items: [legacyRow, { ...legacyRow, item: 'item-legacy-2' }],
+      })
+
+      const result = await withoutHook.fetchAndHydrateRemoteItems({
+        missingIds: ['item-legacy', 'item-legacy-2'] as ItemId[],
+        manifest: [],
+        serverTime: 2000,
+        knownSet: new Set(),
+        tombstoneSet: new Set(),
+      })
+
+      expect(result).toEqual({ added: [], hasFailures: true })
+      expect(onMigrationRequired).toHaveBeenCalledTimes(1)
+      expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
+      expect(storeItemsSpy).not.toHaveBeenCalled()
     })
 
     it('never falls back to the legacy payload when the snapshot fails to decrypt', async () => {
