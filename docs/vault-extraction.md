@@ -64,14 +64,14 @@ Every format change ships with full backwards compatibility, so anyone who opens
 
 ### Shape
 
-- **Hooks in the library, implementations in Flock.** The library reads and writes only current formats. Each legacy format gets a generic hook (`LegacySettingsSource` is the model). Flock's implementations live in `src/app/vault/legacy/`, which is what gets extracted. Only Flock's wiring (`syncDomain.ts`, `setup.ts`, `vault.worker.ts`) may import from it, and a lint rule enforces this.
+- **Hooks in the library, implementations in Flock.** The library reads and writes only current formats. Each legacy format gets a generic hook (`LegacySettingsSource` is the model). Flock's implementations lived in `src/app/vault/legacy/` until level 1 was extracted, and now live in the migration app (`src/migrate/legacy/`). The main app may import only `src/migrate/detection.ts`, and a lint rule enforces this.
 - **Migration levels.** A migration level is a numbered set of migrations. Level 1 is stage 2. Two markers record how far migration has got:
   - The **account level** (`dataVersion` on the account record) describes the server's data. Clients ask for it to be raised once their migrations finish. The server only raises it after checking the account's rows itself (one query on the account's partition) and never lowers it. `getSecurityParams` returns it, because the app has to decide where to send the user before deriving keys.
   - The **device level** describes local data. It is kept in the account's sync metadata database (`deviceDataVersion`), because the worker writes it and workers have no localStorage. The worker writes it after a manifest sync without failures, by which point the session has run every local migration. A device with no vault data starts at the current level. The WAL doesn't count: it holds plaintext changes in the current format, never a legacy one.
 - **Old builds.** A device that has been away loads its cached build first, and that build talks to the server until the service worker updates it (`registerType: 'autoUpdate'`). The client sends its protocol version in a header; builds from before the header count as version 0. The server rejects writes below `minProtocolVersion` with a dedicated error, and the client responds by updating the service worker and reloading. Server shims that exist only for old builds (dropping legacy fields, accepting writes and discarding them) are removed when the minimum is raised. That can happen weeks after a release, independently of the migration app.
 - **Destructive cleanups wait.** A server migration that removes data a legacy path still reads (`removeLegacyAccountMetadata`, removing `cipher`) runs only when its level is retired, because until then the migration app needs that data.
 
-### Extraction (later)
+### Extraction
 
 1. Move `src/app/vault/legacy/` and Flock's legacy server procedures into the migration app: a separate Vite entry built against the current library plus the legacy hooks, with a login screen and a progress view. It must be served from the **same origin** (for example `/migrate/`), because local data in IndexedDB and localStorage is per origin. The service worker must not serve the main app's shell for that path. The legacy server procedures go into a `migration` router that only the migration app calls.
 2. In the main app, route to the migration app when the stored account's device level is below the minimum (checked at startup, before the worker opens) or when `getSecurityParams` reports an account level below the minimum.
@@ -79,6 +79,38 @@ Every format change ships with full backwards compatibility, so anyone who opens
 4. Retire a level once the account-level scan shows no accounts below it, or the rest are accepted as abandoned. `lastAccess` on the account (set at login and when a session is renewed) makes that call possible. Then run the level's destructive cleanups and delete its migrations from the migration app.
 
 The migration app is rebuilt against the current library, so the library keeps the legacy hooks after extraction and their signatures have to stay stable. Each new level follows the same path: compatibility in the main app first, then extraction.
+
+Status for level 1: steps 1–3 **done**; step 4 waits for the account-level scan.
+
+As built:
+
+- **The migration app** is a second page of Flock's Vite build: `migrate/index.html` → `src/migrate/main.tsx`, served at `/migrate/`. It's same-origin, ships in the same deploy, and the service worker precaches it like the main app.
+  - Its worker (`migrate.worker.ts`) runs the main app's engine and domain plus every legacy hook:
+    - `decodeLegacyItem` and `legacySettings`
+    - `migrateLocalData`
+    - `upgradeSnapshotFormat`
+    - `fetchManifestEverySync`. Without it, a device that synced within the day would skip the manifest and never see a legacy row, and a skipped sync still counts as one without failures.
+  - Flow:
+    1. It logs in (online only), so the key derivation upgrade (2.5d) happens here.
+    2. It announces itself on the `flock-migration` BroadcastChannel, so the main app's tabs lock themselves and its engine is the only one running.
+    3. It syncs, polling `SyncApi.checkDataVersion` until both levels reach `MIN_DATA_VERSION`.
+    4. It clears the legacy local stores, locks, and returns to `/`, where the user logs in again.
+  - If blockers remain once sync has settled (for example a `cipher` row that won't decrypt, which is quarantined to manual recovery), the page lists them and offers:
+    - **Try again**: a full resync.
+    - **Continue**: defers the main app's account-level check on this device for 30 days (`deferMigration`). The quarantined items stay under data recovery.
+- **Gates in the main app.** The main app no longer passes the legacy hooks, `decodeLegacySalt` or `migrateLocalData`. It sends data below the minimum to `/migrate/` (`goToMigration`) from three places:
+  - The **worker**: `SyncWorkerConfig.minDataVersion`. Below it, a device with an index or with any per-store legacy database (`hasLegacyLocalData`) doesn't start. The worker emits `migrationRequired` and `initRepo` rejects with `MigrationRequiredError`. This runs before anything else in `initialize`, because starting would record the current level for a device whose only data is in a legacy layout.
+  - The **hydrator**: with no `decodeLegacyItem`, a row without a snapshot is reported as `migration_required`. It is skipped rather than quarantined, and the sync doesn't count as complete. Flock's sink (`onMigrationRequired`) locks the vault and goes to `/migrate/`.
+  - The **login page**: when `getSecurityParams` reports an account level below the minimum, it routes before deriving keys (unless deferred). It also routes on `UnsupportedKeyDerivationError`, which comes from a cached legacy salt during an offline login.
+- **The snapshot rewrite** (`SnapshotFormatUpgrade`) is opt-in, and only the migration app runs it. The main app still *reads* unbound ciphertexts, because cached builds can write them while `MIN_PROTOCOL_VERSION` is 0.
+- **Server:** the migration app calls `migration.getLegacySettings` and `migration.clearLegacySettings` (`src/vault/trpc/routers/migration.ts`). `accounts.getMetadata`, `accounts.clearMetadata` and `accounts.updateMetadata` stay as shims for cached builds until `MIN_PROTOCOL_VERSION` is raised past them.
+- **Testing:** `scripts/seedLegacyAccount.ts` puts a local account back at level 0, with a `cipher` item and plaintext settings, for checking the flow by hand.
+
+Still to do for level 1:
+
+- Raise `MIN_PROTOCOL_VERSION`, then remove the `accounts.*` shims.
+- 90 days later (the sync message TTL), stop reading unbound ciphertexts in the main app and reject unbound writes on the server.
+- Step 4: retire the level.
 
 ## Stages
 
