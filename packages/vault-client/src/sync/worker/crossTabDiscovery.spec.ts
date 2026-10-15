@@ -1,5 +1,5 @@
 import { toDocumentIdFromItemId } from './utils/automerge'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../shared/types'
 import { ItemOperations } from './ItemOperations'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'

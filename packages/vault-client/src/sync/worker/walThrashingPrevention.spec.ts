@@ -14,7 +14,7 @@ import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWrite
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 const { mockStores } = vi.hoisted(() => ({
   mockStores: new Map<string, MockLocalforage>(),

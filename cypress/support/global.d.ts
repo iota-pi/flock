@@ -5,7 +5,7 @@ declare global {
     vault?: Promise<typeof import('@vault/client')>
     mutations?: Promise<typeof import('../../src/features/items/mutations/itemMutations')>
     syncBridge?: Promise<typeof import('../../src/app/vault/syncBridge').SyncBridge>
-    hasApiAuthToken?: typeof import('@vault/client/runtime').hasApiAuthToken
+    hasApiAuthToken?: typeof import('@vault/client').hasApiAuthToken
   }
 }
 

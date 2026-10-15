@@ -4,7 +4,7 @@ import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID, BackupDocId } from '../utils/automerge'
 import type { VaultDoc } from '../../shared/types'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 const testRepo = new Repo()
 

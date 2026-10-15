@@ -1,4 +1,4 @@
-import { getVaultStorageNames } from '../../sync/shared/storageNames'
+import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 function bufferToBase64(buf: ArrayBuffer): string {
   return new Uint8Array(buf).toBase64()

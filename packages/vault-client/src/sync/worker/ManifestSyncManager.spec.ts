@@ -1,5 +1,5 @@
 import { ManifestSyncManager } from './ManifestSyncManager'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 // Mock dependencies
 const mockListAutomergeItemIds = vi.fn()
@@ -28,7 +28,7 @@ vi.mock('./docStore', () => ({
 
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
-vi.mock('../../api/vault/ItemClient', () => ({
+vi.mock('../../api/ItemClient', () => ({
   fetchManifest: (...args: any[]) => mockFetchManifest(...args),
   fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
 }))

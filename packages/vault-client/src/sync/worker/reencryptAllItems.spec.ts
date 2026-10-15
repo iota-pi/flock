@@ -7,7 +7,7 @@ const mockPutSnapshotsWithToken = vi.fn()
 const mockGetActiveSessionToken = vi.fn()
 const mockListAutomergeItemIds = vi.fn()
 
-vi.mock('../../api/vault/SyncWorkerClient', () => ({
+vi.mock('../../api/SyncWorkerClient', () => ({
   putSnapshotsWithToken: (...args: any[]) => mockPutSnapshotsWithToken(...args),
 }))
 

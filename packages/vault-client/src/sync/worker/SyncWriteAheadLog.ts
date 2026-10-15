@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { runStorageOperation } from '../utils/storageManager'
 import { packBatchedMessages } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'

@@ -2,9 +2,8 @@ import { z } from 'zod'
 import {
   LegacyItemEnvelopeSchema,
   StandardItemEnvelopeSchema,
-  TombstoneItemEnvelopeSchema,
-} from '@vault/shared/envelopes'
-import { CreateAccountBodySchema, AccountCreationResponseSchema } from '@vault/shared/api'
+  TombstoneItemEnvelopeSchema, CreateAccountBodySchema, AccountCreationResponseSchema 
+} from '@vault/shared'
 
 const VaultEnvelopeSchema = z.union([
   LegacyItemEnvelopeSchema,

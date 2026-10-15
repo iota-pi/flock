@@ -3,7 +3,7 @@ import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
 } from './syncMetadataStorage'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 import { createMockLocalForagePool } from '../__test__/testUtils'
 

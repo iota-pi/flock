@@ -1,4 +1,4 @@
-import { getVaultStorageNames } from '../../sync/shared/storageNames'
+import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 export type BiometricStoredData = {
   account?: string

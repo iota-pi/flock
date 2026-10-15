@@ -8,7 +8,7 @@ import type { GroupLookupData } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAppStore } from './store'
 import { ERROR_ITEM_TYPE, type ErrorItem, type GroupItem } from 'src/shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 const EMPTY_ARRAY: Item[] = []
 type PrayerScheduleInputs = {

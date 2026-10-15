@@ -1,4 +1,4 @@
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import type { SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 
 /**

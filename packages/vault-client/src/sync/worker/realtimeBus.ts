@@ -1,4 +1,4 @@
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import { getVaultStorageNames } from '../shared/storageNames'
 
 export type SyncPingListener = (itemIds: ItemId[]) => void

@@ -1,7 +1,7 @@
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { createFakeSink, createFakeTelemetry } from './__test__/fakeHost'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 describe('SyncEventProcessor', () => {
   let processor: SyncEventProcessor

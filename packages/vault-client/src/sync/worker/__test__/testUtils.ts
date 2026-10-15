@@ -1,6 +1,6 @@
 import type { Mock } from 'vitest'
 import { ClientEventHub, WorkerInternalEventHub } from '../SyncEventHub'
-import type { KeyProvider } from '../../../api/vault/Keyring'
+import type { KeyProvider } from '../../../api/Keyring'
 
 /**
  * Mock LocalForage storage instance implementing common localforage methods.

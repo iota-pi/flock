@@ -1,8 +1,7 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from './syncBridge'
-import { resumePendingReencryption } from '@vault/client/reencrypt'
-import { fireAndForget } from '@vault/client/sync/utils/fireAndForget'
+import { resumePendingReencryption, fireAndForget } from '@vault/client'
 
 export default function useSyncCoordinatorLifecycle(
   account: string | null | undefined,

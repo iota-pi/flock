@@ -1,6 +1,6 @@
 import deepEqual from 'fast-deep-equal'
 import type { VaultMetadata } from '../shared/types'
-import { settingsDocId, type ItemId } from '@vault/shared/ids'
+import { settingsDocId, type ItemId } from '@vault/shared'
 import type { AutomergeDocStore, AutomergeIndexManager, RepoDoc } from './docStore'
 import type { ClientEventHub } from './SyncEventHub'
 import type { DocCodec, LegacySettingsContext, LegacySettingsSource } from './domain'

@@ -1,10 +1,13 @@
 import localforage from 'localforage'
-import type { ItemId } from '@vault/shared/ids'
-import { createAccountStore, getAccountDatabaseName } from '@vault/client/sync/shared/createAccountStore'
-import { runStorageOperation } from '@vault/client/sync/utils/storageManager'
-import type { PersistedSyncCursors } from '@vault/client/sync/worker/stores/CursorStore'
-import type { ItemSyncTimestamps } from '@vault/client/sync/worker/stores/LastModifiedStore'
-import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '@vault/client/sync/worker/stores/syncMetadataStorage'
+import type { ItemId } from '@vault/shared'
+import {
+  createAccountStore,
+  getAccountDatabaseName,
+  runStorageOperation,
+  getSyncMetadataStorage,
+  SYNC_METADATA_KEYS,
+} from '@vault/client/worker'
+import type { PersistedSyncCursors, ItemSyncTimestamps } from '@vault/client/worker'
 
 /**
  * Brings a device's local sync metadata from Flock's older layouts into the current one:

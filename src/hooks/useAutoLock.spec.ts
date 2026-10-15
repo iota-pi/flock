@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import useAutoLock from './useAutoLock'
 import * as session from '../app/vault/session'
-import * as autoLockStore from '@vault/client/autoLockStore'
+import * as autoLockStore from '@vault/client'
 import { useAppStore } from '../state/store'
 
 describe('useAutoLock hook', () => {

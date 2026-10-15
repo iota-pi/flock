@@ -14,7 +14,7 @@ import {
 } from './selectors'
 import { useAppStore } from './store'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 
 vi.mock('../features/items/mutations/itemMutations', () => ({

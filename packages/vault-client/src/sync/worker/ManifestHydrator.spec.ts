@@ -1,5 +1,5 @@
 import { ManifestHydrator } from './ManifestHydrator'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 

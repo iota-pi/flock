@@ -2,7 +2,7 @@ import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
 import { isSameDay } from './index'
 import { compareItems, filterArchived, Item } from '../state/items'
 import type { GroupItem } from '../shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000
 

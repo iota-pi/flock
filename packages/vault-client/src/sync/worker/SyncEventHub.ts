@@ -1,5 +1,5 @@
 import type { SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { PollOutcome } from './SyncPoller'
 

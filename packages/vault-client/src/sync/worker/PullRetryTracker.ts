@@ -1,6 +1,6 @@
-import type { KeyProvider } from '../../api/vault/Keyring'
-import { ItemId } from '@vault/shared/ids'
-import type { PageToken } from '@vault/shared/api'
+import type { KeyProvider } from '../../api/Keyring'
+import { ItemId } from '@vault/shared'
+import type { PageToken } from '@vault/shared'
 
 export interface ItemPullState {
   cursor: number

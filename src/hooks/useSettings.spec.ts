@@ -2,8 +2,8 @@ import { act, renderHook } from '@testing-library/react'
 
 import useSettings from './useSettings'
 import type { Item } from 'src/state/items'
-import type { BackupSyncState } from '@vault/client/sync/shared/backupSyncState'
-import { ItemId } from '@vault/shared/ids'
+import type { BackupSyncState } from '@vault/client'
+import { ItemId } from '@vault/shared'
 
 
 const mocks = vi.hoisted(() => ({
@@ -38,7 +38,8 @@ vi.mock('../app/vault/session', () => ({
   removeVaultFromDevice: mocks.removeVaultFromDevice,
 }))
 
-vi.mock('@vault/client', () => ({
+vi.mock('@vault/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@vault/client')>(),
   exportData: mocks.exportData,
   hasBiometricData: mocks.hasBiometricData,
   subscribeBiometrics: mocks.subscribeBiometrics,

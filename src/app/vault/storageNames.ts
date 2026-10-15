@@ -1,4 +1,4 @@
-import type { VaultStorageNames } from '@vault/client/sync/shared/storageNames'
+import type { VaultStorageNames } from '@vault/client/storageNames'
 
 /** The names Flock has always used. Changing any of them orphans existing users' local data. */
 export const FLOCK_STORAGE_NAMES: VaultStorageNames = {

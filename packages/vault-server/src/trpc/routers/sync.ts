@@ -1,9 +1,9 @@
 import { TRPCError } from '@trpc/server'
 import { protectedProcedure, router } from '../trpc'
-import { SyncPushBatchSchema, SyncPollBatchSchema, type PageToken } from '@vault/shared/api'
+import { SyncPushBatchSchema, SyncPollBatchSchema, type PageToken } from '@vault/shared'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
 import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import { InvalidPageTokenError } from '../../drivers/errors'
 
 

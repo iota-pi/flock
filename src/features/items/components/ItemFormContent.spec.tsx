@@ -6,7 +6,7 @@ import getTheme from 'src/theme'
 import ItemFormContent from './ItemFormContent'
 import type { Item } from 'src/state/items'
 import { getBlankPerson } from 'src/state/items'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 
 vi.mock('src/components/FrequencyControls', () => ({

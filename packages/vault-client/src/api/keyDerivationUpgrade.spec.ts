@@ -11,11 +11,11 @@ import {
   StaleBiometricKeyError,
   storeVault,
   unlockWithBiometrics,
-} from './index'
+} from './vault'
 import { changePassword, getKeyring, getSession } from './client'
 import { decryptWithKey, deriveVaultKey, encryptWithKey, exportVaultKey } from './crypto'
 import { writeBiometricData } from './biometricStore'
-import { ApiHttpError } from '../trackedFetch'
+import { ApiHttpError } from './trackedFetch'
 
 vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
@@ -26,7 +26,7 @@ vi.mock('./client', () => ({
   changePassword: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../../sync/shared/workerAuthStore', () => ({
+vi.mock('../sync/shared/workerAuthStore', () => ({
   setActiveSessionToken: vi.fn(),
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-session'),
   clearActiveSessionToken: vi.fn(),

@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import { generateItemId, type ItemId } from '@vault/shared/ids'
+import { generateItemId, type ItemId } from '@vault/shared'
 import type { AppStore } from '../store'
 
 export interface DrawerData {

@@ -9,9 +9,9 @@ const keys = createMockKeyProvider()
 import { AutomergeIndexManager } from './docStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared/limits'
+import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
 
 function createSyncMessage(itemId: string, data: number[]): Message {
   const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))

@@ -1,4 +1,4 @@
-import { getVaultTrpcClient } from '../vaultTrpcClient'
+import { getVaultTrpcClient } from './vaultTrpcClient'
 import { assertSuccess } from './clientUtils'
 import type {
   AccountCreationResponse,

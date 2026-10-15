@@ -15,7 +15,7 @@ import { AutomergeDocStore } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
 
@@ -23,7 +23,7 @@ const mockPollSyncBatchWithToken = vi.fn()
 
 const keys = createMockKeyProvider()
 
-vi.mock('../../api/vault/SyncWorkerClient', () => ({
+vi.mock('../../api/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
 }))
 

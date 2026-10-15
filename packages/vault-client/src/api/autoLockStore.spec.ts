@@ -5,7 +5,7 @@ import {
   getAutoLockSummary,
   DEFAULT_AUTO_LOCK_SETTINGS,
 } from './autoLockStore'
-import { getVaultStorageNames } from '../../sync/shared/storageNames'
+import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 describe('autoLockStore', () => {
   beforeEach(() => {

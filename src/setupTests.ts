@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { configureVaultStorageNames } from '@vault/client/sync/shared/storageNames'
+import { configureVaultStorageNames } from '@vault/client/storageNames'
 import { FLOCK_STORAGE_NAMES } from './app/vault/storageNames'
 
 

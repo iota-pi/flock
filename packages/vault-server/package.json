@@ -4,16 +4,11 @@
   "description": "Vault server: services, the DynamoDB driver and tRPC routers",
   "private": true,
   "type": "module",
+  "sideEffects": false,
   "license": "MIT",
   "exports": {
-    "./drivers/base": "./src/drivers/base.ts",
-    "./drivers/dynamo": "./src/drivers/dynamo.ts",
-    "./router": "./src/trpc/vaultRouter.ts",
-    "./routers/accounts": "./src/trpc/routers/accounts.ts",
-    "./routers/items": "./src/trpc/routers/items.ts",
-    "./routers/sync": "./src/trpc/routers/sync.ts",
-    "./services/dataVersion": "./src/services/dataVersion.ts",
-    "./trpc": "./src/trpc/trpc.ts"
+    ".": "./src/index.ts",
+    "./dynamo": "./src/drivers/dynamo.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

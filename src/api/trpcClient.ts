@@ -1,7 +1,7 @@
 import { createTRPCProxyClient } from '@trpc/client'
 import type { AppRouter } from '../vault/trpc/root'
 import env from '../env'
-import { createVaultLinks } from '@vault/client/trpc'
+import { createVaultLinks } from '@vault/client'
 
 export type AppTrpcClient = ReturnType<typeof createTRPCProxyClient<AppRouter>>
 

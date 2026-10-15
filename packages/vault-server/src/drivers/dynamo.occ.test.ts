@@ -1,8 +1,7 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { getConnectionParams } from './dynamo'
-import { generateItemId } from '@vault/shared/ids'
+import { generateItemId, VersionConflictError } from '@vault/shared'
 import { generateAccountId } from '../util'
-import { VersionConflictError } from '@vault/shared/syncErrors'
 
 const driver = new DynamoDriver()
 

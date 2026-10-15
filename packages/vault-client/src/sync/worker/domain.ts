@@ -1,6 +1,6 @@
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import type { VaultDoc, VaultMetadata } from '../shared/types'
-import type { CryptoResult } from '../../api/vault/crypto'
+import type { CryptoResult } from '../../api/crypto'
 
 /** A plain snapshot of an Automerge document, or a draft inside `handle.change` */
 export type RawDoc = Record<string, unknown>

@@ -1,16 +1,15 @@
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId, ManifestEntry } from '@vault/shared'
 import { SyncApiClient } from './SyncApiClient'
-import type { VaultItem } from '../../api/vault/clientTypes'
+import type { VaultItem } from '../../api/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import type { SyncDomain } from './domain'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { isAuthError } from './utils/errorClassifier'
-import type { ManifestEntry } from '@vault/shared/api'
 import {
   ManifestDeltaCalculator,
   type SyncDeltas,
@@ -22,7 +21,7 @@ import {
   type FetchAndHydrateParams,
 } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
-import type { KeyProvider } from '../../api/vault/Keyring'
+import type { KeyProvider } from '../../api/Keyring'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000

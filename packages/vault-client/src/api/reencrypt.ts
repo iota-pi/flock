@@ -1,4 +1,4 @@
-import { rotateVaultKey, exportKeyringData } from './index'
+import { rotateVaultKey, exportKeyringData } from './vault'
 
 /** The parts of the sync bridge that re-encryption drives */
 export interface ReencryptionTarget {

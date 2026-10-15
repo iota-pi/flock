@@ -1,4 +1,4 @@
-import { MAX_ITEM_SIZE_BYTES } from '@vault/shared/limits'
+import { MAX_ITEM_SIZE_BYTES } from '@vault/shared'
 
 export interface SizeAwareBatchAccumulatorOptions<T> {
   maxBatchCount?: number

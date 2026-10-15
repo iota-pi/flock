@@ -21,8 +21,7 @@ import {
   VisibilityIcon,
   VisibilityOffIcon,
 } from '../Icons'
-import { createAccount, initialiseVault } from '@vault/client'
-import { generateSalt } from '@vault/client/crypto'
+import { createAccount, initialiseVault, generateSalt } from '@vault/client'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'

@@ -1,5 +1,5 @@
-import { router, protectedProcedure } from '@vault/server/trpc'
-import type { VaultAccountWithAuth } from '@vault/server/drivers/base'
+import { router, protectedProcedure } from '@vault/server'
+import type { VaultAccountWithAuth } from '@vault/server'
 import {
   SnoozeRemindersBodySchema,
   PushSubscriptionBodySchema,
@@ -7,7 +7,7 @@ import {
   ReminderSettingsBodySchema,
 } from 'src/shared/schemas/notifications'
 import { LegacyMetadataBodySchema } from 'src/shared/schemas/metadata'
-import { AccountInputSchema } from '@vault/shared/api'
+import { AccountInputSchema } from '@vault/shared'
 import { toZonedTime } from 'date-fns-tz'
 import type { FlockAccountFields } from '../../types'
 

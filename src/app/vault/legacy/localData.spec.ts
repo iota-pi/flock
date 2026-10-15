@@ -5,20 +5,61 @@ import {
   normalizeCursors,
   probeDatabaseExists,
 } from './localData'
-import { clearAccountStoreInstancesCacheForTesting } from '@vault/client/sync/shared/createAccountStore'
-import type { ItemId } from '@vault/shared/ids'
-import { createMockLocalForagePool, type MockLocalforage } from '@vault/client/testing'
+import localforage from 'localforage'
+import type { ItemId } from '@vault/shared'
 
-const pool = createMockLocalForagePool()
+/** An in-memory localforage instance */
+class MemoryStore {
+  data = new Map<string, any>()
+  getItem = vi.fn(async (key: string) => this.data.get(key) ?? null)
+  setItem = vi.fn(async (key: string, value: any) => {
+    this.data.set(key, value)
+    return value
+  })
+
+  removeItem = vi.fn(async (key: string) => {
+    this.data.delete(key)
+  })
+
+  clear = vi.fn(async () => {
+    this.data.clear()
+  })
+
+  keys = vi.fn(async () => Array.from(this.data.keys()))
+  iterate = vi.fn(async (iteratee: (value: any, key: string, iterationNumber: number) => unknown) => {
+    let iterationNumber = 1
+    for (const [key, value] of this.data) {
+      const result = iteratee(value, key, iterationNumber)
+      if (result !== undefined) return result
+      iterationNumber += 1
+    }
+    return undefined
+  })
+}
+
+// The vault caches store instances, so tests reuse them and only clear their data
+const stores = new Map<string, MemoryStore>()
+
+function getStore({ name, storeName }: { name?: string, storeName?: string }): MemoryStore {
+  const key = `${name}#${storeName}`
+  let store = stores.get(key)
+  if (!store) {
+    store = new MemoryStore()
+    stores.set(key, store)
+  }
+  return store
+}
+
+function resetStores() {
+  for (const store of stores.values()) {
+    store.data.clear()
+  }
+}
 
 vi.mock('localforage', () => ({
   default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => pool.createInstance(config)),
+    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => getStore(config)),
   },
-}))
-
-vi.mock('@vault/client/sync/utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
 
 const accountId = 'acc-1'
@@ -30,20 +71,26 @@ const LEGACY_DATABASES = {
 }
 const MANUAL_RECOVERY_DB = `FlockVault_ManualRecoveryDB_${accountId}`
 
-function metadataStore(): MockLocalforage {
-  return pool.getOrCreateInstance({ name: `flock-sync-metadata-${accountId}`, storeName: 'sync-metadata' })
+function metadataStore(): MemoryStore {
+  return getStore({ name: `flock-sync-metadata-${accountId}`, storeName: 'sync-metadata' })
 }
 
-function manualRecoveryStore(): MockLocalforage {
-  return pool.getOrCreateInstance({ name: MANUAL_RECOVERY_DB, storeName: 'manual-recovery-items' })
+function manualRecoveryStore(): MemoryStore {
+  return getStore({ name: MANUAL_RECOVERY_DB, storeName: 'manual-recovery-items' })
 }
 
-function manualRecoveryMetaStore(): MockLocalforage {
-  return pool.getOrCreateInstance({ name: MANUAL_RECOVERY_DB, storeName: 'manual-recovery-metadata' })
+function manualRecoveryMetaStore(): MemoryStore {
+  return getStore({ name: MANUAL_RECOVERY_DB, storeName: 'manual-recovery-metadata' })
 }
 
-function legacyStore(database: { name: string, storeName: string }): MockLocalforage {
-  return pool.getOrCreateInstance(database)
+function legacyStore(database: { name: string, storeName: string }): MemoryStore {
+  return getStore(database)
+}
+
+function wasOpened(database: { name: string, storeName: string }): boolean {
+  return vi.mocked(localforage.createInstance).mock.calls.some(
+    ([config]) => config?.name === database.name && config?.storeName === database.storeName,
+  )
 }
 
 function mockExistingDatabases(names: string[]) {
@@ -65,8 +112,7 @@ function restoreIndexedDb() {
 describe('migrateLegacyLocalData', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    pool.reset()
-    clearAccountStoreInstancesCacheForTesting()
+    resetStores()
     // Most tests don't care about manual recovery, so mark it done
     metadataStore().data.set('manualRecoveryMigrated', true)
   })
@@ -165,7 +211,7 @@ describe('migrateLegacyLocalData', () => {
     await migrateLegacyLocalData(accountId)
 
     for (const database of Object.values(LEGACY_DATABASES)) {
-      expect(pool.getInstance(database.name, database.storeName)).toBeUndefined()
+      expect(wasOpened(database)).toBe(false)
     }
   })
 
@@ -237,8 +283,7 @@ describe('normalizeCursors', () => {
 describe('manual recovery migration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    pool.reset()
-    clearAccountStoreInstancesCacheForTesting()
+    resetStores()
   })
 
   it('keys legacy entries by item ID and sets the flag', async () => {
@@ -326,8 +371,7 @@ describe('manual recovery migration', () => {
 describe('clearLegacyLocalData', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    pool.reset()
-    clearAccountStoreInstancesCacheForTesting()
+    resetStores()
   })
 
   afterEach(restoreIndexedDb)
@@ -341,13 +385,13 @@ describe('clearLegacyLocalData', () => {
 
     expect(legacyStore(LEGACY_DATABASES.cursors).data.size).toBe(0)
     expect(manualRecoveryMetaStore().data.size).toBe(0)
-    expect(pool.getInstance(LEGACY_DATABASES.indexDoc.name, LEGACY_DATABASES.indexDoc.storeName)).toBeUndefined()
+    expect(wasOpened(LEGACY_DATABASES.indexDoc)).toBe(false)
   })
 
   it('does nothing without an account', async () => {
     await clearLegacyLocalData('')
 
-    expect(pool.instances.size).toBe(0)
+    expect(localforage.createInstance).not.toHaveBeenCalled()
   })
 })
 

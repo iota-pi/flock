@@ -2,7 +2,7 @@ import Grid from '@mui/material/Grid'
 
 import NotesSection from 'src/components/NotesSection'
 import type { Note } from 'src/shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 
 type ItemFormNotesSectionProps = {

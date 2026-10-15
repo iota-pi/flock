@@ -2,8 +2,12 @@ import { initTRPC, TRPCError } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type BaseDriver from '../drivers/base'
 import type { VaultAccountWithAuth } from '../drivers/base'
-import { AccountInputSchema } from '@vault/shared/api'
-import { CLIENT_OUTDATED_MESSAGE, parseProtocolVersion, PROTOCOL_VERSION_HEADER } from '@vault/shared/protocol'
+import {
+  AccountInputSchema,
+  CLIENT_OUTDATED_MESSAGE,
+  parseProtocolVersion,
+  PROTOCOL_VERSION_HEADER,
+} from '@vault/shared'
 import type { DataVersionPolicy } from '../services/dataVersion'
 import { safeEqual } from '../util'
 

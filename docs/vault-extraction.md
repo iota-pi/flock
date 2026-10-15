@@ -207,11 +207,18 @@ Status: **done.**
 - `KeyProvider`: the keyring state moved into a `Keyring` class (`api/vault/Keyring.ts`). The main thread keeps one in `index.ts`; the sync worker owns another, loaded from `exportKeyringData`, and passes it to its components as a `KeyProvider` (`hasKey`, `waitForKey`, `encryptBytes`, `decryptBytes`). `initWorkerVault` is gone, and nothing in the worker reads keys from `api/vault/index.ts`. `LegacyItemContext` gained `decrypt`, because the worker realm's module keyring is no longer loaded; Flock's `decodeLegacyCipherItem` uses it instead of `decryptObject`, which was removed.
 - `getAuthToken` (Flock's server, unused) was deleted. `api/vault/util.ts` stopped relying on Flock's global `window.Cypress` type.
 
-Follow-ups:
+Follow-ups (done; the paths and entry points above are from before them):
 
-- The entry points mirror today's file layout. Before stage 4, curate them into a few barrels (for example `@vault/client/worker`) and flatten `api/vault/` in the client package.
-- `@vault/client` depends on `@vault/server` (as a dev dependency) for the `VaultRouter` type and one integration spec. Publishing would need a type-only peer or a router type in `@vault/shared`.
-- `@vault/client/testing` is exported only for Flock's `legacy/localData.spec.ts`.
+- Entry points. The exports map had one entry per module Flock imported, mirroring the file layout. Each package now has a few curated barrels instead:
+  - `@vault/shared`: every shared module (`src/index.ts`).
+  - `@vault/client` (`src/index.ts`): the main thread's API. That covers accounts, sessions, keys and biometrics (`api/vault.ts`), auto-lock, re-encryption, the tRPC client and its fetch, `createSyncBridge` and its host types, and the few sync types and helpers Flock's UI reads.
+  - `@vault/client/worker` (`src/worker.ts`): `exposeSyncWorker`, the `domain.ts` hooks, `Keyring` and the storage primitives `migrateLocalData` needs. Only the app's worker imports it, so the engine stays out of the main bundle.
+  - `@vault/client/storageNames`: `storageNames.ts`, which has no imports. It is separate so test setup can configure names without evaluating the rest of the client. Otherwise the client's modules bind the real `localforage` before a spec can mock it.
+  - `@vault/server` (`src/index.ts`): the tRPC context and routers, services, the driver interface (`BaseDriver`) and errors.
+  - `@vault/server/dynamo`: the DynamoDB driver.
+- `api/vault/` was flattened into the client's `api/`, with `index.ts` renamed `api/vault.ts`.
+- `@vault/server` is a peer dependency of `@vault/client` (and a dev dependency, for the integration spec that runs the real sync router). The client's source may only import its types, and lint enforces this, so at runtime the client never loads server code. Apps install both packages anyway.
+- `@vault/client/testing` is gone. A test-utilities entry would make vitest a dependency of the published package, so Flock's `legacy/localData.spec.ts` keeps its own in-memory localforage fake.
 
 ### Stage 4: publish
 

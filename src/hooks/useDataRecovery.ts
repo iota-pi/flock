@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ManualRecoveryEntry } from '@vault/client/sync/shared/manualRecoveryStore'
+import type { ManualRecoveryEntry } from '@vault/client'
 import { useAppStore } from '../state/store'
 import { SyncBridge } from '../app/vault/syncBridge'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 
 export function useDataRecovery() {

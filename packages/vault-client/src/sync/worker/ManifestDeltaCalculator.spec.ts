@@ -1,5 +1,5 @@
 import { ManifestDeltaCalculator } from './ManifestDeltaCalculator'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 describe('ManifestDeltaCalculator', () => {
   describe('calculateSyncDeltas', () => {

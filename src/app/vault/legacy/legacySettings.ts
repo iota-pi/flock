@@ -1,6 +1,6 @@
 import type { AccountMetadata } from '../../../state/metadata'
 import { extractLegacySyncableMetadata } from '../../../shared/schemas/metadata'
-import type { LegacySettingsSource } from '@vault/client/sync/worker/domain'
+import type { LegacySettingsSource } from '@vault/client/worker'
 import { createTrpcClient, type AppTrpcClient } from '../../../api/trpcClient'
 
 /**

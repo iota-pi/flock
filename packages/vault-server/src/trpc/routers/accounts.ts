@@ -7,7 +7,7 @@ import {
   LoginBodySchema,
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
-} from '@vault/shared/api'
+} from '@vault/shared'
 import { hashString, safeEqual } from '../../util'
 import { raiseDataVersion } from '../../services/dataVersion'
 

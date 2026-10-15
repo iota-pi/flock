@@ -4,18 +4,10 @@
   "description": "Wire schemas, IDs, size limits and isomorphic helpers shared by the vault client and server",
   "private": true,
   "type": "module",
+  "sideEffects": false,
   "license": "MIT",
   "exports": {
-    "./api": "./src/api.ts",
-    "./concurrency": "./src/concurrency.ts",
-    "./crypto": "./src/crypto.ts",
-    "./envelopes": "./src/envelopes.ts",
-    "./ids": "./src/ids.ts",
-    "./limits": "./src/limits.ts",
-    "./protocol": "./src/protocol.ts",
-    "./snapshots": "./src/snapshots.ts",
-    "./storage": "./src/storage.ts",
-    "./syncErrors": "./src/syncErrors.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

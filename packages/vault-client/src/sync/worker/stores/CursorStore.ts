@@ -1,4 +1,4 @@
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { ScopedMetadataStore, SYNC_METADATA_KEYS } from './syncMetadataStorage'
 
 export interface PersistedSyncCursors {

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CryptoResultSchema, DOC_BOUND_FORMAT } from '@vault/shared/crypto'
+import { CryptoResultSchema, DOC_BOUND_FORMAT } from '@vault/shared'
 import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 
 

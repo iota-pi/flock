@@ -1,7 +1,7 @@
 import type { VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 /**
  * The sync worker's Comlink API. `TDoc` and `TMeta` are the app's document and metadata types,

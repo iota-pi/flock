@@ -1,7 +1,6 @@
 import type BaseDriver from '../drivers/base'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId, PageToken } from '@vault/shared'
 import type { StoredSyncMessage } from '../drivers/base'
-import type { PageToken } from '@vault/shared/api'
 
 type AppendSyncMessageInput = {
   account: string

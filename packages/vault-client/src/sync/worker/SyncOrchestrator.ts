@@ -7,7 +7,7 @@ import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrate
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from './utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 

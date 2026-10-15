@@ -7,7 +7,7 @@ import { mutateItem } from '../../items/mutations/itemMutations'
 import Search from 'src/components/Search'
 import { useAppStore } from 'src/state/store'
 import type { GroupItem } from 'src/shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { RemoveIcon } from 'src/components/Icons'
 
 interface Props {

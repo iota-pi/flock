@@ -1,5 +1,5 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { ClientEventHub } from './SyncEventHub'
@@ -11,7 +11,7 @@ import type { DocCodec } from './domain'
 import { SnapshotPusher } from './SnapshotPusher'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { KeyProvider } from '../../api/vault/Keyring'
+import type { KeyProvider } from '../../api/Keyring'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number

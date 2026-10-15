@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { LegacyItemContext, LegacyItemEnvelope, RawDoc } from '@vault/client/sync/worker/domain'
+import type { LegacyItemContext, LegacyItemEnvelope, RawDoc } from '@vault/client/worker'
 
 /** The parts of a pre-Automerge item row needed to decrypt it */
 const LegacyCipherRowSchema = z.object({

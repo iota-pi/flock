@@ -5,7 +5,7 @@ import {
   getElementKey,
   updateObjectInPlace,
 } from './crdtReconcile'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 type Note = { id: string; text: string; archived: boolean; time: number }
 

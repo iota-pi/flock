@@ -1,8 +1,8 @@
 import { reencryptAllItems, resumePendingReencryption, REENCRYPT_PENDING_KEY_PREFIX } from './reencrypt'
-import { rotateVaultKey, exportKeyringData } from './index'
+import { rotateVaultKey, exportKeyringData } from './vault'
 
 
-vi.mock('./index', () => ({
+vi.mock('./vault', () => ({
   rotateVaultKey: vi.fn().mockResolvedValue(undefined),
   exportKeyringData: vi.fn().mockResolvedValue('mock-keyring-data'),
 }))

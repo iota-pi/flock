@@ -15,7 +15,8 @@ vi.mock('./syncBridge', () => ({
   },
 }))
 
-vi.mock('@vault/client', () => ({
+vi.mock('@vault/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@vault/client')>(),
   clearVaultDeviceData: vi.fn().mockResolvedValue(undefined),
   lockVaultKeys: vi.fn().mockResolvedValue(undefined),
   readStoredMetadata: vi.fn(),

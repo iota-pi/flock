@@ -1,9 +1,7 @@
-import type { ItemId } from '@vault/shared/ids'
-import type { DOC_BOUND_FORMAT } from '@vault/shared/crypto'
+import type { ItemId, DOC_BOUND_FORMAT, PageToken } from '@vault/shared'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
 import type { StoredSyncMessage } from '../drivers/base'
-import type { PageToken } from '@vault/shared/api'
-import { mapWithConcurrency, resolveConcurrency } from '@vault/shared/concurrency'
+import { mapWithConcurrency, resolveConcurrency } from '@vault/shared'
 
 type SyncMessagePayload = {
   iv: string

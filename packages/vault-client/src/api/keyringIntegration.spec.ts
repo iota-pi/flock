@@ -18,10 +18,10 @@ import {
   configureVaultHost,
   lockVaultKeys,
   readStoredMetadata,
-} from './index'
+} from './vault'
 import { Keyring } from './Keyring'
-import { getVaultStorageNames } from '../../sync/shared/storageNames'
-import { clearActiveSessionToken } from '../../sync/shared/workerAuthStore'
+import { getVaultStorageNames } from '../sync/shared/storageNames'
+import { clearActiveSessionToken } from '../sync/shared/workerAuthStore'
 
 import { updateKeyring, getKeyring, getSession } from './client'
 
@@ -36,7 +36,7 @@ vi.mock('./client', () => ({
 
 const SALT = 'c2FsdDEyMw=='
 
-vi.mock('../../sync/shared/workerAuthStore', () => ({
+vi.mock('../sync/shared/workerAuthStore', () => ({
   setActiveSessionToken: vi.fn(),
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-session'),
   clearActiveSessionToken: vi.fn(),

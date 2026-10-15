@@ -9,7 +9,7 @@ import {
 } from './items'
 import { importPeople } from '../utils/importUtils'
 import type { GroupItem } from 'src/shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 describe('items helpers', () => {
   it('creates blank person with defaults', () => {

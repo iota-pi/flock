@@ -37,15 +37,13 @@ import BaseDriver, {
   VaultSessionRecord,
 } from './base'
 import { ExpiredSessionError, InvalidPageTokenError } from './errors'
-import { VersionConflictError } from '@vault/shared/syncErrors'
-import type { ItemId } from '@vault/shared/ids'
+import { VersionConflictError, MAX_ITEM_SIZE } from '@vault/shared'
+import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
 import {
   isConditionalCheckFailure,
   isResourceInUseError,
   isTransientDynamoError,
 } from './dynamoErrors'
-import type { ManifestEntry, PageToken } from '@vault/shared/api'
-import { MAX_ITEM_SIZE } from '@vault/shared/limits'
 
 export interface VaultTableNames {
   accounts: string

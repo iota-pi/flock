@@ -1,9 +1,9 @@
 import { createTRPCProxyClient, httpBatchLink, type TRPCLink } from '@trpc/client'
 import { observable } from '@trpc/server/observable'
-import type { VaultRouter } from '@vault/server/router'
-import { isClientOutdatedError, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared/protocol'
+import type { VaultRouter } from '@vault/server'
+import { isClientOutdatedError, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import { getApiAuthToken } from './runtime'
-import { broadcastVaultEvent } from './vault/util'
+import { broadcastVaultEvent } from './util'
 
 let vaultEndpoint = ''
 let vaultTrpcClient: ReturnType<typeof createTRPCProxyClient<VaultRouter>> | null = null

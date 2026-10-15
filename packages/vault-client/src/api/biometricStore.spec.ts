@@ -5,7 +5,7 @@ import {
   hasBiometricData,
   subscribeBiometrics,
 } from './biometricStore'
-import { getVaultStorageNames } from '../../sync/shared/storageNames'
+import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 describe('biometricStore', () => {
   beforeEach(() => {

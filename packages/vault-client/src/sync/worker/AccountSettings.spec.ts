@@ -5,7 +5,7 @@ import { AutomergeDocStore, type RepoDoc } from './docStore'
 import { passthroughCodec, type DocCodec, type LegacySettingsSource } from './domain'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { VaultMetadata } from '../shared/types'
-import { settingsDocId, type ItemId } from '@vault/shared/ids'
+import { settingsDocId, type ItemId } from '@vault/shared'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({

@@ -1,8 +1,8 @@
 import { ItemOperations, ItemOperationsDeps } from './ItemOperations'
 import type { VaultDoc } from '../shared/types'
 import { passthroughCodec } from './domain'
-import { settingsDocId, type ItemId } from '@vault/shared/ids'
-import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared/limits'
+import { settingsDocId, type ItemId } from '@vault/shared'
+import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({

@@ -8,7 +8,7 @@ import {
   personItemSchema,
   topicItemSchema,
 } from 'src/shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import type { AccountMetadata } from 'src/state/metadata'
 import { useAppStore } from 'src/state/store'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'

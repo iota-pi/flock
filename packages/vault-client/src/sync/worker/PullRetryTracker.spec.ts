@@ -1,5 +1,5 @@
 import { PullRetryTracker, PullStateTransition } from './PullRetryTracker'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockVault = createMockVault()
