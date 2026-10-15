@@ -20,8 +20,8 @@ export interface DataVersionTrackerDeps {
  * a separate migration app (see "Backwards compatibility" in docs/vault-extraction.md).
  *
  * - The device level is written to the account's sync metadata once a manifest sync finishes
- *   without failures. By then the session has run every local migration: legacy metadata stores
- *   are migrated as they are first read, and legacy settings during the sync. A device with no
+ *   without failures. By then the session has run every local migration: the app's
+ *   `migrateLocalData` hook before any store was read, and legacy settings during the sync. A device with no
  *   local data starts at the current version.
  * - The account level is raised by the server, which checks the account's stored data first. The
  *   leader asks once per session, after this device has rewritten its snapshots.

@@ -1,16 +1,11 @@
-import { CursorStore, normalizeCursors } from './CursorStore'
+import { CursorStore } from './CursorStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
-  LEGACY_KEYS,
-  getLegacySyncDatabaseNames,
 } from './syncMetadataStorage'
 import type { ItemId } from 'src/shared/vault/ids'
 
-import {
-  createMockLocalForage,
-  createMockLocalForagePool,
-} from '../__test__/testUtils'
+import { createMockLocalForagePool } from '../__test__/testUtils'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -26,8 +21,6 @@ vi.mock('localforage', () => ({
 vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
-
-const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('CursorStore', () => {
   let store: CursorStore
@@ -69,90 +62,6 @@ describe('CursorStore', () => {
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.INDEX_DOC)).toEqual({ itemIds: ['other'] })
   })
 
-  it('migrates legacy in-store key cursorByItemId to cursors', async () => {
-    const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-    const legacyCursors: [ItemId, number][] = [['item-legacy' as ItemId, 50]]
-    await consolidatedStore?.setItem(LEGACY_KEYS.CURSORS, legacyCursors)
 
-    const loaded = await store.loadCursors()
-    expect(loaded).toEqual({
-      globalCursor: 50,
-      retries: legacyCursors,
-    })
-
-    // Key should now be in new cursors key and removed from legacy
-    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual({
-      globalCursor: 50,
-      retries: legacyCursors,
-    })
-    expect(await consolidatedStore?.getItem(LEGACY_KEYS.CURSORS)).toBeNull()
-  })
-
-  it('migrates legacy database flock-sync-cursors to consolidated storage', async () => {
-    const originalIndexedDb = (globalThis as any).indexedDB
-    ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.cursors }]),
-    }
-    try {
-      const legacyStoreKey = `${legacyDbNames.cursors}#cursors-${accountId}`
-      const legacyStore = createMockLocalForage({ name: legacyDbNames.cursors, storeName: `cursors-${accountId}` })
-      const legacyCursors: [ItemId, number][] = [['item-from-db' as ItemId, 77]]
-      await legacyStore.setItem(LEGACY_KEYS.CURSORS, legacyCursors)
-      instances.set(legacyStoreKey, legacyStore)
-
-      const loaded = await store.loadCursors()
-      expect(loaded).toEqual({
-        globalCursor: 77,
-        retries: legacyCursors,
-      })
-
-      // Verify saved to new consolidated database and removed from legacy
-      const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-      expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual({
-        globalCursor: 77,
-        retries: legacyCursors,
-      })
-      expect(await legacyStore.getItem(LEGACY_KEYS.CURSORS)).toBeNull()
-    } finally {
-      if (originalIndexedDb === undefined) {
-        delete (globalThis as any).indexedDB
-      } else {
-        ;(globalThis as any).indexedDB = originalIndexedDb
-      }
-    }
-  })
-
-  it('normalizes cursor entries and ignores negative or non-finite values', () => {
-    const raw: [ItemId, number][] = [
-      ['item-1' as ItemId, 10],
-      ['item-2' as ItemId, 100],
-      ['item-3' as ItemId, -5],
-      ['item-4' as ItemId, NaN],
-      ['item-5' as ItemId, Infinity],
-      ['item-6' as ItemId, 50],
-    ]
-    const normalized = normalizeCursors(raw)
-    expect(normalized.globalCursor).toBe(100)
-    expect(normalized.retries).toEqual([
-      ['item-1', 10],
-      ['item-2', 100],
-      ['item-6', 50],
-    ])
-  })
-
-  it('handles tens of thousands of items without stack overflow (no Math.max spread)', async () => {
-    const largeCount = 70_000
-    const largeArray: [ItemId, number][] = Array.from({ length: largeCount }, (_, i) => [
-      `item-${i}` as ItemId,
-      i + 1,
-    ])
-
-    await store.saveCursors(largeArray)
-    const loaded = await store.loadCursors()
-
-    expect(loaded).not.toBeNull()
-    expect(loaded?.globalCursor).toBe(largeCount)
-    expect(loaded?.retries?.length).toBe(largeCount)
-  })
 })
 

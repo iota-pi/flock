@@ -37,7 +37,6 @@ describe('createAccountStore', () => {
   describe('database name resolution', () => {
     it('resolves expected db names for known store types', () => {
       expect(getAccountDatabaseName('manual-recovery-items', 'acc-1')).toBe('FlockVault_ManualRecoveryDB_acc-1')
-      expect(getAccountDatabaseName('manual-recovery-metadata', 'acc-1')).toBe('FlockVault_ManualRecoveryDB_acc-1')
       expect(getAccountDatabaseName('wal-entries', 'acc-1')).toBe('FlockVault_SyncWAL_acc-1')
       expect(getAccountDatabaseName('sync-metadata', 'acc-1')).toBe('flock-sync-metadata-acc-1')
     })
@@ -84,7 +83,7 @@ describe('createAccountStore', () => {
 
     it('creates distinct instances for different stores sharing the same database', () => {
       const itemsStore = createAccountStore('manual-recovery-items', 'acc-1')
-      const metaStore = createAccountStore('manual-recovery-metadata', 'acc-1')
+      const metaStore = createAccountStore('other-store', 'acc-1', { name: 'FlockVault_ManualRecoveryDB_acc-1' })
 
       expect(itemsStore).not.toBe(metaStore)
       expect(localforage.createInstance).toHaveBeenCalledTimes(2)
@@ -94,7 +93,7 @@ describe('createAccountStore', () => {
       })
       expect(createdConfigs[1]).toEqual({
         name: 'FlockVault_ManualRecoveryDB_acc-1',
-        storeName: 'manual-recovery-metadata',
+        storeName: 'other-store',
       })
     })
 

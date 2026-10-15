@@ -14,6 +14,7 @@ export const FLOCK_STORAGE_NAMES: VaultStorageNames = {
     automergeBroadcastChannel: 'flock-automerge-broadcast-',
     indexChannel: 'flock-index-channel-',
     indexLock: 'flock-index-lock-',
+    localDataMigrationLock: 'flock-local-data-migration-',
     syncPingChannel: 'flock-sync-ping-bus-',
     leaderPresenceChannel: 'flock-leader-presence-',
     leaderLock: 'flock-sync-leader-',
@@ -21,11 +22,5 @@ export const FLOCK_STORAGE_NAMES: VaultStorageNames = {
     walDatabase: 'FlockVault_SyncWAL_',
     manualRecoveryDatabase: 'FlockVault_ManualRecoveryDB_',
     accountStoreDatabase: 'FlockVault_',
-  },
-  legacySyncDatabases: {
-    cursors: 'flock-sync-cursors',
-    indexDoc: 'flock-item-metadata',
-    lastModified: 'flock-sync-last-modified',
-    syncedHeads: 'flock-sync-synced-heads',
   },
 }

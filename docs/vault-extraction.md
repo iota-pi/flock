@@ -151,7 +151,7 @@ Each item under "Protocol choices" above, with a Flock data migration.
     - Device level: `DataVersionTracker` in the worker records `SyncDomain.dataVersion` as described under "Shape". As leader, once `SnapshotFormatUpgrade` reports the device's snapshots bound, it calls `raiseDataVersion` once per session and logs any blockers.
     - Level 1 checks (`flockDataVersionPolicy`, `src/vault/flockDataVersion.ts`): no synced settings in the record's `metadata` (`legacySettings`), `saltVersion` 1 with `iterations` set (`legacyKeyDerivation`), and among rows that aren't deleted, no unbound snapshot (`unboundSnapshots`) and no `cipher` row without a `snapshot` (`legacyCipherItems`). Iterations below the default are upgraded at login (2.5d) but don't block the level, because no legacy code reads them.
     - `countAccountsByDataVersion` replaces `countUnboundSnapshots`. It reports accounts by version, what holds back the ones below the current version, how many are ready to raise, and the oldest `lastAccess` among them.
-  - [ ] 2.5c: Local storage layout.
+  - [x] 2.5c: Local storage layout.
     - Library: a `migrateLocalData(accountId)` hook in the worker config, run in `SyncWorkerContext.initialize()` before any store is read. Remove the following, so stores only read the current shape:
       - the legacy options and `migrateLegacyData` in `ScopedMetadataStore`
       - `LEGACY_KEYS`, `getLegacySyncDatabaseNames`, `hasLegacyDatabase` and `probeDatabaseExists`
@@ -166,6 +166,7 @@ Each item under "Protocol choices" above, with a Flock data migration.
       
       It copies a value only when the new key is missing, and only then removes the old one, so tabs running it at the same time are safe. Its cleanup runs from `removeVaultFromDevice`.
     - Dropping this without a migration path would lose the index doc on devices that haven't run the app since the consolidation. Their unsynced items would stay in Automerge storage but drop out of the index, so nothing would sync them.
+    - As built: the hook is `SyncWorkerConfig.migrateLocalData`, and the context runs it under a new per-account Web Lock (`accountPrefixes.localDataMigrationLock`, `flock-local-data-migration-` in Flock), so a tab can't copy an old value over one another tab's engine wrote after migrating. A failure in the current stores fails initialization, because starting would create an empty index that the next run would then keep; an unreadable per-store database is logged and skipped, as before. Probes only run while a current key is missing. The library's `SYNC_METADATA_KEYS` lost `manualRecoveryMigrated`, which Flock keeps under the same name.
   - [ ] 2.5d: Old salt encoding. Re-deriving the key needs the password, so the server can't migrate this. Upgrading at login is the intended behaviour, including signing out other sessions.
     - Library: key derivation only knows `saltVersion: 1`. Flock supplies `decodeLegacySalt` (UTF-8 bytes of the base64 string) through `configureVaultHost` from `legacy/`.
     - Upgrade at login: after an online login with a legacy salt (or iterations below the default), call `changePassword(account, password, password)`. Data keys are unaffected, because key `'1'` (the original derived key) is stored in the keyring the change re-wraps.
