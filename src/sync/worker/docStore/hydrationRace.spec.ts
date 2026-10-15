@@ -6,6 +6,7 @@ import { CursorStore } from '../stores/CursorStore'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
 import { ItemId } from 'src/shared/vault/ids'
 import type { VaultDoc } from 'src/sync/shared/types'
+import { createMockKeyProvider, createMockVault } from '../__test__/testUtils'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string; archived: boolean; time: number }> }
 
@@ -31,11 +32,7 @@ vi.mock('localforage', () => ({
 }))
 
 const mockDecryptBytes = vi.fn()
-vi.mock('src/api/vault', () => ({
-  decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
-  hasVaultKey: vi.fn().mockReturnValue(true),
-  waitForKeyVersion: vi.fn().mockResolvedValue(true),
-}))
+const keys = createMockKeyProvider({ ...createMockVault(), decryptBytes: mockDecryptBytes })
 
 function createBaseDocBinary(id: ItemId, name = 'Base Name', description = 'Base Desc'): Uint8Array {
   const doc = Automerge.change(Automerge.init<NotesDoc>(), d => {
@@ -68,7 +65,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     repo = new Repo()
     docStore = new AutomergeDocStore(repo)
     cursorStore = new CursorStore('test-account')
-    pullQueueManager = new SyncPullQueueManager(cursorStore, docStore)
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore)
     await pullQueueManager.setAccount('test-account')
     mockDecryptBytes.mockReset()
     mockDecryptBytes.mockImplementation(async (entry: any) => entry._rawBytes ?? new Uint8Array())

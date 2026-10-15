@@ -1,9 +1,12 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 import {
   MockLocalforage,
+  createMockKeyProvider,
   createMockLocalForage,
   createTestEventHubs,
 } from './__test__/testUtils'
+
+const keys = createMockKeyProvider()
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -79,6 +82,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
       internalEventHub,
       undefined,
       pullQueueManager,
+      keys,
       wal,
     )
 

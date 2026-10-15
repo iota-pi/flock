@@ -1,5 +1,6 @@
 import type { ItemId } from 'src/shared/vault/ids'
 import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { CryptoResult } from '../../api/vault/crypto'
 
 /** A plain snapshot of an Automerge document, or a draft inside `handle.change` */
 export type RawDoc = Record<string, unknown>
@@ -64,6 +65,8 @@ export interface LegacyItemEnvelope {
 export interface LegacyItemContext {
   /** Makes sure the key with this version is loaded, waiting briefly for it. Returns whether it is. */
   ensureKey(kver: string): Promise<boolean>
+  /** Decrypts a ciphertext that isn't bound to a document, with the key version it names */
+  decrypt(payload: CryptoResult): Promise<Uint8Array>
 }
 
 export interface SyncDomain {

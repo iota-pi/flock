@@ -22,8 +22,10 @@ vi.mock('@automerge/automerge/slim', () => ({
   from: vi.fn(),
 }))
 
-vi.mock('../../api/vault', () => ({
-  initWorkerVault: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../api/vault/Keyring', () => ({
+  Keyring: class {
+    load = vi.fn().mockResolvedValue(undefined)
+  },
 }))
 
 vi.mock('./docStore', () => ({

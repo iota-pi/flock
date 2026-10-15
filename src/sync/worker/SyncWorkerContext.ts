@@ -30,6 +30,7 @@ import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './re
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
+import type { KeyProvider } from '../../api/vault/Keyring'
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -68,6 +69,8 @@ export interface SyncWorkerContextConfig {
   domain?: SyncDomain
   /** Brings local data from older layouts into the current one (see SyncWorkerConfig) */
   migrateLocalData?: (accountId: string) => Promise<void>
+  /** The account's data keys */
+  keys: KeyProvider
 }
 
 export class SyncWorkerContext {
@@ -149,7 +152,7 @@ export class SyncWorkerContext {
     this.accountSettings = ops.accountSettings
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
-    this.itemReencryptor = new ItemReencryptor({ codec: this.domain.codec })
+    this.itemReencryptor = new ItemReencryptor({ codec: this.domain.codec, keys: config.keys })
     this.dataVersionTracker = new DataVersionTracker({
       accountId: config.accountId,
       dataVersion: this.domain.dataVersion ?? 0,
@@ -180,7 +183,7 @@ export class SyncWorkerContext {
 
   private initNetworkAndRepo(config: SyncWorkerContextConfig) {
     const adapter = new VaultNetworkAdapter(this.internalEventHub)
-    const repoManager = new AutomergeRepoManager(config.accountId)
+    const repoManager = new AutomergeRepoManager(config.accountId, config.keys)
     const repo = repoManager.init(adapter, {
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       onDocumentReceived: docId => {
@@ -225,6 +228,7 @@ export class SyncWorkerContext {
 
     const pullQueueManager = new SyncPullQueueManager(
       this.cursorStore,
+      config.keys,
       docStore,
       this.internalEventHub
     )
@@ -240,6 +244,7 @@ export class SyncWorkerContext {
       config.internalEventHub,
       indexManager,
       pullQueueManager,
+      config.keys,
       this.wal,
       null,
       this.apiClient,
@@ -256,6 +261,7 @@ export class SyncWorkerContext {
         recoveryManager,
         apiClient: this.apiClient,
         codec: this.domain.codec,
+        keys: config.keys,
       },
       this.lastModifiedStore
     )
@@ -304,6 +310,7 @@ export class SyncWorkerContext {
       docStore: this.docStore,
       indexManager: this.indexManager,
       snapshotManager: this.snapshotManager,
+      keys: config.keys,
       recoveryManager: this.recoveryManager,
       apiClient: this.apiClient,
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),

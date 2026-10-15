@@ -1,27 +1,25 @@
 import { SyncPoller } from './SyncPoller'
 import { SyncApiClient, AuthError } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, createTestEventHubs } from './__test__/testUtils'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from 'src/shared/vault/ids'
 import type { RecoveryManager } from './RecoveryManager'
-import { encryptBytes } from '../../api/vault'
 
 const mockPollSyncBatchWithToken = vi.fn()
 vi.mock('../../api/vault/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
 }))
 
-vi.mock('../../api/vault', () => ({
-  encryptBytes: vi.fn().mockResolvedValue({
-    iv: 'iv',
-    cipher: 'cipher',
-    kver: 'kver',
-  }),
-}))
+const encryptBytes = vi.fn().mockResolvedValue({
+  iv: 'iv',
+  cipher: 'cipher',
+  kver: 'kver',
+})
+const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes })
 
 vi.mock('../shared/workerAuthStore', () => ({
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-token'),
@@ -41,7 +39,7 @@ describe('SyncPoller', () => {
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
-    pullQueueManager = new SyncPullQueueManager(new CursorStore('test-account'))
+    pullQueueManager = new SyncPullQueueManager(new CursorStore('test-account'), keys)
     indexManager = {
       updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
     } as unknown as AutomergeIndexManager
@@ -62,6 +60,7 @@ describe('SyncPoller', () => {
       pullQueueManager,
       clientEventHub,
       internalEventHub,
+      keys,
       indexManager,
       mockWal,
       undefined,
@@ -973,6 +972,7 @@ describe('SyncPoller', () => {
         pullQueueManager,
         clientEventHub,
         internalEventHub,
+        keys,
         indexManager,
         mockWal,
         mockApiClient,
@@ -1001,6 +1001,7 @@ describe('SyncPoller', () => {
         pullQueueManager,
         clientEventHub,
         internalEventHub,
+        keys,
         indexManager,
         mockWal,
         apiClient,
@@ -1031,6 +1032,7 @@ describe('SyncPoller', () => {
         pullQueueManager,
         clientEventHub,
         internalEventHub,
+        keys,
         indexManager,
         mockWal,
         apiClient,

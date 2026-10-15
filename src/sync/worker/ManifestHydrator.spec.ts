@@ -1,20 +1,14 @@
 import { ManifestHydrator } from './ManifestHydrator'
 import type { ItemId } from '../../shared/vault/ids'
 
-import { createMockVault } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockVault = createMockVault()
+const keys = createMockKeyProvider(mockVault)
 const {
   decryptBytes: mockDecryptBytes,
   decryptObject: mockDecryptObject,
 } = mockVault
-
-vi.mock('../../api/vault', () => ({
-  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
-  decryptObject: (...args: any[]) => mockVault.decryptObject(...args),
-  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
-}))
 
 vi.mock('./utils/decryptWithKeyResolution', () => ({
   decryptWithKeyResolution: async (cryptoResult: any) => {
@@ -61,6 +55,7 @@ describe('ManifestHydrator', () => {
       docStore: mockDocStore,
       indexManager: mockIndexManager,
       snapshotManager: mockSnapshotManager,
+      keys,
       storeItems: storeItemsSpy,
       onDecryptionFailure: onDecryptionFailureSpy,
       onItemSnapshotHydrated: onItemSnapshotHydratedSpy,
@@ -205,6 +200,7 @@ describe('ManifestHydrator', () => {
         docStore: mockDocStore,
         indexManager: mockIndexManager,
         snapshotManager: mockSnapshotManager,
+        keys,
         storeItems: storeItemsSpy,
         onDecryptionFailure: onDecryptionFailureSpy,
         decodeLegacyItem,
@@ -265,6 +261,7 @@ describe('ManifestHydrator', () => {
         docStore: mockDocStore,
         indexManager: mockIndexManager,
         snapshotManager: mockSnapshotManager,
+        keys,
         storeItems: storeItemsSpy,
         onKeyVersionMissing,
         decodeLegacyItem,
@@ -400,6 +397,7 @@ describe('ManifestHydrator', () => {
         docStore: mockDocStore,
         indexManager: mockIndexManager,
         snapshotManager: mockSnapshotManager,
+        keys,
         storeItems: storeItemsSpy,
         hydrationConcurrency: concurrencyLimit,
       })

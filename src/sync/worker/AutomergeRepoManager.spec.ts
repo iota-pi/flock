@@ -1,6 +1,7 @@
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import * as storageManager from '../utils/storageManager'
+import { createMockKeyProvider } from './__test__/testUtils'
 
 vi.mock('@automerge/automerge-repo/slim', () => {
   return {
@@ -49,7 +50,7 @@ describe('AutomergeRepoManager', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    manager = new AutomergeRepoManager('account-1')
+    manager = new AutomergeRepoManager('account-1', createMockKeyProvider())
     mockVaultAdapter = {} as VaultNetworkAdapter
   })
 

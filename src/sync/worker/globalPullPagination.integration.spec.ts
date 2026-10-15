@@ -4,18 +4,11 @@ import { syncRouter } from 'src/vault/trpc/routers/sync'
 import { SyncPoller } from './SyncPoller'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
-import { createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
 import type { SyncApiClient } from './SyncApiClient'
 import type { AutomergeIndexManager } from './docStore'
 
-vi.mock('src/api/vault', async importOriginal => {
-  const actual = await importOriginal<typeof import('src/api/vault')>()
-  const { createMockVault } = await import('./__test__/testUtils')
-  return {
-    ...actual,
-    ...createMockVault(),
-  }
-})
+const keys = createMockKeyProvider()
 
 const ACCOUNT = 'account-pagination'
 const GLOBAL_PAGE_SIZE = 3
@@ -101,7 +94,7 @@ describe('global pull pagination (client ↔ router)', () => {
     const caller = syncRouter.createCaller({ authToken: 'session-token', vault } as never)
 
     const { clientEventHub, internalEventHub } = createTestEventHubs()
-    const pullQueueManager = new SyncPullQueueManager(new CursorStore(ACCOUNT), undefined, internalEventHub)
+    const pullQueueManager = new SyncPullQueueManager(new CursorStore(ACCOUNT), keys, undefined, internalEventHub)
     await pullQueueManager.setAccount(ACCOUNT)
     pullQueueManager.addPendingItem('item-z' as ItemId)
 
@@ -116,7 +109,7 @@ describe('global pull pagination (client ↔ router)', () => {
       pollSyncBatch: (input: Parameters<typeof caller.pollSync>[0]) => caller.pollSync(input),
     } as unknown as SyncApiClient
     const indexManager = { updateLastSyncTime: vi.fn() } as unknown as AutomergeIndexManager
-    const poller = new SyncPoller(pullQueueManager, clientEventHub, internalEventHub, indexManager, null, apiClient)
+    const poller = new SyncPoller(pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, null, apiClient)
     poller.setAccount(ACCOUNT)
 
     const outcomes: string[] = []

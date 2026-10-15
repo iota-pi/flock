@@ -1,6 +1,5 @@
 import {
   clearActiveSessionToken,
-  getActiveSessionToken,
   setActiveSessionToken,
 } from '../../sync/shared/workerAuthStore'
 import { clearManualRecoveryEntries } from '../../sync/shared/manualRecoveryStore'
@@ -20,8 +19,6 @@ import {
   exportVaultKey,
   hashVaultKey,
   importVaultKey,
-  encryptBytesWithKey,
-  decryptBytesWithKey,
   generateSalt,
   generateVaultKey,
   CURRENT_SALT_VERSION,
@@ -49,6 +46,7 @@ import {
 } from './webauthn'
 import { getVaultStorageNames } from '../../sync/shared/storageNames'
 import { ApiHttpError } from '../trackedFetch'
+import { importKeyring, Keyring, VaultNotInitializedError, type KeyProvider } from './Keyring'
 
 export {
   createAccount,
@@ -125,16 +123,12 @@ export class StaleBiometricKeyError extends Error {
   }
 }
 
-export class VaultNotInitializedError extends Error {
-  constructor() {
-    super('Vault must be initialised before use')
-    this.name = 'VaultNotInitializedError'
-  }
-}
+export { VaultNotInitializedError }
+export type { KeyProvider }
 
-const keyring: Map<string, CryptoKey> = new Map()
+/** This realm's keys. The sync worker keeps its own `Keyring`, loaded from `exportKeyringData`. */
+const keyring = new Keyring()
 let masterKey: CryptoKey | null = null
-let activeKeyVersion = '1'
 let keyHash = ''
 let session = ''
 let activeAccount = ''
@@ -144,58 +138,13 @@ export function getKeyHash(): string {
   return keyHash
 }
 
-function getActiveKey(): CryptoKey {
-  const k = keyring.get(activeKeyVersion)
-  if (!k) {
-    throw new VaultNotInitializedError()
-  }
-  return k
-}
-
-
 export function hasVaultKey(kver?: string): boolean {
-  if (!kver) {
-    return keyring.has(activeKeyVersion)
-  }
-  return keyring.has(kver)
+  return keyring.hasKey(kver)
 }
-
-type KeyVersionWaiter = {
-  kver: string
-  resolve: (found: boolean) => void
-  timer: ReturnType<typeof setTimeout>
-}
-const pendingKeyWaiters = new Set<KeyVersionWaiter>()
 
 export function waitForKeyVersion(kver: string, timeoutMs = 5000): Promise<boolean> {
-  if (hasVaultKey(kver)) {
-    return Promise.resolve(true)
-  }
-  return new Promise(resolve => {
-    const waiter: KeyVersionWaiter = {
-      kver,
-      resolve: (found: boolean) => {
-        pendingKeyWaiters.delete(waiter)
-        clearTimeout(waiter.timer)
-        resolve(found)
-      },
-      timer: setTimeout(() => {
-        pendingKeyWaiters.delete(waiter)
-        resolve(false)
-      }, timeoutMs),
-    }
-    pendingKeyWaiters.add(waiter)
-  })
+  return keyring.waitForKey(kver, timeoutMs)
 }
-
-function notifyKeyWaiters(): void {
-  for (const waiter of Array.from(pendingKeyWaiters)) {
-    if (hasVaultKey(waiter.kver)) {
-      waiter.resolve(true)
-    }
-  }
-}
-
 
 export async function reloadKeyringFromStorage(): Promise<{
   success: boolean
@@ -209,7 +158,6 @@ export async function reloadKeyringFromStorage(): Promise<{
 
   try {
     await loadKeyringFromEncrypted(cachedKeyring)
-    notifyKeyWaiters()
     const keyringData = await exportKeyringData()
     return { success: true, keyringData }
   } catch (err) {
@@ -219,14 +167,7 @@ export async function reloadKeyringFromStorage(): Promise<{
 }
 
 export function getVaultKey(kver?: string): CryptoKey {
-  if (!kver) {
-    return getActiveKey()
-  }
-  const k = keyring.get(kver)
-  if (!k) {
-    throw new Error(`Vault key version ${kver} not found in keyring`)
-  }
-  return k
+  return keyring.getKey(kver)
 }
 
 export function getVaultSession() {
@@ -315,9 +256,7 @@ export async function initialiseVault({
     decodeLegacySalt: hostHooks.decodeLegacySalt,
   })
   masterKey = derivedKey
-  keyring.clear()
-  keyring.set('1', derivedKey)
-  activeKeyVersion = '1'
+  keyring.replace(new Map([['1', derivedKey]]), '1')
   keyHash = await hashVaultKey(derivedKey)
   return keyHash
 }
@@ -328,15 +267,8 @@ export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Pro
   const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
   const keyringData = JSON.parse(plaintext)
   if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
-    const entries = await Promise.all(
-      Object.entries(keyringData)
-        .filter(([ver]) => ver !== 'activeVersion')
-        .map(async ([ver, expKey]) => [ver, await importVaultKey(expKey as string)] as const)
-    )
-    for (const [ver, key] of entries) {
-      keyring.set(ver, key)
-    }
-    activeKeyVersion = keyringData.activeVersion as string
+    const { keys, activeVersion } = await importKeyring(keyringData)
+    keyring.merge(keys, activeVersion)
   }
 }
 
@@ -370,40 +302,6 @@ export async function syncKeyringFromServer(account: string): Promise<boolean> {
       console.warn('[vault] Failed to seed keyring to server (network error):', err)
     }
     return false
-  }
-}
-
-/** Loads the keyring exported by `exportKeyringData` into this realm (the sync worker). */
-export async function initWorkerVault(exportedKeyring: string) {
-  const keyringData = JSON.parse(exportedKeyring)
-  if (!keyringData || typeof keyringData !== 'object' || !keyringData.activeVersion) {
-    throw new Error('Not a structured keyring')
-  }
-  const entries = await Promise.all(
-    Object.entries(keyringData)
-      .filter(([ver]) => ver !== 'activeVersion')
-      .map(async ([ver, expKey]) => [ver, await importVaultKey(expKey as string)] as const)
-  )
-  if (entries.length === 0) {
-    throw new Error('Keyring contains no key entries')
-  }
-  const nextKeys = new Map<string, CryptoKey>(entries)
-  const nextActiveVersion = keyringData.activeVersion as string
-
-  // Atomically swap in the new keys and active version without an empty window across async ticks
-  keyring.clear()
-  for (const [ver, key] of nextKeys) {
-    keyring.set(ver, key)
-  }
-  activeKeyVersion = nextActiveVersion
-
-  notifyKeyWaiters()
-
-  const sessionToken = await getActiveSessionToken()
-  if (sessionToken) {
-    setApiAuthToken(sessionToken)
-  } else {
-    console.warn('[SyncWorker] Missing session token for realtime sync; network pushes will not start.')
   }
 }
 
@@ -474,31 +372,20 @@ export function needsKeyDerivationUpgrade(
   return saltVersion !== CURRENT_SALT_VERSION || (iterations ?? 0) < DEFAULT_CRYPTO_ITERATIONS
 }
 
+/** Exports the keyring as JSON, for the sync worker's `Keyring.load` */
 export async function exportKeyringData(): Promise<string> {
-  const keyringData: Record<string, string> = {
-    activeVersion: activeKeyVersion,
-  }
-  for (const [ver, k] of keyring.entries()) {
-    keyringData[ver] = await exportVaultKey(k)
-  }
-  return JSON.stringify(keyringData)
+  return JSON.stringify(await keyring.export())
 }
 
 export async function storeVault(account: string, activeVersionOverride?: string) {
-  const effectiveVersion = activeVersionOverride ?? activeKeyVersion
+  const effectiveVersion = activeVersionOverride ?? keyring.activeVersion
   const meta = readStoredMetadata()
   await writeStoredMetadata(account, {
     salt: meta?.salt,
     iterations: meta?.iterations,
     saltVersion: meta?.saltVersion,
   })
-  const keyringData: Record<string, string> = {
-    activeVersion: effectiveVersion,
-  }
-  for (const [ver, k] of keyring.entries()) {
-    keyringData[ver] = await exportVaultKey(k)
-  }
-  const plaintext = JSON.stringify(keyringData)
+  const plaintext = JSON.stringify(await keyring.export(effectiveVersion))
   const encryptionKey = masterKey || getVaultKey('1')
   const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
   const encryptedStr = JSON.stringify(encrypted)
@@ -515,16 +402,10 @@ export async function storeVault(account: string, activeVersionOverride?: string
 function clearKeyData() {
   keyring.clear()
   masterKey = null
-  activeKeyVersion = '1'
   keyHash = ''
   session = ''
   activeAccount = ''
   setApiAuthToken('')
-  for (const waiter of pendingKeyWaiters) {
-    clearTimeout(waiter.timer)
-    waiter.resolve(false)
-  }
-  pendingKeyWaiters.clear()
 }
 
 /**
@@ -554,16 +435,11 @@ export async function clearVaultDeviceData(account?: string) {
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
-  return encryptWithKey(getActiveKey(), plaintext, activeKeyVersion)
+  return keyring.encrypt(plaintext)
 }
 
 export async function decrypt(data: CryptoResult): Promise<string> {
-  const kver = data.kver || '1'
-  return decryptWithKey(getVaultKey(kver), data)
-}
-
-export async function decryptObject({ iv, cipher, kver }: CryptoResult): Promise<object> {
-  return JSON.parse(await decrypt({ iv, cipher, kver }))
+  return keyring.decrypt(data)
 }
 
 export function exportData<T>(payload: T): Promise<CryptoResult> {
@@ -577,12 +453,11 @@ export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
 
 /** Encrypts with the active key. Pass the `docId` of the document the bytes belong to, to bind them to it. */
 export async function encryptBytes(bytes: Uint8Array, docId?: string): Promise<CryptoResult> {
-  return encryptBytesWithKey(getActiveKey(), bytes, activeKeyVersion, docId)
+  return keyring.encryptBytes(bytes, docId)
 }
 
 export async function decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array> {
-  const kver = data.kver || '1'
-  return decryptBytesWithKey(getVaultKey(kver), data, docId)
+  return keyring.decryptBytes(data, docId)
 }
 
 export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -628,16 +503,10 @@ async function rewrapMasterKey({
   })
   const newAuthToken = await hashVaultKey(newMasterKey)
 
-  const keyringData: Record<string, string> = {
-    activeVersion: activeKeyVersion,
-  }
-  for (const [ver, k] of keyring.entries()) {
-    keyringData[ver] = await exportVaultKey(k)
-  }
-  const plaintext = JSON.stringify(keyringData)
+  const plaintext = JSON.stringify(await keyring.export())
   const encryptedKeyring = await encryptWithKey(newMasterKey, plaintext, 'master')
 
-  const currentKeyringVer = parseInt(activeKeyVersion, 10)
+  const currentKeyringVer = parseInt(keyring.activeVersion, 10)
 
   await changePasswordClient({
     account,
@@ -665,20 +534,19 @@ async function rewrapMasterKey({
 
 export async function rotateVaultKey(account: string): Promise<void> {
   const newKey = await generateVaultKey()
-  const currentActiveVer = parseInt(activeKeyVersion, 10)
+  const currentActiveVer = parseInt(keyring.activeVersion, 10)
   const nextActiveVer = (currentActiveVer + 1).toString()
-  keyring.set(nextActiveVer, newKey)
+  keyring.addKey(nextActiveVer, newKey)
   try {
     await storeVault(account, nextActiveVer)
   } catch (err) {
-    keyring.delete(nextActiveVer)
+    keyring.removeKey(nextActiveVer)
     throw new Error(
       `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`,
       { cause: err },
     )
   }
-  activeKeyVersion = nextActiveVer
-  notifyKeyWaiters()
+  keyring.setActiveVersion(nextActiveVer)
   broadcastVaultEvent({ type: 'KEY_ROTATED', account, keyVersion: nextActiveVer })
 }
 
@@ -756,9 +624,7 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
 
   const derivedKey = await importVaultKey(exportedMasterKey)
   masterKey = derivedKey
-  keyring.clear()
-  keyring.set('1', derivedKey)
-  activeKeyVersion = '1'
+  keyring.replace(new Map([['1', derivedKey]]), '1')
   keyHash = await hashVaultKey(derivedKey)
 
   // Phase 1: Load cached keyring for offline access

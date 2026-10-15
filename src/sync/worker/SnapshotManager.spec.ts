@@ -3,6 +3,8 @@ import { MAX_ITEM_SIZE_KB } from 'src/shared/vault/limits'
 import { SnapshotManager } from './SnapshotManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import type { KeyProvider } from '../../api/vault/Keyring'
 
 const mockPutSnapshotsWithToken = vi.fn()
 
@@ -23,13 +25,15 @@ vi.mock('../shared/manualRecoveryStore', () => ({
   readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
 }))
 
-vi.mock('../../api/vault', () => ({
+const vault = {
+  ...createMockVault(),
   encryptBytes: vi.fn().mockResolvedValue({
     iv: 'mock-iv',
     cipher: 'mock-cipher',
     kver: '1',
   }),
-}))
+}
+const keys = createMockKeyProvider(vault)
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
@@ -61,6 +65,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     repo: any
     broker: any
     eventHub: any
+    keys: KeyProvider
   }
   let lastModifiedStore: LastModifiedStore
 
@@ -87,6 +92,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       repo: mockRepo,
       broker: {} as any,
       eventHub: mockEventHub,
+      keys,
     }
 
     lastModifiedStore = new LastModifiedStore('test-account')
@@ -860,7 +866,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('does not increment failures or drop items on transient vault errors (e.g. Vault is locked)', async () => {
-      const { encryptBytes } = await import('../../api/vault')
+      const { encryptBytes } = vault
       vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Vault is locked'))
 
       manager.markItemDirty('item-1' as ItemId)
@@ -1005,6 +1011,7 @@ describe('SnapshotManager Retry Mechanism', () => {
           repo: mockRepo,
           broker: {} as any,
           eventHub: mockEventHub as any,
+          keys,
         },
         lastModifiedStore,
         {
@@ -1042,6 +1049,7 @@ describe('SnapshotManager Retry Mechanism', () => {
           repo: mockRepo,
           broker: {} as any,
           eventHub: mockEventHub as any,
+          keys,
         },
         lastModifiedStore,
         { maxPayloadBytes: 10, isLeader: true },
@@ -1086,7 +1094,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('does not treat batch as failed or trigger retry loops when an oversized item is skipped alongside normal items', async () => {
-      const { encryptBytes } = await import('../../api/vault')
+      const { encryptBytes } = vault
       mockPutSnapshotsWithToken.mockResolvedValue({
         success: true,
         persisted: 1,
@@ -1125,7 +1133,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('allows previously oversized item to sync once compacted below maxPayloadBytes', async () => {
-      const { encryptBytes } = await import('../../api/vault')
+      const { encryptBytes } = vault
       mockPutSnapshotsWithToken.mockResolvedValue({
         success: true,
         persisted: 1,
@@ -1437,7 +1445,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         // Time advances to 30000 when snapshot push starts
         vi.setSystemTime(30000)
 
-        const { encryptBytes } = await import('../../api/vault')
+        const { encryptBytes } = vault
         vi.mocked(encryptBytes).mockImplementationOnce(async () => {
           // Local edit arrives at T2 (31000) while encryption is in-flight
           vi.setSystemTime(31000)

@@ -9,12 +9,8 @@ import {
   type BroadcastChannelNetworkAdapterOptions,
 } from '@automerge/automerge-repo-network-broadcastchannel'
 
-import {
-  encryptBytes,
-  hasVaultKey,
-  waitForKeyVersion,
-  type CryptoResult,
-} from 'src/api/vault'
+import type { CryptoResult } from 'src/api/vault/crypto'
+import type { KeyProvider } from 'src/api/vault/Keyring'
 import {
   BaseSyncNetworkAdapter,
   type BaseSyncNetworkAdapterOptions,
@@ -34,6 +30,8 @@ const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
 export interface EncryptedBroadcastChannelOptions
   extends Partial<BroadcastChannelNetworkAdapterOptions>,
   BaseSyncNetworkAdapterOptions {
+  /** The keys cross-tab messages are encrypted with */
+  keys: KeyProvider
   accountId?: string
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
@@ -56,7 +54,8 @@ function accountIdFromChannelName(channelName?: string): string | undefined {
 }
 
 export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdapter {
-  private options?: EncryptedBroadcastChannelOptions
+  private options: EncryptedBroadcastChannelOptions
+  private readonly keys: KeyProvider
   private accountId?: string
   private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: AsyncQueue<QueuedMessage>
@@ -67,14 +66,15 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   private maxCryptoRetries: number
   private cryptoRetryDelayMs: number
 
-  constructor(options?: EncryptedBroadcastChannelOptions) {
+  constructor(options: EncryptedBroadcastChannelOptions) {
     super(options)
     this.options = options
-    this.accountId = options?.accountId ?? accountIdFromChannelName(options?.channelName)
-    this.maxPendingMessagesPerKey = options?.maxPendingMessagesPerKey ?? 1000
-    this.maxCryptoRetries = options?.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
+    this.keys = options.keys
+    this.accountId = options.accountId ?? accountIdFromChannelName(options.channelName)
+    this.maxPendingMessagesPerKey = options.maxPendingMessagesPerKey ?? 1000
+    this.maxCryptoRetries = options.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
     const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'
-    this.cryptoRetryDelayMs = options?.cryptoRetryDelayMs ?? (isTestEnv ? 0 : DEFAULT_CRYPTO_RETRY_DELAY_MS)
+    this.cryptoRetryDelayMs = options.cryptoRetryDelayMs ?? (isTestEnv ? 0 : DEFAULT_CRYPTO_RETRY_DELAY_MS)
 
     this.sendQueue = new AsyncQueue<QueuedMessage>(item => this.processSendItem(item))
     this.receiveQueue = new AsyncQueue<QueuedMessage>(item => this.processReceiveItem(item))
@@ -142,7 +142,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
       }
       try {
         if (item.message.type === 'sync' && item.message.data) {
-          const cryptoResult = await encryptBytes(item.message.data)
+          const cryptoResult = await this.keys.encryptBytes(item.message.data)
           const jsonString = JSON.stringify(cryptoResult)
           const encodedData = new TextEncoder().encode(jsonString)
           this.inner.send({ ...item.message, data: encodedData })
@@ -212,19 +212,19 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   private async waitForKeyAndDrain(kver: string): Promise<void> {
     try {
       while (this.hasPendingMessages(kver) && !this.isDisconnected) {
-        if (hasVaultKey(kver)) {
+        if (this.keys.hasKey(kver)) {
           this.requeuePendingMessages(kver)
           break
         }
 
-        const timeout = this.options?.keyWaitTimeoutMs ?? 5000
-        const keyAcquired = await waitForKeyVersion(kver, timeout)
-        if (keyAcquired || hasVaultKey(kver)) {
+        const timeout = this.options.keyWaitTimeoutMs ?? 5000
+        const keyAcquired = await this.keys.waitForKey(kver, timeout)
+        if (keyAcquired || this.keys.hasKey(kver)) {
           this.requeuePendingMessages(kver)
           break
         }
 
-        if (this.hasPendingMessages(kver) && !this.isDisconnected && this.options?.onKeyVersionMissing) {
+        if (this.hasPendingMessages(kver) && !this.isDisconnected && this.options.onKeyVersionMissing) {
           this.options.onKeyVersionMissing(kver)
         }
       }
@@ -258,16 +258,16 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
           const cryptoResult = JSON.parse(jsonString) as CryptoResult
           kver = cryptoResult.kver || '1'
 
-          if (!hasVaultKey(kver) && this.hasPendingMessages(kver)) {
+          if (!this.keys.hasKey(kver) && this.hasPendingMessages(kver)) {
             this.bufferPendingMessage(kver, message)
             return
           }
 
           let decryptedData: Uint8Array
           try {
-            decryptedData = await decryptWithKeyResolution(cryptoResult, {
-              timeoutMs: this.options?.keyWaitTimeoutMs ?? 5000,
-              onKeyVersionMissing: this.options?.onKeyVersionMissing,
+            decryptedData = await decryptWithKeyResolution(this.keys, cryptoResult, {
+              timeoutMs: this.options.keyWaitTimeoutMs ?? 5000,
+              onKeyVersionMissing: this.options.onKeyVersionMissing,
             })
           } catch (err) {
             const classified = classifySyncError(err)
@@ -284,7 +284,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
           }
 
           this.dispatchMessage({ ...message, data: decryptedData })
-          if (message.documentId && this.options?.onDocumentReceived) {
+          if (message.documentId && this.options.onDocumentReceived) {
             this.options.onDocumentReceived(message.documentId)
           }
         } else {
@@ -295,7 +295,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         item.retries += 1
         if (item.retries >= this.maxCryptoRetries) {
           console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
-          if (kver && this.options?.onKeyVersionMissing) {
+          if (kver && this.options.onKeyVersionMissing) {
             this.options.onKeyVersionMissing(kver)
           }
           return
@@ -304,7 +304,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
             `[EncryptedBroadcastChannel] Error decrypting message (attempt ${item.retries}/${this.maxCryptoRetries}), retrying:`,
             err
           )
-          if (kver && this.options?.onKeyVersionMissing) {
+          if (kver && this.options.onKeyVersionMissing) {
             this.options.onKeyVersionMissing(kver)
           }
           if (this.cryptoRetryDelayMs > 0) {

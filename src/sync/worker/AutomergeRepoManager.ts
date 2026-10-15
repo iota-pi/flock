@@ -7,6 +7,7 @@ import { isQuotaError } from '../utils/storageQuota'
 import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { getVaultStorageNames } from '../shared/storageNames'
+import type { KeyProvider } from '../../api/vault/Keyring'
 
 export interface AutomergeStorageAdapter extends StorageAdapterInterface {
   has(key: string[]): Promise<boolean>
@@ -67,7 +68,10 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
   private quotaAdapter: QuotaHandlingStorageAdapter | null = null
   private broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter | null = null
 
-  constructor(private readonly accountId: string) {}
+  constructor(
+    private readonly accountId: string,
+    private readonly keys: KeyProvider,
+  ) {}
 
   async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.close()
@@ -85,6 +89,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       channelName: `${getVaultStorageNames().accountPrefixes.automergeBroadcastChannel}${this.accountId}`,
       accountId: this.accountId,
+      keys: this.keys,
       onKeyVersionMissing: options?.onKeyVersionMissing,
       onDocumentReceived: options?.onDocumentReceived,
     })

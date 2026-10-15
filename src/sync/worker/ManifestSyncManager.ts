@@ -22,6 +22,7 @@ import {
   type FetchAndHydrateParams,
 } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import type { KeyProvider } from '../../api/vault/Keyring'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
@@ -32,6 +33,7 @@ export interface ManifestSyncManagerDeps {
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   snapshotManager: SnapshotManager
+  keys: KeyProvider
   recoveryManager?: RecoveryManager
   apiClient?: SyncApiClient
   onKeyVersionMissing?: (kver: string) => void
@@ -95,6 +97,7 @@ export class ManifestSyncManager implements LifecycleAware {
       docStore: this.deps.docStore,
       indexManager: this.deps.indexManager,
       snapshotManager: this.deps.snapshotManager,
+      keys: this.deps.keys,
       storeItems: this.deps.storeItems,
       onDecryptionFailure: this.deps.onDecryptionFailure,
       onItemSnapshotHydrated: this.deps.onItemSnapshotHydrated,

@@ -19,6 +19,7 @@ import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { VaultSnapshotInput } from 'src/shared/vault/snapshots'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
+import type { KeyProvider } from '../../api/vault/Keyring'
 
 const MAX_BATCH_RETRIES = 3
 const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
@@ -74,6 +75,7 @@ export interface ItemReencryptorOptions {
   maxBatchCount?: number
   maxBatchBytes?: number
   codec?: DocCodec
+  keys: KeyProvider
 }
 
 export class ItemReencryptor {
@@ -85,13 +87,15 @@ export class ItemReencryptor {
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
   private readonly codec?: DocCodec
+  private readonly keys: KeyProvider
 
-  constructor(options?: ItemReencryptorOptions) {
-    this.codec = options?.codec
-    this.retryStrategy = new RetryStrategy({ delays: options?.retryDelays ?? DEFAULT_RETRY_DELAYS })
-    this.batchRetryDelays = options?.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
-    this.maxBatchCount = options?.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
-    this.maxBatchBytes = options?.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
+  constructor(options: ItemReencryptorOptions) {
+    this.codec = options.codec
+    this.keys = options.keys
+    this.retryStrategy = new RetryStrategy({ delays: options.retryDelays ?? DEFAULT_RETRY_DELAYS })
+    this.batchRetryDelays = options.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
+    this.maxBatchCount = options.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
+    this.maxBatchBytes = options.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
   }
 
   get retryAttempt(): number {
@@ -218,7 +222,7 @@ export class ItemReencryptor {
       throw new Error('ItemId is required to build snapshot')
     }
 
-    return buildSnapshotFromBuilder(repo, itemId, 0, { signal, codec: this.codec })
+    return buildSnapshotFromBuilder(repo, itemId, 0, this.keys, { signal, codec: this.codec })
   }
 
   /**

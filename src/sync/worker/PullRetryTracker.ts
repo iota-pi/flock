@@ -1,4 +1,4 @@
-import { hasVaultKey } from 'src/api/vault'
+import type { KeyProvider } from 'src/api/vault/Keyring'
 import { ItemId } from 'src/shared/vault/ids'
 import type { PageToken } from 'src/shared/vault/api'
 
@@ -69,7 +69,10 @@ export class PullRetryTracker {
   private readonly retryQueue = new Map<ItemId, ItemPullState>()
   private readonly itemCursors = new Map<ItemId, number>()
 
-  constructor(private readonly maxRetries: number = PullRetryTracker.MAX_PULL_RETRIES) {}
+  constructor(
+    private readonly keys: KeyProvider,
+    private readonly maxRetries: number = PullRetryTracker.MAX_PULL_RETRIES,
+  ) {}
 
   getOrCreateState(itemId: ItemId): ItemPullState {
     let state = this.retryQueue.get(itemId)
@@ -111,14 +114,14 @@ export class PullRetryTracker {
     if (!itemId) return
     const state = this.getOrCreateState(itemId)
     state.pending = true
-    if (state.blockedOnKey && hasVaultKey(state.blockedOnKey)) {
+    if (state.blockedOnKey && this.keys.hasKey(state.blockedOnKey)) {
       state.blockedOnKey = undefined
     }
   }
 
   isAnyRetrying(): boolean {
     for (const state of this.retryQueue.values()) {
-      if (state.retryCount > 0 || (state.blockedOnKey && !hasVaultKey(state.blockedOnKey))) {
+      if (state.retryCount > 0 || (state.blockedOnKey && !this.keys.hasKey(state.blockedOnKey))) {
         return true
       }
     }
@@ -134,7 +137,7 @@ export class PullRetryTracker {
 
   hasImmediatePendingPulls(): boolean {
     for (const state of this.retryQueue.values()) {
-      if (state.pending && state.retryCount === 0 && (!state.blockedOnKey || hasVaultKey(state.blockedOnKey))) {
+      if (state.pending && state.retryCount === 0 && (!state.blockedOnKey || this.keys.hasKey(state.blockedOnKey))) {
         return true
       }
     }
@@ -144,7 +147,7 @@ export class PullRetryTracker {
   onKeyringUpdated(): boolean {
     let unblockedAny = false
     for (const state of this.retryQueue.values()) {
-      if (state.blockedOnKey && hasVaultKey(state.blockedOnKey)) {
+      if (state.blockedOnKey && this.keys.hasKey(state.blockedOnKey)) {
         state.blockedOnKey = undefined
         state.pending = true
         state.retryCount = 0
@@ -158,7 +161,7 @@ export class PullRetryTracker {
     const cursors: Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> = []
 
     for (const [itemId, state] of this.retryQueue.entries()) {
-      if (state.blockedOnKey && !hasVaultKey(state.blockedOnKey)) {
+      if (state.blockedOnKey && !this.keys.hasKey(state.blockedOnKey)) {
         continue
       }
       if (state.pending) {

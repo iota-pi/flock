@@ -1,6 +1,6 @@
 import { chunk } from 'lodash-es'
 
-import { encryptBytes } from '../../api/vault'
+import type { KeyProvider } from '../../api/vault/Keyring'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/vault/ids'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -55,6 +55,7 @@ export class SyncPoller {
     private pullQueueManager: SyncPullQueueManager,
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
+    private readonly keys: KeyProvider,
     private indexManager?: AutomergeIndexManager,
     private wal?: SyncWriteAheadLog | null,
     apiClient?: SyncApiClient,
@@ -194,7 +195,7 @@ export class SyncPoller {
           messages.map(m => m.id)
         )
         const combined = packBatchedMessages(messages)
-        const encryptedMessage = await encryptBytes(combined, itemId)
+        const encryptedMessage = await this.keys.encryptBytes(combined, itemId)
         return {
           itemId,
           encryptedMessage: {

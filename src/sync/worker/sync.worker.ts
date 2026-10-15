@@ -9,7 +9,9 @@ import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerIn
 
 import type { VaultDoc, VaultMetadata } from '../shared/types'
 import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
-import { initWorkerVault } from '../../api/vault'
+import { Keyring } from '../../api/vault/Keyring'
+import { getActiveSessionToken } from '../shared/workerAuthStore'
+import { setApiAuthToken } from 'src/api/runtime'
 import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
@@ -117,6 +119,7 @@ export class SyncWorker implements SyncApi {
   private tokenRefreshResolve: ((token: string | null) => void) | null = null
   private tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
   private latestAuthToken: string | null = null
+  private readonly keyring = new Keyring()
 
   constructor(private readonly config: SyncWorkerConfig) {
     this.initReadyPromise()
@@ -214,8 +217,20 @@ export class SyncWorker implements SyncApi {
   }
 
   private async initGlobalPrerequisites(vaultKey: string): Promise<void> {
-    await initWorkerVault(vaultKey)
+    await this.loadKeyring(vaultKey)
     await Automerge.initializeWasm(this.config.automergeWasmUrl)
+  }
+
+  /** Loads the keyring exported by the main thread, and the session token it stored for this realm */
+  private async loadKeyring(vaultKey: string): Promise<void> {
+    await this.keyring.load(vaultKey)
+
+    const sessionToken = await getActiveSessionToken()
+    if (sessionToken) {
+      setApiAuthToken(sessionToken)
+    } else {
+      log.warn('Missing session token for realtime sync; network pushes will not start.')
+    }
   }
 
   private subscribeClientEvents(): void {
@@ -326,6 +341,7 @@ export class SyncWorker implements SyncApi {
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
         domain: this.config.domain,
         migrateLocalData: this.config.migrateLocalData,
+        keys: this.keyring,
       })
       if (this.latestAuthToken) {
         context.apiClient.setToken(this.latestAuthToken)
@@ -535,7 +551,7 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.recoveryManager.listRecoveryItems(undefined, options))
 
   updateVaultKey = async (vaultKey: string) => {
-    await initWorkerVault(vaultKey)
+    await this.loadKeyring(vaultKey)
     return this.withContext(ctx => {
       ctx.pullQueueManager?.onKeyringUpdated()
     })

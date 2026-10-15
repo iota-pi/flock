@@ -3,7 +3,8 @@ import { chunk } from 'lodash-es'
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import { hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
+import type { CryptoResult } from '../../api/vault/crypto'
+import type { KeyProvider } from '../../api/vault/Keyring'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { SyncApiClient } from './SyncApiClient'
@@ -55,6 +56,7 @@ export interface ManifestHydratorDeps {
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   snapshotManager: SnapshotManager
+  keys: KeyProvider
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
@@ -344,7 +346,10 @@ export class ManifestHydrator {
     if (!this.deps.decodeLegacyItem) return null
     const decoded = await this.deps.decodeLegacyItem(
       item as unknown as LegacyItemEnvelope,
-      { ensureKey: kver => this.ensureKey(kver) },
+      {
+        ensureKey: kver => this.ensureKey(kver),
+        decrypt: payload => this.deps.keys.decryptBytes(payload),
+      },
     ).catch(() => null)
     if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
       return null
@@ -374,9 +379,9 @@ export class ManifestHydrator {
   }
 
   private async ensureKey(kver: string): Promise<boolean> {
-    if (hasVaultKey(kver)) return true
+    if (this.deps.keys.hasKey(kver)) return true
     this.deps.onKeyVersionMissing?.(kver)
-    return waitForKeyVersion(kver, KEY_WAIT_TIMEOUT_MS)
+    return this.deps.keys.waitForKey(kver, KEY_WAIT_TIMEOUT_MS)
   }
 
   private async decryptSnapshotBinary(
@@ -384,7 +389,7 @@ export class ManifestHydrator {
     encryptedAutomergeDoc: CryptoResult,
   ): Promise<Uint8Array | null> {
     try {
-      return await decryptWithKeyResolution(encryptedAutomergeDoc, {
+      return await decryptWithKeyResolution(this.deps.keys, encryptedAutomergeDoc, {
         docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         onKeyVersionMissing: this.deps.onKeyVersionMissing,

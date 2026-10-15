@@ -1,10 +1,10 @@
 import { PullRetryTracker, PullStateTransition } from './PullRetryTracker'
 import { ItemId } from 'src/shared/vault/ids'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
-const mockHasVaultKey = vi.fn().mockReturnValue(true)
-vi.mock('src/api/vault', () => ({
-  hasVaultKey: (...args: any[]) => mockHasVaultKey(...args),
-}))
+const mockVault = createMockVault()
+const mockHasVaultKey = mockVault.hasVaultKey
+const keys = createMockKeyProvider(mockVault)
 
 describe('PullRetryTracker', () => {
   let tracker: PullRetryTracker
@@ -12,7 +12,7 @@ describe('PullRetryTracker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockHasVaultKey.mockReturnValue(true)
-    tracker = new PullRetryTracker()
+    tracker = new PullRetryTracker(keys)
   })
 
   describe('state initialization and queries', () => {
@@ -148,7 +148,7 @@ describe('PullRetryTracker', () => {
         ['item-2', 20],
       ])
 
-      const tracker2 = new PullRetryTracker()
+      const tracker2 = new PullRetryTracker(keys)
       tracker2.importCursors(exported)
       expect(tracker2.exportCursors()).toEqual(exported)
     })
@@ -340,7 +340,7 @@ describe('PullRetryTracker', () => {
       expect(state.globalCursor).toBe(1000)
       expect(state.retries).toEqual([['item-retrying', 400]])
 
-      const tracker2 = new PullRetryTracker()
+      const tracker2 = new PullRetryTracker(keys)
       tracker2.loadState(state)
       expect(tracker2.getGlobalLatestCursor()).toBe(1000)
       expect(tracker2.hasPendingPulls()).toBe(true)
@@ -373,7 +373,7 @@ describe('PullRetryTracker', () => {
       expect(state.globalCursor).toBe(100)
       expect(state.retries).toEqual([['item-ahead', 500]])
 
-      const restored = new PullRetryTracker()
+      const restored = new PullRetryTracker(keys)
       restored.loadState(state)
       expect(restored.getGlobalScanCursor()).toBe(100)
     })

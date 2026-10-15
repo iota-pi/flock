@@ -4,6 +4,7 @@ import type { VaultDoc } from 'src/sync/shared/types'
 import { ItemOperations } from './ItemOperations'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import type { Message, PeerId } from '@automerge/automerge-repo/slim'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({
@@ -33,7 +34,8 @@ vi.mock('@automerge/automerge-repo-network-broadcastchannel', () => {
   }
 })
 
-vi.mock('src/api/vault', () => ({
+const keys = createMockKeyProvider({
+  ...createMockVault(),
   encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => ({
     iv: 'mock-iv',
     cipher: 'mock-cipher-' + Array.from(bytes).join(','),
@@ -45,9 +47,7 @@ vi.mock('src/api/vault', () => ({
     if (suffix === '') return new Uint8Array([])
     return new Uint8Array(suffix.split(',').map((x: string) => parseInt(x, 10)))
   }),
-  hasVaultKey: vi.fn().mockReturnValue(true),
-  waitForKeyVersion: vi.fn().mockResolvedValue(true),
-}))
+})
 
 describe('Cross-Tab New Item Discovery Offline (C7)', () => {
   beforeEach(() => {
@@ -104,7 +104,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
   })
 
   it('Tab 1 transmits sync message: EncryptedBroadcastChannelNetworkAdapter notifies peer tabs via realtimeBus', async () => {
-    const adapter = new EncryptedBroadcastChannelNetworkAdapter({ accountId: 'account-1' })
+    const adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, accountId: 'account-1' })
     const docId = toDocumentIdFromItemId('offline-item-456' as ItemId)
 
     const syncMessage: Message = {
@@ -125,6 +125,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
   it('Tab 2 receives sync message: EncryptedBroadcastChannelNetworkAdapter invokes onDocumentReceived callback', async () => {
     const onDocumentReceivedMock = vi.fn()
     const adapter = new EncryptedBroadcastChannelNetworkAdapter({
+      keys,
       onDocumentReceived: onDocumentReceivedMock,
     })
 

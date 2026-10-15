@@ -1,19 +1,14 @@
 import { decryptWithKeyResolution, MissingKeyError } from './decryptWithKeyResolution'
 
-import { createMockVault } from '../__test__/testUtils'
+import { createMockKeyProvider, createMockVault } from '../__test__/testUtils'
 
 const mockVault = createMockVault()
+const keys = createMockKeyProvider(mockVault)
 const {
   decryptBytes: mockDecryptBytes,
   hasVaultKey: mockHasVaultKey,
   waitForKeyVersion: mockWaitForKeyVersion,
 } = mockVault
-
-vi.mock('src/api/vault', () => ({
-  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
-  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
-}))
 
 describe('decryptWithKeyResolution', () => {
   beforeEach(() => {
@@ -25,7 +20,7 @@ describe('decryptWithKeyResolution', () => {
 
   it('decrypts immediately when key is available in keyring (object form)', async () => {
     const payload = { cipher: 'c-1', iv: 'iv-1', kver: '1' }
-    const result = await decryptWithKeyResolution(payload)
+    const result = await decryptWithKeyResolution(keys, payload)
 
     expect(result).toEqual(new Uint8Array([1, 2, 3]))
     expect(mockHasVaultKey).toHaveBeenCalledWith('1')
@@ -35,13 +30,13 @@ describe('decryptWithKeyResolution', () => {
 
   it('passes the document ID through for doc-bound ciphertexts', async () => {
     const payload = { cipher: 'c-1', iv: 'iv-1', kver: '2', format: 2 as const }
-    await decryptWithKeyResolution(payload, { docId: 'item-1' })
+    await decryptWithKeyResolution(keys, payload, { docId: 'item-1' })
 
     expect(mockDecryptBytes).toHaveBeenCalledWith(payload, 'item-1')
   })
 
   it('defaults kver to "1" if undefined', async () => {
-    const result = await decryptWithKeyResolution({ cipher: 'c-1', iv: 'iv-1' })
+    const result = await decryptWithKeyResolution(keys, { cipher: 'c-1', iv: 'iv-1' })
 
     expect(result).toEqual(new Uint8Array([1, 2, 3]))
     expect(mockHasVaultKey).toHaveBeenCalledWith('1')
@@ -57,7 +52,7 @@ describe('decryptWithKeyResolution', () => {
     })
 
     const onKeyVersionMissing = vi.fn()
-    const result = await decryptWithKeyResolution(
+    const result = await decryptWithKeyResolution(keys, 
       { cipher: 'c-2', iv: 'iv-2', kver: '2' },
       { timeoutMs: 3000, onKeyVersionMissing },
     )
@@ -75,7 +70,7 @@ describe('decryptWithKeyResolution', () => {
     const onKeyVersionMissing = vi.fn()
 
     await expect(
-      decryptWithKeyResolution(
+      decryptWithKeyResolution(keys, 
         { cipher: 'c-3', iv: 'iv-3', kver: '3' },
         { timeoutMs: 2000, onKeyVersionMissing, timedOutKeys },
       ),
@@ -92,7 +87,7 @@ describe('decryptWithKeyResolution', () => {
     const onKeyVersionMissing = vi.fn()
 
     await expect(
-      decryptWithKeyResolution(
+      decryptWithKeyResolution(keys, 
         { cipher: 'c-4', iv: 'iv-4', kver: '4' },
         { timedOutKeys, onKeyVersionMissing },
       ),
@@ -107,7 +102,7 @@ describe('decryptWithKeyResolution', () => {
     const onKeyVersionMissing = vi.fn()
 
     await expect(
-      decryptWithKeyResolution(
+      decryptWithKeyResolution(keys, 
         { cipher: 'c-5', iv: 'iv-5', kver: '5' },
         { skipWait: kver => kver === '5', onKeyVersionMissing },
       ),
@@ -122,7 +117,7 @@ describe('decryptWithKeyResolution', () => {
     mockDecryptBytes.mockRejectedValue(new Error('Ciphertext corrupted or bad MAC'))
 
     await expect(
-      decryptWithKeyResolution({ cipher: 'bad', iv: 'iv-bad', kver: '1' }),
+      decryptWithKeyResolution(keys, { cipher: 'bad', iv: 'iv-bad', kver: '1' }),
     ).rejects.toThrow('Ciphertext corrupted or bad MAC')
   })
 })

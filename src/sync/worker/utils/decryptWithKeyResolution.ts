@@ -1,4 +1,5 @@
-import { decryptBytes, hasVaultKey, waitForKeyVersion, type CryptoResult } from 'src/api/vault'
+import type { CryptoResult } from 'src/api/vault/crypto'
+import type { KeyProvider } from 'src/api/vault/Keyring'
 
 export class MissingKeyError extends Error {
   readonly kver: string
@@ -20,13 +21,14 @@ export interface DecryptKeyResolutionOptions {
 }
 
 export async function decryptWithKeyResolution(
+  keys: KeyProvider,
   payload: CryptoResult,
   options?: DecryptKeyResolutionOptions,
 ): Promise<Uint8Array> {
   const resolvedKver = payload.kver || '1'
   const timeoutMs = options?.timeoutMs ?? 5000
 
-  if (!hasVaultKey(resolvedKver)) {
+  if (!keys.hasKey(resolvedKver)) {
     const shouldSkip =
       options?.timedOutKeys?.has(resolvedKver) ||
       (typeof options?.skipWait === 'function' ? options.skipWait(resolvedKver) : Boolean(options?.skipWait))
@@ -38,12 +40,12 @@ export async function decryptWithKeyResolution(
 
     options?.onKeyVersionMissing?.(resolvedKver)
 
-    const keyAcquired = await waitForKeyVersion(resolvedKver, timeoutMs)
-    if (!keyAcquired && !hasVaultKey(resolvedKver)) {
+    const keyAcquired = await keys.waitForKey(resolvedKver, timeoutMs)
+    if (!keyAcquired && !keys.hasKey(resolvedKver)) {
       options?.timedOutKeys?.add(resolvedKver)
       throw new MissingKeyError(resolvedKver, `Timed out waiting for key version ${resolvedKver}`)
     }
   }
 
-  return await decryptBytes({ ...payload, kver: resolvedKver }, options?.docId)
+  return await keys.decryptBytes({ ...payload, kver: resolvedKver }, options?.docId)
 }

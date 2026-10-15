@@ -1,5 +1,6 @@
 import type { Mock } from 'vitest'
 import { ClientEventHub, WorkerInternalEventHub } from '../SyncEventHub'
+import type { KeyProvider } from '../../../api/vault/Keyring'
 
 /**
  * Mock LocalForage storage instance implementing common localforage methods.
@@ -248,6 +249,20 @@ export function createMockVault(overrides?: Partial<MockVault>): MockVault {
   }
 
   return mockVault
+}
+
+/**
+ * A KeyProvider backed by a mock vault's functions, so specs can stub and assert on them
+ */
+export function createMockKeyProvider(
+  vault: Pick<MockVault, 'hasVaultKey' | 'waitForKeyVersion' | 'encryptBytes' | 'decryptBytes'> = createMockVault(),
+): KeyProvider {
+  return {
+    hasKey: kver => vault.hasVaultKey(kver),
+    waitForKey: (kver, timeoutMs) => vault.waitForKeyVersion(kver, timeoutMs),
+    encryptBytes: (bytes, docId) => vault.encryptBytes(bytes, docId),
+    decryptBytes: (data, docId) => vault.decryptBytes(data, docId),
+  }
 }
 
 export interface TestEventHubs {

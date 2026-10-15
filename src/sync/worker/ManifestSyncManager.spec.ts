@@ -33,22 +33,16 @@ vi.mock('../../api/vault/ItemClient', () => ({
   fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
 }))
 
-import { createMockVault } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockVault = createMockVault()
+const keys = createMockKeyProvider(mockVault)
 const {
   decryptObject: mockDecryptObject,
   decryptBytes: mockDecryptBytes,
   hasVaultKey: mockHasVaultKey,
   waitForKeyVersion: mockWaitForKeyVersion,
 } = mockVault
-vi.mock('../../api/vault', () => ({
-  decryptObject: (...args: any[]) => mockVault.decryptObject(...args),
-  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
-  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
-}))
-
 const mockReadManualRecoveryEntries = vi.fn().mockResolvedValue([])
 vi.mock('../shared/manualRecoveryStore', () => ({
   readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
@@ -108,6 +102,7 @@ describe('ManifestSyncManager', () => {
       docStore: mockDocStore,
       indexManager: mockIndexManager,
       snapshotManager: mockSnapshotManager,
+      keys,
       storeItems: storeItemsSpy,
       migrateLegacySettings: migrateLegacySettingsSpy,
     } as any

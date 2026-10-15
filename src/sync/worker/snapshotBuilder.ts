@@ -4,7 +4,7 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import type { VaultSnapshotInput } from '../../shared/vault/snapshots'
 import { normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { encryptBytes } from '../../api/vault'
+import type { KeyProvider } from '../../api/vault/Keyring'
 import { passthroughCodec, type DocCodec } from './domain'
 import { ItemId } from 'src/shared/vault/ids'
 import { classifySyncError } from './utils/errorClassifier'
@@ -24,6 +24,7 @@ export async function buildSnapshot(
   repo: Repo,
   itemId: ItemId,
   snapshotCursor: number,
+  keys: KeyProvider,
   options?: BuildSnapshotOptions,
 ): Promise<BuildSnapshotResult> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
@@ -50,7 +51,7 @@ export async function buildSnapshot(
 
   let encryptedDoc
   try {
-    encryptedDoc = await encryptBytes(binary, itemId)
+    encryptedDoc = await keys.encryptBytes(binary, itemId)
   } catch (error) {
     if (classifySyncError(error).isTransientVault) {
       return { type: 'not-ready' }
@@ -97,6 +98,7 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
 export class SnapshotBuilder {
   constructor(
     private readonly repo: Repo,
+    private readonly keys: KeyProvider,
     private readonly codec: DocCodec = passthroughCodec,
   ) {}
 
@@ -106,7 +108,7 @@ export class SnapshotBuilder {
     options?: BuildSnapshotOptions,
   ): Promise<BuildSnapshotResult> {
     try {
-      return await buildSnapshot(this.repo, itemId, snapshotCursor, { codec: this.codec, ...options })
+      return await buildSnapshot(this.repo, itemId, snapshotCursor, this.keys, { codec: this.codec, ...options })
     } catch (error: unknown) {
       const classified = classifySyncError(error)
       if (classified.isTransientVault) {

@@ -12,6 +12,7 @@ import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from '.
 import {
   MockLocalforage,
   createMockLocalForage,
+  createMockKeyProvider,
   createMockVault,
 } from './__test__/testUtils'
 
@@ -28,17 +29,12 @@ vi.mock('localforage', () => ({
 
 // Mock vault crypto
 const mockVault = createMockVault()
+const keys = createMockKeyProvider(mockVault)
 const {
   decryptBytes: mockDecryptBytes,
   hasVaultKey: mockHasVaultKey,
   waitForKeyVersion: mockWaitForKeyVersion,
 } = mockVault
-
-vi.mock('src/api/vault', () => ({
-  decryptBytes: (...args: any[]) => mockVault.decryptBytes(...args),
-  hasVaultKey: (...args: any[]) => mockVault.hasVaultKey(...args),
-  waitForKeyVersion: (...args: any[]) => mockVault.waitForKeyVersion(...args),
-}))
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({
@@ -91,7 +87,7 @@ describe('SyncPullQueueManager', () => {
     clearSyncMetadataInstancesCacheForTesting()
     activeStore = null
     cursorStore = new CursorStore('account-1')
-    manager = new SyncPullQueueManager(cursorStore)
+    manager = new SyncPullQueueManager(cursorStore, keys)
 
     // Default mock behavior
     mockVault.reset()
@@ -125,7 +121,7 @@ describe('SyncPullQueueManager', () => {
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
 
       cursorStore = new CursorStore('account-2')
-      manager = new SyncPullQueueManager(cursorStore)
+      manager = new SyncPullQueueManager(cursorStore, keys)
       await manager.setAccount('account-2')
       expect(manager.exportCursors()).toEqual(preLoadedCursors)
     })
@@ -445,7 +441,7 @@ describe('SyncPullQueueManager', () => {
       )
       await manager.persistCursors()
 
-      const restarted = new SyncPullQueueManager(cursorStore)
+      const restarted = new SyncPullQueueManager(cursorStore, keys)
       await restarted.setAccount('account-1')
 
       expect(restarted.getGlobalPageToken()).toBeUndefined()

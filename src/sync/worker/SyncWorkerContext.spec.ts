@@ -1,7 +1,7 @@
 import { SyncWorkerContext } from './SyncWorkerContext'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS } from './RecoveryManager'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
@@ -243,6 +243,7 @@ describe('SyncWorkerContext', () => {
 
     context = new SyncWorkerContext({
       accountId: 'test-account',
+      keys: createMockKeyProvider(),
       clientEventHub,
       internalEventHub,
     })
@@ -323,6 +324,7 @@ describe('SyncWorkerContext', () => {
       const { clientEventHub: ctxClientHub, internalEventHub: ctxInternalHub } = createTestEventHubs()
       const ctx = new SyncWorkerContext({
         accountId: 'test-account',
+        keys: createMockKeyProvider(),
         clientEventHub: ctxClientHub,
         internalEventHub: ctxInternalHub,
       })
@@ -437,6 +439,7 @@ describe('SyncWorkerContext', () => {
     function createMigratingContext(migrateLocalData: (accountId: string) => Promise<void>) {
       return new SyncWorkerContext({
         accountId: 'test-account-migrate',
+        keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
         migrateLocalData,
@@ -513,6 +516,7 @@ describe('SyncWorkerContext', () => {
     const mockRefresh = vi.fn().mockResolvedValue('token-123')
     const ctx = new SyncWorkerContext({
       accountId: 'test-account-refresh',
+      keys: createMockKeyProvider(),
       clientEventHub,
       internalEventHub,
       refreshAuthToken: mockRefresh,

@@ -14,6 +14,7 @@ import type { SyncApiClient } from './SyncApiClient'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { RecoveryManager } from './RecoveryManager'
+import type { KeyProvider } from '../../api/vault/Keyring'
 
 interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
@@ -45,6 +46,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     private internalEventHub: WorkerInternalEventHub,
     private indexManager: AutomergeIndexManager | undefined,
     private pullQueueManager: SyncPullQueueManager,
+    keys: KeyProvider,
     wal?: SyncWriteAheadLog | null,
     storageRecovery?: StorageRecoveryService | null,
     apiClient?: SyncApiClient,
@@ -85,6 +87,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
       this.pullQueueManager,
       this.clientEventHub,
       this.internalEventHub,
+      keys,
       this.indexManager,
       this.wal,
       apiClient,

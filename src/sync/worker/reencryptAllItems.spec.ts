@@ -1,6 +1,7 @@
 import { ItemReencryptor } from './reencryptAllItems'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { BuildSnapshotResult } from './snapshotBuilder'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockGetActiveSessionToken = vi.fn()
@@ -18,20 +19,15 @@ vi.mock('../shared/manualRecoveryStore', () => ({
   upsertManualRecoveryEntry: vi.fn().mockResolvedValue({ id: 'mock-entry' }),
 }))
 
-vi.mock('../../api/vault', () => {
-  class MockVaultNotInitializedError extends Error {
-    name = 'VaultNotInitializedError'
-  }
-  return {
-    encryptBytes: vi.fn().mockResolvedValue({
-      iv: 'mock-iv',
-      cipher: 'mock-cipher',
-      kver: '1',
-    }),
-    initWorkerVault: vi.fn(),
-    VaultNotInitializedError: MockVaultNotInitializedError,
-  }
-})
+const vault = {
+  ...createMockVault(),
+  encryptBytes: vi.fn().mockResolvedValue({
+    iv: 'mock-iv',
+    cipher: 'mock-cipher',
+    kver: '1',
+  }),
+}
+const keys = createMockKeyProvider(vault)
 
 vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
@@ -64,7 +60,7 @@ describe('reencryptAllItems', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    itemReencryptor = new ItemReencryptor()
+    itemReencryptor = new ItemReencryptor({ keys })
 
     mockHandle = {
       isReady: vi.fn().mockReturnValue(true),
@@ -342,7 +338,7 @@ describe('reencryptAllItems', () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockGetActiveSessionToken.mockResolvedValue('mock-token')
 
-    const reencryptor = new ItemReencryptor()
+    const reencryptor = new ItemReencryptor({ keys })
     vi.spyOn(reencryptor as any, 'buildSnapshotWithRetry').mockResolvedValueOnce({ type: 'not-ready' })
 
     const processContext = {
@@ -709,6 +705,7 @@ describe('reencryptAllItems', () => {
       // Each snapshot is ~150 bytes in mock (cipher 11 + iv 7 + id 6 + base 128 = 152 bytes)
       // Setting maxBatchBytes to 200 ensures each batch holds at most 1 item!
       const customReencryptor = new ItemReencryptor({
+        keys,
         maxBatchBytes: 200,
       })
 
@@ -741,6 +738,7 @@ describe('reencryptAllItems', () => {
         .mockResolvedValueOnce({ success: true })
 
       const customReencryptor = new ItemReencryptor({
+        keys,
         maxBatchBytes: 200,
       })
 
@@ -762,8 +760,8 @@ describe('reencryptAllItems', () => {
 
 describe('ItemReencryptor class', () => {
   it('maintains independent retry state across instances', () => {
-    const r1 = new ItemReencryptor({ retryDelays: [100, 200] })
-    const r2 = new ItemReencryptor({ retryDelays: [500, 1000] })
+    const r1 = new ItemReencryptor({ keys, retryDelays: [100, 200] })
+    const r2 = new ItemReencryptor({ keys, retryDelays: [500, 1000] })
 
     expect(r1.retryAttempt).toBe(0)
     expect(r2.retryAttempt).toBe(0)
@@ -787,13 +785,13 @@ describe('ItemReencryptor class', () => {
   })
 
   it('supports custom batchRetryDelays configuration', () => {
-    const r = new ItemReencryptor({ batchRetryDelays: [50, 100] })
+    const r = new ItemReencryptor({ keys, batchRetryDelays: [50, 100] })
     expect(r.batchRetryDelays).toEqual([50, 100])
   })
 
   describe('pipeline stages', () => {
     it('buildReencryptionPlan partitions item IDs into chunks', () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       const itemIds = ['item-1', 'item-2', 'item-3', 'item-4', 'item-5']
       const plan = reencryptor.buildReencryptionPlan(itemIds as any, 2)
       expect(plan).toEqual([
@@ -804,7 +802,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('buildSnapshot is a pure operation building snapshot for an item', async () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       const mockHandle = {
         isReady: vi.fn().mockReturnValue(true),
         doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
@@ -820,7 +818,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('uploadBatch is a pure operation that uploads snapshots and verifies confirmation', async () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       const mockApiClient = {
         putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 1 }),
       }
@@ -843,7 +841,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('uploadBatch throws when unconfirmed or failed', async () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       const mockApiClient = {
         putSnapshots: vi.fn().mockResolvedValue({ success: false }),
       }
@@ -862,14 +860,14 @@ describe('ItemReencryptor class', () => {
     })
 
     it('reportProgress clamps done to total and calls callback', () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       const onProgress = vi.fn()
       reencryptor.reportProgress(15, 10, onProgress)
       expect(onProgress).toHaveBeenCalledWith(10, 10)
     })
 
     it('processChunk orchestrates building snapshots, uploading batch, and progress reporting', async () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       const mockHandle = {
         isReady: vi.fn().mockReturnValue(true),
         doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
@@ -906,7 +904,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('processChunk throws transient errors without requiring deps', async () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       const mockHandle = {
         isReady: vi.fn().mockReturnValue(true),
         doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
@@ -935,7 +933,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('handleBatchUploadFailure classifies errors without needing deps', () => {
-      const reencryptor = new ItemReencryptor()
+      const reencryptor = new ItemReencryptor({ keys })
       // Network error throws
       expect(() =>
         reencryptor.handleBatchUploadFailure(new Error('network error'))
@@ -956,7 +954,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    itemReencryptor = new ItemReencryptor()
+    itemReencryptor = new ItemReencryptor({ keys })
     mockGetActiveSessionToken.mockResolvedValue('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
@@ -1050,7 +1048,7 @@ describe('concurrency and retry race safety (H11)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
-    itemReencryptor = new ItemReencryptor()
+    itemReencryptor = new ItemReencryptor({ keys })
     mockGetActiveSessionToken.mockResolvedValue('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 

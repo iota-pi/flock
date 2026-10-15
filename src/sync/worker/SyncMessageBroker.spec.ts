@@ -3,7 +3,9 @@ import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/s
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
+
+const keys = createMockKeyProvider()
 import { AutomergeIndexManager } from './docStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
@@ -62,6 +64,7 @@ describe('SyncMessageBroker', () => {
       internalEventHub,
       indexManager,
       pullQueueManager,
+      keys,
       mockWal,
     )
   })

@@ -15,7 +15,9 @@ import type { ItemId } from 'src/shared/vault/ids'
 
 import {
   MockLocalforage,
+  createMockKeyProvider,
   createMockLocalForage,
+  createMockVault,
   createTestEventHubs,
 } from './__test__/testUtils'
 
@@ -42,10 +44,8 @@ vi.mock('../shared/workerAuthStore', () => ({
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-session-token'),
 }))
 
-vi.mock('../../api/vault', async () => {
-  const { createMockVault } = await import('./__test__/testUtils')
-  return createMockVault()
-})
+const vault = createMockVault()
+const keys = createMockKeyProvider(vault)
 
 function createTestSyncMessageData(): Uint8Array {
   return Automerge.encodeSyncMessage({
@@ -76,7 +76,7 @@ describe('Sync System Integration Test Suite', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     cursorStore = new CursorStore(accountId)
-    pullQueueManager = new SyncPullQueueManager(cursorStore)
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys)
     wal = new SyncWriteAheadLog(accountId)
     adapter = new VaultNetworkAdapter()
 
@@ -93,6 +93,7 @@ describe('Sync System Integration Test Suite', () => {
       internalEventHub,
       indexManager,
       pullQueueManager,
+      keys,
       wal,
     )
 
@@ -260,7 +261,7 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [],
     })
 
-    const newPoller = new SyncPoller(pullQueueManager, clientEventHub, internalEventHub, indexManager, newWal)
+    const newPoller = new SyncPoller(pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, newWal)
     newPoller.setAccount(accountId)
     newPoller.setOnlineState(true)
 
@@ -350,7 +351,7 @@ describe('Sync System Integration Test Suite', () => {
       }
     })
 
-    const { hasVaultKey, waitForKeyVersion } = await import('../../api/vault')
+    const { hasVaultKey, waitForKeyVersion } = vault
     // Key '2' is not yet in keyring and times out
     vi.mocked(hasVaultKey).mockImplementation((kver?: string) => kver !== '2')
     vi.mocked(waitForKeyVersion).mockResolvedValue(false)

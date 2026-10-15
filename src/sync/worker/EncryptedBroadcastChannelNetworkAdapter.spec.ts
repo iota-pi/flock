@@ -3,6 +3,7 @@ import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { toDocumentIdFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { ItemId } from 'src/shared/vault/ids'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('./realtimeBus', () => ({
@@ -32,28 +33,8 @@ vi.mock('@automerge/automerge-repo-network-broadcastchannel', () => {
   }
 })
 
-vi.mock('src/api/vault', async importOriginal => {
-  const actual = await importOriginal<typeof import('src/api/vault')>()
-  return {
-    ...actual,
-    encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => {
-      return {
-        iv: 'mock-iv',
-        cipher: 'mock-cipher-' + Array.from(bytes).join(','),
-        kver: '1',
-        version: '1.0',
-      }
-    }),
-    decryptBytes: vi.fn().mockImplementation(async (payload: any) => {
-      // extract digits from cipher to mock decryption
-      const suffix = payload.cipher.replace('mock-cipher-', '')
-      if (suffix === '') return new Uint8Array([])
-      return new Uint8Array(suffix.split(',').map((x: string) => parseInt(x, 10)))
-    }),
-    hasVaultKey: vi.fn().mockReturnValue(true),
-    waitForKeyVersion: vi.fn().mockResolvedValue(true),
-  }
-})
+const vault = createMockVault()
+const keys = createMockKeyProvider(vault)
 
 describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   let adapter: EncryptedBroadcastChannelNetworkAdapter
@@ -61,7 +42,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    const { encryptBytes, decryptBytes, hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+    const { encryptBytes, decryptBytes, hasVaultKey, waitForKeyVersion } = vault
     vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
       return {
         iv: 'mock-iv',
@@ -77,7 +58,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
     vi.mocked(hasVaultKey).mockReturnValue(true)
     vi.mocked(waitForKeyVersion).mockResolvedValue(true)
-    adapter = new EncryptedBroadcastChannelNetworkAdapter({ accountId: 'account-1' })
+    adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, accountId: 'account-1' })
     innerAdapterMock = (adapter as any).inner
   })
 
@@ -215,7 +196,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   })
 
   it('continues processing send queue and does not reset connection when encryption throws permanent errors', async () => {
-    const { encryptBytes } = await import('src/api/vault')
+    const { encryptBytes } = vault
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
@@ -266,7 +247,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   })
 
   it('retries sending a message on transient encryption error and delivers without dropping', async () => {
-    const { encryptBytes } = await import('src/api/vault')
+    const { encryptBytes } = vault
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -300,7 +281,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   })
 
   it('decrypts incoming messages maintaining queue order even if decryption durations vary', async () => {
-    const { decryptBytes } = await import('src/api/vault')
+    const { decryptBytes } = vault
     const mockMessageListener = vi.fn()
     adapter.on('message', mockMessageListener)
 
@@ -353,9 +334,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
   it('continues processing receive queue and notifies onKeyVersionMissing without resetting connection when decryption throws permanent errors', async () => {
     const onKeyVersionMissing = vi.fn()
-    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ onKeyVersionMissing })
+    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onKeyVersionMissing })
     const customInnerMock = (customAdapter as any).inner
-    const { decryptBytes } = await import('src/api/vault')
+    const { decryptBytes } = vault
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const mockMessageListener = vi.fn()
     customAdapter.on('message', mockMessageListener)
@@ -413,9 +394,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
   it('retries decrypting an incoming message on transient decryption error and emits without dropping', async () => {
     const onKeyVersionMissing = vi.fn()
-    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ onKeyVersionMissing })
+    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onKeyVersionMissing })
     const customInnerMock = (customAdapter as any).inner
-    const { decryptBytes } = await import('src/api/vault')
+    const { decryptBytes } = vault
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const mockMessageListener = vi.fn()
@@ -457,7 +438,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   })
 
   it('does not disconnect on multiple consecutive crypto errors and continues sending valid messages', async () => {
-    const { encryptBytes } = await import('src/api/vault')
+    const { encryptBytes } = vault
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     vi.mocked(encryptBytes).mockImplementation(async (bytes: Uint8Array) => {
@@ -516,6 +497,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   it('preserves pendingKeyMessages and activeKeyWaiters when a decryption error occurs on another message', async () => {
     const onKeyVersionMissing = vi.fn()
     const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+      keys,
       onKeyVersionMissing,
       keyWaitTimeoutMs: 50,
     })
@@ -528,7 +510,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       if (call[0] === 'message') innerCallback = call[1]
     }
 
-    const { hasVaultKey, waitForKeyVersion, decryptBytes } = await import('src/api/vault')
+    const { hasVaultKey, waitForKeyVersion, decryptBytes } = vault
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     // kver: '99' is missing initially
@@ -612,6 +594,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     it('buffers message, calls onKeyVersionMissing, waits for key, and decrypts once key arrives', async () => {
       const onKeyVersionMissing = vi.fn()
       const adapterWithMissingKey = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         channelName: 'test-channel',
         onKeyVersionMissing,
         keyWaitTimeoutMs: 1000,
@@ -625,7 +608,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         if (call[0] === 'message') innerCallback = call[1]
       }
 
-      const { hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+      const { hasVaultKey, waitForKeyVersion } = vault
       // kver: '2' is initially missing
       vi.mocked(hasVaultKey).mockImplementation((kver?: string) => kver !== '2')
 
@@ -671,6 +654,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const onKeyVersionMissing = vi.fn()
       const adapterWithMissingKey = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         channelName: 'test-channel',
         onKeyVersionMissing,
         keyWaitTimeoutMs: 50,
@@ -684,7 +668,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         if (call[0] === 'message') innerCallback = call[1]
       }
 
-      const { hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+      const { hasVaultKey, waitForKeyVersion } = vault
       let key3Available = false
       vi.mocked(hasVaultKey).mockImplementation((kver?: string) => {
         if (kver === '3') return key3Available
@@ -768,6 +752,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     it('buffers multiple messages for missing key and delivers all in order once key propagates', async () => {
       const onKeyVersionMissing = vi.fn()
       const adapter = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         channelName: 'test-channel',
         onKeyVersionMissing,
         keyWaitTimeoutMs: 50,
@@ -781,7 +766,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         if (call[0] === 'message') innerCallback = call[1]
       }
 
-      const { hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+      const { hasVaultKey, waitForKeyVersion } = vault
       let key4Available = false
       vi.mocked(hasVaultKey).mockImplementation((kver?: string) => {
         if (kver === '4') return key4Available
@@ -856,6 +841,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
     it('preserves causal FIFO ordering across multiple keys during key rotation without inverting relative order', async () => {
       const adapter = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         channelName: 'test-channel-multi-key',
         keyWaitTimeoutMs: 30,
       })
@@ -868,7 +854,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         if (call[0] === 'message') innerCallback = call[1]
       }
 
-      const { hasVaultKey, waitForKeyVersion } = await import('src/api/vault')
+      const { hasVaultKey, waitForKeyVersion } = vault
       let key5Available = false
       let key6Available = false
       vi.mocked(hasVaultKey).mockImplementation((kver?: string) => {
@@ -982,7 +968,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
     it('invokes onDocumentReceived callback when receiving a sync message', async () => {
       const onDocumentReceived = vi.fn()
-      const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ onDocumentReceived })
+      const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onDocumentReceived })
       const innerCustomAdapterMock = (customAdapter as any).inner
 
       let innerMessageCallback: any
@@ -1067,8 +1053,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
   describe('Crypto retry behavior and queue retention', () => {
     it('does not shift message from sendQueue while retrying encryption, retaining it until success', async () => {
-      const { encryptBytes } = await import('src/api/vault')
+      const { encryptBytes } = vault
       const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         cryptoRetryDelayMs: 0,
       })
       const innerMock = (retryAdapter as any).inner
@@ -1121,8 +1108,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
 
     it('does not shift message from receiveQueue while retrying decryption, retaining it until success', async () => {
-      const { decryptBytes } = await import('src/api/vault')
+      const { decryptBytes } = vault
       const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         cryptoRetryDelayMs: 0,
       })
       const innerMock = (retryAdapter as any).inner
@@ -1178,10 +1166,11 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
 
     it('shifts message from sendQueue only after maxCryptoRetries attempts are exhausted', async () => {
-      const { encryptBytes } = await import('src/api/vault')
+      const { encryptBytes } = vault
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         maxCryptoRetries: 2,
         cryptoRetryDelayMs: 0,
       })
@@ -1216,10 +1205,11 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
 
     it('shifts message from receiveQueue only after maxCryptoRetries attempts are exhausted', async () => {
-      const { decryptBytes } = await import('src/api/vault')
+      const { decryptBytes } = vault
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
         maxCryptoRetries: 2,
         cryptoRetryDelayMs: 0,
       })

@@ -2,6 +2,7 @@ import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-rep
 import { debounce } from 'lodash-es'
 
 import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
+import type { KeyProvider } from '../../api/vault/Keyring'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
@@ -42,7 +43,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     await this.shutdown(options)
   }
 
-  private readonly retryTracker = new PullRetryTracker()
+  private readonly retryTracker: PullRetryTracker
   private hasMoreGlobal = false
   private globalPageToken?: PageToken
   public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
@@ -58,9 +59,11 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   constructor(
     private readonly cursorStore: CursorStore,
+    private readonly keys: KeyProvider,
     lockCoordinator?: ItemLockCoordinator,
     internalEventHub?: WorkerInternalEventHub,
   ) {
+    this.retryTracker = new PullRetryTracker(keys)
     this.lockCoordinator = lockCoordinator
     this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
@@ -207,7 +210,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
     let decrypted: Uint8Array
     try {
-      decrypted = await decryptWithKeyResolution(entry.encryptedMessage, {
+      decrypted = await decryptWithKeyResolution(this.keys, entry.encryptedMessage, {
         docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         timedOutKeys,

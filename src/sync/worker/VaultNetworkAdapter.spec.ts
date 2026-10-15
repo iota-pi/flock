@@ -17,18 +17,11 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
 import type { ItemId } from 'src/shared/vault/ids'
 
-import { createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
-vi.mock('src/api/vault', async importOriginal => {
-  const actual = await importOriginal<typeof import('src/api/vault')>()
-  const { createMockVault } = await import('./__test__/testUtils')
-  return {
-    ...actual,
-    ...createMockVault(),
-  }
-})
+const keys = createMockKeyProvider()
 
 vi.mock('../../api/vault/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
@@ -78,9 +71,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     internalEventHub = hubs.internalEventHub
     adapter = new VaultNetworkAdapter()
     const cursorStore = new CursorStore('test-account')
-    pullQueueManager = new SyncPullQueueManager(cursorStore)
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys)
     const wal = new SyncWriteAheadLog('test-account')
-    broker = new SyncMessageBroker(adapter, clientEventHub, internalEventHub, mockDocStore as any, pullQueueManager, wal)
+    broker = new SyncMessageBroker(adapter, clientEventHub, internalEventHub, mockDocStore as any, pullQueueManager, keys, wal)
     orchestrator = new SyncOrchestrator(
       'test-account',
       broker,

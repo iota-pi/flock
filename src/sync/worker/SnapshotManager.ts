@@ -11,6 +11,7 @@ import type { DocCodec } from './domain'
 import { SnapshotPusher } from './SnapshotPusher'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
+import type { KeyProvider } from '../../api/vault/Keyring'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -43,11 +44,12 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       recoveryManager?: RecoveryManager
       apiClient?: SyncApiClient
       codec?: DocCodec
+      keys: KeyProvider
     },
     lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
-    this.builder = new SnapshotBuilder(deps.repo, deps.codec)
+    this.builder = new SnapshotBuilder(deps.repo, deps.keys, deps.codec)
     const recoveryManager = deps.recoveryManager ?? new RecoveryManager({
       accountId: deps.accountId,
       eventHub: deps.eventHub,
