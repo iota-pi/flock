@@ -557,7 +557,7 @@ describe('SyncBridge', () => {
   it('fetches keyring from server when keyVersionMissing references a key not in local storage', async () => {
     const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('src/api/vault')
     vi.mocked(hasVaultKey).mockReturnValueOnce(false)
-    vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(undefined)
+    vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(true)
     vi.mocked(reloadKeyringFromStorage)
       .mockResolvedValueOnce({ success: true, keyringData: 'old-key' })
       .mockResolvedValueOnce({ success: true, keyringData: 'server-fetched-keyring-version-5' })
@@ -585,6 +585,7 @@ describe('SyncBridge', () => {
     vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
       await serverSyncPromise
       serverSynced = true
+      return true
     })
     vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
       success: true,
@@ -611,7 +612,7 @@ describe('SyncBridge', () => {
     expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
 
     vi.mocked(hasVaultKey).mockReturnValue(true)
-    vi.mocked(syncKeyringFromServer).mockResolvedValue(undefined)
+    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
     vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
   })
 
@@ -627,6 +628,7 @@ describe('SyncBridge', () => {
     vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
       await serverSyncPromise
       serverSynced = true
+      return true
     })
     vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
       success: true,
@@ -652,7 +654,7 @@ describe('SyncBridge', () => {
     expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
 
     vi.mocked(hasVaultKey).mockReturnValue(true)
-    vi.mocked(syncKeyringFromServer).mockResolvedValue(undefined)
+    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
     vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
   })
 
@@ -666,6 +668,7 @@ describe('SyncBridge', () => {
     })
     vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
       await serverSyncPromise
+      return true
     })
     vi.mocked(reloadKeyringFromStorage).mockResolvedValue({
       success: true,
@@ -697,7 +700,7 @@ describe('SyncBridge', () => {
     )
 
     vi.mocked(hasVaultKey).mockReturnValue(true)
-    vi.mocked(syncKeyringFromServer).mockResolvedValue(undefined)
+    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
     vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
   })
 

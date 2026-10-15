@@ -31,7 +31,10 @@ vi.mock('./client', () => ({
   getSecurityParams: vi.fn(),
   getKeyring: vi.fn().mockResolvedValue(undefined),
   updateKeyring: vi.fn().mockResolvedValue(undefined),
+  changePassword: vi.fn().mockResolvedValue(undefined),
 }))
+
+const SALT = 'c2FsdDEyMw=='
 
 vi.mock('../../sync/shared/workerAuthStore', () => ({
   setActiveSessionToken: vi.fn(),
@@ -53,7 +56,8 @@ describe('Vault Keyring Integration', () => {
   it('initializes vault and saves only account to localStorage, exporting keyring separately', async () => {
     const hash = await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
     expect(hash).toBeDefined()
@@ -79,7 +83,8 @@ describe('Vault Keyring Integration', () => {
   it('restores only the account from localStorage, without loading keys', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
     await storeVault('test-account')
@@ -99,7 +104,8 @@ describe('Vault Keyring Integration', () => {
   it('loads worker vault using exported keyring', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -116,7 +122,8 @@ describe('Vault Keyring Integration', () => {
   it('automatically tags encrypted string with kver and decrypts correctly', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -130,7 +137,8 @@ describe('Vault Keyring Integration', () => {
   it('automatically tags encrypted bytes with kver and decrypts correctly', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -145,7 +153,8 @@ describe('Vault Keyring Integration', () => {
   it('gracefully falls back to version 1 when decrypting legacy data lacking kver', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -160,7 +169,8 @@ describe('Vault Keyring Integration', () => {
   it('rotates vault key, updates activeKeyVersion, and encrypts/decrypts with new active key version', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -181,7 +191,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -219,7 +230,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -250,7 +262,8 @@ describe('Vault Keyring Integration', () => {
   it('locks vault keys without clearing stored metadata and clears active session token', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
     await storeVault('test-account')
@@ -273,7 +286,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -292,7 +306,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -318,7 +333,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -344,7 +360,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -363,7 +380,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -387,7 +405,8 @@ describe('Vault Keyring Integration', () => {
       loginVault({
         account: 'test-account',
         password: 'password123',
-        salt: 'salt123',
+        salt: SALT,
+        saltVersion: 1,
         iterations: 1000,
       })
     ).rejects.toThrow(/Failed to decrypt keyring from server during login/)
@@ -399,7 +418,8 @@ describe('Vault Keyring Integration', () => {
   it('persists encrypted keyring in local cache and clears it on clearVaultDeviceData', async () => {
     await initialiseVault({
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
     await storeVault('test-account')
@@ -420,7 +440,8 @@ describe('Vault Keyring Integration', () => {
       loginVault({
         account: 'test-account',
         password: 'wrong-password',
-        salt: 'salt123',
+        salt: SALT,
+        saltVersion: 1,
         iterations: 1000,
       })
     ).rejects.toThrow(/Incorrect password/)
@@ -433,7 +454,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -452,7 +474,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -464,7 +487,8 @@ describe('Vault Keyring Integration', () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
-      salt: 'salt123',
+      salt: SALT,
+      saltVersion: 1,
       iterations: 1000,
     })
 
@@ -484,7 +508,8 @@ describe('Vault Keyring Integration', () => {
       loginVault({
         account: 'test-account',
         password: 'wrong-password',
-        salt: 'salt123',
+        salt: SALT,
+        saltVersion: 1,
         iterations: 1000,
       })
     ).rejects.toThrow(/Incorrect password/)
@@ -494,7 +519,7 @@ describe('Vault Keyring Integration', () => {
 
   describe('Cross-tab key version utilities & storage reload', () => {
     it('correctly reports hasVaultKey for existing and missing versions', async () => {
-      await initialiseVault({ password: 'password123', salt: 'salt123', iterations: 1000 })
+      await initialiseVault({ password: 'password123', salt: SALT, saltVersion: 1, iterations: 1000 })
       expect(hasVaultKey('1')).toBe(true)
       expect(hasVaultKey()).toBe(true)
       expect(hasVaultKey('2')).toBe(false)
@@ -502,7 +527,7 @@ describe('Vault Keyring Integration', () => {
     })
 
     it('resolves waitForKeyVersion when key is imported via initWorkerVault', async () => {
-      await initialiseVault({ password: 'password123', salt: 'salt123', iterations: 1000 })
+      await initialiseVault({ password: 'password123', salt: SALT, saltVersion: 1, iterations: 1000 })
       const exported = await exportKeyringData()
 
       // Reset keyring
@@ -529,7 +554,8 @@ describe('Vault Keyring Integration', () => {
       await loginVault({
         account: 'test-account',
         password: 'password123',
-        salt: 'salt123',
+        salt: SALT,
+        saltVersion: 1,
         iterations: 1000,
       })
       await storeVault('test-account')
@@ -544,7 +570,8 @@ describe('Vault Keyring Integration', () => {
       await loginVault({
         account: 'test-account',
         password: 'password123',
-        salt: 'salt123',
+        salt: SALT,
+        saltVersion: 1,
         iterations: 1000,
       })
 
@@ -566,7 +593,8 @@ describe('Vault Keyring Integration', () => {
     it('does not leave keyring empty during async ticks in initWorkerVault when updating keys', async () => {
       await initialiseVault({
         password: 'password123',
-        salt: 'salt123',
+        salt: SALT,
+        saltVersion: 1,
         iterations: 1000,
       })
       const exported1 = await exportKeyringData()
@@ -604,7 +632,8 @@ describe('Vault Keyring Integration', () => {
     it('preserves existing keyring when initWorkerVault fails with invalid key', async () => {
       await initialiseVault({
         password: 'password123',
-        salt: 'salt123',
+        salt: SALT,
+        saltVersion: 1,
         iterations: 1000,
       })
       expect(hasVaultKey('1')).toBe(true)

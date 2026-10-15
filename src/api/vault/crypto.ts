@@ -25,18 +25,31 @@ type InitialiseKeyParams = {
   salt: string,
   iterations?: number,
   saltVersion?: number,
+  /** Decodes salts from before `saltVersion` 1. Without it, such salts are rejected. */
+  decodeLegacySalt?: (salt: string) => ArrayBuffer,
 }
 
-// Backwards compatibility for legacy accounts.
-// saltVersion 1 uses standard toBytes, older versions incorrectly used UTF-8 encoding of the base64 string.
-function decodeSalt(salt: string, saltVersion?: number): ArrayBuffer {
-  if (saltVersion === 1) {
+export const CURRENT_SALT_VERSION = 1
+
+export class UnsupportedKeyDerivationError extends Error {
+  constructor(saltVersion: number | undefined) {
+    super(`Unsupported salt version: ${saltVersion ?? 'none'}`)
+    this.name = 'UnsupportedKeyDerivationError'
+  }
+}
+
+function decodeSalt({ salt, saltVersion, decodeLegacySalt }: InitialiseKeyParams): ArrayBuffer {
+  if (saltVersion === CURRENT_SALT_VERSION) {
     return toBytes(salt)
   }
-  return new TextEncoder().encode(salt).buffer
+  if (decodeLegacySalt) {
+    return decodeLegacySalt(salt)
+  }
+  throw new UnsupportedKeyDerivationError(saltVersion)
 }
 
-export async function deriveVaultKey({ password, salt, iterations, saltVersion }: InitialiseKeyParams): Promise<CryptoKey> {
+export async function deriveVaultKey(params: InitialiseKeyParams): Promise<CryptoKey> {
+  const { password, iterations } = params
   const enc = new TextEncoder()
   const keyBase = await crypto.subtle.importKey(
     'raw',
@@ -49,7 +62,7 @@ export async function deriveVaultKey({ password, salt, iterations, saltVersion }
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: decodeSalt(salt, saltVersion),
+      salt: decodeSalt(params),
       iterations: iterations || DEFAULT_CRYPTO_ITERATIONS,
       hash: 'SHA-256',
     },

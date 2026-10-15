@@ -195,6 +195,8 @@ const migrations: { [name: string]: () => Promise<void> } = {
     const accountsByVersion = new Map<number, number>()
     const accountsByBlocker = new Map<string, number>()
     let readyToRaise = 0
+    // getSecurityParams falls back to the account ID for these, until none are left
+    let withoutSalt = 0
     let oldestAccessBelowCurrent = Infinity
     let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     do {
@@ -204,6 +206,9 @@ const migrations: { [name: string]: () => Promise<void> } = {
       }))
 
       for (const accountData of (response?.Items || []) as VaultAccount[]) {
+        if (typeof accountData.salt !== 'string') {
+          withoutSalt += 1
+        }
         const dataVersion = accountData.dataVersion ?? 0
         accountsByVersion.set(dataVersion, (accountsByVersion.get(dataVersion) ?? 0) + 1)
         if (dataVersion >= flockDataVersionPolicy.current) continue
@@ -223,6 +228,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
     console.info('Accounts by data version:', Object.fromEntries(accountsByVersion))
     console.info('Accounts below the current version, by what they still need:', Object.fromEntries(accountsByBlocker))
     console.info(`${readyToRaise} accounts below the current version have nothing left to migrate`)
+    console.info(`${withoutSalt} accounts have no stored salt`)
     if (Number.isFinite(oldestAccessBelowCurrent)) {
       const lastAccess = oldestAccessBelowCurrent > 0 ? new Date(oldestAccessBelowCurrent).toISOString() : 'never recorded'
       console.info(`Oldest last access below the current version: ${lastAccess}`)
