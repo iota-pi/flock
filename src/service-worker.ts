@@ -111,6 +111,12 @@ self.addEventListener('notificationclick', event => {
 })
 
 self.addEventListener('message', event => {
+  // Sent by the page (registerSW's updateSW) when it is ready for this version to take over
+  if (event.data?.type === 'SKIP_WAITING') {
+    void self.skipWaiting()
+    return
+  }
+
   if (event.data?.type === 'CLEAR_REMINDER_NOTIFICATIONS') {
     event.waitUntil(
       (async () => {

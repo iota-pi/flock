@@ -25,7 +25,8 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
       },
-      registerType: 'autoUpdate',
+      // The app decides when a new version takes over (src/app/appUpdate.ts)
+      registerType: 'prompt',
       manifest: {
         short_name: 'Flock',
         name: 'Flock',

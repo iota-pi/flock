@@ -23,12 +23,17 @@ function writeLastReload(time: number): void {
 }
 
 /**
- * The server turned away a write because this build is too old. Fetches the new service worker,
- * which reloads the page once it is installed (registerSW in index.tsx). If no new version turns
- * up, reloads anyway, but at most once every few minutes; after that, asks the user to.
+ * The server turned away a write because this build is too old. Fetches the new service worker and
+ * calls `applyUpdate`, which should let it take over (reloading the page) as soon as it is
+ * installed. If no new version turns up, reloads anyway, but at most once every few minutes; after
+ * that, asks the user to.
  */
 export async function handleClientOutdated(
-  { now = Date.now, showWarning }: { now?: () => number, showWarning: (message: string) => void },
+  { now = Date.now, showWarning, applyUpdate }: {
+    now?: () => number,
+    showWarning: (message: string) => void,
+    applyUpdate: () => void,
+  },
 ): Promise<void> {
   if (isHandling) return
   isHandling = true
@@ -42,6 +47,7 @@ export async function handleClientOutdated(
     const registration = await navigator.serviceWorker?.getRegistration().catch(() => undefined)
     await registration?.update().catch(() => undefined)
     if (registration?.installing || registration?.waiting) {
+      applyUpdate()
       return
     }
     window.location.reload()

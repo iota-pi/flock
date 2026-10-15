@@ -6,6 +6,7 @@ import { useAppStore } from '../../state/store'
 import { FLOCK_STORAGE_NAMES } from './storageNames'
 import { handleClientOutdated } from './clientOutdated'
 import { decodeLegacySalt } from './legacy/keyDerivation'
+import { forceAppUpdate } from '../appUpdate'
 
 // Configures the vault on the main thread. Imported first by src/index.tsx so it runs before any vault code.
 configureVaultStorageNames(FLOCK_STORAGE_NAMES)
@@ -17,7 +18,10 @@ configureVaultHost({
     useAppStore.getState().setSyncWarning(message)
   },
   onClientOutdated: () => {
-    void handleClientOutdated({ showWarning: message => useAppStore.getState().setSyncWarning(message) })
+    void handleClientOutdated({
+      showWarning: message => useAppStore.getState().setSyncWarning(message),
+      applyUpdate: forceAppUpdate,
+    })
   },
   decodeLegacySalt,
 })
