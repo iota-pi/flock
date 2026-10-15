@@ -2,7 +2,7 @@
   "workspaces": {
     ".": {
       "project": ["src/**/*.ts", "src/**/*.tsx"],
-      "entry": ["src/service-worker.ts"]
+      "entry": ["src/service-worker.ts", "src/migrate/main.tsx"]
     },
     "packages/*": {
       "project": ["src/**/*.ts", "test/**/*.ts"]

@@ -77,6 +77,11 @@ export default defineConfig({
     outDir: 'dist/app',
     sourcemap: true,
     rollupOptions: {
+      // The migration app (src/migrate/) is a second page, served at /migrate/
+      input: {
+        main: 'index.html',
+        migrate: 'migrate/index.html',
+      },
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {

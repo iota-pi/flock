@@ -10,6 +10,7 @@ import { LegacyMetadataBodySchema } from 'src/shared/schemas/metadata'
 import { AccountInputSchema } from '@vault/shared'
 import { toZonedTime } from 'date-fns-tz'
 import type { FlockAccountFields } from '../../types'
+import { clearLegacySettings, readLegacySettings } from './migration'
 
 function flockAccount(accountData: VaultAccountWithAuth): VaultAccountWithAuth & FlockAccountFields {
   return accountData as VaultAccountWithAuth & FlockAccountFields
@@ -17,15 +18,12 @@ function flockAccount(accountData: VaultAccountWithAuth): VaultAccountWithAuth &
 
 /** Flock's account procedures (push subscriptions and reminders), merged into `accounts` in root.ts */
 export const flockAccountsRouter = router({
-  // Legacy plaintext settings. Clients now keep settings in an encrypted settings document and
-  // migrate these into it once (see LegacySettingsSource). Remove after the deprecation window.
+  // Legacy plaintext settings, for cached builds from before the migration app (which uses
+  // `migration.*`). Remove these three when MIN_PROTOCOL_VERSION is raised past those builds.
   getMetadata: protectedProcedure
     .input(AccountInputSchema)
     .query(async ({ ctx }) => {
-      return {
-        success: true,
-        metadata: flockAccount(ctx.accountData).metadata ?? {},
-      }
+      return { success: true, metadata: readLegacySettings(ctx.accountData) }
     }),
 
   /** Cached clients still push their settings here. They are discarded rather than stored in plaintext. */
@@ -38,11 +36,7 @@ export const flockAccountsRouter = router({
   clearMetadata: protectedProcedure
     .input(AccountInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await ctx.vault.updateAccountData<FlockAccountFields>({
-        account: input.account,
-        metadata: {},
-      })
-
+      await clearLegacySettings(ctx.vault, input.account)
       return { success: true }
     }),
 

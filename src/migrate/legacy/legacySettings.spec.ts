@@ -1,14 +1,14 @@
 import { flockLegacySettings, mergeLegacySettings } from './legacySettings'
-import type { AccountMetadata } from '../../../state/metadata'
+import type { AccountMetadata } from '../../state/metadata'
 import type { LegacySettingsContext } from '@vault/client/worker'
 
 const mockGetMetadata = vi.fn()
 const mockClearMetadata = vi.fn()
-vi.mock('../../../api/trpcClient', () => ({
+vi.mock('../../api/trpcClient', () => ({
   createTrpcClient: () => ({
-    accounts: {
-      getMetadata: { query: (...args: unknown[]) => mockGetMetadata(...args) },
-      clearMetadata: { mutate: (...args: unknown[]) => mockClearMetadata(...args) },
+    migration: {
+      getLegacySettings: { query: (...args: unknown[]) => mockGetMetadata(...args) },
+      clearLegacySettings: { mutate: (...args: unknown[]) => mockClearMetadata(...args) },
     },
   }),
 }))

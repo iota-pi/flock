@@ -2,7 +2,6 @@ import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/
 import { useAppStore } from '../../state/store'
 import { unsubscribe as unsubscribeFromNotifications } from '../../utils/pushNotifications'
 import { SyncBridge } from './syncBridge'
-import { clearLegacyLocalData } from './legacy/localData'
 
 export async function loadAccount() {
   const { updateAuth } = useAppStore.getState()
@@ -33,7 +32,6 @@ export async function removeVaultFromDevice() {
   await SyncBridge.shutdown({ clearLocalData: true, accountId: account })
 
   if (account) {
-    await clearLegacyLocalData(account)
     try {
       await unsubscribeFromNotifications(account)
     } catch (error) {

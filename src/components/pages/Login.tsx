@@ -31,7 +31,9 @@ import {
   unlockWithBiometrics,
   getBiometricLabel,
   StaleBiometricKeyError,
+  UnsupportedKeyDerivationError,
 } from '@vault/client'
+import { goToMigration, isMigrationDeferred, MIN_DATA_VERSION } from 'src/migrate/detection'
 
 
 const Root = styled('div')({
@@ -125,7 +127,13 @@ function LoginPage() {
       updateAuth({ account: accountInput })
       let securityParams: { salt: string; iterations?: number; saltVersion?: number }
       try {
-        securityParams = await getSecurityParams(accountInput)
+        const params = await getSecurityParams(accountInput)
+        // An account below the minimum level holds data this app no longer reads
+        if (params.dataVersion < MIN_DATA_VERSION && !isMigrationDeferred(accountInput)) {
+          goToMigration(accountInput)
+          return
+        }
+        securityParams = params
       } catch (err) {
         console.warn('[Login] getSecurityParams failed (offline or network error), checking cached metadata:', err)
         const cached = readStoredMetadata()
@@ -170,6 +178,11 @@ function LoginPage() {
 
           navigate(nextRoute)
         } catch (error) {
+          if (error instanceof UnsupportedKeyDerivationError) {
+            // A cached legacy salt, from logging in offline: only the migration app reads it
+            goToMigration(accountInput)
+            return
+          }
           console.error('Error during vault initialization:', error)
           updateAuth({ account: '' })
           setError(error instanceof Error ? error.message : 'Login failed.')

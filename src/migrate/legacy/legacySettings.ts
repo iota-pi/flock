@@ -1,7 +1,7 @@
-import type { AccountMetadata } from '../../../state/metadata'
-import { extractLegacySyncableMetadata } from '../../../shared/schemas/metadata'
+import type { AccountMetadata } from '../../state/metadata'
+import { extractLegacySyncableMetadata } from '../../shared/schemas/metadata'
 import type { LegacySettingsSource } from '@vault/client/worker'
-import { createTrpcClient, type AppTrpcClient } from '../../../api/trpcClient'
+import { createTrpcClient, type AppTrpcClient } from '../../api/trpcClient'
 
 /**
  * Merges the settings a device kept locally with the plaintext copy on the server, as Flock did
@@ -64,14 +64,14 @@ function getClient(): AppTrpcClient {
  */
 export const flockLegacySettings: LegacySettingsSource = {
   async load(local, { accountId, withAuth }) {
-    const response = await withAuth(() => getClient().accounts.getMetadata.query({ account: accountId }))
+    const response = await withAuth(() => getClient().migration.getLegacySettings.query({ account: accountId }))
     const remote = response.metadata as AccountMetadata
     const merged = mergeLegacySettings(local as AccountMetadata, remote)
     return Object.keys(merged).length > 0 ? merged : null
   },
 
   async clear({ accountId, withAuth }) {
-    await withAuth(() => getClient().accounts.clearMetadata.mutate({ account: accountId }))
+    await withAuth(() => getClient().migration.clearLegacySettings.mutate({ account: accountId }))
   },
 
   obsoleteLocalKeys: ['updatedAt'],
