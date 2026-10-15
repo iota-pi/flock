@@ -492,7 +492,7 @@ describe('ItemOperations', () => {
       })
     })
 
-    describe('recreateOversizedItem / compactItem', () => {
+    describe('recreateOversizedItem', () => {
       it('throws if no local item is found', async () => {
         getAutomergeItemMock.mockResolvedValue(null)
 

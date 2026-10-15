@@ -100,7 +100,7 @@ Snapshots and sync messages are encrypted with `vault-doc:<itemId>` as AES-GCM a
 
 ## Oversized items (ID rotation, never in-place compaction)
 
-Snapshots are limited to 350 KB. A fresh `Automerge.init()` doc under the same `documentId` would have disjoint heads. Any peer or snapshot carrying the old history would then merge back in and resurrect it. So `ItemOperations.recreateOversizedItem` (`compactItem` is a deprecated alias for it) works like this:
+Snapshots are limited to 350 KB. A fresh `Automerge.init()` doc under the same `documentId` would have disjoint heads. Any peer or snapshot carrying the old history would then merge back in and resurrect it. So `ItemOperations.recreateOversizedItem` works like this:
 1. It rejects the request if the item's current content (without history) is over 300 KB, because the user has to reduce it manually.
 2. It creates and indexes a new doc under a new random ID with the latest content, then remaps group memberships from the old ID to the new one.
 3. Only then does it soft-delete the old item. If any step fails it throws, which leaves the old item indexed and quarantined, so a retry is safe. Concurrent calls for the same ID are merged with a `KeyedSingleFlightGuard`. If the source item is already deleted, it finalises the previous recreation (index removal, unquarantine) and does not create another copy.

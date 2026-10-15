@@ -29,7 +29,6 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   forceOverwriteRecoveryItem: (itemId: ItemId) => Promise<void>
   forceDeleteRecoveryItem: (itemId: ItemId) => Promise<void>
   recreateOversizedItem: (itemId: ItemId) => Promise<ItemId>
-  compactItem: (itemId: ItemId) => Promise<ItemId | void>
   dismissRecoveryItem: (entryId: string) => Promise<void>
   listRecoveryItems: (options?: ReadManualRecoveryOptions) => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>

@@ -522,9 +522,6 @@ export class SyncWorker implements SyncApi {
       return newItemId
     })
 
-  compactItem = (itemId: ItemId): Promise<ItemId> =>
-    this.recreateOversizedItem(itemId)
-
   dismissRecoveryItem = (entryId: string) =>
     this.withContext(ctx => ctx.recoveryManager.dismissEntry(entryId))
 
