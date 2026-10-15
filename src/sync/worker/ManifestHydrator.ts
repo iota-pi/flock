@@ -3,7 +3,7 @@ import { chunk } from 'lodash-es'
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import { decryptObject, hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
+import { hasVaultKey, waitForKeyVersion, type CryptoResult } from '../../api/vault'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { SyncApiClient } from './SyncApiClient'
@@ -13,6 +13,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import type { ManifestEntry } from 'src/shared/vault/api'
 import { mapWithConcurrency } from '../../shared/vault/concurrency'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
+import type { LegacyItemEnvelope, SyncDomain } from './domain'
 
 const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
@@ -24,6 +25,8 @@ export type HydrateItemResult =
     itemId: ItemId
     hydratedId?: ItemId
     snapshot?: VaultDoc
+    /** Content decoded from a legacy format, which has to be uploaded as a snapshot */
+    legacySnapshot?: VaultDoc
     lastModifiedUpdate?: [ItemId, number]
     versionUpdate?: [ItemId, number]
   }
@@ -58,6 +61,7 @@ export interface ManifestHydratorDeps {
   onKeyVersionMissing?: (kver: string) => void
   isShutdown?: () => boolean
   hydrationConcurrency?: number
+  decodeLegacyItem?: SyncDomain['decodeLegacyItem']
 }
 
 export class ManifestHydrator {
@@ -113,6 +117,7 @@ export class ManifestHydrator {
     )
 
     const snapshots: VaultDoc[] = []
+    const legacySnapshots: VaultDoc[] = []
     const hydratedIds: ItemId[] = []
     const lastModifiedUpdates: [ItemId, number][] = []
     const versionUpdates: [ItemId, number][] = []
@@ -159,6 +164,9 @@ export class ManifestHydrator {
           if (result.snapshot) {
             snapshots.push(result.snapshot)
           }
+          if (result.legacySnapshot) {
+            legacySnapshots.push(result.legacySnapshot)
+          }
           if (result.lastModifiedUpdate) {
             lastModifiedUpdates.push(result.lastModifiedUpdate)
           }
@@ -189,6 +197,10 @@ export class ManifestHydrator {
 
     if (snapshots.length > 0) {
       await this.deps.storeItems(snapshots, { markDirty: false })
+    }
+
+    if (legacySnapshots.length > 0) {
+      await this.deps.storeItems(legacySnapshots, { markDirty: true })
     }
 
     if (lastModifiedUpdates.length > 0) {
@@ -246,9 +258,16 @@ export class ManifestHydrator {
         if (binaryResult) {
           return binaryResult
         }
+        // Never fall back to a legacy payload: decoded items are uploaded, which would replace the
+        // newer snapshot with older content
+        return {
+          status: 'decryption_failure',
+          itemId,
+          error: new Error('Failed to decrypt snapshot binary'),
+        }
       }
 
-      const legacyResult = await this.hydrateLegacyCipher(
+      const legacyResult = await this.hydrateLegacyItem(
         itemId,
         item,
         serverTime,
@@ -262,7 +281,7 @@ export class ManifestHydrator {
       return {
         status: 'decryption_failure',
         itemId,
-        error: new Error('Failed to decrypt snapshot binary or legacy cipher'),
+        error: new Error('Item has no snapshot and no legacy payload the app could decode'),
       }
     } catch (error) {
       return {
@@ -315,19 +334,23 @@ export class ManifestHydrator {
     }
   }
 
-  private async hydrateLegacyCipher(
+  private async hydrateLegacyItem(
     itemId: ItemId,
     item: VaultItem,
     serverTime: number,
     serverVersion: number,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
-    const decryptedLegacy = await this.decryptLegacyCipher(item)
-    if (!decryptedLegacy || typeof decryptedLegacy !== 'object' || Array.isArray(decryptedLegacy)) {
+    if (!this.deps.decodeLegacyItem) return null
+    const decoded = await this.deps.decodeLegacyItem(
+      item as unknown as LegacyItemEnvelope,
+      { ensureKey: kver => this.ensureKey(kver) },
+    ).catch(() => null)
+    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
       return null
     }
 
-    const snapshot = { ...(decryptedLegacy as Record<string, unknown>) }
+    const snapshot = { ...decoded }
     if (!snapshot.id || typeof snapshot.id !== 'string') {
       snapshot.id = item.item
     }
@@ -344,34 +367,16 @@ export class ManifestHydrator {
     return {
       status: 'success',
       itemId,
-      snapshot: snapshot as VaultDoc,
+      legacySnapshot: snapshot as VaultDoc,
       lastModifiedUpdate: [snapshotId, serverTime],
       versionUpdate: [snapshotId, serverVersion],
     }
   }
 
-  private async decryptLegacyCipher(item: VaultItem): Promise<unknown> {
-    if (
-      typeof item.cipher !== 'string' ||
-      item.cipher.length === 0 ||
-      typeof item.metadata?.iv !== 'string' ||
-      item.metadata.iv.length === 0
-    ) {
-      return null
-    }
-
-    const kver = (item.metadata as Record<string, unknown> | undefined)?.kver as string | undefined
-    if (kver && !hasVaultKey(kver)) {
-      if (this.deps.onKeyVersionMissing) {
-        this.deps.onKeyVersionMissing(kver)
-      }
-      await waitForKeyVersion(kver, KEY_WAIT_TIMEOUT_MS)
-    }
-    return decryptObject({
-      iv: item.metadata.iv,
-      cipher: item.cipher,
-      kver,
-    }).catch(() => null)
+  private async ensureKey(kver: string): Promise<boolean> {
+    if (hasVaultKey(kver)) return true
+    this.deps.onKeyVersionMissing?.(kver)
+    return waitForKeyVersion(kver, KEY_WAIT_TIMEOUT_MS)
   }
 
   private async decryptSnapshotBinary(

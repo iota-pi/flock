@@ -39,6 +39,37 @@ describe('DynamoDriver', function () {
     expect(results[0].cipher).toBe('third-write')
   })
 
+  it('removes the legacy cipher when a snapshot is written', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const modified = Date.now()
+
+    await driver.set({ account, item, cipher: 'legacy', metadata: { iv: 'iv-1', modified } })
+    await driver.set({
+      account,
+      item,
+      metadata: { iv: '', modified: modified + 100 },
+      snapshot: { iv: 'snap-iv', cipher: 'c25hcHNob3Q=', kver: '1', format: 2 },
+    })
+
+    const [result] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(result.cipher).toBeUndefined()
+    expect(result.snapshot).toMatchObject({ iv: 'snap-iv', format: 2 })
+  })
+
+  it('keeps the legacy cipher for a tombstone without a snapshot', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const modified = Date.now()
+
+    await driver.set({ account, item, cipher: 'legacy', metadata: { iv: 'iv-1', modified } })
+    await driver.set({ account, item, metadata: { iv: '', modified: modified + 100, deleted: true } })
+
+    const [result] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(result.cipher).toBe('legacy')
+    expect(result.metadata.deleted).toBe(true)
+  })
+
 
   it('set rejects oversized items', async () => {
     const account = generateAccountId()

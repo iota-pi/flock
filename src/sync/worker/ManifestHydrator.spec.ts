@@ -174,7 +174,7 @@ describe('ManifestHydrator', () => {
       expect(mockDecryptObject).not.toHaveBeenCalled()
     })
 
-    it('returns decryption_failure when both binary and legacy decryption fail', async () => {
+    it('returns decryption_failure when the snapshot cannot be decrypted', async () => {
       mockDecryptBytes.mockResolvedValue(null)
 
       const item = {
@@ -191,6 +191,133 @@ describe('ManifestHydrator', () => {
       expect(result.status).toBe('decryption_failure')
       expect(result.itemId).toBe('item-un-decryptable')
       expect((result as any).error.message).toContain('Failed to decrypt')
+    })
+  })
+
+  describe('legacy items', () => {
+    const legacyRow = { item: 'item-legacy', cipher: 'legacy-cipher', metadata: { iv: 'legacy-iv', kver: '2' } }
+    let decodeLegacyItem: any
+
+    function createHydrator() {
+      return new ManifestHydrator({
+        accountId: 'acc-test',
+        apiClient: mockApiClient,
+        docStore: mockDocStore,
+        indexManager: mockIndexManager,
+        snapshotManager: mockSnapshotManager,
+        storeItems: storeItemsSpy,
+        onDecryptionFailure: onDecryptionFailureSpy,
+        decodeLegacyItem,
+      })
+    }
+
+    beforeEach(() => {
+      decodeLegacyItem = vi.fn().mockResolvedValue({ type: 'person', name: 'Alice' })
+    })
+
+    it('decodes rows without a snapshot through the hook', async () => {
+      const result = await createHydrator().hydrateRemoteItem(
+        legacyRow as any,
+        [{ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }],
+        new Set(),
+      )
+
+      expect(decodeLegacyItem).toHaveBeenCalledWith(legacyRow, expect.objectContaining({ ensureKey: expect.any(Function) }))
+      expect(result).toEqual({
+        status: 'success',
+        itemId: 'item-legacy',
+        legacySnapshot: { id: 'item-legacy', type: 'person', name: 'Alice' },
+        lastModifiedUpdate: ['item-legacy', 2000],
+        versionUpdate: ['item-legacy', 4],
+      })
+    })
+
+    it('stores decoded items as dirty, so they upload a snapshot', async () => {
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({ items: [legacyRow] })
+
+      const result = await createHydrator().fetchAndHydrateRemoteItems({
+        missingIds: ['item-legacy' as ItemId],
+        manifest: [{ itemId: 'item-legacy' as ItemId, modifiedAt: 2000 }],
+        serverTime: 2000,
+        knownSet: new Set(),
+        tombstoneSet: new Set(),
+      })
+
+      expect(result.hasFailures).toBe(false)
+      expect(storeItemsSpy).toHaveBeenCalledTimes(1)
+      expect(storeItemsSpy).toHaveBeenCalledWith(
+        [{ id: 'item-legacy', type: 'person', name: 'Alice' }],
+        { markDirty: true },
+      )
+    })
+
+    it('lets the hook wait for the key version', async () => {
+      mockVault.hasVaultKey.mockReturnValue(false)
+      mockVault.waitForKeyVersion.mockResolvedValue(true)
+      const onKeyVersionMissing = vi.fn()
+      decodeLegacyItem.mockImplementation(async (_item: unknown, context: any) => {
+        expect(await context.ensureKey('2')).toBe(true)
+        return { type: 'person' }
+      })
+      const withKeyHandler = new ManifestHydrator({
+        accountId: 'acc-test',
+        apiClient: mockApiClient,
+        docStore: mockDocStore,
+        indexManager: mockIndexManager,
+        snapshotManager: mockSnapshotManager,
+        storeItems: storeItemsSpy,
+        onKeyVersionMissing,
+        decodeLegacyItem,
+      })
+
+      const result = await withKeyHandler.hydrateRemoteItem(legacyRow as any, [], new Set())
+
+      expect(result.status).toBe('success')
+      expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
+      expect(mockVault.waitForKeyVersion).toHaveBeenCalledWith('2', expect.any(Number))
+    })
+
+    it('reports a decryption failure when the hook cannot decode the row', async () => {
+      decodeLegacyItem.mockResolvedValue(null)
+      const result = await createHydrator().hydrateRemoteItem(legacyRow as any, [], new Set())
+      expect(result.status).toBe('decryption_failure')
+    })
+
+    it('reports a decryption failure when the hook throws', async () => {
+      decodeLegacyItem.mockRejectedValue(new Error('bad cipher'))
+      const result = await createHydrator().hydrateRemoteItem(legacyRow as any, [], new Set())
+      expect(result.status).toBe('decryption_failure')
+    })
+
+    it('reports a decryption failure without a hook', async () => {
+      const result = await hydrator.hydrateRemoteItem(legacyRow as any, [], new Set())
+      expect(result.status).toBe('decryption_failure')
+    })
+
+    it('never falls back to the legacy payload when the snapshot fails to decrypt', async () => {
+      mockDecryptBytes.mockResolvedValue(null)
+
+      const result = await createHydrator().hydrateRemoteItem(
+        { ...legacyRow, snapshot: { iv: 'iv-bad', cipher: 'c-bad' } } as any,
+        [],
+        new Set(),
+      )
+
+      expect(result.status).toBe('decryption_failure')
+      expect(decodeLegacyItem).not.toHaveBeenCalled()
+    })
+
+    it('does not resurrect a locally deleted item, and marks it dirty', async () => {
+      const result = await createHydrator().hydrateRemoteItem(
+        legacyRow as any,
+        [{ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }],
+        new Set(),
+        new Set(['item-legacy' as ItemId]),
+      )
+
+      expect(result).toEqual({ status: 'success', itemId: 'item-legacy', versionUpdate: ['item-legacy', 4] })
+      expect(mockIndexManager.removeAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-legacy'])
+      expect(mockSnapshotManager.markItemDirty).toHaveBeenCalledWith('item-legacy', expect.any(Number))
     })
   })
 

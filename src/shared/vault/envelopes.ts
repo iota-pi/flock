@@ -3,7 +3,8 @@ import { CryptoResultSchema } from './crypto'
 import { ItemIdSchema } from './ids'
 
 export const ItemEnvelopeMetadataSchema = z.object({
-  iv: z.string(),
+  /** Only legacy items use it. The server writes `''` with snapshots. */
+  iv: z.string().optional(),
   modified: z.number(),
   deleted: z.boolean().optional(),
 })
@@ -29,5 +30,7 @@ export const LegacyItemEnvelopeSchema = z.object({
   item: ItemIdSchema,
   cipher: z.string(),
   snapshot: z.undefined().optional(),
-  metadata: ItemEnvelopeMetadataSchema,
+  metadata: ItemEnvelopeMetadataSchema.extend({
+    iv: z.string(),
+  }),
 })

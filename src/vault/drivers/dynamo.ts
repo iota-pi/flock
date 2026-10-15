@@ -580,6 +580,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const modifiedAt = typeof itemToPersist.metadata?.modified === 'number'
         ? itemToPersist.metadata.modified
         : Date.now()
+      // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists
+      const removeLegacyCipher = !!itemToPersist.snapshot && !itemToPersist.cipher
 
       const updateParams: UpdateCommandInput = {
         TableName: this.tables.items,
@@ -594,11 +596,11 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           '#modifiedAt = :modifiedAt',
           '#version = if_not_exists(#version, :zero) + :one',
           itemToPersist.ttl !== undefined ? '#ttl = :ttl' : undefined,
-        ].filter(Boolean).join(', '),
+        ].filter(Boolean).join(', ') + (removeLegacyCipher ? ' REMOVE #cipher' : ''),
         ExpressionAttributeNames: {
           '#metadata': 'metadata',
           ...(itemToPersist.snapshot ? { '#snapshot': 'snapshot' } : {}),
-          ...(itemToPersist.cipher ? { '#cipher': 'cipher' } : {}),
+          ...(itemToPersist.cipher || removeLegacyCipher ? { '#cipher': 'cipher' } : {}),
           '#modifiedAt': 'modifiedAt',
           '#version': 'version',
           ...(itemToPersist.ttl !== undefined ? { '#ttl': 'ttl' } : {}),
