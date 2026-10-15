@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { Item } from '../items'
 import type { AccountMetadata } from '../metadata'
-import { ItemId } from 'src/shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 import type { AppStore } from '../store'
 
 interface DataState {

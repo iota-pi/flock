@@ -40,7 +40,7 @@ import {
 } from './search/utils'
 import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
-import { ItemId } from 'src/shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 
 
 function ThemedPaper({ children, ...props }: PaperProps) {

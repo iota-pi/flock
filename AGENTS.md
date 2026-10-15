@@ -23,27 +23,27 @@ CI runs `test run`, `typecheck` and `lint` on every PR, so run all three before 
 - Don't use `++`/`--`. Write `+= 1`/`-= 1`.
 - MUI imports must use the full path (`@mui/material/Button`), not a barrel import (lint enforces this).
 - After moving code, update the imports. Don't leave compatibility re-exports behind.
-- Unit tests are co-located `*.spec.ts` files. Sync integration tests are `src/sync/worker/*.integration.spec.ts`.
+- Unit tests are co-located `*.spec.ts` files. Sync integration tests are `packages/vault-client/src/sync/worker/*.integration.spec.ts`.
 
 ## Where things live
 
-The vault (sync engine, client crypto and server) is being extracted into a reusable library ([docs/vault-extraction.md](docs/vault-extraction.md)). Library code must not import Flock code, and lint enforces this. Flock plugs in through the interfaces in `src/sync/worker/domain.ts` and `src/sync/client/host.ts`.
+The vault (sync engine, client crypto and server) is a reusable library in three Yarn workspaces under `packages/` ([docs/vault-extraction.md](docs/vault-extraction.md)): `@vault/shared`, `@vault/client` and `@vault/server`. They export TypeScript source with no build step. Library code must not import Flock code or undeclared dependencies, and lint enforces this. Flock imports library code only through a package's `exports` (`@vault/client/...`); when it needs something new, add an export rather than reaching into a package's `src`. Flock plugs in through the interfaces in `packages/vault-client/src/sync/worker/domain.ts` and `packages/vault-client/src/sync/client/host.ts`.
 
-- `src/sync/worker/` contains the sync engine, which runs in a Web Worker. `sync.worker.ts` is the Comlink API surface (started with `exposeSyncWorker`) and `SyncWorkerContext.ts` wires the components together.
-- `src/sync/client/` is the main-thread side: `SyncBridge`, worker lifecycle and health/restart.
-- `src/sync/worker/docStore/` handles Automerge doc find/create/change/hydrate plus the account item index.
-- `src/sync/utils/` holds the concurrency primitives (`SingleFlightGuard`, `AsyncMutex`, `AsyncQueue`, `RetryStrategy`, bounded collections). Use them; don't hand-roll new ones.
-- `src/sync/shared/storageNames.ts` names every IndexedDB database, BroadcastChannel, Web Lock and localStorage key. Flock's names (`src/app/vault/storageNames.ts`) must never change.
-- `src/api/vault/` is the client crypto, keyring and API calls.
-- `src/shared/vault/` holds the wire schemas, IDs and size limits shared by client and server.
+- `packages/vault-client/src/sync/worker/` contains the sync engine, which runs in a Web Worker. `sync.worker.ts` is the Comlink API surface (started with `exposeSyncWorker`) and `SyncWorkerContext.ts` wires the components together.
+- `packages/vault-client/src/sync/client/` is the main-thread side: `SyncBridge`, worker lifecycle and health/restart.
+- `packages/vault-client/src/sync/worker/docStore/` handles Automerge doc find/create/change/hydrate plus the account item index.
+- `packages/vault-client/src/sync/utils/` holds the concurrency primitives (`SingleFlightGuard`, `AsyncMutex`, `AsyncQueue`, `RetryStrategy`, bounded collections). Use them; don't hand-roll new ones.
+- `packages/vault-client/src/sync/shared/storageNames.ts` names every IndexedDB database, BroadcastChannel, Web Lock and localStorage key. Flock's names (`src/app/vault/storageNames.ts`, pinned by its spec) must never change. Library specs use `createVaultStorageNames('test')`.
+- `packages/vault-client/src/api/vault/` is the client crypto, keyring (`Keyring`, which the worker receives as a `KeyProvider`) and API calls.
+- `packages/vault-shared/src/` holds the wire schemas, IDs and size limits shared by client and server.
 - `src/app/vault/` is Flock's vault wiring: the worker entry, item codec and hooks, the `SyncBridge` instance and session (lock/remove) flows. `src/app/vault/legacy/` holds compatibility code for legacy formats, which will move to a separate migration app; only the wiring files may import it (see "Backwards compatibility" in the extraction doc).
 - `src/state/` is the Zustand store (composed slices).
-- `src/vault/` is server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `flockAccounts.ts` (reminders, push subscriptions and the legacy plaintext settings), `root.ts`, `flockDriver.ts`, `flockDataVersion.ts` (what counts as migrated), the notifier and migrations are Flock's.
+- `packages/vault-server/src/` is the vault's server code: tRPC routers (`accounts`, `items`, `sync`), services and the DynamoDB driver. `src/vault/` is Flock's server: `flockAccounts.ts` (reminders, push subscriptions and the legacy plaintext settings), `root.ts`, `flockDriver.ts`, `flockDataVersion.ts` (what counts as migrated), the notifier and migrations are Flock's.
 - DynamoDB has three tables. `FlockAccounts` is keyed by `account`. `FlockItems` is keyed by `account` + `item`. `FlockSyncMessages` is keyed by `syncId` + `cursor` and has a 90-day TTL.
 
 ## Sync: rules that must hold
 
-Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing anything in `src/sync/` or `src/vault/services/`. It explains why each rule below exists.
+Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing anything in `packages/vault-client/src/sync/` or `packages/vault-server/src/services/`. It explains why each rule below exists.
 
 1. **The local Automerge doc in IndexedDB is the source of truth.** The WAL (incremental messages) and snapshots (full binaries) only deliver it. The server is a blind relay and never merges.
 2. **Never reuse an item ID or recreate a doc under an existing ID.** Deletes are terminal soft-deletes (tombstones). Oversized items (>350 KB) are handled by `recreateOversizedItem` with a new ID, never by in-place compaction. Keep the `hasDataInStorage` guard in `findOrCreateHandle`. The one exception is the account settings document, whose fixed ID devices may create concurrently; it is never deleted or recreated.

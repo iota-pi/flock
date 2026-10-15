@@ -1,4 +1,4 @@
-import DynamoDriver, { type VaultTableNames } from './drivers/dynamo'
+import DynamoDriver, { type VaultTableNames } from '@vault/server/drivers/dynamo'
 import { FLOCK_DATA_VERSION } from '../shared/flockDataVersion'
 import type { FlockAccountFields } from './types'
 

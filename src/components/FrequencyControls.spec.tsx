@@ -5,7 +5,7 @@ import { ThemeProvider } from '@mui/material/styles'
 import getTheme from '../theme'
 import { useItem, useItemsByIds } from '../state/selectors'
 import { GroupItem } from '../shared/schemas/items'
-import { ItemId } from '../shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 
 vi.mock('../state/selectors', () => ({
   useItem: vi.fn(),

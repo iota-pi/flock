@@ -2,8 +2,8 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, ScanCommand, ScanCommandOutput, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 
 import { createHash } from 'crypto'
-import { VaultAccount, VaultItem } from '../drivers/base'
-import { getConnectionParams } from '../drivers/dynamo'
+import { VaultAccount, VaultItem } from '@vault/server/drivers/base'
+import { getConnectionParams } from '@vault/server/drivers/dynamo'
 import { flockDataVersionPolicy } from '../flockDataVersion'
 import { createFlockDriver, FLOCK_TABLES } from '../flockDriver'
 

@@ -4,7 +4,7 @@ import {
   MAX_ITEM_SIZE,
   MAX_ITEM_SIZE_BYTES,
   MAX_ITEM_SIZE_KB,
-} from '../vault/limits'
+} from '@vault/shared/limits'
 
 export const ITEM_LIMITS = {
   NAME_MAX: 500,

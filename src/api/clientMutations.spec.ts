@@ -1,10 +1,10 @@
 import { getBlankGroup, getBlankItem, getBlankPerson, type Item } from '../state/items'
 import { convertItemType, createItem, deleteItems, mutateItem, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import { SyncBridge } from '../app/vault/syncBridge'
-import { setApiAuthToken } from './runtime'
+import { setApiAuthToken } from '@vault/client/runtime'
 import { useAppStore } from '../state/store'
 import type { AccountMetadata } from '../state/metadata'
-import { ItemId } from 'src/shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 
 const metadataState: Partial<AccountMetadata> = {}
 

@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { ItemIdSchema } from '../vault/ids'
+import { ItemIdSchema } from '@vault/shared/ids'
 import { accountMetadataSchema } from './metadata'
-import { BackupSyncStateSchema } from '../../sync/shared/backupSyncState'
+import { BackupSyncStateSchema } from '@vault/client/sync/shared/backupSyncState'
 
 export const BackupPayloadV2Schema = z.object({
   version: z.literal(2),

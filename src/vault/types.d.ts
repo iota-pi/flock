@@ -1,4 +1,4 @@
-import type BaseDriver from './drivers/base'
+import type BaseDriver from '@vault/server/drivers/base'
 
 declare module 'fastify' {
   interface FastifyInstance {

@@ -1,4 +1,4 @@
-import { generateNoteId } from '../utils'
+import { generateNoteId } from '.'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 
 export function importPeople(data: Record<string, string>[]): Item[] {

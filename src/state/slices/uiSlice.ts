@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../../utils/customFilter'
-import { getOnlineState } from '../../sync/utils/onlineStatus'
+import { getOnlineState } from '@vault/client/sync/utils/onlineStatus'
 import type { AppStore } from '../store'
 
 export interface UIState {

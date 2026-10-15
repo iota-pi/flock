@@ -4,7 +4,7 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Snackbar from '@mui/material/Snackbar'
 
-import { enableBiometrics, getBiometricLabel, hasBiometricData, isWebAuthnPrfSupported } from '../api/vault'
+import { enableBiometrics, getBiometricLabel, hasBiometricData, isWebAuthnPrfSupported } from '@vault/client'
 import { useAppStore } from '../state/store'
 
 const PROMPT_DISMISSED_KEY = 'flock_biometric_prompt_dismissed'

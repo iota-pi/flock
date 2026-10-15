@@ -10,7 +10,7 @@ import { usePrevious } from 'src/utils'
 import { usePage } from '../pages'
 import ItemDrawer from 'src/features/items/components/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
-import { ItemId } from 'src/shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 
 
 const noop = () => {}

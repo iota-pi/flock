@@ -4665,6 +4665,58 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@vault/client@workspace:*, @vault/client@workspace:packages/vault-client":
+  version: 0.0.0-use.local
+  resolution: "@vault/client@workspace:packages/vault-client"
+  dependencies:
+    "@automerge/automerge": "npm:^3.2.6"
+    "@automerge/automerge-repo": "npm:2.6.0-alpha.2"
+    "@automerge/automerge-repo-network-broadcastchannel": "npm:^2.5.5"
+    "@trpc/client": "npm:^11.17.0"
+    "@trpc/server": "npm:^11.17.0"
+    "@vault/server": "workspace:*"
+    "@vault/shared": "workspace:*"
+    comlink: "npm:^4.4.2"
+    fast-deep-equal: "npm:^3.1.3"
+    localforage: "npm:^1.10.0"
+    lodash-es: "npm:^4.17.23"
+    nanoid: "npm:^6.0.0"
+    typescript: "npm:^6.0.3"
+    vitest: "npm:^4.1.7"
+    zod: "npm:^4.3.6"
+  languageName: unknown
+  linkType: soft
+
+"@vault/server@workspace:*, @vault/server@workspace:packages/vault-server":
+  version: 0.0.0-use.local
+  resolution: "@vault/server@workspace:packages/vault-server"
+  dependencies:
+    "@aws-sdk/client-dynamodb": "npm:3.1121.0"
+    "@aws-sdk/lib-dynamodb": "npm:3.1121.0"
+    "@trpc/server": "npm:^11.17.0"
+    "@types/node": "npm:^24.10.1"
+    "@vault/shared": "workspace:*"
+    fastify: "npm:^5.6.2"
+    lodash-es: "npm:^4.17.23"
+    typescript: "npm:^6.0.3"
+    vitest: "npm:^4.1.7"
+    zod: "npm:^4.3.6"
+  peerDependencies:
+    fastify: ^5.6.2
+  languageName: unknown
+  linkType: soft
+
+"@vault/shared@workspace:*, @vault/shared@workspace:packages/vault-shared":
+  version: 0.0.0-use.local
+  resolution: "@vault/shared@workspace:packages/vault-shared"
+  dependencies:
+    nanoid: "npm:^6.0.0"
+    typescript: "npm:^6.0.3"
+    vitest: "npm:^4.1.7"
+    zod: "npm:^4.3.6"
+  languageName: unknown
+  linkType: soft
+
 "@vitejs/plugin-react@npm:^6.0.1":
   version: 6.1.1
   resolution: "@vitejs/plugin-react@npm:6.1.1"
@@ -7239,6 +7291,9 @@ __metadata:
     "@types/react": "npm:^19.2.7"
     "@types/react-dom": "npm:^19.2.3"
     "@types/web-push": "npm:^3.6.4"
+    "@vault/client": "workspace:*"
+    "@vault/server": "workspace:*"
+    "@vault/shared": "workspace:*"
     "@vitejs/plugin-react": "npm:^6.0.1"
     "@vitest/coverage-v8": "npm:^4.1.5"
     "@vitest/eslint-plugin": "npm:^1.6.18"

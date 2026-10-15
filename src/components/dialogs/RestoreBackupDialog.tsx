@@ -14,7 +14,7 @@ import { DropzoneArea } from 'mui2-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { UploadIcon } from '../Icons'
 import InlineText from '../ui/InlineText'
-import { importData, type CryptoResult } from '../../api/vault'
+import { importData, type CryptoResult } from '@vault/client'
 import type { BackupPayloadV2 } from '../../types/backup'
 
 

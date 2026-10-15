@@ -5,7 +5,7 @@ import Box from '@mui/material/Box'
 import type { Item } from 'src/state/items'
 import ItemList from 'src/features/items/components/ItemList'
 import PrayerOverviewHeader from './PrayerOverviewHeader'
-import { ItemId } from 'src/shared/vault/ids'
+import { ItemId } from '@vault/shared/ids'
 
 
 type Props = {

@@ -1,0 +1,372 @@
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import DynamoDriver, { getConnectionParams } from './dynamo'
+import { generateItemId } from '@vault/shared/ids'
+import { generateAccountId } from '../util'
+import { VersionConflictError } from '@vault/shared/syncErrors'
+
+const driver = new DynamoDriver()
+
+function uniqueAccountId() {
+  return `${generateAccountId()}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+}
+
+describe('DynamoDriver OCC & Conditional Cursors', () => {
+  beforeAll(() => {
+    driver.connect(getConnectionParams())
+  })
+
+  describe('Item Snapshot OCC Versioning', () => {
+    it('succeeds on first write to new item and sets version to 1', async () => {
+      const account = uniqueAccountId()
+      const item = generateItemId()
+      const cipher = 'first-write'
+      const iv = 'iv-1'
+      const modified = Date.now()
+
+      await driver.set({ account, item, cipher, metadata: { iv, modified } })
+      const results = await driver.fetchByIds({ account, itemIds: [item] })
+      const stored = results[0]
+
+      expect(stored.version).toBe(1)
+      expect(stored.cipher).toBe('first-write')
+    })
+
+    it('succeeds on second write when expected version matches and increments version to 2', async () => {
+      const account = uniqueAccountId()
+      const item = generateItemId()
+      const modified = Date.now()
+
+      await driver.set({ account, item, cipher: 'v1', metadata: { iv: 'iv-1', modified } })
+      const firstResults = await driver.fetchByIds({ account, itemIds: [item] })
+      const first = firstResults[0]
+      expect(first.version).toBe(1)
+
+      // Write v2 with version: 1
+      await driver.set({ account, item, cipher: 'v2', metadata: { iv: 'iv-2', modified: modified + 100 }, version: 1 })
+      const secondResults = await driver.fetchByIds({ account, itemIds: [item] })
+      const second = secondResults[0]
+
+      expect(second.version).toBe(2)
+      expect(second.cipher).toBe('v2')
+    })
+
+    it('throws VersionConflictError when writing with a stale version', async () => {
+      const account = uniqueAccountId()
+      const item = generateItemId()
+      const modified = Date.now()
+
+      // Create v1
+      await driver.set({ account, item, cipher: 'v1', metadata: { iv: 'iv-1', modified } })
+
+      // Advance to v2
+      await driver.set({ account, item, cipher: 'v2', metadata: { iv: 'iv-2', modified: modified + 100 }, version: 1 })
+
+      // Client A tries to write using stale version 1
+      await expect(
+        driver.set({ account, item, cipher: 'v3-stale', metadata: { iv: 'iv-3', modified: modified + 200 }, version: 1 })
+      ).rejects.toThrow(VersionConflictError)
+
+      // Verify the item is still v2
+      const currentResults = await driver.fetchByIds({ account, itemIds: [item] })
+      const current = currentResults[0]
+      expect(current.version).toBe(2)
+      expect(current.cipher).toBe('v2')
+    })
+
+    it('allows updating an already existing item when writing without version', async () => {
+      const account = uniqueAccountId()
+      const item = generateItemId()
+      const modified = Date.now()
+
+      await driver.set({ account, item, cipher: 'v1', metadata: { iv: 'iv-1', modified } })
+
+      // Writing without version should update the existing item unconditionally
+      await driver.set({ account, item, cipher: 'overwrite-no-ver', metadata: { iv: 'iv-2', modified: modified + 100 } })
+
+      const results = await driver.fetchByIds({ account, itemIds: [item] })
+      expect(results[0].cipher).toBe('overwrite-no-ver')
+    })
+  })
+
+  describe('Concurrent Key Rotation & keyringVersion OCC', () => {
+    it('allows updating keyringVersion and keyring when expectedKeyringVersion matches', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+
+      // createAccount sets keyringVersion: 1
+      await driver.updateAccountData({
+        account,
+        keyringVersion: 2,
+        keyring: 'keyring-v2',
+        expectedKeyringVersion: 1,
+      })
+
+      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(acct.keyringVersion).toBe(2)
+      expect(acct.keyring).toBe('keyring-v2')
+    })
+
+    it('rejects update when expectedKeyringVersion does not match current keyringVersion', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+
+      // Trying to update with mismatched expectedKeyringVersion should fail conditional check
+      await expect(
+        driver.updateAccountData({
+          account,
+          keyringVersion: 2,
+          keyring: 'keyring-v2',
+          expectedKeyringVersion: 99,
+        })
+      ).rejects.toThrow()
+
+      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(acct.keyringVersion).toBe(1)
+      expect(acct.keyring).toBeUndefined()
+    })
+
+    it('prevents concurrent key rotation race condition between two devices', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+      await driver.updateAccountData({ account, keyring: 'initial-keyring' })
+
+      // Device 1 and Device 2 both observed keyringVersion = 1 and attempt rotation
+      // Device 1's update arrives first
+      await driver.updateAccountData({
+        account,
+        keyringVersion: 2,
+        keyring: 'device-1-keyring',
+        expectedKeyringVersion: 1,
+      })
+
+      // Device 2's update arrives second with stale expectedKeyringVersion: 1
+      await expect(
+        driver.updateAccountData({
+          account,
+          keyringVersion: 2,
+          keyring: 'device-2-keyring',
+          expectedKeyringVersion: 1,
+        })
+      ).rejects.toThrow()
+
+      // Verify Device 1's keyring remains intact and was not overwritten by Device 2
+      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(acct.keyringVersion).toBe(2)
+      expect(acct.keyring).toBe('device-1-keyring')
+    })
+
+    it('allows legacy accounts without keyringVersion using attribute_not_exists fallback', async () => {
+      const account = uniqueAccountId()
+      // Simulate a legacy account by creating without keyringVersion
+      // We need to create the account and then remove keyringVersion
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+
+      // The condition uses attribute_not_exists(keyringVersion) OR keyringVersion = :expected
+      // For a newly created account with keyringVersion: 1, expectedKeyringVersion: 1 should succeed
+      await driver.updateAccountData({
+        account,
+        keyringVersion: 2,
+        keyring: 'first-rotation-keyring',
+        expectedKeyringVersion: 1,
+      })
+
+      const updated = await driver.getAccount({ account, session: 'token', isLogin: true })
+      expect(updated.keyringVersion).toBe(2)
+      expect(updated.keyring).toBe('first-rotation-keyring')
+    })
+  })
+
+  describe('Concurrent Session Extension & sessions OCC', () => {
+    it('preserves concurrently added login session when extendSession races with login', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+
+      const sessionA = 'session-A'
+      const sessionB = 'session-B'
+      const initialExpiry = Date.now() + 5000
+
+      await driver.updateAccountData({
+        account,
+        sessions: [{ token: sessionA, expiry: initialExpiry }],
+      })
+
+      let intercepted = false
+      const originalSend = driver.client.send.bind(driver.client)
+      const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
+        const res = await originalSend(command as never)
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === driver.tables.accounts) {
+          intercepted = true
+          // Simulate a concurrent login adding sessionB right after extendSession reads the old sessions list
+          await originalSend(new UpdateCommand({
+            TableName: driver.tables.accounts,
+            Key: { account },
+            UpdateExpression: 'SET sessions = :sessions',
+            ExpressionAttributeValues: {
+              ':sessions': [
+                { token: sessionA, expiry: initialExpiry },
+                { token: sessionB, expiry: initialExpiry + 60_000 },
+              ],
+            },
+          }))
+        }
+        return res
+      }) as typeof driver.client.send)
+
+      try {
+        await driver.extendSession({ account, session: sessionA })
+
+        // Both sessionA and sessionB must remain valid
+        const acctViaB = await driver.getAccount({ account, session: sessionB })
+        expect(acctViaB.account).toBe(account)
+
+        const acctViaA = await driver.getAccount({ account, session: sessionA })
+        expect(acctViaA.account).toBe(account)
+
+        const recordA = acctViaA.sessions?.find(s => s.token === sessionA)
+        const recordB = acctViaA.sessions?.find(s => s.token === sessionB)
+
+        expect(recordB).toBeDefined()
+        expect(recordA?.expiry).toBeGreaterThan(Date.now() + 10_000)
+      } finally {
+        sendSpy.mockRestore()
+      }
+    })
+
+    it('does not resurrect a session that was concurrently revoked (e.g. via changePassword)', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+
+      const sessionA = 'session-A'
+      const sessionB = 'session-B'
+      const initialExpiry = Date.now() + 5000
+
+      await driver.updateAccountData({
+        account,
+        sessions: [{ token: sessionA, expiry: initialExpiry }],
+      })
+
+      let intercepted = false
+      const originalSend = driver.client.send.bind(driver.client)
+      const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
+        const res = await originalSend(command as never)
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === driver.tables.accounts) {
+          intercepted = true
+          // Simulate concurrent changePassword revoking sessionA and keeping only sessionB
+          await originalSend(new UpdateCommand({
+            TableName: driver.tables.accounts,
+            Key: { account },
+            UpdateExpression: 'SET sessions = :sessions',
+            ExpressionAttributeValues: {
+              ':sessions': [
+                { token: sessionB, expiry: initialExpiry + 60_000 },
+              ],
+            },
+          }))
+        }
+        return res
+      }) as typeof driver.client.send)
+
+      try {
+        await driver.extendSession({ account, session: sessionA })
+
+        // sessionA must remain revoked and invalid
+        await expect(
+          driver.getAccount({ account, session: sessionA })
+        ).rejects.toThrow()
+
+        const acctViaB = await driver.getAccount({ account, session: sessionB })
+        expect(acctViaB.account).toBe(account)
+        expect(acctViaB.sessions?.find(s => s.token === sessionA)).toBeUndefined()
+      } finally {
+        sendSpy.mockRestore()
+      }
+    })
+
+    it('short-circuits retry if another concurrent extendSession already extended the session', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+
+      const sessionA = 'session-A'
+      const initialExpiry = Date.now() + 5000
+
+      await driver.updateAccountData({
+        account,
+        sessions: [{ token: sessionA, expiry: initialExpiry }],
+      })
+
+      let intercepted = false
+      let updateCalls = 0
+      const originalSend = driver.client.send.bind(driver.client)
+      const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
+        if (command instanceof UpdateCommand && command.input.TableName === driver.tables.accounts) {
+          updateCalls += 1
+        }
+        const res = await originalSend(command as never)
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === driver.tables.accounts) {
+          intercepted = true
+          // Simulate another concurrent request for sessionA extending it first
+          await originalSend(new UpdateCommand({
+            TableName: driver.tables.accounts,
+            Key: { account },
+            UpdateExpression: 'SET sessions = :sessions',
+            ExpressionAttributeValues: {
+              ':sessions': [
+                { token: sessionA, expiry: Date.now() + 30 * 24 * 60 * 60 * 1000 },
+              ],
+            },
+          }))
+        }
+        return res
+      }) as typeof driver.client.send)
+
+      try {
+        await driver.extendSession({ account, session: sessionA })
+
+        // First attempt tried to Update (failed OCC), second attempt saw expiry already fresh and skipped Update
+        expect(updateCalls).toBe(1)
+
+        const acct = await driver.getAccount({ account, session: sessionA })
+        const recordA = acct.sessions?.find(s => s.token === sessionA)
+        expect(recordA?.expiry).toBeGreaterThan(Date.now() + 10_000)
+      } finally {
+        sendSpy.mockRestore()
+      }
+    })
+  })
+})
+

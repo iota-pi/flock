@@ -1,0 +1,59 @@
+{
+  "name": "@vault/client",
+  "version": "0.0.0",
+  "description": "Vault client: crypto, keyring, the sync worker engine and the main-thread sync client",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/api/vault/index.ts",
+    "./Keyring": "./src/api/vault/Keyring.ts",
+    "./autoLockStore": "./src/api/vault/autoLockStore.ts",
+    "./clientUtils": "./src/api/vault/clientUtils.ts",
+    "./crypto": "./src/api/vault/crypto.ts",
+    "./reencrypt": "./src/api/vault/reencrypt.ts",
+    "./runtime": "./src/api/runtime.ts",
+    "./sessionRecovery": "./src/api/vault/sessionRecovery.ts",
+    "./sync/client/SyncBridge": "./src/sync/client/SyncBridge.ts",
+    "./sync/client/host": "./src/sync/client/host.ts",
+    "./sync/shared/backupSyncState": "./src/sync/shared/backupSyncState.ts",
+    "./sync/shared/createAccountStore": "./src/sync/shared/createAccountStore.ts",
+    "./sync/shared/manualRecoveryStore": "./src/sync/shared/manualRecoveryStore.ts",
+    "./sync/shared/storageNames": "./src/sync/shared/storageNames.ts",
+    "./sync/shared/types": "./src/sync/shared/types.ts",
+    "./sync/utils/fireAndForget": "./src/sync/utils/fireAndForget.ts",
+    "./sync/utils/onlineStatus": "./src/sync/utils/onlineStatus.ts",
+    "./sync/utils/storageManager": "./src/sync/utils/storageManager.ts",
+    "./sync/utils/storageQuota": "./src/sync/utils/storageQuota.ts",
+    "./sync/worker/domain": "./src/sync/worker/domain.ts",
+    "./sync/worker/stores/CursorStore": "./src/sync/worker/stores/CursorStore.ts",
+    "./sync/worker/stores/LastModifiedStore": "./src/sync/worker/stores/LastModifiedStore.ts",
+    "./sync/worker/stores/syncMetadataStorage": "./src/sync/worker/stores/syncMetadataStorage.ts",
+    "./sync/worker/sync.worker": "./src/sync/worker/sync.worker.ts",
+    "./testing": "./src/sync/worker/__test__/testUtils.ts",
+    "./trackedFetch": "./src/api/trackedFetch.ts",
+    "./trpc": "./src/api/vaultTrpcClient.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@automerge/automerge": "^3.2.6",
+    "@automerge/automerge-repo": "2.6.0-alpha.2",
+    "@automerge/automerge-repo-network-broadcastchannel": "^2.5.5",
+    "@trpc/client": "^11.17.0",
+    "@trpc/server": "^11.17.0",
+    "@vault/shared": "workspace:*",
+    "comlink": "^4.4.2",
+    "fast-deep-equal": "^3.1.3",
+    "localforage": "^1.10.0",
+    "lodash-es": "^4.17.23",
+    "nanoid": "^6.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@vault/server": "workspace:*",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  }
+}

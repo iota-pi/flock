@@ -8,7 +8,7 @@ import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 
-import { reencryptAllItems } from 'src/api/vault/reencrypt'
+import { reencryptAllItems } from '@vault/client/reencrypt'
 import { SyncBridge } from 'src/app/vault/syncBridge'
 import { useAppStore } from 'src/state/store'
 

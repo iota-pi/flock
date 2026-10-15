@@ -3,7 +3,7 @@ import { ThemeProvider } from '@mui/material/styles'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import LoginPage from './Login'
 import getTheme from '../../theme'
-import * as vault from '../../api/vault'
+import * as vault from '@vault/client'
 import { useAppStore } from '../../state/store'
 
 const lightTheme = getTheme(false)

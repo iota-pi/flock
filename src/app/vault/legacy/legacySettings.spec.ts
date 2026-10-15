@@ -1,6 +1,6 @@
 import { flockLegacySettings, mergeLegacySettings } from './legacySettings'
 import type { AccountMetadata } from '../../../state/metadata'
-import type { LegacySettingsContext } from '../../../sync/worker/domain'
+import type { LegacySettingsContext } from '@vault/client/sync/worker/domain'
 
 const mockGetMetadata = vi.fn()
 const mockClearMetadata = vi.fn()

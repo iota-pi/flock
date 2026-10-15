@@ -93,7 +93,7 @@ Library zones:
 - `src/api/vault/`, `src/api/runtime.ts`, `src/api/trackedFetch.ts`, `src/api/vaultTrpcClient.ts`: client crypto, keyring and API calls
 - `src/vault/services/`, `src/vault/drivers/`, `src/vault/trpc/trpc.ts`, `src/vault/trpc/vaultRouter.ts`, `src/vault/trpc/routers/{accounts,items,sync}.ts`, `src/vault/util.ts`: server
 
-Everything else is Flock. Flock's client wiring lives in `src/app/vault/`, and its server wiring in `src/vault/flockDriver.ts`, `src/vault/trpc/root.ts` and `src/vault/trpc/routers/flockAccounts.ts`. `VAULT_LIBRARY_PATHS` in `eslint.config.js` lists the library zones.
+Everything else is Flock. Flock's client wiring lives in `src/app/vault/`, and its server wiring in `src/vault/flockDriver.ts`, `src/vault/trpc/root.ts` and `src/vault/trpc/routers/flockAccounts.ts`. Stage 3 moved these zones into `packages/` (paths elsewhere in this document are from before that move).
 
 Status: **done.** The lint rule reports no violations, specs included.
 
@@ -114,12 +114,12 @@ Differences from the plan:
 - The main-thread client takes a `SyncStateSink` object rather than exposing `on(event)`. Some event handling reads state back (quota recovery checks the current status and warning), and a sink keeps that policy in the library.
 - `remapReferences` returns the changes to apply rather than editing a draft, so recreation still merges `members` through the CRDT list reconciler exactly as before.
 - Storage names live on `globalThis` (under a `Symbol.for` key), because they belong to the realm and must survive tests that reset modules.
-- The worker still imports the module-level keyring in `src/api/vault`. Both sides are library code, so a `KeyProvider` interface is deferred to stage 3.
+- The worker still imports the module-level keyring in `src/api/vault`. Both sides are library code, so a `KeyProvider` interface is deferred to stage 3 (done there).
 - `SyncWorkerHealthMonitor` now reports through the bridge's status callbacks, so its warnings also get Sentry breadcrumbs.
 
 Follow-ups noticed along the way:
 
-- `getAuthToken` in `src/vault/api/util.ts` is only used by its test.
+- `getAuthToken` in `src/vault/api/util.ts` is only used by its test. (Deleted in stage 3.)
 
 ### Stage 2: protocol changes
 
@@ -194,6 +194,24 @@ Each item under "Protocol choices" above, with a Flock data migration.
 ### Stage 3: workspaces
 
 Move the library zones into `packages/*`, rewrite `src/...` alias imports and move the tests with them.
+
+Status: **done.**
+
+- Three Yarn workspaces, each keeping its zone's internal layout so relative imports moved unchanged:
+  - `@vault/shared` (`packages/vault-shared/src/`, from `src/shared/vault/`)
+  - `@vault/client` (`packages/vault-client/src/`: `api/vault/`, `api/{runtime,trackedFetch,vaultTrpcClient}.ts` and `sync/`)
+  - `@vault/server` (`packages/vault-server/src/`: `services/`, `drivers/`, `util.ts`, `trpc/{trpc,vaultRouter}.ts` and `trpc/routers/{accounts,items,sync}.ts`)
+- Packages are private and export TypeScript source through explicit `exports` maps, with no build step; Vite, Vitest, tsx and SST's esbuild compile them from the linked workspace. An export exists for each module Flock imports: `@vault/client` is `api/vault/index.ts`, `@vault/client/<file>` the rest of `api/vault/`, `/trpc` the tRPC client, `/sync/...` the engine's paths and `/testing` the worker test utilities; `@vault/server` has `/trpc`, `/router`, `/routers/*`, `/drivers/*` and `/services/dataVersion`; `@vault/shared/<file>` is every shared module.
+- Boundaries: packages have their own tsconfig with no `src/*` alias. Lint forbids packages from importing `src/` or anything their `package.json` doesn't declare, `@vault/shared` from importing the client or server, and the server from importing the client. This replaces `VAULT_LIBRARY_PATHS`.
+- Tests: each package is a Vitest project with its own setup. Client specs configure `createVaultStorageNames('test')`, so no library test depends on Flock's names; `src/app/vault/storageNames.spec.ts` pins Flock's instead.
+- `KeyProvider`: the keyring state moved into a `Keyring` class (`api/vault/Keyring.ts`). The main thread keeps one in `index.ts`; the sync worker owns another, loaded from `exportKeyringData`, and passes it to its components as a `KeyProvider` (`hasKey`, `waitForKey`, `encryptBytes`, `decryptBytes`). `initWorkerVault` is gone, and nothing in the worker reads keys from `api/vault/index.ts`. `LegacyItemContext` gained `decrypt`, because the worker realm's module keyring is no longer loaded; Flock's `decodeLegacyCipherItem` uses it instead of `decryptObject`, which was removed.
+- `getAuthToken` (Flock's server, unused) was deleted. `api/vault/util.ts` stopped relying on Flock's global `window.Cypress` type.
+
+Follow-ups:
+
+- The entry points mirror today's file layout. Before stage 4, curate them into a few barrels (for example `@vault/client/worker`) and flatten `api/vault/` in the client package.
+- `@vault/client` depends on `@vault/server` (as a dev dependency) for the `VaultRouter` type and one integration spec. Publishing would need a type-only peer or a router type in `@vault/shared`.
+- `@vault/client/testing` is exported only for Flock's `legacy/localData.spec.ts`.
 
 ### Stage 4: publish
 

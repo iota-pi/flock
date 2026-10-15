@@ -5,7 +5,7 @@ import {
   type ErrorItem,
 } from '../../shared/schemas/items'
 import type { Item } from '../../state/items'
-import type { DocCodec, SyncDomain, SyncDomainHooks } from '../../sync/worker/domain'
+import type { DocCodec, SyncDomain, SyncDomainHooks } from '@vault/client/sync/worker/domain'
 import { SYNCED_METADATA_KEYS } from '../../shared/schemas/metadata'
 import { flockLegacySettings } from './legacy/legacySettings'
 import { decodeLegacyCipherItem } from './legacy/legacyItems'

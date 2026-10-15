@@ -1,0 +1,38 @@
+{
+  "name": "@vault/server",
+  "version": "0.0.0",
+  "description": "Vault server: services, the DynamoDB driver and tRPC routers",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./drivers/base": "./src/drivers/base.ts",
+    "./drivers/dynamo": "./src/drivers/dynamo.ts",
+    "./router": "./src/trpc/vaultRouter.ts",
+    "./routers/accounts": "./src/trpc/routers/accounts.ts",
+    "./routers/items": "./src/trpc/routers/items.ts",
+    "./routers/sync": "./src/trpc/routers/sync.ts",
+    "./services/dataVersion": "./src/services/dataVersion.ts",
+    "./trpc": "./src/trpc/trpc.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1121.0",
+    "@aws-sdk/lib-dynamodb": "3.1121.0",
+    "@trpc/server": "^11.17.0",
+    "@vault/shared": "workspace:*",
+    "lodash-es": "^4.17.23",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "fastify": "^5.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "fastify": "^5.6.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  }
+}

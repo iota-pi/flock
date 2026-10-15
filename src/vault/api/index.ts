@@ -7,8 +7,8 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { createFlockDriver } from '../flockDriver'
 import { flockDataVersionPolicy } from '../flockDataVersion'
 import { appRouter } from '../trpc/root'
-import { createVaultContext } from '../trpc/trpc'
-import { PROTOCOL_VERSION_HEADER } from '../../shared/vault/protocol'
+import { createVaultContext } from '@vault/server/trpc'
+import { PROTOCOL_VERSION_HEADER } from '@vault/shared/protocol'
 
 /**
  * Writes from builds below this protocol version are rejected, which makes them update. Raising it

@@ -8,24 +8,8 @@ import vitest from '@vitest/eslint-plugin'
 import react from 'eslint-plugin-react'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
 
-// Code that will be extracted into the reusable vault library (see docs/vault-extraction.md).
-// Paths are relative to src/.
-const VAULT_LIBRARY_PATHS = [
-  'shared/vault/**',
-  'sync/**',
-  'api/vault/**',
-  'api/runtime.ts',
-  'api/trackedFetch.ts',
-  'api/vaultTrpcClient.ts',
-  'vault/services/**',
-  'vault/drivers/**',
-  'vault/trpc/trpc.ts',
-  'vault/trpc/vaultRouter.ts',
-  'vault/trpc/routers/accounts.ts',
-  'vault/trpc/routers/items.ts',
-  'vault/trpc/routers/sync.ts',
-  'vault/util.ts',
-]
+// The vault library's packages (see docs/vault-extraction.md)
+const VAULT_PACKAGES = ['vault-shared', 'vault-client', 'vault-server']
 
 // Flock's compatibility code for legacy formats, extracted into the migration app later (see
 // docs/vault-extraction.md). Only these wiring files may import it.
@@ -37,12 +21,23 @@ const LEGACY_IMPORTERS = [
   'app/vault/vault.worker.ts',
 ]
 
-const vaultLibraryZone = {
-  target: VAULT_LIBRARY_PATHS.map(path => `./src/${path}`),
-  from: './src/**',
-  except: VAULT_LIBRARY_PATHS.map(path => `**/src/${path}`),
-  message: 'Vault library code must not import Flock app code. Inject it instead (see docs/vault-extraction.md).',
-}
+const vaultPackageZones = [
+  {
+    target: './packages',
+    from: './src',
+    message: 'Vault library code must not import Flock app code. Inject it instead (see docs/vault-extraction.md).',
+  },
+  {
+    target: './packages/vault-shared',
+    from: ['./packages/vault-client', './packages/vault-server'],
+    message: '@vault/shared must not depend on the client or server.',
+  },
+  {
+    target: './packages/vault-server',
+    from: './packages/vault-client',
+    message: '@vault/server must not depend on the client.',
+  },
+]
 
 export default defineConfig([
   globalIgnores([
@@ -107,7 +102,7 @@ export default defineConfig([
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: 'tsconfig.json',
+        projectService: true,
         ecmaVersion: 'latest',
       },
     },
@@ -125,13 +120,27 @@ export default defineConfig([
     },
   },
   {
-    files: VAULT_LIBRARY_PATHS.map(path => `src/${path}`),
+    files: ['packages/**/*.ts'],
     rules: {
-      'import-x/no-restricted-paths': ['error', { zones: [vaultLibraryZone] }],
+      'import-x/no-restricted-paths': ['error', { zones: vaultPackageZones }],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { regex: '^vitest$', allowTypeImports: true },
+            { regex: '^src/', message: 'Vault library code must not import Flock app code.' },
+          ],
+        },
+      ],
     },
   },
+  ...VAULT_PACKAGES.map(name => ({
+    files: [`packages/${name}/**/*.ts`],
+    rules: {
+      'import-x/no-extraneous-dependencies': ['error', { packageDir: `./packages/${name}` }],
+    },
+  })),
   {
-    // Repeats the library zone, because this block's rule options replace the one above
     files: ['src/**/*.{ts,tsx}'],
     ignores: [`src/${LEGACY_PATH}/**`, ...LEGACY_IMPORTERS.map(path => `src/${path}`)],
     rules: {
@@ -139,7 +148,6 @@ export default defineConfig([
         'error',
         {
           zones: [
-            vaultLibraryZone,
             {
               target: './src',
               from: `./src/${LEGACY_PATH}`,

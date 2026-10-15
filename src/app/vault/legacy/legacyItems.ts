@@ -1,6 +1,5 @@
 import { z } from 'zod'
-import { decryptObject } from '../../../api/vault'
-import type { LegacyItemContext, LegacyItemEnvelope, RawDoc } from '../../../sync/worker/domain'
+import type { LegacyItemContext, LegacyItemEnvelope, RawDoc } from '@vault/client/sync/worker/domain'
 
 /** The parts of a pre-Automerge item row needed to decrypt it */
 const LegacyCipherRowSchema = z.object({
@@ -28,7 +27,8 @@ export async function decodeLegacyCipherItem(
     await context.ensureKey(kver)
   }
 
-  const decoded = await decryptObject({ iv, cipher, kver })
+  const plaintext = await context.decrypt({ iv, cipher, kver })
+  const decoded: unknown = JSON.parse(new TextDecoder().decode(plaintext))
   if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
     return null
   }

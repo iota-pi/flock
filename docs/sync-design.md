@@ -1,6 +1,6 @@
 # Sync Design Notes
 
-Background and rationale for the sync system (`src/sync/`, `src/vault/services/`). [AGENTS.md](../AGENTS.md) lists the rules. This file explains why they exist. Read the relevant section before changing or reviewing sync behaviour.
+Background and rationale for the sync system (`packages/vault-client/src/sync/`, `packages/vault-server/src/services/`). [AGENTS.md](../AGENTS.md) lists the rules. This file explains why they exist. Read the relevant section before changing or reviewing sync behaviour.
 
 ## Data flow
 
@@ -90,7 +90,7 @@ Account settings the app syncs (`SyncDomain.syncedMetadataKeys`) live in an encr
 
 ## Doc-bound ciphertexts
 
-Snapshots and sync messages are encrypted with `vault-doc:<itemId>` as AES-GCM associated data and marked `format: 2` (`DOC_BOUND_FORMAT` in `src/shared/vault/crypto.ts`). Without it, the server could serve item A's snapshot as item B's, and B's device would merge A's whole history into B, which cannot be undone.
+Snapshots and sync messages are encrypted with `vault-doc:<itemId>` as AES-GCM associated data and marked `format: 2` (`DOC_BOUND_FORMAT` in `packages/vault-shared/src/crypto.ts`). Without it, the server could serve item A's snapshot as item B's, and B's device would merge A's whole history into B, which cannot be undone.
 
 - **Bind the ID the plaintext is applied to.** `snapshotBuilder` and `SyncPoller` encrypt with the item ID; `ManifestHydrator` and `SyncPullQueueManager` decrypt with the ID of the doc they apply the result to. Taking the ID from a separate field in the server's response would defeat the check.
 - **The flag cannot be used to downgrade.** Stripping `format` from a bound ciphertext makes it decrypt without associated data, which fails. An unknown `format` is rejected.
@@ -138,7 +138,7 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 - WAL: its own IndexedDB database.
 - Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `cursors`, `indexDoc`, `lastModified` (including `baseVersion`), `syncedHeads`, `snapshotsDocBound` and `deviceDataVersion`. The stores only read the current layout.
 - Older layouts: the worker config's `migrateLocalData(accountId)` hook runs at the start of `SyncWorkerContext.initialize()`, before any store is read, under the `localDataMigrationLock` Web Lock so tabs take turns. A failure fails initialization, because starting would create an empty index that a later migration would keep over the old one. Flock's hook (`src/app/vault/legacy/localData.ts`) imports its per-store databases, the consolidated store's earlier keys and old value shapes, and deduplicates manual recovery entries (its own `manualRecoveryMigrated` key).
-- All storage names come from `VaultStorageNames` (`src/sync/shared/storageNames.ts`). Renaming one orphans the data stored under the old name.
+- All storage names come from `VaultStorageNames` (`packages/vault-client/src/sync/shared/storageNames.ts`). Renaming one orphans the data stored under the old name.
 - Logout or reset: `clearAccountLocalData` → `clearSyncMetadataStorage` drops the whole metadata database. The store-level `.clear()` only clears its own key.
 
 ## Shutdown order (`ServiceLifecycleManager`)

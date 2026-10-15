@@ -84,7 +84,7 @@ function initializeApp() {
     registerAppUpdates(registerSW)
 
     if (window.Cypress) {
-      window.vault = import('./api/vault')
+      window.vault = import('@vault/client')
       window.mutations = import('./features/items/mutations/itemMutations')
       window.syncBridge = import('./app/vault/syncBridge').then(mod => mod.SyncBridge)
     }

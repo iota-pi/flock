@@ -11,7 +11,7 @@ import {
   toZonedTime,
 } from 'date-fns-tz'
 import type { WebPushSubscription } from '../types'
-import { getConnectionParams } from '../drivers/dynamo'
+import { getConnectionParams } from '@vault/server/drivers/dynamo'
 import { FLOCK_TABLES } from '../flockDriver'
 
 type ReminderAccount = {
