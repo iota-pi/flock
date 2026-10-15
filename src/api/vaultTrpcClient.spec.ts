@@ -3,6 +3,7 @@ import type { VaultRouter } from '../vault/trpc/vaultRouter'
 import { configureVaultStorageNames, createVaultStorageNames } from '../sync/shared/storageNames'
 import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '../shared/vault/protocol'
 import { createVaultLinks } from './vaultTrpcClient'
+import { getTrackedFetch } from './trackedFetch'
 
 function trpcErrorResponse(message: string, code: string, httpStatus: number) {
   return new Response(
@@ -56,5 +57,34 @@ describe('createVaultLinks', () => {
     await expect(createClient(customFetch).accounts.raiseDataVersion.mutate({ account: 'acct' })).rejects.toThrow()
 
     expect(postMessage).not.toHaveBeenCalled()
+  })
+
+  describe('through trackedFetch', () => {
+    const stop = vi.fn()
+
+    function createTrackedClient(response: () => Response) {
+      vi.stubGlobal('fetch', vi.fn(async () => response()))
+      return createClient(getTrackedFetch(() => {}, stop))
+    }
+
+    beforeEach(() => {
+      stop.mockReset()
+    })
+
+    it('announces when the server says this build is too old', async () => {
+      const client = createTrackedClient(() => trpcErrorResponse('CLIENT_OUTDATED', 'PRECONDITION_FAILED', 412))
+
+      await expect(client.accounts.raiseDataVersion.mutate({ account: 'acct' })).rejects.toThrow()
+
+      expect(postMessage).toHaveBeenCalledWith({ type: 'CLIENT_OUTDATED' })
+    })
+
+    it("keeps the server's error code and message", async () => {
+      const client = createTrackedClient(() => trpcErrorResponse('Incorrect current password', 'UNAUTHORIZED', 401))
+
+      const error = await client.accounts.raiseDataVersion.mutate({ account: 'acct' }).catch((err: unknown) => err)
+
+      expect(error).toMatchObject({ message: 'Incorrect current password', data: { code: 'UNAUTHORIZED', httpStatus: 401 } })
+    })
   })
 })

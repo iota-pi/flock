@@ -29,75 +29,91 @@ function shouldShowServerErrorMessage(error: unknown): boolean {
   return true
 }
 
-async function trackedRequest<T>(
-  factory: () => Promise<T>,
-  start: () => void,
-  stop: (message?: string) => void,
-): Promise<T> {
-  start()
-  try {
-    const result = await factory()
+const SERVER_ERROR_MESSAGE = 'A request to the server failed. Please retry later.'
+
+function stopWithError(stop: (message?: string) => void, error: unknown) {
+  if (shouldShowServerErrorMessage(error)) {
+    stop(SERVER_ERROR_MESSAGE)
+  } else {
     stop()
-    return result
-  } catch (error) {
-    if (shouldShowServerErrorMessage(error)) {
-      stop('A request to the server failed. Please retry later.')
-    } else {
-      stop()
-    }
-    throw error
   }
 }
 
+function getRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.toString()
+  return input.url
+}
+
+/**
+ * Whether a failed response carries an error body for the tRPC client to parse. Passing it through
+ * (rather than throwing) keeps the server's error code and message, such as CLIENT_OUTDATED.
+ */
+function hasJsonErrorBody(response: Response): boolean {
+  return response.headers.get('content-type')?.includes('application/json') ?? false
+}
+
+/**
+ * A fetch for the tRPC clients that reports each request's start and end, and whether it failed in
+ * a way worth telling the user about. Calls the session-expired handler on 403.
+ *
+ * Failed responses with a JSON body are returned for tRPC to turn into an error with the server's
+ * code and message. Other failed responses throw `ApiHttpError`.
+ */
 export function getTrackedFetch(
   start: () => void,
   stop: (message?: string) => void,
 ) {
-  return (
+  return async (
     input: RequestInfo | URL,
     init?: RequestInit
-  ) => trackedRequest(
-    async () => {
+  ): Promise<Response> => {
+    start()
+
+    let response: Response
+    try {
       const headers = new Headers(init?.headers)
       const authToken = getApiAuthToken()
       if (authToken) {
         headers.set('Authorization', `Basic ${authToken}`)
       }
 
-      const response = await fetch(input, {
+      response = await fetch(input, {
         ...init,
         headers,
       })
+    } catch (error) {
+      stopWithError(stop, error)
+      throw error
+    }
 
-      const expiryHandler = getSessionExpiredHandler()
-      if (response.status === 403 && expiryHandler) {
-        expiryHandler()
-      }
+    const expiryHandler = getSessionExpiredHandler()
+    if (response.status === 403 && expiryHandler) {
+      expiryHandler()
+    }
 
-      if (!response.ok) {
-        const requestUrl = typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url
-        const error = new ApiHttpError({
-          status: response.status,
-          url: requestUrl,
-          message: `Server request failed (${response.status}) for ${requestUrl}`,
-        })
-
-        if (isCypressRuntime() && response.status !== 401 && response.status !== 403) {
-          setTimeout(() => {
-            throw error
-          }, 0)
-        }
-
-        throw error
-      }
-
+    if (response.ok) {
+      stop()
       return response
-    },
-    start,
-    stop,
-  )
+    }
+
+    const requestUrl = getRequestUrl(input)
+    const error = new ApiHttpError({
+      status: response.status,
+      url: requestUrl,
+      message: `Server request failed (${response.status}) for ${requestUrl}`,
+    })
+    stopWithError(stop, error)
+
+    if (isCypressRuntime() && response.status !== 401 && response.status !== 403) {
+      setTimeout(() => {
+        throw error
+      }, 0)
+    }
+
+    if (hasJsonErrorBody(response)) {
+      return response
+    }
+    throw error
+  }
 }
