@@ -117,10 +117,9 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('loads previously stored cursors successfully', async () => {
-      // Setup legacy mock item store pre-loaded values
       const preLoadedCursors: [string, number][] = [['item-1', 42]]
       const lf = createMockLocalForage()
-      await lf.setItem(SYNC_METADATA_KEYS.CURSORS, preLoadedCursors)
+      await lf.setItem(SYNC_METADATA_KEYS.CURSORS, { globalCursor: 42, retries: preLoadedCursors })
 
       // Inject this store into createInstance
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
@@ -1614,10 +1613,10 @@ describe('SyncPullQueueManager', () => {
       expect(manager.getGlobalLatestCursor()).toBe(10)
 
       // Another tab (previous leader) advanced cursors in CursorStore
-      activeStore?.getItem.mockResolvedValueOnce([
-        ['item-1', 100],
-        ['item-2', 250],
-      ])
+      activeStore?.getItem.mockResolvedValueOnce({
+        globalCursor: 250,
+        retries: [['item-1', 100], ['item-2', 250]],
+      })
 
       // Promoted leader reloads cursors
       await manager.loadCursors()
@@ -1638,9 +1637,7 @@ describe('SyncPullQueueManager', () => {
       await manager.importCursors([['item-1' as ItemId, 50]])
 
       // CursorStore has a lower cursor (e.g. lagging read)
-      activeStore?.getItem.mockResolvedValueOnce([
-        ['item-1', 20],
-      ])
+      activeStore?.getItem.mockResolvedValueOnce({ globalCursor: 20, retries: [['item-1', 20]] })
 
       await manager.reloadCursors()
 
@@ -1656,9 +1653,7 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(true)
 
       // CursorStore has cursor 42 for item-pending
-      activeStore?.getItem.mockResolvedValueOnce([
-        ['item-pending', 42],
-      ])
+      activeStore?.getItem.mockResolvedValueOnce({ globalCursor: 42, retries: [['item-pending', 42]] })
 
       await manager.loadCursors()
 

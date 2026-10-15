@@ -23,6 +23,8 @@ export interface VaultStorageNames {
     automergeBroadcastChannel: string
     indexChannel: string
     indexLock: string
+    /** Web Lock held while the app's `migrateLocalData` hook runs, so tabs migrate one at a time */
+    localDataMigrationLock: string
     syncPingChannel: string
     leaderPresenceChannel: string
     leaderLock: string
@@ -31,13 +33,6 @@ export interface VaultStorageNames {
     manualRecoveryDatabase: string
     /** Fallback for other account stores, as `${prefix}${storeName}_${accountId}` */
     accountStoreDatabase: string
-  }
-  /** Per-store databases from an older layout, migrated lazily into the sync metadata database */
-  legacySyncDatabases?: {
-    cursors: string
-    indexDoc: string
-    lastModified: string
-    syncedHeads: string
   }
 }
 
@@ -75,6 +70,7 @@ export function createVaultStorageNames(appName: string): VaultStorageNames {
       automergeBroadcastChannel: `${prefix}-automerge-broadcast-`,
       indexChannel: `${prefix}-index-channel-`,
       indexLock: `${prefix}-index-lock-`,
+      localDataMigrationLock: `${prefix}-local-data-migration-`,
       syncPingChannel: `${prefix}-sync-ping-`,
       leaderPresenceChannel: `${prefix}-leader-presence-`,
       leaderLock: `${prefix}-leader-`,

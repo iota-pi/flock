@@ -37,6 +37,11 @@ export interface SyncWorkerConfig {
   storageNames: VaultStorageNames
   /** The app's document codec and hooks */
   domain?: SyncDomain
+  /**
+   * Brings the account's local data from older layouts into the current one. Runs once per
+   * session before any store is read, one tab at a time. Stores only read the current layout.
+   */
+  migrateLocalData?: (accountId: string) => Promise<void>
 }
 
 let globalEventPort: MessagePort | null = null
@@ -320,6 +325,7 @@ export class SyncWorker implements SyncApi {
         },
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
         domain: this.config.domain,
+        migrateLocalData: this.config.migrateLocalData,
       })
       if (this.latestAuthToken) {
         context.apiClient.setToken(this.latestAuthToken)

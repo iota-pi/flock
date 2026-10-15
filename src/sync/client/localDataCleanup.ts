@@ -1,5 +1,5 @@
 import { getAutomergeDBName } from '../worker/AutomergeRepoManager'
-import { clearSyncMetadataStorage, clearLegacySyncDatabases } from '../worker/stores/syncMetadataStorage'
+import { clearSyncMetadataStorage } from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
 import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
 import { SYNC_TIMEOUTS } from '../syncConfig'
@@ -66,7 +66,7 @@ export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: numb
 
 /**
  * Single source of truth for clearing all local account data during logout or account reset.
- * Cleans up Automerge IndexedDB, sync metadata, legacy databases, WAL, and manual recovery entries.
+ * Cleans up Automerge IndexedDB, sync metadata, WAL, and manual recovery entries.
  * Must be executed after the sync worker has closed its connections to prevent concurrent database
  * operations and versionchange deadlocks.
  */
@@ -76,7 +76,6 @@ export async function clearAccountLocalData(accountId: string): Promise<void> {
     await Promise.allSettled([
       clearAutomergeIndexedDb(accountId).catch(err => console.error('[SyncBridge] Failed to clear Automerge IndexedDB', err)),
       clearSyncMetadataStorage(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncMetadataStorage', err)),
-      clearLegacySyncDatabases(accountId).catch(err => console.error('[SyncBridge] Failed to clear LegacySyncDatabases', err)),
       SyncWriteAheadLog.clear(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
       clearManualRecoveryEntries(accountId).catch(err => console.error('[SyncBridge] Failed to clear ManualRecovery', err)),
     ])

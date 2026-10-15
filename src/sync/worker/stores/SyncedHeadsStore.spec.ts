@@ -2,15 +2,10 @@ import { SyncedHeadsStore } from './SyncedHeadsStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
-  getLegacySyncDatabaseNames,
-  LEGACY_KEYS,
 } from './syncMetadataStorage'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
-import {
-  createMockLocalForage,
-  createMockLocalForagePool,
-} from '../__test__/testUtils'
+import { createMockLocalForagePool } from '../__test__/testUtils'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -26,8 +21,6 @@ vi.mock('localforage', () => ({
 vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
-
-const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('SyncedHeadsStore', () => {
   let store: SyncedHeadsStore
@@ -84,42 +77,5 @@ describe('SyncedHeadsStore', () => {
     expect(loaded).toBeNull()
   })
 
-  it('migrates in-store legacy key syncedHeadsByDocId', async () => {
-    const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-    const legacyData: [DocumentId, string[]][] = [['doc-legacy' as DocumentId, ['head-old']]]
-    await consolidatedStore?.setItem(LEGACY_KEYS.SYNCED_HEADS, legacyData)
 
-    const loaded = await store.loadSyncedHeads()
-    expect(loaded).toEqual(legacyData)
-
-    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.SYNCED_HEADS)).toEqual(legacyData)
-    expect(await consolidatedStore?.getItem(LEGACY_KEYS.SYNCED_HEADS)).toBeNull()
-  })
-
-  it('migrates legacy database flock-sync-synced-heads', async () => {
-    const originalIndexedDb = (globalThis as any).indexedDB
-    ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.syncedHeads }]),
-    }
-    try {
-      const legacyStoreKey = `${legacyDbNames.syncedHeads}#synced-heads-${accountId}`
-      const legacyStore = createMockLocalForage({ name: legacyDbNames.syncedHeads, storeName: `synced-heads-${accountId}` })
-      const legacyData: [DocumentId, string[]][] = [['doc-from-old-db' as DocumentId, ['head-db']]]
-      await legacyStore.setItem(LEGACY_KEYS.SYNCED_HEADS, legacyData)
-      instances.set(legacyStoreKey, legacyStore)
-
-      const loaded = await store.loadSyncedHeads()
-      expect(loaded).toEqual(legacyData)
-
-      const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-      expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.SYNCED_HEADS)).toEqual(legacyData)
-      expect(await legacyStore.getItem(LEGACY_KEYS.SYNCED_HEADS)).toBeNull()
-    } finally {
-      if (originalIndexedDb === undefined) {
-        delete (globalThis as any).indexedDB
-      } else {
-        ;(globalThis as any).indexedDB = originalIndexedDb
-      }
-    }
-  })
 })

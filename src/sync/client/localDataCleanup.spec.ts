@@ -5,7 +5,6 @@ import * as manualRecoveryStore from '../shared/manualRecoveryStore'
 
 vi.mock('../worker/stores/syncMetadataStorage', () => ({
   clearSyncMetadataStorage: vi.fn().mockResolvedValue(undefined),
-  clearLegacySyncDatabases: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../worker/SyncWriteAheadLog', () => ({
@@ -27,15 +26,13 @@ describe('localDataCleanup', () => {
     await clearAccountLocalData('')
 
     expect(syncMetadataStorage.clearSyncMetadataStorage).not.toHaveBeenCalled()
-    expect(syncMetadataStorage.clearLegacySyncDatabases).not.toHaveBeenCalled()
     expect(SyncWriteAheadLog.clear).not.toHaveBeenCalled()
   })
 
-  it('calls clearSyncMetadataStorage and clearLegacySyncDatabases for the account', async () => {
+  it('clears sync metadata, the WAL and manual recovery entries for the account', async () => {
     await clearAccountLocalData('test-account')
 
     expect(syncMetadataStorage.clearSyncMetadataStorage).toHaveBeenCalledWith('test-account')
-    expect(syncMetadataStorage.clearLegacySyncDatabases).toHaveBeenCalledWith('test-account')
     expect(SyncWriteAheadLog.clear).toHaveBeenCalledWith('test-account')
     expect(manualRecoveryStore.clearManualRecoveryEntries).toHaveBeenCalledWith('test-account')
   })

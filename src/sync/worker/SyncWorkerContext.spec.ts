@@ -433,6 +433,64 @@ describe('SyncWorkerContext', () => {
     expect(stopSpy).toHaveBeenCalledWith({ clearLocalData: true })
   })
 
+  describe('migrateLocalData', () => {
+    function createMigratingContext(migrateLocalData: (accountId: string) => Promise<void>) {
+      return new SyncWorkerContext({
+        accountId: 'test-account-migrate',
+        clientEventHub,
+        internalEventHub,
+        migrateLocalData,
+      })
+    }
+
+    it('runs before any store is read or service started', async () => {
+      const calls: string[] = []
+      const ctx = createMigratingContext(async accountId => {
+        calls.push(`migrate:${accountId}`)
+      })
+      vi.spyOn(ctx.indexStore, 'getIndex').mockImplementation(async () => {
+        calls.push('getIndex')
+        return null
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockImplementation(async () => {
+        calls.push('start')
+      })
+
+      await ctx.initialize()
+
+      expect(calls.slice(0, 3)).toEqual(['migrate:test-account-migrate', 'getIndex', 'start'])
+    })
+
+    it('holds the account\'s migration lock while it runs', async () => {
+      const request = vi.fn(async (_name: string, _options: unknown, callback: () => Promise<void>) => callback())
+      vi.stubGlobal('navigator', { ...globalThis.navigator, locks: { request } })
+      try {
+        const migrate = vi.fn().mockResolvedValue(undefined)
+        const ctx = createMigratingContext(migrate)
+        vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+
+        await ctx.initialize()
+
+        expect(request).toHaveBeenCalledWith(
+          'flock-local-data-migration-test-account-migrate',
+          { mode: 'exclusive' },
+          expect.any(Function),
+        )
+        expect(migrate).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('fails initialization without starting when it throws', async () => {
+      const ctx = createMigratingContext(vi.fn().mockRejectedValue(new Error('migration failed')))
+      const startSpy = vi.spyOn(ctx.lifecycle, 'start')
+
+      await expect(ctx.initialize()).rejects.toThrow('migration failed')
+      expect(startSpy).not.toHaveBeenCalled()
+    })
+  })
+
   it('registers expected services in lifecycle manager in correct order', () => {
     const serviceNames = context.lifecycle.getRegisteredServiceNames()
     expect(serviceNames).toEqual([

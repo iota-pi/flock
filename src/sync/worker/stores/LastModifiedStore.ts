@@ -1,10 +1,5 @@
 import type { ItemId } from 'src/shared/vault/ids'
-import {
-  ScopedMetadataStore,
-  SYNC_METADATA_KEYS,
-  getLegacySyncDatabaseNames,
-  LEGACY_KEYS,
-} from './syncMetadataStorage'
+import { ScopedMetadataStore, SYNC_METADATA_KEYS } from './syncMetadataStorage'
 
 export interface ItemSyncTimestamps {
   localModifiedAt: number
@@ -12,11 +7,8 @@ export interface ItemSyncTimestamps {
   baseVersion?: number
 }
 
-function normalizeTimestamps(raw: [ItemId, number | ItemSyncTimestamps][]): [ItemId, ItemSyncTimestamps][] {
+function normalizeTimestamps(raw: [ItemId, ItemSyncTimestamps][]): [ItemId, ItemSyncTimestamps][] {
   return raw.map(([itemId, val]) => {
-    if (typeof val === 'number') {
-      return [itemId, { localModifiedAt: val, lastSnapshotAt: val, baseVersion: 0 }]
-    }
     if (val && typeof val === 'object') {
       return [
         itemId,
@@ -35,12 +27,8 @@ export class LastModifiedStore extends ScopedMetadataStore<[ItemId, ItemSyncTime
   constructor(accountIdOrStore: string | LocalForage) {
     super(accountIdOrStore, {
       metadataKey: SYNC_METADATA_KEYS.LAST_MODIFIED,
-      legacyKey: LEGACY_KEYS.LAST_MODIFIED,
-      legacyDbName: getLegacySyncDatabaseNames()?.lastModified,
-      legacyStorePrefix: 'last-modified',
-      storeLabel: 'LastModifiedStore',
       normalize: (raw: unknown) =>
-        Array.isArray(raw) ? normalizeTimestamps(raw as [ItemId, number | ItemSyncTimestamps][]) : null,
+        Array.isArray(raw) ? normalizeTimestamps(raw as [ItemId, ItemSyncTimestamps][]) : null,
     })
   }
 

@@ -2,15 +2,10 @@ import { IndexStore } from './IndexStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
-  getLegacySyncDatabaseNames,
-  LEGACY_KEYS,
 } from './syncMetadataStorage'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
 
-import {
-  createMockLocalForage,
-  createMockLocalForagePool,
-} from '../__test__/testUtils'
+import { createMockLocalForagePool } from '../__test__/testUtils'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -26,8 +21,6 @@ vi.mock('localforage', () => ({
 vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
-
-const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('IndexStore', () => {
   let store: IndexStore
@@ -65,30 +58,4 @@ describe('IndexStore', () => {
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual([['item-1', 1]])
   })
 
-  it('migrates legacy index database to consolidated storage', async () => {
-    const originalIndexedDb = (globalThis as any).indexedDB
-    ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.indexDoc }]),
-    }
-    try {
-      const legacyStoreKey = `${legacyDbNames.indexDoc}#index-${accountId}`
-      const legacyStore = createMockLocalForage({ name: legacyDbNames.indexDoc, storeName: `index-${accountId}` })
-      const legacyDoc = { itemIds: ['legacy-1'] } as unknown as AutomergeIndexDocument
-      await legacyStore.setItem(LEGACY_KEYS.INDEX_DOC, legacyDoc)
-      instances.set(legacyStoreKey, legacyStore)
-
-      const loaded = await store.getIndex()
-      expect(loaded).toEqual(legacyDoc)
-
-      const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-      expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.INDEX_DOC)).toEqual(legacyDoc)
-      expect(await legacyStore.getItem(LEGACY_KEYS.INDEX_DOC)).toBeNull()
-    } finally {
-      if (originalIndexedDb === undefined) {
-        delete (globalThis as any).indexedDB
-      } else {
-        ;(globalThis as any).indexedDB = originalIndexedDb
-      }
-    }
-  })
 })

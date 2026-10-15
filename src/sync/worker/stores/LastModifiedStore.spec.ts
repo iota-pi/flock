@@ -2,15 +2,10 @@ import { LastModifiedStore, type ItemSyncTimestamps } from './LastModifiedStore'
 import {
   clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
-  getLegacySyncDatabaseNames,
-  LEGACY_KEYS,
 } from './syncMetadataStorage'
 import type { ItemId } from 'src/shared/vault/ids'
 
-import {
-  createMockLocalForage,
-  createMockLocalForagePool,
-} from '../__test__/testUtils'
+import { createMockLocalForagePool } from '../__test__/testUtils'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -26,8 +21,6 @@ vi.mock('localforage', () => ({
 vi.mock('../../utils/storageManager', () => ({
   runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
 }))
-
-const legacyDbNames = getLegacySyncDatabaseNames()!
 
 describe('LastModifiedStore', () => {
   let store: LastModifiedStore
@@ -58,20 +51,6 @@ describe('LastModifiedStore', () => {
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.LAST_MODIFIED)).toEqual(input)
   })
 
-  it('normalizes legacy number timestamps on read', async () => {
-    const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-    await consolidatedStore?.setItem(SYNC_METADATA_KEYS.LAST_MODIFIED, [
-      ['item-legacy-1', 5000],
-      ['item-legacy-2', 9000],
-    ])
-
-    const loaded = await store.loadTimestamps()
-
-    expect(loaded).toEqual([
-      ['item-legacy-1', { localModifiedAt: 5000, lastSnapshotAt: 5000, baseVersion: 0 }],
-      ['item-legacy-2', { localModifiedAt: 9000, lastSnapshotAt: 9000, baseVersion: 0 }],
-    ])
-  })
 
   it('supports backward-compatible loadLastModified and saveLastModified', async () => {
     await store.saveLastModified([
@@ -114,52 +93,5 @@ describe('LastModifiedStore', () => {
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual([['item-1', 10]])
   })
 
-  it('migrates in-store legacy key lastModifiedByItemId', async () => {
-    const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-    await consolidatedStore?.setItem(LEGACY_KEYS.LAST_MODIFIED, [
-      ['item-legacy', 4000],
-    ])
 
-    const loaded = await store.loadTimestamps()
-    expect(loaded).toEqual([
-      ['item-legacy', { localModifiedAt: 4000, lastSnapshotAt: 4000, baseVersion: 0 }],
-    ])
-
-    expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.LAST_MODIFIED)).toEqual([
-      ['item-legacy', { localModifiedAt: 4000, lastSnapshotAt: 4000, baseVersion: 0 }],
-    ])
-    expect(await consolidatedStore?.getItem(LEGACY_KEYS.LAST_MODIFIED)).toBeNull()
-  })
-
-  it('migrates legacy database flock-sync-last-modified', async () => {
-    const originalIndexedDb = (globalThis as any).indexedDB
-    ;(globalThis as any).indexedDB = {
-      databases: vi.fn().mockResolvedValue([{ name: legacyDbNames.lastModified }]),
-    }
-    try {
-      const legacyStoreKey = `${legacyDbNames.lastModified}#last-modified-${accountId}`
-      const legacyStore = createMockLocalForage({ name: legacyDbNames.lastModified, storeName: `last-modified-${accountId}` })
-      await legacyStore.setItem(LEGACY_KEYS.LAST_MODIFIED, [
-        ['item-from-old-db', 8888],
-      ])
-      instances.set(legacyStoreKey, legacyStore)
-
-      const loaded = await store.loadTimestamps()
-      expect(loaded).toEqual([
-        ['item-from-old-db', { localModifiedAt: 8888, lastSnapshotAt: 8888, baseVersion: 0 }],
-      ])
-
-      const consolidatedStore = instances.get(`flock-sync-metadata-${accountId}#sync-metadata`)
-      expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.LAST_MODIFIED)).toEqual([
-        ['item-from-old-db', { localModifiedAt: 8888, lastSnapshotAt: 8888, baseVersion: 0 }],
-      ])
-      expect(await legacyStore.getItem(LEGACY_KEYS.LAST_MODIFIED)).toBeNull()
-    } finally {
-      if (originalIndexedDb === undefined) {
-        delete (globalThis as any).indexedDB
-      } else {
-        ;(globalThis as any).indexedDB = originalIndexedDb
-      }
-    }
-  })
 })

@@ -29,6 +29,7 @@ import { fireAndForget } from '../utils/fireAndForget'
 import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
+import { getVaultStorageNames } from '../shared/storageNames'
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -65,6 +66,8 @@ export interface SyncWorkerContextConfig {
   apiClient?: SyncApiClient
   /** The app's document codec and hooks. Defaults to passing documents through untouched. */
   domain?: SyncDomain
+  /** Brings local data from older layouts into the current one (see SyncWorkerConfig) */
+  migrateLocalData?: (accountId: string) => Promise<void>
 }
 
 export class SyncWorkerContext {
@@ -100,9 +103,11 @@ export class SyncWorkerContext {
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unsubscribers: Array<() => void> = []
+  private readonly migrateLocalDataHook?: (accountId: string) => Promise<void>
 
   constructor(config: SyncWorkerContextConfig) {
     this.accountId = config.accountId
+    this.migrateLocalDataHook = config.migrateLocalData
     this.clientEventHub = config.clientEventHub
     this.internalEventHub = config.internalEventHub
     const domain = config.domain ?? DEFAULT_SYNC_DOMAIN
@@ -434,11 +439,29 @@ export class SyncWorkerContext {
   }
 
   async initialize(): Promise<void> {
+    // Stores only read the current layout, so this runs first. A failure must stop initialization:
+    // starting would create an empty index, and a later migration would then keep it over the old one.
+    await this.migrateLocalData()
     // Checked before starting, which creates an empty index for a new device
     const hasLocalData = (await this.indexStore.getIndex()) !== null
     await this.lifecycle.start()
     await this.accountSettings.load()
     fireAndForget(this.dataVersionTracker.onStart(hasLocalData), 'SyncWorkerContext:recordDeviceDataVersion')
+  }
+
+  /**
+   * Runs the app's local data migration while holding a per-account Web Lock. Otherwise a tab could
+   * copy an old value over one another tab's engine has already written since migrating.
+   */
+  private async migrateLocalData(): Promise<void> {
+    const migrate = this.migrateLocalDataHook
+    if (!migrate) return
+    if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
+      const lockName = `${getVaultStorageNames().accountPrefixes.localDataMigrationLock}${this.accountId}`
+      await navigator.locks.request(lockName, { mode: 'exclusive' }, () => migrate(this.accountId))
+      return
+    }
+    await migrate(this.accountId)
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {

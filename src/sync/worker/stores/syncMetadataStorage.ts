@@ -1,5 +1,4 @@
-import localforage from 'localforage'
-import { runStorageOperation, type RunStorageOperationOptions } from '../../utils/storageManager'
+import type { RunStorageOperationOptions } from '../../utils/storageManager'
 import {
   createAccountStore,
   clearAccountStore,
@@ -7,7 +6,6 @@ import {
   getAccountDatabaseName,
 } from '../../shared/createAccountStore'
 import { BaseLocalForageStore } from './BaseLocalForageStore'
-import { getVaultStorageNames } from '../../shared/storageNames'
 
 export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
 
@@ -16,141 +14,14 @@ export const SYNC_METADATA_KEYS = {
   INDEX_DOC: 'indexDoc',
   LAST_MODIFIED: 'lastModified',
   SYNCED_HEADS: 'syncedHeads',
-  MANUAL_RECOVERY_MIGRATED: 'manualRecoveryMigrated',
   /** Set once this device has rewritten every snapshot bound to its document (see SnapshotFormatUpgrade) */
   SNAPSHOTS_DOC_BOUND: 'snapshotsDocBound',
   /** The app's data version this device's local data has been migrated to (see DataVersionTracker) */
   DEVICE_DATA_VERSION: 'deviceDataVersion',
 } as const
 
-/** Per-store databases from an older layout, if the app had one (see VaultStorageNames) */
-export function getLegacySyncDatabaseNames() {
-  return getVaultStorageNames().legacySyncDatabases
-}
-
-export const LEGACY_KEYS = {
-  CURSORS: 'cursorByItemId',
-  INDEX_DOC: 'indexDoc',
-  LAST_MODIFIED: 'lastModifiedByItemId',
-  SYNCED_HEADS: 'syncedHeadsByDocId',
-  MANUAL_RECOVERY_MIGRATED: '__migrated_v2',
-} as const
-
 export function getSyncMetadataDBName(accountId: string): string {
   return getAccountDatabaseName(SYNC_METADATA_STORE_NAME, accountId)
-}
-
-/**
- * Probes whether an IndexedDB database exists without creating it,
- * by opening without a version and aborting versionchange if oldVersion === 0.
- */
-export function probeDatabaseExists(dbName: string): Promise<boolean> {
-  return new Promise(resolve => {
-    if (typeof indexedDB === 'undefined' || typeof indexedDB.open !== 'function') {
-      return resolve(false)
-    }
-
-    let isSettled = false
-
-    const timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => {
-      finish(false)
-    }, 2000)
-
-    function finish(result: boolean, dbToClose?: IDBDatabase): void {
-      if (!isSettled) {
-        isSettled = true
-        clearTimeout(timeoutId)
-        if (dbToClose) {
-          try {
-            dbToClose.close()
-          } catch {
-            // Ignore database close error
-          }
-        }
-        resolve(result)
-      }
-    }
-
-    try {
-      const request = indexedDB.open(dbName)
-
-      request.onupgradeneeded = event => {
-        if (event.oldVersion === 0) {
-          try {
-            const transaction = (event.target as IDBOpenDBRequest)?.transaction || request.transaction
-            transaction?.abort()
-          } catch {
-            // Ignore transaction abort error
-          }
-          try {
-            indexedDB.deleteDatabase(dbName)
-          } catch {
-            // Ignore database delete error
-          }
-          finish(false)
-        } else {
-          finish(true)
-        }
-      }
-
-      request.onsuccess = event => {
-        const db = (event.target as IDBOpenDBRequest)?.result
-        finish(true, db)
-      }
-
-      request.onerror = event => {
-        try {
-          event.preventDefault()
-          event.stopPropagation()
-        } catch {
-          // Ignore error cancellation failure
-        }
-        finish(false)
-      }
-
-      request.onblocked = () => {
-        finish(true)
-      }
-    } catch {
-      finish(false)
-    }
-  })
-}
-
-/**
- * Checks if a legacy database exists in IndexedDB before attempting to open it,
- * preventing accidental creation of legacy databases.
- * Uses indexedDB.databases() where supported, with fallback to probeDatabaseExists()
- * when indexedDB.databases() is unavailable, rejects, or hangs (e.g. Safari/Firefox workers).
- */
-export async function hasLegacyDatabase(dbName: string): Promise<boolean> {
-  if (typeof indexedDB === 'undefined') {
-    return false
-  }
-
-  if (typeof indexedDB.databases === 'function') {
-    try {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const dbs = await Promise.race([
-        indexedDB.databases(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('timeout')), 1500)
-        }),
-      ]).finally(() => {
-        if (timer !== undefined) {
-          clearTimeout(timer)
-        }
-      })
-      if (Array.isArray(dbs)) {
-        return dbs.some(db => db && db.name === dbName)
-      }
-    } catch {
-      // indexedDB.databases() failed or timed out (common in Safari/Firefox workers);
-      // fall back to probing via indexedDB.open
-    }
-  }
-
-  return probeDatabaseExists(dbName)
 }
 
 /**
@@ -173,95 +44,31 @@ export async function clearSyncMetadataStorage(accountId: string): Promise<void>
   await clearAccountStore(SYNC_METADATA_STORE_NAME, accountId)
 }
 
-/**
- * Cleans up legacy separate singleton IndexedDB databases for an account.
- */
-export async function clearLegacySyncDatabases(accountId: string): Promise<void> {
-  const legacyNames = getLegacySyncDatabaseNames()
-  if (!accountId || !legacyNames) return
-
-  const legacyStoreConfigs = [
-    { name: legacyNames.cursors, storeName: `cursors-${accountId}` },
-    { name: legacyNames.indexDoc, storeName: `index-${accountId}` },
-    { name: legacyNames.lastModified, storeName: `last-modified-${accountId}` },
-    { name: legacyNames.syncedHeads, storeName: `synced-heads-${accountId}` },
-  ]
-
-  await Promise.allSettled(
-    legacyStoreConfigs.map(async config => {
-      try {
-        const exists = await hasLegacyDatabase(config.name)
-        if (!exists && typeof indexedDB !== 'undefined') {
-          return
-        }
-        const store = localforage.createInstance(config)
-        await runStorageOperation(() => store.clear())
-      } catch (err) {
-        console.warn(`[syncMetadataStorage] Error clearing legacy store ${config.name}:`, err)
-      }
-    })
-  )
-}
-
 export interface ScopedMetadataStoreOptions<T> {
   metadataKey: string
-  legacyKey?: string
-  legacyDbName?: string
-  legacyStorePrefix?: string
-  storeLabel?: string
+  /** Validates the stored value. Returning null treats it as missing. */
   normalize?: (raw: unknown) => T | null
-  shouldUpgradeInPlace?: (raw: unknown) => boolean
 }
 
 /**
  * Generic base class for account-scoped metadata stores backed by the consolidated IndexedDB database.
- * Encapsulates string | LocalForage constructor, scoped clear(), and two-tier legacy migration.
+ * Each store owns one key. Values in older layouts are migrated by the app's `migrateLocalData` hook
+ * before any store is read.
  */
 export abstract class ScopedMetadataStore<T> extends BaseLocalForageStore {
-  protected readonly accountId: string | null
   protected readonly metadataKey: string
-  protected readonly legacyKey?: string
-  protected readonly legacyDbName?: string
-  protected readonly legacyStorePrefix?: string
-  protected readonly storeLabel: string
   protected readonly normalizeValue?: (raw: unknown) => T | null
-  protected readonly shouldUpgradeInPlace?: (raw: unknown) => boolean
 
   constructor(accountIdOrStore: string | LocalForage, options: ScopedMetadataStoreOptions<T>) {
-    if (typeof accountIdOrStore === 'string') {
-      super(getSyncMetadataStorage(accountIdOrStore))
-      this.accountId = accountIdOrStore
-    } else {
-      super(accountIdOrStore)
-      this.accountId = null
-    }
-
+    super(typeof accountIdOrStore === 'string' ? getSyncMetadataStorage(accountIdOrStore) : accountIdOrStore)
     this.metadataKey = options.metadataKey
-    this.legacyKey = options.legacyKey
-    this.legacyDbName = options.legacyDbName
-    this.legacyStorePrefix = options.legacyStorePrefix
-    this.storeLabel = options.storeLabel ?? 'ScopedMetadataStore'
     this.normalizeValue = options.normalize
-    this.shouldUpgradeInPlace = options.shouldUpgradeInPlace
   }
 
   async getScopedData(): Promise<T | null> {
     const raw = await this.getItem<unknown>(this.metadataKey)
-    if (raw !== null && raw !== undefined) {
-      if (this.normalizeValue) {
-        const normalized = this.normalizeValue(raw)
-        if (normalized !== null) {
-          if (this.shouldUpgradeInPlace?.(raw)) {
-            await this.setScopedData(normalized)
-          }
-          return normalized
-        }
-      } else {
-        return raw as T
-      }
-    }
-
-    return this.migrateLegacyData()
+    if (raw === null || raw === undefined) return null
+    return this.normalizeValue ? this.normalizeValue(raw) : raw as T
   }
 
   async setScopedData(data: T, options?: RunStorageOperationOptions): Promise<void> {
@@ -270,54 +77,5 @@ export abstract class ScopedMetadataStore<T> extends BaseLocalForageStore {
 
   override async clear(options?: RunStorageOperationOptions): Promise<void> {
     await this.removeItem(this.metadataKey, options)
-    if (this.legacyKey && this.legacyKey !== this.metadataKey) {
-      await this.removeItem(this.legacyKey, options).catch(() => {})
-    }
-  }
-
-  protected async migrateLegacyData(): Promise<T | null> {
-    // 1. Check in-store legacy key
-    if (this.legacyKey && this.legacyKey !== this.metadataKey) {
-      const inStoreLegacy = await this.getItem<unknown>(this.legacyKey)
-      if (inStoreLegacy !== null && inStoreLegacy !== undefined) {
-        const migrated = this.normalizeValue
-          ? this.normalizeValue(inStoreLegacy)
-          : (inStoreLegacy as T)
-        if (migrated !== null) {
-          await this.setScopedData(migrated)
-          await this.removeItem(this.legacyKey).catch(() => {})
-          return migrated
-        }
-      }
-    }
-
-    // 2. Check legacy database
-    if (this.accountId && this.legacyDbName && this.legacyStorePrefix && this.legacyKey) {
-      try {
-        const hasLegacy = await hasLegacyDatabase(this.legacyDbName)
-        if (hasLegacy) {
-          const legacyStore = localforage.createInstance({
-            name: this.legacyDbName,
-            storeName: `${this.legacyStorePrefix}-${this.accountId}`,
-          })
-          const legacyData = await legacyStore.getItem<unknown>(this.legacyKey)
-          if (legacyData !== null && legacyData !== undefined) {
-            const migrated = this.normalizeValue
-              ? this.normalizeValue(legacyData)
-              : (legacyData as T)
-            if (migrated !== null) {
-              await this.setScopedData(migrated)
-              await legacyStore.removeItem(this.legacyKey).catch(() => {})
-              return migrated
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`[${this.storeLabel}] Failed to migrate legacy data:`, err)
-      }
-    }
-
-    return null
   }
 }
-
