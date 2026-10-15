@@ -51,8 +51,29 @@ export interface LegacySettingsSource {
   obsoleteLocalKeys?: readonly string[]
 }
 
+/**
+ * An item row as the server returned it. Rows in formats the library no longer reads carry fields
+ * it doesn't describe, so they are left loose.
+ */
+export interface LegacyItemEnvelope {
+  item: ItemId
+  metadata?: Record<string, unknown>
+  [field: string]: unknown
+}
+
+export interface LegacyItemContext {
+  /** Makes sure the key with this version is loaded, waiting briefly for it. Returns whether it is. */
+  ensureKey(kver: string): Promise<boolean>
+}
+
 export interface SyncDomain {
   codec: DocCodec
+  /**
+   * Decodes an item stored in a format the library no longer reads. Called only for rows that have
+   * no snapshot. Returns the document's content, or null if the row isn't in a format the app knows.
+   * The engine stores the result as a new document and uploads it as a snapshot.
+   */
+  decodeLegacyItem?(item: LegacyItemEnvelope, context: LegacyItemContext): Promise<RawDoc | null>
   hooks: SyncDomainHooks
   /**
    * Metadata keys stored in the account's encrypted settings document, which syncs like any other

@@ -308,6 +308,7 @@ export class SyncWorkerContext {
       apiClient: this.apiClient,
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       storeItems: (items, options) => itemOperations.storeItems(items, options),
+      decodeLegacyItem: this.domain.decodeLegacyItem,
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
       onSyncedWithoutFailures: () => {
         this.snapshotFormatUpgrade.onSyncedWithoutFailures()

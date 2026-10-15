@@ -138,7 +138,7 @@ Each item under "Protocol choices" above, with a Flock data migration.
   - Deploy the server before the client. The server schemas and the Dynamo driver keep `format`; an old server drops it, which leaves bound ciphertexts undecryptable. Cached old clients cannot read bound ciphertexts until they update.
   - Compatibility: the account level counts this as done once none of the account's rows that aren't deleted has an unbound snapshot. Deleted rows don't count, because hydration never decrypts them. The library gets an `acceptUnboundCiphertexts` option, which Flock sets now. `SnapshotFormatUpgrade`'s once-per-device trigger moves to `src/app/vault/legacy/`; the rewrite itself (`ItemReencryptor.reencryptAllItems`) stays in the library. At extraction, the main app stops accepting unbound ciphertexts and the server rejects unbound writes, while the migration app keeps reading them so it can rewrite them.
 
-- [ ] 2.5: Legacy code and the infrastructure for the compatibility model. Ship 2.5b before anything is extracted: the markers only count what builds released after it record.
+- [x] 2.5: Legacy code and the infrastructure for the compatibility model. Ship 2.5b before anything is extracted: the markers only count what builds released after it record.
   - [x] 2.5a: Dead code, deleted outright because nothing depends on it.
     - The `compactItem` alias (`ItemOperations`, `sync.worker.ts`, `syncProtocol.ts`, `SyncBridge`, and its mention in `sync-design.md`). The bridge and the worker ship in the same bundle, so there's no version skew.
     - The timestamp fallback in `ManifestDeltaCalculator`. `ManifestSyncManager` has always passed `localVersionsMap` since the switch to versions. Make it required, and delete the fallback branches, `clockSkew` and `SKEW_BUFFER_MS`. `localLastModifiedMap` stays, because quarantine and tombstone tracking use it.
@@ -178,11 +178,17 @@ Each item under "Protocol choices" above, with a Flock data migration.
       - `loginVault` returns `{ keyDerivationUpgraded, biometricsCleared }`. It upgrades when `needsKeyDerivationUpgrade` says so, a session was established and the server's keyring was loaded (`syncKeyringFromServer` now returns whether it was). Without the server's keyring, the re-wrapped keyring could miss rotated keys. Rather than going through `changePassword`, it calls the same internal `rewrapMasterKey` with the `keyHash` it already has, so PBKDF2 runs only once more. A failed upgrade is logged and retried at the next login. Flock's login page tells the user that other devices will ask them to log in again, and that biometric unlock was turned off if it was on.
       - Biometric unlock on another device then fails, because its saved master key is stale. When the server rejects that key (401, as opposed to a network error), `unlockWithBiometrics` clears the biometric data and the cached keyring, which is wrapped with the same key, and throws `StaleBiometricKeyError`. The login page then asks for the password. This applies after any password change.
       - `countAccountsByDataVersion` also reports how many accounts have no stored `salt`. The fallback stays until that count is zero.
-  - [ ] 2.5e: The `cipher` item format.
+  - [x] 2.5e: The `cipher` item format.
     - Library: a `decodeLegacyItem` hook on `SyncDomain`, which `ManifestHydrator` calls when an item has no usable snapshot. It replaces `hydrateLegacyCipher`/`decryptLegacyCipher`, and Flock's implementation in `legacy/` decrypts `cipher`.
     - Items decoded this way are marked dirty, so they upload a bound snapshot straight away. Today they are stored with `markDirty: false` and reach the server only through the one-off rewrite.
     - Server: `DynamoDriver.set` removes `cipher` when it writes a snapshot. At present it only sets fields, so rows keep both.
     - At extraction: `LegacyItemEnvelopeSchema`, the `cipher` fields and the legacy branch of `validateItem` leave the library. `metadata.iv` (written as `''` for snapshots) becomes optional on the client now and stops being written once `minProtocolVersion` excludes builds that require it. At retirement: a `removeLegacyCipher` migration.
+    - As built:
+      - `SyncDomain.decodeLegacyItem(item, { ensureKey })` takes the row as the server returned it (`LegacyItemEnvelope`, typed loosely, so the signature survives `cipher` leaving the library's types) and returns the document's content or null. `ensureKey` is the engine's usual wait for a missing key version. Flock's implementation is `src/app/vault/legacy/legacyItems.ts`.
+      - Only rows with **no snapshot** reach the hook. An undecryptable snapshot used to fall back to `cipher`. Now that decoded items are uploaded, that would replace the newer snapshot with pre-Automerge content, so such rows are quarantined like any other undecryptable snapshot. This matches the server's `legacyCipherItems` check.
+      - `ManifestHydrator` stores decoded items with `markDirty: true`, separately from other hydrated items.
+      - `DynamoDriver.set` adds `REMOVE cipher` to its update when it writes a snapshot. The versioned put already replaced the whole row. A payload-less tombstone keeps `cipher`, which is never read for deleted rows.
+      - `ItemEnvelopeMetadataSchema.iv` is optional; `LegacyItemEnvelopeSchema` still requires it.
 
 ### Stage 3: workspaces
 

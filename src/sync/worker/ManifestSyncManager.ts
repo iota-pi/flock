@@ -5,6 +5,7 @@ import type { ItemId } from 'src/shared/vault/ids'
 import { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/vault/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
+import type { SyncDomain } from './domain'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
@@ -37,6 +38,7 @@ export interface ManifestSyncManagerDeps {
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
+  decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /** Moves settings that predate the settings document into it (see AccountSettings) */
   migrateLegacySettings?: () => Promise<void>
   /**
@@ -97,6 +99,7 @@ export class ManifestSyncManager implements LifecycleAware {
       onDecryptionFailure: this.deps.onDecryptionFailure,
       onItemSnapshotHydrated: this.deps.onItemSnapshotHydrated,
       onKeyVersionMissing: this.deps.onKeyVersionMissing,
+      decodeLegacyItem: this.deps.decodeLegacyItem,
       isShutdown: () => this.isShutdown,
     })
   }

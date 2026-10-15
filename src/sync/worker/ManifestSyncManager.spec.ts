@@ -259,9 +259,10 @@ describe('ManifestSyncManager', () => {
       })
 
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-      mockDecryptObject.mockResolvedValue({ type: 'person', name: 'Alice' })
-  
-      const result = await manifestSyncManager.sync()
+      const decodeLegacyItem = vi.fn().mockResolvedValue({ type: 'person', name: 'Alice' })
+      const manager = new ManifestSyncManager({ ...depsObj, decodeLegacyItem } as any)
+
+      const result = await manager.sync()
 
       expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
@@ -273,12 +274,15 @@ describe('ManifestSyncManager', () => {
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-snap', new Uint8Array([1, 2, 3]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-snap'])
 
+      expect(decodeLegacyItem).toHaveBeenCalledWith(
+        expect.objectContaining({ item: 'item-legacy', cipher: 'legacy-cipher' }),
+        expect.objectContaining({ ensureKey: expect.any(Function) }),
+      )
+      expect(storeItemsSpy).toHaveBeenCalledWith([{ id: 'item-deleted', deleted: true }], { markDirty: false })
+      // Decoded legacy items upload a snapshot straight away
       expect(storeItemsSpy).toHaveBeenCalledWith(
-        [
-          { id: 'item-deleted', deleted: true },
-          { id: 'item-legacy', type: 'person', name: 'Alice' },
-        ],
-        { markDirty: false },
+        [{ id: 'item-legacy', type: 'person', name: 'Alice' }],
+        { markDirty: true },
       )
 
       expect(mockUpdateLastManifestSyncTime).toHaveBeenCalled()
@@ -1188,13 +1192,14 @@ describe('ManifestSyncManager', () => {
         ],
         serverTime: 500,
       })
-      mockDecryptObject.mockResolvedValue({ id: 'item-legacy-tombstone', name: 'Zombie' })
+      const decodeLegacyItem = vi.fn().mockResolvedValue({ id: 'item-legacy-tombstone', name: 'Zombie' })
+      const manager = new ManifestSyncManager({ ...depsObj, decodeLegacyItem } as any)
 
       // Force item into missingIds by testing hydration directly or when pulled
       // In normal flow, tombstoneSet skips download. But if download happens:
-      // We test that the legacy decryption branch guards against resurrecting item-legacy-tombstone
+      // We test that the legacy decoding branch guards against resurrecting item-legacy-tombstone
       // We can verify this by checking that storeItems is never called with the non-deleted zombie item
-      const result = await manifestSyncManager.sync()
+      const result = await manager.sync()
 
       expect(storeItemsSpy).not.toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ id: 'item-legacy-tombstone' })]),
@@ -1336,7 +1341,7 @@ describe('ManifestSyncManager', () => {
         expect(mockDecryptObject).not.toHaveBeenCalled()
       })
 
-      it('returns decryption_failure when both binary and legacy decryption fail', async () => {
+      it('returns decryption_failure when the snapshot cannot be decrypted', async () => {
         mockDecryptBytes.mockResolvedValue(null)
 
         const item = {
