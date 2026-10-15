@@ -8,6 +8,7 @@ import {
   type PollSyncBatchResponse,
 } from '../../api/vault/SyncWorkerClient'
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
+import { raiseDataVersion } from '../../api/vault/AccountClient'
 import type { VaultSnapshotInput } from 'src/shared/vault/snapshots'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { VaultItem } from '../../api/vault/clientTypes'
@@ -271,6 +272,10 @@ export class SyncApiClient {
         ...(options ? [options] : []),
       )
     })
+  }
+
+  async raiseDataVersion(input: { account: string }): Promise<{ dataVersion: number, blockers: string[] }> {
+    return this.executeWithAuth(() => raiseDataVersion(input.account))
   }
 
   async fetchManifest(

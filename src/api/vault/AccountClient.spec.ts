@@ -45,24 +45,28 @@ describe('AccountClient', () => {
     vi.mocked(getVaultTrpcClient().accounts.getSecurityParams.query).mockResolvedValue({
       salt: 'salt-2',
       iterations: 222,
+      dataVersion: 1,
       success: true,
     })
 
     await expect(getSecurityParams('acc-1')).resolves.toEqual({
       salt: 'salt-2',
       iterations: 222,
+      dataVersion: 1,
     })
   })
 
   it('falls back to LEGACY_CRYPTO_ITERATIONS when iterations is missing in server response', async () => {
     vi.mocked(getVaultTrpcClient().accounts.getSecurityParams.query).mockResolvedValue({
       salt: 'salt-3',
+      dataVersion: 0,
       success: true,
     })
 
     await expect(getSecurityParams('acc-1')).resolves.toEqual({
       salt: 'salt-3',
       iterations: LEGACY_CRYPTO_ITERATIONS,
+      dataVersion: 0,
     })
   })
 

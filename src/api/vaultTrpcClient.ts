@@ -1,6 +1,9 @@
-import { createTRPCProxyClient, httpBatchLink } from '@trpc/client'
+import { createTRPCProxyClient, httpBatchLink, type TRPCLink } from '@trpc/client'
+import { observable } from '@trpc/server/observable'
 import type { VaultRouter } from '../vault/trpc/vaultRouter'
+import { isClientOutdatedError, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '../shared/vault/protocol'
 import { getApiAuthToken } from './runtime'
+import { broadcastVaultEvent } from './vault/util'
 
 let vaultEndpoint = ''
 let vaultTrpcClient: ReturnType<typeof createTRPCProxyClient<VaultRouter>> | null = null
@@ -17,18 +20,47 @@ export function getVaultTrpcUrl() {
   return `${vaultEndpoint}/trpc`
 }
 
+/** Announces errors that say this build is too old, so the host app can update (see `onClientOutdated`) */
+function clientOutdatedLink(): TRPCLink<VaultRouter> {
+  return () => ({ next, op }) => observable(observer => next(op).subscribe({
+    next: value => observer.next(value),
+    error: error => {
+      if (isClientOutdatedError(error)) {
+        broadcastVaultEvent({ type: 'CLIENT_OUTDATED' })
+      }
+      observer.error(error)
+    },
+    complete: () => observer.complete(),
+  }))
+}
+
+/**
+ * Links for a tRPC client of the vault's server, including app routers built on the same tRPC
+ * instance. They send the session token and this build's protocol version, and report when the
+ * server says the build is too old.
+ */
+export function createVaultLinks(
+  { url = getVaultTrpcUrl(), customFetch }: { url?: string, customFetch?: typeof fetch } = {},
+): TRPCLink<VaultRouter>[] {
+  return [
+    clientOutdatedLink(),
+    httpBatchLink({
+      url,
+      headers: () => {
+        const token = getApiAuthToken()
+        return {
+          [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION),
+          ...(token ? { Authorization: `Basic ${token}` } : {}),
+        }
+      },
+      fetch: customFetch,
+    }),
+  ]
+}
+
 export function initVaultTrpcClient(customFetch: typeof fetch) {
   vaultTrpcClient = createTRPCProxyClient<VaultRouter>({
-    links: [
-      httpBatchLink({
-        url: getVaultTrpcUrl(),
-        headers: () => {
-          const token = getApiAuthToken()
-          return token ? { Authorization: `Basic ${token}` } : {}
-        },
-        fetch: customFetch,
-      }),
-    ],
+    links: createVaultLinks({ customFetch }),
   })
 }
 

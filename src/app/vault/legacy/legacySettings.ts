@@ -1,7 +1,7 @@
-import type { AccountMetadata } from '../../state/metadata'
-import { extractLegacySyncableMetadata } from '../../shared/schemas/metadata'
-import type { LegacySettingsSource } from '../../sync/worker/domain'
-import { createTrpcClient, type AppTrpcClient } from '../../api/trpcClient'
+import type { AccountMetadata } from '../../../state/metadata'
+import { extractLegacySyncableMetadata } from '../../../shared/schemas/metadata'
+import type { LegacySettingsSource } from '../../../sync/worker/domain'
+import { createTrpcClient, type AppTrpcClient } from '../../../api/trpcClient'
 
 /**
  * Merges the settings a device kept locally with the plaintext copy on the server, as Flock did

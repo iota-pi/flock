@@ -37,8 +37,20 @@ export type UpdateAccountDataParams = Partial<AuthData> & {
   saltVersion?: number,
   keyringVersion?: number,
   expectedKeyringVersion?: number,
+  lastAccess?: number,
 }
 
+
+/** How one stored item is encoded, for checking whether an account's data needs migrating */
+export interface ItemFormatSummary {
+  itemId: ItemId
+  deleted: boolean
+  hasSnapshot: boolean
+  /** The ciphertext format of the snapshot (undefined for snapshots from before formats existed) */
+  snapshotFormat?: number
+  /** Whether the item still carries a pre-Automerge `cipher` payload */
+  hasCipher: boolean
+}
 
 export type VaultDriver = BaseDriver
 
@@ -54,7 +66,7 @@ export default abstract class BaseDriver<T = unknown> {
   // to validate against `authToken` instead of session hash.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
-  abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }>
+  abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion?: number }>
   abstract getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update
@@ -66,6 +78,12 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Extend session expiry for an account (called on authenticated requests)
   abstract extendSession(data: AuthData): Promise<void>
+
+  // Raise the account's data version. Never lowers it.
+  abstract raiseDataVersion(data: BaseData & { dataVersion: number }): Promise<void>
+
+  // Describe how each of the account's items is stored, without loading their payloads
+  abstract listItemFormats(data: BaseData): Promise<ItemFormatSummary[]>
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<{ version?: number } | void>

@@ -24,6 +24,7 @@ import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './reencryptAllItems'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
+import { DataVersionTracker } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
 import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
@@ -95,6 +96,7 @@ export class SyncWorkerContext {
   public itemReencryptor!: ItemReencryptor
   public accountSettings!: AccountSettings
   public snapshotFormatUpgrade!: SnapshotFormatUpgrade
+  public dataVersionTracker!: DataVersionTracker
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unsubscribers: Array<() => void> = []
@@ -143,8 +145,17 @@ export class SyncWorkerContext {
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
     this.itemReencryptor = new ItemReencryptor({ codec: this.domain.codec })
+    this.dataVersionTracker = new DataVersionTracker({
+      accountId: config.accountId,
+      dataVersion: this.domain.dataVersion ?? 0,
+      raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: config.accountId }),
+    })
     this.snapshotFormatUpgrade = new SnapshotFormatUpgrade({
       accountId: config.accountId,
+      onUpgraded: () => fireAndForget(
+        this.dataVersionTracker.onSnapshotsUpgraded(),
+        'SyncWorkerContext:raiseAccountDataVersion',
+      ),
       rewriteSnapshots: signal => this.itemReencryptor.reencryptAllItems({
         accountId: config.accountId,
         signal,
@@ -293,7 +304,10 @@ export class SyncWorkerContext {
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       storeItems: (items, options) => itemOperations.storeItems(items, options),
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
-      onSyncedWithoutFailures: () => this.snapshotFormatUpgrade.onSyncedWithoutFailures(),
+      onSyncedWithoutFailures: () => {
+        this.snapshotFormatUpgrade.onSyncedWithoutFailures()
+        fireAndForget(this.dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
+      },
       onDecryptionFailure: (itemId, error) => {
         fireAndForget(this.recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error), 'SyncWorkerContext:reportDecryptionFailure')
       },
@@ -420,8 +434,11 @@ export class SyncWorkerContext {
   }
 
   async initialize(): Promise<void> {
+    // Checked before starting, which creates an empty index for a new device
+    const hasLocalData = (await this.indexStore.getIndex()) !== null
     await this.lifecycle.start()
     await this.accountSettings.load()
+    fireAndForget(this.dataVersionTracker.onStart(hasLocalData), 'SyncWorkerContext:recordDeviceDataVersion')
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {

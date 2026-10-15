@@ -61,6 +61,12 @@ export interface SyncDomain {
    */
   syncedMetadataKeys?: readonly string[]
   legacySettings?: LegacySettingsSource
+  /**
+   * The app's current data version: the level of migrations its stored data should have had. The
+   * worker records it for the device and asks the server to raise the account to it (see
+   * DataVersionTracker). Leave it unset (0) until the app has had a migration.
+   */
+  dataVersion?: number
 }
 
 export const passthroughCodec: DocCodec = {

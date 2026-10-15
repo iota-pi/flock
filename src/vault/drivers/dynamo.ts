@@ -28,6 +28,7 @@ import {
 import BaseDriver, {
   AuthData,
   BaseData,
+  ItemFormatSummary,
   StoredSyncMessage,
   UpdateAccountDataParams,
   VaultAccount,
@@ -406,7 +407,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error(`Could not find account ${account}`)
   }
 
-  async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
+  async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion?: number }> {
     const response = await this.client.send(new GetCommand(
       {
         TableName: this.tables.accounts,
@@ -418,9 +419,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const salt = dbAccount.salt
       const iterations = dbAccount.iterations
       const saltVersion = dbAccount.saltVersion
+      const dataVersion = dbAccount.dataVersion
 
       const returnedSalt = typeof salt === 'string' ? salt : account
-      return { salt: returnedSalt, iterations, saltVersion }
+      return { salt: returnedSalt, iterations, saltVersion, dataVersion }
     }
     throw new Error(`Could not find account ${account}`)
   }
@@ -514,9 +516,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const params: UpdateCommandInput = {
         TableName: this.tables.accounts,
         Key: { account },
-        UpdateExpression: 'SET sessions = :sessions',
+        UpdateExpression: 'SET sessions = :sessions, lastAccess = :now',
         ExpressionAttributeValues: {
           ':sessions': nextSessions,
+          ':now': now,
         },
       }
 
@@ -680,6 +683,66 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     return manifest
+  }
+
+  async raiseDataVersion({ account, dataVersion }: BaseData & { dataVersion: number }): Promise<void> {
+    try {
+      await this.client.send(new UpdateCommand({
+        TableName: this.tables.accounts,
+        Key: { account },
+        UpdateExpression: 'SET dataVersion = :dataVersion',
+        ConditionExpression: 'attribute_exists(account) AND (attribute_not_exists(dataVersion) OR dataVersion < :dataVersion)',
+        ExpressionAttributeValues: {
+          ':dataVersion': dataVersion,
+        },
+      }))
+    } catch (error) {
+      // Already at this version or higher
+      if (!isConditionalCheckFailure(error)) {
+        throw error
+      }
+    }
+  }
+
+  async listItemFormats({ account }: BaseData): Promise<ItemFormatSummary[]> {
+    const formats: ItemFormatSummary[] = []
+    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
+
+    do {
+      const response: QueryCommandOutput = await this.client.send(new QueryCommand({
+        TableName: this.tables.items,
+        KeyConditionExpression: 'account = :accountid',
+        ExpressionAttributeNames: {
+          '#itemKey': 'item',
+          '#metadata': 'metadata',
+          '#deleted': 'deleted',
+          '#snapshot': 'snapshot',
+          '#iv': 'iv',
+          '#format': 'format',
+          '#cipher': 'cipher',
+        },
+        ExpressionAttributeValues: {
+          ':accountid': account,
+        },
+        ProjectionExpression: '#itemKey, #metadata.#deleted, #snapshot.#iv, #snapshot.#format, #cipher',
+        ExclusiveStartKey: lastEvaluatedKey,
+      }))
+
+      for (const record of response.Items ?? []) {
+        if (typeof record.item !== 'string') continue
+        const snapshotFormat = record.snapshot?.format
+        formats.push({
+          itemId: record.item as ItemId,
+          deleted: record.metadata?.deleted === true,
+          hasSnapshot: record.snapshot !== undefined,
+          ...(typeof snapshotFormat === 'number' ? { snapshotFormat } : {}),
+          hasCipher: typeof record.cipher === 'string' && record.cipher.length > 0,
+        })
+      }
+      lastEvaluatedKey = response.LastEvaluatedKey
+    } while (lastEvaluatedKey)
+
+    return formats
   }
 
   private async executeBatchGetWithRetry(

@@ -19,6 +19,8 @@ export const SYNC_METADATA_KEYS = {
   MANUAL_RECOVERY_MIGRATED: 'manualRecoveryMigrated',
   /** Set once this device has rewritten every snapshot bound to its document (see SnapshotFormatUpgrade) */
   SNAPSHOTS_DOC_BOUND: 'snapshotsDocBound',
+  /** The app's data version this device's local data has been migrated to (see DataVersionTracker) */
+  DEVICE_DATA_VERSION: 'deviceDataVersion',
 } as const
 
 /** Per-store databases from an older layout, if the app had one (see VaultStorageNames) */

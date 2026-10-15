@@ -1,7 +1,9 @@
 import { TRPCError } from '@trpc/server'
 import {
   router,
+  publicProcedure,
   protectedProcedure,
+  createVaultContext,
   shouldRenewSession,
   SESSION_EXPIRY_MS,
   SESSION_RENEWAL_THRESHOLD_MS,
@@ -234,5 +236,41 @@ describe('protectedProcedure session renewal behavior', () => {
     )
 
     consoleSpy.mockRestore()
+  })
+})
+
+describe('protocol version gate', () => {
+  const gatedRouter = router({
+    read: publicProcedure.query(() => 'read'),
+    write: publicProcedure.mutation(() => 'written'),
+  })
+
+  function createCaller(protocolVersion: number, minProtocolVersion: number) {
+    return gatedRouter.createCaller({ authToken: '', vault: {} as any, protocolVersion, minProtocolVersion })
+  }
+
+  it('rejects writes from builds below the minimum protocol version', async () => {
+    await expect(createCaller(0, 1).write()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'CLIENT_OUTDATED',
+    })
+  })
+
+  it('still serves reads to builds below the minimum protocol version', async () => {
+    await expect(createCaller(0, 1).read()).resolves.toBe('read')
+  })
+
+  it('accepts writes from builds at or above the minimum protocol version', async () => {
+    await expect(createCaller(1, 1).write()).resolves.toBe('written')
+    await expect(createCaller(0, 0).write()).resolves.toBe('written')
+  })
+
+  it('reads the protocol version header into the context', () => {
+    const createContext = createVaultContext({ minProtocolVersion: 2 })
+    const req = { headers: { 'x-vault-protocol': '3' }, server: { vault: {} } }
+    expect(createContext({ req } as any)).toMatchObject({ protocolVersion: 3, minProtocolVersion: 2 })
+
+    const reqWithoutHeader = { headers: {}, server: { vault: {} } }
+    expect(createContext({ req: reqWithoutHeader } as any)).toMatchObject({ protocolVersion: 0 })
   })
 })

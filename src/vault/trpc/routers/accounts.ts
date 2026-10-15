@@ -9,6 +9,7 @@ import {
   ChangePasswordBodySchema,
 } from 'src/shared/vault/api'
 import { hashString, safeEqual } from 'src/vault/util'
+import { raiseDataVersion } from '../../services/dataVersion'
 
 
 const MAX_ACTIVE_SESSIONS = 8
@@ -68,6 +69,7 @@ export const accountsRouter = router({
       await ctx.vault.updateAccountData({
         account: input.account,
         sessions: nextSessions,
+        lastAccess: now,
       })
 
       return {
@@ -79,13 +81,28 @@ export const accountsRouter = router({
   getSecurityParams: publicProcedure
     .input(AccountInputSchema)
     .query(async ({ ctx, input }) => {
-      const { salt, iterations, saltVersion } = await ctx.vault.getSecurityParams({ account: input.account })
+      const { salt, iterations, saltVersion, dataVersion } = await ctx.vault.getSecurityParams({ account: input.account })
       return {
         success: true,
         salt,
         iterations,
         saltVersion,
+        // Returned before login, so that the app can route accounts that need migrating
+        dataVersion: dataVersion ?? 0,
       }
+    }),
+
+  // Clients call this once their migrations have run. Returns why it couldn't be raised, if it couldn't.
+  raiseDataVersion: protectedProcedure
+    .input(AccountInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const result = await raiseDataVersion({
+        account: input.account,
+        accountData: ctx.accountData,
+        vault: ctx.vault,
+        policy: ctx.dataVersionPolicy,
+      })
+      return { success: true, ...result }
     }),
 
   getKeyring: protectedProcedure

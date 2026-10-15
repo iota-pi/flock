@@ -27,6 +27,7 @@ import {
   type CryptoResult,
 } from './crypto'
 import {
+  broadcastVaultEvent,
   readStoredMetadata,
   VaultStoredMetadata,
   DEFAULT_CRYPTO_ITERATIONS,
@@ -84,13 +85,30 @@ export interface VaultHostHooks {
   getAccountId?: () => string | undefined
   /** Called when the session has expired and could not be silently re-established */
   onSessionLost?: (message: string) => void
+  /**
+   * Called when the server turned away a write because this build is too old, from any realm or
+   * tab. The app should update itself (fetch the new service worker and reload).
+   */
+  onClientOutdated?: () => void
 }
 
 let hostHooks: VaultHostHooks = {}
+let vaultEventsListener: BroadcastChannel | null = null
 
 /** Connects the vault to the host app. Call once at startup on the main thread. */
 export function configureVaultHost(hooks: VaultHostHooks): void {
   hostHooks = hooks
+
+  vaultEventsListener?.close()
+  vaultEventsListener = null
+  if (hooks.onClientOutdated && typeof BroadcastChannel !== 'undefined') {
+    vaultEventsListener = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
+    vaultEventsListener.onmessage = (event: MessageEvent<VaultBroadcastEvent>) => {
+      if (event.data?.type === 'CLIENT_OUTDATED') {
+        hostHooks.onClientOutdated?.()
+      }
+    }
+  }
 }
 
 export class VaultNotInitializedError extends Error {
@@ -164,17 +182,6 @@ function notifyKeyWaiters(): void {
   }
 }
 
-
-export function broadcastVaultEvent(event: VaultBroadcastEvent): void {
-  if (typeof BroadcastChannel === 'undefined') return
-  try {
-    const channel = new BroadcastChannel(getVaultStorageNames().vaultEventsChannel)
-    channel.postMessage(event)
-    channel.close()
-  } catch (err) {
-    console.warn('[vault] Failed to broadcast vault event:', err)
-  }
-}
 
 export async function reloadKeyringFromStorage(): Promise<{
   success: boolean

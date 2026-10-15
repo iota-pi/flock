@@ -27,6 +27,23 @@ const VAULT_LIBRARY_PATHS = [
   'vault/util.ts',
 ]
 
+// Flock's compatibility code for legacy formats, extracted into the migration app later (see
+// docs/vault-extraction.md). Only these wiring files may import it.
+const LEGACY_PATH = 'app/vault/legacy'
+const LEGACY_IMPORTERS = [
+  'app/vault/setup.ts',
+  'app/vault/session.ts',
+  'app/vault/syncDomain.ts',
+  'app/vault/vault.worker.ts',
+]
+
+const vaultLibraryZone = {
+  target: VAULT_LIBRARY_PATHS.map(path => `./src/${path}`),
+  from: './src/**',
+  except: VAULT_LIBRARY_PATHS.map(path => `**/src/${path}`),
+  message: 'Vault library code must not import Flock app code. Inject it instead (see docs/vault-extraction.md).',
+}
+
 export default defineConfig([
   globalIgnores([
     'node_modules',
@@ -110,15 +127,23 @@ export default defineConfig([
   {
     files: VAULT_LIBRARY_PATHS.map(path => `src/${path}`),
     rules: {
+      'import-x/no-restricted-paths': ['error', { zones: [vaultLibraryZone] }],
+    },
+  },
+  {
+    // Repeats the library zone, because this block's rule options replace the one above
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: [`src/${LEGACY_PATH}/**`, ...LEGACY_IMPORTERS.map(path => `src/${path}`)],
+    rules: {
       'import-x/no-restricted-paths': [
         'error',
         {
           zones: [
+            vaultLibraryZone,
             {
-              target: VAULT_LIBRARY_PATHS.map(path => `./src/${path}`),
-              from: './src/**',
-              except: VAULT_LIBRARY_PATHS.map(path => `**/src/${path}`),
-              message: 'Vault library code must not import Flock app code. Inject it instead (see docs/vault-extraction.md).',
+              target: './src',
+              from: `./src/${LEGACY_PATH}`,
+              message: "Only Flock's vault wiring may import legacy compatibility code (see docs/vault-extraction.md).",
             },
           ],
         },
