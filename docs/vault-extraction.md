@@ -120,7 +120,6 @@ Differences from the plan:
 Follow-ups noticed along the way:
 
 - `getAuthToken` in `src/vault/api/util.ts` is only used by its test.
-- `dynamo.test.ts › getGlobalSyncMessagesAfterCursor reports the highest cursor scanned` fails on `master` too.
 
 ### Stage 2: protocol changes
 
