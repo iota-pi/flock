@@ -97,4 +97,37 @@ describe('trackedFetch', () => {
     const callHeaders = (global.fetch as any).mock.calls[0][1].headers as Headers
     expect(callHeaders.get('Authorization')).toBe('Basic my-auth-token')
   })
+
+  describe('failed responses with a JSON body', () => {
+    function jsonResponse(status: number) {
+      return new Response(JSON.stringify([{ error: { message: 'Failed' } }]), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    it('returns them for the tRPC client to parse, reporting the failure', async () => {
+      global.fetch = vi.fn().mockResolvedValue(jsonResponse(412))
+
+      const trackedFetch = getTrackedFetch(startMock, stopMock)
+      const response = await trackedFetch('https://example.com/trpc/accounts.raiseDataVersion')
+
+      expect(response.status).toBe(412)
+      expect(stopMock).toHaveBeenCalledTimes(1)
+      expect(stopMock).toHaveBeenCalledWith('A request to the server failed. Please retry later.')
+    })
+
+    it('still calls the session expired handler on 403 without reporting it', async () => {
+      const expiredHandler = vi.fn()
+      vi.spyOn(runtime, 'getSessionExpiredHandler').mockReturnValue(expiredHandler)
+      global.fetch = vi.fn().mockResolvedValue(jsonResponse(403))
+
+      const trackedFetch = getTrackedFetch(startMock, stopMock)
+      const response = await trackedFetch('https://example.com/trpc/items.get')
+
+      expect(response.status).toBe(403)
+      expect(expiredHandler).toHaveBeenCalledTimes(1)
+      expect(stopMock).toHaveBeenCalledWith()
+    })
+  })
 })
