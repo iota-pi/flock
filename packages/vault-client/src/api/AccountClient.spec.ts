@@ -7,7 +7,7 @@ import {
   changePassword,
 } from './AccountClient'
 import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
-import { getVaultTrpcClient } from '../vaultTrpcClient'
+import { getVaultTrpcClient } from './vaultTrpcClient'
 
 const mockTrpcClient = {
   accounts: {
@@ -20,7 +20,7 @@ const mockTrpcClient = {
   },
 }
 
-vi.mock('../vaultTrpcClient', () => ({
+vi.mock('./vaultTrpcClient', () => ({
   getVaultTrpcClient: vi.fn(() => mockTrpcClient),
 }))
 

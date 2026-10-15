@@ -1,5 +1,5 @@
 import { attemptSessionRecovery } from './sessionRecovery'
-import * as vault from './index'
+import * as vault from './vault'
 
 describe('sessionRecovery', () => {
   beforeEach(() => {

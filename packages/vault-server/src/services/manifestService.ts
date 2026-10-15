@@ -1,7 +1,6 @@
 import type BaseDriver from '../drivers/base'
 import type { VaultItem } from '../drivers/base'
-import type { ItemId } from '@vault/shared/ids'
-import type { ManifestEntry } from '@vault/shared/api'
+import type { ItemId, ManifestEntry } from '@vault/shared'
 
 type ManifestServiceContext = {
   vault: BaseDriver

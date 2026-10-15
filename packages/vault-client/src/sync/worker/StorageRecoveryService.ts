@@ -1,4 +1,4 @@
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { isQuotaError } from '../utils/storageQuota'
 import {

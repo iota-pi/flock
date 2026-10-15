@@ -19,7 +19,7 @@ import {
   AutoLockSettings,
   INACTIVITY_PRESETS,
   readAutoLockSettings,
-} from '@vault/client/autoLockStore'
+} from '@vault/client'
 import { SaveIcon } from '../Icons'
 
 interface Props {

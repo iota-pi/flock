@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
 import {
   VaultKeySchema,
   VaultSessionRecordSchema,
@@ -8,8 +8,7 @@ import {
   VaultAccountWithAuthSchema,
   VaultItemSchema,
   StoredSyncMessageSchema,
-} from '@vault/shared/storage'
-import type { ManifestEntry, PageToken } from '@vault/shared/api'
+} from '@vault/shared'
 
 export type VaultKey = z.infer<typeof VaultKeySchema>
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>

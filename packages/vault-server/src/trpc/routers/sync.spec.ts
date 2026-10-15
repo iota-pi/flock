@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { syncRouter } from './sync'
 import { StoredSyncMessage } from '../../drivers/base'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import DynamoDriver from '../../drivers/dynamo'
 
 /** A page token as the Dynamo driver issues it */

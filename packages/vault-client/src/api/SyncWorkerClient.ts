@@ -1,15 +1,11 @@
 import { createTRPCProxyClient, httpBatchLink } from '@trpc/client'
-import type { VaultRouter } from '@vault/server/router'
-import { getVaultTrpcUrl } from '../vaultTrpcClient'
-import type { VaultSnapshotInput } from '@vault/shared/snapshots'
-import type { ItemId } from '@vault/shared/ids'
-import type { DOC_BOUND_FORMAT } from '@vault/shared/crypto'
-import type { z } from 'zod'
-import type {
+import type { VaultRouter } from '@vault/server'
+import { getVaultTrpcUrl } from './vaultTrpcClient'
+import type { VaultSnapshotInput, ItemId , DOC_BOUND_FORMAT ,
   SyncPollBatchSchema,
   PageToken,
-  PutSnapshotResultItem,
-} from '@vault/shared/api'
+  PutSnapshotResultItem } from '@vault/shared'
+import type { z } from 'zod'
 type SyncMessageEnvelope = {
   iv: string
   cipher: string

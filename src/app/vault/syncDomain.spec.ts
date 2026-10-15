@@ -1,7 +1,7 @@
 import { flockItemCodec, flockSyncHooks } from './syncDomain'
 import { getBlankGroup, getBlankPerson, type Item } from '../../state/items'
 import type { ErrorItem } from '../../shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 describe('flockItemCodec', () => {
   it('decodes a valid item', () => {

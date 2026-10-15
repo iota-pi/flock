@@ -1,6 +1,6 @@
 import { SyncWorker, type SyncWorkerConfig } from './sync.worker'
 import { getVaultStorageNames } from '../shared/storageNames'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 const { realtimeListeners } = vi.hoisted(() => ({
   realtimeListeners: [] as Array<(itemIds: string[]) => void>,
@@ -22,7 +22,7 @@ vi.mock('@automerge/automerge/slim', () => ({
   from: vi.fn(),
 }))
 
-vi.mock('../../api/vault/Keyring', () => ({
+vi.mock('../../api/Keyring', () => ({
   Keyring: class {
     load = vi.fn().mockResolvedValue(undefined)
   },

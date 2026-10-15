@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react'
 import { isDefined, generateNoteId, formatDate, isSameDay, useStableArray } from './index'
-import { generateItemId } from '@vault/shared/ids'
+import { generateItemId } from '@vault/shared'
 
 describe('utils/index', () => {
   describe('isDefined', () => {

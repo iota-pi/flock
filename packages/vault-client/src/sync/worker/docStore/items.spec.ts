@@ -5,7 +5,7 @@ import type { VaultDoc } from '../../shared/types'
 import { passthroughCodec } from '../domain'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string }> }
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 const testRepo = new Repo()
 

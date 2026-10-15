@@ -1,8 +1,12 @@
-import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema, type ManifestEntry } from '@vault/shared/api'
+import {
+  FetchItemsInputSchema,
+  FetchSnapshotsByIdsInputSchema,
+  type ManifestEntry,
+  ItemId,
+} from '@vault/shared'
 import { assertSuccess } from './clientUtils'
 import type { VaultItem } from './clientTypes'
-import type { ItemId } from '@vault/shared/ids'
-import { getVaultTrpcClient } from '../vaultTrpcClient'
+import { getVaultTrpcClient } from './vaultTrpcClient'
 
 export async function fetchManifest(
   { account }: { account: string },

@@ -1,4 +1,4 @@
-import { getVaultSession, getKeyHash, establishSessionFromKeyHash, syncKeyringFromServer } from './index'
+import { getVaultSession, getKeyHash, establishSessionFromKeyHash, syncKeyringFromServer } from './vault'
 
 export async function attemptSessionRecovery(account: string): Promise<boolean> {
   if (getVaultSession()) {

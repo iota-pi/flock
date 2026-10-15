@@ -45,7 +45,7 @@ describe('uiSlice', () => {
   })
 
   it('finishRequest sets error message when online', async () => {
-    const onlineStatus = await import('@vault/client/sync/utils/onlineStatus')
+    const onlineStatus = await import('@vault/client')
     vi.spyOn(onlineStatus, 'getOnlineState').mockReturnValue(true)
 
     const store = useAppStore.getState()
@@ -59,7 +59,7 @@ describe('uiSlice', () => {
   })
 
   it('finishRequest does not set error message when offline', async () => {
-    const onlineStatus = await import('@vault/client/sync/utils/onlineStatus')
+    const onlineStatus = await import('@vault/client')
     vi.spyOn(onlineStatus, 'getOnlineState').mockReturnValue(false)
 
     const store = useAppStore.getState()

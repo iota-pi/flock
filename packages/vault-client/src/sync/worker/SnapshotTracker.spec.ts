@@ -1,6 +1,5 @@
 import { SnapshotTracker } from './SnapshotTracker'
-import { ItemId } from '@vault/shared/ids'
-import { MAX_ITEM_SIZE_KB } from '@vault/shared/limits'
+import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 
 describe('SnapshotTracker', () => {

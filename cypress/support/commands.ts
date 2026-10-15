@@ -1,6 +1,6 @@
 import type { ProtectedPageId } from '../../src/components/pages/types'
 import { GroupItem, PersonItem } from '../../src/shared/schemas/items'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 function generateLocalItemId(): ItemId {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}` as ItemId

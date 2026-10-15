@@ -1,9 +1,9 @@
 import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
 import { InvalidPageTokenError } from './errors'
 import type { VaultAccountWithAuth } from './base'
-import { generateItemId, type ItemId } from '@vault/shared/ids'
+import { generateItemId, type ItemId } from '@vault/shared'
 import { generateAccountId } from '../util'
-import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared/limits'
+import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {

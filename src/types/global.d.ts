@@ -1,7 +1,7 @@
 
 import type * as vault from '@vault/client'
 import type * as mutations from '../features/items/mutations/itemMutations'
-import type { hasApiAuthToken } from '@vault/client/runtime'
+import type { hasApiAuthToken } from '@vault/client'
 import { SyncBridge } from 'src/app/vault/syncBridge'
 
 // Expose store for Cypress in a typed way

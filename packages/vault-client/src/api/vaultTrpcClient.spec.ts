@@ -1,7 +1,7 @@
 import { createTRPCProxyClient } from '@trpc/client'
-import type { VaultRouter } from '@vault/server/router'
+import type { VaultRouter } from '@vault/server'
 import { configureVaultStorageNames, createVaultStorageNames } from '../sync/shared/storageNames'
-import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared/protocol'
+import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import { createVaultLinks } from './vaultTrpcClient'
 import { getTrackedFetch } from './trackedFetch'
 

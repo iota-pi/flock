@@ -4,8 +4,8 @@ import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
-import { ItemId } from '@vault/shared/ids'
+import type { PullSyncMessagesResponse } from '../../api/SyncWorkerClient'
+import { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 

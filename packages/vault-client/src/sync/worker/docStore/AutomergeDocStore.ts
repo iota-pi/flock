@@ -1,6 +1,6 @@
 import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import { ItemId, ItemIdSchema } from '@vault/shared/ids'
+import { ItemId, ItemIdSchema } from '@vault/shared'
 import type { VaultDoc, VaultMetadata } from '../../shared/types'
 import { passthroughCodec, type DocCodec } from '../domain'
 import {

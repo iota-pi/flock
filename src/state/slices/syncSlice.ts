@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
-import type { SyncStatus } from '@vault/client/sync/shared/types'
+import type { SyncStatus } from '@vault/client'
 
 
 interface SyncState {

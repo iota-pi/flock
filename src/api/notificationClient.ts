@@ -2,7 +2,7 @@ import type { z } from 'zod'
 import type { WebPushSubscription } from '../vault/types'
 import type { ReminderSettingsResponseSchema } from '../shared/schemas/notifications'
 import { getTrpcClient } from './trpcClient'
-import { assertSuccess } from '@vault/client/clientUtils'
+import { assertSuccess } from '@vault/client'
 
 export type ReminderSettingsResponse = z.infer<typeof ReminderSettingsResponseSchema>
 

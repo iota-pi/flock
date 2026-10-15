@@ -1,14 +1,13 @@
-import { ItemId } from '@vault/shared/ids'
-import { MAX_ITEM_SIZE_KB } from '@vault/shared/limits'
+import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { SnapshotManager } from './SnapshotManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
-import type { KeyProvider } from '../../api/vault/Keyring'
+import type { KeyProvider } from '../../api/Keyring'
 
 const mockPutSnapshotsWithToken = vi.fn()
 
-vi.mock('../../api/vault/SyncWorkerClient', () => ({
+vi.mock('../../api/SyncWorkerClient', () => ({
   putSnapshotsWithToken: (...args: any[]) => mockPutSnapshotsWithToken(...args),
 }))
 

@@ -11,7 +11,7 @@ import { clearSyncMetadataInstancesCacheForTesting } from './stores/syncMetadata
 import { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 import {
   MockLocalforage,
@@ -35,7 +35,7 @@ vi.mock('localforage', () => ({
 }))
 
 const mockPollSyncBatchWithToken = vi.fn()
-vi.mock('../../api/vault/SyncWorkerClient', () => ({
+vi.mock('../../api/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
   putSnapshotsWithToken: vi.fn().mockResolvedValue({ success: true }),
 }))

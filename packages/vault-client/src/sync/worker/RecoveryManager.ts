@@ -1,4 +1,4 @@
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { ClientEventHub } from './SyncEventHub'
 import {
   type ManualRecoveryEntry,
@@ -11,7 +11,7 @@ import {
   removeManualRecoveryEntryIfKind,
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
-import { normalizeSyncError } from '@vault/shared/syncErrors'
+import { normalizeSyncError } from '@vault/shared'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 

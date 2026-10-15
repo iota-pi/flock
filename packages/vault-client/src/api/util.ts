@@ -1,4 +1,4 @@
-import { getVaultStorageNames } from '../../sync/shared/storageNames'
+import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 const isCypress = typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
 export const DEFAULT_CRYPTO_ITERATIONS = isCypress ? 1 : 600000

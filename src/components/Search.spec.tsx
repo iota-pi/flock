@@ -26,7 +26,7 @@ vi.mock('../utils/customSort', () => ({
 import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
 import { useAppStore } from '../state/store'
 import { Item } from '../state/items'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 const lightTheme = getTheme(false)
 

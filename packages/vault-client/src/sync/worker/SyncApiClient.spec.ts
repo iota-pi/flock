@@ -2,14 +2,14 @@ import { SyncApiClient, AuthError, AuthExpiredError } from './SyncApiClient'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockPollSyncBatchWithToken = vi.fn()
-vi.mock('../../api/vault/SyncWorkerClient', () => ({
+vi.mock('../../api/SyncWorkerClient', () => ({
   putSnapshotsWithToken: (...args: any[]) => mockPutSnapshotsWithToken(...args),
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
 }))
 
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
-vi.mock('../../api/vault/ItemClient', () => ({
+vi.mock('../../api/ItemClient', () => ({
   fetchManifest: (...args: any[]) => mockFetchManifest(...args),
   fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
 }))

@@ -15,7 +15,7 @@ import {
   ACCOUNT_INDEX_DOCUMENT_ID,
   type BackupDocId,
 } from '../utils/automerge'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 
 function createTestItem(id: ItemId, overrides: Partial<VaultDoc> = {}): VaultDoc {

@@ -1,4 +1,4 @@
-import type { DataVersionPolicy } from '@vault/server/services/dataVersion'
+import type { DataVersionPolicy } from '@vault/server'
 import { FLOCK_DATA_VERSION } from '../shared/flockDataVersion'
 import { SYNCED_METADATA_KEYS } from '../shared/schemas/metadata'
 import type { FlockAccountFields } from './types'

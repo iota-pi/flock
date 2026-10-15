@@ -1,4 +1,4 @@
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import { useAppStore } from '../store'
 
 describe('dataSlice', () => {

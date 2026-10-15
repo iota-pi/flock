@@ -16,10 +16,9 @@ import {
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { ItemId } from '@vault/shared/ids'
-import type { VaultSnapshotInput } from '@vault/shared/snapshots'
+import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
-import type { KeyProvider } from '../../api/vault/Keyring'
+import type { KeyProvider } from '../../api/Keyring'
 
 const MAX_BATCH_RETRIES = 3
 const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const

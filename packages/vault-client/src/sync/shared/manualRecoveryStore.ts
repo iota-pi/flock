@@ -1,6 +1,6 @@
 import { runStorageOperation } from '../utils/storageManager'
 import { KeyedAsyncMutex } from '../utils/AsyncMutex'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import {
   createAccountStore,
   clearAccountStoreInstancesCacheForTesting,

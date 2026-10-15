@@ -2,14 +2,11 @@ import { renderHook } from '@testing-library/react'
 import useSyncCoordinatorLifecycle from './useSyncCoordinatorLifecycle'
 import { SyncBridge } from './syncBridge'
 import { useAppStore } from 'src/state/store'
-import { resumePendingReencryption } from '@vault/client/reencrypt'
+import { resumePendingReencryption } from '@vault/client'
 
-vi.mock('@vault/client/reencrypt', () => ({
+vi.mock('@vault/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@vault/client')>(),
   resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('@vault/client/sessionRecovery', () => ({
-  attemptSessionRecovery: vi.fn().mockResolvedValue(false),
 }))
 
 describe('useSyncCoordinatorLifecycle', () => {

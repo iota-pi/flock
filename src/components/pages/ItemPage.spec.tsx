@@ -6,7 +6,7 @@ import getTheme from '../../theme'
 import ItemPage from './ItemPage'
 import { useAppStore } from '../../state/store'
 import type { GroupItem, PersonItem } from '../../shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { DEFAULT_FILTER_CRITERIA } from '../../utils/customFilter'
 
 const lightTheme = getTheme(false)

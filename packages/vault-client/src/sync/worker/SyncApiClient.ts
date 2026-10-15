@@ -6,13 +6,17 @@ import {
   putSnapshotsWithToken,
   pollSyncBatchWithToken,
   type PollSyncBatchResponse,
-} from '../../api/vault/SyncWorkerClient'
-import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
-import { raiseDataVersion } from '../../api/vault/AccountClient'
-import type { VaultSnapshotInput } from '@vault/shared/snapshots'
-import type { ItemId } from '@vault/shared/ids'
-import type { VaultItem } from '../../api/vault/clientTypes'
-import type { ManifestEntry, SyncPollBatchSchema, PutSnapshotResultItem } from '@vault/shared/api'
+} from '../../api/SyncWorkerClient'
+import { fetchManifest, fetchSnapshotsByIds } from '../../api/ItemClient'
+import { raiseDataVersion } from '../../api/AccountClient'
+import type {
+  VaultSnapshotInput,
+  ItemId,
+  ManifestEntry,
+  SyncPollBatchSchema,
+  PutSnapshotResultItem,
+} from '@vault/shared'
+import type { VaultItem } from '../../api/clientTypes'
 
 function safeSetApiAuthToken(token: string) {
   try {

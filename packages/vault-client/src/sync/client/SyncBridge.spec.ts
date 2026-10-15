@@ -2,11 +2,11 @@ import { createSyncBridge } from './SyncBridge'
 import { clearAutomergeIndexedDb, clearAccountLocalData } from './localDataCleanup'
 import * as Comlink from 'comlink'
 import { getVaultStorageNames } from '../shared/storageNames'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { createFakeSink, createFakeTelemetry } from './__test__/fakeHost'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import { attemptSessionRecovery } from '../../api/vault/sessionRecovery'
-import { resumePendingReencryption } from '../../api/vault/reencrypt'
+import { attemptSessionRecovery } from '../../api/sessionRecovery'
+import { resumePendingReencryption } from '../../api/reencrypt'
 
 vi.mock('../../api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
@@ -18,11 +18,11 @@ vi.mock('../../api/vault', () => ({
   getKeyHash: vi.fn().mockReturnValue(null),
 }))
 
-vi.mock('../../api/vault/sessionRecovery', () => ({
+vi.mock('../../api/sessionRecovery', () => ({
   attemptSessionRecovery: vi.fn().mockResolvedValue(true),
 }))
 
-vi.mock('../../api/vault/reencrypt', () => ({
+vi.mock('../../api/reencrypt', () => ({
   resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
 }))
 

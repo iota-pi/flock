@@ -1,4 +1,4 @@
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 /**
  * A synced document as the vault sees it. Apps describe their own document shape with a DocCodec;

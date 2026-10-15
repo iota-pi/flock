@@ -1,12 +1,12 @@
 import * as Automerge from '@automerge/automerge/slim'
 import type { Repo } from '@automerge/automerge-repo/slim'
 
-import type { VaultSnapshotInput } from '@vault/shared/snapshots'
+import type { VaultSnapshotInput } from '@vault/shared'
 import { normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import type { KeyProvider } from '../../api/vault/Keyring'
+import type { KeyProvider } from '../../api/Keyring'
 import { passthroughCodec, type DocCodec } from './domain'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import { classifySyncError } from './utils/errorClassifier'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 

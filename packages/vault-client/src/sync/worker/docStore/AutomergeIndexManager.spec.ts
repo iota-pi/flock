@@ -1,7 +1,7 @@
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 class MockBroadcastChannel {
   name: string

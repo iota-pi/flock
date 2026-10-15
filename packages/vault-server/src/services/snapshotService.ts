@@ -1,8 +1,7 @@
 import type { z } from 'zod'
 import type { VaultItem, VaultDriver } from '../drivers/base'
-import type { PutSnapshotBatchSchema } from '@vault/shared/api'
+import type { PutSnapshotBatchSchema, ItemId } from '@vault/shared'
 
-import type { ItemId } from '@vault/shared/ids'
 export type { VaultDriver }
 export type PutSnapshotInput = z.infer<typeof PutSnapshotBatchSchema>
 

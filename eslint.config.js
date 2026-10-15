@@ -39,6 +39,11 @@ const vaultPackageZones = [
   },
 ]
 
+const vaultPackageImportPatterns = [
+  { regex: '^vitest$', allowTypeImports: true },
+  { regex: '^src/', message: 'Vault library code must not import Flock app code.' },
+]
+
 export default defineConfig([
   globalIgnores([
     'node_modules',
@@ -123,12 +128,23 @@ export default defineConfig([
     files: ['packages/**/*.ts'],
     rules: {
       'import-x/no-restricted-paths': ['error', { zones: vaultPackageZones }],
+      'no-restricted-imports': ['error', { patterns: vaultPackageImportPatterns }],
+    },
+  },
+  {
+    files: ['packages/vault-client/src/**/*.ts'],
+    ignores: ['**/*.spec.ts', '**/__test__/**'],
+    rules: {
       'no-restricted-imports': [
         'error',
         {
           patterns: [
-            { regex: '^vitest$', allowTypeImports: true },
-            { regex: '^src/', message: 'Vault library code must not import Flock app code.' },
+            ...vaultPackageImportPatterns,
+            {
+              regex: '^@vault/server$',
+              allowTypeImports: true,
+              message: '@vault/client may only import types from @vault/server (it is a type-only peer dependency).',
+            },
           ],
         },
       ],

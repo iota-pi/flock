@@ -10,7 +10,7 @@ import { sortItems } from 'src/utils/customSort'
 import Search from 'src/components/Search'
 import { useAppStore } from 'src/state/store'
 import type { GroupItem, PersonItem, TopicItem } from 'src/shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { RemoveIcon } from 'src/components/Icons'
 
 

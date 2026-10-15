@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ItemIdSchema } from '@vault/shared/ids'
+import { ItemIdSchema } from '@vault/shared'
 
 /** Sync bookkeeping included in backups so a restored device resumes where it left off */
 export const BackupSyncStateSchema = z.object({

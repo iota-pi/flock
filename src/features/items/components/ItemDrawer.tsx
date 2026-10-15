@@ -34,7 +34,7 @@ import { getLastPrayedFor } from 'src/utils/prayer'
 import { convertItemType, deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/schemas/items'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import type { ItemType } from 'src/shared/itemTypes'
 import { useAppStore } from 'src/state/store'
 

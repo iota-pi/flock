@@ -8,7 +8,7 @@ import getTheme from 'src/theme'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from 'src/utils/customFilter'
 import type { GroupItem } from 'src/shared/schemas/items'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 
 
 const mockGroups: GroupItem[] = [

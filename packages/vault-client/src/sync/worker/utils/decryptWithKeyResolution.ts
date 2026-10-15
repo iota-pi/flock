@@ -1,5 +1,5 @@
-import type { CryptoResult } from '../../../api/vault/crypto'
-import type { KeyProvider } from '../../../api/vault/Keyring'
+import type { CryptoResult } from '../../../api/crypto'
+import type { KeyProvider } from '../../../api/Keyring'
 
 export class MissingKeyError extends Error {
   readonly kver: string

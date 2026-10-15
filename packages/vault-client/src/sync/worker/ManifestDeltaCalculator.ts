@@ -1,6 +1,5 @@
 import type { VaultDoc } from '../shared/types'
-import type { ItemId } from '@vault/shared/ids'
-import type { ManifestEntry } from '@vault/shared/api'
+import type { ItemId, ManifestEntry } from '@vault/shared'
 
 export interface SyncDeltas {
   missingIds: ItemId[]

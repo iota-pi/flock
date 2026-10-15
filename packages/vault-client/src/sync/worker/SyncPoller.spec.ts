@@ -6,11 +6,11 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
 
 const mockPollSyncBatchWithToken = vi.fn()
-vi.mock('../../api/vault/SyncWorkerClient', () => ({
+vi.mock('../../api/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
 }))
 

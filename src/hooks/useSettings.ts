@@ -24,7 +24,7 @@ import {
   writeAutoLockSettings,
   getAutoLockSummary,
   type AutoLockSettings,
-} from '@vault/client/autoLockStore'
+} from '@vault/client'
 
 export default function useSettings(items: Item[]) {
   const account = useAppStore(state => state.account)

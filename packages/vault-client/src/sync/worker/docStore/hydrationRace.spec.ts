@@ -4,7 +4,7 @@ import { AutomergeDocStore } from './AutomergeDocStore'
 import { SyncPullQueueManager } from '../SyncPullQueueManager'
 import { CursorStore } from '../stores/CursorStore'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 import { createMockKeyProvider, createMockVault } from '../__test__/testUtils'
 

@@ -1,9 +1,9 @@
 import {
   clearActiveSessionToken,
   setActiveSessionToken,
-} from '../../sync/shared/workerAuthStore'
-import { clearManualRecoveryEntries } from '../../sync/shared/manualRecoveryStore'
-import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
+} from '../sync/shared/workerAuthStore'
+import { clearManualRecoveryEntries } from '../sync/shared/manualRecoveryStore'
+import { setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import {
   createAccount,
   getSecurityParams,
@@ -31,7 +31,7 @@ import {
   DEFAULT_CRYPTO_ITERATIONS,
   type VaultBroadcastEvent,
 } from './util'
-import { SyncWriteAheadLog } from '../../sync/worker/SyncWriteAheadLog'
+import { SyncWriteAheadLog } from '../sync/worker/SyncWriteAheadLog'
 import {
   clearBiometricData,
   readBiometricData,
@@ -44,8 +44,8 @@ import {
   getPrfOutput,
   isWebAuthnPrfSupported,
 } from './webauthn'
-import { getVaultStorageNames } from '../../sync/shared/storageNames'
-import { ApiHttpError } from '../trackedFetch'
+import { getVaultStorageNames } from '../sync/shared/storageNames'
+import { ApiHttpError } from './trackedFetch'
 import { importKeyring, Keyring, VaultNotInitializedError, type KeyProvider } from './Keyring'
 
 export {

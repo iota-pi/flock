@@ -9,8 +9,8 @@ import {
   type BroadcastChannelNetworkAdapterOptions,
 } from '@automerge/automerge-repo-network-broadcastchannel'
 
-import type { CryptoResult } from '../../api/vault/crypto'
-import type { KeyProvider } from '../../api/vault/Keyring'
+import type { CryptoResult } from '../../api/crypto'
+import type { KeyProvider } from '../../api/Keyring'
 import {
   BaseSyncNetworkAdapter,
   type BaseSyncNetworkAdapterOptions,

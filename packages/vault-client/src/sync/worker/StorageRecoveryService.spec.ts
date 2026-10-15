@@ -1,6 +1,6 @@
 import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
 import { ClientEventHub } from './SyncEventHub'
-import type { ItemId } from '@vault/shared/ids'
+import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import * as storageManager from '../utils/storageManager'
 

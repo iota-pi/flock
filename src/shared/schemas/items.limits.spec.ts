@@ -1,6 +1,6 @@
 import { ITEM_LIMITS } from '../constants/limits'
 import { personItemSchema } from './items'
-import { ItemId } from '@vault/shared/ids'
+import { ItemId } from '@vault/shared'
 
 describe('ITEM_LIMITS', () => {
   it('defines the correct limits and 80% warning thresholds', () => {

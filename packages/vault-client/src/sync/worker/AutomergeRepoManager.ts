@@ -7,7 +7,7 @@ import { isQuotaError } from '../utils/storageQuota'
 import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { getVaultStorageNames } from '../shared/storageNames'
-import type { KeyProvider } from '../../api/vault/Keyring'
+import type { KeyProvider } from '../../api/Keyring'
 
 export interface AutomergeStorageAdapter extends StorageAdapterInterface {
   has(key: string[]): Promise<boolean>

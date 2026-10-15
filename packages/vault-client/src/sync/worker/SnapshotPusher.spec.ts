@@ -1,8 +1,7 @@
 import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
-import { ItemId } from '@vault/shared/ids'
-import { MAX_ITEM_SIZE_KB } from '@vault/shared/limits'
+import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError } from './SyncApiClient'
 
 describe('SnapshotPusher', () => {
