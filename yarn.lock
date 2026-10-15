@@ -4684,6 +4684,8 @@ __metadata:
     typescript: "npm:^6.0.3"
     vitest: "npm:^4.1.7"
     zod: "npm:^4.3.6"
+  peerDependencies:
+    "@vault/server": "workspace:*"
   languageName: unknown
   linkType: soft
 
