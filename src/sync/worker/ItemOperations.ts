@@ -339,11 +339,4 @@ export class ItemOperations {
 
     return newItemId
   }
-
-  /**
-   * @deprecated Use recreateOversizedItem instead.
-   */
-  async compactItem(itemId: ItemId): Promise<ItemId> {
-    return this.recreateOversizedItem(itemId)
-  }
 }

@@ -711,7 +711,7 @@ describe('ManifestSyncManager', () => {
     })
   })
 
-  describe('clock skew compensation & safety buffer', () => {
+  describe('manifest diffing', () => {
     it('flushes pending snapshots before evaluating manifest diffs', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
@@ -746,12 +746,12 @@ describe('ManifestSyncManager', () => {
       warnSpy.mockRestore()
     })
 
-    it('skips fetching when serverTime === localTime (exact match guard)', async () => {
+    it('skips fetching when the server version matches the local base version', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
       depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 5000]])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 5000 }],
+        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 9000 }],
         serverTime: 6000,
       })
 
@@ -761,21 +761,11 @@ describe('ManifestSyncManager', () => {
       expect(result).toEqual({ added: [], success: true })
     })
 
-    it('pulls valid server update when client clock is ahead of server (fast client clock)', async () => {
-      // Client is ahead of server:
-      // Client time: 1,300,000 (Date.now())
-      // Server response serverTime: 1,000,000
-      // clockSkew = 1,300,000 - 1,000,000 = 300,000 ms (5 mins fast)
-      const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_300_000)
-
+    it('pulls a known item when the server version is newer, whatever the timestamps', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      // Local client previously saved timestamp with fast clock:
+      // The local timestamp is far ahead of the server's, which does not matter
       depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 1_250_000]])
-
-      // Server has update for item-1 with server timestamp 1,050,000:
-      // Without compensation: 1,050,000 > 1,250,000 is FALSE (missed update)
-      // With compensation: adjusted = 1,250,000 - 300,000 - 60,000 = 890,000; 1,050,000 > 890,000 is TRUE
       mockFetchManifest.mockResolvedValue({
         manifest: [{ itemId: 'item-1', modifiedAt: 1_050_000, version: 2 }],
         serverTime: 1_000_000,
@@ -800,74 +790,25 @@ describe('ManifestSyncManager', () => {
       })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
       expect(result).toEqual({ added: ['item-1'], success: true })
-
-      dateNowSpy.mockRestore()
     })
 
-    it('pulls server update within 60-second SKEW_BUFFER_MS window when timestamps differ', async () => {
-      // Client time == Server time (0 clock skew)
-      const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
-
+    it('pushes a dirty item instead of pulling a server snapshot at the same version', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
-      // Local client timestamp is slightly ahead (e.g. 20 seconds ahead due to clock drift)
-      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 500_020]])
-
-      // Server timestamp is 500_000 (differing, but within 60s buffer)
-      mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 500_000, version: 2 }],
-        serverTime: 1_000_000,
-      })
-
-      mockFetchSnapshotsByIds.mockResolvedValue({
-        items: [
-          {
-            item: 'item-1',
-            snapshot: { iv: 'iv-1', cipher: 'c-1' },
-          },
-        ],
-        serverTime: 1_000_000,
-      })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([4, 5, 6]))
-
-      const result = await manifestSyncManager.sync()
-
-      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
-        account: 'acc-123',
-        itemIds: ['item-1'],
-      })
-      expect(result).toEqual({ added: ['item-1'], success: true })
-
-      dateNowSpy.mockRestore()
-    })
-
-    it('does not redundantly pull older server snapshots when local client clock is ahead of server', async () => {
-      // Client time is 2,000,000 while server time is 1,000,000 (clockSkew = 1,000,000)
-      const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(2_000_000)
-
-      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-      mockGetLastManifestSyncTime.mockResolvedValue(0)
-      // Local time is physically in server's future (1_980_000 vs serverTime 1_000_000, equivalent to 980_000 in server time)
       depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 1_980_000]])
       depsObj.snapshotManager.exportItemVersions.mockReturnValue(
         new Map([['item-1', { baseVersion: 1, isDirty: true }]]),
       )
-
-      // Server manifest has older snapshot 900_000 for item-1 and serverTime is 1_000_000
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-1', modifiedAt: 900_000 }],
+        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 900_000 }],
         serverTime: 1_000_000,
       })
 
       const result = await manifestSyncManager.sync()
 
-      // Should NOT fetch snapshot since local item is newer in server timeline (980k > 900k)
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
       expect(result).toEqual({ added: [], success: true })
-      // Local is newer so upstream reconciliation should queue it for push
       expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1', 2000)
-
-      dateNowSpy.mockRestore()
     })
   })
 
@@ -1268,11 +1209,10 @@ describe('ManifestSyncManager', () => {
       it('partitions deltas correctly into missingIds, locallyTombstonedSnapshots, and upstreamIds', () => {
         const result = manifestSyncManager.calculateSyncDeltas({
           manifest: [
-            { itemId: 'item-new-remote' as ItemId, modifiedAt: 2000 },
-            { itemId: 'item-server-deleted' as ItemId, modifiedAt: 2000, isDeleted: true },
-            { itemId: 'item-in-sync' as ItemId, modifiedAt: 1000 },
+            { itemId: 'item-new-remote' as ItemId, version: 1, modifiedAt: 2000 },
+            { itemId: 'item-server-deleted' as ItemId, version: 2, modifiedAt: 2000, isDeleted: true },
+            { itemId: 'item-in-sync' as ItemId, version: 1, modifiedAt: 1000 },
           ],
-          clockSkew: 0,
           force: false,
           knownItemIds: ['item-server-deleted' as ItemId, 'item-in-sync' as ItemId, 'item-local-only' as ItemId],
           tombstoneItemIds: [],
@@ -1282,6 +1222,11 @@ describe('ManifestSyncManager', () => {
             ['item-local-only' as ItemId, 1500],
           ]),
           quarantinedMap: new Map(),
+          localVersionsMap: new Map([
+            ['item-server-deleted' as ItemId, { baseVersion: 1, isDirty: false }],
+            ['item-in-sync' as ItemId, { baseVersion: 1, isDirty: false }],
+            ['item-local-only' as ItemId, { baseVersion: 0, isDirty: true }],
+          ]),
         })
 
         expect(result.missingIds).toEqual(['item-new-remote'])
@@ -1297,7 +1242,6 @@ describe('ManifestSyncManager', () => {
             { itemId: 'item-quarantined-old' as ItemId, modifiedAt: 500 },
             { itemId: 'item-quarantined-new' as ItemId, modifiedAt: 1500 },
           ],
-          clockSkew: 0,
           force: false,
           knownItemIds: [],
           tombstoneItemIds: [],
@@ -1306,6 +1250,7 @@ describe('ManifestSyncManager', () => {
             ['item-quarantined-old' as ItemId, 600],
             ['item-quarantined-new' as ItemId, 1000],
           ]),
+          localVersionsMap: new Map(),
         })
 
         expect(result.missingIds).toEqual(['item-quarantined-new'])

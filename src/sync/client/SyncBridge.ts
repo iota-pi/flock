@@ -359,13 +359,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.execute(api => api.recreateOversizedItem(itemId))
   }
 
-  /**
-   * @deprecated Use recreateOversizedItem instead.
-   */
-  compactItem(itemId: ItemId): Promise<ItemId | void> {
-    return this.execute(api => api.recreateOversizedItem(itemId))
-  }
-
   dismissRecoveryItem(entryId: string): Promise<void> {
     return this.execute(api => api.dismissRecoveryItem(entryId))
   }

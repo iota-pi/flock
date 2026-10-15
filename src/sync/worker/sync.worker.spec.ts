@@ -92,7 +92,6 @@ vi.mock('./SyncWorkerContext', () => {
       itemOperations = {
         mutateItem: mockItemOperationsMutateItem,
         recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
-        compactItem: vi.fn().mockResolvedValue('item-new'),
       }
 
       snapshotManager = {

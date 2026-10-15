@@ -2,8 +2,6 @@ import type { VaultDoc } from '../shared/types'
 import type { ItemId } from 'src/shared/vault/ids'
 import type { ManifestEntry } from 'src/shared/vault/api'
 
-export const SKEW_BUFFER_MS = 60 * 1000
-
 export interface SyncDeltas {
   missingIds: ItemId[]
   upstreamIds: ItemId[]
@@ -16,13 +14,12 @@ export interface SyncDeltas {
 
 export interface CalculateSyncDeltasParams {
   manifest: ManifestEntry[]
-  clockSkew: number
   force: boolean
   knownItemIds: ItemId[]
   tombstoneItemIds: ItemId[]
   localLastModifiedMap: Map<ItemId, number>
   quarantinedMap: Map<ItemId, number>
-  localVersionsMap?: Map<ItemId, { baseVersion: number; isDirty: boolean }>
+  localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
 
 export interface CalculateInboundDeltasParams {
@@ -31,10 +28,8 @@ export interface CalculateInboundDeltasParams {
   tombstoneSet: Set<ItemId>
   knownSet: Set<ItemId>
   quarantinedMap: Map<ItemId, number>
-  localLastModifiedMap: Map<ItemId, number>
-  clockSkew: number
   force: boolean
-  localVersionsMap?: Map<ItemId, { baseVersion: number; isDirty: boolean }>
+  localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
 
 export interface CalculateUpstreamDeltasParams {
@@ -42,11 +37,9 @@ export interface CalculateUpstreamDeltasParams {
   missingSet: Set<ItemId>
   locallyTombstonedSet: Set<ItemId>
   tombstoneSet: Set<ItemId>
-  serverManifestMap: Map<ItemId, number>
+  serverManifestIds: Set<ItemId>
   serverDeletedSet: Set<ItemId>
-  localLastModifiedMap: Map<ItemId, number>
-  clockSkew: number
-  localVersionsMap?: Map<ItemId, { baseVersion: number; isDirty: boolean }>
+  localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
 
 export class ManifestDeltaCalculator {
@@ -72,8 +65,7 @@ export class ManifestDeltaCalculator {
         }
       }
 
-      const localTime = params.localLastModifiedMap.get(id) ?? 0
-      const localVersionInfo = params.localVersionsMap?.get(id)
+      const baseVersion = params.localVersionsMap.get(id)?.baseVersion ?? 0
 
       if (isDeleted) {
         if (params.activeSet.has(id)) {
@@ -82,11 +74,7 @@ export class ManifestDeltaCalculator {
           locallyTombstonedSnapshots.push({ id, deleted: true })
           deletedLastModifiedUpdates.push([id, serverTime])
           deletedVersionUpdates.push([id, serverVersion])
-        } else if (
-          params.localVersionsMap
-            ? serverVersion > (localVersionInfo?.baseVersion ?? 0)
-            : serverTime > localTime
-        ) {
+        } else if (serverVersion > baseVersion) {
           // Item is deleted on server and client does not have it active (e.g. fresh login or already deleted).
           // Track that this item exists and is deleted at serverTime/serverVersion without fetching snapshot.
           deletedLastModifiedUpdates.push([id, serverTime])
@@ -108,40 +96,8 @@ export class ManifestDeltaCalculator {
         continue
       }
 
-      if (params.localVersionsMap) {
-        // MONOTONIC VERSION LOGIC: Deterministic version comparison
-        if (!params.knownSet.has(id)) {
-          missingIds.push(id)
-          continue
-        }
-        const baseVersion = localVersionInfo?.baseVersion ?? 0
-        if (serverVersion > baseVersion) {
-          missingIds.push(id)
-          continue
-        }
-        continue
-      }
-
-      // LEGACY TIMESTAMP FALLBACK (when localVersionsMap is not provided)
-      if (localTime === 0) {
+      if (!params.knownSet.has(id) || serverVersion > baseVersion) {
         missingIds.push(id)
-        continue
-      }
-      if (params.force && !params.knownSet.has(id)) {
-        missingIds.push(id)
-        continue
-      }
-      if (serverTime === localTime) continue
-      if (serverTime > localTime) {
-        missingIds.push(id)
-        continue
-      }
-
-      // Clock skew + buffer compensation for cases where client clock was ahead
-      const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
-      if (serverTime > adjustedLocalTime) {
-        missingIds.push(id)
-        continue
       }
     }
 
@@ -152,10 +108,8 @@ export class ManifestDeltaCalculator {
     const upstreamIds: ItemId[] = []
     for (const localId of params.allLocalIds) {
       if (params.missingSet.has(localId) || params.locallyTombstonedSet.has(localId)) continue
-      const serverTime = params.serverManifestMap.get(localId)
-      const localTime = params.localLastModifiedMap.get(localId) ?? 0
 
-      if (serverTime === undefined) {
+      if (!params.serverManifestIds.has(localId)) {
         // Item exists locally but is completely missing from server manifest
         upstreamIds.push(localId)
       } else if (params.tombstoneSet.has(localId)) {
@@ -163,19 +117,9 @@ export class ManifestDeltaCalculator {
         if (!params.serverDeletedSet.has(localId)) {
           upstreamIds.push(localId)
         }
-      } else if (params.localVersionsMap) {
-        // MONOTONIC VERSION LOGIC:
-        // If the local item is marked dirty, it has local changes that need to be pushed upstream
-        const localVersionInfo = params.localVersionsMap.get(localId)
-        if (localVersionInfo?.isDirty) {
-          upstreamIds.push(localId)
-        }
-      } else {
-        // Clock skew + buffer compensation: if local time exceeds server time
-        const adjustedLocalTime = localTime - Math.max(0, params.clockSkew) - SKEW_BUFFER_MS
-        if (adjustedLocalTime > serverTime) {
-          upstreamIds.push(localId)
-        }
+      } else if (params.localVersionsMap.get(localId)?.isDirty) {
+        // Dirty items have local changes that need to be pushed upstream
+        upstreamIds.push(localId)
       }
     }
     return upstreamIds
@@ -183,9 +127,7 @@ export class ManifestDeltaCalculator {
 
   static calculateSyncDeltas(params: CalculateSyncDeltasParams): SyncDeltas {
     const activeSet = new Set(params.knownItemIds)
-    const serverManifestMap = new Map<ItemId, number>(
-      params.manifest.map(entry => [entry.itemId, entry.modifiedAt ?? 0]),
-    )
+    const serverManifestIds = new Set<ItemId>(params.manifest.map(entry => entry.itemId))
     const serverDeletedSet = new Set<ItemId>(
       params.manifest
         .filter(entry => entry.isDeleted === true)
@@ -207,8 +149,6 @@ export class ManifestDeltaCalculator {
         tombstoneSet,
         knownSet,
         quarantinedMap: params.quarantinedMap,
-        localLastModifiedMap: params.localLastModifiedMap,
-        clockSkew: params.clockSkew,
         force: params.force,
         localVersionsMap: params.localVersionsMap,
       })
@@ -221,10 +161,8 @@ export class ManifestDeltaCalculator {
       missingSet: new Set(missingIds),
       locallyTombstonedSet: new Set(locallyTombstonedSnapshots.map(s => s.id)),
       tombstoneSet,
-      serverManifestMap,
+      serverManifestIds,
       serverDeletedSet,
-      localLastModifiedMap: params.localLastModifiedMap,
-      clockSkew: params.clockSkew,
       localVersionsMap: params.localVersionsMap,
     })
 

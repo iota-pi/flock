@@ -343,34 +343,22 @@ export async function syncKeyringFromServer(account: string): Promise<void> {
   }
 }
 
-export async function initWorkerVault(vaultKeyOrKeyring: string) {
-  const nextKeys = new Map<string, CryptoKey>()
-  let nextActiveVersion: string
-
-  try {
-    const keyringData = JSON.parse(vaultKeyOrKeyring)
-    if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
-      const entries = await Promise.all(
-        Object.entries(keyringData)
-          .filter(([ver]) => ver !== 'activeVersion')
-          .map(async ([ver, expKey]) => [ver, await importVaultKey(expKey as string)] as const)
-      )
-      if (entries.length === 0) {
-        throw new Error('Keyring contains no key entries')
-      }
-      for (const [ver, key] of entries) {
-        nextKeys.set(ver, key)
-      }
-      nextActiveVersion = keyringData.activeVersion as string
-    } else {
-      throw new Error('Not a structured keyring')
-    }
-  } catch (_) {
-    // Legacy single key
-    const imported = await importVaultKey(vaultKeyOrKeyring)
-    nextKeys.set('1', imported)
-    nextActiveVersion = '1'
+/** Loads the keyring exported by `exportKeyringData` into this realm (the sync worker). */
+export async function initWorkerVault(exportedKeyring: string) {
+  const keyringData = JSON.parse(exportedKeyring)
+  if (!keyringData || typeof keyringData !== 'object' || !keyringData.activeVersion) {
+    throw new Error('Not a structured keyring')
   }
+  const entries = await Promise.all(
+    Object.entries(keyringData)
+      .filter(([ver]) => ver !== 'activeVersion')
+      .map(async ([ver, expKey]) => [ver, await importVaultKey(expKey as string)] as const)
+  )
+  if (entries.length === 0) {
+    throw new Error('Keyring contains no key entries')
+  }
+  const nextKeys = new Map<string, CryptoKey>(entries)
+  const nextActiveVersion = keyringData.activeVersion as string
 
   // Atomically swap in the new keys and active version without an empty window across async ticks
   keyring.clear()

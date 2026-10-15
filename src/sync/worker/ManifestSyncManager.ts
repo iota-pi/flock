@@ -129,22 +129,17 @@ export class ManifestSyncManager implements LifecycleAware {
     isAlive: () => boolean,
     hasKnownItems: boolean,
     outerSignal?: AbortSignal,
-  ): Promise<{ manifest: ManifestEntry[]; serverTime: number; clockSkew: number } | null> {
+  ): Promise<{ manifest: ManifestEntry[]; serverTime: number } | null> {
     checkAlive(signal, isAlive)
 
     try {
-      const requestStartTime = Date.now()
       const manifestResponse = await this.apiClient.fetchManifest(
         { account: this.deps.accountId },
         outerSignal ? { signal } : undefined,
       )
-      const requestEndTime = Date.now()
-      const clientMidTime = Math.round((requestStartTime + requestEndTime) / 2)
-      const clockSkew = clientMidTime - manifestResponse.serverTime
       return {
         manifest: manifestResponse.manifest,
         serverTime: manifestResponse.serverTime,
-        clockSkew,
       }
     } catch (e) {
       if (signal.aborted || isAbortError(e) || !isAlive()) {
@@ -284,7 +279,6 @@ export class ManifestSyncManager implements LifecycleAware {
       // Step 1: Calculate sync deltas
       const deltas = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: remoteData.manifest,
-        clockSkew: remoteData.clockSkew,
         force,
         knownItemIds: gating.knownItemIds,
         tombstoneItemIds: localState.tombstoneItemIds,

@@ -6,7 +6,6 @@ export const ItemEnvelopeMetadataSchema = z.object({
   iv: z.string(),
   modified: z.number(),
   deleted: z.boolean().optional(),
-  compactedAt: z.number().optional(),
 })
 
 export const StandardItemEnvelopeSchema = z.object({
