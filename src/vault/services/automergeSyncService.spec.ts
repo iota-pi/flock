@@ -106,7 +106,7 @@ describe('AutomergeSyncService', () => {
     expect(Number.isSafeInteger(cursor)).toBe(true)
   })
 
-  it('ensures two pushes in the same millisecond have a very low collision rate due to scaled up offsets', async () => {
+  it('gives pushes in the same millisecond different cursors within that second', async () => {
     const repository = createMockRepository()
     const mockedTime = 1772473432000
     const service = createAutomergeSyncService({
@@ -114,24 +114,37 @@ describe('AutomergeSyncService', () => {
       repository,
     })
 
-    const cursorSet = new Set<number>()
-    const iterations = 500
-
-    for (let i = 0; i < iterations; i++) {
-      const result = await service.pushAutomergeSyncBatch({
-        account: 'test-account',
-        messages: [{
-          itemId: 'item-1' as ItemId,
-          encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
-        }],
-      })
-      cursorSet.add(result.results[0].cursor)
+    // Offsets are random, so stub them to keep the test deterministic (collisions are possible but rare by design)
+    const randomValues = [0, 0.25, 0.5, 0.9999999]
+    const randomSpy = vi.spyOn(Math, 'random')
+    for (const value of randomValues) {
+      randomSpy.mockReturnValueOnce(value)
     }
 
-    // Since iterations (500) is much smaller than MAX_OFFSET (9,999,000),
-    // the probability of any collision in 500 pushes is extremely small (~0.01%).
-    // We expect 500 unique cursors.
-    expect(cursorSet.size).toBe(iterations)
+    const cursors: number[] = []
+    try {
+      for (const [i] of randomValues.entries()) {
+        const result = await service.pushAutomergeSyncBatch({
+          account: 'test-account',
+          messages: [{
+            itemId: 'item-1' as ItemId,
+            encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
+          }],
+        })
+        cursors.push(result.results[0].cursor)
+      }
+    } finally {
+      randomSpy.mockRestore()
+    }
+
+    expect(new Set(cursors).size).toBe(randomValues.length)
+    // The zero offset is the start of the second's namespace; every other offset stays inside it
+    const secondStart = cursors[0]
+    expect(secondStart % 10_000_000).toBe(0)
+    for (const cursor of cursors) {
+      expect(cursor).toBeGreaterThanOrEqual(secondStart)
+      expect(cursor).toBeLessThan(secondStart + 10_000_000)
+    }
   })
 
   it('ensures batch index does not spill over into the next second namespace', async () => {
