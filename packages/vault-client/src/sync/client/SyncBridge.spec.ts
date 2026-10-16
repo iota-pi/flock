@@ -16,6 +16,7 @@ vi.mock('../../api/vault', () => ({
   getVaultSession: vi.fn().mockReturnValue(null),
   handleSessionExpired: vi.fn().mockResolvedValue(undefined),
   getKeyHash: vi.fn().mockReturnValue(null),
+  onLateSession: vi.fn().mockReturnValue(() => undefined),
 }))
 
 vi.mock('../../api/sessionRecovery', () => ({
