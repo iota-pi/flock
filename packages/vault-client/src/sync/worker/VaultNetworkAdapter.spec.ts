@@ -1199,10 +1199,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
         ) {
           const decoded = decodeSyncMessage(msg.data)
           if (decoded.changes && decoded.changes.length > 0) {
+            // State the vault's own sync state: everything up to the received heads, with an
+            // empty bloom. Echoing the Repo's `have` would claim its bloom as the vault's, and a
+            // bloom false positive on a later change makes Automerge withhold that change.
             const ack = encodeSyncMessage({
               heads: decoded.heads,
               need: [],
-              have: decoded.have,
+              have: [{ lastSync: decoded.heads, bloom: new Uint8Array() }],
               changes: [],
             })
             testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
