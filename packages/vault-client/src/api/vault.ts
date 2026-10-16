@@ -229,6 +229,17 @@ export function onLateSession(listener: () => void): () => void {
   }
 }
 
+function notifyLateSession() {
+  for (const listener of lateSessionListeners) {
+    listener()
+  }
+}
+
+/** Resolves (to undefined) once a login has waited long enough for the server */
+function serverWaitElapsed(): Promise<undefined> {
+  return new Promise(resolve => setTimeout(resolve, LOGIN_SERVER_WAIT_MS))
+}
+
 async function finishSessionInBackground(attempt: Promise<boolean>, account: string) {
   const generation = keyGeneration
   if (!await attempt || generation !== keyGeneration) return
@@ -239,9 +250,7 @@ async function finishSessionInBackground(attempt: Promise<boolean>, account: str
     return
   }
   if (generation !== keyGeneration) return
-  for (const listener of lateSessionListeners) {
-    listener()
-  }
+  notifyLateSession()
 }
 
 export function handleSessionExpired(): Promise<void> {
@@ -384,10 +393,7 @@ export async function loginVault({
     },
   )
   const sessionEstablished = passwordVerified
-    ? await Promise.race([
-      sessionAttempt,
-      new Promise<undefined>(resolve => setTimeout(resolve, LOGIN_SERVER_WAIT_MS)),
-    ])
+    ? await Promise.race([sessionAttempt, serverWaitElapsed()])
     : await sessionAttempt
 
   if (sessionEstablished) {
@@ -687,21 +693,36 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
   keyHash = await hashVaultKey(derivedKey)
 
   // Phase 1: Load cached keyring for offline access
+  let cachedKeyringLoaded = false
   const cachedKeyring = readCachedKeyring()
   if (cachedKeyring) {
     try {
       await loadKeyringFromEncrypted(cachedKeyring)
+      cachedKeyringLoaded = true
     } catch {
       clearCachedKeyring()
     }
   }
 
-  // Phase 2: Best-effort server session + keyring sync
-  try {
+  // Phase 2: Best-effort server session + keyring sync. As with a password login, a slow server
+  // doesn't hold up unlocking once the cached keyring has loaded: the rest finishes in the background.
+  const generation = keyGeneration
+  const sessionAttempt = (async () => {
     await establishSessionFromKeyHash(account, keyHash)
     await syncKeyringFromServer(account)
-  } catch (err) {
-    if (isUnauthorizedError(err)) {
+  })().then(
+    (): BiometricSessionOutcome => ({ error: undefined }),
+    (error: unknown): BiometricSessionOutcome => ({ error }),
+  )
+  const outcome = cachedKeyringLoaded
+    ? await Promise.race([sessionAttempt, serverWaitElapsed()])
+    : await sessionAttempt
+
+  if (!outcome) {
+    console.info('[vault] The server is slow to respond; finishing the session in the background')
+    void finishBiometricSessionInBackground(sessionAttempt, generation)
+  } else if (outcome.error) {
+    if (isUnauthorizedError(outcome.error)) {
       // The password was changed (or the key derivation upgraded) on another device, so the saved
       // key is stale. The cached keyring is wrapped with it too.
       clearKeyData()
@@ -709,7 +730,7 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
       clearCachedKeyring()
       throw new StaleBiometricKeyError()
     }
-    console.info('[vault] Biometric unlock in offline mode:', err)
+    console.info('[vault] Biometric unlock in offline mode:', outcome.error)
   }
 
   const meta = readStoredMetadata()
@@ -718,6 +739,29 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
     iterations: meta?.iterations,
     saltVersion: meta?.saltVersion,
   })
+}
+
+type BiometricSessionOutcome = { error: unknown }
+
+async function finishBiometricSessionInBackground(attempt: Promise<BiometricSessionOutcome>, generation: number) {
+  const { error } = await attempt
+  if (generation !== keyGeneration) return
+  if (!error) {
+    notifyLateSession()
+    return
+  }
+  if (isUnauthorizedError(error)) {
+    // The saved key is stale (see unlockWithBiometrics). The session already started, so keep the
+    // keys for working offline and ask the user to log in again.
+    clearBiometricData()
+    clearCachedKeyring()
+    hostHooks.onSessionLost?.(
+      'Sync paused: your password was changed on another device, so biometric unlock was turned off. '
+      + 'Lock the app and log in with your new password to resume syncing.',
+    )
+    return
+  }
+  console.info('[vault] Biometric unlock in offline mode:', error)
 }
 
 /** Whether the server rejected a request's credentials (as opposed to a network failure) */

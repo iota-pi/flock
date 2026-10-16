@@ -4,8 +4,10 @@ import {
   configureVaultHost,
   hasBiometricData,
   initialiseVault,
+  lockVaultKeys,
   loginVault,
   needsKeyDerivationUpgrade,
+  onLateSession,
   readCachedKeyring,
   rotateVaultKey,
   StaleBiometricKeyError,
@@ -223,5 +225,78 @@ describe('biometric unlock with a stale key', () => {
 
     expect(hasBiometricData()).toBe(true)
     expect(readCachedKeyring()).not.toBeNull()
+  })
+
+  describe('with a slow server', () => {
+    const unauthorized = () => new TRPCClientError('Server request failed (401)', {
+      cause: new ApiHttpError({ status: 401, url: '/trpc' }),
+    })
+    let respond: (session: string) => void
+    let reject: (error: unknown) => void
+
+    beforeEach(() => {
+      vi.mocked(getSession).mockImplementationOnce(() => new Promise((resolve, rejectRequest) => {
+        respond = resolve
+        reject = rejectRequest
+      }))
+      vi.useFakeTimers({ toFake: ['setTimeout'] })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Runs timers until the promise settles, letting real crypto work progress in between */
+    async function settle<T>(promise: Promise<T>): Promise<T> {
+      let done = false
+      promise.finally(() => { done = true }).catch(() => undefined)
+      while (!done) {
+        await new Promise(resolve => setImmediate(resolve))
+        await vi.advanceTimersByTimeAsync(500)
+      }
+      return promise
+    }
+
+    it('unlocks with the cached keyring and finishes the session in the background', async () => {
+      let notified: () => void = () => {}
+      const lateSession = new Promise<void>(resolve => { notified = resolve })
+      const listener = vi.fn(() => notified())
+      const stopListening = onLateSession(listener)
+
+      await settle(unlockWithBiometrics(ACCOUNT))
+      expect(listener).not.toHaveBeenCalled()
+
+      respond('late-session')
+      await settle(lateSession)
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect(hasBiometricData()).toBe(true)
+      stopListening()
+    })
+
+    it('turns off biometric unlock and reports a lost session when the server later rejects the key', async () => {
+      const onSessionLost = vi.fn()
+      configureVaultHost({ onSessionLost })
+
+      await settle(unlockWithBiometrics(ACCOUNT))
+      expect(hasBiometricData()).toBe(true)
+
+      reject(unauthorized())
+      await vi.waitFor(() => expect(onSessionLost).toHaveBeenCalledWith(expect.stringMatching(/password was changed/)))
+      expect(hasBiometricData()).toBe(false)
+      expect(readCachedKeyring()).toBeNull()
+    })
+
+    it('ignores a response that arrives after locking', async () => {
+      const onSessionLost = vi.fn()
+      configureVaultHost({ onSessionLost })
+
+      await settle(unlockWithBiometrics(ACCOUNT))
+      await lockVaultKeys()
+
+      reject(unauthorized())
+      await new Promise(resolve => setImmediate(resolve))
+      expect(onSessionLost).not.toHaveBeenCalled()
+      expect(hasBiometricData()).toBe(true)
+    })
   })
 })
