@@ -4,6 +4,9 @@ import {
 } from 'web-push'
 import type { WebPushSubscription } from '../types'
 
+/** How long a push service's socket may go idle before the send fails */
+const PUSH_TIMEOUT_MS = 10_000
+
 let vapidConfigured = false
 
 function ensureVapidConfigured() {
@@ -28,5 +31,5 @@ export async function sendPushNotification(
   payload: { title: string, body: string },
 ) {
   ensureVapidConfigured()
-  await sendNotification(subscription, JSON.stringify(payload))
+  await sendNotification(subscription, JSON.stringify(payload), { timeout: PUSH_TIMEOUT_MS })
 }

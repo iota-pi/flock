@@ -1127,11 +1127,20 @@ function decodePageToken<T>(token: PageToken, schema: z.ZodType<T>): T {
 
 export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBClientConfig {
   const customEndpoint = !!process.env.DYNAMODB_ENDPOINT
+  // Against AWS, fail a stalled connection or socket quickly so the SDK retries it within the
+  // Lambda's time limit. `requestTimeout` is how long the socket may go idle, not the whole request's
+  // duration. A local DynamoDB can be slow under test load, and a retry after a write that did land
+  // fails its condition, so it gets no timeouts.
   const endpointArgs: DynamoDBClientConfig = customEndpoint ? {
     credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
     endpoint: process.env.DYNAMODB_ENDPOINT,
     region: 'local',
-  } : {}
+  } : {
+    requestHandler: {
+      connectionTimeout: 1_000,
+      requestTimeout: 3_000,
+    },
+  }
   return {
     apiVersion: '2012-08-10',
     region: 'ap-southeast-2',

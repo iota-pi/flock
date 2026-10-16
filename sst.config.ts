@@ -91,7 +91,9 @@ export default $config({
       handler: "src/vault/index.handler",
       runtime: "nodejs24.x",
       memory: "512 MB",
-      timeout: "5 seconds",
+      // Leaves room for a cold start plus DynamoDB retries on a full sync batch, while staying
+      // under the client's 30s request timeout
+      timeout: "15 seconds",
       url: {
         cors: false,
       },
@@ -130,7 +132,8 @@ export default $config({
         queue: pushNotificationsDLQ.arn,
         retry: 3,
       },
-      visibilityTimeout: "120 seconds",
+      // AWS recommends at least 6x the subscriber's timeout
+      visibilityTimeout: "360 seconds",
     });
     pushNotificationsQueue.subscribe({
       handler: "src/vault/notifier/worker.handler",
@@ -144,6 +147,9 @@ export default $config({
         VAPID_PRIVATE_KEY: vapidPrivateKey.value,
       },
       link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
+    }, {
+      // The worker reports which records failed, so only those are retried
+      batch: { partialResponses: true },
     });
     const cronMinutes = "15";
     new sst.aws.Cron("NotifierSchedule", {

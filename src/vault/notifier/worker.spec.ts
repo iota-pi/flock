@@ -96,6 +96,7 @@ describe('notifier worker', () => {
     const sqsEvent = {
       Records: [
         {
+          messageId: 'message-1',
           body: JSON.stringify({
             accountId: 'user-1',
             pushSubscriptions: [{ endpoint: 'https://push.example.com/sub-1', keys: { auth: 'a', p256dh: 'p' } }],
@@ -104,8 +105,30 @@ describe('notifier worker', () => {
       ],
     }
 
-    await handler(sqsEvent)
+    await expect(handler(sqsEvent)).resolves.toEqual({ batchItemFailures: [] })
 
     expect(mockSend).toHaveBeenCalledTimes(1)
+  })
+
+  it('handler reports only the records that failed', async () => {
+    const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
+    mockSend
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce({ statusCode: 500 })
+      .mockResolvedValueOnce(undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const record = (messageId: string) => ({
+      messageId,
+      body: JSON.stringify({
+        accountId: 'user-1',
+        pushSubscriptions: [{ endpoint: `https://push.example.com/${messageId}`, keys: { auth: 'a', p256dh: 'p' } }],
+      }),
+    })
+
+    const result = await handler({ Records: [record('message-1'), record('message-2'), record('message-3')] })
+
+    expect(result).toEqual({ batchItemFailures: [{ itemIdentifier: 'message-2' }] })
+    expect(mockSend).toHaveBeenCalledTimes(3)
   })
 })
