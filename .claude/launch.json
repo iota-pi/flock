@@ -12,6 +12,12 @@
       "runtimeExecutable": "yarn",
       "runtimeArgs": ["dev"],
       "port": 3000
+    },
+    {
+      "name": "app-preview",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["vite", "preview", "--port", "4173", "--strictPort"],
+      "port": 4173
     }
   ]
 }

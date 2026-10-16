@@ -1,9 +1,16 @@
 /// <reference lib="webworker" />
-import { precacheAndRoute } from 'workbox-precaching'
+import { createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
+import { NavigationRoute, registerRoute } from 'workbox-routing'
 
 declare const self: ServiceWorkerGlobalScope
 
 precacheAndRoute(self.__WB_MANIFEST)
+
+// Serve the app shell for client-side routes (e.g. /people) so reloads and deep links work offline.
+// The migration app is a separate page; /migrate/ is matched by the precache route above.
+registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), {
+  denylist: [/^\/migrate(\/|$)/],
+}))
 
 type PushPayload = {
   title?: string
