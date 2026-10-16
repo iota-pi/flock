@@ -117,9 +117,5 @@
     "vitest": "^4.1.7",
     "workbox-precaching": "^7.4.1"
   },
-  "resolutions": {
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3"
-  },
   "packageManager": "yarn@4.15.0"
 }
