@@ -115,7 +115,8 @@
     "vite-plugin-pwa": "^1.2.0",
     "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.7",
-    "workbox-precaching": "^7.4.1"
+    "workbox-precaching": "^7.4.1",
+    "workbox-routing": "^7.4.1"
   },
   "packageManager": "yarn@4.15.0"
 }
