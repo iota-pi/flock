@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type SubmitEvent } from 'react'
 import * as Sentry from '@sentry/react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -56,7 +56,7 @@ export default function MigrateApp() {
     }
   }, [account])
 
-  const handleSubmit = useCallback(async (event: FormEvent) => {
+  const handleSubmit = useCallback(async (event: SubmitEvent) => {
     event.preventDefault()
     setLoading(true)
     setError('')
