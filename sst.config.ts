@@ -12,9 +12,12 @@ export default $config({
         aws: {
           region: "ap-southeast-2",
         },
-        ...(isDev ? {} : {
-          cloudflare: { package: "@pulumi/cloudflare", version: "6.18.0" },
-        }),
+        ...(isDev
+          ? {}
+          : {
+              cloudflare: { package: "@pulumi/cloudflare", version: "6.18.0" },
+            }),
+        cloudflare: { package: "@pulumi/cloudflare", version: "6.22.1" },
       },
     };
   },
@@ -36,7 +39,7 @@ export default $config({
       },
       primaryIndex: { hashKey: "account" },
       transform: {
-        table: args => {
+        table: (args) => {
           args.name = `FlockAccounts_${stage}`;
         },
       },
@@ -56,7 +59,7 @@ export default $config({
         },
       },
       transform: {
-        table: args => {
+        table: (args) => {
           args.name = `FlockItems_${stage}`;
         },
       },
@@ -72,7 +75,7 @@ export default $config({
         AccountCursorIndex: { hashKey: "account", rangeKey: "cursor" },
       },
       transform: {
-        table: args => {
+        table: (args) => {
           args.name = `FlockSyncMessages_${stage}`;
           args.ttl = {
             attributeName: "expiresAt",
@@ -142,7 +145,7 @@ export default $config({
       },
       link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
     });
-    const cronMinutes = '15';
+    const cronMinutes = "15";
     new sst.aws.Cron("NotifierSchedule", {
       schedule: `cron(0/${cronMinutes} * ? * * *)`,
       function: {
