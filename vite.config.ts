@@ -24,12 +24,22 @@ export default defineConfig({
         rollupFormat: 'es',
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm,woff2}'],
+        // Only needed by some devices, or rarely: the service worker caches them on first use
+        globIgnores: [
+          'migrate/**',
+          'assets/migrate-*.js',
+          'assets/migrate.worker-*.js',
+          'assets/zxcvbn-dictionaries-*.js',
+        ],
       },
       // The app decides when a new version takes over (src/app/appUpdate.ts)
       registerType: 'prompt',
       manifest: {
+        // What browsers already derived from start_url, set explicitly so installs keep their identity
+        id: '/',
         short_name: 'Flock',
         name: 'Flock',
+        description: 'A secure notebook to help you care for your flock',
         icons: [
           {
             src: '/android-chrome-192x192.png',
@@ -40,6 +50,12 @@ export default defineConfig({
             src: '/android-chrome-512x512.png',
             sizes: '512x512',
             type: 'image/png',
+          },
+          {
+            src: '/maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
           },
         ],
         start_url: '.',
@@ -100,8 +116,11 @@ export default defineConfig({
             if (id.match(/@mui\/icons-material/)) {
               return 'vendor-icons'
             }
-            if (id.match(/@mui\/x-date-pickers|date-fns/)) {
-              return 'vendor-date-utils'
+            // The date pickers are left to the default chunking, so they only load with the lazy views
+            // that use them (see DateLocalization). A manual chunk would also take in their
+            // dependencies, such as React and MUI, and so be needed by the first load.
+            if (id.match(/date-fns/)) {
+              return 'vendor-date-fns'
             }
             if (id.match(/@tanstack\/react-query/)) {
               return 'vendor-utils'
@@ -110,6 +129,10 @@ export default defineConfig({
             // pulling them in here would make every page that scores passwords wait for them
             if (id.match(/@zxcvbn-ts\/core/)) {
               return 'vendor-security'
+            }
+            // Named so the service worker can leave them out of the precache
+            if (id.match(/@zxcvbn-ts\/language-/)) {
+              return 'zxcvbn-dictionaries'
             }
             if (id.match(/lodash-es|zod|@trpc\//)) {
               return 'vendor-utils'

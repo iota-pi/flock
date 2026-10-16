@@ -1,16 +1,73 @@
 /// <reference lib="webworker" />
+import { ExpirationPlugin } from 'workbox-expiration'
 import { createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
+import { CacheFirst, NetworkOnly } from 'workbox-strategies'
 
 declare const self: ServiceWorkerGlobalScope
 
 precacheAndRoute(self.__WB_MANIFEST)
 
-// Serve the app shell for client-side routes (e.g. /people) so reloads and deep links work offline.
-// The migration app is a separate page; /migrate/ is matched by the precache route above.
+const MIGRATE_PATH = /^\/migrate(\/|$)/
+
+// Serve the app shell for client-side routes (e.g. /people) so reloads and deep links work offline
 registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), {
-  denylist: [/^\/migrate(\/|$)/],
+  denylist: [MIGRATE_PATH],
 }))
+
+const MIGRATE_OFFLINE_PAGE = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flock</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+        box-sizing: border-box; background: #202020; color: #fff; font-family: system-ui, sans-serif; }
+      main { max-width: 420px; text-align: center; line-height: 1.5; }
+      button { margin-top: 16px; padding: 8px 20px; border: 0; border-radius: 4px; background: #00796b;
+        color: #fff; font: inherit; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>You're offline</h1>
+      <p>Flock needs to update your data, and that needs an internet connection. Connect and try again.</p>
+      <button onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>`
+
+// The migration app isn't precached (only devices with old data need it), and it needs the server
+// anyway, so offline it gets a page that says so
+registerRoute(
+  ({ request, url }) => request.mode === 'navigate' && MIGRATE_PATH.test(url.pathname),
+  new NetworkOnly({
+    plugins: [{
+      handlerDidError: async () => new Response(MIGRATE_OFFLINE_PAGE, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      }),
+    }],
+  }),
+)
+
+// Built assets left out of the precache (the migration app and the password-strength dictionaries)
+// are cached when first used. Their names are content hashed, so a cached copy never goes stale.
+registerRoute(
+  ({ url }) => url.origin === self.location.origin && url.pathname.startsWith('/assets/'),
+  new CacheFirst({
+    cacheName: 'lazy-assets',
+    plugins: [
+      {
+        // A missing file is answered with the app shell, which mustn't be cached as the asset
+        cacheWillUpdate: async ({ response }) => (
+          response.ok && !response.headers.get('Content-Type')?.includes('text/html') ? response : null
+        ),
+      },
+      new ExpirationPlugin({ maxEntries: 20, purgeOnQuotaError: true }),
+    ],
+  }),
+)
 
 type PushPayload = {
   title?: string

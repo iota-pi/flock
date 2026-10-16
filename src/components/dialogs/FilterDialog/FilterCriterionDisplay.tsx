@@ -16,6 +16,7 @@ import {
 } from 'src/utils/customFilter'
 import { RemoveIcon } from '../../Icons'
 import FrequencyPicker from '../../FrequencyPicker'
+import DateLocalization from '../../ui/DateLocalization'
 import { Frequency } from 'src/utils/frequencies'
 import { useItemsOfType } from 'src/state/selectors'
 import type { GroupItem } from 'src/shared/schemas/items'
@@ -247,14 +248,16 @@ export function FilterCriterionDisplay({
         </TextField>
       )}
       {criterionDetails.dataType === 'date' && (
-        <DatePicker
-          data-cy="filter-criterion-value"
-          format="dd/MM/yyyy"
-          label="Value"
-          onChange={handleChangeDateValue}
-          slotProps={{ textField: { fullWidth: true, variant: 'standard' } }}
-          value={currentDate}
-        />
+        <DateLocalization>
+          <DatePicker
+            data-cy="filter-criterion-value"
+            format="dd/MM/yyyy"
+            label="Value"
+            onChange={handleChangeDateValue}
+            slotProps={{ textField: { fullWidth: true, variant: 'standard' } }}
+            value={currentDate}
+          />
+        </DateLocalization>
       )}
       {criterionDetails.dataType === 'frequency' && (
         <FrequencyPicker
