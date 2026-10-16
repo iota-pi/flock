@@ -15,11 +15,16 @@ type ReminderMessage = {
 }
 
 type SqsRecord = {
+  messageId: string,
   body: string,
 }
 
 type SqsEvent = {
   Records: SqsRecord[],
+}
+
+type SqsBatchResponse = {
+  batchItemFailures: Array<{ itemIdentifier: string }>,
 }
 
 const ddb = new DynamoDBClient(getConnectionParams())
@@ -70,9 +75,20 @@ export async function processMessage(message: ReminderMessage) {
   }
 }
 
-export const handler = async (event: SqsEvent) => {
+/**
+ * Reports the records that failed, so SQS retries only those rather than the whole batch (which
+ * would send duplicate reminders to the accounts that were already notified).
+ */
+export const handler = async (event: SqsEvent): Promise<SqsBatchResponse> => {
+  const batchItemFailures: SqsBatchResponse['batchItemFailures'] = []
   for (const record of event.Records) {
-    const message = JSON.parse(record.body) as ReminderMessage
-    await processMessage(message)
+    try {
+      const message = JSON.parse(record.body) as ReminderMessage
+      await processMessage(message)
+    } catch (error) {
+      console.error(`Failed to process push notification message ${record.messageId}`, error)
+      batchItemFailures.push({ itemIdentifier: record.messageId })
+    }
   }
+  return { batchItemFailures }
 }

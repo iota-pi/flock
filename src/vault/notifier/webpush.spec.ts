@@ -55,6 +55,7 @@ describe('webpush service', () => {
     expect(webPush.sendNotification).toHaveBeenCalledWith(
       subscription,
       JSON.stringify(payload),
+      { timeout: 10_000 },
     )
   })
 })

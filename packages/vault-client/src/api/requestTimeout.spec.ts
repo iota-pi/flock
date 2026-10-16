@@ -7,6 +7,19 @@ function hangingFetch() {
   }))
 }
 
+/** A fetch whose response headers arrive at once but whose body never finishes */
+function stallingBodyFetch(headers?: HeadersInit) {
+  return vi.fn<typeof fetch>(async (_input, init) => {
+    const body = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(new TextEncoder().encode('partial'))
+        init?.signal?.addEventListener('abort', () => streamController.error(init.signal?.reason))
+      },
+    })
+    return new Response(body, { headers })
+  })
+}
+
 describe('withRequestTimeout', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -17,10 +30,22 @@ describe('withRequestTimeout', () => {
   })
 
   it('returns the response when it arrives in time', async () => {
-    const response = new Response('ok')
-    const timedFetch = withRequestTimeout(async () => response)
+    const timedFetch = withRequestTimeout(async () => new Response('ok', {
+      status: 400,
+      headers: { 'content-type': 'application/json' },
+    }))
 
-    await expect(timedFetch('http://vault.test')).resolves.toBe(response)
+    const response = await timedFetch('http://vault.test')
+    expect(response.status).toBe(400)
+    expect(response.headers.get('content-type')).toBe('application/json')
+    expect(await response.text()).toBe('ok')
+  })
+
+  it('returns bodiless responses', async () => {
+    const timedFetch = withRequestTimeout(async () => new Response(null, { status: 204 }))
+
+    const response = await timedFetch('http://vault.test')
+    expect(response.status).toBe(204)
   })
 
   it('fails a request that gets no response', async () => {
@@ -53,6 +78,39 @@ describe('withRequestTimeout', () => {
     controller.abort()
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('fails a request whose response body stops arriving', async () => {
+    const timedFetch = withRequestTimeout(stallingBodyFetch())
+
+    const request = timedFetch('http://vault.test').catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await request).toBeInstanceOf(RequestTimeoutError)
+  })
+
+  it('allows more time for larger responses', async () => {
+    const timedFetch = withRequestTimeout(stallingBodyFetch({ 'content-length': '100000' }))
+
+    let settled = false
+    const request = timedFetch('http://vault.test')
+      .catch((error: unknown) => error)
+      .finally(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(35_000)
+    expect(settled).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(await request).toBeInstanceOf(RequestTimeoutError)
+  })
+
+  it("passes on the caller's abort while the body arrives", async () => {
+    const timedFetch = withRequestTimeout(stallingBodyFetch())
+    const controller = new AbortController()
+
+    const request = timedFetch('http://vault.test', { signal: controller.signal }).catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    controller.abort(new DOMException('Aborted', 'AbortError'))
+
+    expect(await request).toMatchObject({ name: 'AbortError' })
   })
 
   it('is classified as a network failure rather than an abort', () => {
