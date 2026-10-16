@@ -4,6 +4,14 @@ import type { ProtectedPageId } from '../../src/components/pages/types'
 import type { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 
 Cypress.on('window:before:load', (win) => {
+  // Keep the service worker out of tests. Once it is installed it serves every navigation from its
+  // precache, which bypasses Cypress's proxy, so the page loads without `window.Cypress` and the
+  // app never exposes its test hooks (`window.mutations`, `window.hasApiAuthToken`, ...).
+  // registerSW catches the rejection.
+  if (win.navigator.serviceWorker) {
+    win.navigator.serviceWorker.register = () => Promise.reject(new Error('Service workers are disabled in Cypress'))
+  }
+
   cy.spy(win.console, 'log').as('consoleLog')
   cy.spy(win.console, 'error').as('consoleError')
 

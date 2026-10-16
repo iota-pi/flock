@@ -243,12 +243,14 @@ Cypress.Commands.add('ensureAccount', (password: string): Cypress.Chainable<stri
 })
 
 Cypress.Commands.add('createAccount', (password: string): Cypress.Chainable => {
+  // The signup and login pages are lazily loaded, and creating the account derives keys and calls
+  // the server, so each can take longer than the default timeout against staging
   cy.dataCy('create-account').click()
-  cy.get('#password').type(password)
+  cy.get('#password', { timeout: 15000 }).type(password)
   cy.dataCy('create-account').click()
-  cy.dataCy('acknowledge-account-id').check({ force: true })
+  cy.get('[data-cy="acknowledge-account-id"]', { timeout: 15000 }).check({ force: true })
   cy.dataCy('continue-button').click()
-  cy.get('#current-password').type(password)
+  cy.get('#current-password', { timeout: 15000 }).type(password)
   cy.dataCy('login').click()
   cy.location('pathname', { timeout: 15000 }).should('equal', '/')
   return cy
