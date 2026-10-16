@@ -50,6 +50,16 @@ jobs:
         env:
           CYPRESS_BASE_URL: https://flock-staging.cross-code.org
 
+      - name: Upload Cypress Screenshots
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 0
+
   # 3. Deploy to Production
   deploy-production:
     name: Deploy to Production
