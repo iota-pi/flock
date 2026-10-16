@@ -219,17 +219,18 @@ export default $config({
       });
     }
     // -----------------------------------------------------------------
-    // Frontend (Cloudflare Pages)
+    // Frontend (Cloudflare Workers static assets)
     // -----------------------------------------------------------------
     const app = isDev
       ? undefined
-      : new sst.cloudflare.StaticSite("FlockApp", {
+      : new sst.cloudflare.StaticSiteV2("FlockApp", {
           path: ".",
           build: {
             command: "yarn build",
             output: "dist/app",
           },
           domain,
+          notFound: "single-page-application",
           environment: {
             VITE_VAULT_ENDPOINT: vaultApi.url,
             VITE_VAPID_PUBLIC_KEY: vapidPublicKey.value,
