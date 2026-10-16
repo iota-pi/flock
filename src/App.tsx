@@ -16,7 +16,6 @@ import { useLoggedIn } from './state/selectors'
 import { useAppStore } from './state/store'
 import MainLayout from './components/layout/MainLayout'
 import ErrorPage from './components/pages/ErrorPage'
-import AppProviders from './app/AppProviders'
 import AppInitializer from './app/AppInitializer'
 import BiometricPrompt from './components/BiometricPrompt'
 import useAutoLock from './hooks/useAutoLock'
@@ -167,9 +166,5 @@ export default function App() {
     return <FatalError fatalError={fatalError} />
   }
 
-  return (
-    <AppProviders>
-      <RouterProvider router={router} />
-    </AppProviders>
-  )
+  return <RouterProvider router={router} />
 }
