@@ -1,3 +1,4 @@
+import { getOnlineState } from '../../utils/onlineStatus'
 import { isAbortError } from '../../utils/abort'
 import { MissingKeyError } from './decryptWithKeyResolution'
 import { parseError, type ParsedError } from './errorParser'
@@ -92,7 +93,7 @@ const AUTH_ERROR_NAMES = new Set([
  * Inspects parsed error data and its cause chain in a single pass.
  */
 export function classifySyncError(error: unknown): ClassifiedError {
-  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false
+  const isOffline = !getOnlineState()
 
   if (!error) {
     return {

@@ -16,6 +16,7 @@ import {
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
+import { getOnlineState } from '../utils/onlineStatus'
 import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { KeyProvider } from '../../api/Keyring'
@@ -384,7 +385,7 @@ export class ItemReencryptor {
               return false
             }
             if (classified.isNetwork || classified.isServerError) {
-              if (typeof navigator !== 'undefined' && !navigator.onLine) {
+              if (!getOnlineState()) {
                 return false
               }
             }
@@ -442,7 +443,7 @@ export class ItemReencryptor {
         : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Re-encryption aborted')
     }
 
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (!getOnlineState()) {
       const errMsg = 'Network is offline'
       console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
