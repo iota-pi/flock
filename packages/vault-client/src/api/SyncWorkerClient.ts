@@ -1,6 +1,6 @@
-import { createTRPCProxyClient, httpBatchLink } from '@trpc/client'
+import { createTRPCProxyClient } from '@trpc/client'
 import type { VaultRouter } from '@vault/server'
-import { getVaultTrpcUrl } from './vaultTrpcClient'
+import { createVaultLinks } from './vaultTrpcClient'
 import type { VaultSnapshotInput, ItemId , DOC_BOUND_FORMAT ,
   SyncPollBatchSchema,
   PageToken,
@@ -22,14 +22,7 @@ function createWorkerSyncClient(authToken: string) {
   }
 
   const client = createTRPCProxyClient<VaultRouter>({
-    links: [
-      httpBatchLink({
-        url: getVaultTrpcUrl(),
-        headers: {
-          Authorization: `Basic ${authToken}`,
-        },
-      }),
-    ],
+    links: createVaultLinks({ authToken }),
   })
 
   cachedClient = { authToken, client }

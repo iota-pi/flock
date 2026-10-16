@@ -43,6 +43,19 @@ describe('createVaultLinks', () => {
     expect(headers.get(PROTOCOL_VERSION_HEADER)).toBe(String(VAULT_PROTOCOL_VERSION))
   })
 
+  it('sends the given session token', async () => {
+    const customFetch = vi.fn<typeof fetch>(async () => trpcErrorResponse('Unauthorized', 'UNAUTHORIZED', 401))
+    const client = createTRPCProxyClient<VaultRouter>({
+      links: createVaultLinks({ url: 'http://vault.test/trpc', customFetch, authToken: 'worker-token' }),
+    })
+
+    await expect(client.accounts.raiseDataVersion.mutate({ account: 'acct' })).rejects.toThrow()
+
+    const headers = new Headers(customFetch.mock.calls[0][1]?.headers)
+    expect(headers.get('Authorization')).toBe('Basic worker-token')
+    expect(headers.get(PROTOCOL_VERSION_HEADER)).toBe(String(VAULT_PROTOCOL_VERSION))
+  })
+
   it('announces when the server says this build is too old', async () => {
     const customFetch = vi.fn<typeof fetch>(async () => trpcErrorResponse('CLIENT_OUTDATED', 'PRECONDITION_FAILED', 412))
 
