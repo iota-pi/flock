@@ -4,6 +4,7 @@ import type { VaultRouter } from '@vault/server'
 import { isClientOutdatedError, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import { getApiAuthToken } from './runtime'
 import { broadcastVaultEvent } from './util'
+import { withRequestTimeout } from './requestTimeout'
 
 let vaultEndpoint = ''
 let vaultTrpcClient: ReturnType<typeof createTRPCProxyClient<VaultRouter>> | null = null
@@ -37,7 +38,8 @@ function clientOutdatedLink(): TRPCLink<VaultRouter> {
 /**
  * Links for a tRPC client of the vault's server, including app routers built on the same tRPC
  * instance. They send the session token (`authToken`, or else the realm's current one) and this
- * build's protocol version, and report when the server says the build is too old.
+ * build's protocol version, report when the server says the build is too old, and fail requests
+ * that get no response in time (see `withRequestTimeout`).
  */
 export function createVaultLinks(
   { url = getVaultTrpcUrl(), customFetch, authToken }: {
@@ -57,7 +59,7 @@ export function createVaultLinks(
           ...(token ? { Authorization: `Basic ${token}` } : {}),
         }
       },
-      fetch: customFetch,
+      fetch: withRequestTimeout(customFetch ?? ((input, init) => fetch(input, init))),
     }),
   ]
 }

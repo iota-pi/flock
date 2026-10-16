@@ -41,6 +41,10 @@ describe('LoginPage', () => {
     useAppStore.setState({ account: '', loggedIn: false, justCreatedAccount: false })
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('renders login form with account and password inputs', () => {
     renderLoginPage()
     expect(screen.getByLabelText(/Account ID/i)).toBeDefined()
@@ -81,6 +85,36 @@ describe('LoginPage', () => {
         saltVersion: 1,
       })
       expect(useAppStore.getState().loggedIn).toBe(true)
+    })
+  })
+
+  it("uses cached security params when the server is slow, rather than waiting for it", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true })
+    localStorage.setItem('FlockVaultMeta', JSON.stringify({
+      account: 'test-slow-account',
+      salt: 'cached-salt',
+      iterations: 5000,
+      saltVersion: 1,
+    }))
+
+    vi.spyOn(vault, 'getSecurityParams').mockReturnValue(new Promise(() => {}))
+    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+    renderLoginPage()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'test-slow-account' } })
+      fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
+      fireEvent.click(screen.getByRole('button', { name: /Login/i }))
+    })
+    expect(loginVaultSpy).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+
+    await waitFor(() => {
+      expect(loginVaultSpy).toHaveBeenCalledWith(expect.objectContaining({ salt: 'cached-salt' }))
     })
   })
 

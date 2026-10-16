@@ -23,7 +23,7 @@ export default defineConfig({
       injectManifest: {
         rollupFormat: 'es',
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm,woff2}'],
       },
       // The app decides when a new version takes over (src/app/appUpdate.ts)
       registerType: 'prompt',

@@ -2,6 +2,7 @@
 // import { StrictMode } from 'react'
 // Configures the vault before any other module can use it
 import './app/vault/setup'
+import './fonts'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 // eslint-disable-next-line import-x/no-unresolved

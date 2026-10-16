@@ -86,4 +86,76 @@ describe('app updates', () => {
     await appUpdate.checkForAppUpdate()
     expect(registration.update).toHaveBeenCalledTimes(1)
   })
+
+  describe('with other tabs', () => {
+    let sharedHolders: number
+    let releaseOtherTab: () => void
+
+    function holdLockInOtherTab() {
+      void navigator.locks.request(appUpdate.SESSION_LOCK, { mode: 'shared' }, () => new Promise<void>(resolve => {
+        releaseOtherTab = resolve
+      }))
+    }
+
+    beforeEach(() => {
+      sharedHolders = 0
+      const locks = {
+        request: async (
+          _name: string,
+          options: LockOptions,
+          callback: (lock: Lock | null) => Promise<unknown> | unknown,
+        ) => {
+          if (options.mode === 'shared') {
+            sharedHolders += 1
+            try {
+              return await callback({} as Lock)
+            } finally {
+              sharedHolders -= 1
+            }
+          }
+          return callback(sharedHolders > 0 ? null : {} as Lock)
+        },
+      }
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: locks })
+    })
+
+    afterEach(() => {
+      delete (navigator as { locks?: unknown }).locks
+      vi.useRealTimers()
+    })
+
+    it('holds the session lock while logged in', async () => {
+      useAppStore.setState({ loggedIn: true })
+      await vi.waitFor(() => expect(sharedHolders).toBe(1))
+
+      useAppStore.setState({ loggedIn: false })
+      await vi.waitFor(() => expect(sharedHolders).toBe(0))
+    })
+
+    it('waits for another tab that is logged in', async () => {
+      vi.useFakeTimers()
+      holdLockInOtherTab()
+
+      options.onNeedRefresh?.()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(updateSW).not.toHaveBeenCalled()
+
+      releaseOtherTab()
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(updateSW).toHaveBeenCalledTimes(1)
+    })
+
+    it('applies straight away when no tab is logged in', async () => {
+      options.onNeedRefresh?.()
+      await vi.waitFor(() => expect(updateSW).toHaveBeenCalledWith(true))
+    })
+
+    it('applies a forced update even while another tab is logged in', () => {
+      holdLockInOtherTab()
+      options.onNeedRefresh?.()
+
+      appUpdate.forceAppUpdate()
+      expect(updateSW).toHaveBeenCalledTimes(1)
+    })
+  })
 })

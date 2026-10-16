@@ -18,6 +18,8 @@ import {
   configureVaultHost,
   lockVaultKeys,
   readStoredMetadata,
+  onLateSession,
+  getVaultSession,
 } from './vault'
 import { Keyring } from './Keyring'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
@@ -477,6 +479,76 @@ describe('Vault Keyring Integration', () => {
     })
 
     expect(getVaultKey('1')).toBeDefined()
+  })
+
+  describe('with a slow server', () => {
+    const loginParams = {
+      account: 'test-account',
+      password: 'password123',
+      salt: SALT,
+      saltVersion: 1,
+      iterations: 1000,
+    }
+    let respond: (session: string) => void
+
+    beforeEach(async () => {
+      // Drop responses queued by earlier tests that didn't use them
+      vi.mocked(getSession).mockReset().mockResolvedValue('mock-session')
+      vi.mocked(getKeyring).mockReset().mockResolvedValue(undefined)
+
+      // Log in once to seed the keyring cache, then forget the keys
+      await loginVault(loginParams)
+      const cachedKeyring = readCachedKeyring()!
+      await clearVaultDeviceData()
+      localStorage.setItem(getVaultStorageNames().keyringCacheKey, cachedKeyring)
+
+      vi.mocked(getSession).mockImplementationOnce(() => new Promise(resolve => { respond = resolve }))
+      vi.useFakeTimers({ toFake: ['setTimeout'] })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Runs timers until the promise settles, letting real crypto work progress in between */
+    async function settle<T>(promise: Promise<T>): Promise<T> {
+      let done = false
+      promise.finally(() => { done = true }).catch(() => undefined)
+      while (!done) {
+        await new Promise(resolve => setImmediate(resolve))
+        await vi.advanceTimersByTimeAsync(500)
+      }
+      return promise
+    }
+
+    it('unlocks with the cached keyring and finishes the session in the background', async () => {
+      let notified: () => void = () => {}
+      const lateSession = new Promise<void>(resolve => { notified = resolve })
+      const stopListening = onLateSession(() => notified())
+
+      await settle(loginVault(loginParams))
+      expect(getVaultKey('1')).toBeDefined()
+      expect(getVaultSession()).toBe('')
+
+      respond('late-session')
+      await settle(lateSession)
+      expect(getVaultSession()).toBe('late-session')
+      stopListening()
+    })
+
+    it('does not restore a session that arrives after locking', async () => {
+      const lateSession = vi.fn()
+      const stopListening = onLateSession(lateSession)
+
+      await settle(loginVault(loginParams))
+      await lockVaultKeys()
+
+      respond('late-session')
+      await new Promise(resolve => setImmediate(resolve))
+      expect(getVaultSession()).toBe('')
+      expect(lateSession).not.toHaveBeenCalled()
+      stopListening()
+    })
   })
 
   it('throws offline when incorrect password fails cached keyring decryption and server session fails', async () => {

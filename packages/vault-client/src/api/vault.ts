@@ -133,6 +133,12 @@ let keyHash = ''
 let session = ''
 let activeAccount = ''
 let sessionExpiryPromise: Promise<void> | null = null
+// Bumped whenever the keys are forgotten, so a request that finishes after locking can't restore a session
+let keyGeneration = 0
+const lateSessionListeners = new Set<() => void>()
+
+/** How long a login waits for the server once the cached keyring has verified the password */
+const LOGIN_SERVER_WAIT_MS = 3000
 
 export function getKeyHash(): string {
   return keyHash
@@ -195,12 +201,47 @@ function clearStoredMetadata() {
 }
 
 export async function establishSessionFromKeyHash(account: string, nextKeyHash: string) {
+  const generation = keyGeneration
+  const nextSession = await getSession(account, nextKeyHash)
+  if (generation !== keyGeneration) {
+    throw new Error('The vault was locked before the session was established')
+  }
   activeAccount = account
   keyHash = nextKeyHash
-  session = await getSession(account, nextKeyHash)
+  session = nextSession
   setApiAuthToken(session)
   await setActiveSessionToken(session)
+  if (generation !== keyGeneration) {
+    await clearActiveSessionToken()
+    return
+  }
   setApiSessionExpiredHandler(handleSessionExpired)
+}
+
+/**
+ * Calls `listener` when a login that stopped waiting for the server (see `loginVault`) later gets a
+ * session and the server's keyring. Returns a function that removes the listener.
+ */
+export function onLateSession(listener: () => void): () => void {
+  lateSessionListeners.add(listener)
+  return () => {
+    lateSessionListeners.delete(listener)
+  }
+}
+
+async function finishSessionInBackground(attempt: Promise<boolean>, account: string) {
+  const generation = keyGeneration
+  if (!await attempt || generation !== keyGeneration) return
+  try {
+    await syncKeyringFromServer(account)
+  } catch (err) {
+    console.warn('[vault] Failed to sync the keyring after a late session:', err)
+    return
+  }
+  if (generation !== keyGeneration) return
+  for (const listener of lateSessionListeners) {
+    listener()
+  }
 }
 
 export function handleSessionExpired(): Promise<void> {
@@ -333,12 +374,24 @@ export async function loginVault({
     }
   }
 
-  // Phase 2: Best-effort server session
-  try {
-    await establishSessionFromKeyHash(account, keyHash)
+  // Phase 2: Best-effort server session. Once the cached keyring has verified the password, a slow
+  // server doesn't hold up unlocking: the session is finished in the background instead.
+  const sessionAttempt = establishSessionFromKeyHash(account, keyHash).then(
+    () => true,
+    (err: unknown) => {
+      console.info('[vault] Operating in offline mode — sync deferred:', err)
+      return false
+    },
+  )
+  const sessionEstablished = passwordVerified
+    ? await Promise.race([
+      sessionAttempt,
+      new Promise<undefined>(resolve => setTimeout(resolve, LOGIN_SERVER_WAIT_MS)),
+    ])
+    : await sessionAttempt
+
+  if (sessionEstablished) {
     passwordVerified = true
-  } catch (err) {
-    console.info('[vault] Operating in offline mode — sync deferred:', err)
   }
 
   if (!passwordVerified) {
@@ -346,8 +399,13 @@ export async function loginVault({
     throw new Error('Incorrect password. Please try again.')
   }
 
+  if (sessionEstablished === undefined) {
+    console.info('[vault] The server is slow to respond; finishing the session in the background')
+    void finishSessionInBackground(sessionAttempt, account)
+  }
+
   // If session was established, sync latest keyring from server
-  const serverKeyringLoaded = session ? await syncKeyringFromServer(account) : false
+  const serverKeyringLoaded = sessionEstablished ? await syncKeyringFromServer(account) : false
 
   await writeStoredMetadata(account, { salt, iterations, saltVersion })
 
@@ -400,6 +458,7 @@ export async function storeVault(account: string, activeVersionOverride?: string
 }
 
 function clearKeyData() {
+  keyGeneration += 1
   keyring.clear()
   masterKey = null
   keyHash = ''

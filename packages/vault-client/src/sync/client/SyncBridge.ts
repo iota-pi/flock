@@ -6,6 +6,7 @@ import {
   syncKeyringFromServer,
   handleSessionExpired,
   getVaultSession,
+  onLateSession,
 } from '../../api/vault'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
@@ -42,6 +43,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   private lifecycleManager: WorkerLifecycleManager
   private keyringUpdateGuard = new SingleFlightGuard<void>()
   private pendingMissingKeyVersions = new Set<string>()
+  private stopLateSessionListener: (() => void) | null = null
 
   constructor(private readonly options: SyncBridgeOptions<TDoc, TMeta>) {
     this.sink = options.sink
@@ -92,6 +94,9 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       },
       getAccountId: options.getAccountId,
       onReady: () => {
+        this.stopLateSessionListener ??= onLateSession(() => {
+          void this.handleLateSession()
+        })
         this.domListeners.start({
           setOnlineState: async isOnline => {
             this.telemetry.setTag('online', isOnline)
@@ -124,6 +129,8 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
           this.eventProcessor.reset(true)
           this.sink.reset()
           this.domListeners.stop()
+          this.stopLateSessionListener?.()
+          this.stopLateSessionListener = null
           this.keyringUpdateGuard.clear()
           this.pendingMissingKeyVersions.clear()
         }
@@ -171,6 +178,20 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     } catch (error) {
       console.warn('[SyncBridge] resumePendingReencryption failed on reconnect:', error)
     }
+  }
+
+  /** Catches up once a login that went ahead without the server gets a session (see loginVault) */
+  private handleLateSession = async (): Promise<void> => {
+    const syncApi = this.lifecycleManager.getSyncApi()
+    if (syncApi) {
+      try {
+        await syncApi.updateAuthToken(getVaultSession() || null)
+      } catch (err) {
+        console.warn('[SyncBridge] Failed to pass the late session to the worker:', err)
+      }
+    }
+    await this.handleKeyringUpdate()
+    await this.handleReconnect()
   }
 
   private handleKeyringUpdate = async (kver?: string) => {

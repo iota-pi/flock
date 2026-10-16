@@ -93,22 +93,18 @@ self.addEventListener('notificationclick', event => {
         type: 'window',
       })
 
-      const matchingClient = clientList.find(client => 'focus' in client)
+      // The migration app doesn't handle the navigate message
+      const matchingClient = clientList.find(client => (
+        'focus' in client && !new URL(client.url).pathname.startsWith('/migrate')
+      ))
 
       if (matchingClient) {
         await matchingClient.focus()
+        // The app routes itself. A full navigation (client.navigate) would reload it and lock the vault.
         matchingClient.postMessage({
           type: 'NOTIFICATION_CLICK_NAVIGATE',
           url: targetUrl,
         })
-
-        if ('navigate' in matchingClient) {
-          try {
-            await matchingClient.navigate(absoluteUrl)
-          } catch {
-            // Ignore if browser restricts client.navigate
-          }
-        }
         return
       }
 
