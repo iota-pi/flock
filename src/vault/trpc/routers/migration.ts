@@ -4,11 +4,11 @@ import { AccountInputSchema } from '@vault/shared'
 import type { FlockAccountFields } from '../../types'
 
 /** The plaintext settings Flock stored on the account record before the encrypted settings document */
-export function readLegacySettings(accountData: VaultAccountWithAuth): Record<string, unknown> {
+function readLegacySettings(accountData: VaultAccountWithAuth): Record<string, unknown> {
   return (accountData as VaultAccountWithAuth & FlockAccountFields).metadata ?? {}
 }
 
-export async function clearLegacySettings(vault: BaseDriver, account: string): Promise<void> {
+async function clearLegacySettings(vault: BaseDriver, account: string): Promise<void> {
   await vault.updateAccountData<FlockAccountFields>({ account, metadata: {} })
 }
 

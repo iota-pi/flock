@@ -46,12 +46,6 @@ export const LEGACY_SYNCABLE_METADATA_KEYS = [
 type LegacySyncableMetadataKey = (typeof LEGACY_SYNCABLE_METADATA_KEYS)[number]
 export type LegacySyncableMetadata = Pick<z.infer<typeof accountMetadataSchema>, LegacySyncableMetadataKey>
 
-/** Input of the legacy `accounts.updateMetadata` procedure, which cached clients still call */
-export const LegacyMetadataBodySchema = z.object({
-  account: z.string().min(1),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-})
-
 export function extractLegacySyncableMetadata(
   metadata: Record<string, unknown> | undefined,
 ): LegacySyncableMetadata {
