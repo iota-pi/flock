@@ -35,6 +35,9 @@ import {
 } from '@vault/client'
 import { goToMigration, isMigrationDeferred, MIN_DATA_VERSION } from 'src/migrate/detection'
 
+/** How long to wait for the server's login parameters when this device has them cached */
+const CACHED_PARAMS_WAIT_MS = 3000
+
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -126,8 +129,22 @@ function LoginPage() {
       setError('')
       updateAuth({ account: accountInput })
       let securityParams: { salt: string; iterations?: number; saltVersion?: number }
+      const cached = readStoredMetadata()
+      const cachedParams = cached?.salt && cached.account === accountInput
+        ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion }
+        : null
       try {
-        const params = await getSecurityParams(accountInput)
+        // With the parameters cached, a slow server doesn't hold up logging in
+        const paramsRequest = getSecurityParams(accountInput)
+        paramsRequest.catch(() => undefined)
+        const params = cachedParams
+          ? await Promise.race([
+            paramsRequest,
+            new Promise<never>((_resolve, reject) => {
+              setTimeout(() => reject(new Error('The server is slow to respond')), CACHED_PARAMS_WAIT_MS)
+            }),
+          ])
+          : await paramsRequest
         // An account below the minimum level holds data this app no longer reads
         if (params.dataVersion < MIN_DATA_VERSION && !isMigrationDeferred(accountInput)) {
           goToMigration(accountInput)
@@ -136,16 +153,7 @@ function LoginPage() {
         securityParams = params
       } catch (err) {
         console.warn('[Login] getSecurityParams failed (offline or network error), checking cached metadata:', err)
-        const cached = readStoredMetadata()
-        if (cached?.salt && cached?.account === accountInput) {
-          securityParams = {
-            salt: cached.salt,
-            iterations: cached.iterations,
-            saltVersion: cached.saltVersion,
-          }
-        } else {
-          securityParams = { salt: '', iterations: undefined, saltVersion: undefined }
-        }
+        securityParams = cachedParams ?? { salt: '', iterations: undefined, saltVersion: undefined }
       }
 
       if (securityParams.salt.length) {

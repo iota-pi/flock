@@ -1,5 +1,6 @@
 // Configures the vault before any other module can use it
 import './setup'
+import '../fonts'
 import { useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
