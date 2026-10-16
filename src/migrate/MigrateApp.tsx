@@ -130,14 +130,14 @@ export default function MigrateApp() {
       <Box sx={{ py: 6 }}>
         <Paper sx={{ p: 3 }}>
           <Stack spacing={2}>
-            <Typography variant="h5" component="h1">Updating your data</Typography>
+            <Typography variant="h5" component="h1">Welcome back!</Typography>
 
             {phase.kind === 'login' && (
               <form onSubmit={handleSubmit}>
                 <Stack spacing={2}>
                   <Typography>
-                    Flock has changed how it stores your data. Log in to update it on this device.
-                    This takes a minute or two, and you&apos;ll only need to do it once.
+                    Since you last connected to Flock, some behind-the-scenes things have changed about how it stores your data. These changes have been made to improve privacy and security. Log in to update it on this device.
+                    This is a once-off process that only takes a minute or two.
                   </Typography>
                   <TextField
                     label="Account ID"
