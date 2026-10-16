@@ -1,5 +1,8 @@
 import * as Sentry from '@sentry/node'
+import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import createServer from './index'
+
+const CURRENT_PROTOCOL = { [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION) }
 
 vi.mock('@sentry/node', () => ({
   init: vi.fn(),
@@ -28,13 +31,30 @@ describe('createServer error reporting', () => {
     vi.restoreAllMocks()
   })
 
+  it('turns away writes from builds below the minimum protocol version', async () => {
+    const server = await createServer(true)
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/trpc/items.putSnapshots',
+        headers: { 'content-type': 'application/json', [PROTOCOL_VERSION_HEADER]: '0' },
+        payload: { account: 'test-account', snapshots: [] },
+      })
+
+      expect(response.statusCode).toBe(412)
+      expect(response.json().error.message).toBe('CLIENT_OUTDATED')
+    } finally {
+      await server.close()
+    }
+  })
+
   it('suppresses expected UNAUTHORIZED client errors from Sentry', async () => {
     const server = await createServer(true)
     try {
       const response = await server.inject({
         method: 'POST',
         url: '/trpc/items.putSnapshots',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...CURRENT_PROTOCOL },
         payload: { account: 'test-account', snapshots: [] },
       })
 
@@ -56,6 +76,7 @@ describe('createServer error reporting', () => {
         url: '/trpc/accounts.createAccount',
         headers: {
           'content-type': 'application/json',
+          ...CURRENT_PROTOCOL,
         },
         payload: {
           authToken: 'mock-token',

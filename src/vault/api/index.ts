@@ -12,9 +12,10 @@ import { PROTOCOL_VERSION_HEADER } from '@vault/shared'
 
 /**
  * Writes from builds below this protocol version are rejected, which makes them update. Raising it
- * retires the server code kept only for older builds (see docs/vault-extraction.md).
+ * retires the server code kept only for older builds (see docs/vault-extraction.md). At 1, builds
+ * from before the protocol header (which write unbound ciphertexts) can no longer write.
  */
-const MIN_PROTOCOL_VERSION = 0
+const MIN_PROTOCOL_VERSION = 1
 
 
 async function createServer(devMode = false) {
