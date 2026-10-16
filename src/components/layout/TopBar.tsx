@@ -244,13 +244,15 @@ function TopBar({
           </MenuItem>
         ))}
       </Menu>
+      {/* One boundary per dialog, so their chunks load in parallel and independently */}
       <Suspense fallback={null}>
         <FilterDialog
           itemType={itemType}
           onClose={handleCloseFilter}
           open={isFilterOpen}
         />
-
+      </Suspense>
+      <Suspense fallback={null}>
         <SortDialog
           onClose={handleCloseSort}
           open={isSortOpen}

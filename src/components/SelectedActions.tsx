@@ -206,6 +206,7 @@ function SelectedActions() {
         ))}
       </List>
 
+      {/* One boundary per dialog, so their chunks load in parallel and independently */}
       <Suspense fallback={null}>
         <ConfirmationDialog
           confirmColour="error"
@@ -221,13 +222,15 @@ function SelectedActions() {
             This action cannot be undone.
           </Typography>
         </ConfirmationDialog>
-
+      </Suspense>
+      <Suspense fallback={null}>
         <GroupDialog
           items={selectedStandardItems}
           onClose={handleHideGroup}
           open={showGroup}
         />
-
+      </Suspense>
+      <Suspense fallback={null}>
         <FrequencyDialog
           items={selectedStandardItems}
           onClose={handleHideFrequency}
