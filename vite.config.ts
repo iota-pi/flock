@@ -106,7 +106,9 @@ export default defineConfig({
             if (id.match(/@tanstack\/react-query/)) {
               return 'vendor-utils'
             }
-            if (id.match(/zxcvbn/)) {
+            // Only the scorer: usePasswordStrength imports the (multi-MB) dictionaries lazily, and
+            // pulling them in here would make every page that scores passwords wait for them
+            if (id.match(/@zxcvbn-ts\/core/)) {
               return 'vendor-security'
             }
             if (id.match(/lodash-es|zod|@trpc\//)) {

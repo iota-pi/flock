@@ -52,53 +52,73 @@ export default function SettingsDialogs({
   handlers,
   naturalGoal,
 }: SettingsDialogsProps) {
+  // One boundary per dialog. Under a shared boundary React requests each lazy chunk only after the
+  // previous one resolves, and no dialog can open until every chunk has loaded.
   return (
-    <Suspense fallback={null}>
-      <GoalDialog
-        naturalGoal={naturalGoal}
-        onClose={dialogs.goal.closeDialog}
-        open={dialogs.goal.isOpen}
-      />
-      <RestoreBackupDialog
-        onClose={dialogs.restore.closeDialog}
-        onConfirm={handlers.onRestoreConfirm}
-        open={dialogs.restore.isOpen}
-      />
-      <DataRecoveryDialog
-        onClose={dialogs.dataRecovery.closeDialog}
-        open={dialogs.dataRecovery.isOpen}
-      />
-      <ImportPeopleDialog
-        existingPeople={existingPeople}
-        onClose={dialogs.import.closeDialog}
-        onConfirm={handlers.onImportConfirm}
-        open={dialogs.import.isOpen}
-      />
-      <SubscriptionDialog
-        onClose={dialogs.subscription.closeDialog}
-        onSave={handlers.onSubscriptionSave}
-        open={dialogs.subscription.isOpen}
-      />
-      <DefaultFrequencyDialog
-        open={dialogs.defaultFrequency.isOpen}
-        defaults={defaultFrequencies}
-        onClose={dialogs.defaultFrequency.closeDialog}
-        onSave={handlers.onSaveDefaultFrequencies}
-      />
-      <ChangePasswordDialog
-        open={dialogs.changePassword.isOpen}
-        onClose={dialogs.changePassword.closeDialog}
-        onPasswordChanged={dialogs.reencrypt.openDialog}
-      />
-      <ReencryptVaultDialog
-        open={dialogs.reencrypt.isOpen}
-        onClose={dialogs.reencrypt.closeDialog}
-      />
-      <AutoLockDialog
-        open={dialogs.autoLock.isOpen}
-        onClose={dialogs.autoLock.closeDialog}
-        onSave={handlers.onSaveAutoLockSettings}
-      />
-    </Suspense>
+    <>
+      <Suspense fallback={null}>
+        <GoalDialog
+          naturalGoal={naturalGoal}
+          onClose={dialogs.goal.closeDialog}
+          open={dialogs.goal.isOpen}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <RestoreBackupDialog
+          onClose={dialogs.restore.closeDialog}
+          onConfirm={handlers.onRestoreConfirm}
+          open={dialogs.restore.isOpen}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <DataRecoveryDialog
+          onClose={dialogs.dataRecovery.closeDialog}
+          open={dialogs.dataRecovery.isOpen}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ImportPeopleDialog
+          existingPeople={existingPeople}
+          onClose={dialogs.import.closeDialog}
+          onConfirm={handlers.onImportConfirm}
+          open={dialogs.import.isOpen}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <SubscriptionDialog
+          onClose={dialogs.subscription.closeDialog}
+          onSave={handlers.onSubscriptionSave}
+          open={dialogs.subscription.isOpen}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <DefaultFrequencyDialog
+          open={dialogs.defaultFrequency.isOpen}
+          defaults={defaultFrequencies}
+          onClose={dialogs.defaultFrequency.closeDialog}
+          onSave={handlers.onSaveDefaultFrequencies}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ChangePasswordDialog
+          open={dialogs.changePassword.isOpen}
+          onClose={dialogs.changePassword.closeDialog}
+          onPasswordChanged={dialogs.reencrypt.openDialog}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ReencryptVaultDialog
+          open={dialogs.reencrypt.isOpen}
+          onClose={dialogs.reencrypt.closeDialog}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <AutoLockDialog
+          open={dialogs.autoLock.isOpen}
+          onClose={dialogs.autoLock.closeDialog}
+          onSave={handlers.onSaveAutoLockSettings}
+        />
+      </Suspense>
+    </>
   )
 }
