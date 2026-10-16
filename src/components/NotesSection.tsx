@@ -21,6 +21,7 @@ import {
   UnarchiveIcon,
 } from './Icons'
 import DelayedRender from './ui/DelayedRender'
+import DateLocalization from './ui/DateLocalization'
 import type { Note } from '../shared/schemas/items'
 import { ITEM_LIMITS } from '../shared/constants/limits'
 import { formatDate, generateNoteId } from '../utils'
@@ -109,13 +110,15 @@ function NoteItem({
                   }}
                 >
                   <DelayedRender delayMs={datePickerAnchor ? 0 : 100}>
-                    <DateCalendar
-                      value={new Date(note.time)}
-                      onChange={newDate => {
-                        if (onUpdateDate && newDate) onUpdateDate(note.id, newDate.getTime())
-                        setDatePickerAnchor(null)
-                      }}
-                    />
+                    <DateLocalization>
+                      <DateCalendar
+                        value={new Date(note.time)}
+                        onChange={newDate => {
+                          if (onUpdateDate && newDate) onUpdateDate(note.id, newDate.getTime())
+                          setDatePickerAnchor(null)
+                        }}
+                      />
+                    </DateLocalization>
                   </DelayedRender>
                 </Popover>
               </Box>

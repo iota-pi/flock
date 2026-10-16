@@ -2,15 +2,14 @@ import { ReactNode } from 'react'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 
-type AppProvidersProps = {
-  children: ReactNode
-}
-
-export default function AppProviders({ children }: AppProvidersProps) {
+/**
+ * Date picker setup. Wrap each picker in this rather than the whole app, so the date picker library
+ * stays out of the first page load.
+ */
+export default function DateLocalization({ children }: { children: ReactNode }) {
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       {children}
     </LocalizationProvider>
   )
 }
-
