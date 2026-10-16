@@ -3,6 +3,7 @@ import { loadAccount } from './vault/session'
 import { useAppStore } from '../state/store'
 import { useLoggedIn } from '../state/selectors'
 import useSyncCoordinatorLifecycle from './vault/useSyncCoordinatorLifecycle'
+import { prefetchSyncWorker } from './vault/prefetchSyncWorker'
 import { ensurePersistentStorage, getTrackedFetch, initVaultTrpcClient } from '@vault/client'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { useNavigate } from 'react-router'
@@ -25,6 +26,12 @@ export default function AppInitializer() {
     void ensurePersistentStorage()
     void loadAccount().catch(console.error)
   }, [setFatalError])
+
+  useEffect(() => {
+    if (!loggedIn) {
+      prefetchSyncWorker()
+    }
+  }, [loggedIn])
 
   useEffect(() => {
     if (loggedIn && account) {
