@@ -7,7 +7,7 @@ import {
 import type { WebPushSubscription } from '../types'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { FLOCK_TABLES } from '../flockDriver'
-import type { LegacyReminderMessage, ReminderMessage } from './messages'
+import type { ReminderMessage } from './messages'
 import { sendPushNotification } from './webpush'
 
 type SqsRecord = {
@@ -55,7 +55,7 @@ const REMINDER_PAYLOAD = {
   badge: '/badge-96x96.png',
 }
 
-async function sendReminder(accountId: string, subscription: WebPushSubscription, topic?: string) {
+export async function processMessage({ accountId, subscription, topic }: ReminderMessage) {
   try {
     await sendPushNotification(subscription, REMINDER_PAYLOAD, { topic })
   } catch (error) {
@@ -67,34 +67,6 @@ async function sendReminder(accountId: string, subscription: WebPushSubscription
   }
 }
 
-export async function processMessage(message: ReminderMessage | LegacyReminderMessage) {
-  if ('subscription' in message) {
-    await sendReminder(message.accountId, message.subscription, message.topic)
-    return
-  }
-
-  // Legacy messages cover every subscription of an account. Attempt them all (in sequence, since
-  // removeSubscription is a read-modify-write) before failing so one bad endpoint skips none.
-  const failures: unknown[] = []
-  for (const subscription of message.pushSubscriptions) {
-    try {
-      await sendReminder(message.accountId, subscription)
-    } catch (error) {
-      failures.push(error)
-    }
-  }
-
-  if (failures.length === 1) {
-    throw failures[0]
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(
-      failures,
-      `${failures.length} push subscriptions failed for account ${message.accountId}`,
-    )
-  }
-}
-
 /**
  * Reports the records that failed, so SQS retries only those rather than the whole batch (which
  * would send duplicate reminders to the subscriptions that were already notified).
@@ -103,7 +75,7 @@ export const handler = async (event: SqsEvent): Promise<SqsBatchResponse> => {
   const batchItemFailures: SqsBatchResponse['batchItemFailures'] = []
   for (const record of event.Records) {
     try {
-      const message = JSON.parse(record.body) as ReminderMessage | LegacyReminderMessage
+      const message = JSON.parse(record.body) as ReminderMessage
       await processMessage(message)
     } catch (error) {
       console.error(`Failed to process push notification message ${record.messageId}`, error)

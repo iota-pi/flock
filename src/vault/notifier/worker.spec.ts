@@ -77,63 +77,6 @@ describe('notifier worker', () => {
     await expect(processMessage(reminder('sub-err'))).rejects.toEqual({ statusCode: 500 })
   })
 
-  describe('legacy per-account messages', () => {
-    const legacy = (...endpoints: string[]) => ({
-      accountId: 'user-1',
-      pushSubscriptions: endpoints.map(endpoint => ({ endpoint: `https://push.example.com/${endpoint}`, keys })),
-    })
-
-    it('sends to every subscription without a topic', async () => {
-      const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
-      mockSend.mockResolvedValue(undefined)
-
-      const message = legacy('sub-1', 'sub-2')
-      await processMessage(message)
-
-      expect(mockSend).toHaveBeenCalledTimes(2)
-      expect(mockSend).toHaveBeenCalledWith(message.pushSubscriptions[1], expect.anything(), { topic: undefined })
-    })
-
-    it('attempts every subscription when one fails, then fails the message', async () => {
-      const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
-      mockSend
-        .mockRejectedValueOnce({ statusCode: 500 })
-        .mockResolvedValueOnce(undefined)
-
-      const message = legacy('sub-err', 'sub-ok')
-      await expect(processMessage(message)).rejects.toEqual({ statusCode: 500 })
-
-      expect(mockSend).toHaveBeenCalledTimes(2)
-      expect(mockSend).toHaveBeenLastCalledWith(message.pushSubscriptions[1], expect.anything(), expect.anything())
-    })
-
-    it('combines several failures into an AggregateError', async () => {
-      const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
-      mockSend
-        .mockRejectedValueOnce({ statusCode: 500 })
-        .mockRejectedValueOnce({ statusCode: 410 })
-        .mockRejectedValueOnce({ statusCode: 429 })
-
-      const error = await processMessage(legacy('sub-err-1', 'expired-sub', 'sub-err-2')).catch((e: unknown) => e)
-
-      expect(error).toBeInstanceOf(AggregateError)
-      expect((error as AggregateError).errors).toEqual([{ statusCode: 500 }, { statusCode: 429 }])
-      expect(mockSend).toHaveBeenCalledTimes(3)
-    })
-
-    it('does not fail the message when every failure is a 404 or 410', async () => {
-      const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
-      mockSend
-        .mockRejectedValueOnce({ statusCode: 404 })
-        .mockRejectedValueOnce({ statusCode: 410 })
-        .mockResolvedValueOnce(undefined)
-
-      await expect(processMessage(legacy('expired-sub', 'gone-sub', 'valid-sub'))).resolves.toBeUndefined()
-
-      expect(mockSend).toHaveBeenCalledTimes(3)
-    })
-  })
-
   it('handler parses SQS records and invokes processMessage', async () => {
     const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
     mockSend.mockResolvedValue(undefined)
