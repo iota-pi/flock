@@ -4,26 +4,33 @@ on:
   push:
     branches: [master]
 
+# One deploy at a time, so Cypress always tests the build its run deployed to staging
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  # 1. Deploy to Staging
+  # 1. Test the merged commit
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yml
+
+  # 2. Deploy to Staging
   deploy-staging:
     name: Deploy to Staging
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    concurrency:
-      group: deploy-staging
-      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     environment: staging
     steps:
       - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - run: yarn install --immutable
+      - uses: ./.github/actions/setup
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -35,7 +42,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-  # 2. Run E2E Tests against Staging
+  # 3. Run E2E Tests against Staging
   e2e-staging:
     name: Cypress on Staging
     needs: deploy-staging
@@ -43,9 +50,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - run: corepack enable
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - uses: ./.github/actions/setup
+        with:
+          cypress-binary: 'true'
       - uses: cypress-io/github-action@v7
         with:
+          install: false
           browser: chrome
         env:
           CYPRESS_BASE_URL: https://flock-staging.cross-code.org
@@ -60,26 +74,19 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-  # 3. Deploy to Production
+  # 4. Deploy to Production
   deploy-production:
     name: Deploy to Production
     needs: e2e-staging
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     environment: production
     steps:
       - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - run: yarn install --immutable
+      - uses: ./.github/actions/setup
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
