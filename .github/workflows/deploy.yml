@@ -4,26 +4,27 @@ on:
   push:
     branches: [master]
 
+# One deploy at a time, so Cypress always tests the build its run deployed to staging
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   # 1. Deploy to Staging
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    concurrency:
-      group: deploy-staging
-      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     environment: staging
     steps:
       - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - run: yarn install --immutable
+      - uses: ./.github/actions/setup
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -43,9 +44,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - run: corepack enable
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - uses: ./.github/actions/setup
+        with:
+          cypress-binary: 'true'
       - uses: cypress-io/github-action@v7
         with:
+          install: false
           browser: chrome
         env:
           CYPRESS_BASE_URL: https://flock-staging.cross-code.org
@@ -66,20 +74,13 @@ jobs:
     needs: e2e-staging
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     environment: production
     steps:
       - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - run: yarn install --immutable
+      - uses: ./.github/actions/setup
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:

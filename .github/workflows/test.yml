@@ -7,9 +7,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    name: Test & Lint
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -19,12 +22,7 @@ jobs:
           - 8000:8000
     steps:
       - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-
-      - run: yarn install --immutable
+      - uses: ./.github/actions/setup
 
       - name: Initialise database
         run: yarn initdb
@@ -34,8 +32,31 @@ jobs:
       - name: Run Tests
         run: yarn test run
 
-      - name: Type Check
-        run: yarn typecheck
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: yarn typecheck
 
-      - name: Run Lint
-        run: yarn lint
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: yarn lint
+
+  # The master ruleset requires a check with this name
+  all:
+    name: Test & Lint
+    if: ${{ !cancelled() }}
+    needs: [test, typecheck, lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: exit 1
