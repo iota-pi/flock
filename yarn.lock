@@ -7359,6 +7359,9 @@ __metadata:
     workbox-strategies: "npm:^7.4.0"
     zod: "npm:^4.3.6"
     zustand: "npm:^5.0.12"
+  dependenciesMeta:
+    cypress:
+      built: true
   languageName: unknown
   linkType: soft
 

@@ -121,5 +121,10 @@
     "workbox-routing": "^7.4.1",
     "workbox-strategies": "^7.4.0"
   },
+  "dependenciesMeta": {
+    "cypress": {
+      "built": true
+    }
+  },
   "packageManager": "yarn@4.15.0"
 }
