@@ -459,11 +459,20 @@ export class SyncWorker implements SyncApi {
 
       const url = toAutomergeUrlFromItemId(id)
       fireAndForget(
-        repo.find<RepoDoc>(url).then(handle => {
-          if (!this.subscribedIds.has(id)) return
-          const currentHandle = (repo.handles?.[handle.documentId] as DocHandle<RepoDoc> | undefined) ?? handle
-          this.bindItemHandle(id, currentHandle)
-        }),
+        repo.find<RepoDoc>(url).then(
+          handle => {
+            if (!this.subscribedIds.has(id)) return
+            const currentHandle = (repo.handles?.[handle.documentId] as DocHandle<RepoDoc> | undefined) ?? handle
+            this.bindItemHandle(id, currentHandle)
+          },
+          (err: unknown) => {
+            // Forgotten so a later subscribe tries again, unless a handle has been bound since
+            if (!this.changeListenersByItemId.has(id)) {
+              this.subscribedIds.delete(id)
+            }
+            throw err
+          },
+        ),
         'SyncWorker:subscribeToItems:find',
       )
     }

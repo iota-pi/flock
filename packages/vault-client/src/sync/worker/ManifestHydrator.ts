@@ -136,6 +136,7 @@ export class ManifestHydrator {
     let hasMigrationRequired = false
 
     const hydrationConcurrency = this.deps.hydrationConcurrency ?? SYNC_BATCH_SIZES.hydrationConcurrency
+    const manifestById = new Map(params.manifest.map(entry => [entry.itemId, entry]))
 
     const results = await mapWithConcurrency(
       validFetchedItems,
@@ -145,7 +146,7 @@ export class ManifestHydrator {
         try {
           const value = await this.hydrateRemoteItem(
             item,
-            params.manifest,
+            manifestById,
             params.knownSet,
             params.tombstoneSet,
             params.serverTime,
@@ -238,16 +239,19 @@ export class ManifestHydrator {
     }
   }
 
+  /** Batches pass `manifest` as a map by item ID, so each item doesn't scan the whole manifest */
   async hydrateRemoteItem(
     item: VaultItem,
-    manifest: ManifestEntry[],
+    manifest: ManifestEntry[] | ReadonlyMap<ItemId, ManifestEntry>,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId> = new Set(),
     serverTimeFallback: number = Date.now(),
   ): Promise<HydrateItemResult> {
     const itemId = item.item as ItemId
     try {
-      const manifestEntry = manifest.find(entry => entry.itemId === item.item)
+      const manifestEntry = Array.isArray(manifest)
+        ? manifest.find(entry => entry.itemId === itemId)
+        : manifest.get(itemId)
       const serverTime = manifestEntry?.modifiedAt ?? serverTimeFallback
       const serverVersion = (manifestEntry?.version && manifestEntry.version > 0)
         ? manifestEntry.version

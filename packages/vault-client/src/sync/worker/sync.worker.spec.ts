@@ -380,6 +380,26 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
   })
 
+  it('subscribes to an item again after finding its document failed', async () => {
+    const handle = {
+      documentId: 'doc-item-retry',
+      on: vi.fn(),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({ id: 'item-retry', name: 'Item' }),
+    }
+    const worker = new SyncWorker(workerConfig)
+    await worker.initRepo('account-1', 'vault-key-1')
+
+    mockRepoFind.mockRejectedValueOnce(new Error('Document unavailable'))
+    worker.subscribeToItems(['item-retry' as any])
+    await vi.waitFor(() => expect((worker as any).subscribedIds.has('item-retry')).toBe(false))
+
+    mockRepoFind.mockResolvedValueOnce(handle)
+    worker.subscribeToItems(['item-retry' as any])
+
+    await vi.waitFor(() => expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function)))
+  })
+
   it('routes settings document changes to accountSettings instead of the item stream', async () => {
     const handle = {
       documentId: 'doc-settings',

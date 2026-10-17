@@ -172,6 +172,14 @@ export async function reloadKeyringFromStorage(): Promise<{
   }
 }
 
+/** The password-derived key that wraps the keyring, which is set whenever the keyring has keys */
+function requireMasterKey(): CryptoKey {
+  if (!masterKey) {
+    throw new VaultNotInitializedError()
+  }
+  return masterKey
+}
+
 export function getVaultKey(kver?: string): CryptoKey {
   return keyring.getKey(kver)
 }
@@ -313,7 +321,7 @@ export async function initialiseVault({
 
 export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Promise<void> {
   const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
-  const decryptionKey = masterKey || getVaultKey('1')
+  const decryptionKey = requireMasterKey()
   const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
   const keyringData = JSON.parse(plaintext)
   if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
@@ -450,7 +458,7 @@ export async function storeVault(account: string, activeVersionOverride?: string
     saltVersion: meta?.saltVersion,
   })
   const plaintext = JSON.stringify(await keyring.export(effectiveVersion))
-  const encryptionKey = masterKey || getVaultKey('1')
+  const encryptionKey = requireMasterKey()
   const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
   const encryptedStr = JSON.stringify(encrypted)
 
@@ -617,7 +625,7 @@ export async function rotateVaultKey(account: string): Promise<void> {
 }
 
 export async function enableBiometrics(account: string): Promise<void> {
-  const currentKey = masterKey || getVaultKey('1')
+  const currentKey = requireMasterKey()
 
   const { credentialId, prfSalt, prfOutput } = await registerPrfCredential(account)
 

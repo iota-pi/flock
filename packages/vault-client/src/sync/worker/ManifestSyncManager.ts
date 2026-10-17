@@ -139,15 +139,11 @@ export class ManifestSyncManager implements LifecycleAware {
     signal: AbortSignal,
     isAlive: () => boolean,
     hasKnownItems: boolean,
-    outerSignal?: AbortSignal,
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number } | null> {
     checkAlive(signal, isAlive)
 
     try {
-      const manifestResponse = await this.apiClient.fetchManifest(
-        { account: this.deps.accountId },
-        outerSignal ? { signal } : undefined,
-      )
+      const manifestResponse = await this.apiClient.fetchManifest({ account: this.deps.accountId }, { signal })
       return {
         manifest: manifestResponse.manifest,
         serverTime: manifestResponse.serverTime,
@@ -275,13 +271,14 @@ export class ManifestSyncManager implements LifecycleAware {
         return { added: [], success: true }
       }
 
-      const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems, outerSignal)
+      // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
+      await this.flushPendingSnapshotsSafely()
+      checkAlive(signal, isAlive)
+
+      const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems)
       if (!remoteData) {
         return { added: [], success: false }
       }
-      checkAlive(signal, isAlive)
-
-      await this.flushPendingSnapshotsSafely()
       checkAlive(signal, isAlive)
 
       const localState = await this.collectLocalSyncState(signal, isAlive)
@@ -315,7 +312,7 @@ export class ManifestSyncManager implements LifecycleAware {
             knownSet: deltas.knownSet,
             tombstoneSet: deltas.tombstoneSet,
           },
-          outerSignal ? signal : undefined,
+          signal,
         )
         added = hydrationResult.added
         hasFailures = hydrationResult.hasFailures
