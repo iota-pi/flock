@@ -145,6 +145,17 @@ describe('AutomergeIndexManager', () => {
     expect(await manager.listAutomergeItemIds()).toEqual(['item-b', 'item-a'])
   })
 
+  it('leaves tombstoned IDs alone when adding with skipTombstoned', async () => {
+    const manager = new AutomergeIndexManager(accountId, indexStore)
+
+    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId])
+    await manager.removeAutomergeItemIdsFromIndex(['item-a' as ItemId])
+    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId, 'item-new' as ItemId], { skipTombstoned: true })
+
+    expect(await manager.listAutomergeTombstoneIds()).toEqual(['item-a'])
+    expect(await manager.listAutomergeItemIds()).toEqual(['item-new'])
+  })
+
   it('should update metadata and notify listener', async () => {
     const onMetadataUpdated = vi.fn()
     const manager = new AutomergeIndexManager(accountId, indexStore, undefined, onMetadataUpdated)

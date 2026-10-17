@@ -329,8 +329,10 @@ export class SyncWorker implements SyncApi {
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(accountId, itemIds => {
       this.subscribeToItems(itemIds)
       if (this._context) {
+        // Pings also name deleted items, which mustn't come back. A deliberate restore reaches this
+        // tab as a doc change, which re-indexes the item.
         fireAndForget(
-          this._context.indexManager.addAutomergeItemIdsToIndex(itemIds),
+          this._context.indexManager.addAutomergeItemIdsToIndex(itemIds, { skipTombstoned: true }),
           'SyncWorker:addAutomergeItemIdsToIndex',
         )
       }

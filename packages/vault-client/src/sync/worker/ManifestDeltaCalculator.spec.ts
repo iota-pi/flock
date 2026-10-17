@@ -218,6 +218,31 @@ describe('ManifestDeltaCalculator', () => {
       expect(result.upstreamIds).toEqual(['item-offline-created'])
     })
 
+    it('does not push quarantined items upstream unless forced', () => {
+      const params = {
+        manifest: [
+          { itemId: 'item-quarantined-dirty' as ItemId, version: 3, modifiedAt: 1000 },
+        ],
+        knownItemIds: ['item-quarantined-new' as ItemId, 'item-quarantined-dirty' as ItemId],
+        tombstoneItemIds: [],
+        localLastModifiedMap: new Map(),
+        quarantinedMap: new Map([
+          ['item-quarantined-new' as ItemId, 2000],
+          ['item-quarantined-dirty' as ItemId, 2000],
+        ]),
+        localVersionsMap: new Map([
+          ['item-quarantined-new' as ItemId, { baseVersion: 0, isDirty: true }],
+          ['item-quarantined-dirty' as ItemId, { baseVersion: 3, isDirty: true }],
+        ]),
+      }
+
+      expect(ManifestDeltaCalculator.calculateSyncDeltas({ ...params, force: false }).upstreamIds).toEqual([])
+      // A forced sync retries them: the one on the server is fetched, the other is pushed
+      const forced = ManifestDeltaCalculator.calculateSyncDeltas({ ...params, force: true })
+      expect(forced.missingIds).toEqual(['item-quarantined-dirty'])
+      expect(forced.upstreamIds).toEqual(['item-quarantined-new'])
+    })
+
     it('tombstones local active item when server manifest marks it deleted and records serverVersion', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [

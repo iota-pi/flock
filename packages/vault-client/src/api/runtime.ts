@@ -5,7 +5,7 @@ export function setApiAuthToken(nextAuthToken: string) {
   authToken = nextAuthToken
 }
 
-export function setApiSessionExpiredHandler(handler: () => void) {
+export function setApiSessionExpiredHandler(handler: (() => void) | null) {
   onSessionExpired = handler
 }
 

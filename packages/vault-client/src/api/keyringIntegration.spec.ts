@@ -22,6 +22,7 @@ import {
   getVaultSession,
 } from './vault'
 import { Keyring } from './Keyring'
+import { getSessionExpiredHandler } from './runtime'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
 import { clearActiveSessionToken } from '../sync/shared/workerAuthStore'
 
@@ -279,6 +280,21 @@ describe('Vault Keyring Integration', () => {
 
     // active session token should be cleared
     expect(clearActiveSessionToken).toHaveBeenCalled()
+  })
+
+  it('removes the session expired handler when locking', async () => {
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: SALT,
+      saltVersion: 1,
+      iterations: 1000,
+    })
+    expect(getSessionExpiredHandler()).not.toBeNull()
+
+    await lockVaultKeys()
+
+    expect(getSessionExpiredHandler()).toBeNull()
   })
 
   it('handleSessionExpired silently re-establishes session when account and keyHash are available', async () => {
