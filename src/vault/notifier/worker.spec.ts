@@ -89,6 +89,70 @@ describe('notifier worker', () => {
     await expect(processMessage(message)).rejects.toEqual({ statusCode: 500 })
   })
 
+  it('attempts every subscription when one fails, then fails the message', async () => {
+    const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
+    mockSend
+      .mockRejectedValueOnce({ statusCode: 500 })
+      .mockResolvedValueOnce(undefined)
+
+    const message = {
+      accountId: 'user-1',
+      pushSubscriptions: [
+        { endpoint: 'https://push.example.com/sub-err', keys: { auth: 'a', p256dh: 'p' } },
+        { endpoint: 'https://push.example.com/sub-ok', keys: { auth: 'a', p256dh: 'p' } },
+      ],
+    }
+
+    await expect(processMessage(message)).rejects.toEqual({ statusCode: 500 })
+
+    expect(mockSend).toHaveBeenCalledTimes(2)
+    expect(mockSend).toHaveBeenLastCalledWith(message.pushSubscriptions[1], expect.anything())
+  })
+
+  it('combines several failures into an AggregateError', async () => {
+    const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
+    mockSend
+      .mockRejectedValueOnce({ statusCode: 500 })
+      .mockRejectedValueOnce({ statusCode: 410 })
+      .mockRejectedValueOnce({ statusCode: 429 })
+
+    const message = {
+      accountId: 'user-1',
+      pushSubscriptions: [
+        { endpoint: 'https://push.example.com/sub-err-1', keys: { auth: 'a', p256dh: 'p' } },
+        { endpoint: 'https://push.example.com/expired-sub', keys: { auth: 'a', p256dh: 'p' } },
+        { endpoint: 'https://push.example.com/sub-err-2', keys: { auth: 'a', p256dh: 'p' } },
+      ],
+    }
+
+    const error = await processMessage(message).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(AggregateError)
+    expect((error as AggregateError).errors).toEqual([{ statusCode: 500 }, { statusCode: 429 }])
+    expect(mockSend).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not fail the message when every failure is a 404 or 410', async () => {
+    const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
+    mockSend
+      .mockRejectedValueOnce({ statusCode: 404 })
+      .mockRejectedValueOnce({ statusCode: 410 })
+      .mockResolvedValueOnce(undefined)
+
+    const message = {
+      accountId: 'user-1',
+      pushSubscriptions: [
+        { endpoint: 'https://push.example.com/expired-sub', keys: { auth: 'a', p256dh: 'p' } },
+        { endpoint: 'https://push.example.com/gone-sub', keys: { auth: 'a', p256dh: 'p' } },
+        { endpoint: 'https://push.example.com/valid-sub', keys: { auth: 'a', p256dh: 'p' } },
+      ],
+    }
+
+    await expect(processMessage(message)).resolves.toBeUndefined()
+
+    expect(mockSend).toHaveBeenCalledTimes(3)
+  })
+
   it('handler parses SQS records and invokes processMessage', async () => {
     const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
     mockSend.mockResolvedValue(undefined)
