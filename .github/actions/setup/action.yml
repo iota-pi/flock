@@ -18,4 +18,4 @@ runs:
     - run: yarn install --immutable
       shell: bash
       env:
-        CYPRESS_INSTALL_BINARY: ${{ inputs.cypress-binary == 'true' && '' || '0' }}
+        CYPRESS_INSTALL_BINARY: ${{ inputs.cypress-binary != 'true' && '0' || '' }}
