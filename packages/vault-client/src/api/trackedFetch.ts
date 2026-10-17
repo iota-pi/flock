@@ -55,7 +55,8 @@ function hasJsonErrorBody(response: Response): boolean {
 
 /**
  * A fetch for the tRPC clients that reports each request's start and end, and whether it failed in
- * a way worth telling the user about. Calls the session-expired handler on 403.
+ * a way worth telling the user about. Calls the session-expired handler when the server rejects
+ * the session token a request carried (401 or 403).
  *
  * Failed responses with a JSON body are returned for tRPC to turn into an error with the server's
  * code and message. Other failed responses throw `ApiHttpError`.
@@ -71,9 +72,9 @@ export function getTrackedFetch(
     start()
 
     let response: Response
+    const authToken = getApiAuthToken()
     try {
       const headers = new Headers(init?.headers)
-      const authToken = getApiAuthToken()
       if (authToken) {
         headers.set('Authorization', `Basic ${authToken}`)
       }
@@ -87,8 +88,10 @@ export function getTrackedFetch(
       throw error
     }
 
+    // The server rejects an expired or revoked session with 401. Requests without a token (such as
+    // logging in) can also get 401, which says nothing about the session.
     const expiryHandler = getSessionExpiredHandler()
-    if (response.status === 403 && expiryHandler) {
+    if (authToken && (response.status === 401 || response.status === 403) && expiryHandler) {
       expiryHandler()
     }
 

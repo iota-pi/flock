@@ -218,6 +218,18 @@ describe('biometric unlock with a stale key', () => {
     expect(readCachedKeyring()).toBeNull()
   })
 
+  it('refuses to unlock another account, keeping this one\'s biometric unlock', async () => {
+    vi.mocked(getSession).mockRejectedValue(
+      new TRPCClientError('Server request failed (401)', { cause: new ApiHttpError({ status: 401, url: '/trpc' }) }),
+    )
+
+    await expect(unlockWithBiometrics('other-account')).rejects.toThrow('belongs to another account')
+
+    expect(getSession).not.toHaveBeenCalled()
+    expect(hasBiometricData()).toBe(true)
+    expect(readCachedKeyring()).not.toBeNull()
+  })
+
   it('unlocks offline when the server is unreachable', async () => {
     vi.mocked(getSession).mockRejectedValue(new TypeError('Failed to fetch'))
 

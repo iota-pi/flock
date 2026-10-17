@@ -199,20 +199,26 @@ export class AutomergeIndexManager implements LifecycleAware {
     })
   }
 
-  async addAutomergeItemIdsToIndex(itemIds: ItemId[]): Promise<void> {
+  /**
+   * Adds items to the index, taking them out of the tombstones unless `skipTombstoned` is set. Set it
+   * when the IDs don't come from a live local doc (such as another tab's sync ping, which can name
+   * deleted items); a tombstoned ID is then left as it is.
+   */
+  async addAutomergeItemIdsToIndex(itemIds: ItemId[], options?: { skipTombstoned?: boolean }): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       const current = new Set(doc.itemIds || [])
+      const tombstoneSet = new Set(doc.tombstoneIds || [])
+      const idsToAdd = options?.skipTombstoned ? itemIds.filter(id => !tombstoneSet.has(id)) : itemIds
       let updated = false
-      for (const id of itemIds) {
+      for (const id of idsToAdd) {
         if (!current.has(id)) {
           current.add(id)
           updated = true
         }
       }
-      const tombstoneSet = new Set(doc.tombstoneIds || [])
       let tombstoneUpdated = false
-      for (const id of itemIds) {
+      for (const id of idsToAdd) {
         if (tombstoneSet.has(id)) {
           tombstoneSet.delete(id)
           tombstoneUpdated = true

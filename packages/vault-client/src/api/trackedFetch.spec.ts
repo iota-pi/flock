@@ -47,6 +47,7 @@ describe('trackedFetch', () => {
   it('suppresses server error message on 403 Forbidden (session expired)', async () => {
     const expiredHandler = vi.fn()
     vi.spyOn(runtime, 'getSessionExpiredHandler').mockReturnValue(expiredHandler)
+    vi.spyOn(runtime, 'getApiAuthToken').mockReturnValue('session-token')
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 }))
 
     const trackedFetch = getTrackedFetch(startMock, stopMock)
@@ -117,17 +118,29 @@ describe('trackedFetch', () => {
       expect(stopMock).toHaveBeenCalledWith('A request to the server failed. Please retry later.')
     })
 
-    it('still calls the session expired handler on 403 without reporting it', async () => {
+    it.each([401, 403])('calls the session expired handler on %i for a request with a session token', async status => {
       const expiredHandler = vi.fn()
       vi.spyOn(runtime, 'getSessionExpiredHandler').mockReturnValue(expiredHandler)
-      global.fetch = vi.fn().mockResolvedValue(jsonResponse(403))
+      vi.spyOn(runtime, 'getApiAuthToken').mockReturnValue('session-token')
+      global.fetch = vi.fn().mockResolvedValue(jsonResponse(status))
 
       const trackedFetch = getTrackedFetch(startMock, stopMock)
       const response = await trackedFetch('https://example.com/trpc/items.get')
 
-      expect(response.status).toBe(403)
+      expect(response.status).toBe(status)
       expect(expiredHandler).toHaveBeenCalledTimes(1)
       expect(stopMock).toHaveBeenCalledWith()
+    })
+
+    it('does not call the session expired handler for a request without a session token', async () => {
+      const expiredHandler = vi.fn()
+      vi.spyOn(runtime, 'getSessionExpiredHandler').mockReturnValue(expiredHandler)
+      global.fetch = vi.fn().mockResolvedValue(jsonResponse(401))
+
+      const trackedFetch = getTrackedFetch(startMock, stopMock)
+      await trackedFetch('https://example.com/trpc/accounts.login')
+
+      expect(expiredHandler).not.toHaveBeenCalled()
     })
   })
 })

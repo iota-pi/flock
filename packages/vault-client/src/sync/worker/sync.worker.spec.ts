@@ -684,7 +684,8 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       realtimeListeners[realtimeListeners.length - 1](['item-1'])
 
       const ctx = (worker as any)._context
-      expect(ctx.indexManager.addAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-1'])
+      // Pings can name deleted items, so they must not take IDs out of the tombstones
+      expect(ctx.indexManager.addAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-1'], { skipTombstoned: true })
       expect(mockRecoveryManagerResolveQuarantines).not.toHaveBeenCalled()
       expect(mockRecoveryManagerUnquarantine).not.toHaveBeenCalled()
     })

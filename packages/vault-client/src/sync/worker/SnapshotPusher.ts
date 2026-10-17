@@ -437,11 +437,27 @@ export class SnapshotPusher {
       this.retryTimeoutId = null
     }
 
-    return this.pushGuard.run(() => this.executePush(), {
-      onCoalesce: () => {
-        this.snapshotPushPending = true
+    return this.runPush()
+  }
+
+  private async runPush(): Promise<SnapshotPushResult> {
+    // Only set when this call ran the push rather than coalescing onto one
+    let settledSuccess: boolean | null = null
+    const result = await this.pushGuard.run(
+      () => this.executePush(success => {
+        settledSuccess = success
+      }),
+      {
+        onCoalesce: () => {
+          this.snapshotPushPending = true
+        },
       },
-    })
+    )
+    // Scheduled once the guard has cleared, or a follow-up push would coalesce onto the finishing one
+    if (settledSuccess !== null) {
+      this.handlePostPushScheduling(settledSuccess)
+    }
+    return result
   }
 
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
@@ -452,7 +468,7 @@ export class SnapshotPusher {
     return { persisted: res.persisted, total: res.total }
   }
 
-  private async executePush(): Promise<SnapshotPushResult> {
+  private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushResult> {
     const abortController = new AbortController()
     this.pushAbortController = abortController
     const { signal } = abortController
@@ -503,20 +519,20 @@ export class SnapshotPusher {
       if (this.pushAbortController === abortController) {
         this.pushAbortController = null
       }
-      this.handlePostPushScheduling(success)
+      onSettled(success)
     }
   }
 
   private handlePostPushScheduling(success: boolean): void {
     const hasDirtyDocs = this.tracker.dirtyCount > 0
+    const wasPending = this.snapshotPushPending
+    this.snapshotPushPending = false
 
     if (!success && hasDirtyDocs && this.tracker.isOperational) {
       this.scheduleRetry()
-    } else if (this.snapshotPushPending && hasDirtyDocs && this.tracker.isOperational) {
+    } else if (wasPending && hasDirtyDocs && this.tracker.isOperational) {
       fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:handlePostPushScheduling')
     }
-
-    this.snapshotPushPending = false
   }
 
   async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {

@@ -471,6 +471,7 @@ function clearKeyData() {
   session = ''
   activeAccount = ''
   setApiAuthToken('')
+  setApiSessionExpiredHandler(null)
 }
 
 /**
@@ -670,6 +671,11 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
   const data = readBiometricData()
   if (!data) {
     throw new Error('No biometric credential saved on this device')
+  }
+  // Checked first: the server would reject the other account's key, which would read as a stale key
+  // and clear this account's biometric unlock
+  if (data.account && data.account !== account) {
+    throw new Error('The biometric credential on this device belongs to another account')
   }
 
   const prfOutput = await getPrfOutput(data.credentialId, data.prfSalt)

@@ -241,6 +241,31 @@ describe('SnapshotPusher', () => {
     expect(pusher.retryTimeoutId).toBeNull()
   })
 
+  it('runs a follow-up push requested while a push was in flight', async () => {
+    let releaseFirstPut!: () => void
+    mockApiClient.putSnapshots.mockImplementationOnce(() => new Promise(resolve => {
+      releaseFirstPut = () => resolve({ success: true, persisted: 1, results: [{ itemId: 'item-1', version: 2 }] })
+    }))
+
+    const firstPush = pusher.pushSnapshots()
+    await vi.waitFor(() => expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1))
+    const coalesced = pusher.triggerSnapshotPush()
+    releaseFirstPut()
+    await firstPush
+    await coalesced
+
+    await vi.waitFor(() => expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(2))
+    expect(pusher.snapshotPushPending).toBe(false)
+  })
+
+  it('does not schedule a retry when a push is aborted', async () => {
+    mockApiClient.putSnapshots.mockImplementationOnce(() => Promise.reject(new DOMException('Aborted', 'AbortError')))
+
+    await pusher.pushSnapshots()
+
+    expect(pusher.retryTimeoutId).toBeNull()
+  })
+
   it('handles push gracefully if no auth token is present (AuthError)', async () => {
     mockApiClient.putSnapshots.mockRejectedValue(new AuthError('No active session token available'))
 

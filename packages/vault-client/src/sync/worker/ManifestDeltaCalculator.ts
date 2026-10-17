@@ -39,6 +39,8 @@ export interface CalculateUpstreamDeltasParams {
   serverManifestIds: Set<ItemId>
   serverDeletedSet: Set<ItemId>
   localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
+  quarantinedMap: Map<ItemId, number>
+  force: boolean
 }
 
 export class ManifestDeltaCalculator {
@@ -107,6 +109,9 @@ export class ManifestDeltaCalculator {
     const upstreamIds: ItemId[] = []
     for (const localId of params.allLocalIds) {
       if (params.missingSet.has(localId) || params.locallyTombstonedSet.has(localId)) continue
+      // Quarantined items wait for manual recovery. Pushing them again would just fail and
+      // quarantine them again on every manifest sync.
+      if (!params.force && params.quarantinedMap.has(localId)) continue
 
       if (!params.serverManifestIds.has(localId)) {
         // Item exists locally but is completely missing from server manifest
@@ -163,6 +168,8 @@ export class ManifestDeltaCalculator {
       serverManifestIds,
       serverDeletedSet,
       localVersionsMap: params.localVersionsMap,
+      quarantinedMap: params.quarantinedMap,
+      force: params.force,
     })
 
     return {
