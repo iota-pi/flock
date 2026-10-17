@@ -705,6 +705,33 @@ describe('SyncBridge', () => {
     vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
   })
 
+  it('keeps a key version the server sync failed to fetch, retrying it at the next keyring update', async () => {
+    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+    vi.mocked(hasVaultKey).mockReturnValue(false)
+    vi.mocked(syncKeyringFromServer).mockRejectedValueOnce(new Error('Network offline'))
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'local-keyring' })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await SyncBridge.initialize('test-account')
+
+    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '10' })
+    await vi.waitFor(() => {
+      expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('local-keyring')
+    })
+
+    // A later keyring update without a version still looks for it
+    vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(true)
+    window.dispatchEvent(new StorageEvent('storage', { key: 'test-vault-keyring-cache' }))
+    await vi.waitFor(() => {
+      expect(syncKeyringFromServer).toHaveBeenCalledTimes(2)
+    })
+
+    vi.mocked(hasVaultKey).mockReturnValue(true)
+    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
+    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
+  })
+
   it('updates syncStatus to degraded and sets syncWarning when snapshotFailed event is received', async () => {
     await SyncBridge.initialize('test-account')
 

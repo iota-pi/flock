@@ -51,6 +51,7 @@ vi.mock('../shared/manualRecoveryStore', () => ({
 const mockHasApiAuthToken = vi.fn()
 vi.mock('../../api/runtime', () => ({
   hasApiAuthToken: () => mockHasApiAuthToken(),
+  getApiAuthToken: () => (mockHasApiAuthToken() ? 'session-token' : ''),
 }))
 
 describe('ManifestSyncManager', () => {
@@ -164,7 +165,7 @@ describe('ManifestSyncManager', () => {
 
       await manifestSyncManager.sync(true)
 
-      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
+      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
     })
 
     it('forces sync when offline for > 7 days even when force=false', async () => {
@@ -175,7 +176,7 @@ describe('ManifestSyncManager', () => {
 
       await manifestSyncManager.sync(false)
 
-      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
+      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
     })
 
     it('shares in-flight sync promise across concurrent sync calls', async () => {
@@ -259,11 +260,11 @@ describe('ManifestSyncManager', () => {
 
       const result = await manager.sync()
 
-      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
+      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-snap', 'item-legacy', 'item-deleted'],
-      })
+      }, { signal: expect.any(AbortSignal) })
 
       expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'cipher-1', kver: '1' }, 'item-snap')
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-snap', new Uint8Array([1, 2, 3]), { knownToExist: false })
@@ -335,7 +336,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-3'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-3', new Uint8Array([9, 9]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-3'])
       expect(result).toEqual({ added: ['item-3'], success: true })
@@ -403,15 +404,15 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(1, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(0, 50).map(e => e.itemId),
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(2, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(50, 100).map(e => e.itemId),
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(3, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(100, 120).map(e => e.itemId),
-      })
+      }, { signal: expect.any(AbortSignal) })
     })
 
     it('falls back to local data if fetchManifest fails when known items exist', async () => {
@@ -677,7 +678,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-quarantined'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
 
@@ -706,7 +707,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-quarantined'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
 
@@ -757,6 +758,9 @@ describe('ManifestSyncManager', () => {
       await manifestSyncManager.sync()
 
       expect(depsObj.snapshotManager.flushPendingSnapshots).toHaveBeenCalledTimes(1)
+      // Otherwise the manifest misses the flushed items and they are pushed a second time
+      expect(depsObj.snapshotManager.flushPendingSnapshots.mock.invocationCallOrder[0])
+        .toBeLessThan(mockFetchManifest.mock.invocationCallOrder[0])
     })
 
     it('continues gracefully if flushPendingSnapshots throws', async () => {
@@ -820,7 +824,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-1'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
       expect(result).toEqual({ added: ['item-1'], success: true })
     })
@@ -1056,7 +1060,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-active-1'],
-      })
+      }, { signal: expect.any(AbortSignal) })
 
       // Timestamps for tombstones must be imported so future syncs recognize them
       expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith(
@@ -1511,6 +1515,20 @@ describe('ManifestSyncManager', () => {
         const result = await manifestSyncManager.sync(true)
         expect(result).toEqual({ added: [], success: false })
         expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      })
+
+      it('cancels the in-flight manifest fetch of a background sync on abort()', async () => {
+        let fetchSignal: AbortSignal | undefined
+        mockFetchManifest.mockImplementation((_input: any, options?: { signal?: AbortSignal }) => {
+          fetchSignal = options?.signal
+          return new Promise(() => {})
+        })
+
+        void manifestSyncManager.sync(true)
+        await vi.waitFor(() => expect(mockFetchManifest).toHaveBeenCalled())
+        manifestSyncManager.abort()
+
+        expect(fetchSignal?.aborted).toBe(true)
       })
     })
   })

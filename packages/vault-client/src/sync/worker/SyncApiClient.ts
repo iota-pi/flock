@@ -125,13 +125,10 @@ export class SyncApiClient {
       if (refreshed) return refreshed
     }
 
-    if (safeHasApiAuthToken()) {
-      const runtimeToken = safeGetApiAuthToken()
-      if (runtimeToken) {
-        this.currentToken = runtimeToken
-        return runtimeToken
-      }
-      return 'active-token'
+    const runtimeToken = safeGetApiAuthToken()
+    if (runtimeToken) {
+      this.currentToken = runtimeToken
+      return runtimeToken
     }
 
     return null

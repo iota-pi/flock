@@ -43,6 +43,8 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   private lifecycleManager: WorkerLifecycleManager
   private keyringUpdateGuard = new SingleFlightGuard<void>()
   private pendingMissingKeyVersions = new Set<string>()
+  /** The versions the latest keyring update looked for, so a version it couldn't find isn't retried at once */
+  private checkedMissingKeyVersions = new Set<string>()
   private stopLateSessionListener: (() => void) | null = null
 
   constructor(private readonly options: SyncBridgeOptions<TDoc, TMeta>) {
@@ -214,6 +216,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
           return
         }
         const keysToCheck = Array.from(this.pendingMissingKeyVersions)
+        this.checkedMissingKeyVersions = new Set(keysToCheck)
         const hasMissingKey = keysToCheck.some(k => !hasVaultKey(k))
         if (hasMissingKey) {
           try {
@@ -227,16 +230,14 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         if (result.success && result.keyringData && syncApi) {
           await syncApi.updateVaultKey(result.keyringData)
         }
-        for (const k of keysToCheck) {
-          this.pendingMissingKeyVersions.delete(k)
-        }
+        // Versions still missing stay pending, for the next keyring update (such as on reconnect) to retry
         for (const k of this.pendingMissingKeyVersions) {
           if (hasVaultKey(k)) {
             this.pendingMissingKeyVersions.delete(k)
           }
         }
       })
-    } while (kver && this.pendingMissingKeyVersions.has(kver))
+    } while (kver && this.pendingMissingKeyVersions.has(kver) && !this.checkedMissingKeyVersions.has(kver))
   }
 
   private handleTokenRefresh = async () => {
