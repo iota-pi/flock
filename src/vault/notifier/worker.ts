@@ -7,12 +7,8 @@ import {
 import type { WebPushSubscription } from '../types'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { FLOCK_TABLES } from '../flockDriver'
+import type { LegacyReminderMessage, ReminderMessage } from './messages'
 import { sendPushNotification } from './webpush'
-
-type ReminderMessage = {
-  accountId: string,
-  pushSubscriptions: WebPushSubscription[],
-}
 
 type SqsRecord = {
   messageId: string,
@@ -51,33 +47,40 @@ export async function removeSubscription(accountId: string, endpoint: string) {
   }))
 }
 
-export async function processMessage(message: ReminderMessage) {
-  const payload = {
-    title: 'Prayer reminder',
-    body: 'Time to pray for your flock.',
-    url: '/',
-    icon: '/android-chrome-192x192.png',
-    badge: '/badge-96x96.png',
+const REMINDER_PAYLOAD = {
+  title: 'Prayer reminder',
+  body: 'Time to pray for your flock.',
+  url: '/',
+  icon: '/android-chrome-192x192.png',
+  badge: '/badge-96x96.png',
+}
+
+async function sendReminder(accountId: string, subscription: WebPushSubscription, topic?: string) {
+  try {
+    await sendPushNotification(subscription, REMINDER_PAYLOAD, { topic })
+  } catch (error) {
+    const statusCode = (error as { statusCode?: number }).statusCode
+    if (statusCode !== 404 && statusCode !== 410) {
+      throw error
+    }
+    await removeSubscription(accountId, subscription.endpoint)
+  }
+}
+
+export async function processMessage(message: ReminderMessage | LegacyReminderMessage) {
+  if ('subscription' in message) {
+    await sendReminder(message.accountId, message.subscription, message.topic)
+    return
   }
 
-  // Attempt every subscription before failing, so one bad endpoint doesn't skip the rest. The
-  // record is still retried as a whole, which may re-send to subscriptions that succeeded.
+  // Legacy messages cover every subscription of an account. Attempt them all (in sequence, since
+  // removeSubscription is a read-modify-write) before failing so one bad endpoint skips none.
   const failures: unknown[] = []
   for (const subscription of message.pushSubscriptions) {
     try {
-      await sendPushNotification(subscription, payload)
+      await sendReminder(message.accountId, subscription)
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode
-      if (statusCode !== 404 && statusCode !== 410) {
-        failures.push(error)
-        continue
-      }
-
-      try {
-        await removeSubscription(message.accountId, subscription.endpoint)
-      } catch (removeError) {
-        failures.push(removeError)
-      }
+      failures.push(error)
     }
   }
 
@@ -94,13 +97,13 @@ export async function processMessage(message: ReminderMessage) {
 
 /**
  * Reports the records that failed, so SQS retries only those rather than the whole batch (which
- * would send duplicate reminders to the accounts that were already notified).
+ * would send duplicate reminders to the subscriptions that were already notified).
  */
 export const handler = async (event: SqsEvent): Promise<SqsBatchResponse> => {
   const batchItemFailures: SqsBatchResponse['batchItemFailures'] = []
   for (const record of event.Records) {
     try {
-      const message = JSON.parse(record.body) as ReminderMessage
+      const message = JSON.parse(record.body) as ReminderMessage | LegacyReminderMessage
       await processMessage(message)
     } catch (error) {
       console.error(`Failed to process push notification message ${record.messageId}`, error)
