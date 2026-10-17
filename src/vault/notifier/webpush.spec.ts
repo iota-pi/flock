@@ -55,7 +55,27 @@ describe('webpush service', () => {
     expect(webPush.sendNotification).toHaveBeenCalledWith(
       subscription,
       JSON.stringify(payload),
-      { timeout: 10_000 },
+      { timeout: 10_000, topic: undefined },
+    )
+  })
+
+  it('passes the topic through to sendNotification', async () => {
+    process.env.VAPID_SUBJECT = 'mailto:admin@example.com'
+    process.env.VAPID_PUBLIC_KEY = 'pubkey'
+    process.env.VAPID_PRIVATE_KEY = 'privkey'
+
+    const subscription = {
+      endpoint: 'https://push.example.com/sub3',
+      keys: { auth: 'auth3', p256dh: 'p256dh3' },
+    }
+    const payload = { title: 'Prayer reminder', body: 'Time to pray for your flock.' }
+
+    await sendPushNotification(subscription, payload, { topic: 'reminder-2026-10-17' })
+
+    expect(webPush.sendNotification).toHaveBeenCalledWith(
+      subscription,
+      JSON.stringify(payload),
+      { timeout: 10_000, topic: 'reminder-2026-10-17' },
     )
   })
 })
