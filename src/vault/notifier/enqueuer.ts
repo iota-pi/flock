@@ -13,6 +13,7 @@ import {
 import type { WebPushSubscription } from '../types'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { FLOCK_TABLES } from '../flockDriver'
+import { getReminderTopic, type ReminderMessage } from './messages'
 
 type ReminderAccount = {
   account: string,
@@ -21,11 +22,6 @@ type ReminderAccount = {
   reminderTime?: string,
   reminderTimezone?: string,
   snoozeRemindersUntil?: string,
-}
-
-type QueuePayload = {
-  accountId: string,
-  pushSubscriptions: WebPushSubscription[],
 }
 
 const ddb = new DynamoDBClient(getConnectionParams())
@@ -60,6 +56,15 @@ export function isReminderTimeMatch(
   }
 }
 
+/** The date in `timezone` as YYYY-MM-DD */
+export function getLocalDateString(nowUtc: Date, timezone: string) {
+  const zoned = utcToZonedTime(nowUtc, timezone)
+  const year = zoned.getFullYear()
+  const month = String(zoned.getMonth() + 1).padStart(2, '0')
+  const day = String(zoned.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function isReminderSnoozed(
   nowUtc: Date,
   timezone: string,
@@ -69,18 +74,13 @@ export function isReminderSnoozed(
     return false
   }
   try {
-    const zoned = utcToZonedTime(nowUtc, timezone)
-    const year = zoned.getFullYear()
-    const month = String(zoned.getMonth() + 1).padStart(2, '0')
-    const day = String(zoned.getDate()).padStart(2, '0')
-    const todayDateStr = `${year}-${month}-${day}`
-    return todayDateStr < snoozeRemindersUntil
+    return getLocalDateString(nowUtc, timezone) < snoozeRemindersUntil
   } catch {
     return false
   }
 }
 
-function toQueueEntries(payloads: QueuePayload[], startIndex: number) {
+function toQueueEntries(payloads: ReminderMessage[], startIndex: number) {
   return payloads.map((payload, offset) => ({
     Id: String(startIndex + offset),
     MessageBody: JSON.stringify(payload),
@@ -122,30 +122,27 @@ export const handler = async () => {
   const nowUtc = new Date()
   const accounts = await getEnabledReminderAccounts()
 
-  const payloads: QueuePayload[] = accounts
-    .map(account => {
+  const payloads: ReminderMessage[] = accounts
+    .flatMap(account => {
       const reminderTime = account.reminderTime ?? '08:00'
       const timezone = account.reminderTimezone ?? 'UTC'
       const subscriptions = account.pushSubscriptions ?? []
 
-      if (subscriptions.length === 0) {
-        return null
-      }
-
       if (!isReminderTimeMatch(nowUtc, reminderTime, timezone, intervalMinutes)) {
-        return null
+        return []
       }
 
       if (isReminderSnoozed(nowUtc, timezone, account.snoozeRemindersUntil)) {
-        return null
+        return []
       }
 
-      return {
+      const topic = getReminderTopic(getLocalDateString(nowUtc, timezone))
+      return subscriptions.map(subscription => ({
         accountId: account.account,
-        pushSubscriptions: subscriptions,
-      }
+        subscription,
+        topic,
+      }))
     })
-    .filter((payload): payload is QueuePayload => payload !== null)
 
   for (let i = 0; i < payloads.length; i += 10) {
     const batch = payloads.slice(i, i + 10)
