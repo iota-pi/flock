@@ -13,9 +13,15 @@ permissions:
   contents: read
 
 jobs:
-  # 1. Deploy to Staging
+  # 1. Test the merged commit
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yml
+
+  # 2. Deploy to Staging
   deploy-staging:
     name: Deploy to Staging
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -36,7 +42,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-  # 2. Run E2E Tests against Staging
+  # 3. Run E2E Tests against Staging
   e2e-staging:
     name: Cypress on Staging
     needs: deploy-staging
@@ -68,7 +74,7 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-  # 3. Deploy to Production
+  # 4. Deploy to Production
   deploy-production:
     name: Deploy to Production
     needs: e2e-staging

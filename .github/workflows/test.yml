@@ -2,10 +2,13 @@ name: CI
 
 on:
   pull_request:
+  # Deploy runs this on master before deploying
+  workflow_call:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}
+  # Deploy runs are already serialised, and a newer push must not cancel an older run's tests
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -49,14 +52,3 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - run: yarn lint
-
-  # The master ruleset requires a check with this name
-  all:
-    name: Test & Lint
-    if: ${{ !cancelled() }}
-    needs: [test, typecheck, lint]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
-        run: exit 1
