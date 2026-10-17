@@ -60,18 +60,35 @@ export async function processMessage(message: ReminderMessage) {
     badge: '/badge-96x96.png',
   }
 
+  // Attempt every subscription before failing, so one bad endpoint doesn't skip the rest. The
+  // record is still retried as a whole, which may re-send to subscriptions that succeeded.
+  const failures: unknown[] = []
   for (const subscription of message.pushSubscriptions) {
     try {
       await sendPushNotification(subscription, payload)
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode
-      if (statusCode === 404 || statusCode === 410) {
-        await removeSubscription(message.accountId, subscription.endpoint)
+      if (statusCode !== 404 && statusCode !== 410) {
+        failures.push(error)
         continue
       }
 
-      throw error
+      try {
+        await removeSubscription(message.accountId, subscription.endpoint)
+      } catch (removeError) {
+        failures.push(removeError)
+      }
     }
+  }
+
+  if (failures.length === 1) {
+    throw failures[0]
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(
+      failures,
+      `${failures.length} push subscriptions failed for account ${message.accountId}`,
+    )
   }
 }
 
