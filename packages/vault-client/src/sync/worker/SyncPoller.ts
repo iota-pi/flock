@@ -380,9 +380,10 @@ export class SyncPoller {
     }
   }
 
+  /** Whether the server turned the request itself down. Timeouts (408) and rate limits (429) don't count. */
   private isRejectedRequest(error: unknown): boolean {
     const classified = classifySyncError(error)
-    if (classified.isAuth || classified.isAbort) return false
+    if (classified.isAuth || classified.isAbort || classified.isNetwork) return false
     return typeof classified.status === 'number' && classified.status >= 400 && classified.status < 500
   }
 

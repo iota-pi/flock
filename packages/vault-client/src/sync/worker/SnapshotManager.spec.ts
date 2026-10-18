@@ -925,6 +925,20 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
   })
 
+  it('saves pending timestamps at once when flushed, even in a follower tab', async () => {
+    const follower = new SnapshotManager(context as any, lastModifiedStore, { isLeader: false })
+    const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
+    follower.markItemDirty('item-1' as ItemId)
+    expect(saveSpy).not.toHaveBeenCalled()
+
+    // As the page being hidden does
+    await follower.flushPendingSnapshots()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(saveSpy).toHaveBeenCalledWith([['item-1', expect.objectContaining({ localModifiedAt: expect.any(Number) })]])
+    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+  })
+
   describe('Client-Side 30s Debounce & Max-Wait', () => {
     it('pushes snapshot after 30 seconds of inactivity when an item is marked dirty', async () => {
       mockPutSnapshotsWithToken.mockResolvedValue({
@@ -1312,8 +1326,8 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       it('preserves lastSnapshotAt for unsaved dirty items', async () => {
         // item-1 has local edits (localMod: 5000 > lastSnap: 2000)
-        manager['lastModifiedByItemId'].set('item-1' as ItemId, 5000)
         manager['lastSnapshotAtByItemId'].set('item-1' as ItemId, 2000)
+        vi.setSystemTime(5000)
         manager.markItemDirty('item-1' as ItemId)
 
         // importLastModified is called with local timestamp (e.g. 5000)
@@ -1324,7 +1338,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
 
       it('preserves undefined lastSnapshotAt for newly created unsaved offline items', async () => {
-        manager['lastModifiedByItemId'].set('item-new' as ItemId, 5000)
+        vi.setSystemTime(5000)
         manager.markItemDirty('item-new' as ItemId)
 
         await manager.importLastModified([['item-new' as ItemId, 5000]])
@@ -1372,7 +1386,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         manager.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
 
-        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(2000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(1000)
         expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBeUndefined()
 
         // Advance time before snapshot push executes (e.g. debounced push at 30s)
@@ -1420,7 +1434,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         vi.setSystemTime(32000)
         manager.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
-        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(33000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(32000)
 
         // Upload completes for the snapshot built at 31000
         resolveUpload!({
@@ -1429,11 +1443,11 @@ describe('SnapshotManager Retry Mechanism', () => {
         })
         await vi.advanceTimersByTimeAsync(0)
 
-        // lastSnapshotAt is 31000, but localModifiedAt must retain 33000
+        // lastSnapshotAt is 31000, but localModifiedAt must retain 32000
         expect(manager.getLastSnapshotAt('item-1' as ItemId)).toBe(31000)
-        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(33000)
+        expect(manager.getLocalModifiedAt('item-1' as ItemId)).toBe(32000)
         expect(manager.getDirtyItemIds()).toContain('item-1')
-        expect(manager.exportLastModified()).toEqual([['item-1', 33000]])
+        expect(manager.exportLastModified()).toEqual([['item-1', 32000]])
       })
 
       it('retains newer localModifiedAt and re-enqueues item if a local edit occurs during snapshot encryption (C3 fix)', async () => {

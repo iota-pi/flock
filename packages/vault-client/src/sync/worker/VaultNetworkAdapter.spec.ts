@@ -1607,3 +1607,39 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 })
 
+
+describe('VaultNetworkAdapter synced heads on shutdown', () => {
+  const makeAdapter = () => {
+    const store = { saveSyncedHeads: vi.fn().mockResolvedValue(undefined) }
+    const adapter = new VaultNetworkAdapter()
+    adapter.setSyncedHeadsStore(store as any)
+    return { adapter, store }
+  }
+
+  it('saves heads that changed since the last save before disconnecting', async () => {
+    const { adapter, store } = makeAdapter()
+    adapter.setSyncedHeads('doc-1' as DocumentId, ['head-1'])
+
+    await adapter.onLifecycleStop()
+
+    expect(store.saveSyncedHeads).toHaveBeenCalledWith([['doc-1', ['head-1']]])
+  })
+
+  it("doesn't save heads it only loaded, which may be older than another tab's", async () => {
+    const { adapter, store } = makeAdapter()
+    adapter.loadSyncedHeads([['doc-1' as DocumentId, ['old-head']]])
+
+    await adapter.onLifecycleStop()
+
+    expect(store.saveSyncedHeads).not.toHaveBeenCalled()
+  })
+
+  it("doesn't save heads when local data is being cleared", async () => {
+    const { adapter, store } = makeAdapter()
+    adapter.setSyncedHeads('doc-1' as DocumentId, ['head-1'])
+
+    await adapter.onLifecycleStop({ clearLocalData: true })
+
+    expect(store.saveSyncedHeads).not.toHaveBeenCalled()
+  })
+})

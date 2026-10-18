@@ -41,14 +41,12 @@ export class SnapshotTracker {
   private readonly lastModifiedStore: LastModifiedStore
   private readonly accountId: string
 
-  public readonly flushDirtyDocumentsToIndexDebounced = debounce(
-    () => fireAndForget(this.flushDirtyDocumentsToIndex(), 'SnapshotTracker:flushDirtyDocumentsToIndex'),
-    1000,
-  )
-
+  // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved localModifiedAt
+  // to re-queue an edit whose snapshot never went up.
   public readonly saveLastModifiedDebounced = debounce(
     () => fireAndForget(this.persistLastModified(), 'SnapshotTracker:persistLastModified'),
     1000,
+    { maxWait: 5000 },
   )
 
   constructor(options: SnapshotTrackerOptions) {
@@ -94,7 +92,8 @@ export class SnapshotTracker {
     if (this.isShutdown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
-    this.flushDirtyDocumentsToIndexDebounced()
+    this.lastModifiedByItemId.set(itemId, Date.now())
+    this.saveLastModifiedDebounced()
     this.scheduleDebouncedSnapshotPush(customDebounceDelayMs)
   }
 
@@ -151,9 +150,9 @@ export class SnapshotTracker {
     }
   }
 
-  async flushDirtyDocumentsToIndex(): Promise<void> {
-    this.updateLastModifiedForDirtyItems()
-    this.saveLastModifiedDebounced()
+  /** Starts a pending save of the timestamps now, such as when the page is hidden and may be closed */
+  flushPendingSave(): void {
+    this.saveLastModifiedDebounced.flush()
   }
 
   async loadLastModified(): Promise<{ auditCount: number; oversizedItemIds: Set<ItemId> }> {
@@ -376,7 +375,6 @@ export class SnapshotTracker {
   clear(): void {
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
-    this.flushDirtyDocumentsToIndexDebounced.cancel()
     this.dirtyItems.clear()
     this.lastModifiedByItemId.clear()
     this.lastSnapshotAtByItemId.clear()
@@ -392,7 +390,6 @@ export class SnapshotTracker {
     await this.loadGuard.waitForRunning()
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
-    this.flushDirtyDocumentsToIndexDebounced.cancel()
 
     if (!options?.clearLocalData) {
       if (this.dirtyItems.size > 0) {
