@@ -102,6 +102,18 @@ describe('DynamoDriver', function () {
     ).rejects.toThrow('exceeds maximum')
   })
 
+  it('measures a snapshot as stored, in binary, not as its longer base64 text', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    // About 400 KB of base64, more than the client's limit on base64 text allows, but 300 KB stored
+    const cipher = Buffer.alloc(300_000, 7).toString('base64')
+    expect(cipher.length).toBeGreaterThan(MAX_ITEM_SIZE_BYTES)
+
+    await driver.set({ account, item, metadata: { iv: '', modified: Date.now() }, snapshot: { iv: 'snap-iv', cipher } })
+    const [stored] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(stored.snapshot?.cipher).toBe(cipher)
+  })
+
   const authToken = 'an_example_auth_token_for_testing'
   const salt = 'an_example_salt_for_testing'
   const iterations = 100_000
@@ -332,7 +344,7 @@ describe('DynamoDriver', function () {
     expect(result.keyring).toBe(keyringValue)
   })
 
-  it('can append, push, and get sync messages', async () => {
+  it('can push and get sync messages', async () => {
     const account = generateAccountId()
     const itemId = 'test-item-123' as ItemId
     const entry1 = {
@@ -346,13 +358,8 @@ describe('DynamoDriver', function () {
       createdAt: Date.now(),
     }
 
-    await driver.appendSyncMessage({ account, itemId, entry: entry1 })
-    await driver.pushSyncMessagesBatch({
-      account,
-      messages: [
-        { itemId, entry: entry2, lastModified: Date.now() },
-      ],
-    })
+    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry1, lastModified: Date.now() }] })
+    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry2, lastModified: Date.now() }] })
 
     const result = await driver.getSyncMessages({ account, itemId })
     expect(result.messages.length).toBe(2)
@@ -475,14 +482,17 @@ describe('DynamoDriver', function () {
       metadata: { iv: 'iv', modified: Date.now() },
       snapshot: { cipher: payload, iv: 'snapshot-iv', kver: '1', format: 2 },
     })
-    await driver.appendSyncMessage({
+    await driver.pushSyncMessagesBatch({
       account,
-      itemId: item,
-      entry: {
-        cursor: 1,
-        encryptedMessage: { iv: 'message-iv', cipher: 'message-cipher', kver: '1', format: 2, version: '1.0' },
-        createdAt: Date.now(),
-      },
+      messages: [{
+        itemId: item,
+        entry: {
+          cursor: 1,
+          encryptedMessage: { iv: 'message-iv', cipher: 'message-cipher', kver: '1', format: 2, version: '1.0' },
+          createdAt: Date.now(),
+        },
+        lastModified: Date.now(),
+      }],
     })
 
     const [stored] = await driver.fetchByIds({ account, itemIds: [item] })

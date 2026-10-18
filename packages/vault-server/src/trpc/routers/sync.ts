@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { protectedProcedure, router } from '../trpc'
-import { SyncPushBatchSchema, SyncPollBatchSchema, type PageToken } from '@vault/shared'
+import { SyncPollBatchSchema, type PageToken } from '@vault/shared'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
 import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
 import { ItemId } from '@vault/shared'
@@ -8,17 +8,6 @@ import { InvalidPageTokenError } from '../../drivers/errors'
 
 
 export const syncRouter = router({
-  pushBatch: protectedProcedure
-    .input(SyncPushBatchSchema)
-    .mutation(async ({ ctx, input }) => {
-      const repository = createDynamoAutomergeSyncRepository(ctx.vault)
-      const service = createAutomergeSyncService({ repository })
-      return service.pushAutomergeSyncBatch({
-        ...input,
-        account: ctx.account,
-      })
-    }),
-
   pollSync: protectedProcedure
     .input(SyncPollBatchSchema)
     .mutation(async ({ ctx, input }) => {

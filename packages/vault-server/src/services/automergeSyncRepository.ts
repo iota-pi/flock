@@ -2,20 +2,16 @@ import type BaseDriver from '../drivers/base'
 import type { ItemId, PageToken } from '@vault/shared'
 import type { StoredSyncMessage } from '../drivers/base'
 
-type AppendSyncMessageInput = {
-  account: string
-  itemId: ItemId
-  entry: StoredSyncMessage
-  lastModified: number
-}
-
 type PushSyncMessagesBatchInput = {
   account: string
-  messages: Array<Omit<AppendSyncMessageInput, 'account'>>
+  messages: Array<{
+    itemId: ItemId
+    entry: StoredSyncMessage
+    lastModified: number
+  }>
 }
 
 export interface AutomergeSyncRepository {
-  appendSyncMessage(input: AppendSyncMessageInput): Promise<void>
   pushSyncMessagesBatch(input: PushSyncMessagesBatchInput): Promise<void>
   getSyncMessages(input: {
     account: string
@@ -34,10 +30,6 @@ export interface AutomergeSyncRepository {
 
 export function createDynamoAutomergeSyncRepository(driver: BaseDriver): AutomergeSyncRepository {
   return {
-    async appendSyncMessage(input: AppendSyncMessageInput): Promise<void> {
-      await driver.appendSyncMessage(input)
-    },
-
     async pushSyncMessagesBatch(input: PushSyncMessagesBatchInput): Promise<void> {
       await driver.pushSyncMessagesBatch({
         account: input.account,

@@ -539,8 +539,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async set(item: VaultItem): Promise<{ version: number }> {
-    validateItem(item)
-
     let itemToPersist = item
 
     if (item.snapshot?.cipher) {
@@ -566,6 +564,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
       }
     }
+
+    // Measured as stored, with the snapshot in binary. Clients limit its base64 text, which is
+    // longer, so the server never rejects a snapshot that a client's own size check let through.
+    validateItem(itemToPersist)
 
     if (itemToPersist.metadata.deleted === true) {
       return this.updateItem(itemToPersist)
@@ -904,24 +906,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       currentRequestItems = unprocessed
     }
-  }
-
-  async appendSyncMessage(input: {
-    account: string
-    itemId: ItemId
-    entry: StoredSyncMessage
-  }): Promise<void> {
-    await this.client.send(new PutCommand({
-      TableName: this.tables.syncMessages,
-      Item: {
-        syncId: `${input.account}#${input.itemId}`,
-        cursor: input.entry.cursor,
-        account: input.account,
-        encryptedMessage: input.entry.encryptedMessage,
-        createdAt: input.entry.createdAt,
-        expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
-      },
-    }))
   }
 
   async pushSyncMessagesBatch(input: {

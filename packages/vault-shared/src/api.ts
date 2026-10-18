@@ -71,14 +71,6 @@ const SyncEncryptedMessageSchema = (
   })
 )
 
-export const SyncPushBatchSchema = z.object({
-  account: z.string().min(1),
-  messages: z.array(z.object({
-    itemId: ItemIdSchema,
-    encryptedMessage: SyncEncryptedMessageSchema,
-  })).min(1).max(1000),
-})
-
 /**
  * Continues a paginated pull where the previous page stopped. Only the driver that issued it
  * knows what it contains; clients pass it back unchanged.

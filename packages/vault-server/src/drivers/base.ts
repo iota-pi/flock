@@ -95,12 +95,6 @@ export default abstract class BaseDriver<T = unknown> {
   abstract fetchByIds(opts: { account: string; itemIds: ItemId[] }): Promise<VaultItem[]>
 
   // Sync message operations
-  abstract appendSyncMessage(input: {
-    account: string
-    itemId: ItemId
-    entry: StoredSyncMessage
-  }): Promise<void>
-
   abstract pushSyncMessagesBatch(input: {
     account: string
     messages: Array<{

@@ -45,9 +45,9 @@ describe('syncRouter authorization & IDOR protection', () => {
     vi.clearAllMocks()
   })
 
-  const samplePushInput = {
+  const samplePollInput = {
     account: 'target-account',
-    messages: [
+    pushMessages: [
       {
         itemId: 'item-1' as ItemId,
         encryptedMessage: {
@@ -58,36 +58,22 @@ describe('syncRouter authorization & IDOR protection', () => {
     ],
   }
 
-  it('rejects pushBatch when unauthenticated (missing auth token)', async () => {
+  it('rejects pushed messages when unauthenticated (missing auth token)', async () => {
     const ctx = createContext({ authToken: '' })
     const caller = syncRouter.createCaller(ctx as any)
 
-    await expect(caller.pushBatch(samplePushInput)).rejects.toMatchObject({
+    await expect(caller.pollSync(samplePollInput)).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     } satisfies Partial<TRPCError>)
     expect(ctx.vault.pushSyncMessagesBatch).not.toHaveBeenCalled()
   })
 
-  it('rejects pushBatch when session does not belong to target account (IDOR protection)', async () => {
-    const ctx = createContext({ sessionValid: false })
-    const caller = syncRouter.createCaller(ctx as any)
-
-    await expect(caller.pushBatch(samplePushInput)).rejects.toMatchObject({
-      code: 'UNAUTHORIZED',
-    } satisfies Partial<TRPCError>)
-    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
-      account: 'target-account',
-      session: 'valid-session-token',
-    })
-    expect(ctx.vault.pushSyncMessagesBatch).not.toHaveBeenCalled()
-  })
-
-  it('allows pushBatch when session is valid for the account', async () => {
+  it('stores pushed messages when the session is valid for the account', async () => {
     const ctx = createContext({ sessionValid: true })
     const caller = syncRouter.createCaller(ctx as any)
 
-    const result = await caller.pushBatch(samplePushInput)
-    expect(result.success).toBe(true)
+    const result = await caller.pollSync(samplePollInput)
+    expect(result.pushResults).toEqual([{ itemId: 'item-1', cursor: expect.any(Number) }])
     expect(ctx.vault.getAccount).toHaveBeenCalledWith({
       account: 'target-account',
       session: 'valid-session-token',
@@ -103,19 +89,14 @@ describe('syncRouter authorization & IDOR protection', () => {
     const ctx = createContext({ sessionValid: false })
     const caller = syncRouter.createCaller(ctx as any)
 
-    await expect(
-      caller.pollSync({
-        account: 'target-account',
-        pushMessages: [],
-        pullCursors: [],
-      })
-    ).rejects.toMatchObject({
+    await expect(caller.pollSync(samplePollInput)).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     } satisfies Partial<TRPCError>)
     expect(ctx.vault.getAccount).toHaveBeenCalledWith({
       account: 'target-account',
       session: 'valid-session-token',
     })
+    expect(ctx.vault.pushSyncMessagesBatch).not.toHaveBeenCalled()
   })
 })
 
