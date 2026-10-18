@@ -116,14 +116,6 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.storageRecovery = storageRecovery
   }
 
-  getStorageRecoveryService(): StorageRecoveryService | null {
-    return this.storageRecovery
-  }
-
-  getWal(): SyncWriteAheadLog | null {
-    return this.wal
-  }
-
   blockItem(itemId: ItemId): void {
     this.blockedItemIds.add(itemId)
   }
@@ -187,10 +179,6 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
   setSendEnabled(sendEnabled: boolean): void {
     this.sendEnabled = sendEnabled
     this.adapter.setSendEnabled(sendEnabled)
-  }
-
-  clearSeededDocuments(): void {
-    this.adapter.clearSeededDocuments()
   }
 
   async setAccount(account: string | null): Promise<void> {

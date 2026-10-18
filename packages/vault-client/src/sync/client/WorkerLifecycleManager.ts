@@ -48,7 +48,6 @@ export class WorkerLifecycleManager {
   private initializationPromise: Promise<void> | null = null
   private initAbortController: AbortController | null = null
   private static readonly MAX_INIT_RETRIES = 5
-  private static readonly INIT_RETRY_DELAYS = DEFAULT_RETRY_DELAYS
   private readonly initRetryStrategy = new RetryStrategy({
     delays: DEFAULT_RETRY_DELAYS,
     maxAttempts: WorkerLifecycleManager.MAX_INIT_RETRIES,
@@ -76,10 +75,6 @@ export class WorkerLifecycleManager {
     return this.callbacks.telemetry ?? noopTelemetry
   }
 
-  getHealthMonitor(): SyncWorkerHealthMonitor {
-    return this.healthMonitor
-  }
-
   recordWorkerActivity(): void {
     this.healthMonitor.recordActivity()
   }
@@ -90,10 +85,6 @@ export class WorkerLifecycleManager {
 
   getCurrentAccountId(): string | null {
     return this.currentAccountId
-  }
-
-  getWorkerInstance(): Worker | null {
-    return this.workerInstance
   }
 
   requestClearOnShutdown(accountId?: string): void {
@@ -109,10 +100,6 @@ export class WorkerLifecycleManager {
       return this.pendingShutdownClearAccounts.has(accountId)
     }
     return this.pendingShutdownClearAccounts.size > 0
-  }
-
-  hasPendingClear(accountId?: string): boolean {
-    return this.isClearingLocalData(accountId)
   }
 
   async ensureReady(): Promise<Comlink.Remote<SyncApi>> {

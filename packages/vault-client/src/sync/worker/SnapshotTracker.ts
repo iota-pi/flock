@@ -90,10 +90,6 @@ export class SnapshotTracker {
     this.isOnline = isOnline
   }
 
-  setShutdown(isShutdown: boolean): void {
-    this.isShutdown = isShutdown
-  }
-
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
     if (this.isShutdown || !itemId) return
     this.dirtyItemsTick += 1
@@ -350,10 +346,6 @@ export class SnapshotTracker {
       }
     }
     await this.persistLastModified()
-  }
-
-  getBaseVersion(itemId: ItemId): number {
-    return this.baseVersionByItemId.get(itemId) ?? 0
   }
 
   exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {

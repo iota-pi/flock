@@ -46,7 +46,7 @@ export type HydrateItemResult =
     itemId: ItemId
   }
 
-export interface FetchAndHydrateParams {
+interface FetchAndHydrateParams {
   missingIds: ItemId[]
   manifest: ManifestEntry[]
   serverTime: number

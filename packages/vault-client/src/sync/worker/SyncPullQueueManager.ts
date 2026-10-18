@@ -46,7 +46,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   private readonly retryTracker: PullRetryTracker
   private hasMoreGlobal = false
   private globalPageToken?: PageToken
-  public static readonly MAX_PULL_RETRIES = PullRetryTracker.MAX_PULL_RETRIES
 
   private readonly batchProgress = new BoundedMap<string, number>(BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
   // "itemId:cursor" of messages this device pushed, so their server echoes aren't mistaken for remote edits
@@ -74,10 +73,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   public setInternalEventHub(hub: WorkerInternalEventHub): void {
     this.internalEventHub = hub
-  }
-
-  public setLockCoordinator(coordinator?: ItemLockCoordinator): void {
-    this.lockCoordinator = coordinator
   }
 
   private makeBatchProgressKey(itemId: ItemId, cursor: number): string {

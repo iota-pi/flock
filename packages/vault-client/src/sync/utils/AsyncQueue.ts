@@ -89,10 +89,6 @@ export class AsyncQueue<T> {
     }
   }
 
-  shift(): T | undefined {
-    return this.items.shift()
-  }
-
   async whenIdle(): Promise<void> {
     if (!this.isProcessing && this.items.length === 0) {
       return

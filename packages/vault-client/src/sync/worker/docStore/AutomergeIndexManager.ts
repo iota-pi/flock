@@ -276,16 +276,6 @@ export class AutomergeIndexManager implements LifecycleAware {
     return index.metadata || {}
   }
 
-  async updateLocalMetadata(metadata: VaultMetadata): Promise<void> {
-    return this.withLock(async () => {
-      const doc = await this.getIndexSnapshotInternal()
-      doc.metadata = metadata
-      await this.indexStore.saveIndex(doc)
-      this.notifyLocalMetadataUpdated(metadata)
-      this.broadcastMetadataUpdated(metadata)
-    })
-  }
-
   async updateAutomergeMetadata(changes: Partial<VaultMetadata>): Promise<VaultMetadata> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()

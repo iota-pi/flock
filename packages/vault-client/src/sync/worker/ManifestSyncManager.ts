@@ -14,10 +14,7 @@ import {
   type SyncDeltas,
   type CalculateSyncDeltasParams,
 } from './ManifestDeltaCalculator'
-import {
-  ManifestHydrator,
-  type FetchAndHydrateParams,
-} from './ManifestHydrator'
+import { ManifestHydrator } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { KeyProvider } from '../../api/Keyring'
 
@@ -389,13 +386,6 @@ export class ManifestSyncManager implements LifecycleAware {
         this.deps.snapshotManager.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       }
     }
-  }
-
-  async fetchAndHydrateRemoteItems(
-    params: FetchAndHydrateParams,
-    signal?: AbortSignal,
-  ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
-    return this.hydrator.fetchAndHydrateRemoteItems(params, signal)
   }
 
   private async migrateLegacySettings() {

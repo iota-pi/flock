@@ -84,10 +84,6 @@ export class SnapshotPusher {
     this.retryStrategy.attempt = val
   }
 
-  get retryDelays(): readonly number[] {
-    return this.retryStrategy.delays
-  }
-
   get isRetryActive(): boolean {
     return this.retryTimeoutId !== null
   }

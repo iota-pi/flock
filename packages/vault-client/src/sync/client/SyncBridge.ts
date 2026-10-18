@@ -269,16 +269,8 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.lifecycleManager.isClearingLocalData()
   }
 
-  hasPendingClear(): boolean {
-    return this.lifecycleManager.hasPendingClear()
-  }
-
   async ensureReady(): Promise<void> {
     await this.lifecycleManager.ensureReady()
-  }
-
-  init(accountId: string, options?: { clearLocalData?: boolean }): Promise<void> {
-    return this.lifecycleManager.init(accountId, options)
   }
 
   initialize(accountId: string, options?: { clearLocalData?: boolean }): Promise<void> {
@@ -315,18 +307,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       this.sink.onDataRestored?.()
       return result
     })
-  }
-
-  initRepo(accountId: string, vaultKey: string): Promise<void> {
-    return this.execute(api => api.initRepo(accountId, vaultKey))
-  }
-
-  setOnlineState(isOnline: boolean): Promise<void> {
-    return this.execute(api => api.setOnlineState(isOnline))
-  }
-
-  bootstrapItems(): Promise<void> {
-    return this.execute(api => api.bootstrapItems())
   }
 
   mutateItem(id: ItemId, changes: Partial<TDoc>): Promise<void> {
@@ -391,10 +371,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
 
   updateVaultKey(vaultKey: string): Promise<void> {
     return this.execute(api => api.updateVaultKey(vaultKey))
-  }
-
-  updateAuthToken(token: string | null): Promise<void> {
-    return this.execute(api => api.updateAuthToken(token))
   }
 
   reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<{
