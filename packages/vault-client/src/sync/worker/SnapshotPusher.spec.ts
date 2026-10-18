@@ -49,7 +49,6 @@ describe('SnapshotPusher', () => {
     }
 
     mockApiClient = {
-      hasAuthToken: vi.fn().mockResolvedValue(true),
       putSnapshots: vi.fn().mockResolvedValue({
         success: true,
         persisted: 1,

@@ -532,13 +532,6 @@ export class SyncWorkerContext {
     this.unsubscribers = []
   }
 
-  /**
-   * Reacts to quota exceeded: triggers emergency compaction and notifies client.
-   */
-  async handleQuotaExceeded(error?: unknown): Promise<void> {
-    return this.storageRecoveryService.handleQuotaExceeded(error)
-  }
-
   async retrySave(): Promise<{ success: boolean; error?: string }> {
     return this.storageRecoveryService.retrySave()
   }

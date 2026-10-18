@@ -37,8 +37,6 @@ export interface EncryptedBroadcastChannelOptions
   keyWaitTimeoutMs?: number
   maxPendingMessagesPerKey?: number
   onDocumentReceived?: (documentId: DocumentId) => void
-  /** @deprecated No longer used. Connection is no longer reset on crypto failures. */
-  resetCooldownMs?: number
   maxCryptoRetries?: number
   cryptoRetryDelayMs?: number
 }

@@ -163,13 +163,6 @@ describe('PullRetryTracker', () => {
       expect(tracker.getCursor('item-1' as ItemId)).toBe(50)
       expect(tracker.getCursor('item-2' as ItemId)).toBe(30)
     })
-
-    it('exports valid non-negative cursors', () => {
-      tracker.getOrCreateState('item-1' as ItemId).cursor = 10
-      tracker.getOrCreateState('item-2' as ItemId).cursor = -1
-
-      expect(tracker.exportValidCursors()).toEqual([['item-1', 10]])
-    })
   })
 
   describe('recordPullOutcome', () => {
@@ -631,27 +624,6 @@ describe('PullRetryTracker', () => {
 
       expect(tracker.hasState('item-keep' as ItemId)).toBe(true)
       expect(tracker.getGlobalLatestCursor()).toBe(0)
-    })
-  })
-
-  describe('recordPullOutcome overload (itemId, outcome)', () => {
-    it('accepts itemId as first parameter and outcome as second parameter', () => {
-      const outcome = tracker.recordPullOutcome('item-overload' as ItemId, {
-        initialCursor: 0,
-        highestCursor: 77,
-        isNewItem: true,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: false,
-      })
-
-      expect(outcome).toEqual({
-        cursorUpdated: true,
-        permanentlyFailed: false,
-        advanceCursor: undefined,
-      })
-      expect(tracker.getCursor('item-overload' as ItemId)).toBe(77)
-      expect(tracker.getGlobalLatestCursor()).toBe(77)
     })
   })
 })

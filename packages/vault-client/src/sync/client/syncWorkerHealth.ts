@@ -32,15 +32,8 @@ interface CrashDetails {
 
 export const sendPing = (
   port: MessagePort,
-  optionsOrSignal?: SendPingOptions | AbortSignal
+  { signal, timeoutMs }: SendPingOptions = {},
 ): Promise<void> => {
-  const signal = optionsOrSignal instanceof AbortSignal
-    ? optionsOrSignal
-    : optionsOrSignal?.signal
-  const timeoutMs = optionsOrSignal instanceof AbortSignal
-    ? undefined
-    : optionsOrSignal?.timeoutMs
-
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason ?? new Error('Ping aborted'))

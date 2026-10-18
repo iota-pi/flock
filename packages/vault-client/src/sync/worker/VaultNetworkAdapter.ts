@@ -28,6 +28,11 @@ const VAULT_PEER_ID = 'vault' as PeerId
 const EMPTY_BLOOM = new Uint8Array()
 
 type SyncHave = ReturnType<typeof decodeSyncMessage>['have'][number]
+
+/** A sync message claiming nothing, which makes Automerge renegotiate the document from scratch */
+function encodeEmptySyncMessage(): Uint8Array {
+  return encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
+}
 export type HeadsValidator = (documentId: DocumentId, heads: string[]) => boolean
 
 interface RenegotiationCircuitState {
@@ -262,13 +267,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.outboundQueue.filterInPlace(m => m.documentId !== documentId)
 
     if (this.canSend() && this.peerId) {
-      const emptySyncMsg = encodeSyncMessage({
-        heads: [],
-        need: [],
-        have: [],
-        changes: [],
-      })
-      this.receiveMessage(documentId, emptySyncMsg)
+      this.receiveMessage(documentId, encodeEmptySyncMessage())
     } else {
       this.pendingReNegotiations.add(documentId)
     }
@@ -285,13 +284,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     const docIds = Array.from(this.pendingReNegotiations)
     this.pendingReNegotiations.clear()
 
-    const emptySyncMsg = encodeSyncMessage({
-      heads: [],
-      need: [],
-      have: [],
-      changes: [],
-    })
-
+    const emptySyncMsg = encodeEmptySyncMessage()
     for (const docId of docIds) {
       this.receiveMessage(docId, emptySyncMsg)
     }

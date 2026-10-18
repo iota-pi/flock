@@ -1,6 +1,7 @@
 import type { KeyProvider } from '../../api/Keyring'
 import { ItemId } from '@vault/shared'
 import type { PageToken } from '@vault/shared'
+import type { PersistedSyncCursors } from './stores/CursorStore'
 
 export interface ItemPullState {
   cursor: number
@@ -33,11 +34,6 @@ export interface RecordPullOutcomeResult {
   cursorUpdated: boolean
   permanentlyFailed: boolean
   advanceCursor?: number
-}
-
-export interface PersistedSyncCursors {
-  globalCursor: number
-  retries?: [ItemId, number][]
 }
 
 type PullOutcomeKind =
@@ -252,24 +248,6 @@ export class PullRetryTracker {
     return cursors
   }
 
-  exportValidCursors(): [ItemId, number][] {
-    const data: [ItemId, number][] = []
-    const seen = new Set<ItemId>()
-    for (const [itemId, state] of this.retryQueue.entries()) {
-      if (state.cursor >= 0) {
-        data.push([itemId, state.cursor])
-        seen.add(itemId)
-      }
-    }
-    for (const [itemId, cursor] of this.itemCursors.entries()) {
-      if (!seen.has(itemId) && cursor >= 0) {
-        data.push([itemId, cursor])
-        seen.add(itemId)
-      }
-    }
-    return data
-  }
-
   importCursors(cursors: [ItemId, number][]): void {
     this.retryQueue.clear()
     this.itemCursors.clear()
@@ -443,17 +421,7 @@ export class PullRetryTracker {
     }
   }
 
-  recordPullOutcome(params: RecordPullOutcomeParams): RecordPullOutcomeResult
-  recordPullOutcome(itemId: ItemId, outcome: Omit<RecordPullOutcomeParams, 'itemId'>): RecordPullOutcomeResult
-  recordPullOutcome(
-    itemIdOrParams: ItemId | RecordPullOutcomeParams,
-    outcome?: Omit<RecordPullOutcomeParams, 'itemId'>
-  ): RecordPullOutcomeResult {
-    const params: RecordPullOutcomeParams =
-      typeof itemIdOrParams === 'string'
-        ? { itemId: itemIdOrParams, ...outcome! }
-        : itemIdOrParams
-
+  recordPullOutcome(params: RecordPullOutcomeParams): RecordPullOutcomeResult {
     const { itemId } = params
     const state = this.getOrCreateState(itemId)
     const transition = this.computeTransition(state, params)

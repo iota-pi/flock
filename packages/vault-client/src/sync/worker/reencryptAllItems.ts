@@ -63,7 +63,6 @@ export interface ProcessChunkContext {
   recoveryManager: RecoveryManager
   signal?: AbortSignal
   batchRetryDelays?: readonly number[]
-  deps?: ReencryptDeps
   onProgress?: (done: number, total: number) => void
   total?: number
   processedCount?: number
@@ -211,31 +210,7 @@ export class ItemReencryptor {
   /**
    * Stage 2a (pure operation): Build snapshot for an item.
    */
-  async buildSnapshot(
-    itemIdOrRepo: ItemId | Repo,
-    repoOrItemId?: Repo | ItemId,
-    signal?: AbortSignal
-  ): Promise<BuildSnapshotResult> {
-    let repo: Repo | undefined
-    let itemId: ItemId | undefined
-
-    if (typeof itemIdOrRepo === 'string') {
-      itemId = itemIdOrRepo as ItemId
-      if (typeof repoOrItemId === 'object' && repoOrItemId !== null) {
-        repo = repoOrItemId as Repo
-      }
-    } else {
-      repo = itemIdOrRepo as Repo
-      itemId = repoOrItemId as ItemId
-    }
-
-    if (!repo) {
-      throw new Error('Automerge Repo is required to build snapshot')
-    }
-    if (!itemId) {
-      throw new Error('ItemId is required to build snapshot')
-    }
-
+  async buildSnapshot(itemId: ItemId, repo: Repo, signal?: AbortSignal): Promise<BuildSnapshotResult> {
     return buildSnapshotFromBuilder(repo, itemId, 0, this.keys, { signal, codec: this.codec })
   }
 
@@ -243,52 +218,12 @@ export class ItemReencryptor {
    * Stage 2b (pure operation): Upload batch of snapshots.
    */
   async uploadBatch(
-    snapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
-    options?: { apiClient?: SyncApiClient; accountId?: string; signal?: AbortSignal }
-  ): Promise<PutSnapshotResultItem[]>
-
-  async uploadBatch(
     apiClient: SyncApiClient,
     accountId: string,
-    snapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
+    batch: ReadonlyArray<{ snapshot: VaultSnapshotInput }>,
     signal?: AbortSignal
-  ): Promise<PutSnapshotResultItem[]>
-
-  async uploadBatch(
-    arg1: SyncApiClient | VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
-    arg2?: string | { apiClient?: SyncApiClient; accountId?: string; signal?: AbortSignal },
-    arg3?: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
-    arg4?: AbortSignal
   ): Promise<PutSnapshotResultItem[]> {
-    let apiClient: SyncApiClient | undefined
-    let accountId: string | undefined
-    let rawSnapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
-    let signal: AbortSignal | undefined
-
-    if (Array.isArray(arg1)) {
-      rawSnapshots = arg1
-      const opts = typeof arg2 === 'object' ? arg2 : undefined
-      apiClient = opts?.apiClient
-      accountId = opts?.accountId
-      signal = opts?.signal
-    } else {
-      apiClient = arg1 as SyncApiClient
-      accountId = arg2 as string
-      rawSnapshots = arg3!
-      signal = arg4
-    }
-
-    if (!apiClient || !accountId) {
-      throw new Error('SyncApiClient and accountId are required to upload batch')
-    }
-
-    const snapshots: VaultSnapshotInput[] = rawSnapshots.map((s): VaultSnapshotInput => {
-      if ('snapshotCursor' in s) {
-        return s
-      }
-      return s.snapshot
-    })
-
+    const snapshots = batch.map(item => item.snapshot)
     const response = await apiClient.putSnapshots(
       {
         account: accountId,
@@ -446,30 +381,8 @@ export class ItemReencryptor {
   /**
    * Stage 2 (orchestrator): Process a single chunk of items with error handling and retry logic.
    */
-  async processChunk(
-    chunk: ItemId[],
-    signalOrContext?: AbortSignal | ProcessChunkContext,
-    contextOrSignal?: ProcessChunkContext | AbortSignal
-  ): Promise<ReencryptResult> {
-    let signal: AbortSignal | undefined
-    let context: ProcessChunkContext | undefined
-
-    if (signalOrContext instanceof AbortSignal || (signalOrContext && 'aborted' in signalOrContext)) {
-      signal = signalOrContext as AbortSignal
-      context = contextOrSignal as ProcessChunkContext | undefined
-    } else if (signalOrContext && typeof signalOrContext === 'object' && !('aborted' in signalOrContext)) {
-      context = signalOrContext as ProcessChunkContext
-      signal = contextOrSignal as AbortSignal | undefined
-    } else if (contextOrSignal && typeof contextOrSignal === 'object' && !('aborted' in contextOrSignal)) {
-      context = contextOrSignal as ProcessChunkContext
-    }
-
-    const ctx = context
-    if (!ctx) {
-      throw new Error('SyncWorker not initialized')
-    }
-    signal = signal ?? ctx.signal ?? ctx.deps?.signal
-
+  async processChunk(chunk: ItemId[], ctx: ProcessChunkContext): Promise<ReencryptResult> {
+    const signal = ctx.signal
     if (signal?.aborted) {
       throw signal.reason instanceof Error
         ? signal.reason
@@ -643,7 +556,6 @@ export class ItemReencryptor {
         recoveryManager,
         signal: deps.signal,
         batchRetryDelays,
-        deps,
         onProgress,
         total,
         processedCount: 0,
@@ -651,7 +563,7 @@ export class ItemReencryptor {
 
       try {
         for (const chunkIds of itemChunks) {
-          const chunkResult = await this.processChunk(chunkIds, deps.signal, context)
+          const chunkResult = await this.processChunk(chunkIds, context)
           succeeded.push(...chunkResult.succeeded)
           failed.push(...chunkResult.failed)
         }

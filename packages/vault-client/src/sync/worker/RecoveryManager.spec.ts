@@ -205,7 +205,7 @@ describe('RecoveryManager', () => {
 
   describe('dismissEntry', () => {
     it('removes entry by id and emits event', async () => {
-      await recoveryManager.dismissEntry('account-123', 'entry-456')
+      await recoveryManager.dismissEntry('entry-456')
 
       expect(mockRemoveManualRecoveryEntryById).toHaveBeenCalledWith('account-123', 'entry-456')
       expect(onEventMock).toHaveBeenCalledTimes(1)
@@ -256,7 +256,7 @@ describe('RecoveryManager', () => {
     })
   })
 
-  describe('reportDecryptionFailure and attemptAutoRecovery', () => {
+  describe('reportDecryptionFailure', () => {
     it('creates manual recovery entry and emits recoveryItemsChanged', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       const mockEntries = [{ id: 'entry-1', itemId: 'item-1', reason: 'fail', kind: 'pullDecryption', createdAt: 1 }]

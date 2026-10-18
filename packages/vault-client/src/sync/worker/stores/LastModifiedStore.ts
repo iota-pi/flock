@@ -39,18 +39,4 @@ export class LastModifiedStore extends ScopedMetadataStore<[ItemId, ItemSyncTime
   async saveTimestamps(timestamps: [ItemId, ItemSyncTimestamps][]): Promise<void> {
     await this.setScopedData(timestamps)
   }
-
-  async loadLastModified(): Promise<[ItemId, number][] | null> {
-    const timestamps = await this.loadTimestamps()
-    if (!timestamps) return null
-    return timestamps.map(([itemId, ts]) => [itemId, ts.localModifiedAt])
-  }
-
-  async saveLastModified(lastModified: [ItemId, number][]): Promise<void> {
-    const timestamps: [ItemId, ItemSyncTimestamps][] = lastModified.map(([itemId, mod]) => [
-      itemId,
-      { localModifiedAt: mod, lastSnapshotAt: mod },
-    ])
-    await this.saveTimestamps(timestamps)
-  }
 }

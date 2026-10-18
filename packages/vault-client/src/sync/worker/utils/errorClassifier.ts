@@ -237,24 +237,6 @@ export function classifySyncError(error: unknown): ClassifiedError {
   }
 }
 
-export class ErrorClassifier {
-  static classify(error: unknown): ClassifiedError {
-    return classifySyncError(error)
-  }
-}
-
 export function isAuthError(error: unknown): boolean {
   return classifySyncError(error).isAuth
-}
-
-export function isNetworkError(error: unknown): boolean {
-  return classifySyncError(error).isNetwork
-}
-
-export function isServerError(error: unknown): boolean {
-  return classifySyncError(error).isServerError
-}
-
-export function isTransientVaultError(error: unknown): boolean {
-  return classifySyncError(error).isTransientVault
 }

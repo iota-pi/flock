@@ -1,6 +1,6 @@
 import { ItemId } from '@vault/shared'
 import { buildSnapshot, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
-import { isTransientVaultError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils/errorClassifier'
+import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/Keyring'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { passthroughCodec, type DocCodec } from './domain'
@@ -176,7 +176,9 @@ describe('buildSnapshot helper function', () => {
   })
 })
 
-describe('isTransientVaultError', () => {
+describe('classifySyncError isTransientVault', () => {
+  const isTransientVaultError = (error: unknown) => classifySyncError(error).isTransientVault
+
   it('returns false for falsy values', () => {
     expect(isTransientVaultError(null)).toBe(false)
     expect(isTransientVaultError(undefined)).toBe(false)

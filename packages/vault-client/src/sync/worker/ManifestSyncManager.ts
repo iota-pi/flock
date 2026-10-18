@@ -8,6 +8,7 @@ import type { SyncDomain } from './domain'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
+import { SYNC_TIMEOUTS } from '../syncConfig'
 import { isAuthError } from './utils/errorClassifier'
 import { ManifestDeltaCalculator, type SyncDeltas } from './ManifestDeltaCalculator'
 import { ManifestHydrator } from './ManifestHydrator'
@@ -16,7 +17,7 @@ import type { KeyProvider } from '../../api/Keyring'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
-const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
+const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
 
 export interface ManifestSyncManagerDeps {
   accountId: string
@@ -44,11 +45,6 @@ export interface ManifestSyncManagerDeps {
   onSyncedWithoutFailures?: () => void
 }
 
-export type ManifestSyncManagerLegacyDeps = Omit<
-  ManifestSyncManagerDeps,
-  'storeItems' | 'onDecryptionFailure' | 'onItemSnapshotHydrated'
->
-
 export type SyncResult = { added: ItemId[], success: boolean }
 
 export class ManifestSyncManager implements LifecycleAware {
@@ -66,23 +62,8 @@ export class ManifestSyncManager implements LifecycleAware {
   private abortController: AbortController | null = null
   private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 
-  constructor(
-    deps: ManifestSyncManagerDeps | ManifestSyncManagerLegacyDeps,
-    storeItems?: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>,
-    onDecryptionFailure?: (itemId: ItemId, error: unknown) => void,
-    onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void,
-  ) {
-    if (typeof storeItems === 'function') {
-      this.deps = {
-        ...deps,
-        storeItems,
-        onDecryptionFailure,
-        onItemSnapshotHydrated,
-      } as ManifestSyncManagerDeps
-    } else {
-      this.deps = deps as ManifestSyncManagerDeps
-    }
-
+  constructor(deps: ManifestSyncManagerDeps) {
+    this.deps = deps
     this.apiClient = this.deps.apiClient ?? new SyncApiClient()
     this.recoveryManager = this.deps.recoveryManager ?? new RecoveryManager({ accountId: this.deps.accountId })
     this.hydrator = new ManifestHydrator({
@@ -155,7 +136,7 @@ export class ManifestSyncManager implements LifecycleAware {
         console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
         return null
       }
-      console.error('[ManifestSyncManager] Failed to fetch manifest', e)
+      // Logged by handleSyncError
       throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
     }
   }
@@ -241,11 +222,11 @@ export class ManifestSyncManager implements LifecycleAware {
       return { added: [], success: false }
     }
     if (hasKnownItems) {
-      console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
+      console.warn('[ManifestSyncManager] Manifest sync failed, falling back to local data', e)
       return { added: [], success: false }
     }
-    console.error('[ManifestSyncManager] Failed to fetch manifest', e)
-    throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
+    console.error('[ManifestSyncManager] Manifest sync failed', e)
+    throw new Error(`[ManifestSyncManager] Manifest sync failed: ${(e as Error).message || String(e)}`, { cause: e })
   }
 
   private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {
@@ -329,54 +310,30 @@ export class ManifestSyncManager implements LifecycleAware {
     }
   }
 
-  async pushLocalUpdates(
-    deltasOrUpstreamIds:
-      | SyncDeltas
-      | (Pick<SyncDeltas, 'upstreamIds'> &
-          Partial<Pick<SyncDeltas, 'locallyTombstonedSnapshots' | 'deletedLastModifiedUpdates' | 'deletedVersionUpdates'>>)
-      | ItemId[],
-  ): Promise<void> {
-    if (Array.isArray(deltasOrUpstreamIds)) {
-      for (const id of deltasOrUpstreamIds) {
-        this.deps.snapshotManager.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
-      }
-      return
-    }
-
-    if (
-      deltasOrUpstreamIds.locallyTombstonedSnapshots &&
-      deltasOrUpstreamIds.locallyTombstonedSnapshots.length > 0
-    ) {
+  async pushLocalUpdates(deltas: SyncDeltas): Promise<void> {
+    if (deltas.locallyTombstonedSnapshots.length > 0) {
       try {
-        await this.deps.storeItems(deltasOrUpstreamIds.locallyTombstonedSnapshots, { markDirty: false })
+        await this.deps.storeItems(deltas.locallyTombstonedSnapshots, { markDirty: false })
       } finally {
-        for (const item of deltasOrUpstreamIds.locallyTombstonedSnapshots) {
-          this.deps.snapshotManager.deleteDirtyItem?.(item.id)
+        for (const item of deltas.locallyTombstonedSnapshots) {
+          this.deps.snapshotManager.deleteDirtyItem(item.id)
         }
       }
     }
 
-    if (
-      deltasOrUpstreamIds.deletedLastModifiedUpdates &&
-      deltasOrUpstreamIds.deletedLastModifiedUpdates.length > 0
-    ) {
-      for (const [id] of deltasOrUpstreamIds.deletedLastModifiedUpdates) {
-        this.deps.snapshotManager.deleteDirtyItem?.(id)
+    if (deltas.deletedLastModifiedUpdates.length > 0) {
+      for (const [id] of deltas.deletedLastModifiedUpdates) {
+        this.deps.snapshotManager.deleteDirtyItem(id)
       }
-      await this.deps.snapshotManager.importLastModified(deltasOrUpstreamIds.deletedLastModifiedUpdates)
+      await this.deps.snapshotManager.importLastModified(deltas.deletedLastModifiedUpdates)
     }
 
-    if (
-      deltasOrUpstreamIds.deletedVersionUpdates &&
-      deltasOrUpstreamIds.deletedVersionUpdates.length > 0
-    ) {
-      await this.deps.snapshotManager.importVersions(deltasOrUpstreamIds.deletedVersionUpdates)
+    if (deltas.deletedVersionUpdates && deltas.deletedVersionUpdates.length > 0) {
+      await this.deps.snapshotManager.importVersions(deltas.deletedVersionUpdates)
     }
 
-    if (deltasOrUpstreamIds.upstreamIds && deltasOrUpstreamIds.upstreamIds.length > 0) {
-      for (const id of deltasOrUpstreamIds.upstreamIds) {
-        this.deps.snapshotManager.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
-      }
+    for (const id of deltas.upstreamIds) {
+      this.deps.snapshotManager.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
   }
 

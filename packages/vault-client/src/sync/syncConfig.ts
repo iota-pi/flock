@@ -20,6 +20,8 @@ export const SYNC_TIMEOUTS = {
   workerRestartDelay: 1000,
   /** Timeout for graceful worker shutdown before forcing termination */
   workerShutdown: 1000,
+  /** Debounce before uploading a snapshot that manifest sync found missing or newer on this device */
+  upstreamSnapshotDebounce: 2000,
 } as const
 
 export const SYNC_BATCH_SIZES = {
