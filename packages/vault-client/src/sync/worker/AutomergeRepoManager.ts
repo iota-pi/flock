@@ -121,12 +121,6 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  async clearLocalData(): Promise<void> {
-    if (this.indexedDbAdapter) {
-      await runStorageOperation(() => this.indexedDbAdapter!.clear())
-    }
-  }
-
   async close(): Promise<void> {
     if (this.broadcastAdapter) {
       try {

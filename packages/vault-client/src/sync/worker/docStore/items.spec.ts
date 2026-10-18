@@ -45,34 +45,6 @@ describe('items operations', () => {
     expect(retrieved).toEqual(item)
   })
 
-  it('should remove an item successfully', async () => {
-    const item: VaultDoc = {
-      id: 'test-item-remove' as ItemId,
-      type: 'person',
-      name: 'Test Prayer Remove',
-      description: 'A test prayer item to remove',
-      created: Date.now(),
-      archived: false,
-      prayerFrequency: 'none',
-      notes: [],
-      prayedFor: [],
-    }
-
-    await docStore.changeDocument(
-      item.id,
-      (doc: any) => {
-        for (const [key, value] of Object.entries(item)) {
-          doc[key] = value
-        }
-      },
-      { createIfMissing: true }
-    )
-
-    await docStore.removeAutomergeItem(item.id)
-
-    const retrieved = await docStore.getAutomergeItem(item.id)
-    expect(retrieved).toBeNull()
-  })
 
   it('normalizeItemSnapshot fills in a missing id and decodes with the codec', () => {
     const codec = { ...passthroughCodec, decode: vi.fn((_id: ItemId, raw: Record<string, unknown>) => ({ ...raw, decoded: true }) as unknown as VaultDoc) }

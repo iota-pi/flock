@@ -9,11 +9,7 @@ import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { isAuthError } from './utils/errorClassifier'
-import {
-  ManifestDeltaCalculator,
-  type SyncDeltas,
-  type CalculateSyncDeltasParams,
-} from './ManifestDeltaCalculator'
+import { ManifestDeltaCalculator, type SyncDeltas } from './ManifestDeltaCalculator'
 import { ManifestHydrator } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { KeyProvider } from '../../api/Keyring'
@@ -331,10 +327,6 @@ export class ManifestSyncManager implements LifecycleAware {
         this.abortController = null
       }
     }
-  }
-
-  calculateSyncDeltas(params: CalculateSyncDeltasParams): SyncDeltas {
-    return ManifestDeltaCalculator.calculateSyncDeltas(params)
   }
 
   async pushLocalUpdates(

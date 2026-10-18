@@ -247,12 +247,6 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
     }
   }
 
-  async clear(): Promise<void> {
-    return this.withTransaction(this.storeName, 'readwrite', store => {
-      store.clear()
-    })
-  }
-
   async load(key: string[]): Promise<Uint8Array | undefined> {
     return this.withTransaction(this.storeName, 'readonly', store => {
       return new Promise((resolve, reject) => {

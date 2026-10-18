@@ -11,7 +11,6 @@ describe('VaultIndexedDBStorageAdapter', () => {
 
   beforeEach(() => {
     mockStore = {
-      clear: vi.fn(),
       put: vi.fn(),
       delete: vi.fn(),
       get: vi.fn(),
@@ -74,54 +73,30 @@ describe('VaultIndexedDBStorageAdapter', () => {
     globalThis.indexedDB = originalIndexedDB
   })
 
-  describe('clear()', () => {
-    it('waits for transaction.oncomplete before resolving and does NOT resolve prematurely', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
-
-      let resolved = false
-      const clearPromise = adapter.clear().then(() => {
-        resolved = true
-      })
-
-      // Wait for connect() to finish and clear() to initiate transaction
-      await new Promise(r => setTimeout(r, 10))
-
-      expect(mockDb.transaction).toHaveBeenCalledWith('documents', 'readwrite')
-      expect(mockStore.clear).toHaveBeenCalled()
-
-      // The clear promise MUST still be pending because oncomplete has not fired
-      expect(resolved).toBe(false)
-
-      // Complete the transaction
-      mockTransaction.oncomplete()
-      await clearPromise
-
-      expect(resolved).toBe(true)
-    })
-
+  describe('read-write transaction failures', () => {
     it('rejects when transaction.onerror fires', async () => {
       const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
 
-      const clearPromise = adapter.clear()
+      const savePromise = adapter.save(['doc-1'], new Uint8Array([1]))
       await new Promise(r => setTimeout(r, 10))
 
       const testError = new Error('Transaction failed')
       mockTransaction.error = testError
       mockTransaction.onerror()
 
-      await expect(clearPromise).rejects.toThrow('Transaction failed')
+      await expect(savePromise).rejects.toThrow('Transaction failed')
     })
 
     it('rejects when transaction.onabort fires', async () => {
       const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
 
-      const clearPromise = adapter.clear()
+      const savePromise = adapter.save(['doc-1'], new Uint8Array([1]))
       await new Promise(r => setTimeout(r, 10))
 
       mockTransaction.error = null
       mockTransaction.onabort()
 
-      await expect(clearPromise).rejects.toThrow('Transaction aborted')
+      await expect(savePromise).rejects.toThrow('Transaction aborted')
     })
   })
 
@@ -395,9 +370,9 @@ describe('VaultIndexedDBStorageAdapter', () => {
   describe('close()', () => {
     it('awaits in-flight transactions before closing db', async () => {
       const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
-      let clearFinished = false
-      const clearPromise = adapter.clear().then(() => {
-        clearFinished = true
+      let saveFinished = false
+      const savePromise = adapter.save(['doc-1'], new Uint8Array([1])).then(() => {
+        saveFinished = true
       })
 
       // Wait for transaction to initiate
@@ -413,12 +388,12 @@ describe('VaultIndexedDBStorageAdapter', () => {
       await new Promise(r => setTimeout(r, 10))
       expect(mockDb.close).not.toHaveBeenCalled()
       expect(closeResolved).toBe(false)
-      expect(clearFinished).toBe(false)
+      expect(saveFinished).toBe(false)
 
       // Complete in-flight transaction
       mockTransaction.oncomplete()
-      await clearPromise
-      expect(clearFinished).toBe(true)
+      await savePromise
+      expect(saveFinished).toBe(true)
 
       // Emit close event on database
       mockDb._emit('close')
@@ -429,7 +404,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
 
     it('rejects new transactions while closing or once closed', async () => {
       const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
-      const clearPromise = adapter.clear()
+      const savePromise = adapter.save(['doc-1'], new Uint8Array([1]))
       await new Promise(r => setTimeout(r, 10))
 
       const closePromise = adapter.close()
@@ -438,7 +413,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       await expect(adapter.load(['doc-1'])).rejects.toThrow('Database is closed')
 
       mockTransaction.oncomplete()
-      await clearPromise
+      await savePromise
       mockDb._emit('close')
       await closePromise
 

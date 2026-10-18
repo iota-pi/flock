@@ -980,23 +980,6 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(item?.description).toBe('Merged Via Seed')
     })
 
-    it('removeAutomergeItem ignores invalid itemId and cleanly deletes valid document from repo and cache', async () => {
-      await expect(docStore.removeAutomergeItem('' as ItemId)).resolves.toBeUndefined()
-
-      const itemId = 'remove-item-target' as ItemId
-      const docId = toDocumentIdFromItemId(itemId)
-      const binary = createDocBinary(itemId)
-      await docStore.seedImportedDocument(itemId, binary)
-
-      const deleteSpy = vi.spyOn(repo, 'delete')
-      const removeFromCacheSpy = vi.spyOn(repo, 'removeFromCache')
-
-      await docStore.removeAutomergeItem(itemId)
-
-      expect(deleteSpy).toHaveBeenCalledWith(docId)
-      expect(removeFromCacheSpy).toHaveBeenCalledWith(docId)
-      expect(await docStore.getAutomergeItem(itemId)).toBeNull()
-    })
 
     it('snapshotFromHandle returns null for missing or non-ready handle or empty doc', () => {
       expect(docStore.snapshotFromHandle(undefined)).toBeNull()
@@ -1070,20 +1053,19 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(exported.documents[item2.id]).toBeDefined()
       expect(exported.documents[ACCOUNT_INDEX_DOCUMENT_ID]).toBeDefined()
 
-      // Reset local documents
-      await docStore.removeAutomergeItem(item1.id)
-      await docStore.removeAutomergeItem(item2.id)
+      // Restore on a device without the documents
+      const restoringStore = new AutomergeDocStore(new Repo())
       await indexStore.clear()
       await indexManager.ensureIndexDocument()
 
-      expect(await docStore.getAutomergeItem(item1.id)).toBeNull()
+      expect(await restoringStore.getAutomergeItem(item1.id)).toBeNull()
 
       // Restore from binaries
-      const restoredIds = await docStore.restoreFromBinaries(exported.documents, indexManager)
+      const restoredIds = await restoringStore.restoreFromBinaries(exported.documents, indexManager)
       expect(restoredIds).toContain(item1.id)
       expect(restoredIds).toContain(item2.id)
 
-      const restoredItem1 = await docStore.getAutomergeItem(item1.id)
+      const restoredItem1 = await restoringStore.getAutomergeItem(item1.id)
       expect(restoredItem1?.name).toBe('Item 1')
 
       const indexItemIds = await indexManager.listAutomergeItemIds()

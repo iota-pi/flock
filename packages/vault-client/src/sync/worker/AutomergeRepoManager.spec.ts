@@ -81,14 +81,6 @@ describe('AutomergeRepoManager', () => {
     expect(onQuotaError).toHaveBeenCalledWith(quotaError)
   })
 
-  it('wraps clearLocalData in runStorageOperation', async () => {
-    manager.init(mockVaultAdapter)
-    const runStorageSpy = vi.spyOn(storageManager, 'runStorageOperation')
-
-    await manager.clearLocalData()
-    expect(runStorageSpy).toHaveBeenCalled()
-  })
-
   it('awaits indexedDbAdapter.close() during manager.close()', async () => {
     manager.init(mockVaultAdapter)
     // @ts-expect-error accessing private adapter
@@ -123,9 +115,6 @@ describe('AutomergeRepoManager', () => {
     const repoShutdownSpy = vi.spyOn(repo, 'shutdown').mockImplementation(async () => {
       callOrder.push('repo.shutdown')
     })
-    const clearLocalDataSpy = vi.spyOn(manager, 'clearLocalData').mockImplementation(async () => {
-      callOrder.push('clearLocalData')
-    })
     // @ts-expect-error accessing private adapter
     const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close').mockImplementation(async () => {
       callOrder.push('adapter.close')
@@ -135,17 +124,17 @@ describe('AutomergeRepoManager', () => {
 
     expect(callOrder).toEqual(['repo.shutdown', 'adapter.close'])
     expect(repoShutdownSpy).toHaveBeenCalledTimes(1)
-    expect(clearLocalDataSpy).not.toHaveBeenCalled()
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('only closes and does not clear local data when clearLocalData is false or omitted', async () => {
+  it('closes the adapter when clearLocalData is omitted', async () => {
     manager.init(mockVaultAdapter)
-    const clearLocalDataSpy = vi.spyOn(manager, 'clearLocalData').mockResolvedValue(undefined)
+    // @ts-expect-error accessing private adapter
+    const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close').mockResolvedValue(undefined)
 
     await manager.onLifecycleStop()
 
-    expect(clearLocalDataSpy).not.toHaveBeenCalled()
+    expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
 })
 

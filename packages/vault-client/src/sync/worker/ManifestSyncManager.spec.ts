@@ -1242,58 +1242,6 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('discrete steps unit tests', () => {
-    describe('calculateSyncDeltas', () => {
-      it('partitions deltas correctly into missingIds, locallyTombstonedSnapshots, and upstreamIds', () => {
-        const result = manifestSyncManager.calculateSyncDeltas({
-          manifest: [
-            { itemId: 'item-new-remote' as ItemId, version: 1, modifiedAt: 2000 },
-            { itemId: 'item-server-deleted' as ItemId, version: 2, modifiedAt: 2000, isDeleted: true },
-            { itemId: 'item-in-sync' as ItemId, version: 1, modifiedAt: 1000 },
-          ],
-          force: false,
-          knownItemIds: ['item-server-deleted' as ItemId, 'item-in-sync' as ItemId, 'item-local-only' as ItemId],
-          tombstoneItemIds: [],
-          localLastModifiedMap: new Map([
-            ['item-server-deleted' as ItemId, 1000],
-            ['item-in-sync' as ItemId, 1000],
-            ['item-local-only' as ItemId, 1500],
-          ]),
-          quarantinedMap: new Map(),
-          localVersionsMap: new Map([
-            ['item-server-deleted' as ItemId, { baseVersion: 1, isDirty: false }],
-            ['item-in-sync' as ItemId, { baseVersion: 1, isDirty: false }],
-            ['item-local-only' as ItemId, { baseVersion: 0, isDirty: true }],
-          ]),
-        })
-
-        expect(result.missingIds).toEqual(['item-new-remote'])
-        expect(result.locallyTombstonedSnapshots).toEqual([{ id: 'item-server-deleted', deleted: true }])
-        expect(result.deletedLastModifiedUpdates).toEqual([['item-server-deleted', 2000]])
-        expect(result.upstreamIds).toEqual(['item-local-only'])
-        expect(result.knownSet.has('item-in-sync' as ItemId)).toBe(true)
-      })
-
-      it('filters quarantined items unless server has a newer timestamp', () => {
-        const result = manifestSyncManager.calculateSyncDeltas({
-          manifest: [
-            { itemId: 'item-quarantined-old' as ItemId, modifiedAt: 500 },
-            { itemId: 'item-quarantined-new' as ItemId, modifiedAt: 1500 },
-          ],
-          force: false,
-          knownItemIds: [],
-          tombstoneItemIds: [],
-          localLastModifiedMap: new Map(),
-          quarantinedMap: new Map([
-            ['item-quarantined-old' as ItemId, 600],
-            ['item-quarantined-new' as ItemId, 1000],
-          ]),
-          localVersionsMap: new Map(),
-        })
-
-        expect(result.missingIds).toEqual(['item-quarantined-new'])
-      })
-    })
-
     describe('pushLocalUpdates', () => {
       it('stores local tombstones, imports timestamps, and marks upstream dirty when passed SyncDeltas', async () => {
         await manifestSyncManager.pushLocalUpdates({

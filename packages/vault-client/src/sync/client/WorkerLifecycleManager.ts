@@ -112,10 +112,6 @@ export class WorkerLifecycleManager {
     return this.syncApi
   }
 
-  init(accountId: string, options?: WorkerInitOptions): Promise<void> {
-    return this.initialize(accountId, options)
-  }
-
   initialize(accountId: string, options?: WorkerInitOptions): Promise<void> {
     if (this.syncApi && this.currentAccountId === accountId && !options?.clearLocalData) {
       return Promise.resolve()
