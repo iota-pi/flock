@@ -10,9 +10,8 @@ import {
 } from '@vault/shared'
 import { hashString, safeEqual } from '../../util'
 import { raiseDataVersion } from '../../services/dataVersion'
+import { AuthenticationError } from '../../drivers/errors'
 
-
-const MAX_ACTIVE_SESSIONS = 8
 
 export const accountsRouter = router({
   createAccount: publicProcedure
@@ -38,38 +37,25 @@ export const accountsRouter = router({
   login: publicProcedure
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const loginAuthTokenHash = hashString(input.authToken)
-      let accountData
       try {
-        accountData = await ctx.vault.getAccount({
+        await ctx.vault.getAccount({
           account: input.account,
-          session: loginAuthTokenHash,
+          session: hashString(input.authToken),
           isLogin: true,
         })
-      } catch (_) {
-        throw new TRPCError({ code: 'UNAUTHORIZED' })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          throw new TRPCError({ code: 'UNAUTHORIZED' })
+        }
+        throw error
       }
 
+      // The driver adds it with a conditional write, so concurrent logins don't drop each other's sessions
       const session = randomBytes(16).toString('base64')
-      const now = Date.now()
-      const existingSessions = Array.isArray(accountData.sessions)
-        ? accountData.sessions
-          .filter(entry => typeof entry?.token === 'string' && typeof entry?.expiry === 'number' && entry.expiry > now)
-          .map(entry => ({ token: entry.token, expiry: entry.expiry }))
-        : []
-
-      const nextSessions = [
-        ...existingSessions.filter(entry => entry.token !== session),
-        {
-          token: session,
-          expiry: now + SESSION_EXPIRY_MS,
-        },
-      ].slice(-MAX_ACTIVE_SESSIONS)
-
-      await ctx.vault.updateAccountData({
+      await ctx.vault.addSession({
         account: input.account,
-        sessions: nextSessions,
-        lastAccess: now,
+        session,
+        expiry: Date.now() + SESSION_EXPIRY_MS,
       })
 
       return {

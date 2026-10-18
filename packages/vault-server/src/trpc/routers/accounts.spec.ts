@@ -1,4 +1,5 @@
 import { accountsRouter } from './accounts'
+import { AuthenticationError } from '../../drivers/errors'
 import { hashString } from '../../util'
 
 
@@ -11,11 +12,12 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     getAccountSalt: vi.fn(async () => 'salt-1'),
     getAccount: vi.fn(async () => {
       if (!sessionValid) {
-        throw new Error('Unauthorized')
+        throw new AuthenticationError('Unauthorized')
       }
       return { metadata: { theme: 'light' } }
     }),
     extendSession: vi.fn(async () => undefined),
+    addSession: vi.fn(async () => undefined),
   }
 
   return {
@@ -43,19 +45,33 @@ describe('accountsRouter security contracts', () => {
       session: hashString('secret-password'),
       isLogin: true,
     })
-    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+    expect(ctx.vault.addSession).toHaveBeenCalledWith({
       account: 'acct-1',
-      sessions: [
-        {
-          token: result.session,
-          expiry: expect.any(Number),
-        },
-      ],
-      lastAccess: expect.any(Number),
+      session: result.session,
+      expiry: expect.any(Number),
     })
-    expect(ctx.vault.updateAccountData).not.toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: expect.anything() }),
-    )
+    expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
+  })
+
+  it('rejects a login with the wrong credentials as UNAUTHORIZED', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccount.mockRejectedValueOnce(new AuthenticationError('Could not find account acct-1'))
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+    expect(ctx.vault.addSession).not.toHaveBeenCalled()
+  })
+
+  it('does not report a database failure during login as UNAUTHORIZED', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccount.mockRejectedValueOnce(new Error('DynamoDB timeout'))
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: 'secret-password' })).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+    })
   })
 
   it('allows fetching keyring when authorized', async () => {

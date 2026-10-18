@@ -9,6 +9,7 @@ import {
   SESSION_RENEWAL_THRESHOLD_MS,
 } from './trpc'
 import type { VaultAccountWithAuth, VaultSessionRecord } from '../drivers/base'
+import { AuthenticationError, ExpiredSessionError } from '../drivers/errors'
 
 describe('shouldRenewSession', () => {
   const authToken = 'test-token-123'
@@ -236,6 +237,32 @@ describe('protectedProcedure session renewal behavior', () => {
     )
 
     consoleSpy.mockRestore()
+  })
+})
+
+describe('protectedProcedure authentication errors', () => {
+  const testRouter = router({
+    testAction: protectedProcedure.query(() => 'ok'),
+  })
+
+  function createCaller(getAccount: () => Promise<unknown>) {
+    return testRouter.createCaller({ authToken: 'token', vault: { getAccount, extendSession: vi.fn() } } as any)
+  }
+
+  it('rejects unknown accounts and invalid sessions as UNAUTHORIZED', async () => {
+    await expect(createCaller(async () => {
+      throw new AuthenticationError('Could not find account acc-1')
+    }).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+
+    await expect(createCaller(async () => {
+      throw new ExpiredSessionError('Invalid session token')
+    }).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+  })
+
+  it('does not report a database failure as UNAUTHORIZED, which would end the session', async () => {
+    await expect(createCaller(async () => {
+      throw new Error('DynamoDB timeout')
+    }).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' })
   })
 })
 

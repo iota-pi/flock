@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server'
+import { AuthenticationError } from '../../drivers/errors'
 import { syncRouter } from './sync'
 import { StoredSyncMessage } from '../../drivers/base'
 import { ItemId } from '@vault/shared'
@@ -18,7 +19,7 @@ function createContext(overrides?: {
     extendSession: vi.fn(async () => undefined),
     getAccount: vi.fn(async ({ account, session }: { account: string; session: string }) => {
       if (!sessionValid) {
-        throw new Error('Unauthorized')
+        throw new AuthenticationError('Unauthorized')
       }
       return {
         account,

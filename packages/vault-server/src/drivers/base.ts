@@ -62,7 +62,8 @@ export default abstract class BaseDriver<T = unknown> {
   abstract createAccount(data: VaultAccount): Promise<boolean>
 
   // Retrieve account data and validate session; `isLogin` instructs implementation
-  // to validate against `authToken` instead of session hash.
+  // to validate against `authToken` instead of session hash. Throws `AuthenticationError` when the
+  // account doesn't exist or the credentials don't match.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
   abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion?: number }>
@@ -74,6 +75,9 @@ export default abstract class BaseDriver<T = unknown> {
   abstract updateAccountData<TExtra extends object = Record<never, never>>(
     data: UpdateAccountDataParams & Partial<TExtra>,
   ): Promise<void>
+
+  // Add a session to an account, keeping its other active sessions (called on login)
+  abstract addSession(data: AuthData & { expiry: number }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
   abstract extendSession(data: AuthData): Promise<void>

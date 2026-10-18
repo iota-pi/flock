@@ -9,6 +9,7 @@ import {
   PROTOCOL_VERSION_HEADER,
 } from '@vault/shared'
 import type { DataVersionPolicy } from '../services/dataVersion'
+import { AuthenticationError } from '../drivers/errors'
 import { safeEqual } from '../util'
 
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -108,8 +109,13 @@ export const protectedProcedure = publicProcedure
         account,
         session: ctx.authToken,
       })
-    } catch {
-      throw new TRPCError({ code: 'UNAUTHORIZED' })
+    } catch (error) {
+      // Anything else (such as a DynamoDB timeout) is a server error: reporting it as UNAUTHORIZED
+      // would make the client drop its session
+      if (error instanceof AuthenticationError) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
+      }
+      throw error
     }
 
     if (!accountData) {

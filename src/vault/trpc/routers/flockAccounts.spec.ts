@@ -1,4 +1,5 @@
 import { flockAccountsRouter } from './flockAccounts'
+import { AuthenticationError } from '@vault/server'
 
 
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
@@ -10,7 +11,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     getAccountSalt: vi.fn(async () => 'salt-1'),
     getAccount: vi.fn(async () => {
       if (!sessionValid) {
-        throw new Error('Unauthorized')
+        throw new AuthenticationError('Unauthorized')
       }
       return { metadata: { theme: 'light' } }
     }),

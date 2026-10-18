@@ -36,7 +36,7 @@ import BaseDriver, {
   VaultItem,
   VaultSessionRecord,
 } from './base'
-import { ExpiredSessionError, InvalidPageTokenError } from './errors'
+import { AuthenticationError, ExpiredSessionError, InvalidPageTokenError } from './errors'
 import { VersionConflictError, MAX_ITEM_SIZE } from '@vault/shared'
 import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
 import {
@@ -100,6 +100,7 @@ const DATA_ATTRIBUTE_NAMES = {
 export { MAX_ITEM_SIZE }
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
+const MAX_SESSION_UPDATE_ATTEMPTS = 3
 
 type PersistedVaultItem = VaultItem & {
   modifiedAt?: number
@@ -369,7 +370,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     { account, isLogin, session }: AuthData & { isLogin?: boolean },
   ): Promise<VaultAccountWithAuth> {
     if (!session) {
-      throw new Error('Session is required to get account')
+      throw new AuthenticationError('Session is required to get account')
     }
     const response = await this.client.send(new GetCommand(
       {
@@ -388,7 +389,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           }
         }
         // Give same error as if account not found to avoid leaking account ids
-        throw new Error(`Could not find account ${account}`)
+        throw new AuthenticationError(`Could not find account ${account}`)
       }
 
       const now = Date.now()
@@ -402,7 +403,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
       throw new ExpiredSessionError('Invalid session token')
     }
-    throw new Error(`Could not find account ${account}`)
+    throw new AuthenticationError(`Could not find account ${account}`)
   }
 
   async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion?: number }> {
@@ -482,9 +483,44 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     await this.client.send(new UpdateCommand(params))
   }
 
+  async addSession({ account, session, expiry }: AuthData & { expiry: number }): Promise<void> {
+    const added = await this.updateSessions(account, activeSessions => [
+      ...activeSessions,
+      { token: session, expiry },
+    ])
+    if (!added) {
+      throw new Error(`Could not add a session to account ${account}`)
+    }
+  }
+
   async extendSession({ account, session }: AuthData): Promise<void> {
-    const maxRetries = 3
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    await this.updateSessions(account, (activeSessions, now, attempt) => {
+      const sessionRecord = activeSessions.find(active => safeEqual(session, active.token))
+      if (!sessionRecord) {
+        return undefined
+      }
+
+      // If already extended recently (e.g. by another concurrent request), avoid redundant write
+      if (attempt > 0 && sessionRecord.expiry >= now + SESSION_EXPIRY_MS - 60_000) {
+        return undefined
+      }
+
+      sessionRecord.expiry = now + SESSION_EXPIRY_MS
+      return activeSessions
+    })
+  }
+
+  /**
+   * Rewrites the account's sessions on condition that they haven't changed since they were read,
+   * retrying when a concurrent login, renewal or password change got there first. `update` gets the
+   * active sessions and returns the new list, or undefined to leave them as they are. Returns whether
+   * it wrote.
+   */
+  private async updateSessions(
+    account: string,
+    update: (activeSessions: VaultSessionRecord[], now: number, attempt: number) => VaultSessionRecord[] | undefined,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < MAX_SESSION_UPDATE_ATTEMPTS; attempt += 1) {
       const response = await this.client.send(new GetCommand({
         TableName: this.tables.accounts,
         Key: { account },
@@ -492,31 +528,22 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }))
 
       if (!response?.Item) {
-        return
+        return false
       }
 
       const rawSessions = response.Item.sessions
       const now = Date.now()
-      const activeSessions = normalizeSessionRecords(rawSessions, now)
-      const sessionRecord = activeSessions.find(active => safeEqual(session, active.token))
-      if (!sessionRecord) {
-        return
+      const nextSessions = update(normalizeSessionRecords(rawSessions, now), now, attempt)
+      if (!nextSessions) {
+        return false
       }
-
-      // If already extended recently (e.g. by another concurrent request), avoid redundant write
-      if (attempt > 0 && sessionRecord.expiry >= now + SESSION_EXPIRY_MS - 60_000) {
-        return
-      }
-
-      sessionRecord.expiry = now + SESSION_EXPIRY_MS
-      const nextSessions = normalizeSessionRecords(activeSessions, now)
 
       const params: UpdateCommandInput = {
         TableName: this.tables.accounts,
         Key: { account },
         UpdateExpression: 'SET sessions = :sessions, lastAccess = :now',
         ExpressionAttributeValues: {
-          ':sessions': nextSessions,
+          ':sessions': normalizeSessionRecords(nextSessions, now),
           ':now': now,
         },
       }
@@ -530,19 +557,19 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       try {
         await this.client.send(new UpdateCommand(params))
-        return
+        return true
       } catch (error) {
-        if (isConditionalCheckFailure(error)) {
-          if (attempt === maxRetries - 1) {
-            return
-          }
-          const delay = Math.min(10 * Math.pow(2, attempt) + Math.random() * 10, 100)
-          await new Promise(resolve => setTimeout(resolve, delay))
-          continue
+        if (!isConditionalCheckFailure(error)) {
+          throw error
         }
-        throw error
+      }
+
+      if (attempt < MAX_SESSION_UPDATE_ATTEMPTS - 1) {
+        const delay = Math.min(10 * Math.pow(2, attempt) + Math.random() * 10, 100)
+        await new Promise(resolve => setTimeout(resolve, delay))
       }
     }
+    return false
   }
 
   async set(item: VaultItem) {
