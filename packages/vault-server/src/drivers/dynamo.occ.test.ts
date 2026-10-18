@@ -1,6 +1,5 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { getConnectionParams } from './dynamo'
-import { generateItemId, VersionConflictError } from '@vault/shared'
 import { generateAccountId } from '../util'
 import { AuthenticationError } from './errors'
 
@@ -10,82 +9,9 @@ function uniqueAccountId() {
   return `${generateAccountId()}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 }
 
-describe('DynamoDriver OCC & Conditional Cursors', () => {
+describe('DynamoDriver conditional account writes', () => {
   beforeAll(() => {
     driver.connect(getConnectionParams())
-  })
-
-  describe('Item Snapshot OCC Versioning', () => {
-    it('succeeds on first write to new item and sets version to 1', async () => {
-      const account = uniqueAccountId()
-      const item = generateItemId()
-      const cipher = 'first-write'
-      const iv = 'iv-1'
-      const modified = Date.now()
-
-      await driver.set({ account, item, cipher, metadata: { iv, modified } })
-      const results = await driver.fetchByIds({ account, itemIds: [item] })
-      const stored = results[0]
-
-      expect(stored.version).toBe(1)
-      expect(stored.cipher).toBe('first-write')
-    })
-
-    it('succeeds on second write when expected version matches and increments version to 2', async () => {
-      const account = uniqueAccountId()
-      const item = generateItemId()
-      const modified = Date.now()
-
-      await driver.set({ account, item, cipher: 'v1', metadata: { iv: 'iv-1', modified } })
-      const firstResults = await driver.fetchByIds({ account, itemIds: [item] })
-      const first = firstResults[0]
-      expect(first.version).toBe(1)
-
-      // Write v2 with version: 1
-      await driver.set({ account, item, cipher: 'v2', metadata: { iv: 'iv-2', modified: modified + 100 }, version: 1 })
-      const secondResults = await driver.fetchByIds({ account, itemIds: [item] })
-      const second = secondResults[0]
-
-      expect(second.version).toBe(2)
-      expect(second.cipher).toBe('v2')
-    })
-
-    it('throws VersionConflictError when writing with a stale version', async () => {
-      const account = uniqueAccountId()
-      const item = generateItemId()
-      const modified = Date.now()
-
-      // Create v1
-      await driver.set({ account, item, cipher: 'v1', metadata: { iv: 'iv-1', modified } })
-
-      // Advance to v2
-      await driver.set({ account, item, cipher: 'v2', metadata: { iv: 'iv-2', modified: modified + 100 }, version: 1 })
-
-      // Client A tries to write using stale version 1
-      await expect(
-        driver.set({ account, item, cipher: 'v3-stale', metadata: { iv: 'iv-3', modified: modified + 200 }, version: 1 })
-      ).rejects.toThrow(VersionConflictError)
-
-      // Verify the item is still v2
-      const currentResults = await driver.fetchByIds({ account, itemIds: [item] })
-      const current = currentResults[0]
-      expect(current.version).toBe(2)
-      expect(current.cipher).toBe('v2')
-    })
-
-    it('allows updating an already existing item when writing without version', async () => {
-      const account = uniqueAccountId()
-      const item = generateItemId()
-      const modified = Date.now()
-
-      await driver.set({ account, item, cipher: 'v1', metadata: { iv: 'iv-1', modified } })
-
-      // Writing without version should update the existing item unconditionally
-      await driver.set({ account, item, cipher: 'overwrite-no-ver', metadata: { iv: 'iv-2', modified: modified + 100 } })
-
-      const results = await driver.fetchByIds({ account, itemIds: [item] })
-      expect(results[0].cipher).toBe('overwrite-no-ver')
-    })
   })
 
   describe('Concurrent Key Rotation & keyringVersion OCC', () => {

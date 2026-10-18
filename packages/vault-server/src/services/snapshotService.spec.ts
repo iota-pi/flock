@@ -4,7 +4,7 @@ import type { ItemId } from '@vault/shared'
 
 function createMockVault(): VaultDriver {
   return {
-    set: vi.fn(async () => undefined),
+    set: vi.fn(async () => ({ version: 1 })),
     updateAccountData: vi.fn(async () => undefined),
   } as unknown as VaultDriver
 }
@@ -107,7 +107,7 @@ describe('snapshotService.persistSnapshots', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     ;(vault.set as any)
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ version: 1 })
       .mockRejectedValueOnce(new Error('Write failed'))
 
     const input = {

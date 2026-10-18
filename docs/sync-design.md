@@ -73,6 +73,7 @@ OCC would be harmful. A blind relay cannot resolve conflicts, so concurrent or o
 ## Deletion and IDs
 
 - Deletes are soft-deletes. The CRDT doc gets `deleted: true`, and that propagates through messages and snapshots (`metadata.deleted`). `FlockItems` rows are never hard-deleted and have no TTL.
+- The server never clears `metadata.deleted`. A later snapshot from a device that hasn't seen the delete yet replaces the stored snapshot (hydration merges, so that is harmless) but keeps the item deleted.
 - A hard-delete would be undone. An item missing from the manifest looks like an offline creation, so manifest sync would re-upload it.
 - Deletion is terminal, with no undelete. New items always get a fresh `generateItemId()` (126-bit nanoid). Reusing an ID would merge the old entity's history into the new one.
 - `AutomergeDocStore.findOrCreateHandle` refuses to create a blank doc when `hasDataInStorage(itemId)`. This guard prevents data loss: without it, a handle-lookup timeout would overwrite an existing doc.

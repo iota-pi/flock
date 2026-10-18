@@ -11,7 +11,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
       return { account: 'acct-1', metadata: {} } as any
     }),
     extendSession: vi.fn(async () => undefined),
-    set: vi.fn(async () => undefined),
+    set: vi.fn(async () => ({ version: 1 })),
     updateAccountData: vi.fn(async () => undefined),
   }
 
@@ -70,7 +70,7 @@ describe('itemsRouter.putSnapshots', () => {
   it('returns success: false when one snapshot write fails', async () => {
     const ctx = createContext()
     ;(ctx.vault.set as any)
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ version: 1 })
       .mockRejectedValueOnce(new Error('DynamoDB put failed'))
     const caller = itemsRouter.createCaller(ctx as any)
 
