@@ -2,6 +2,7 @@ import { debounce } from 'lodash-es'
 import { ItemId } from '@vault/shared'
 import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { AsyncMutex } from '../utils/AsyncMutex'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -34,6 +35,7 @@ export class SnapshotTracker {
   private readonly maxWaitMs: number
 
   public readonly loadGuard = new SingleFlightGuard<void>()
+  private readonly persistMutex = new AsyncMutex()
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
   private readonly onOversizedFound?: (itemId: ItemId) => void
@@ -236,25 +238,36 @@ export class SnapshotTracker {
     return { auditCount, oversizedItemIds }
   }
 
+  /**
+   * Merges this tab's timestamps into the stored ones, keeping the later value of each. Every tab of
+   * the account writes here, and a tab's maps can be older than the store (a follower only loads them
+   * at startup), so writing them over the store would lose the leader's progress.
+   */
   async persistLastModified(): Promise<void> {
-    const allItemIds = new Set([
-      ...this.lastModifiedByItemId.keys(),
-      ...this.lastSnapshotAtByItemId.keys(),
-      ...this.baseVersionByItemId.keys(),
-    ])
-    const data: [ItemId, ItemSyncTimestamps][] = Array.from(allItemIds).map(itemId => [
-      itemId,
-      {
-        localModifiedAt: this.lastModifiedByItemId.get(itemId) ?? 0,
-        lastSnapshotAt: this.lastSnapshotAtByItemId.get(itemId),
-        baseVersion: this.baseVersionByItemId.get(itemId) ?? 0,
-      },
-    ])
-    try {
-      await this.lastModifiedStore.saveTimestamps(data)
-    } catch (error) {
-      console.error('[SnapshotTracker] Failed to save lastModified timestamps', error)
-    }
+    await this.persistMutex.runExclusive(async () => {
+      try {
+        const merged = new Map<ItemId, ItemSyncTimestamps>(await this.lastModifiedStore.loadTimestamps() ?? [])
+        const allItemIds = new Set([
+          ...this.lastModifiedByItemId.keys(),
+          ...this.lastSnapshotAtByItemId.keys(),
+          ...this.baseVersionByItemId.keys(),
+        ])
+        for (const itemId of allItemIds) {
+          const stored = merged.get(itemId)
+          const lastSnapshotAt = this.lastSnapshotAtByItemId.get(itemId)
+          merged.set(itemId, {
+            localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, this.lastModifiedByItemId.get(itemId) ?? 0),
+            lastSnapshotAt: lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
+              ? undefined
+              : Math.max(stored?.lastSnapshotAt ?? 0, lastSnapshotAt ?? 0),
+            baseVersion: Math.max(stored?.baseVersion ?? 0, this.baseVersionByItemId.get(itemId) ?? 0),
+          })
+        }
+        await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
+      } catch (error) {
+        console.error('[SnapshotTracker] Failed to save lastModified timestamps', error)
+      }
+    })
   }
 
   recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number, version?: number): void {

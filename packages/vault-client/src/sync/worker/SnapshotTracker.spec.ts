@@ -226,4 +226,38 @@ describe('SnapshotTracker', () => {
       expect(tracker.deleteDirtyItem('item-not-dirty' as ItemId)).toBe(false)
     })
   })
+
+  describe('persistLastModified across tabs', () => {
+    it("keeps the leader's progress when a follower with older state saves", async () => {
+      let stored: [ItemId, { localModifiedAt: number; lastSnapshotAt?: number; baseVersion?: number }][] = []
+      const sharedStore = {
+        loadTimestamps: vi.fn(async () => stored),
+        saveTimestamps: vi.fn(async (data: typeof stored) => {
+          stored = data
+        }),
+      } as unknown as LastModifiedStore
+      const makeTracker = (isLeader: boolean) => new SnapshotTracker({
+        accountId: 'test-acc',
+        lastModifiedStore: sharedStore,
+        recoveryManager: mockRecoveryManager,
+        isLeader,
+      })
+      const leader = makeTracker(true)
+      const follower = makeTracker(false)
+
+      // The follower loaded before the leader uploaded these snapshots
+      leader.recordSnapshotSuccess('item-1' as ItemId, 2000, 0, 5)
+      leader.recordSnapshotSuccess('item-2' as ItemId, 2000, 0, 3)
+      await leader.persistLastModified()
+      follower.lastModifiedByItemId.set('item-1' as ItemId, 1000)
+      follower.lastSnapshotAtByItemId.set('item-1' as ItemId, 500)
+      follower.lastModifiedByItemId.set('item-3' as ItemId, 3000)
+      await follower.persistLastModified()
+
+      const byId = new Map(stored)
+      expect(byId.get('item-1' as ItemId)).toEqual({ localModifiedAt: 2000, lastSnapshotAt: 2000, baseVersion: 5 })
+      expect(byId.get('item-2' as ItemId)).toEqual({ localModifiedAt: 2000, lastSnapshotAt: 2000, baseVersion: 3 })
+      expect(byId.get('item-3' as ItemId)).toEqual({ localModifiedAt: 3000, lastSnapshotAt: undefined, baseVersion: 0 })
+    })
+  })
 })

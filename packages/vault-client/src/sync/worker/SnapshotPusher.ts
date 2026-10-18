@@ -172,12 +172,21 @@ export class SnapshotPusher {
     }
   }
 
+  /**
+   * `responded` says whether the server answered. The server stores each snapshot on its own, so a
+   * response can confirm some items and not others: `results` lists the stored ones.
+   */
   private async sendSnapshotBatch(
     batch: VaultSnapshotInput[],
     signal?: AbortSignal,
-  ): Promise<{ success: boolean; persisted: number; results?: Array<{ itemId: ItemId; version: number }> }> {
+  ): Promise<{
+    success: boolean
+    responded: boolean
+    persisted: number
+    results?: Array<{ itemId: ItemId; version: number }>
+  }> {
     if (batch.length === 0) {
-      return { success: true, persisted: 0 }
+      return { success: true, responded: true, persisted: 0 }
     }
     try {
       const response = await this.apiClient.putSnapshots(
@@ -188,16 +197,18 @@ export class SnapshotPusher {
         signal ? { signal } : undefined,
       )
 
-      if (response?.success && response.persisted === batch.length) {
-        return { success: true, persisted: response.persisted, results: response.results }
+      return {
+        success: Boolean(response?.success) && response.persisted === batch.length,
+        responded: Boolean(response),
+        persisted: response?.persisted ?? 0,
+        results: response?.results,
       }
-      return { success: false, persisted: response?.persisted ?? 0 }
     } catch (error) {
       if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
         throw error
       }
       console.error('[SnapshotPusher] Failed to put snapshots', error)
-      return { success: false, persisted: 0 }
+      return { success: false, responded: false, persisted: 0 }
     }
   }
 
@@ -288,8 +299,8 @@ export class SnapshotPusher {
       return { type: 'error' }
     }
 
+    // Failures are counted until an upload is confirmed (see finalizeSuccessfulBatch)
     const snapshot = buildResult.snapshot
-    this.consecutiveFailures.delete(itemId)
 
     const snapshotSize = this.builder.estimateSize(snapshot)
 
@@ -324,6 +335,7 @@ export class SnapshotPusher {
     versionsMap?: Map<ItemId, number>,
   ): void {
     for (const item of batch) {
+      this.consecutiveFailures.delete(item.snapshot.itemId)
       const assignedVersion = versionsMap?.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
       // Tombstones deliberately carry no heads: the server does not hold the document state
@@ -342,19 +354,35 @@ export class SnapshotPusher {
   private async flushBatch(
     batch: PreparedSnapshotItem[],
     signal?: AbortSignal,
-  ): Promise<{ success: boolean; persisted: number }> {
+  ): Promise<{ success: boolean; responded: boolean; persisted: number }> {
     if (batch.length === 0) {
-      return { success: true, persisted: 0 }
+      return { success: true, responded: true, persisted: 0 }
     }
     const result = await this.sendSnapshotBatch(
       batch.map(b => b.snapshot),
       signal,
     )
-    if (result.success) {
-      const versionsMap = result.results
-        ? new Map(result.results.map(r => [r.itemId, r.version]))
-        : undefined
-      this.finalizeSuccessfulBatch(batch, versionsMap)
+    if (!result.responded) {
+      return result
+    }
+
+    const versionsMap = result.results
+      ? new Map(result.results.map(r => [r.itemId, r.version]))
+      : undefined
+    // Without per-item results, only a fully persisted batch says which items were stored
+    const stored = versionsMap
+      ? batch.filter(item => versionsMap.has(item.snapshot.itemId))
+      : result.success ? batch : []
+    this.finalizeSuccessfulBatch(stored, versionsMap)
+
+    // An item the server's results leave out was rejected. It counts towards quarantine, so an item
+    // the server keeps rejecting doesn't keep failing every push.
+    if (versionsMap) {
+      for (const item of batch) {
+        if (!versionsMap.has(item.snapshot.itemId)) {
+          await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
+        }
+      }
     }
     return result
   }
@@ -400,6 +428,9 @@ export class SnapshotPusher {
         persisted += result.persisted
         if (!result.success) {
           success = false
+        }
+        // A batch the server answered can fail for its own items only; later batches still go
+        if (!result.responded) {
           sendFailed = true
           break
         }

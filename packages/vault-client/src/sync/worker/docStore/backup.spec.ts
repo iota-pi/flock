@@ -84,6 +84,48 @@ describe('backup operations', () => {
     expect(metadataAfter.prayerGoal).toBe(42)
   })
 
+  it('keeps items created after the backup when restoring it', async () => {
+    const backedUp = 'test-item-in-backup' as ItemId
+    const newer = 'test-item-after-backup' as ItemId
+    const createItem = async (id: ItemId) => {
+      await docStore.changeDocument(id, doc => {
+        doc.id = id
+        doc.name = id
+      }, { createIfMissing: true })
+      await indexManager.addAutomergeItemIdsToIndex([id])
+    }
+
+    await createItem(backedUp)
+    const exported = await docStore.exportAllBinaries(indexManager)
+    await createItem(newer)
+
+    await docStore.restoreFromBinaries(exported.documents, indexManager)
+
+    const itemIds = await indexManager.listAutomergeItemIds()
+    expect(itemIds).toContain(backedUp)
+    expect(itemIds).toContain(newer)
+  })
+
+  it('leaves an item deleted since the backup deleted when restoring it', async () => {
+    const id = 'test-item-deleted-later' as ItemId
+    await docStore.changeDocument(id, doc => {
+      doc.id = id
+      doc.name = 'Deleted later'
+    }, { createIfMissing: true })
+    await indexManager.addAutomergeItemIdsToIndex([id])
+    const exported = await docStore.exportAllBinaries(indexManager)
+
+    await docStore.changeDocument(id, doc => {
+      doc.deleted = true
+    }, { knownToExist: true })
+    await indexManager.removeAutomergeItemIdsFromIndex([id])
+
+    await docStore.restoreFromBinaries(exported.documents, indexManager)
+
+    expect(await indexManager.listAutomergeItemIds()).not.toContain(id)
+    expect(await indexManager.listAutomergeTombstoneIds()).toContain(id)
+  })
+
   it('should track skipped items when documents fail to load', async () => {
     // Add missing item to index
     await indexManager.addAutomergeItemIdsToIndex(['missing-item' as ItemId])

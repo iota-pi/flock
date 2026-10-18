@@ -10,6 +10,7 @@ import {
   onLateSession,
   readCachedKeyring,
   rotateVaultKey,
+  establishSessionFromKeyHash,
   StaleBiometricKeyError,
   storeVault,
   unlockWithBiometrics,
@@ -53,7 +54,8 @@ const decodeLegacySalt = (salt: string) => new TextEncoder().encode(salt).buffer
 
 /** Builds the server's keyring for an account whose master key comes from these parameters */
 async function seedServerKeyring(params: { salt: string, iterations: number, saltVersion?: number }) {
-  await initialiseVault({ password: PASSWORD, ...params })
+  const keyHash = await initialiseVault({ password: PASSWORD, ...params })
+  await establishSessionFromKeyHash(ACCOUNT, keyHash)
   await storeVault(ACCOUNT)
   await rotateVaultKey(ACCOUNT)
   const keyring = readCachedKeyring()!

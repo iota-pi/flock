@@ -527,6 +527,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     indexManager: AutomergeIndexManager
   ): Promise<ItemId[]> {
     const restoredItemIds: ItemId[] = []
+    const activeItemIds: ItemId[] = []
+    const deletedItemIds: ItemId[] = []
 
     const encodedIndex = items[ACCOUNT_INDEX_DOCUMENT_ID]
     if (encodedIndex && typeof encodedIndex === 'string') {
@@ -534,7 +536,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         const indexBinary = Uint8Array.fromBase64(encodedIndex)
         const indexDoc = JSON.parse(new TextDecoder().decode(indexBinary))
         if (indexDoc && typeof indexDoc === 'object') {
-          await indexManager.replaceIndex(indexDoc)
+          await indexManager.mergeIndex(indexDoc)
         }
       } catch (err) {
         console.error('[AutomergeDocStore] Failed to restore index metadata from backup', err)
@@ -549,17 +551,26 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
       if (!normalizedItemId) continue
 
       try {
-        await this.hydrateAutomergeDocumentBinary(
+        const result = await this.hydrateAutomergeDocumentBinary(
           normalizedItemId,
           Uint8Array.fromBase64(encodedBinary)
         )
         restoredItemIds.push(normalizedItemId)
+        // Merged with the local doc, which may have been deleted since the backup
+        if (result.isDeleted) {
+          deletedItemIds.push(normalizedItemId)
+        } else {
+          activeItemIds.push(normalizedItemId)
+        }
       } catch (err) {
         console.error(`[AutomergeDocStore] Failed to restore document for ${normalizedItemId}`, err)
       }
     }
 
-    await indexManager.addAutomergeItemIdsToIndex(restoredItemIds)
+    await indexManager.addAutomergeItemIdsToIndex(activeItemIds)
+    if (deletedItemIds.length > 0) {
+      await indexManager.removeAutomergeItemIdsFromIndex(deletedItemIds)
+    }
     return restoredItemIds
   }
 

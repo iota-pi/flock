@@ -11,6 +11,7 @@ import type { SyncApiClient } from './SyncApiClient'
 import type { VaultItem } from '../../api/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
+import { classifySyncError } from './utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { LegacyItemEnvelope, SyncDomain } from './domain'
@@ -39,6 +40,14 @@ export type HydrateItemResult =
     status: 'error'
     itemId: ItemId
     error: unknown
+  }
+  | {
+    /**
+     * The snapshot's key version isn't loaded yet, or the vault is locked. Not a corrupt item: it is
+     * fetched again at the next manifest sync.
+     */
+    status: 'key_unavailable'
+    itemId: ItemId
   }
   | {
     /** A legacy row, and the app has no `decodeLegacyItem` hook: only its migration app can read it */
@@ -201,6 +210,11 @@ export class ManifestHydrator {
             error: result.error,
           })
           break
+        case 'key_unavailable':
+          // Not quarantined, and this sync doesn't count as complete, so the next one fetches it again
+          hasHydrationFailures = true
+          console.warn(`[ManifestHydrator] Item ${result.itemId} waits for its key; will retry at the next sync`)
+          break
         case 'migration_required':
           // Not synced, so this sync must not count as complete (see DataVersionTracker)
           hasHydrationFailures = true
@@ -328,6 +342,7 @@ export class ManifestHydrator {
   ): Promise<HydrateItemResult | null> {
     if (!item.snapshot) return null
     const binary = await this.decryptSnapshotBinary(itemId, item.snapshot)
+    if (binary === 'key_unavailable') return { status: 'key_unavailable', itemId }
     if (!binary) return null
 
     const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
@@ -409,18 +424,20 @@ export class ManifestHydrator {
     return this.deps.keys.waitForKey(kver, KEY_WAIT_TIMEOUT_MS)
   }
 
+  /** Returns null when the snapshot can't be decrypted, and 'key_unavailable' when that may be temporary */
   private async decryptSnapshotBinary(
     itemId: ItemId,
     encryptedAutomergeDoc: CryptoResult,
-  ): Promise<Uint8Array | null> {
+  ): Promise<Uint8Array | 'key_unavailable' | null> {
     try {
       return await decryptWithKeyResolution(this.deps.keys, encryptedAutomergeDoc, {
         docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         onKeyVersionMissing: this.deps.onKeyVersionMissing,
       })
-    } catch {
-      return null
+    } catch (error) {
+      const classified = classifySyncError(error)
+      return classified.isMissingKey || classified.isTransientVault ? 'key_unavailable' : null
     }
   }
 }
