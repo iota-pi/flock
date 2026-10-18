@@ -2,6 +2,7 @@ import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { getConnectionParams } from './dynamo'
 import { generateItemId, VersionConflictError } from '@vault/shared'
 import { generateAccountId } from '../util'
+import { AuthenticationError } from './errors'
 
 const driver = new DynamoDriver()
 
@@ -366,6 +367,51 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
         sendSpy.mockRestore()
       }
     })
+
+    it('keeps both sessions when two logins add them concurrently', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({
+        account,
+        authToken: 'token',
+        salt: 'salt',
+        iterations: 1000,
+      })
+      const expiry = Date.now() + 60_000
+
+      let intercepted = false
+      const originalSend = driver.client.send.bind(driver.client)
+      const sendSpy = vi.spyOn(driver.client, 'send').mockImplementation((async (command: unknown) => {
+        const res = await originalSend(command as never)
+        if (!intercepted && command instanceof GetCommand && command.input.TableName === driver.tables.accounts) {
+          intercepted = true
+          // Another login adds its session right after this one reads the sessions list
+          await driver.addSession({ account, session: 'session-B', expiry })
+        }
+        return res
+      }) as typeof driver.client.send)
+
+      try {
+        await driver.addSession({ account, session: 'session-A', expiry })
+      } finally {
+        sendSpy.mockRestore()
+      }
+
+      await expect(driver.getAccount({ account, session: 'session-A' })).resolves.toMatchObject({ account })
+      await expect(driver.getAccount({ account, session: 'session-B' })).resolves.toMatchObject({ account })
+    })
+  })
+
+  describe('Authentication errors', () => {
+    it('throws AuthenticationError for an unknown account, a wrong auth token or an invalid session', async () => {
+      const account = uniqueAccountId()
+      await expect(driver.getAccount({ account, session: 'token', isLogin: true }))
+        .rejects.toBeInstanceOf(AuthenticationError)
+
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+      await expect(driver.getAccount({ account, session: 'wrong', isLogin: true }))
+        .rejects.toBeInstanceOf(AuthenticationError)
+      await expect(driver.getAccount({ account, session: 'no-such-session' }))
+        .rejects.toBeInstanceOf(AuthenticationError)
+    })
   })
 })
-

@@ -1,11 +1,12 @@
 import { itemsRouter } from './items'
+import { AuthenticationError } from '../../drivers/errors'
 
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
   const sessionValid = overrides?.sessionValid ?? true
   const vault = {
     getAccount: vi.fn(async () => {
       if (!sessionValid) {
-        throw new Error('Unauthorized')
+        throw new AuthenticationError('Unauthorized')
       }
       return { account: 'acct-1', metadata: {} } as any
     }),
