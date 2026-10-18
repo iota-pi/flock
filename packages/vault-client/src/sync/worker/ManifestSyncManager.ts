@@ -3,7 +3,6 @@ import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import { SyncApiClient } from './SyncApiClient'
-import type { VaultItem } from '../../api/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import type { SyncDomain } from './domain'
 import { RecoveryManager } from './RecoveryManager'
@@ -17,7 +16,6 @@ import {
 } from './ManifestDeltaCalculator'
 import {
   ManifestHydrator,
-  type HydrateItemResult,
   type FetchAndHydrateParams,
 } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -398,16 +396,6 @@ export class ManifestSyncManager implements LifecycleAware {
     signal?: AbortSignal,
   ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
     return this.hydrator.fetchAndHydrateRemoteItems(params, signal)
-  }
-
-  async hydrateRemoteItem(
-    item: VaultItem,
-    manifest: ManifestEntry[],
-    knownSet: Set<ItemId>,
-    tombstoneSet: Set<ItemId> = new Set(),
-    serverTimeFallback: number = Date.now(),
-  ): Promise<HydrateItemResult> {
-    return this.hydrator.hydrateRemoteItem(item, manifest, knownSet, tombstoneSet, serverTimeFallback)
   }
 
   private async migrateLegacySettings() {

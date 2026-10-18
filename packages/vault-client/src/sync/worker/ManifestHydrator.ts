@@ -239,19 +239,16 @@ export class ManifestHydrator {
     }
   }
 
-  /** Batches pass `manifest` as a map by item ID, so each item doesn't scan the whole manifest */
   async hydrateRemoteItem(
     item: VaultItem,
-    manifest: ManifestEntry[] | ReadonlyMap<ItemId, ManifestEntry>,
+    manifestById: ReadonlyMap<ItemId, ManifestEntry>,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId> = new Set(),
     serverTimeFallback: number = Date.now(),
   ): Promise<HydrateItemResult> {
     const itemId = item.item as ItemId
     try {
-      const manifestEntry = Array.isArray(manifest)
-        ? manifest.find(entry => entry.itemId === itemId)
-        : manifest.get(itemId)
+      const manifestEntry = manifestById.get(itemId)
       const serverTime = manifestEntry?.modifiedAt ?? serverTimeFallback
       const serverVersion = (manifestEntry?.version && manifestEntry.version > 0)
         ? manifestEntry.version
