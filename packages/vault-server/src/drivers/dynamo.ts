@@ -411,6 +411,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       {
         TableName: this.tables.accounts,
         Key: { account },
+        // Logging in straight after creating an account reads it here first
+        ConsistentRead: true,
       },
     ))
     if (response?.Item) {
