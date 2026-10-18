@@ -2,6 +2,7 @@
 // driver is `@vault/server/dynamo`.
 
 export * from './trpc/trpc'
+export * from './sessions'
 export * from './trpc/vaultRouter'
 export { accountsRouter } from './trpc/routers/accounts'
 export { itemsRouter } from './trpc/routers/items'

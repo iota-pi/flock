@@ -24,6 +24,7 @@ import {
   safeEqual,
   generateAccountId,
 } from '../util'
+import { hashSessionToken, isSessionFor, MAX_ACTIVE_SESSIONS, SESSION_EXPIRY_MS } from '../sessions'
 import BaseDriver, {
   AuthData,
   BaseData,
@@ -36,7 +37,7 @@ import BaseDriver, {
   VaultSessionRecord,
 } from './base'
 import { AuthenticationError, ExpiredSessionError, InvalidPageTokenError } from './errors'
-import { MAX_ITEM_SIZE } from '@vault/shared'
+import { MAX_ITEM_SIZE, VersionConflictError } from '@vault/shared'
 import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
 import {
   isConditionalCheckFailure,
@@ -97,8 +98,6 @@ const DATA_ATTRIBUTE_NAMES = {
 }
 
 export { MAX_ITEM_SIZE }
-const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
-const MAX_ACTIVE_SESSIONS = 8
 const MAX_SESSION_UPDATE_ATTEMPTS = 3
 
 /**
@@ -173,19 +172,23 @@ function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSession
     .slice(-MAX_ACTIVE_SESSIONS)
 }
 
+/** Builds a SET expression for the defined fields. Names go through placeholders, so app fields may be reserved words. */
 export function buildDynamoUpdate(fields: Record<string, unknown>): {
   expression: string
+  names: Record<string, string>
   values: Record<string, unknown>
 } {
   const entries = Object.entries(fields).filter(([, v]) => v !== undefined)
   if (entries.length === 0) {
     return {
       expression: '',
+      names: {},
       values: {},
     }
   }
   return {
-    expression: `SET ${entries.map(([k]) => `${k} = :${k}`).join(', ')}`,
+    expression: `SET ${entries.map(([k]) => `#${k} = :${k}`).join(', ')}`,
+    names: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
     values: Object.fromEntries(entries.map(([k, v]) => [`:${k}`, v])),
   }
 }
@@ -360,7 +363,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const now = Date.now()
       const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
-      if (activeSessions.some(active => safeEqual(session, active.token))) {
+      if (activeSessions.some(active => isSessionFor(active, session))) {
         return {
           ...(response.Item as VaultAccountWithAuth),
           sessions: activeSessions,
@@ -399,18 +402,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       attempts += 1
       const account = generateAccountId()
 
-      try {
-        const response = await this.client.send(new GetCommand({
-          TableName: this.tables.accounts,
-          Key: { account },
-        }))
-        if (!response?.Item) {
-          return account
-        }
-      } catch (error) {
-        if (attempts === maxAttempts) {
-          throw error
-        }
+      const response = await this.client.send(new GetCommand({
+        TableName: this.tables.accounts,
+        Key: { account },
+      }))
+      if (!response?.Item) {
+        return account
       }
     }
 
@@ -421,7 +418,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     account,
     expectedKeyringVersion,
     sessions,
-    session,
     ...rest
   }: UpdateAccountDataParams & Partial<TExtra>): Promise<void> {
     const updateFields: Record<string, unknown> = {
@@ -429,30 +425,43 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       ...(sessions !== undefined ? { sessions: normalizeSessionRecords(sessions) } : {}),
     }
 
-    const { expression, values } = buildDynamoUpdate(updateFields)
+    const { expression, names, values } = buildDynamoUpdate(updateFields)
     if (!expression) {
       return
     }
 
-    const params: UpdateCommandInput = {
-      TableName: this.tables.accounts,
-      Key: { account },
-      UpdateExpression: expression,
-      ExpressionAttributeValues: values,
-    }
-
+    let condition = 'attribute_exists(account)'
     if (typeof expectedKeyringVersion === 'number') {
       values[':expectedKeyringVersion'] = expectedKeyringVersion
-      params.ConditionExpression = '(keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))'
+      condition += ' AND (keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))'
     }
 
-    await this.client.send(new UpdateCommand(params))
+    try {
+      await this.client.send(new UpdateCommand({
+        TableName: this.tables.accounts,
+        Key: { account },
+        UpdateExpression: expression,
+        ConditionExpression: condition,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+      }))
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        throw error
+      }
+      // The failed check returns the item as it was, if there was one
+      if (!(error as { Item?: unknown }).Item) {
+        throw new AuthenticationError(`Could not find account ${account}`)
+      }
+      throw new VersionConflictError('keyringVersion has changed')
+    }
   }
 
   async addSession({ account, session, expiry }: AuthData & { expiry: number }): Promise<void> {
     const added = await this.updateSessions(account, activeSessions => [
       ...activeSessions,
-      { token: session, expiry },
+      { token: hashSessionToken(session), expiry },
     ])
     if (!added) {
       throw new Error(`Could not add a session to account ${account}`)
@@ -461,7 +470,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
   async extendSession({ account, session }: AuthData): Promise<void> {
     await this.updateSessions(account, (activeSessions, now, attempt) => {
-      const sessionRecord = activeSessions.find(active => safeEqual(session, active.token))
+      const sessionRecord = activeSessions.find(active => isSessionFor(active, session))
       if (!sessionRecord) {
         return undefined
       }
@@ -472,6 +481,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
 
       sessionRecord.expiry = now + SESSION_EXPIRY_MS
+      // Also rewrites a record from before tokens were hashed
+      sessionRecord.token = hashSessionToken(session)
       return activeSessions
     })
   }
@@ -542,18 +553,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     let itemToPersist = item
 
     if (item.snapshot?.cipher) {
-      let cipherBytes: Buffer
-      if (Buffer.isBuffer(item.snapshot.cipher)) {
-        cipherBytes = item.snapshot.cipher
-      } else if (item.snapshot.cipher instanceof Uint8Array) {
-        cipherBytes = Buffer.from(item.snapshot.cipher)
-      } else if (typeof item.snapshot.cipher === 'string') {
-        cipherBytes = Buffer.from(item.snapshot.cipher, 'base64')
-      } else {
-        cipherBytes = Buffer.from([])
-      }
-
-      // Store inline in DynamoDB as binary Buffer (DynamoDB type 'B')
+      // Store inline in DynamoDB as binary Buffer (DynamoDB type 'B'). Clients send base64.
+      const cipherBytes = typeof item.snapshot.cipher === 'string'
+        ? Buffer.from(item.snapshot.cipher, 'base64')
+        : Buffer.from(item.snapshot.cipher)
       itemToPersist = {
         ...item,
         snapshot: {
@@ -751,60 +754,15 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     requestItems: BatchGetCommandInput['RequestItems'],
     maxRetries = 5,
   ): Promise<Record<string, Record<string, unknown>[]>> {
-    let currentRequestItems = requestItems
-    let attempt = 0
-    let delayMs = 100
     const accumulatedResponses: Record<string, Record<string, unknown>[]> = {}
-
-    while (true) {
-      let response
-      try {
-        response = await this.client.send(new BatchGetCommand({
-          RequestItems: currentRequestItems,
-        }))
-      } catch (error) {
-        if (!isTransientDynamoError(error)) {
-          throw error
-        }
-
-        attempt += 1
-        if (attempt > maxRetries) {
-          throw error
-        }
-
-        const jitter = Math.random() * 50
-        await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-        delayMs = Math.min(delayMs * 2, 5000)
-
-        continue
+    await sendBatchWithRetry(requestItems, 'BatchGetCommand', 'keys', maxRetries, async request => {
+      const response = await this.client.send(new BatchGetCommand({ RequestItems: request }))
+      for (const [tableName, items] of Object.entries(response.Responses ?? {})) {
+        accumulatedResponses[tableName] ??= []
+        accumulatedResponses[tableName].push(...items)
       }
-
-      if (response.Responses) {
-        for (const [tableName, items] of Object.entries(response.Responses)) {
-          if (!accumulatedResponses[tableName]) {
-            accumulatedResponses[tableName] = []
-          }
-          accumulatedResponses[tableName].push(...items)
-        }
-      }
-
-      const unprocessed = response.UnprocessedKeys
-      if (!unprocessed || Object.keys(unprocessed).length === 0) {
-        break
-      }
-
-      attempt += 1
-      if (attempt > maxRetries) {
-        throw new Error(`Failed to execute BatchGetCommand after ${maxRetries} attempts due to DynamoDB unprocessed keys.`)
-      }
-
-      const jitter = Math.random() * 50
-      await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-      delayMs = Math.min(delayMs * 2, 5000)
-
-      currentRequestItems = unprocessed
-    }
-
+      return response.UnprocessedKeys
+    })
     return accumulatedResponses
   }
 
@@ -863,49 +821,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     requestItems: BatchWriteCommandInput['RequestItems'],
     maxRetries = 5,
   ): Promise<void> {
-    let currentRequestItems = requestItems
-    let attempt = 0
-    let delayMs = 100
-
-    while (true) {
-      let response
-      try {
-        response = await this.client.send(new BatchWriteCommand({
-          RequestItems: currentRequestItems,
-        }))
-      } catch (error) {
-        if (!isTransientDynamoError(error)) {
-          throw error
-        }
-
-        attempt += 1
-        if (attempt > maxRetries) {
-          throw error
-        }
-
-        const jitter = Math.random() * 50
-        await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-        delayMs = Math.min(delayMs * 2, 5000)
-
-        continue
-      }
-
-      const unprocessed = response.UnprocessedItems
-      if (!unprocessed || Object.keys(unprocessed).length === 0) {
-        break
-      }
-
-      attempt += 1
-      if (attempt > maxRetries) {
-        throw new Error(`Failed to execute BatchWriteCommand after ${maxRetries} attempts due to DynamoDB unprocessed items.`)
-      }
-
-      const jitter = Math.random() * 50
-      await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-      delayMs = Math.min(delayMs * 2, 5000)
-
-      currentRequestItems = unprocessed
-    }
+    await sendBatchWithRetry(requestItems, 'BatchWriteCommand', 'items', maxRetries, async request => {
+      const response = await this.client.send(new BatchWriteCommand({ RequestItems: request }))
+      return response.UnprocessedItems
+    })
   }
 
   async pushSyncMessagesBatch(input: {
@@ -1055,6 +974,57 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       scannedThroughCursor,
     }
   }
+}
+
+/**
+ * Sends a batch request, then resends whatever DynamoDB leaves unprocessed, and retries transient
+ * errors, with jittered exponential backoff. `send` returns the unprocessed part of the request.
+ */
+async function sendBatchWithRetry<T>(
+  request: T,
+  commandName: string,
+  unprocessedName: string,
+  maxRetries: number,
+  send: (request: T) => Promise<T | undefined>,
+): Promise<void> {
+  let currentRequest = request
+  let attempt = 0
+  let delayMs = 100
+
+  while (true) {
+    let unprocessed: T | undefined
+    try {
+      unprocessed = await send(currentRequest)
+    } catch (error) {
+      if (!isTransientDynamoError(error)) {
+        throw error
+      }
+      attempt += 1
+      if (attempt > maxRetries) {
+        throw error
+      }
+      await backOff(delayMs)
+      delayMs = Math.min(delayMs * 2, 5000)
+      continue
+    }
+
+    if (!unprocessed || Object.keys(unprocessed).length === 0) {
+      return
+    }
+
+    attempt += 1
+    if (attempt > maxRetries) {
+      throw new Error(`Failed to execute ${commandName} after ${maxRetries} attempts due to DynamoDB unprocessed ${unprocessedName}.`)
+    }
+    await backOff(delayMs)
+    delayMs = Math.min(delayMs * 2, 5000)
+    currentRequest = unprocessed
+  }
+}
+
+function backOff(delayMs: number): Promise<void> {
+  const jitter = Math.random() * 50
+  return new Promise(resolve => setTimeout(resolve, delayMs + jitter))
 }
 
 // Page tokens wrap DynamoDB's LastEvaluatedKey. Clients can read and forge them, which only lets

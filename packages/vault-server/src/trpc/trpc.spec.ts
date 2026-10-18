@@ -5,9 +5,8 @@ import {
   protectedProcedure,
   createVaultContext,
   shouldRenewSession,
-  SESSION_EXPIRY_MS,
-  SESSION_RENEWAL_THRESHOLD_MS,
 } from './trpc'
+import { hashSessionToken, SESSION_EXPIRY_MS, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
 import type { VaultAccountWithAuth, VaultSessionRecord } from '../drivers/base'
 import { AuthenticationError, ExpiredSessionError } from '../drivers/errors'
 
@@ -86,6 +85,22 @@ describe('shouldRenewSession', () => {
     }
 
     expect(shouldRenewSession(accountData, authToken, now)).toBe(true)
+  })
+
+  it('finds a session stored as its hash', () => {
+    const accountData = {
+      sessions: [{ token: hashSessionToken(authToken), expiry: now + SESSION_EXPIRY_MS }],
+    }
+
+    expect(shouldRenewSession(accountData, authToken, now)).toBe(false)
+  })
+
+  it('does not accept a stored hash as the token', () => {
+    const accountData = {
+      sessions: [{ token: hashSessionToken(authToken), expiry: now + SESSION_EXPIRY_MS }],
+    }
+
+    expect(shouldRenewSession(accountData, hashSessionToken(authToken), now)).toBe(true)
   })
 
   it('returns true when expiry is not a valid finite number', () => {

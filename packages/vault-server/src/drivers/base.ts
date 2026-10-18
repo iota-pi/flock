@@ -26,8 +26,7 @@ export interface AuthData extends BaseData {
 }
 
 
-export type UpdateAccountDataParams = Partial<AuthData> & {
-  session?: string,
+export type UpdateAccountDataParams = BaseData & {
   sessions?: VaultSessionRecord[],
   keyring?: string,
   authToken?: string,
