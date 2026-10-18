@@ -66,6 +66,7 @@ export default abstract class BaseDriver<T = unknown> {
   // account doesn't exist or the credentials don't match.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
+  // Throws `AuthenticationError` when the account doesn't exist
   abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion?: number }>
   abstract getNewAccountId(attempts?: number): Promise<string>
 

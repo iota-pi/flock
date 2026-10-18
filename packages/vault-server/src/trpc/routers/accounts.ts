@@ -8,30 +8,32 @@ import {
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
 } from '@vault/shared'
-import { hashString, safeEqual } from '../../util'
+import { fakeSalt, hashString, safeEqual } from '../../util'
 import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError } from '../../drivers/errors'
 
+const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
 
 export const accountsRouter = router({
   createAccount: publicProcedure
     .input(CreateAccountBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const account = await ctx.vault.getNewAccountId()
-
-      const success = await ctx.vault.createAccount({
-        account,
-        authToken: hashString(input.authToken),
-        salt: input.salt,
-        iterations: input.iterations,
-        saltVersion: input.saltVersion,
-      })
-
-      if (!success) {
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create account' })
+      for (let attempt = 0; attempt < MAX_CREATE_ACCOUNT_ATTEMPTS; attempt += 1) {
+        const account = await ctx.vault.getNewAccountId()
+        // Fails if another sign-up took the ID after getNewAccountId checked it
+        const created = await ctx.vault.createAccount({
+          account,
+          authToken: hashString(input.authToken),
+          salt: input.salt,
+          iterations: input.iterations,
+          saltVersion: input.saltVersion,
+        })
+        if (created) {
+          return { account }
+        }
       }
 
-      return { account }
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create account' })
     }),
 
   login: publicProcedure
@@ -67,7 +69,27 @@ export const accountsRouter = router({
   getSecurityParams: publicProcedure
     .input(AccountInputSchema)
     .query(async ({ ctx, input }) => {
-      const { salt, iterations, saltVersion, dataVersion } = await ctx.vault.getSecurityParams({ account: input.account })
+      let params: Awaited<ReturnType<typeof ctx.vault.getSecurityParams>>
+      try {
+        params = await ctx.vault.getSecurityParams({ account: input.account })
+      } catch (error) {
+        if (!(error instanceof AuthenticationError)) {
+          throw error
+        }
+        const fake = ctx.unknownAccountParams
+        if (!fake) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' })
+        }
+        // Looks like an account that has nothing to migrate, so that logging in fails as for a wrong password
+        params = {
+          salt: fakeSalt(input.account, fake.secret),
+          iterations: fake.iterations,
+          saltVersion: fake.saltVersion,
+          dataVersion: ctx.dataVersionPolicy?.current,
+        }
+      }
+
+      const { salt, iterations, saltVersion, dataVersion } = params
       return {
         success: true,
         salt,

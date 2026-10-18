@@ -389,7 +389,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const returnedSalt = typeof salt === 'string' ? salt : account
       return { salt: returnedSalt, iterations, saltVersion, dataVersion }
     }
-    throw new Error(`Could not find account ${account}`)
+    throw new AuthenticationError(`Could not find account ${account}`)
   }
 
   async getNewAccountId(maxAttempts = 10): Promise<string> {
