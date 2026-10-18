@@ -43,6 +43,19 @@ export interface VaultServerOptions {
   minProtocolVersion?: number
   /** Decides when an account's `dataVersion` can be raised. Without one, it never is. */
   dataVersionPolicy?: DataVersionPolicy
+  /**
+   * Made-up security parameters for accounts that don't exist, so that `getSecurityParams` doesn't
+   * reveal which accounts do. The salt is an HMAC of the account ID with `secret`, so it is the same
+   * on every request; keep the secret stable and private. Set `iterations` and `saltVersion` to what
+   * new accounts use. Without this, unknown accounts get NOT_FOUND.
+   */
+  unknownAccountParams?: UnknownAccountParams
+}
+
+export interface UnknownAccountParams {
+  secret: string
+  iterations: number
+  saltVersion?: number
 }
 
 type TrpcContext = {
@@ -52,6 +65,7 @@ type TrpcContext = {
   protocolVersion?: number,
   minProtocolVersion?: number,
   dataVersionPolicy?: DataVersionPolicy,
+  unknownAccountParams?: UnknownAccountParams,
 }
 
 function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
@@ -76,6 +90,7 @@ export function createVaultContext(options: VaultServerOptions = {}) {
       protocolVersion: parseProtocolVersion(req.headers[PROTOCOL_VERSION_HEADER]),
       minProtocolVersion: options.minProtocolVersion ?? 0,
       dataVersionPolicy: options.dataVersionPolicy,
+      unknownAccountParams: options.unknownAccountParams,
     }
   }
 }

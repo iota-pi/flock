@@ -1,6 +1,6 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
-import { InvalidPageTokenError } from './errors'
+import { AuthenticationError, InvalidPageTokenError } from './errors'
 import type { VaultAccountWithAuth } from './base'
 import { generateItemId, type ItemId } from '@vault/shared'
 import { generateAccountId } from '../util'
@@ -252,7 +252,7 @@ describe('DynamoDriver', function () {
   it('raiseDataVersion does not create a missing account', async () => {
     const account = generateAccountId()
     await driver.raiseDataVersion({ account, dataVersion: 1 })
-    await expect(driver.getSecurityParams({ account })).rejects.toThrow()
+    await expect(driver.getSecurityParams({ account })).rejects.toBeInstanceOf(AuthenticationError)
   })
 
   it('listItemFormats describes how each item is stored', async () => {

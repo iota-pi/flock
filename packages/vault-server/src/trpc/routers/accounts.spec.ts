@@ -1,6 +1,6 @@
 import { accountsRouter } from './accounts'
 import { AuthenticationError } from '../../drivers/errors'
-import { hashString } from '../../util'
+import { fakeSalt, hashString } from '../../util'
 
 
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
@@ -72,6 +72,19 @@ describe('accountsRouter security contracts', () => {
     await expect(caller.login({ account: 'acct-1', authToken: 'secret-password' })).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',
     })
+  })
+
+  it('retries account creation with a new ID when another sign-up took the first one', async () => {
+    const ctx = createContext({ authToken: '' })
+    ctx.vault.getNewAccountId
+      .mockResolvedValueOnce('acct-1')
+      .mockResolvedValueOnce('acct-2')
+    ctx.vault.createAccount.mockResolvedValueOnce(false)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.createAccount({ salt: 'salt', authToken: 'auth', iterations: 1000 }))
+      .resolves.toEqual({ account: 'acct-2' })
+    expect(ctx.vault.createAccount).toHaveBeenCalledTimes(2)
   })
 
   it('allows fetching keyring when authorized', async () => {
@@ -295,6 +308,55 @@ describe('accountsRouter security contracts', () => {
         iterations: 1000,
         saltVersion: 1,
         dataVersion: 1,
+      })
+    })
+
+    it('reports an unknown account as NOT_FOUND without made-up parameters configured', async () => {
+      const ctx = createContext({ authToken: '' })
+      const getSecurityParams = vi.fn(async () => {
+        throw new AuthenticationError('Could not find account acct-1')
+      })
+      const caller = accountsRouter.createCaller({ ...ctx, vault: { ...ctx.vault, getSecurityParams } } as any)
+
+      await expect(caller.getSecurityParams({ account: 'acct-1' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    })
+
+    it('answers an unknown account with stable made-up parameters when configured', async () => {
+      const ctx = createContext({ authToken: '' })
+      const getSecurityParams = vi.fn(async () => {
+        throw new AuthenticationError('Could not find account acct-1')
+      })
+      const caller = accountsRouter.createCaller({
+        ...ctx,
+        vault: { ...ctx.vault, getSecurityParams },
+        unknownAccountParams: { secret: 'server-secret', iterations: 600000, saltVersion: 1 },
+        dataVersionPolicy: { current: 3, findBlockers: vi.fn() },
+      } as any)
+
+      const params = await caller.getSecurityParams({ account: 'acct-1' })
+      expect(params).toEqual({
+        success: true,
+        salt: fakeSalt('acct-1', 'server-secret'),
+        iterations: 600000,
+        saltVersion: 1,
+        dataVersion: 3,
+      })
+      await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toEqual(params)
+    })
+
+    it('does not hide a database failure behind made-up parameters', async () => {
+      const ctx = createContext({ authToken: '' })
+      const getSecurityParams = vi.fn(async () => {
+        throw new Error('DynamoDB timeout')
+      })
+      const caller = accountsRouter.createCaller({
+        ...ctx,
+        vault: { ...ctx.vault, getSecurityParams },
+        unknownAccountParams: { secret: 'server-secret', iterations: 600000 },
+      } as any)
+
+      await expect(caller.getSecurityParams({ account: 'acct-1' })).rejects.toMatchObject({
+        code: 'INTERNAL_SERVER_ERROR',
       })
     })
 
