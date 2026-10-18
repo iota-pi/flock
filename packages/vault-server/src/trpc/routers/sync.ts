@@ -1,9 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { protectedProcedure, router } from '../trpc'
-import { SyncPollBatchSchema, type PageToken } from '@vault/shared'
+import { SyncPollBatchSchema, type ItemId, type PageToken } from '@vault/shared'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
-import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
-import { ItemId } from '@vault/shared'
 import { InvalidPageTokenError } from '../../drivers/errors'
 
 
@@ -11,17 +9,16 @@ export const syncRouter = router({
   pollSync: protectedProcedure
     .input(SyncPollBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      const repository = createDynamoAutomergeSyncRepository(ctx.vault)
-      const service = createAutomergeSyncService({ repository })
+      const service = createAutomergeSyncService({ repository: ctx.vault })
 
       // Reject bad page tokens before storing any pushed messages, or the client would push them again
       try {
         if (input.globalPageToken) {
-          repository.validatePageToken({ account: ctx.account, pageToken: input.globalPageToken })
+          ctx.vault.validatePageToken({ account: ctx.account, pageToken: input.globalPageToken })
         }
         for (const pullCursor of input.pullCursors) {
           if (pullCursor.pageToken) {
-            repository.validatePageToken({
+            ctx.vault.validatePageToken({
               account: ctx.account,
               itemId: pullCursor.itemId,
               cursor: pullCursor.cursor ?? 0,

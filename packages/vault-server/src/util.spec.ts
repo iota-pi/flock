@@ -19,7 +19,7 @@ describe('vault util', () => {
 
     it('generates mostly-unique ids across multiple calls', () => {
       const ids = new Set<string>()
-      for (let i = 0; i < 1000; i++) {
+      for (let i = 0; i < 1000; i += 1) {
         ids.add(generateAccountId())
       }
       // Not asserting perfect uniqueness (birthday paradox), but ensure collisions are not extreme

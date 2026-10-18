@@ -10,29 +10,20 @@ import {
 } from '@vault/shared'
 import type { DataVersionPolicy } from '../services/dataVersion'
 import { AuthenticationError } from '../drivers/errors'
-import { safeEqual } from '../util'
-
-export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
-export const SESSION_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000 // 1 day
-export const SESSION_RENEWAL_THRESHOLD_MS = SESSION_EXPIRY_MS - SESSION_RENEWAL_WINDOW_MS // 29 days
+import { isSessionFor, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
 
 export function shouldRenewSession(
   accountData: Pick<VaultAccountWithAuth, 'sessions'>,
   authToken: string,
   now = Date.now(),
 ): boolean {
-  const currentSession = accountData.sessions?.find(s => safeEqual(authToken, s.token))
+  const currentSession = accountData.sessions?.find(s => isSessionFor(s, authToken))
 
-  if (!currentSession) {
+  if (!currentSession || !Number.isFinite(currentSession.expiry)) {
     return true
   }
 
-  const expiry = currentSession.expiry ?? (currentSession as { expires?: number }).expires
-  if (typeof expiry !== 'number' || !Number.isFinite(expiry)) {
-    return true
-  }
-
-  return expiry - now < SESSION_RENEWAL_THRESHOLD_MS
+  return currentSession.expiry - now < SESSION_RENEWAL_THRESHOLD_MS
 }
 
 export interface VaultServerOptions {

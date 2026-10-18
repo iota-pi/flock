@@ -1,5 +1,5 @@
 import type { ItemId, DOC_BOUND_FORMAT, PageToken } from '@vault/shared'
-import type { AutomergeSyncRepository } from './automergeSyncRepository'
+import type BaseDriver from '../drivers/base'
 import type { StoredSyncMessage } from '../drivers/base'
 import { mapWithConcurrency, resolveConcurrency } from '@vault/shared'
 
@@ -36,6 +36,12 @@ type PushSyncBatchInput = {
   }>
 }
 
+/** The driver methods the sync service uses */
+export type AutomergeSyncRepository = Pick<
+  BaseDriver,
+  'pushSyncMessagesBatch' | 'getSyncMessages' | 'getGlobalSyncMessagesAfterCursor'
+>
+
 type AutomergeSyncServiceDeps = {
   now?: () => number
   repository: AutomergeSyncRepository
@@ -51,7 +57,7 @@ export const DEFAULT_PULL_BATCH_CONCURRENCY = 10
 const SYNC_MESSAGE_PAGE_LIMIT = 200
 const TIMESTAMP_MULTIPLIER = 10_000_000
 const MAX_OFFSET = 9_999_000
-const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
+const CUSTOM_EPOCH = 1760000000000 // 2025-10-09T08:53:20.000Z. Never change it: cursors must keep increasing
 
 export function createAutomergeSyncService({
   now = Date.now,
@@ -74,7 +80,6 @@ export function createAutomergeSyncService({
     await repository.pushSyncMessagesBatch({
       account: input.account,
       messages: messagesWithCursor.map(message => ({
-        account: input.account,
         itemId: message.itemId,
         entry: {
           cursor: message.cursor,
@@ -214,4 +219,3 @@ export function createAutomergeSyncService({
   }
 }
 
-// Removed module-level global singleton to support dynamic per-request instantiations

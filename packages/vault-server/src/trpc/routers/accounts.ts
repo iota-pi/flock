@@ -1,14 +1,16 @@
 import { randomBytes } from 'crypto'
 import { TRPCError } from '@trpc/server'
-import { router, publicProcedure, protectedProcedure, SESSION_EXPIRY_MS } from '../trpc'
+import { router, publicProcedure, protectedProcedure } from '../trpc'
 import {
   AccountInputSchema,
   CreateAccountBodySchema,
   LoginBodySchema,
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
+  VersionConflictError,
 } from '@vault/shared'
 import { fakeSalt, hashString, safeEqual } from '../../util'
+import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError } from '../../drivers/errors'
 
@@ -102,7 +104,6 @@ export const accountsRouter = router({
 
   // Clients call this once their migrations have run. Returns why it couldn't be raised, if it couldn't.
   raiseDataVersion: protectedProcedure
-    .input(AccountInputSchema)
     .mutation(async ({ ctx, input }) => {
       const result = await raiseDataVersion({
         account: input.account,
@@ -114,7 +115,6 @@ export const accountsRouter = router({
     }),
 
   getKeyring: protectedProcedure
-    .input(AccountInputSchema)
     .query(async ({ ctx }) => {
       return {
         success: true,
@@ -137,12 +137,7 @@ export const accountsRouter = router({
             : {}),
         })
       } catch (err) {
-        if (
-          err instanceof Error && (
-            err.name === 'ConditionalCheckFailedException'
-            || err.message.includes('ConditionalCheckFailed')
-          )
-        ) {
+        if (err instanceof VersionConflictError) {
           throw new TRPCError({
             code: 'CONFLICT',
             message: 'Concurrent key rotation detected: keyringVersion conflict',
@@ -166,9 +161,9 @@ export const accountsRouter = router({
 
       const newAuthTokenHash = hashString(input.newAuthToken)
 
-      const now = Date.now()
-      const currentSessionToken = ctx.authToken
-      const currentSessionExpiry = accountData.sessions?.find(s => s.token === currentSessionToken)?.expiry ?? (now + 30 * 24 * 60 * 60 * 1000)
+      // Changing the password ends every other session
+      const currentSessionExpiry = accountData.sessions?.find(s => isSessionFor(s, ctx.authToken))?.expiry
+        ?? Date.now() + SESSION_EXPIRY_MS
 
       try {
         await ctx.vault.updateAccountData({
@@ -184,15 +179,10 @@ export const accountsRouter = router({
           ...(typeof input.expectedKeyringVersion === 'number'
             ? { expectedKeyringVersion: input.expectedKeyringVersion }
             : {}),
-          sessions: [{ token: currentSessionToken, expiry: currentSessionExpiry }],
+          sessions: [{ token: hashSessionToken(ctx.authToken), expiry: currentSessionExpiry }],
         })
       } catch (err) {
-        if (
-          err instanceof Error && (
-            err.name === 'ConditionalCheckFailedException'
-            || err.message.includes('ConditionalCheckFailed')
-          )
-        ) {
+        if (err instanceof VersionConflictError) {
           throw new TRPCError({
             code: 'CONFLICT',
             message: 'Concurrent credential update detected: keyringVersion conflict',

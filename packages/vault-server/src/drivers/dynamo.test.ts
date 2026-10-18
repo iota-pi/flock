@@ -5,6 +5,7 @@ import type { VaultAccountWithAuth } from './base'
 import { generateItemId, type ItemId } from '@vault/shared'
 import { generateAccountId } from '../util'
 import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import { isSessionFor } from '../sessions'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -244,7 +245,7 @@ describe('DynamoDriver', function () {
 
     // Check the updated expiry in getAccount
     const acc = await driver.getAccount({ account, session: sessionA })
-    const updatedSession = acc.sessions?.find(s => s.token === sessionA)
+    const updatedSession = acc.sessions?.find(s => isSessionFor(s, sessionA))
     expect(updatedSession?.expiry).toBeGreaterThan(Date.now() + 10000)
     expect(acc.lastAccess).toBeGreaterThan(Date.now() - 60_000)
   })
@@ -722,7 +723,12 @@ describe('buildDynamoUpdate', () => {
       iterations: 5000,
     })
 
-    expect(result.expression).toBe('SET reminderEnabled = :reminderEnabled, reminderTime = :reminderTime, iterations = :iterations')
+    expect(result.expression).toBe('SET #reminderEnabled = :reminderEnabled, #reminderTime = :reminderTime, #iterations = :iterations')
+    expect(result.names).toEqual({
+      '#reminderEnabled': 'reminderEnabled',
+      '#reminderTime': 'reminderTime',
+      '#iterations': 'iterations',
+    })
     expect(result.values).toEqual({
       ':reminderEnabled': true,
       ':reminderTime': '08:00',
@@ -740,7 +746,7 @@ describe('buildDynamoUpdate', () => {
       undefinedValue: undefined,
     })
 
-    expect(result.expression).toBe('SET definedString = :definedString, emptyString = :emptyString, nullValue = :nullValue, falseValue = :falseValue, zeroValue = :zeroValue')
+    expect(result.expression).toBe('SET #definedString = :definedString, #emptyString = :emptyString, #nullValue = :nullValue, #falseValue = :falseValue, #zeroValue = :zeroValue')
     expect(result.values).toEqual({
       ':definedString': 'flock',
       ':emptyString': '',
@@ -753,11 +759,13 @@ describe('buildDynamoUpdate', () => {
   it('returns empty expression and empty values when given an empty object or all-undefined fields', () => {
     expect(buildDynamoUpdate({})).toEqual({
       expression: '',
+      names: {},
       values: {},
     })
 
     expect(buildDynamoUpdate({ a: undefined, b: undefined })).toEqual({
       expression: '',
+      names: {},
       values: {},
     })
   })

@@ -1,6 +1,8 @@
 import { accountsRouter } from './accounts'
 import { AuthenticationError } from '../../drivers/errors'
 import { fakeSalt, hashString } from '../../util'
+import { hashSessionToken } from '../../sessions'
+import { VersionConflictError } from '@vault/shared'
 
 
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
@@ -165,11 +167,9 @@ describe('accountsRouter security contracts', () => {
     })
   })
 
-  it('throws CONFLICT when updateKeyring experiences ConditionalCheckFailedException', async () => {
+  it('throws CONFLICT when updateKeyring hits a keyringVersion conflict', async () => {
     const ctx = createContext()
-    const error = new Error('ConditionalCheckFailedException: The conditional request failed')
-    error.name = 'ConditionalCheckFailedException'
-    ctx.vault.updateAccountData.mockRejectedValueOnce(error)
+    ctx.vault.updateAccountData.mockRejectedValueOnce(new VersionConflictError('keyringVersion has changed'))
     const caller = accountsRouter.createCaller(ctx as any)
 
     await expect(caller.updateKeyring({
@@ -217,7 +217,7 @@ describe('accountsRouter security contracts', () => {
       salt: 'new-salt',
       iterations: 100000,
       keyring: 'new-keyring',
-      sessions: [{ token: 'session-token', expiry: 12345 }],
+      sessions: [{ token: hashSessionToken('session-token'), expiry: 12345 }],
     })
   })
 
@@ -246,7 +246,7 @@ describe('accountsRouter security contracts', () => {
     })
   })
 
-  it('throws CONFLICT when changePassword experiences ConditionalCheckFailedException', async () => {
+  it('throws CONFLICT when changePassword hits a keyringVersion conflict', async () => {
     const ctx = createContext()
     const clientCurrentAuthToken = hashString('correct-password')
     const serverStoredAuthToken = hashString(clientCurrentAuthToken)
@@ -257,9 +257,7 @@ describe('accountsRouter security contracts', () => {
       sessions: [{ token: 'session-token', expiry: 12345 }],
     } as any)
 
-    const error = new Error('ConditionalCheckFailedException: The conditional request failed')
-    error.name = 'ConditionalCheckFailedException'
-    ctx.vault.updateAccountData.mockRejectedValueOnce(error)
+    ctx.vault.updateAccountData.mockRejectedValueOnce(new VersionConflictError('keyringVersion has changed'))
     const caller = accountsRouter.createCaller(ctx as any)
 
     await expect(caller.changePassword({
