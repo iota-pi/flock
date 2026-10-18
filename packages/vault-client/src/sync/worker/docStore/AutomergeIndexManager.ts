@@ -170,14 +170,32 @@ export class AutomergeIndexManager implements LifecycleAware {
     return this.withLock(async () => this.getIndexSnapshotInternal())
   }
 
-  async replaceIndex(indexDoc: AutomergeIndexDocument): Promise<void> {
+  /**
+   * Merges an index from a backup into this one. Items this device knows about stay as they are, so a
+   * restore can't hide items created since the backup or bring deleted ones back. The backup's
+   * metadata wins, and the sync times stay this device's own.
+   */
+  async mergeIndex(backup: AutomergeIndexDocument): Promise<void> {
     return this.withLock(async () => {
-      await this.indexStore.saveIndex(indexDoc)
-      const itemIds = indexDoc.itemIds || []
-      this.emitIndexUpdated(itemIds)
-      if (indexDoc.metadata) {
-        this.notifyLocalMetadataUpdated(indexDoc.metadata)
-        this.broadcastMetadataUpdated(indexDoc.metadata)
+      const doc = await this.getIndexSnapshotInternal()
+      const itemIds = new Set(doc.itemIds || [])
+      const tombstoneIds = new Set(doc.tombstoneIds || [])
+      for (const id of backup.tombstoneIds || []) {
+        if (!itemIds.has(id)) tombstoneIds.add(id)
+      }
+      for (const id of backup.itemIds || []) {
+        if (!tombstoneIds.has(id)) itemIds.add(id)
+      }
+      doc.itemIds = Array.from(itemIds)
+      doc.tombstoneIds = Array.from(tombstoneIds)
+      if (backup.metadata) {
+        doc.metadata = { ...doc.metadata, ...backup.metadata }
+      }
+      await this.indexStore.saveIndex(doc)
+      this.emitIndexUpdated(doc.itemIds)
+      if (backup.metadata) {
+        this.notifyLocalMetadataUpdated(doc.metadata || {})
+        this.broadcastMetadataUpdated(doc.metadata || {})
       }
     })
   }

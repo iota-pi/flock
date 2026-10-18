@@ -589,7 +589,14 @@ async function rewrapMasterKey({
   broadcastVaultEvent({ type: 'PASSWORD_CHANGED', account })
 }
 
+/**
+ * Adds a new data key and makes it active once the server holds it. Without a session, `storeVault`
+ * would only cache the keyring locally, leaving data encrypted with a key no other device can get.
+ */
 export async function rotateVaultKey(account: string): Promise<void> {
+  if (!session) {
+    throw new Error('Key rotation needs a connection to the server. Please try again once you are online.')
+  }
   const newKey = await generateVaultKey()
   const currentActiveVer = parseInt(keyring.activeVersion, 10)
   const nextActiveVer = (currentActiveVer + 1).toString()

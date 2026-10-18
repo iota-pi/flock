@@ -147,7 +147,8 @@ describe('Vault Keyring Integration', () => {
   })
 
   it('rotates vault key, updates activeKeyVersion, and encrypts/decrypts with new active key version', async () => {
-    await initialiseVault({
+    await loginVault({
+      account: 'test-account',
       password: 'password123',
       salt: SALT,
       saltVersion: 1,
@@ -165,6 +166,24 @@ describe('Vault Keyring Integration', () => {
     // Both should decrypt correctly
     expect(await decrypt(enc1)).toBe('data 1')
     expect(await decrypt(enc2)).toBe('data 2')
+  })
+
+  it('refuses to rotate without a session, so the new key cannot stay on this device only', async () => {
+    await initialiseVault({
+      password: 'password123',
+      salt: SALT,
+      saltVersion: 1,
+      iterations: 1000,
+    })
+    await storeVault('test-account')
+    const cachedBefore = readCachedKeyring()
+
+    await expect(rotateVaultKey('test-account')).rejects.toThrow('Key rotation needs a connection to the server')
+
+    expect(hasVaultKey('2')).toBe(false)
+    expect((await encrypt('still on version 1')).kver).toBe('1')
+    expect(readCachedKeyring()).toBe(cachedBefore)
+    expect(updateKeyring).not.toHaveBeenCalled()
   })
 
   it('rolls back local keyring and activeKeyVersion when keyring upload fails during rotation', async () => {

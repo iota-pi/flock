@@ -68,6 +68,8 @@ describe('reencryptAllItems coordinator', () => {
     expect(exportKeyringData).not.toHaveBeenCalled()
     expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()
     expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
+    // Nothing was rotated, so a later resume must not re-encrypt
+    expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBeNull()
   })
 
   describe('resumePendingReencryption', () => {

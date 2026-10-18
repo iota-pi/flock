@@ -68,7 +68,9 @@ describe('SnapshotManager Retry Mechanism', () => {
   }
   let lastModifiedStore: LastModifiedStore
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The store persists between tests, and saves merge into it
+    await new LastModifiedStore('test-account').clear()
     vi.useFakeTimers()
     vi.clearAllMocks()
     vi.mocked(getActiveSessionToken).mockResolvedValue('mock-auth-token')
@@ -295,6 +297,48 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(true)
     expect(manager['retryAttempt']).toBe(1)
     expect(manager['retryTimeoutId']).not.toBeNull()
+  })
+
+  it('records the items a partly stored batch did persist, and retries only the rest', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: false,
+      persisted: 1,
+      total: 2,
+      results: [{ itemId: 'item-1', version: 7 }],
+    })
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.markItemDirty('item-2' as ItemId)
+    manager.scheduleSnapshotPush(42)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    expect(manager.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
+    expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(true)
+    expect(manager['consecutiveFailures'].get('item-2' as ItemId)).toBe(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
+  })
+
+  it('quarantines an item the server keeps leaving out of its results', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: false,
+      persisted: 0,
+      total: 1,
+      results: [],
+    })
+
+    manager.markItemDirty('item-2' as ItemId)
+    for (let i = 0; i < 5; i += 1) {
+      manager.scheduleSnapshotPush(42)
+      await vi.advanceTimersByTimeAsync(0)
+    }
+
+    expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(false)
+    expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
+      'test-account',
+      expect.objectContaining({ itemId: 'item-2', kind: 'snapshotFailure' }),
+    )
+    expect(mockEventHub.emit).toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-2' }))
   })
 
   it('pauses and clears retry timers when going offline', async () => {

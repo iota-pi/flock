@@ -236,20 +236,27 @@ describe('AutomergeIndexManager', () => {
     expect(await manager.getLastManifestSyncTime()).toBe(987654)
   })
 
-  it('should replace the entire index document serialized through queue', async () => {
+  it('merges a backup index without hiding newer items or reviving deleted ones', async () => {
     const manager = new AutomergeIndexManager(accountId, indexStore)
-    const newDoc: AutomergeIndexDocument = {
+    await manager.addAutomergeItemIdsToIndex(['local-new' as ItemId, 'deleted-since' as ItemId])
+    await manager.removeAutomergeItemIdsFromIndex(['deleted-since' as ItemId])
+    await manager.updateAutomergeMetadata({ prayerGoal: 5, localOnly: true })
+    await manager.updateLastManifestSyncTime(4444)
+
+    await manager.mergeIndex({
       accountId,
-      itemIds: ['restored-1' as ItemId, 'restored-2' as ItemId],
+      itemIds: ['restored-1' as ItemId, 'deleted-since' as ItemId],
+      tombstoneIds: ['deleted-in-backup' as ItemId, 'local-new' as ItemId],
       metadata: { prayerGoal: 100 },
       lastSyncTime: 7777,
       lastManifestSyncTime: 8888,
-    }
-
-    await manager.replaceIndex(newDoc)
+    })
 
     const snapshot = await manager.getIndexSnapshot()
-    expect(snapshot).toEqual(newDoc)
+    expect(new Set(snapshot.itemIds)).toEqual(new Set(['local-new', 'restored-1']))
+    expect(new Set(snapshot.tombstoneIds)).toEqual(new Set(['deleted-since', 'deleted-in-backup']))
+    expect(snapshot.metadata).toEqual({ prayerGoal: 100, localOnly: true })
+    expect(snapshot.lastManifestSyncTime).toBe(4444)
   })
 
   it('serializes getIndexSnapshot and listAutomergeItemIds behind in-flight writes to prevent torn reads (M-6)', async () => {

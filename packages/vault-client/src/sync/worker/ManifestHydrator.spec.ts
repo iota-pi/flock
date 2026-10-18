@@ -2,6 +2,7 @@ import { ManifestHydrator } from './ManifestHydrator'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { MissingKeyError } from './utils/decryptWithKeyResolution'
 
 const mockVault = createMockVault()
 const keys = createMockKeyProvider(mockVault)
@@ -10,7 +11,8 @@ const {
   decryptObject: mockDecryptObject,
 } = mockVault
 
-vi.mock('./utils/decryptWithKeyResolution', () => ({
+vi.mock('./utils/decryptWithKeyResolution', async importOriginal => ({
+  ...await importOriginal<typeof import('./utils/decryptWithKeyResolution')>(),
   decryptWithKeyResolution: async (cryptoResult: any) => {
     return mockDecryptBytes(cryptoResult)
   },
@@ -421,6 +423,30 @@ describe('ManifestHydrator', () => {
 
       expect(result.hasFailures).toBe(true)
       expect(onDecryptionFailureSpy).toHaveBeenCalledWith('item-bad', expect.any(Error))
+    })
+
+    it('retries an item whose key version is missing at the next sync instead of quarantining it', async () => {
+      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-new-key',
+            snapshot: { iv: 'iv', cipher: 'cipher', kver: '2' },
+          },
+        ],
+      })
+      mockDecryptBytes.mockRejectedValue(new MissingKeyError('2'))
+
+      const result = await hydrator.fetchAndHydrateRemoteItems({
+        missingIds: ['item-new-key' as ItemId],
+        manifest: [{ itemId: 'item-new-key' as ItemId, modifiedAt: 1000 }],
+        serverTime: 1000,
+        knownSet: new Set(),
+        tombstoneSet: new Set(),
+      })
+
+      expect(result.hasFailures).toBe(true)
+      expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
+      expect(mockSnapshotManager.importVersions).not.toHaveBeenCalled()
     })
 
     it('handles batch fetch errors gracefully by setting hasFailures', async () => {

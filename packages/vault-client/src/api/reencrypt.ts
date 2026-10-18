@@ -20,7 +20,13 @@ export async function reencryptAllItems(
   localStorage.setItem(pendingKey, 'true')
 
   // 1. Rotate the key on the main thread (saves to localStorage and updates server)
-  await rotateVaultKey(account)
+  try {
+    await rotateVaultKey(account)
+  } catch (err) {
+    // Nothing was rotated, so there is nothing to resume
+    localStorage.removeItem(pendingKey)
+    throw err
+  }
 
   // 2. Fetch the updated keyring string
   const newKeyring = await exportKeyringData()
