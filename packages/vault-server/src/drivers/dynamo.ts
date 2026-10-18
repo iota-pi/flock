@@ -12,7 +12,6 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
-  PutCommandInput,
   QueryCommand,
   QueryCommandInput,
   QueryCommandOutput,
@@ -37,7 +36,7 @@ import BaseDriver, {
   VaultSessionRecord,
 } from './base'
 import { AuthenticationError, ExpiredSessionError, InvalidPageTokenError } from './errors'
-import { VersionConflictError, MAX_ITEM_SIZE } from '@vault/shared'
+import { MAX_ITEM_SIZE } from '@vault/shared'
 import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
 import {
   isConditionalCheckFailure,
@@ -102,11 +101,6 @@ const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 const MAX_SESSION_UPDATE_ATTEMPTS = 3
 
-type PersistedVaultItem = VaultItem & {
-  modifiedAt?: number
-  version?: number
-}
-
 /**
  * Validates a VaultItem.
  * Supports both legacy cipher and snapshot format
@@ -148,34 +142,6 @@ function validateItem(item: VaultItem) {
   if (itemLength > MAX_ITEM_SIZE) {
     throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
   }
-}
-
-function getItemPutParams(item: VaultItem, tableName: string): PutCommandInput {
-  validateItem(item)
-
-  const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
-  const ttl = item.ttl
-
-  const nextVersion = (item.version ?? 0) + 1
-  const persistedItem: PersistedVaultItem = {
-    ...item,
-    version: nextVersion,
-    ...(modifiedAt !== undefined ? { modifiedAt } : {}),
-    ...(ttl !== undefined ? { ttl } : {}),
-  }
-
-  const params: PutCommandInput = {
-    TableName: tableName,
-    Item: persistedItem,
-    ConditionExpression: typeof item.version === 'number'
-      ? 'attribute_not_exists(account) OR version = :expectedVersion'
-      : undefined,
-    ExpressionAttributeValues: typeof item.version === 'number'
-      ? { ':expectedVersion': item.version }
-      : undefined,
-  }
-
-  return params
 }
 
 function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSessionRecord[] {
@@ -572,7 +538,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return false
   }
 
-  async set(item: VaultItem) {
+  async set(item: VaultItem): Promise<{ version: number }> {
     validateItem(item)
 
     let itemToPersist = item
@@ -601,63 +567,70 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
-    if (typeof item.version !== 'number') {
-      const modifiedAt = typeof itemToPersist.metadata?.modified === 'number'
-        ? itemToPersist.metadata.modified
-        : Date.now()
-      // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists
-      const removeLegacyCipher = !!itemToPersist.snapshot && !itemToPersist.cipher
-
-      const updateParams: UpdateCommandInput = {
-        TableName: this.tables.items,
-        Key: {
-          account: itemToPersist.account,
-          item: itemToPersist.item,
-        },
-        UpdateExpression: [
-          'SET #metadata = :metadata',
-          itemToPersist.snapshot ? '#snapshot = :snapshot' : undefined,
-          itemToPersist.cipher ? '#cipher = :cipher' : undefined,
-          '#modifiedAt = :modifiedAt',
-          '#version = if_not_exists(#version, :zero) + :one',
-          itemToPersist.ttl !== undefined ? '#ttl = :ttl' : undefined,
-        ].filter(Boolean).join(', ') + (removeLegacyCipher ? ' REMOVE #cipher' : ''),
-        ExpressionAttributeNames: {
-          '#metadata': 'metadata',
-          ...(itemToPersist.snapshot ? { '#snapshot': 'snapshot' } : {}),
-          ...(itemToPersist.cipher || removeLegacyCipher ? { '#cipher': 'cipher' } : {}),
-          '#modifiedAt': 'modifiedAt',
-          '#version': 'version',
-          ...(itemToPersist.ttl !== undefined ? { '#ttl': 'ttl' } : {}),
-        },
-        ExpressionAttributeValues: {
-          ':metadata': itemToPersist.metadata,
-          ...(itemToPersist.snapshot ? { ':snapshot': itemToPersist.snapshot } : {}),
-          ...(itemToPersist.cipher ? { ':cipher': itemToPersist.cipher } : {}),
-          ':modifiedAt': modifiedAt,
-          ':zero': 0,
-          ':one': 1,
-          ...(itemToPersist.ttl !== undefined ? { ':ttl': itemToPersist.ttl } : {}),
-        },
-        ReturnValues: 'UPDATED_NEW',
-      }
-
-      const res = await this.client.send(new UpdateCommand(updateParams))
-      const assignedVersion = (res.Attributes?.version as number) ?? 1
-      return { version: assignedVersion }
+    if (itemToPersist.metadata.deleted === true) {
+      return this.updateItem(itemToPersist)
     }
 
-    const params = getItemPutParams(itemToPersist, this.tables.items)
-
+    // Deletion is terminal. A snapshot from a device that hasn't seen the delete yet still replaces
+    // the stored one (hydration merges, so that is harmless), but must keep the item deleted.
     try {
-      await this.client.send(new PutCommand(params))
-      return { version: itemToPersist.version ?? 1 }
-    } catch (err) {
-      if (isConditionalCheckFailure(err)) {
-        throw new VersionConflictError('Version conflict: The item has been modified by another client.')
+      return await this.updateItem(itemToPersist, { unlessDeleted: true })
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        throw error
       }
-      throw err
     }
+    return this.updateItem({ ...itemToPersist, metadata: { ...itemToPersist.metadata, deleted: true } })
+  }
+
+  /** Writes an item and bumps its version. With `unlessDeleted`, the write fails its condition on a tombstone. */
+  private async updateItem(item: VaultItem, { unlessDeleted = false } = {}): Promise<{ version: number }> {
+    const modifiedAt = typeof item.metadata?.modified === 'number'
+      ? item.metadata.modified
+      : Date.now()
+    // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists
+    const removeLegacyCipher = !!item.snapshot && !item.cipher
+
+    const updateParams: UpdateCommandInput = {
+      TableName: this.tables.items,
+      Key: {
+        account: item.account,
+        item: item.item,
+      },
+      UpdateExpression: [
+        'SET #metadata = :metadata',
+        item.snapshot ? '#snapshot = :snapshot' : undefined,
+        item.cipher ? '#cipher = :cipher' : undefined,
+        '#modifiedAt = :modifiedAt',
+        '#version = if_not_exists(#version, :zero) + :one',
+      ].filter(Boolean).join(', ') + (removeLegacyCipher ? ' REMOVE #cipher' : ''),
+      // Older rows may mark deletion with a top-level attribute, which the manifest also reads
+      ConditionExpression: unlessDeleted
+        ? '(attribute_not_exists(#metadata.#deleted) OR #metadata.#deleted <> :true)'
+          + ' AND (attribute_not_exists(#deleted) OR #deleted <> :true)'
+        : undefined,
+      ExpressionAttributeNames: {
+        '#metadata': 'metadata',
+        ...(item.snapshot ? { '#snapshot': 'snapshot' } : {}),
+        ...(item.cipher || removeLegacyCipher ? { '#cipher': 'cipher' } : {}),
+        '#modifiedAt': 'modifiedAt',
+        '#version': 'version',
+        ...(unlessDeleted ? { '#deleted': 'deleted' } : {}),
+      },
+      ExpressionAttributeValues: {
+        ':metadata': item.metadata,
+        ...(item.snapshot ? { ':snapshot': item.snapshot } : {}),
+        ...(item.cipher ? { ':cipher': item.cipher } : {}),
+        ':modifiedAt': modifiedAt,
+        ':zero': 0,
+        ':one': 1,
+        ...(unlessDeleted ? { ':true': true } : {}),
+      },
+      ReturnValues: 'UPDATED_NEW',
+    }
+
+    const res = await this.client.send(new UpdateCommand(updateParams))
+    return { version: (res.Attributes?.version as number) ?? 1 }
   }
 
   async fetchManifest(

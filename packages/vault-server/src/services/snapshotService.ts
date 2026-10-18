@@ -37,7 +37,7 @@ export async function persistSnapshots(
       const setResult = await vault.set(item)
       return {
         itemId: snapshot.itemId,
-        version: setResult?.version ?? 1,
+        version: setResult.version,
       }
     })
   )

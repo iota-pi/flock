@@ -89,7 +89,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract listItemFormats(data: BaseData): Promise<ItemFormatSummary[]>
 
   // Item CRUD operations
-  abstract set(item: VaultItem): Promise<{ version?: number } | void>
+  abstract set(item: VaultItem): Promise<{ version: number }>
   abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<ManifestEntry>>
   abstract fetchByIds(opts: { account: string; itemIds: ItemId[] }): Promise<VaultItem[]>
 

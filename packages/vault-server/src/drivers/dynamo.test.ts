@@ -1,3 +1,4 @@
+import { PutCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
 import { InvalidPageTokenError } from './errors'
 import type { VaultAccountWithAuth } from './base'
@@ -11,32 +12,17 @@ describe('DynamoDriver', function () {
     driver.connect(getConnectionParams())
   })
 
-  it('set can create and update', async () => {
-    const account = generateAccountId()
-    const item = generateItemId()
-    let cipher = 'hello'
-    let iv = 'there'
-    const modified = new Date().getTime()
-
-    await driver.set({ account, item, cipher, metadata: { iv, modified } })
-    cipher = 'good'
-    iv = 'bye'
-    await driver.set({ account, item, cipher, metadata: { iv, modified }, version: 1 })
-    const results = await driver.fetchByIds({ account, itemIds: [item] })
-    expect(results[0]).toEqual({ item, cipher, metadata: { iv, modified }, version: 2 })
-  })
-
-  it('set can create and update without version', async () => {
+  it('set can create and update, bumping the version on each write', async () => {
     const account = generateAccountId()
     const item = generateItemId()
     const modified = Date.now()
 
-    await driver.set({ account, item, cipher: 'initial', metadata: { iv: 'iv-1', modified } })
-    await driver.set({ account, item, cipher: 'second-write', metadata: { iv: 'iv-2', modified: modified + 100 } })
-    await driver.set({ account, item, cipher: 'third-write', metadata: { iv: 'iv-3', modified: modified + 200 } })
-
+    await expect(driver.set({ account, item, cipher: 'hello', metadata: { iv: 'there', modified } }))
+      .resolves.toEqual({ version: 1 })
+    await expect(driver.set({ account, item, cipher: 'good', metadata: { iv: 'bye', modified } }))
+      .resolves.toEqual({ version: 2 })
     const results = await driver.fetchByIds({ account, itemIds: [item] })
-    expect(results[0].cipher).toBe('third-write')
+    expect(results[0]).toEqual({ item, cipher: 'good', metadata: { iv: 'bye', modified }, version: 2 })
   })
 
   it('removes the legacy cipher when a snapshot is written', async () => {
@@ -70,6 +56,40 @@ describe('DynamoDriver', function () {
     expect(result.metadata.deleted).toBe(true)
   })
 
+
+  it('keeps an item deleted when a snapshot without the deletion is written after it', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const modified = Date.now()
+    const snapshot = { iv: 'snap-iv', cipher: 'c25hcHNob3Q=', kver: '1', format: 2 as const }
+
+    await driver.set({ account, item, metadata: { iv: '', modified }, snapshot })
+    await driver.set({ account, item, metadata: { iv: '', modified: modified + 100, deleted: true } })
+    // From a device that hasn't seen the delete yet
+    await expect(driver.set({ account, item, metadata: { iv: '', modified: modified + 200 }, snapshot }))
+      .resolves.toEqual({ version: 3 })
+
+    const [result] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(result.metadata).toEqual({ iv: '', modified: modified + 200, deleted: true })
+    expect(result.snapshot).toMatchObject({ iv: 'snap-iv' })
+    const manifest = await driver.fetchManifest({ account })
+    expect(manifest).toEqual([expect.objectContaining({ itemId: item, isDeleted: true, version: 3 })])
+  })
+
+  it('keeps an item deleted by the legacy top-level attribute', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const modified = Date.now()
+
+    await driver.client.send(new PutCommand({
+      TableName: driver.tables.items,
+      Item: { account, item, cipher: 'legacy', metadata: { iv: 'iv-1', modified }, deleted: true, version: 1 },
+    }))
+    await driver.set({ account, item, metadata: { iv: '', modified: modified + 100 }, snapshot: { iv: 'snap-iv', cipher: 'c25hcHNob3Q=' } })
+
+    const [result] = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(result.metadata.deleted).toBe(true)
+  })
 
   it('set rejects oversized items', async () => {
     const account = generateAccountId()
