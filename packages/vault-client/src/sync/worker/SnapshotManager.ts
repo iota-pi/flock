@@ -85,7 +85,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   }
 
   async setLeader(isLeader: boolean): Promise<void> {
-    if (this.isShutdown || this.tracker.leader === isLeader) {
+    if (this.tracker.isShutdown || this.tracker.leader === isLeader) {
       return
     }
     this.tracker.setLeader(isLeader)
@@ -188,58 +188,5 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     await this.pusher.shutdown()
     await this.tracker.shutdown(options)
-  }
-
-  // --- Test & Backward Compatibility Accessors ---
-  get dirtyItems(): Map<ItemId, number> {
-    return this.tracker.dirtyItems
-  }
-
-  get lastModifiedByItemId(): Map<ItemId, number> {
-    return this.tracker.lastModifiedByItemId
-  }
-
-  get lastSnapshotAtByItemId(): Map<ItemId, number> {
-    return this.tracker.lastSnapshotAtByItemId
-  }
-
-  get debounceTimer(): ReturnType<typeof setTimeout> | null {
-    return this.tracker.debounceTimer
-  }
-
-  get maxWaitTimer(): ReturnType<typeof setTimeout> | null {
-    return this.tracker.maxWaitTimer
-  }
-
-  get snapshotRequestCursor(): number | null {
-    return this.pusher.snapshotRequestCursor
-  }
-
-  get retryAttempt(): number {
-    return this.pusher.retryAttempt
-  }
-
-  set retryAttempt(val: number) {
-    this.pusher.retryStrategy.attempt = val
-  }
-
-  get retryTimeoutId(): ReturnType<typeof setTimeout> | null {
-    return this.pusher.retryTimeoutId
-  }
-
-  get snapshotPushPending(): boolean {
-    return this.pusher.snapshotPushPending
-  }
-
-  get consecutiveFailures(): Map<ItemId, number> {
-    return this.pusher.consecutiveFailures
-  }
-
-  get oversizedItems(): Set<ItemId> {
-    return this.pusher.oversizedItems
-  }
-
-  get isShutdown(): boolean {
-    return this.tracker.isShutdown
   }
 }
