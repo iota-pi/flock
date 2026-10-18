@@ -1069,15 +1069,17 @@ describe('SyncBridge', () => {
       expect(channelCloseSpies[2]).not.toHaveBeenCalled()
       expect(channelCloseSpies[3]).not.toHaveBeenCalled()
 
-      // Now reject session 1's initRepo to trigger its catch block
+      // Session 2 superseded session 1 and shut its worker down, so session 1 gives up quietly,
+      // even when its initRepo fails later
+      await expect(init1Promise).resolves.toBeUndefined()
       init1RejectRepo(new Error('Init 1 failed'))
-      await expect(init1Promise).rejects.toThrow('Init 1 failed')
+      await new Promise(r => setTimeout(r, 10))
 
       // Session 1's own ports should be closed
       expect(channelCloseSpies[0]).toHaveBeenCalled()
       expect(channelCloseSpies[1]).toHaveBeenCalled()
 
-      // Session 2's ports must NOT have been closed by session 1's catch block
+      // Session 2's ports must NOT have been closed by session 1
       expect(channelCloseSpies[2]).not.toHaveBeenCalled()
       expect(channelCloseSpies[3]).not.toHaveBeenCalled()
 

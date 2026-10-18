@@ -61,6 +61,40 @@ describe('ServiceLifecycleManager', () => {
     expect(lifecycle.getStatus()).toBe('stopped')
   })
 
+  it('waits for an in-progress start before stopping, so no service starts after teardown', async () => {
+    const events: string[] = []
+    let finishA: () => void = () => {}
+
+    lifecycle
+      .register('ServiceA', {
+        onStart: () => new Promise<void>(resolve => {
+          finishA = () => {
+            events.push('start A')
+            resolve()
+          }
+        }),
+        onStop: () => {
+          events.push('stop A')
+        },
+      })
+      .register('ServiceB', {
+        onStart: () => {
+          events.push('start B')
+        },
+        onStop: () => {
+          events.push('stop B')
+        },
+      })
+
+    const startPromise = lifecycle.start()
+    const stopPromise = lifecycle.stop()
+    finishA()
+    await startPromise
+    await stopPromise
+
+    expect(events).toEqual(['start A', 'start B', 'stop B', 'stop A'])
+  })
+
   it('forwards options to onStop hooks', async () => {
     const mockStopA = vi.fn()
     const mockStopB = vi.fn()

@@ -1,4 +1,4 @@
-import { SyncWorker, type SyncWorkerConfig } from './sync.worker'
+import { SyncWorker, exposeSyncWorker, type SyncWorkerConfig } from './sync.worker'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { ItemId } from '@vault/shared'
 
@@ -13,6 +13,11 @@ vi.mock('./realtimeBus', () => ({
   }),
   publishRealtimeBusSyncPing: vi.fn(),
   teardownRealtimeBus: vi.fn(),
+}))
+
+vi.mock('comlink', async importOriginal => ({
+  ...await importOriginal<typeof import('comlink')>(),
+  expose: vi.fn(),
 }))
 
 // Mock Automerge WASM
@@ -510,6 +515,77 @@ function createDeferred<T = void>() {
   })
   return { promise, resolve, reject }
 }
+
+describe('SyncWorker shutdown during initialization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIndexManagerListAutomergeItemIds.mockResolvedValue([])
+    mockBrokerSetAccount.mockResolvedValue(undefined)
+    mockContextShutdown.mockResolvedValue(undefined)
+  })
+
+  it('stops initRepo rather than starting the account session after a shutdown', async () => {
+    const initDeferred = createDeferred<void>()
+    mockContextInitialize.mockImplementation(() => initDeferred.promise)
+
+    const worker = new SyncWorker(workerConfig)
+    const initPromise = worker.initRepo('account-1', 'vault-key-1')
+    await new Promise(resolve => setTimeout(resolve, 5))
+
+    const shutdownPromise = worker.shutdown()
+    initDeferred.resolve()
+
+    await expect(initPromise).rejects.toThrow('shut down during initialization')
+    await shutdownPromise
+    expect(mockBrokerSetAccount).not.toHaveBeenCalled()
+    expect(mockAdapterSetAccount).not.toHaveBeenCalled()
+  })
+
+  it("doesn't leave an unhandled rejection when initRepo fails with nothing waiting", async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+    mockContextInitialize.mockRejectedValueOnce(new Error('Init failed'))
+    try {
+      const worker = new SyncWorker(workerConfig)
+      await expect(worker.initRepo('account-1', 'vault-key-1')).rejects.toThrow('Init failed')
+      await worker.shutdown()
+      await new Promise(resolve => setTimeout(resolve, 10))
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+    expect(unhandled).toEqual([])
+  })
+})
+
+describe('worker error reporting', () => {
+  const dispatchError = () => {
+    const event = new ErrorEvent('error', { message: 'Uncaught in a timer', cancelable: true })
+    self.dispatchEvent(event)
+    return event
+  }
+
+  beforeAll(() => {
+    exposeSyncWorker(workerConfig)
+  })
+
+  it("lets an error reach the main thread while there's no event port to report it on", () => {
+    expect(dispatchError().defaultPrevented).toBe(false)
+  })
+
+  it('reports an uncaught error and cancels it, so the main thread does not treat it as a crash', () => {
+    const port = { postMessage: vi.fn() }
+    self.dispatchEvent(new MessageEvent('message', { data: { type: 'EVENT_PORT', port } }))
+
+    const event = dispatchError()
+
+    expect(port.postMessage).toHaveBeenCalledWith({
+      type: 'workerError',
+      error: expect.objectContaining({ message: 'Uncaught in a timer' }),
+    })
+    expect(event.defaultPrevented).toBe(true)
+  })
+})
 
 describe('SyncWorker readiness and queueing before initialization', () => {
   beforeEach(() => {
