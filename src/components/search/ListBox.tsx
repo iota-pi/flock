@@ -52,7 +52,6 @@ const ListBoxComponent = forwardRef<
 
     const itemsHeight = itemSize * Math.min(itemData.length, 6)
     const scrollElementRef = useRef<HTMLDivElement | null>(null)
-    // eslint-disable-next-line react-hooks/incompatible-library
     const virtualizer = useVirtualizer({
       count: itemData.length,
       getScrollElement: () => scrollElementRef.current,
