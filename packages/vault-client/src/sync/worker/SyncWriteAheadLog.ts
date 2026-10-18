@@ -56,7 +56,6 @@ const PRUNE_BATCH_SIZE = SYNC_BATCH_SIZES.walPrune
 
 export class SyncWriteAheadLog {
   public static readonly MAX_ENTRIES = MAX_ENTRIES
-  public static readonly PRUNE_BATCH_SIZE = PRUNE_BATCH_SIZE
 
   private seqCounter = 0
   private lastCreatedAt = 0
@@ -141,10 +140,6 @@ export class SyncWriteAheadLog {
     for (const id of entryIds) {
       this.inFlightEntryIds.delete(id)
     }
-  }
-
-  clearInFlight(): void {
-    this.inFlightEntryIds.clear()
   }
 
   isInFlight(entryId: string): boolean {

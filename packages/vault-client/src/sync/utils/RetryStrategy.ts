@@ -175,18 +175,6 @@ export class RetryStrategy {
   }
 
   /**
-   * Computes delay for a specific attempt index, optionally applying jitter.
-   */
-  getDelay(attemptIndex: number, options?: { applyJitter?: boolean }): number {
-    const base = this.getBaseDelay(attemptIndex)
-    const shouldJitter = options?.applyJitter ?? (this.jitterOptions !== null)
-    if (shouldJitter) {
-      return RetryStrategy.applyJitter(base, this.jitterOptions ?? undefined)
-    }
-    return base
-  }
-
-  /**
    * Computes the delay for the current attempt (applying jitter if configured)
    * and increments the attempt counter.
    */

@@ -80,10 +80,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     })
   }
 
-  get isOperational(): boolean {
-    return this.tracker.isOperational
-  }
-
   get leader(): boolean {
     return this.tracker.leader
   }
@@ -142,16 +138,8 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     return this.tracker.getLocalModifiedAt(itemId)
   }
 
-  scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
-    this.tracker.scheduleDebouncedSnapshotPush(customDelayMs)
-  }
-
   async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
     return this.pusher.flushPendingSnapshots()
-  }
-
-  async flushDirtyDocumentsToIndex(): Promise<void> {
-    await this.tracker.flushDirtyDocumentsToIndex()
   }
 
   scheduleSnapshotPush(cursor?: number): void {
@@ -180,10 +168,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {
     await this.tracker.importLastModified(data)
-  }
-
-  getBaseVersion(itemId: ItemId): number {
-    return this.tracker.getBaseVersion(itemId)
   }
 
   exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
@@ -253,27 +237,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     return this.pusher.oversizedItems
   }
 
-  get isLeader(): boolean {
-    return this.tracker.leader
-  }
-
-  set isLeader(val: boolean) {
-    this.tracker.setLeader(val)
-  }
-
-  get isOnline(): boolean {
-    return this.tracker.isOnline
-  }
-
   get isShutdown(): boolean {
     return this.tracker.isShutdown
-  }
-
-  get pushGuard() {
-    return this.pusher.pushGuard
-  }
-
-  get loadGuard() {
-    return this.tracker.loadGuard
   }
 }

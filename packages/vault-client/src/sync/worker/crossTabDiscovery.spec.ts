@@ -66,7 +66,6 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: vi.fn(),
-        removeAutomergeItem: vi.fn(),
       } as any,
       indexManager: {
         addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,

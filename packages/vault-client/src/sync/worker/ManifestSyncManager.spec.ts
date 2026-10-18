@@ -38,7 +38,6 @@ import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 const mockVault = createMockVault()
 const keys = createMockKeyProvider(mockVault)
 const {
-  decryptObject: mockDecryptObject,
   decryptBytes: mockDecryptBytes,
   hasVaultKey: mockHasVaultKey,
   waitForKeyVersion: mockWaitForKeyVersion,
@@ -51,6 +50,7 @@ vi.mock('../shared/manualRecoveryStore', () => ({
 const mockHasApiAuthToken = vi.fn()
 vi.mock('../../api/runtime', () => ({
   hasApiAuthToken: () => mockHasApiAuthToken(),
+  getApiAuthToken: () => (mockHasApiAuthToken() ? 'session-token' : ''),
 }))
 
 describe('ManifestSyncManager', () => {
@@ -164,7 +164,7 @@ describe('ManifestSyncManager', () => {
 
       await manifestSyncManager.sync(true)
 
-      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
+      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
     })
 
     it('forces sync when offline for > 7 days even when force=false', async () => {
@@ -175,7 +175,7 @@ describe('ManifestSyncManager', () => {
 
       await manifestSyncManager.sync(false)
 
-      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
+      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
     })
 
     it('shares in-flight sync promise across concurrent sync calls', async () => {
@@ -259,11 +259,11 @@ describe('ManifestSyncManager', () => {
 
       const result = await manager.sync()
 
-      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' })
+      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-123' }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-snap', 'item-legacy', 'item-deleted'],
-      })
+      }, { signal: expect.any(AbortSignal) })
 
       expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'cipher-1', kver: '1' }, 'item-snap')
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-snap', new Uint8Array([1, 2, 3]), { knownToExist: false })
@@ -335,7 +335,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-3'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-3', new Uint8Array([9, 9]), { knownToExist: false })
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-3'])
       expect(result).toEqual({ added: ['item-3'], success: true })
@@ -403,15 +403,15 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(1, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(0, 50).map(e => e.itemId),
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(2, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(50, 100).map(e => e.itemId),
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockFetchSnapshotsByIds).toHaveBeenNthCalledWith(3, {
         account: 'acc-123',
         itemIds: manifestEntries.slice(100, 120).map(e => e.itemId),
-      })
+      }, { signal: expect.any(AbortSignal) })
     })
 
     it('falls back to local data if fetchManifest fails when known items exist', async () => {
@@ -677,7 +677,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-quarantined'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
 
@@ -706,7 +706,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-quarantined'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
 
@@ -757,6 +757,9 @@ describe('ManifestSyncManager', () => {
       await manifestSyncManager.sync()
 
       expect(depsObj.snapshotManager.flushPendingSnapshots).toHaveBeenCalledTimes(1)
+      // Otherwise the manifest misses the flushed items and they are pushed a second time
+      expect(depsObj.snapshotManager.flushPendingSnapshots.mock.invocationCallOrder[0])
+        .toBeLessThan(mockFetchManifest.mock.invocationCallOrder[0])
     })
 
     it('continues gracefully if flushPendingSnapshots throws', async () => {
@@ -820,7 +823,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-1'],
-      })
+      }, { signal: expect.any(AbortSignal) })
       expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
       expect(result).toEqual({ added: ['item-1'], success: true })
     })
@@ -1056,7 +1059,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({
         account: 'acc-123',
         itemIds: ['item-active-1'],
-      })
+      }, { signal: expect.any(AbortSignal) })
 
       // Timestamps for tombstones must be imported so future syncs recognize them
       expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith(
@@ -1239,177 +1242,6 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('discrete steps unit tests', () => {
-    describe('calculateSyncDeltas', () => {
-      it('partitions deltas correctly into missingIds, locallyTombstonedSnapshots, and upstreamIds', () => {
-        const result = manifestSyncManager.calculateSyncDeltas({
-          manifest: [
-            { itemId: 'item-new-remote' as ItemId, version: 1, modifiedAt: 2000 },
-            { itemId: 'item-server-deleted' as ItemId, version: 2, modifiedAt: 2000, isDeleted: true },
-            { itemId: 'item-in-sync' as ItemId, version: 1, modifiedAt: 1000 },
-          ],
-          force: false,
-          knownItemIds: ['item-server-deleted' as ItemId, 'item-in-sync' as ItemId, 'item-local-only' as ItemId],
-          tombstoneItemIds: [],
-          localLastModifiedMap: new Map([
-            ['item-server-deleted' as ItemId, 1000],
-            ['item-in-sync' as ItemId, 1000],
-            ['item-local-only' as ItemId, 1500],
-          ]),
-          quarantinedMap: new Map(),
-          localVersionsMap: new Map([
-            ['item-server-deleted' as ItemId, { baseVersion: 1, isDirty: false }],
-            ['item-in-sync' as ItemId, { baseVersion: 1, isDirty: false }],
-            ['item-local-only' as ItemId, { baseVersion: 0, isDirty: true }],
-          ]),
-        })
-
-        expect(result.missingIds).toEqual(['item-new-remote'])
-        expect(result.locallyTombstonedSnapshots).toEqual([{ id: 'item-server-deleted', deleted: true }])
-        expect(result.deletedLastModifiedUpdates).toEqual([['item-server-deleted', 2000]])
-        expect(result.upstreamIds).toEqual(['item-local-only'])
-        expect(result.knownSet.has('item-in-sync' as ItemId)).toBe(true)
-      })
-
-      it('filters quarantined items unless server has a newer timestamp', () => {
-        const result = manifestSyncManager.calculateSyncDeltas({
-          manifest: [
-            { itemId: 'item-quarantined-old' as ItemId, modifiedAt: 500 },
-            { itemId: 'item-quarantined-new' as ItemId, modifiedAt: 1500 },
-          ],
-          force: false,
-          knownItemIds: [],
-          tombstoneItemIds: [],
-          localLastModifiedMap: new Map(),
-          quarantinedMap: new Map([
-            ['item-quarantined-old' as ItemId, 600],
-            ['item-quarantined-new' as ItemId, 1000],
-          ]),
-          localVersionsMap: new Map(),
-        })
-
-        expect(result.missingIds).toEqual(['item-quarantined-new'])
-      })
-    })
-
-    describe('hydrateRemoteItem', () => {
-      it('returns structured success for active Automerge binary document', async () => {
-        mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-        mockHydrateAutomergeDocumentBinary.mockResolvedValue({
-          hasLocalChanges: false,
-          incomingHeads: ['head-1'],
-        })
-
-        const item = {
-          item: 'item-binary',
-          snapshot: { iv: 'iv-1', cipher: 'c-1' },
-        }
-
-        const result = await manifestSyncManager.hydrateRemoteItem(
-          item as any,
-          [{ itemId: 'item-binary' as ItemId, modifiedAt: 2000 }],
-          new Set(['item-binary' as ItemId]),
-        )
-
-        expect(result).toEqual({
-          status: 'success',
-          itemId: 'item-binary',
-          hydratedId: 'item-binary',
-          lastModifiedUpdate: ['item-binary', 2000],
-          versionUpdate: ['item-binary', 1],
-        })
-      })
-
-      it('returns structured success with markDirty when Automerge document has local changes', async () => {
-        mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-        mockHydrateAutomergeDocumentBinary.mockResolvedValue({
-          hasLocalChanges: true,
-          incomingHeads: ['head-1'],
-        })
-
-        const item = {
-          item: 'item-binary-changes',
-          snapshot: { iv: 'iv-1', cipher: 'c-1' },
-        }
-
-        const result = await manifestSyncManager.hydrateRemoteItem(
-          item as any,
-          [{ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000, version: 4 }],
-          new Set(['item-binary-changes' as ItemId]),
-        )
-
-        expect(result).toEqual({
-          status: 'success',
-          itemId: 'item-binary-changes',
-          hydratedId: 'item-binary-changes',
-          lastModifiedUpdate: undefined,
-          versionUpdate: ['item-binary-changes', 4],
-        })
-        expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-binary-changes', 2000)
-      })
-
-      it('returns structured success for deleted metadata without decryption', async () => {
-        const item = {
-          item: 'item-deleted-meta',
-          metadata: { deleted: true },
-        }
-
-        const result = await manifestSyncManager.hydrateRemoteItem(
-          item as any,
-          [{ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000, version: 2 }],
-          new Set(),
-        )
-
-        expect(result).toEqual({
-          status: 'success',
-          itemId: 'item-deleted-meta',
-          snapshot: { id: 'item-deleted-meta', deleted: true },
-          lastModifiedUpdate: ['item-deleted-meta', 3000],
-          versionUpdate: ['item-deleted-meta', 2],
-        })
-        expect(mockDecryptBytes).not.toHaveBeenCalled()
-        expect(mockDecryptObject).not.toHaveBeenCalled()
-      })
-
-      it('returns decryption_failure when the snapshot cannot be decrypted', async () => {
-        mockDecryptBytes.mockResolvedValue(null)
-
-        const item = {
-          item: 'item-un-decryptable',
-          snapshot: { iv: 'iv-bad', cipher: 'c-bad' },
-        }
-
-        const result = await manifestSyncManager.hydrateRemoteItem(
-          item as any,
-          [{ itemId: 'item-un-decryptable' as ItemId, modifiedAt: 1000 }],
-          new Set(),
-        )
-
-        expect(result.status).toBe('decryption_failure')
-        expect(result.itemId).toBe('item-un-decryptable')
-        expect((result as Extract<typeof result, { status: 'decryption_failure' }>).error.message).toContain('Failed to decrypt')
-      })
-
-      it('returns error when Automerge hydration throws', async () => {
-        mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
-        mockHydrateAutomergeDocumentBinary.mockRejectedValue(new Error('WASM crash'))
-
-        const item = {
-          item: 'item-crash',
-          snapshot: { iv: 'iv-1', cipher: 'c-1' },
-        }
-
-        const result = await manifestSyncManager.hydrateRemoteItem(
-          item as any,
-          [{ itemId: 'item-crash' as ItemId, modifiedAt: 1000 }],
-          new Set(),
-        )
-
-        expect(result.status).toBe('error')
-        expect(result.itemId).toBe('item-crash')
-        expect(((result as Extract<typeof result, { status: 'error' }>).error as Error).message).toBe('WASM crash')
-      })
-    })
-
     describe('pushLocalUpdates', () => {
       it('stores local tombstones, imports timestamps, and marks upstream dirty when passed SyncDeltas', async () => {
         await manifestSyncManager.pushLocalUpdates({
@@ -1511,6 +1343,20 @@ describe('ManifestSyncManager', () => {
         const result = await manifestSyncManager.sync(true)
         expect(result).toEqual({ added: [], success: false })
         expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
+      })
+
+      it('cancels the in-flight manifest fetch of a background sync on abort()', async () => {
+        let fetchSignal: AbortSignal | undefined
+        mockFetchManifest.mockImplementation((_input: any, options?: { signal?: AbortSignal }) => {
+          fetchSignal = options?.signal
+          return new Promise(() => {})
+        })
+
+        void manifestSyncManager.sync(true)
+        await vi.waitFor(() => expect(mockFetchManifest).toHaveBeenCalled())
+        manifestSyncManager.abort()
+
+        expect(fetchSignal?.aborted).toBe(true)
       })
     })
   })

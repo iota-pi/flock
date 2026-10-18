@@ -1,18 +1,14 @@
 import {
   initialiseVault,
   loginVault,
-  getVaultKey,
   encrypt,
   decrypt,
-  encryptBytes,
-  decryptBytes,
   storeVault,
   rotateVaultKey,
   exportKeyringData,
   handleSessionExpired,
   readCachedKeyring,
   hasVaultKey,
-  waitForKeyVersion,
   reloadKeyringFromStorage,
   clearVaultDeviceData,
   configureVaultHost,
@@ -60,7 +56,7 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
     expect(hash).toBeDefined()
-    expect(getVaultKey('1')).toBeDefined()
+    expect(hasVaultKey('1')).toBe(true)
 
     await storeVault('test-account')
 
@@ -96,8 +92,8 @@ describe('Vault Keyring Integration', () => {
 
     expect(readStoredMetadata()?.account).toBe('test-account')
 
-    // keyring should be empty and getVaultKey should throw
-    expect(() => getVaultKey('1')).toThrow()
+    // keyring should be empty
+    expect(hasVaultKey('1')).toBe(false)
   })
 
   it('loads worker vault using exported keyring', async () => {
@@ -115,8 +111,8 @@ describe('Vault Keyring Integration', () => {
 
     expect(workerKeyring.getKey('1')).toBeDefined()
     expect(workerKeyring.getKey()).toBeDefined()
-    const encrypted = await encryptBytes(new Uint8Array([1, 2, 3]), 'item-1')
-    await expect(workerKeyring.decryptBytes(encrypted, 'item-1')).resolves.toEqual(new Uint8Array([1, 2, 3]))
+    const encrypted = await encrypt('hello worker')
+    await expect(workerKeyring.decrypt(encrypted)).resolves.toBe('hello worker')
   })
 
   it('automatically tags encrypted string with kver and decrypts correctly', async () => {
@@ -132,22 +128,6 @@ describe('Vault Keyring Integration', () => {
 
     const dec = await decrypt(enc)
     expect(dec).toBe('hello keyring')
-  })
-
-  it('automatically tags encrypted bytes with kver and decrypts correctly', async () => {
-    await initialiseVault({
-      password: 'password123',
-      salt: SALT,
-      saltVersion: 1,
-      iterations: 1000,
-    })
-
-    const bytes = new Uint8Array([1, 2, 3, 4, 5])
-    const enc = await encryptBytes(bytes)
-    expect(enc.kver).toBe('1')
-
-    const dec = await decryptBytes(enc)
-    expect(Array.from(dec)).toEqual([1, 2, 3, 4, 5])
   })
 
   it('gracefully falls back to version 1 when decrypting legacy data lacking kver', async () => {
@@ -196,8 +176,8 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
 
-    expect(getVaultKey('1')).toBeDefined()
-    expect(() => getVaultKey('2')).toThrow()
+    expect(hasVaultKey('1')).toBe(true)
+    expect(hasVaultKey('2')).toBe(false)
 
     const cachedBefore = readCachedKeyring()
     expect(cachedBefore).not.toBeNull()
@@ -209,8 +189,8 @@ describe('Vault Keyring Integration', () => {
     )
 
     // Keyring must be rolled back to version 1
-    expect(getVaultKey('1')).toBeDefined()
-    expect(() => getVaultKey('2')).toThrow()
+    expect(hasVaultKey('1')).toBe(true)
+    expect(hasVaultKey('2')).toBe(false)
 
     // Keyring data activeVersion must be rolled back to 1
     const exported = await exportKeyringData()
@@ -235,8 +215,8 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
 
-    expect(getVaultKey('1')).toBeDefined()
-    expect(() => getVaultKey('2')).toThrow()
+    expect(hasVaultKey('1')).toBe(true)
+    expect(hasVaultKey('2')).toBe(false)
 
     let concurrentEncryptionKver: string | undefined
     let hasKey2DuringUpload: boolean | undefined
@@ -271,7 +251,7 @@ describe('Vault Keyring Integration', () => {
     await lockVaultKeys()
 
     // keyring should be cleared
-    expect(() => getVaultKey('1')).toThrow()
+    expect(hasVaultKey('1')).toBe(false)
 
     // stored metadata should still exist
     const stored = localStorage.getItem(getVaultStorageNames().vaultMetadataKey)
@@ -312,7 +292,7 @@ describe('Vault Keyring Integration', () => {
     await handleSessionExpired()
 
     expect(getSession).toHaveBeenCalledWith('test-account', expect.any(String))
-    expect(getVaultKey('1')).toBeDefined()
+    expect(hasVaultKey('1')).toBe(true)
   })
 
   it('handleSessionExpired reports a lost session without locking vault when silent re-establishment fails', async () => {
@@ -331,7 +311,7 @@ describe('Vault Keyring Integration', () => {
     await handleSessionExpired()
 
     // keyring should NOT be cleared - local operations continue
-    expect(getVaultKey('1')).toBeDefined()
+    expect(hasVaultKey('1')).toBe(true)
 
     // the host is told so it can pause sync and warn the user
     expect(onSessionLost).toHaveBeenCalledWith(expect.stringContaining('Sync paused'))
@@ -381,7 +361,7 @@ describe('Vault Keyring Integration', () => {
     })
 
     // Keyring and vault state should be preserved
-    expect(getVaultKey('1')).toBeDefined()
+    expect(hasVaultKey('1')).toBe(true)
     // Stored metadata should be written
     const stored = localStorage.getItem(getVaultStorageNames().vaultMetadataKey)
     expect(stored).toBeDefined()
@@ -401,7 +381,7 @@ describe('Vault Keyring Integration', () => {
     })
 
     // Keyring and vault state should be preserved
-    expect(getVaultKey('1')).toBeDefined()
+    expect(hasVaultKey('1')).toBe(true)
     // Stored metadata should be written
     const stored = localStorage.getItem(getVaultStorageNames().vaultMetadataKey)
     expect(stored).toBeDefined()
@@ -427,7 +407,7 @@ describe('Vault Keyring Integration', () => {
     ).rejects.toThrow(/Failed to decrypt keyring from server during login/)
 
     // Keyring and vault state should be wiped/cleared on decryption failure
-    expect(() => getVaultKey('1')).toThrow()
+    expect(hasVaultKey('1')).toBe(false)
   })
 
   it('persists encrypted keyring in local cache and clears it on clearVaultDeviceData', async () => {
@@ -461,7 +441,7 @@ describe('Vault Keyring Integration', () => {
       })
     ).rejects.toThrow(/Incorrect password/)
 
-    expect(() => getVaultKey('1')).toThrow()
+    expect(hasVaultKey('1')).toBe(false)
   })
 
   it('succeeds offline when cached keyring decryption validates the password', async () => {
@@ -494,7 +474,7 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
 
-    expect(getVaultKey('1')).toBeDefined()
+    expect(hasVaultKey('1')).toBe(true)
   })
 
   describe('with a slow server', () => {
@@ -543,7 +523,7 @@ describe('Vault Keyring Integration', () => {
       const stopListening = onLateSession(() => notified())
 
       await settle(loginVault(loginParams))
-      expect(getVaultKey('1')).toBeDefined()
+      expect(hasVaultKey('1')).toBe(true)
       expect(getVaultSession()).toBe('')
 
       respond('late-session')
@@ -599,7 +579,7 @@ describe('Vault Keyring Integration', () => {
       })
     ).rejects.toThrow(/Incorrect password/)
 
-    expect(() => getVaultKey('1')).toThrow()
+    expect(hasVaultKey('1')).toBe(false)
   })
 
   describe('Cross-tab key version utilities & storage reload', () => {
@@ -609,11 +589,6 @@ describe('Vault Keyring Integration', () => {
       expect(hasVaultKey()).toBe(true)
       expect(hasVaultKey('2')).toBe(false)
       expect(hasVaultKey('99')).toBe(false)
-    })
-
-    it('returns false from waitForKeyVersion on timeout', async () => {
-      const result = await waitForKeyVersion('nonexistent-ver', 50)
-      expect(result).toBe(false)
     })
 
     it('reloadKeyringFromStorage successfully decrypts and returns keyringData', async () => {

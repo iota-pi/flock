@@ -57,8 +57,8 @@ describe('backup operations', () => {
     expect(Object.keys(exported.documents)).toContain(ACCOUNT_INDEX_DOCUMENT_ID)
     expect(exported.skipped).toEqual([])
 
-    // Clean current state
-    await docStore.removeAutomergeItem(item.id)
+    // Restore on a device without the item
+    docStore = new AutomergeDocStore(new Repo())
     await indexStore.clear()
     await indexManager.ensureIndexDocument()
 

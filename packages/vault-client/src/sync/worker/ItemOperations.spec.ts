@@ -53,7 +53,6 @@ describe('ItemOperations', () => {
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: getAutomergeItemMock,
-        removeAutomergeItem: vi.fn(),
         codec: { ...passthroughCodec, isCorrupt: (doc: VaultDoc) => doc.type === 'error' },
       } as any,
       indexManager: {

@@ -121,23 +121,6 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  isBroadcastSyncPaused(): boolean {
-    return this.broadcastAdapter?.isSyncPaused() ?? false
-  }
-
-  getRepo(): Repo {
-    if (!this.repo) {
-      throw new Error(`Automerge repo for account ${this.accountId} has not been initialized`)
-    }
-    return this.repo
-  }
-
-  async clearLocalData(): Promise<void> {
-    if (this.indexedDbAdapter) {
-      await runStorageOperation(() => this.indexedDbAdapter!.clear())
-    }
-  }
-
   async close(): Promise<void> {
     if (this.broadcastAdapter) {
       try {

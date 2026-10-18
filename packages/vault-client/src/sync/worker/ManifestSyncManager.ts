@@ -3,23 +3,14 @@ import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import { SyncApiClient } from './SyncApiClient'
-import type { VaultItem } from '../../api/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import type { SyncDomain } from './domain'
 import { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { isAuthError } from './utils/errorClassifier'
-import {
-  ManifestDeltaCalculator,
-  type SyncDeltas,
-  type CalculateSyncDeltasParams,
-} from './ManifestDeltaCalculator'
-import {
-  ManifestHydrator,
-  type HydrateItemResult,
-  type FetchAndHydrateParams,
-} from './ManifestHydrator'
+import { ManifestDeltaCalculator, type SyncDeltas } from './ManifestDeltaCalculator'
+import { ManifestHydrator } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { KeyProvider } from '../../api/Keyring'
 
@@ -139,15 +130,11 @@ export class ManifestSyncManager implements LifecycleAware {
     signal: AbortSignal,
     isAlive: () => boolean,
     hasKnownItems: boolean,
-    outerSignal?: AbortSignal,
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number } | null> {
     checkAlive(signal, isAlive)
 
     try {
-      const manifestResponse = await this.apiClient.fetchManifest(
-        { account: this.deps.accountId },
-        outerSignal ? { signal } : undefined,
-      )
+      const manifestResponse = await this.apiClient.fetchManifest({ account: this.deps.accountId }, { signal })
       return {
         manifest: manifestResponse.manifest,
         serverTime: manifestResponse.serverTime,
@@ -275,13 +262,14 @@ export class ManifestSyncManager implements LifecycleAware {
         return { added: [], success: true }
       }
 
-      const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems, outerSignal)
+      // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
+      await this.flushPendingSnapshotsSafely()
+      checkAlive(signal, isAlive)
+
+      const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems)
       if (!remoteData) {
         return { added: [], success: false }
       }
-      checkAlive(signal, isAlive)
-
-      await this.flushPendingSnapshotsSafely()
       checkAlive(signal, isAlive)
 
       const localState = await this.collectLocalSyncState(signal, isAlive)
@@ -315,7 +303,7 @@ export class ManifestSyncManager implements LifecycleAware {
             knownSet: deltas.knownSet,
             tombstoneSet: deltas.tombstoneSet,
           },
-          outerSignal ? signal : undefined,
+          signal,
         )
         added = hydrationResult.added
         hasFailures = hydrationResult.hasFailures
@@ -339,10 +327,6 @@ export class ManifestSyncManager implements LifecycleAware {
         this.abortController = null
       }
     }
-  }
-
-  calculateSyncDeltas(params: CalculateSyncDeltasParams): SyncDeltas {
-    return ManifestDeltaCalculator.calculateSyncDeltas(params)
   }
 
   async pushLocalUpdates(
@@ -394,23 +378,6 @@ export class ManifestSyncManager implements LifecycleAware {
         this.deps.snapshotManager.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       }
     }
-  }
-
-  async fetchAndHydrateRemoteItems(
-    params: FetchAndHydrateParams,
-    signal?: AbortSignal,
-  ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
-    return this.hydrator.fetchAndHydrateRemoteItems(params, signal)
-  }
-
-  async hydrateRemoteItem(
-    item: VaultItem,
-    manifest: ManifestEntry[],
-    knownSet: Set<ItemId>,
-    tombstoneSet: Set<ItemId> = new Set(),
-    serverTimeFallback: number = Date.now(),
-  ): Promise<HydrateItemResult> {
-    return this.hydrator.hydrateRemoteItem(item, manifest, knownSet, tombstoneSet, serverTimeFallback)
   }
 
   private async migrateLegacySettings() {

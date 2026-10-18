@@ -142,12 +142,6 @@ describe('WorkerLifecycleManager', () => {
       expect(clearAccountLocalDataSpy).toHaveBeenCalledWith('account-with-clear')
     })
 
-    it('clears account local data when clearLocalData: true is passed to init()', async () => {
-      await manager.init('account-via-init', { clearLocalData: true })
-
-      expect(clearAccountLocalDataSpy).toHaveBeenCalledWith('account-via-init')
-    })
-
     it('does NOT clear local data for subsequent accounts when clearLocalData is not passed', async () => {
       // First account initializes with clearLocalData: true
       await manager.initialize('account-one', { clearLocalData: true })

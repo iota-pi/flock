@@ -360,28 +360,6 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     return this.decodeSnapshot(normalizedItemId, snapshot)
   }
 
-  async removeAutomergeItem(itemId: ItemId): Promise<void> {
-    const normalizedItemId = normalizeItemId(itemId)
-    if (!normalizedItemId) {
-      return
-    }
-    return this.withItemLock(normalizedItemId, async () => {
-      const { documentId } = this.resolveDocumentId(normalizedItemId)
-
-      try {
-        this.repo.delete(documentId)
-      } catch {
-        // Ignore missing local handles.
-      }
-
-      try {
-        await this.repo.removeFromCache(documentId)
-      } catch {
-        // Ignore cache-eviction failures for handles that were never loaded.
-      }
-    })
-  }
-
   private applyMerge(targetHandle: DocHandle<RepoDoc>, binary: Uint8Array): void {
     const incomingHandle = this.repo.import<RepoDoc>(binary)
     try {

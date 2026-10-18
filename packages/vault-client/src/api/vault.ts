@@ -148,10 +148,6 @@ export function hasVaultKey(kver?: string): boolean {
   return keyring.hasKey(kver)
 }
 
-export function waitForKeyVersion(kver: string, timeoutMs = 5000): Promise<boolean> {
-  return keyring.waitForKey(kver, timeoutMs)
-}
-
 export async function reloadKeyringFromStorage(): Promise<{
   success: boolean
   passwordChanged?: boolean
@@ -172,8 +168,12 @@ export async function reloadKeyringFromStorage(): Promise<{
   }
 }
 
-export function getVaultKey(kver?: string): CryptoKey {
-  return keyring.getKey(kver)
+/** The password-derived key that wraps the keyring, which is set whenever the keyring has keys */
+function requireMasterKey(): CryptoKey {
+  if (!masterKey) {
+    throw new VaultNotInitializedError()
+  }
+  return masterKey
 }
 
 export function getVaultSession() {
@@ -313,7 +313,7 @@ export async function initialiseVault({
 
 export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Promise<void> {
   const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
-  const decryptionKey = masterKey || getVaultKey('1')
+  const decryptionKey = requireMasterKey()
   const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
   const keyringData = JSON.parse(plaintext)
   if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
@@ -450,7 +450,7 @@ export async function storeVault(account: string, activeVersionOverride?: string
     saltVersion: meta?.saltVersion,
   })
   const plaintext = JSON.stringify(await keyring.export(effectiveVersion))
-  const encryptionKey = masterKey || getVaultKey('1')
+  const encryptionKey = requireMasterKey()
   const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
   const encryptedStr = JSON.stringify(encrypted)
 
@@ -515,15 +515,6 @@ export function exportData<T>(payload: T): Promise<CryptoResult> {
 export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
   const plainData = await decrypt(data)
   return JSON.parse(plainData) as T
-}
-
-/** Encrypts with the active key. Pass the `docId` of the document the bytes belong to, to bind them to it. */
-export async function encryptBytes(bytes: Uint8Array, docId?: string): Promise<CryptoResult> {
-  return keyring.encryptBytes(bytes, docId)
-}
-
-export async function decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array> {
-  return keyring.decryptBytes(data, docId)
 }
 
 export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -617,7 +608,7 @@ export async function rotateVaultKey(account: string): Promise<void> {
 }
 
 export async function enableBiometrics(account: string): Promise<void> {
-  const currentKey = masterKey || getVaultKey('1')
+  const currentKey = requireMasterKey()
 
   const { credentialId, prfSalt, prfOutput } = await registerPrfCredential(account)
 

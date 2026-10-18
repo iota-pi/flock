@@ -50,14 +50,6 @@ export class RecoveryManager implements LifecycleAware {
     this.accountId = accountId
   }
 
-  getAccountId(): string | null {
-    return this.accountId
-  }
-
-  setEventHub(eventHub?: ClientEventHub): void {
-    this.eventHub = eventHub
-  }
-
   isInFlight(itemId: ItemId): boolean {
     return this.inFlightItemIds.has(itemId)
   }

@@ -1,5 +1,5 @@
 import { ManifestHydrator } from './ManifestHydrator'
-import type { ItemId } from '@vault/shared'
+import type { ItemId, ManifestEntry } from '@vault/shared'
 
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
@@ -15,6 +15,10 @@ vi.mock('./utils/decryptWithKeyResolution', () => ({
     return mockDecryptBytes(cryptoResult)
   },
 }))
+
+function manifestOf(...entries: ManifestEntry[]): Map<ItemId, ManifestEntry> {
+  return new Map(entries.map(entry => [entry.itemId, entry]))
+}
 
 describe('ManifestHydrator', () => {
   let hydrator: ManifestHydrator
@@ -77,7 +81,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [{ itemId: 'item-binary' as ItemId, modifiedAt: 2000 }],
+        manifestOf({ itemId: 'item-binary' as ItemId, modifiedAt: 2000 }),
         new Set(['item-binary' as ItemId]),
       )
 
@@ -104,7 +108,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [{ itemId: 'item-no-heads' as ItemId, modifiedAt: 2000 }],
+        manifestOf({ itemId: 'item-no-heads' as ItemId, modifiedAt: 2000 }),
         new Set(['item-no-heads' as ItemId]),
       )
 
@@ -132,7 +136,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [{ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000, version: 3 }],
+        manifestOf({ itemId: 'item-binary-changes' as ItemId, modifiedAt: 2000, version: 3 }),
         new Set(['item-binary-changes' as ItemId]),
       )
 
@@ -154,7 +158,7 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [{ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000, version: 5 }],
+        manifestOf({ itemId: 'item-deleted-meta' as ItemId, modifiedAt: 3000, version: 5 }),
         new Set(),
       )
 
@@ -179,13 +183,33 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.hydrateRemoteItem(
         item as any,
-        [{ itemId: 'item-un-decryptable' as ItemId, modifiedAt: 1000 }],
+        manifestOf({ itemId: 'item-un-decryptable' as ItemId, modifiedAt: 1000 }),
         new Set(),
       )
 
       expect(result.status).toBe('decryption_failure')
       expect(result.itemId).toBe('item-un-decryptable')
       expect((result as any).error.message).toContain('Failed to decrypt')
+    })
+
+    it('returns error when Automerge hydration throws', async () => {
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
+      mockDocStore.hydrateAutomergeDocumentBinary.mockRejectedValue(new Error('WASM crash'))
+
+      const item = {
+        item: 'item-crash',
+        snapshot: { iv: 'iv-1', cipher: 'c-1' },
+      }
+
+      const result = await hydrator.hydrateRemoteItem(
+        item as any,
+        manifestOf({ itemId: 'item-crash' as ItemId, modifiedAt: 1000 }),
+        new Set(),
+      )
+
+      expect(result.status).toBe('error')
+      expect(result.itemId).toBe('item-crash')
+      expect((result as any).error.message).toBe('WASM crash')
     })
   })
 
@@ -214,7 +238,7 @@ describe('ManifestHydrator', () => {
     it('decodes rows without a snapshot through the hook', async () => {
       const result = await createHydrator().hydrateRemoteItem(
         legacyRow as any,
-        [{ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }],
+        manifestOf({ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }),
         new Set(),
       )
 
@@ -267,7 +291,7 @@ describe('ManifestHydrator', () => {
         decodeLegacyItem,
       })
 
-      const result = await withKeyHandler.hydrateRemoteItem(legacyRow as any, [], new Set())
+      const result = await withKeyHandler.hydrateRemoteItem(legacyRow as any, new Map(), new Set())
 
       expect(result.status).toBe('success')
       expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
@@ -276,18 +300,18 @@ describe('ManifestHydrator', () => {
 
     it('reports a decryption failure when the hook cannot decode the row', async () => {
       decodeLegacyItem.mockResolvedValue(null)
-      const result = await createHydrator().hydrateRemoteItem(legacyRow as any, [], new Set())
+      const result = await createHydrator().hydrateRemoteItem(legacyRow as any, new Map(), new Set())
       expect(result.status).toBe('decryption_failure')
     })
 
     it('reports a decryption failure when the hook throws', async () => {
       decodeLegacyItem.mockRejectedValue(new Error('bad cipher'))
-      const result = await createHydrator().hydrateRemoteItem(legacyRow as any, [], new Set())
+      const result = await createHydrator().hydrateRemoteItem(legacyRow as any, new Map(), new Set())
       expect(result.status).toBe('decryption_failure')
     })
 
     it('reports that migration is required without a hook', async () => {
-      const result = await hydrator.hydrateRemoteItem(legacyRow as any, [], new Set())
+      const result = await hydrator.hydrateRemoteItem(legacyRow as any, new Map(), new Set())
       expect(result).toEqual({ status: 'migration_required', itemId: 'item-legacy' })
     })
 
@@ -327,7 +351,7 @@ describe('ManifestHydrator', () => {
 
       const result = await createHydrator().hydrateRemoteItem(
         { ...legacyRow, snapshot: { iv: 'iv-bad', cipher: 'c-bad' } } as any,
-        [],
+        new Map(),
         new Set(),
       )
 
@@ -338,7 +362,7 @@ describe('ManifestHydrator', () => {
     it('does not resurrect a locally deleted item, and marks it dirty', async () => {
       const result = await createHydrator().hydrateRemoteItem(
         legacyRow as any,
-        [{ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }],
+        manifestOf({ itemId: 'item-legacy' as ItemId, modifiedAt: 2000, version: 4 }),
         new Set(),
         new Set(['item-legacy' as ItemId]),
       )

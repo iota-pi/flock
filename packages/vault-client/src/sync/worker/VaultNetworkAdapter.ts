@@ -432,10 +432,6 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     }
   }
 
-  getSyncedHeads(documentId: DocumentId): string[] | undefined {
-    return this.syncedHeads.get(documentId)
-  }
-
   setSyncedHeads(documentId: DocumentId, heads: string[]): void {
     const existing = this.syncedHeads.get(documentId)
     if (existing && areHeadsEqual(existing, heads)) {
