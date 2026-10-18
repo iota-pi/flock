@@ -88,10 +88,6 @@ export class SyncWriteAheadLog {
     })
   }
 
-  public static resetSeqCounterForTesting(): void {
-    // Kept for backward compatibility
-  }
-
   private storage: LocalForage
   private internalEventHub: WorkerInternalEventHub
 
@@ -471,5 +467,4 @@ export class SyncWriteAheadLog {
 
 export function clearWalInstancesCacheForTesting(): void {
   clearAccountStoreInstancesCacheForTesting()
-  SyncWriteAheadLog.resetSeqCounterForTesting()
 }

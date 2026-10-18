@@ -1,3 +1,6 @@
+/** The `version` of an encrypted sync message whose payload is a batch packed by packBatchedMessages */
+export const BATCHED_MESSAGE_VERSION = '1.0'
+
 export interface BatchableMessage {
   data: Uint8Array
   isBatched?: boolean

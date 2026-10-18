@@ -52,31 +52,9 @@ describe('LastModifiedStore', () => {
   })
 
 
-  it('supports backward-compatible loadLastModified and saveLastModified', async () => {
-    await store.saveLastModified([
-      ['item-1' as ItemId, 12345],
-      ['item-2' as ItemId, 67890],
-    ])
-
-    const loaded = await store.loadLastModified()
-    expect(loaded).toEqual([
-      ['item-1', 12345],
-      ['item-2', 67890],
-    ])
-
-    const timestamps = await store.loadTimestamps()
-    expect(timestamps).toEqual([
-      ['item-1', { localModifiedAt: 12345, lastSnapshotAt: 12345, baseVersion: 0 }],
-      ['item-2', { localModifiedAt: 67890, lastSnapshotAt: 67890, baseVersion: 0 }],
-    ])
-  })
-
   it('returns null when storage is empty', async () => {
     const timestamps = await store.loadTimestamps()
     expect(timestamps).toBeNull()
-
-    const lastModified = await store.loadLastModified()
-    expect(lastModified).toBeNull()
   })
 
   it('clears storage key without clearing entire consolidated database', async () => {

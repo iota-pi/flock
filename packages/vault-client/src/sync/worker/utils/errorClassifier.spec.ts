@@ -1,17 +1,17 @@
 import {
   classifySyncError,
-  ErrorClassifier,
   TRANSIENT_VAULT_ERROR_SUBSTRINGS,
   isAuthError,
-  isNetworkError,
-  isServerError,
-  isTransientVaultError,
 } from './errorClassifier'
 import { AbortError } from '../../utils/abort'
 import { MissingKeyError } from './decryptWithKeyResolution'
 import { VaultNotInitializedError } from '../../../api/vault'
 
-describe('classifySyncError & ErrorClassifier', () => {
+const isNetworkError = (error: unknown) => classifySyncError(error).isNetwork
+const isServerError = (error: unknown) => classifySyncError(error).isServerError
+const isTransientVaultError = (error: unknown) => classifySyncError(error).isTransientVault
+
+describe('classifySyncError', () => {
   describe('null, undefined, and non-error inputs', () => {
     it('handles null and undefined', () => {
       const resNull = classifySyncError(null)
@@ -26,7 +26,7 @@ describe('classifySyncError & ErrorClassifier', () => {
         message: '',
       })
 
-      const resUndef = ErrorClassifier.classify(undefined)
+      const resUndef = classifySyncError(undefined)
       expect(resUndef).toEqual({
         isAbort: false,
         isAuth: false,
@@ -254,11 +254,6 @@ describe('classifySyncError & ErrorClassifier', () => {
       expect(classified.isAuth).toBe(false)
       expect(classified.status).toBe(503)
       expect(classified.message).toBe('503 Service Unavailable')
-    })
-
-    it('correctly maps ErrorClassifier.classify to classifySyncError', () => {
-      const err = new Error('Test')
-      expect(ErrorClassifier.classify(err)).toEqual(classifySyncError(err))
     })
   })
 })

@@ -38,7 +38,7 @@ describe('sendPing', () => {
     const removeListenerSpy = vi.spyOn(channel.port1, 'removeEventListener')
     const controller = new AbortController()
 
-    const pingPromise = sendPing(channel.port1, controller.signal)
+    const pingPromise = sendPing(channel.port1, { signal: controller.signal })
     controller.abort(new Error('Worker crashed'))
 
     await expect(pingPromise).rejects.toThrow('Worker crashed')
@@ -51,7 +51,7 @@ describe('sendPing', () => {
     controller.abort(new Error('Already aborted'))
 
     const addListenerSpy = vi.spyOn(channel.port1, 'addEventListener')
-    const pingPromise = sendPing(channel.port1, controller.signal)
+    const pingPromise = sendPing(channel.port1, { signal: controller.signal })
 
     await expect(pingPromise).rejects.toThrow('Already aborted')
     expect(addListenerSpy).not.toHaveBeenCalled()

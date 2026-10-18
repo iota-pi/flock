@@ -220,7 +220,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   }
 
   set retryAttempt(val: number) {
-    this.pusher.retryAttempt = val
+    this.pusher.retryStrategy.attempt = val
   }
 
   get retryTimeoutId(): ReturnType<typeof setTimeout> | null {

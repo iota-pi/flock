@@ -9,7 +9,7 @@ import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import { decodeSyncMessage } from '@automerge/automerge/slim'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { parseBatchedMessages } from './utils/messageParser'
-import { packBatchedMessages } from './utils/binaryFraming'
+import { BATCHED_MESSAGE_VERSION, packBatchedMessages } from './utils/binaryFraming'
 import { classifySyncError } from './utils/errorClassifier'
 import type { PushResultItem, PollSyncBatchResponse } from '../../api/SyncWorkerClient'
 import { SyncApiClient } from './SyncApiClient'
@@ -40,7 +40,6 @@ function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
 }
 
 const POLL_CHUNK_SIZE = SYNC_BATCH_SIZES.pollChunk
-const PROTOCOL_VERSION = '1.0'
 
 export class SyncPoller {
   private account: string | null = null
@@ -200,7 +199,7 @@ export class SyncPoller {
           itemId,
           encryptedMessage: {
             ...encryptedMessage,
-            version: PROTOCOL_VERSION,
+            version: BATCHED_MESSAGE_VERSION,
           },
         }
       })

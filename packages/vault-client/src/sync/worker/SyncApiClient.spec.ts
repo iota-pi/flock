@@ -44,8 +44,6 @@ describe('SyncApiClient', () => {
       const token = await client.getValidToken()
       expect(token).toBe('store-token-123')
       expect(mockSetApiAuthToken).toHaveBeenCalledWith('store-token-123')
-      expect(await client.hasAuthToken()).toBe(true)
-      expect(client.getToken()).toBe('store-token-123')
     })
 
     it('falls back to refreshAuthToken if store token is null', async () => {
@@ -65,8 +63,6 @@ describe('SyncApiClient', () => {
 
       const token = await client.getValidToken()
       expect(token).toBeNull()
-      expect(await client.hasAuthToken()).toBe(false)
-      expect(() => client.getToken()).toThrow(AuthError)
 
       await expect(client.putSnapshots({ account: 'acc-1', snapshots: [] })).rejects.toThrow(AuthError)
     })

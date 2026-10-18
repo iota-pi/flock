@@ -20,17 +20,17 @@ export interface SnapshotTrackerOptions {
 }
 
 export class SnapshotTracker {
-  public isShutdown = false
+  private shutDown = false
   private isLeader = false
-  public isOnline = true
+  private isOnline = true
   public readonly dirtyItems = new Map<ItemId, number>()
-  public dirtyItemsTick = 0
+  private dirtyItemsTick = 0
   public readonly lastModifiedByItemId = new Map<ItemId, number>()
   public readonly lastSnapshotAtByItemId = new Map<ItemId, number>()
   public readonly baseVersionByItemId = new Map<ItemId, number>()
 
-  public debounceTimer: ReturnType<typeof setTimeout> | null = null
-  public maxWaitTimer: ReturnType<typeof setTimeout> | null = null
+  private debounceTimeout: ReturnType<typeof setTimeout> | null = null
+  private maxWaitTimeout: ReturnType<typeof setTimeout> | null = null
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
@@ -63,8 +63,20 @@ export class SnapshotTracker {
     this.onOversizedFound = options.onOversizedFound
   }
 
+  get isShutdown(): boolean {
+    return this.shutDown
+  }
+
+  get debounceTimer(): ReturnType<typeof setTimeout> | null {
+    return this.debounceTimeout
+  }
+
+  get maxWaitTimer(): ReturnType<typeof setTimeout> | null {
+    return this.maxWaitTimeout
+  }
+
   get isOperational(): boolean {
-    return !this.isShutdown && this.isLeader && this.isOnline
+    return !this.shutDown && this.isLeader && this.isOnline
   }
 
   get leader(): boolean {
@@ -72,7 +84,7 @@ export class SnapshotTracker {
   }
 
   setLeader(isLeader: boolean): void {
-    if (this.isShutdown || this.isLeader === isLeader) {
+    if (this.shutDown || this.isLeader === isLeader) {
       return
     }
     this.isLeader = isLeader
@@ -91,7 +103,7 @@ export class SnapshotTracker {
   }
 
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
-    if (this.isShutdown || !itemId) return
+    if (this.shutDown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.lastModifiedByItemId.set(itemId, Date.now())
@@ -112,31 +124,31 @@ export class SnapshotTracker {
     if (this.isRetryActive?.()) return
 
     const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
-    if (this.debounceTimer !== null) {
-      clearTimeout(this.debounceTimer)
+    if (this.debounceTimeout !== null) {
+      clearTimeout(this.debounceTimeout)
     }
 
-    if (this.maxWaitTimer === null) {
-      this.maxWaitTimer = setTimeout(() => {
+    if (this.maxWaitTimeout === null) {
+      this.maxWaitTimeout = setTimeout(() => {
         this.clearDebounceTimers()
         this.onTriggerPush?.()
       }, this.maxWaitMs)
     }
 
-    this.debounceTimer = setTimeout(() => {
+    this.debounceTimeout = setTimeout(() => {
       this.clearDebounceTimers()
       this.onTriggerPush?.()
     }, delay)
   }
 
   clearDebounceTimers(): void {
-    if (this.debounceTimer !== null) {
-      clearTimeout(this.debounceTimer)
-      this.debounceTimer = null
+    if (this.debounceTimeout !== null) {
+      clearTimeout(this.debounceTimeout)
+      this.debounceTimeout = null
     }
-    if (this.maxWaitTimer !== null) {
-      clearTimeout(this.maxWaitTimer)
-      this.maxWaitTimer = null
+    if (this.maxWaitTimeout !== null) {
+      clearTimeout(this.maxWaitTimeout)
+      this.maxWaitTimeout = null
     }
   }
 
@@ -158,7 +170,7 @@ export class SnapshotTracker {
   }
 
   async loadLastModified(): Promise<{ auditCount: number; oversizedItemIds: Set<ItemId> }> {
-    if (this.isShutdown) return { auditCount: 0, oversizedItemIds: new Set() }
+    if (this.shutDown) return { auditCount: 0, oversizedItemIds: new Set() }
     let result = { auditCount: 0, oversizedItemIds: new Set<ItemId>() }
     await this.loadGuard.run(async () => {
       result = await this.executeLoadLastModified()
@@ -171,9 +183,9 @@ export class SnapshotTracker {
     let auditCount = 0
 
     try {
-      checkAlive(null, () => !this.isShutdown)
+      checkAlive(null, () => !this.shutDown)
       const stored = await this.lastModifiedStore.loadTimestamps()
-      checkAlive(null, () => !this.isShutdown)
+      checkAlive(null, () => !this.shutDown)
 
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
@@ -195,7 +207,7 @@ export class SnapshotTracker {
       if (this.accountId && this.recoveryManager) {
         try {
           const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.accountId)
-          checkAlive(null, () => !this.isShutdown)
+          checkAlive(null, () => !this.shutDown)
           for (const entry of recoveryEntries) {
             quarantinedIds.add(entry.itemId)
             if (entry.kind === 'oversized') {
@@ -209,7 +221,7 @@ export class SnapshotTracker {
         }
       }
 
-      checkAlive(null, () => !this.isShutdown)
+      checkAlive(null, () => !this.shutDown)
 
       // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
       for (const [itemId, localMod] of this.lastModifiedByItemId.entries()) {
@@ -230,7 +242,7 @@ export class SnapshotTracker {
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
-      if (isAbortError(error) || this.isShutdown) return { auditCount: 0, oversizedItemIds }
+      if (isAbortError(error) || this.shutDown) return { auditCount: 0, oversizedItemIds }
       console.error('[SnapshotTracker] Failed to load lastModified timestamps', error)
     }
 
@@ -305,7 +317,7 @@ export class SnapshotTracker {
   }
 
   deleteDirtyItem(itemId: ItemId): boolean {
-    if (this.isShutdown || !itemId) return false
+    if (this.shutDown || !itemId) return false
     const deleted = this.dirtyItems.delete(itemId)
     const localMod = this.lastModifiedByItemId.get(itemId)
     const lastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
@@ -396,8 +408,8 @@ export class SnapshotTracker {
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    if (this.isShutdown) return
-    this.isShutdown = true
+    if (this.shutDown) return
+    this.shutDown = true
     this.isLeader = false
 
     await this.loadGuard.waitForRunning()

@@ -367,7 +367,7 @@ describe('reencryptAllItems', () => {
       recoveryManager: { quarantine: vi.fn() } as any,
     }
 
-    const result = await reencryptor.processChunk(['item-unready' as any], undefined, processContext as any)
+    const result = await reencryptor.processChunk(['item-unready' as any], processContext as any)
 
     expect(result.succeeded).toEqual([])
     expect(result.failed).toEqual([
@@ -851,7 +851,7 @@ describe('ItemReencryptor class', () => {
         },
       ]
       await expect(
-        reencryptor.uploadBatch(mockApiClient as any, 'acc-1', snapshots)
+        reencryptor.uploadBatch(mockApiClient as any, 'acc-1', snapshots.map((snapshot: any) => ({ snapshot })))
       ).resolves.toEqual([{ itemId: 'item-1', version: 2 }])
       expect(mockApiClient.putSnapshots).toHaveBeenCalledWith(
         { account: 'acc-1', snapshots },
@@ -874,7 +874,7 @@ describe('ItemReencryptor class', () => {
         },
       ]
       await expect(
-        reencryptor.uploadBatch(mockApiClient as any, 'acc-1', snapshots)
+        reencryptor.uploadBatch(mockApiClient as any, 'acc-1', snapshots.map((snapshot: any) => ({ snapshot })))
       ).rejects.toThrow(/Upload unconfirmed/)
     })
 
@@ -913,7 +913,7 @@ describe('ItemReencryptor class', () => {
         onProgress,
       }
 
-      const result = await reencryptor.processChunk(['item-1' as any], undefined, context)
+      const result = await reencryptor.processChunk(['item-1' as any], context)
       expect(result).toEqual({
         succeeded: ['item-1'],
         failed: [],
@@ -946,7 +946,7 @@ describe('ItemReencryptor class', () => {
         recoveryManager: mockRecoveryManager as any,
       }
 
-      await expect(reencryptor.processChunk(['item-1' as any], undefined, context)).rejects.toThrow(
+      await expect(reencryptor.processChunk(['item-1' as any], context)).rejects.toThrow(
         /Re-encryption aborted: network error/
       )
     })

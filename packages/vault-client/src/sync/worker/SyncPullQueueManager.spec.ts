@@ -1600,7 +1600,7 @@ describe('SyncPullQueueManager', () => {
     })
   })
 
-  describe('loadCursors and reloadCursors', () => {
+  describe('loadCursors', () => {
     it('loads updated cursors from CursorStore when in-memory cursors are stale', async () => {
       await manager.setAccount('account-reload')
 
@@ -1635,7 +1635,7 @@ describe('SyncPullQueueManager', () => {
       // CursorStore has a lower cursor (e.g. lagging read)
       activeStore?.getItem.mockResolvedValueOnce({ globalCursor: 20, retries: [['item-1', 20]] })
 
-      await manager.reloadCursors()
+      await manager.loadCursors()
 
       // In-memory cursor must not regress
       expect(manager.exportCursors()).toEqual([['item-1', 50]])

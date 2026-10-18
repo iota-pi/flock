@@ -11,6 +11,7 @@ import { ItemId } from '@vault/shared'
 import type { PageToken } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
+import { BATCHED_MESSAGE_VERSION } from './utils/binaryFraming'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
 import { WorkerInternalEventHub } from './SyncEventHub'
@@ -32,7 +33,6 @@ interface ProcessItemMessagesResult {
 const BATCH_PROGRESS_CACHE_MAX = 500
 const OWN_PUSH_CACHE_MAX = 1000
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
-const PROTOCOL_VERSION = '1.0'
 
 export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: boolean }> {
   readonly lifecycleName = 'PullQueueManager'
@@ -154,10 +154,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  async reloadCursors(): Promise<void> {
-    await this.loadCursors()
-  }
-
   async persistCursors(): Promise<void> {
     if (!this.account) return
     const data = this.retryTracker.exportState()
@@ -222,7 +218,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
 
     try {
-      const isBatched = entry.encryptedMessage.version === PROTOCOL_VERSION
+      const isBatched = entry.encryptedMessage.version === BATCHED_MESSAGE_VERSION
       let hasError = false
       if (isBatched) {
         const startIndex = Number.isFinite(entry.cursor)

@@ -124,20 +124,6 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('gating & lifecycle', () => {
-    it('supports both unified ManifestSyncManagerDeps and legacy positional constructor arguments', () => {
-      const unifiedManager = new ManifestSyncManager({
-        ...(depsObj as any),
-        storeItems: storeItemsSpy,
-      })
-      expect(unifiedManager).toBeInstanceOf(ManifestSyncManager)
-
-      const legacyManager = new ManifestSyncManager(
-        depsObj as any,
-        storeItemsSpy,
-      )
-      expect(legacyManager).toBeInstanceOf(ManifestSyncManager)
-    })
-
     it('returns early if accountId is null', async () => {
       depsObj.accountId = null
 
@@ -1282,12 +1268,6 @@ describe('ManifestSyncManager', () => {
         expect(depsObj.snapshotManager.deleteDirtyItem).toHaveBeenCalledWith('item-fail-1')
       })
 
-      it('marks upstream dirty when passed an array of ItemIds', async () => {
-        await manifestSyncManager.pushLocalUpdates(['item-up-3' as ItemId])
-
-        expect(depsObj.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-up-3', 2000)
-        expect(storeItemsSpy).not.toHaveBeenCalled()
-      })
     })
 
     describe('cancellation and shutdown', () => {

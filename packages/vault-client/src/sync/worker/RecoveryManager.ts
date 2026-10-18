@@ -192,40 +192,12 @@ export class RecoveryManager implements LifecycleAware {
     }
   }
 
-  async dismissEntry(accountIdOrEntryId: string | null, maybeEntryId?: string): Promise<void> {
-    let accountId: string | null
-    let entryId: string
-
-    if (maybeEntryId !== undefined) {
-      accountId = accountIdOrEntryId
-      entryId = maybeEntryId
-    } else {
-      accountId = this.accountId
-      entryId = accountIdOrEntryId as string
-    }
-
+  async dismissEntry(entryId: string): Promise<void> {
+    const accountId = this.accountId
     if (!accountId || !entryId) return
 
     await removeManualRecoveryEntryById(accountId, entryId)
     await this.pushRecoveryItems(accountId)
-  }
-
-  async attemptAutoRecovery(
-    itemId: ItemId,
-    kind: 'pullDecryption' | 'snapshotDecryption',
-    failedBranches?: string[],
-  ): Promise<void> {
-    if (!this.accountId) return
-    try {
-      await this.quarantine(
-        itemId,
-        kind,
-        null,
-        { checkCooldown: true, failedBranches },
-      )
-    } catch (error) {
-      console.error('[RecoveryManager] Failed to record manual recovery entry', error)
-    }
   }
 
   async reportDecryptionFailure(
@@ -240,7 +212,11 @@ export class RecoveryManager implements LifecycleAware {
       error: normalizedError,
     })
 
-    if (!itemId) return
-    await this.attemptAutoRecovery(itemId, kind, failedBranches)
+    if (!itemId || !this.accountId) return
+    try {
+      await this.quarantine(itemId, kind, null, { checkCooldown: true, failedBranches })
+    } catch (quarantineError) {
+      console.error('[RecoveryManager] Failed to record manual recovery entry', quarantineError)
+    }
   }
 }

@@ -54,11 +54,11 @@ export class SnapshotPusher {
 
   public readonly consecutiveFailures = new Map<ItemId, number>()
   public readonly oversizedItems = new Set<ItemId>()
-  public readonly pushGuard = new SingleFlightGuard<SnapshotPushResult>()
-  public pushAbortController: AbortController | null = null
-  public snapshotPushPending = false
-  public snapshotRequestCursor: number | null = null
-  public retryTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private readonly pushGuard = new SingleFlightGuard<SnapshotPushResult>()
+  private pushAbortController: AbortController | null = null
+  private pendingPushRequested = false
+  private requestedCursor: number | null = null
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
   public readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
   constructor(options: SnapshotPusherOptions) {
@@ -80,12 +80,21 @@ export class SnapshotPusher {
     return this.retryStrategy.attempt
   }
 
-  set retryAttempt(val: number) {
-    this.retryStrategy.attempt = val
+  get isRetryActive(): boolean {
+    return this.retryTimer !== null
   }
 
-  get isRetryActive(): boolean {
-    return this.retryTimeoutId !== null
+  /** Whether a push was asked for while one was running, so another follows it */
+  get snapshotPushPending(): boolean {
+    return this.pendingPushRequested
+  }
+
+  get snapshotRequestCursor(): number | null {
+    return this.requestedCursor
+  }
+
+  get retryTimeoutId(): ReturnType<typeof setTimeout> | null {
+    return this.retryTimer
   }
 
   abortPush(): void {
@@ -96,21 +105,21 @@ export class SnapshotPusher {
   }
 
   cancelRetry(): void {
-    if (this.retryTimeoutId !== null) {
-      clearTimeout(this.retryTimeoutId)
-      this.retryTimeoutId = null
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
     }
   }
 
   resetRetry(): void {
-    this.retryAttempt = 0
+    this.retryStrategy.reset()
     this.cancelRetry()
   }
 
   scheduleSnapshotPush(cursor?: number): void {
     if (!this.tracker.isOperational) return
     if (typeof cursor === 'number') {
-      this.snapshotRequestCursor = cursor
+      this.requestedCursor = cursor
     }
     fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:scheduleSnapshotPush')
   }
@@ -119,12 +128,12 @@ export class SnapshotPusher {
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }
     }
-    if (this.retryTimeoutId !== null) {
-      clearTimeout(this.retryTimeoutId)
-      this.retryTimeoutId = null
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
     }
     if (this.pushGuard.isRunning) {
-      this.snapshotPushPending = true
+      this.pendingPushRequested = true
       const res = await this.pushGuard.waitForRunning()
       return { persisted: res?.persisted ?? 0, total: res?.total ?? 0 }
     }
@@ -133,7 +142,7 @@ export class SnapshotPusher {
   }
 
   scheduleRetry(): void {
-    if (!this.tracker.isOperational || this.retryTimeoutId !== null) {
+    if (!this.tracker.isOperational || this.retryTimer !== null) {
       return
     }
 
@@ -143,8 +152,8 @@ export class SnapshotPusher {
 
     console.warn(`[SnapshotPusher] Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
 
-    this.retryTimeoutId = setTimeout(() => {
-      this.retryTimeoutId = null
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null
       if (this.tracker.dirtyCount > 0) {
         fireAndForget(this.pushSnapshots(), 'SnapshotPusher:scheduleRetry')
       }
@@ -160,11 +169,11 @@ export class SnapshotPusher {
     }
     const dirtyItemIds = this.tracker.getDirtyItemIds()
     if (dirtyItemIds.length === 0) {
-      this.snapshotRequestCursor = null
+      this.requestedCursor = null
       return null
     }
 
-    const snapshotCursor = this.snapshotRequestCursor ?? (this.getLatestCursor ? this.getLatestCursor() : 0)
+    const snapshotCursor = this.requestedCursor ?? (this.getLatestCursor ? this.getLatestCursor() : 0)
 
     return {
       dirtyItemIds,
@@ -459,9 +468,9 @@ export class SnapshotPusher {
       return Promise.resolve({ persisted: 0, total: 0, success: true })
     }
 
-    if (this.retryTimeoutId !== null && !this.pushGuard.isRunning) {
-      clearTimeout(this.retryTimeoutId)
-      this.retryTimeoutId = null
+    if (this.retryTimer !== null && !this.pushGuard.isRunning) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
     }
 
     return this.runPush()
@@ -476,7 +485,7 @@ export class SnapshotPusher {
       }),
       {
         onCoalesce: () => {
-          this.snapshotPushPending = true
+          this.pendingPushRequested = true
         },
       },
     )
@@ -521,11 +530,11 @@ export class SnapshotPusher {
       success = result.success
 
       if (success) {
-        this.snapshotRequestCursor = null
+        this.requestedCursor = null
       }
 
       if (success && this.tracker.dirtyCount === 0) {
-        this.retryAttempt = 0
+        this.retryStrategy.reset()
       }
 
       return { persisted, total, success }
@@ -552,8 +561,8 @@ export class SnapshotPusher {
 
   private handlePostPushScheduling(success: boolean): void {
     const hasDirtyDocs = this.tracker.dirtyCount > 0
-    const wasPending = this.snapshotPushPending
-    this.snapshotPushPending = false
+    const wasPending = this.pendingPushRequested
+    this.pendingPushRequested = false
 
     if (!success && hasDirtyDocs && this.tracker.isOperational) {
       this.scheduleRetry()
@@ -603,10 +612,10 @@ export class SnapshotPusher {
     this.cancelRetry()
     this.consecutiveFailures.clear()
     this.oversizedItems.clear()
-    this.snapshotPushPending = false
-    this.snapshotRequestCursor = null
+    this.pendingPushRequested = false
+    this.requestedCursor = null
     this.pushGuard.clear()
-    this.retryAttempt = 0
+    this.retryStrategy.reset()
   }
 
   clearOversized(itemId: ItemId): void {

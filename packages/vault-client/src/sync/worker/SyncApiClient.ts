@@ -26,14 +26,6 @@ function safeSetApiAuthToken(token: string) {
   }
 }
 
-function safeHasApiAuthToken(): boolean {
-  try {
-    return !!runtime.hasApiAuthToken?.()
-  } catch {
-    return false
-  }
-}
-
 function safeGetApiAuthToken(): string {
   try {
     return runtime.getApiAuthToken?.() || ''
@@ -188,33 +180,6 @@ export class SyncApiClient {
     })()
 
     return this.refreshPromise
-  }
-
-  async hasAuthToken(): Promise<boolean> {
-    const latest = await this.getAuth().catch(() => null)
-    if (latest) {
-      this.currentToken = latest
-      safeSetApiAuthToken(latest)
-      return true
-    } else {
-      this.currentToken = null
-      safeSetApiAuthToken('')
-    }
-    if (this.refreshAuth) {
-      const token = await this.getValidToken()
-      return !!token
-    }
-    if (safeHasApiAuthToken()) {
-      return true
-    }
-    return false
-  }
-
-  getToken(): string {
-    if (!this.currentToken) {
-      throw new AuthError('No active session token available')
-    }
-    return this.currentToken
   }
 
   /**

@@ -418,11 +418,11 @@ describe('SyncWorkerContext', () => {
     expect(context.orchestrator.claimLeader).toHaveBeenCalledTimes(1)
   })
 
-  it('triggers wal.handleQuotaExceeded and emits quotaExceeded event in handleQuotaExceeded', async () => {
+  it('triggers wal.handleQuotaExceeded and emits quotaExceeded event when storage recovery handles quota', async () => {
     const walSpy = vi.spyOn(context.wal, 'handleQuotaExceeded').mockResolvedValue(1)
     const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
 
-    await context.handleQuotaExceeded(new DOMException('Quota exceeded', 'QuotaExceededError'))
+    await context.storageRecoveryService.handleQuotaExceeded(new DOMException('Quota exceeded', 'QuotaExceededError'))
 
     expect(walSpy).toHaveBeenCalledTimes(1)
     expect(emitSpy).toHaveBeenCalledWith(

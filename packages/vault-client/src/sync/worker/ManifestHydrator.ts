@@ -13,11 +13,11 @@ import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from './utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
-import { SYNC_BATCH_SIZES } from '../syncConfig'
+import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../syncConfig'
 import type { LegacyItemEnvelope, SyncDomain } from './domain'
 
 const BATCH_SIZE = 50
-const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = 2000
+const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
 const KEY_WAIT_TIMEOUT_MS = 3000
 
 export type HydrateItemResult =
