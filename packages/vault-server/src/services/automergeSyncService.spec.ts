@@ -12,7 +12,6 @@ describe('AutomergeSyncService', () => {
 
   const createMockRepository = () => {
     return {
-      appendSyncMessage: vi.fn(),
       pushSyncMessagesBatch: vi.fn(),
       getSyncMessages: vi.fn(),
     } as unknown as Mocked<AutomergeSyncRepository>
