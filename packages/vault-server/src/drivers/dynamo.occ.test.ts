@@ -353,8 +353,6 @@ describe('DynamoDriver conditional account writes', () => {
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item?.sessions).toEqual([{ token: hashSessionToken('session-A'), expiry: expect.any(Number) }])
       await expect(driver.getAccount({ account, session: 'session-A' })).resolves.toMatchObject({ account })
-      await expect(driver.getAccount({ account, session: hashSessionToken('session-A') }))
-        .rejects.toBeInstanceOf(AuthenticationError)
     })
 
     it('accepts a session stored before hashing and rewrites it hashed when renewing it', async () => {

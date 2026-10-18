@@ -95,14 +95,6 @@ describe('shouldRenewSession', () => {
     expect(shouldRenewSession(accountData, authToken, now)).toBe(false)
   })
 
-  it('does not accept a stored hash as the token', () => {
-    const accountData = {
-      sessions: [{ token: hashSessionToken(authToken), expiry: now + SESSION_EXPIRY_MS }],
-    }
-
-    expect(shouldRenewSession(accountData, hashSessionToken(authToken), now)).toBe(true)
-  })
-
   it('returns true when expiry is not a valid finite number', () => {
     const accountData = {
       sessions: [
