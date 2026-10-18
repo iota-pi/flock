@@ -27,6 +27,7 @@ import type { SyncDomain } from './domain'
 import { getTrackedFetch } from '../../api/trackedFetch'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
+import { AbortError } from '../utils/abort'
 
 const log = createLogger('SyncWorker')
 
@@ -70,16 +71,18 @@ export interface SyncWorkerConfig {
 
 let globalEventPort: MessagePort | null = null
 
-function forwardWorkerError(errorData: { message: string; stack?: string; name?: string }) {
-  if (globalEventPort) {
-    try {
-      globalEventPort.postMessage({
-        type: 'workerError',
-        error: errorData,
-      })
-    } catch (e) {
-      log.error('Failed to post workerError to globalEventPort:', e)
-    }
+/** Reports an error to the main thread. Returns whether it was sent. */
+function forwardWorkerError(errorData: { message: string; stack?: string; name?: string }): boolean {
+  if (!globalEventPort) return false
+  try {
+    globalEventPort.postMessage({
+      type: 'workerError',
+      error: errorData,
+    })
+    return true
+  } catch (e) {
+    log.error('Failed to post workerError to globalEventPort:', e)
+    return false
   }
 }
 
@@ -91,7 +94,13 @@ function installWorkerListeners(): void {
       stack: errorObj?.stack,
       name: errorObj?.name || 'WorkerError',
     }
-    forwardWorkerError(errorData)
+    // An uncaught exception leaves the worker running. Left uncancelled, the event also fires on the
+    // main thread's Worker, whose health monitor takes it for a crash and terminates the worker
+    // without a clean shutdown. Once it has been reported it is cancelled; errors that can't be
+    // reported still reach the main thread.
+    if (forwardWorkerError(errorData)) {
+      event.preventDefault()
+    }
   })
 
   self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
@@ -182,6 +191,9 @@ export class SyncWorker implements SyncApi {
       this.readyResolve = resolve
       this.readyReject = reject
     })
+    // Callers that wait on it still see the rejection. Without one, a rejection nobody waits for
+    // (a failed initRepo or a shutdown before it) would be reported as an unhandled worker error.
+    this.readyPromise.catch(() => {})
   }
 
   private async ensureReady(): Promise<SyncWorkerContext> {
@@ -308,6 +320,8 @@ export class SyncWorker implements SyncApi {
 
   private async initializeAccountSession(context: SyncWorkerContext, accountId: string): Promise<void> {
     await context.initialize()
+    // A shutdown during initialization has stopped the context, which mustn't be brought back to life
+    this.assertNotShutDown()
 
     context.orchestrator.setOnlineState(this.isOnline)
     context.snapshotManager.onOnlineStateChange(this.isOnline)
@@ -315,6 +329,7 @@ export class SyncWorker implements SyncApi {
     // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
     // sending messages before the broker is ready
     await context.broker.setAccount(accountId)
+    this.assertNotShutDown()
     context.adapter.setAccount(accountId)
 
     const localItemIds = await context.indexManager.listAutomergeItemIds()
@@ -323,6 +338,12 @@ export class SyncWorker implements SyncApi {
       type: 'indexUpdated',
       itemIds: localItemIds.filter(id => !context.accountSettings.isSettingsDoc(id)),
     })
+  }
+
+  private assertNotShutDown(): void {
+    if (this.isShutDown) {
+      throw new AbortError('The sync worker was shut down during initialization')
+    }
   }
 
   private setupRealtimeBus(accountId: string): void {

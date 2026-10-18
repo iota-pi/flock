@@ -12,9 +12,23 @@ import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import { createLogger } from '../utils/logger'
+import { AbortError } from '../utils/abort'
 import { noopTelemetry, type SyncTelemetry } from './host'
 
 const log = createLogger('WorkerLifecycleManager')
+
+/**
+ * Settles with `promise`, or rejects with an AbortError once `signal` aborts. A call to a worker
+ * that has been terminated never settles, so initialization would otherwise wait forever.
+ */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new AbortError('Initialization aborted'))
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new AbortError('Initialization aborted'))
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
 
 export interface WorkerLifecycleCallbacks {
   /** Creates the app's sync worker (whose entry file calls exposeSyncWorker) */
@@ -36,6 +50,8 @@ export interface WorkerInitOptions {
 
 export class WorkerLifecycleManager {
   private syncApi: Comlink.Remote<SyncApi> | null = null
+  /** The worker's API while it initializes, so a shutdown in the meantime can still shut it down */
+  private initializingApi: Comlink.Remote<SyncApi> | null = null
   private workerInstance: Worker | null = null
   private currentAccountId: string | null = null
   private lastKnownAccountId: string | null = null
@@ -178,15 +194,20 @@ export class WorkerLifecycleManager {
         if (didAssignSyncApi && this.syncApi === wrappedApi) {
           this.syncApi = null
         }
+        if (this.initializingApi === wrappedApi) {
+          this.initializingApi = null
+        }
       }
+      // Whatever aborted this run (a shutdown, or a newer initialize, which shuts the old worker down)
+      // takes over the worker and shuts it down cleanly, so an aborted run leaves it alone
+      const isAborted = () => signal.aborted || this.currentAccountId !== accountId
 
       try {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
-        if (signal.aborted || this.currentAccountId !== accountId) {
+        if (isAborted()) {
           log.warn('Initialization aborted due to account change or concurrent shutdown')
-          cleanupSessionResources()
           return
         }
 
@@ -202,6 +223,7 @@ export class WorkerLifecycleManager {
 
         this.workerInstance = worker
         wrappedApi = Comlink.wrap<SyncApi>(worker)
+        this.initializingApi = wrappedApi
 
         globalEventChannel = new MessageChannel()
         this.globalEventChannel = globalEventChannel
@@ -216,34 +238,32 @@ export class WorkerLifecycleManager {
         pingChannel.port1.start()
         worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
-        await wrappedApi.initRepo(accountId, vaultKey)
+        await untilAborted(wrappedApi.initRepo(accountId, vaultKey), signal)
         const currentSession = getVaultSession()
         if (currentSession) {
-          await wrappedApi.updateAuthToken(currentSession)
+          await untilAborted(wrappedApi.updateAuthToken(currentSession), signal)
         }
-        if (signal.aborted || this.currentAccountId !== accountId) {
+        if (isAborted()) {
           log.warn('Initialization aborted due to account change or concurrent shutdown')
-          cleanupSessionResources()
           return
         }
 
-        await wrappedApi.setOnlineState(initialOnlineState)
-        if (signal.aborted || this.currentAccountId !== accountId) {
+        await untilAborted(wrappedApi.setOnlineState(initialOnlineState), signal)
+        if (isAborted()) {
           log.warn('Initialization aborted due to account change or concurrent shutdown')
-          cleanupSessionResources()
           return
         }
 
-        await wrappedApi.bootstrapItems()
+        await untilAborted(wrappedApi.bootstrapItems(), signal)
         this.healthMonitor.recordActivity()
 
-        if (signal.aborted || this.currentAccountId !== accountId) {
+        if (isAborted()) {
           log.warn('Initialization aborted due to account change or concurrent shutdown')
-          cleanupSessionResources()
           return
         }
 
         this.syncApi = wrappedApi
+        this.initializingApi = null
         didAssignSyncApi = true
 
         this.callbacks.onReady?.()
@@ -305,6 +325,10 @@ export class WorkerLifecycleManager {
           },
         })
       } catch (error) {
+        if (isAborted()) {
+          log.warn('Initialization aborted due to account change or concurrent shutdown')
+          return
+        }
         log.error('Failed to initialize SyncBridge:', error)
         cleanupSessionResources()
 
@@ -415,7 +439,8 @@ export class WorkerLifecycleManager {
     this.healthMonitor.resetCrashMetrics()
 
     const oldWorker = this.workerInstance
-    const oldSyncApi = this.syncApi
+    const oldSyncApi = this.syncApi ?? this.initializingApi
+    this.initializingApi = null
     const oldGlobalEventChannel = this.globalEventChannel
     const oldPingChannel = this.pingChannel
     this.workerInstance = null

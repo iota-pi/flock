@@ -231,6 +231,22 @@ describe('WorkerLifecycleManager', () => {
       expect(callbacks.onStatusChange).toHaveBeenLastCalledWith('offline')
     })
 
+    it("shuts down a worker that is still initializing and doesn't wait for its calls to return", async () => {
+      // Calls to a terminated worker never settle
+      mockSyncApi.bootstrapItems.mockImplementation(() => new Promise<void>(() => {}))
+
+      const initPromise = manager.initialize('first-sync-account')
+      await new Promise(r => setTimeout(r, 10))
+      expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
+
+      await manager.shutdown()
+      await initPromise
+
+      expect(mockSyncApi.shutdown).toHaveBeenCalledTimes(1)
+      expect(manager.getSyncApi()).toBeNull()
+      await expect(manager.ensureReady()).rejects.toThrow('SyncBridge not initialized')
+    })
+
     it('cancels scheduled retry when new initialization is triggered', async () => {
       vi.useFakeTimers()
       mockSyncApi.initRepo.mockRejectedValueOnce(new Error('Fail first'))

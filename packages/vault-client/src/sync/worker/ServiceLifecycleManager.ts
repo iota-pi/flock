@@ -26,11 +26,13 @@ export type LifecycleStatus = 'uninitialized' | 'starting' | 'running' | 'stoppi
  * 4. Teardown error isolation: failure in one service's `onStop` does not abort or skip
  *    the teardown of remaining services; each error is caught and logged.
  * 5. Idempotent shutdown: multiple calls to `stop()` are safe.
+ * 6. A `stop()` during `start()` waits for it to finish, so no service starts after teardown.
  */
 export class ServiceLifecycleManager<TOptions = unknown> {
   private services: ServiceRegistration<TOptions>[] = []
   private startedServices: ServiceRegistration<TOptions>[] = []
   private status: LifecycleStatus = 'uninitialized'
+  private startPromise: Promise<void> | null = null
 
   constructor(private readonly contextName?: string) {}
 
@@ -77,7 +79,21 @@ export class ServiceLifecycleManager<TOptions = unknown> {
     if (this.status === 'running') {
       return
     }
+    if (this.startPromise) {
+      return this.startPromise
+    }
+    const startPromise = this.runStart()
+    this.startPromise = startPromise
+    try {
+      await startPromise
+    } finally {
+      if (this.startPromise === startPromise) {
+        this.startPromise = null
+      }
+    }
+  }
 
+  private async runStart(): Promise<void> {
     this.status = 'starting'
     this.startedServices = []
 
@@ -116,6 +132,10 @@ export class ServiceLifecycleManager<TOptions = unknown> {
   }
 
   public async stop(options?: TOptions): Promise<void> {
+    if (this.startPromise) {
+      // A failed start has already rolled itself back
+      await this.startPromise.catch(() => {})
+    }
     if (this.status === 'stopping' || this.status === 'stopped') {
       return
     }
