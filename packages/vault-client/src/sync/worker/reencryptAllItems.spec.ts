@@ -128,6 +128,25 @@ describe('reencryptAllItems', () => {
     expect(onProgress).toHaveBeenCalledWith(2, 2)
   })
 
+  it('reports the versions and heads of the snapshots the server stored', async () => {
+    const onSnapshotsStored = vi.fn()
+    const reencryptor = new ItemReencryptor({ keys, onSnapshotsStored })
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 2,
+      results: [{ itemId: 'item-1', version: 4 }, { itemId: 'item-2', version: 9 }],
+    })
+
+    await reencryptor.reencryptAllItems(context as any)
+
+    expect(onSnapshotsStored).toHaveBeenCalledWith([
+      { itemId: 'item-1', version: 4, heads: ['mock-head'] },
+      { itemId: 'item-2', version: 9, heads: ['mock-head'] },
+    ])
+  })
+
   it('records failed items and quarantines to manual recovery store if server upload fails', async () => {
     mockGetActiveSessionToken.mockResolvedValue('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
@@ -820,7 +839,7 @@ describe('ItemReencryptor class', () => {
     it('uploadBatch is a pure operation that uploads snapshots and verifies confirmation', async () => {
       const reencryptor = new ItemReencryptor({ keys })
       const mockApiClient = {
-        putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 1 }),
+        putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 1, results: [{ itemId: 'item-1', version: 2 }] }),
       }
 
       const snapshots: any = [
@@ -833,7 +852,7 @@ describe('ItemReencryptor class', () => {
       ]
       await expect(
         reencryptor.uploadBatch(mockApiClient as any, 'acc-1', snapshots)
-      ).resolves.toBeUndefined()
+      ).resolves.toEqual([{ itemId: 'item-1', version: 2 }])
       expect(mockApiClient.putSnapshots).toHaveBeenCalledWith(
         { account: 'acc-1', snapshots },
         undefined

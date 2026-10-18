@@ -267,6 +267,20 @@ describe('SyncPoller', () => {
     warnSpy.mockRestore()
   })
 
+  it.each([408, 429])('keeps pagination when the server answers %i', async status => {
+    await pullQueueManager.setAccount('test-account')
+    await pullQueueManager.processPullResults([], true, 'global-page-token', 100)
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+      Object.assign(new Error('try again later'), { data: { httpStatus: status } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(pullQueueManager.getGlobalPageToken()).toEqual('global-page-token')
+    errorSpy.mockRestore()
+  })
+
   it('keeps global pagination state on transient failures', async () => {
     await pullQueueManager.setAccount('test-account')
     const sampleKey = 'global-page-token'

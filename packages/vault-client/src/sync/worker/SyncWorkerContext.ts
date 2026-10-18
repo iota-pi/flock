@@ -22,7 +22,7 @@ import type { ItemId } from '@vault/shared'
 import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
-import { ItemReencryptor } from './reencryptAllItems'
+import { ItemReencryptor, type StoredSnapshot } from './reencryptAllItems'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -164,7 +164,11 @@ export class SyncWorkerContext {
     this.accountSettings = ops.accountSettings
     this.manifestSyncManager = ops.manifestSyncManager
     this.storageRecoveryService = ops.storageRecoveryService
-    this.itemReencryptor = new ItemReencryptor({ codec: this.domain.codec, keys: config.keys })
+    this.itemReencryptor = new ItemReencryptor({
+      codec: this.domain.codec,
+      keys: config.keys,
+      onSnapshotsStored: stored => this.recordStoredSnapshots(stored),
+    })
     this.dataVersionTracker = new DataVersionTracker({
       accountId: config.accountId,
       dataVersion: this.domain.dataVersion ?? 0,
@@ -187,6 +191,21 @@ export class SyncWorkerContext {
         reencryptor: this.itemReencryptor,
       }),
     })
+  }
+
+  /** Records snapshots uploaded outside the snapshot pusher (by re-encryption), as the pusher does */
+  private async recordStoredSnapshots(stored: StoredSnapshot[]): Promise<void> {
+    const versions: [ItemId, number][] = stored.flatMap(({ itemId, version }) => (
+      typeof version === 'number' ? [[itemId, version] as [ItemId, number]] : []
+    ))
+    if (versions.length > 0) {
+      await this.snapshotManager.importVersions(versions)
+    }
+    for (const { itemId, heads } of stored) {
+      if (heads && heads.length > 0) {
+        this.broker.setSyncedHeads(itemId, heads)
+      }
+    }
   }
 
   private wireEvents(): void {

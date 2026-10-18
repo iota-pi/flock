@@ -75,11 +75,18 @@ describe('SnapshotTracker', () => {
   it('records local modification time for dirty items and persists it', async () => {
     vi.setSystemTime(12345)
     tracker.markItemDirty('item-1' as ItemId)
+    expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(12345)
+    expect(mockStore.saveTimestamps).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1000)
-    expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(13345)
+    expect(mockStore.saveTimestamps).toHaveBeenCalled()
+  })
 
-    await vi.advanceTimersByTimeAsync(1000)
+  it('saves within maxWait while edits keep coming', async () => {
+    for (let elapsed = 0; elapsed < 5000; elapsed += 500) {
+      tracker.markItemDirty('item-1' as ItemId)
+      await vi.advanceTimersByTimeAsync(500)
+    }
     expect(mockStore.saveTimestamps).toHaveBeenCalled()
   })
 
@@ -179,8 +186,8 @@ describe('SnapshotTracker', () => {
     })
 
     it('keeps a dirty item pending upload', async () => {
-      tracker.lastModifiedByItemId.set('item-1' as ItemId, 9000)
       tracker.lastSnapshotAtByItemId.set('item-1' as ItemId, 1000)
+      vi.setSystemTime(9000)
       tracker.markItemDirty('item-1' as ItemId)
 
       await tracker.importLastModified([['item-1' as ItemId, 5000]])
@@ -206,7 +213,7 @@ describe('SnapshotTracker', () => {
     })
 
     it('advances lastSnapshotAt to localModifiedAt to prevent startup audit resurrection', async () => {
-      tracker.lastModifiedByItemId.set('item-1' as ItemId, 5000)
+      vi.setSystemTime(5000)
       tracker.markItemDirty('item-1' as ItemId)
       // item-1 has localMod: 5000 and undefined lastSnapshotAt
 

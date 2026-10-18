@@ -139,6 +139,8 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   }
 
   async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
+    // Saved first, and in any tab: a follower can't push, but its edits must still survive the page closing
+    this.tracker.flushPendingSave()
     return this.pusher.flushPendingSnapshots()
   }
 

@@ -46,6 +46,11 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
   private syncedHeads = new Map<DocumentId, string[]>()
   private syncedHeadsStore: SyncedHeadsStore | null = null
+  /**
+   * Whether heads changed since the last save. Only this tab's own changes count: heads loaded at
+   * startup may be older than the store, and saving them would undo another tab's progress.
+   */
+  private hasUnsavedSyncedHeads = false
   private headsValidator: HeadsValidator | null = null
   private internalEventHub: WorkerInternalEventHub
 
@@ -64,7 +69,12 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.internalEventHub = hub
   }
 
-  onLifecycleStop(): void {
+  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
+    // disconnect() drops the heads, and a debounced save with them
+    if (this.hasUnsavedSyncedHeads && !options?.clearLocalData) {
+      this.saveSyncedHeadsDebounced.cancel()
+      await this.persistSyncedHeads()
+    }
     this.disconnect()
   }
 
@@ -438,6 +448,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       return
     }
     this.syncedHeads.set(documentId, heads)
+    this.hasUnsavedSyncedHeads = true
     this.saveSyncedHeadsDebounced()
   }
 
@@ -448,15 +459,18 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   async persistSyncedHeads(): Promise<void> {
     if (!this.syncedHeadsStore) return
     const entries = Array.from(this.syncedHeads.entries())
+    this.hasUnsavedSyncedHeads = false
     try {
       await this.syncedHeadsStore.saveSyncedHeads(entries)
     } catch (err) {
+      this.hasUnsavedSyncedHeads = true
       console.error('[VaultNetworkAdapter] Failed to persist synced heads', err)
     }
   }
 
   clearSyncedHeads(): void {
     this.saveSyncedHeadsDebounced.cancel()
+    this.hasUnsavedSyncedHeads = false
     this.syncedHeads.clear()
   }
 

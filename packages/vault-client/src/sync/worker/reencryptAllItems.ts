@@ -17,7 +17,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
 import { getOnlineState } from '../utils/onlineStatus'
-import type { ItemId, VaultSnapshotInput } from '@vault/shared'
+import type { ItemId, PutSnapshotResultItem, VaultSnapshotInput } from '@vault/shared'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { KeyProvider } from '../../api/Keyring'
 
@@ -69,6 +69,13 @@ export interface ProcessChunkContext {
   processedCount?: number
 }
 
+/** A snapshot the server has stored, with the version it assigned and the heads it holds */
+export interface StoredSnapshot {
+  itemId: ItemId
+  version?: number
+  heads?: string[]
+}
+
 export interface ItemReencryptorOptions {
   retryDelays?: number[]
   batchRetryDelays?: readonly number[]
@@ -76,6 +83,11 @@ export interface ItemReencryptorOptions {
   maxBatchBytes?: number
   codec?: DocCodec
   keys: KeyProvider
+  /**
+   * Called with each batch the server stored, so the sync engine can record the new versions and
+   * heads. Otherwise the next manifest sync would take them for remote changes and fetch every item.
+   */
+  onSnapshotsStored?: (stored: StoredSnapshot[]) => Promise<void> | void
 }
 
 export class ItemReencryptor {
@@ -88,10 +100,12 @@ export class ItemReencryptor {
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
   private readonly codec?: DocCodec
   private readonly keys: KeyProvider
+  private readonly onSnapshotsStored?: ItemReencryptorOptions['onSnapshotsStored']
 
   constructor(options: ItemReencryptorOptions) {
     this.codec = options.codec
     this.keys = options.keys
+    this.onSnapshotsStored = options.onSnapshotsStored
     this.retryStrategy = new RetryStrategy({ delays: options.retryDelays ?? DEFAULT_RETRY_DELAYS })
     this.batchRetryDelays = options.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
     this.maxBatchCount = options.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
@@ -231,21 +245,21 @@ export class ItemReencryptor {
   async uploadBatch(
     snapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     options?: { apiClient?: SyncApiClient; accountId?: string; signal?: AbortSignal }
-  ): Promise<void>
+  ): Promise<PutSnapshotResultItem[]>
 
   async uploadBatch(
     apiClient: SyncApiClient,
     accountId: string,
     snapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     signal?: AbortSignal
-  ): Promise<void>
+  ): Promise<PutSnapshotResultItem[]>
 
   async uploadBatch(
     arg1: SyncApiClient | VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     arg2?: string | { apiClient?: SyncApiClient; accountId?: string; signal?: AbortSignal },
     arg3?: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     arg4?: AbortSignal
-  ): Promise<void> {
+  ): Promise<PutSnapshotResultItem[]> {
     let apiClient: SyncApiClient | undefined
     let accountId: string | undefined
     let rawSnapshots: VaultSnapshotInput[] | Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>
@@ -290,6 +304,25 @@ export class ItemReencryptor {
       throw new Error(
         `Upload unconfirmed: response success=${response?.success}, persisted=${response?.persisted}/${snapshots.length}`
       )
+    }
+    return response.results ?? []
+  }
+
+  private async reportStored(
+    batch: Array<{ itemId: ItemId; heads?: string[] }>,
+    results?: PutSnapshotResultItem[],
+  ): Promise<void> {
+    if (!this.onSnapshotsStored) return
+    const versions = new Map((results ?? []).map(r => [r.itemId, r.version]))
+    try {
+      await this.onSnapshotsStored(batch.map(item => ({
+        itemId: item.itemId,
+        version: versions.get(item.itemId),
+        heads: item.heads,
+      })))
+    } catch (err) {
+      // The snapshots are stored either way; the next manifest sync just fetches them again
+      console.warn('[reencryptAllItems] Failed to record uploaded snapshots:', err)
     }
   }
 
@@ -354,13 +387,13 @@ export class ItemReencryptor {
     readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }>,
     signal?: AbortSignal,
     batchRetryDelays?: readonly number[]
-  ): Promise<{ uploadSuccess: boolean; lastError: unknown }> {
+  ): Promise<{ uploadSuccess: boolean; lastError: unknown; results?: PutSnapshotResultItem[] }> {
     try {
       return await RetryStrategy.executeWithRetry(
         async attempt => {
           try {
-            await this.uploadBatch(apiClient, accountId, readySnapshots, signal)
-            return { uploadSuccess: true, lastError: null }
+            const results = await this.uploadBatch(apiClient, accountId, readySnapshots, signal)
+            return { uploadSuccess: true, lastError: null, results }
           } catch (err) {
             console.warn(
               `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
@@ -458,14 +491,14 @@ export class ItemReencryptor {
       )
     )
 
-    const readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput }> = []
+    const readySnapshots: Array<{ itemId: ItemId; snapshot: VaultSnapshotInput; heads?: string[] }> = []
     const failureDetails: Array<{ itemId: ItemId; errorMsg: string; rawError?: unknown }> = []
 
     for (const [index, result] of settled.entries()) {
       const itemId = chunk[index]
       if (result.status === 'fulfilled') {
         if (result.value.type === 'success') {
-          readySnapshots.push({ itemId, snapshot: result.value.snapshot })
+          readySnapshots.push({ itemId, snapshot: result.value.snapshot, heads: result.value.heads })
         } else if (result.value.type === 'not-ready') {
           const errorMsg = `Failed to build snapshot for item ${itemId}: Document or vault was not ready after retries`
           console.error(`[reencryptAllItems] ${errorMsg}`)
@@ -515,7 +548,7 @@ export class ItemReencryptor {
       })
 
       for (const batch of snapshotBatches) {
-        const { uploadSuccess, lastError } = await this.uploadBatchWithRetry(
+        const { uploadSuccess, lastError, results } = await this.uploadBatchWithRetry(
           ctx.apiClient,
           ctx.accountId,
           batch,
@@ -527,6 +560,7 @@ export class ItemReencryptor {
           for (const item of batch) {
             succeeded.push(item.itemId)
           }
+          await this.reportStored(batch, results)
         } else {
           const errMsg = this.handleBatchUploadFailure(lastError)
           console.error(`[reencryptAllItems] ${errMsg}`)
