@@ -22,6 +22,7 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   finishRequest: () => useAppStore.getState().finishRequest(),
   reset: () => useAppStore.getState().reset(),
   onDataRestored: () => useAppStore.getState().incrementGeneration(),
+  onLocalDataUnavailable: details => useAppStore.getState().setLocalDataUnavailable(details),
   onMigrationRequired: () => {
     const { account } = useAppStore.getState()
     void (async () => {

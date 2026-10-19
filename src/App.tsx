@@ -22,6 +22,7 @@ import useAutoLock from './hooks/useAutoLock'
 import QuotaWarningSnackbar from './components/QuotaWarningSnackbar'
 import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
 import LeaderConflictDialog from './components/dialogs/LeaderConflictDialog'
+import LocalDataUnavailableDialog from './components/dialogs/LocalDataUnavailableDialog'
 
 
 const Root = styled('div')({
@@ -121,6 +122,7 @@ function RootLayout() {
         onClose={() => setIsQuotaDialogOpen(false)}
       />
       <LeaderConflictDialog />
+      <LocalDataUnavailableDialog />
     </Root>
   )
 }

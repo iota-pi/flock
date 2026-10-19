@@ -9,6 +9,7 @@ const log = createLogger('SyncEventProcessor')
 
 export interface SyncEventProcessorCallbacks {
   onKeyVersionMissing?: (kver?: string) => void
+  onLocalDataUnavailable?: (details: { kver?: string, unpushedChanges: number }) => void
   onActivity?: () => void
   onTokenRefreshNeeded?: () => void
 }
@@ -180,6 +181,14 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
           level: 'info',
         })
         this.sink.onMigrationRequired?.(event.reason)
+        break
+      case 'localDataUnavailable':
+        this.telemetry.addBreadcrumb({
+          category: 'sync',
+          message: `Local data unavailable${event.kver ? ` (key version ${event.kver} missing)` : ''}`,
+          level: 'warning',
+        })
+        this.callbacks.onLocalDataUnavailable?.({ kver: event.kver, unpushedChanges: event.unpushedChanges })
         break
       case 'retiringLegacyStores':
         this.sink.beforeRetiringLegacyStores?.(event.accountId)

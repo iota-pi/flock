@@ -47,6 +47,8 @@ export function createFakeSink() {
     finishRequest: vi.fn(),
     reset: vi.fn(),
     onDataRestored: vi.fn(),
+    onLocalDataUnavailable: vi.fn(),
+    beforeRetiringLegacyStores: vi.fn(),
   } satisfies SyncStateSink & { state: FakeSyncState }
   return sink
 }

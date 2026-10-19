@@ -32,6 +32,8 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   pushSnapshots: () => Promise<{ persisted: number; total: number }>
   retrySave: () => Promise<{ success: boolean; error?: string }>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
+  /** Replaces an item whose local copy can't be decrypted with the server's copy */
+  replaceFromServer: (itemId: ItemId) => Promise<void>
   forceOverwriteRecoveryItem: (itemId: ItemId) => Promise<void>
   forceDeleteRecoveryItem: (itemId: ItemId) => Promise<void>
   recreateOversizedItem: (itemId: ItemId) => Promise<ItemId>

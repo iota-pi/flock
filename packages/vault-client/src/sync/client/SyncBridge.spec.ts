@@ -47,6 +47,7 @@ const mockSyncApi = {
   exportAllBinaries: vi.fn().mockResolvedValue({ documents: {}, skipped: [] }),
   restoreFromBinaries: vi.fn().mockResolvedValue(['doc-1']),
   retryRecoveryItem: vi.fn().mockResolvedValue(undefined),
+  replaceFromServer: vi.fn().mockResolvedValue(undefined),
   forceOverwriteRecoveryItem: vi.fn().mockResolvedValue(undefined),
   forceDeleteRecoveryItem: vi.fn().mockResolvedValue(undefined),
   dismissRecoveryItem: vi.fn().mockResolvedValue(undefined),
@@ -1282,6 +1283,59 @@ describe('SyncBridge', () => {
     expect(sink.reset).not.toHaveBeenCalled()
   })
 
+  describe('local data that cannot be opened', () => {
+    it('reloads a missing key from the server the first time, and hands over to the app the second', async () => {
+      const { syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+      vi.mocked(hasVaultKey).mockReturnValue(false)
+      await SyncBridge.initialize('test-account')
+
+      lastEventPort!.postMessage({ type: 'localDataUnavailable', kver: '3', unpushedChanges: 2 })
+      await vi.waitFor(() => {
+        expect(syncKeyringFromServer).toHaveBeenCalledWith('test-account')
+      })
+      expect(sink.onLocalDataUnavailable).not.toHaveBeenCalled()
+
+      lastEventPort!.postMessage({ type: 'localDataUnavailable', kver: '3', unpushedChanges: 2 })
+      await vi.waitFor(() => {
+        expect(sink.onLocalDataUnavailable).toHaveBeenCalledWith({ unpushedChanges: 2 })
+      })
+      expect(mockSyncApi.shutdown).toHaveBeenCalled()
+      vi.mocked(hasVaultKey).mockReturnValue(true)
+    })
+
+    it('does not fetch the keyring when the key is already loaded', async () => {
+      const { syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+      vi.mocked(hasVaultKey).mockReturnValue(true)
+      await SyncBridge.initialize('test-account')
+
+      lastEventPort!.postMessage({ type: 'localDataUnavailable', unpushedChanges: 0 })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      expect(syncKeyringFromServer).not.toHaveBeenCalled()
+      expect(sink.onLocalDataUnavailable).not.toHaveBeenCalled()
+    })
+
+    it('discards the local data and starts again when asked', async () => {
+      await SyncBridge.initialize('test-account')
+      mockSyncApi.initRepo.mockClear()
+
+      await SyncBridge.discardLocalDataAndRestart('test-account')
+
+      expect(mockSyncApi.shutdown).toHaveBeenCalled()
+      expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes a request to stop other tabs to the app', async () => {
+      await SyncBridge.initialize('test-account')
+
+      lastEventPort!.postMessage({ type: 'retiringLegacyStores', accountId: 'test-account' })
+
+      await vi.waitFor(() => {
+        expect(sink.beforeRetiringLegacyStores).toHaveBeenCalledWith('test-account')
+      })
+    })
+  })
+
   describe('proxied worker methods', () => {
     it('throws an error if proxied methods are called before initialization', async () => {
       await expect(SyncBridge.mutateItem('item-1' as ItemId, { name: 'Test' })).rejects.toThrow(
@@ -1321,6 +1375,9 @@ describe('SyncBridge', () => {
 
       await SyncBridge.retryRecoveryItem('item-1' as ItemId)
       expect(mockSyncApi.retryRecoveryItem).toHaveBeenCalledWith('item-1')
+
+      await SyncBridge.replaceFromServer('item-1' as ItemId)
+      expect(mockSyncApi.replaceFromServer).toHaveBeenCalledWith('item-1')
 
       await SyncBridge.forceOverwriteRecoveryItem('item-1' as ItemId)
       expect(mockSyncApi.forceOverwriteRecoveryItem).toHaveBeenCalledWith('item-1')

@@ -589,6 +589,9 @@ export class SyncWorker implements SyncApi {
   checkDataVersion = () =>
     this.withContext(ctx => ctx.dataVersionTracker.checkStatus())
 
+  replaceFromServer = (itemId: ItemId) =>
+    this.withContext(ctx => ctx.replaceFromServer(itemId))
+
   retryRecoveryItem = (itemId: ItemId) =>
     this.withContext(async ctx => {
       await ctx.recoveryManager.unquarantine(itemId)

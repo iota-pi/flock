@@ -49,7 +49,9 @@ function DataRecoveryDialog({ onClose, open }: Props) {
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
     handleRecreateItem,
+    handleReplaceFromServer,
   } = useDataRecovery()
+  const [itemToReplace, setItemToReplace] = useState<ItemId | null>(null)
 
   const quarantinedItems = useQuarantinedItems()
   const [quarantinedItemToDelete, setQuarantinedItemToDelete] = useState<ItemId | null>(null)
@@ -83,6 +85,7 @@ function DataRecoveryDialog({ onClose, open }: Props) {
             <Stack spacing={2}>
               {recoveryItems.map(item => {
                 const isOversized = item.kind === 'oversized'
+                const isLocallyUnreadable = item.kind === 'localDecryption'
 
                 return (
                   <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
@@ -106,7 +109,31 @@ function DataRecoveryDialog({ onClose, open }: Props) {
                       </Stack>
 
                       <Stack direction="row" spacing={1}>
-                        {isOversized ? (
+                        {isLocallyUnreadable ? (
+                          <>
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              startIcon={isRetrying === item.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
+                              onClick={() => setItemToReplace(item.itemId)}
+                            >
+                              Replace from server
+                            </Button>
+                            <Button
+                              variant="text"
+                              color="inherit"
+                              size="small"
+                              disabled={isRetrying !== null}
+                              onClick={() => {
+                                void handleDismissRecoveryItem(item.id)
+                              }}
+                            >
+                              Dismiss
+                            </Button>
+                          </>
+                        ) : isOversized ? (
                           <>
                             <Button
                               variant="contained"
@@ -248,6 +275,23 @@ function DataRecoveryDialog({ onClose, open }: Props) {
         </Typography>
         <Typography color="error.main">
           Deleting it here will permanently soft-delete it across <strong>ALL</strong> your synced devices. This action cannot be undone.
+        </Typography>
+      </ConfirmationDialog>
+
+      <ConfirmationDialog
+        confirm="Replace from server"
+        confirmColour="warning"
+        open={itemToReplace !== null}
+        onCancel={() => setItemToReplace(null)}
+        onConfirm={() => {
+          if (itemToReplace) void handleReplaceFromServer(itemToReplace)
+          setItemToReplace(null)
+        }}
+        title="Replace this device's copy?"
+      >
+        <Typography>
+          This device&apos;s copy of the item can&apos;t be decrypted. It will be replaced with the copy on the
+          server, and any changes made on this device that haven&apos;t synced yet will be lost.
         </Typography>
       </ConfirmationDialog>
     </>
