@@ -55,6 +55,7 @@ Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing any
 7. **`SyncEventHub.emit` doesn't await listeners.** Async listeners must synchronize themselves.
 8. **Snapshot reconciliation compares server-assigned `version` with the local `baseVersion`**, not timestamps.
 9. **Encrypt and decrypt snapshots and sync messages with the ID of the item they belong to** (`encryptBytes(bytes, itemId)`, `decryptWithKeyResolution(payload, { docId })`). Every server path must keep the ciphertext's `format` field.
+10. **Never write user content to local storage unsealed.** Seal and open outside IndexedDB transactions (awaiting WebCrypto inside one throws `TransactionInactiveError`). A record that fails to decrypt throws; it's never treated as missing, and local data is never reset without the user confirming (docs/local-encryption.md).
 
 ## Intentional designs (don't "fix" or flag these)
 

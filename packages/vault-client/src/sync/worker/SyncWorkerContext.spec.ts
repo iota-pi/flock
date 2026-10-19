@@ -557,6 +557,33 @@ describe('SyncWorkerContext', () => {
     })
   })
 
+  describe('device level while local data is being sealed', () => {
+    async function createTrackedContext(local: { mode: string, retired: boolean }) {
+      mockOpenLocalStorage.mockResolvedValueOnce({ ...local, storage: { close: vi.fn() } })
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-level',
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        internalEventHub,
+        upgradeLocalEncryption: true,
+        sealedDataVersion: 3,
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+      await ctx.initialize()
+      return (ctx.dataVersionTracker as unknown as { deps: { maxDeviceVersion: () => number } }).deps.maxDeviceVersion
+    }
+
+    it.each([
+      ['plaintext storage', { mode: 'plaintext', retired: false }, 2],
+      ['sealed storage with plaintext stores left', { mode: 'sealed', retired: false }, 2],
+      ['sealed storage with the plaintext stores retired', { mode: 'sealed', retired: true }, Number.POSITIVE_INFINITY],
+    ])('caps the device level on %s', async (_case, local, expected) => {
+      const maxDeviceVersion = await createTrackedContext(local)
+
+      expect(maxDeviceVersion()).toBe(expected)
+    })
+  })
+
   describe('rewrapDeviceKey', () => {
     async function createSealedContext() {
       const keyring = new Keyring()

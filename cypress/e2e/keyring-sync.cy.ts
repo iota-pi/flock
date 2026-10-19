@@ -29,20 +29,19 @@ describe('Keyring Server Sync and Restoration', () => {
     })
 
     // 1. Intercept keyring TRPC endpoints
-    cy.intercept('POST', '**/trpc/accounts.updateKeyring*').as('updateKeyring')
+    cy.intercept('POST', '**/trpc/accounts.createAccount*').as('createAccount')
     cy.intercept('GET', '**/trpc/accounts.getKeyring*').as('getKeyring')
 
     // 2. Start a fresh registration
     cy.visit('/welcome')
     cy.createAccount(TEST_PASSWORD)
 
-    // Verify registration triggers updateKeyring with ciphertext payload
-    cy.wait('@getKeyring')
-    cy.wait('@updateKeyring').then((interception) => {
+    // Verify registration sends the keyring (a random data key, wrapped) with the new account
+    cy.wait('@createAccount').then((interception) => {
       expect(interception.response?.statusCode).to.eq(200)
 
       const body = interception.request.body
-      cy.log('UpdateKeyring request body:', JSON.stringify(body))
+      cy.log('CreateAccount request body:', JSON.stringify(body))
 
       // Extract the input payload
       const input = body?.[0]?.json || body?.[0] || body?.json || body || {}
@@ -53,6 +52,12 @@ describe('Keyring Server Sync and Restoration', () => {
       const encryptedKeyring = JSON.parse(input.keyring)
       expect(encryptedKeyring).to.have.property('iv')
       expect(encryptedKeyring).to.have.property('cipher')
+      expect(input.randomDataKeys).to.eq(true)
+    })
+    cy.wait('@getKeyring').then((interception) => {
+      const body = interception.response?.body
+      const resultObj = body?.[0]?.result?.data?.json || body?.[0]?.result?.data || body?.result?.data?.json || body?.result?.data || {}
+      expect(resultObj.randomDataKeys).to.eq(true)
     })
 
     // Capture the newly created account ID from localStorage

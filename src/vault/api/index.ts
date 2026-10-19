@@ -16,8 +16,10 @@ import { PROTOCOL_VERSION_HEADER } from '@vault/shared'
  * - At 1, builds from before the protocol header (which write unbound ciphertexts) can no longer write.
  * - At 2, builds that can't derive Argon2id keys can no longer log in (`login` is a mutation), so
  *   they update instead of reporting a wrong password.
+ * - At 3, builds that keep local data in plaintext stop at their next login or write and update, so
+ *   they stop re-creating the plaintext stores that sealed builds retire.
  */
-const MIN_PROTOCOL_VERSION = 2
+const MIN_PROTOCOL_VERSION = 3
 
 
 async function createServer(devMode = false) {

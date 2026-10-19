@@ -24,6 +24,11 @@ export interface DataVersionTrackerDeps {
   dataVersion: number
   /** Asks the server to raise the account's data version (`accounts.raiseDataVersion`) */
   raiseAccountDataVersion: () => Promise<{ dataVersion: number, blockers: string[] }>
+  /**
+   * The highest level this device's local data has reached, when some of it is still in an older
+   * layout (such as plaintext stores not yet retired). The recorded level never exceeds it.
+   */
+  maxDeviceVersion?: () => number
 }
 
 /**
@@ -71,8 +76,10 @@ export class DataVersionTracker {
 
   private async recordDeviceVersion(): Promise<void> {
     const { accountId, dataVersion } = this.deps
-    if (dataVersion === 0 || await readDeviceDataVersion(accountId) >= dataVersion) return
+    if (dataVersion === 0) return
+    const reached = Math.min(dataVersion, this.deps.maxDeviceVersion?.() ?? dataVersion)
+    if (await readDeviceDataVersion(accountId) >= reached) return
     const storage = getSyncMetadataStorage(accountId)
-    await runStorageOperation(() => storage.setItem(SYNC_METADATA_KEYS.DEVICE_DATA_VERSION, dataVersion))
+    await runStorageOperation(() => storage.setItem(SYNC_METADATA_KEYS.DEVICE_DATA_VERSION, reached))
   }
 }
