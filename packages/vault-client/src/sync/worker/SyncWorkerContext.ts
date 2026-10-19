@@ -30,6 +30,9 @@ import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './re
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { AbortError } from '../utils/abort'
+import { openLocalStorage } from './localEncryption/openLocalStorage'
+import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import type { KeyProvider } from '../../api/Keyring'
 
 /**
@@ -114,11 +117,14 @@ export class SyncWorkerContext {
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
 
   private unsubscribers: Array<() => void> = []
+  private isStopped = false
+  private readonly config: SyncWorkerContextConfig
   private readonly migrateLocalDataHook?: (accountId: string) => Promise<void>
   private readonly minDataVersion: number
   private readonly hasLegacyLocalData?: (accountId: string) => Promise<boolean>
 
   constructor(config: SyncWorkerContextConfig) {
+    this.config = config
     this.accountId = config.accountId
     this.migrateLocalDataHook = config.migrateLocalData
     this.minDataVersion = config.minDataVersion ?? 0
@@ -132,8 +138,6 @@ export class SyncWorkerContext {
     })
 
     this.initStores(config.accountId)
-    this.initServices(config)
-    this.wireEvents()
   }
 
   private initStores(accountId: string): void {
@@ -144,8 +148,14 @@ export class SyncWorkerContext {
     this.wal = new SyncWriteAheadLog(accountId, this.internalEventHub)
   }
 
-  private initServices(config: SyncWorkerContextConfig): void {
-    const network = this.initNetworkAndRepo(config)
+  /** Creates the Repo and every component that takes it, once local storage is open */
+  private createComponents(config: SyncWorkerContextConfig, storage: VaultIndexedDBStorageAdapter): void {
+    this.initServices(config, storage)
+    this.wireEvents()
+  }
+
+  private initServices(config: SyncWorkerContextConfig, storage: VaultIndexedDBStorageAdapter): void {
+    const network = this.initNetworkAndRepo(config, storage)
     this.adapter = network.adapter
     this.repoManager = network.repoManager
     this.repo = network.repo
@@ -213,10 +223,10 @@ export class SyncWorkerContext {
     this.registerLifecycleServices()
   }
 
-  private initNetworkAndRepo(config: SyncWorkerContextConfig) {
+  private initNetworkAndRepo(config: SyncWorkerContextConfig, storage: VaultIndexedDBStorageAdapter) {
     const adapter = new VaultNetworkAdapter(this.internalEventHub)
     const repoManager = new AutomergeRepoManager(config.accountId, config.keys)
-    const repo = repoManager.init(adapter, {
+    const repo = repoManager.init(adapter, storage, {
       onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       onDocumentReceived: docId => {
         const itemId = toVaultItemIdFromAutomergeId(docId)
@@ -484,9 +494,19 @@ export class SyncWorkerContext {
     // Checked before anything else: starting would record the current level for a device whose
     // only data is in a layout the app no longer reads, stranding that data
     await this.checkDeviceDataVersion()
-    // Stores only read the current layout, so this runs first. A failure must stop initialization:
-    // starting would create an empty index, and a later migration would then keep it over the old one.
-    await this.migrateLocalData()
+    // Stores only read the current layout, so the migration runs first. A failure must stop
+    // initialization: starting would create an empty index, and a later migration would then keep it
+    // over the old one. Local storage is opened under the same lock, before the Repo reads from it.
+    const { storage } = await this.withLocalDataLock(async () => {
+      await this.migrateLocalDataHook?.(this.accountId)
+      return openLocalStorage(this.accountId)
+    })
+    // A shutdown while waiting for the lock has already stopped this context
+    if (this.isStopped) {
+      await storage.close()
+      throw new AbortError('The sync worker context was shut down during initialization')
+    }
+    this.createComponents(this.config, storage)
     // Checked before starting, which creates an empty index for a new device
     const hasLocalData = (await this.indexStore.getIndex()) !== null
     await this.lifecycle.start()
@@ -508,21 +528,20 @@ export class SyncWorkerContext {
   }
 
   /**
-   * Runs the app's local data migration while holding a per-account Web Lock. Otherwise a tab could
-   * copy an old value over one another tab's engine has already written since migrating.
+   * Runs `task` while holding the account's local data Web Lock, when the app migrates local data.
+   * Otherwise a tab could copy an old value over one another tab's engine has already written since
+   * migrating.
    */
-  private async migrateLocalData(): Promise<void> {
-    const migrate = this.migrateLocalDataHook
-    if (!migrate) return
-    if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
+  private async withLocalDataLock<T>(task: () => Promise<T>): Promise<T> {
+    if (this.migrateLocalDataHook && typeof navigator !== 'undefined' && navigator?.locks?.request) {
       const lockName = `${getVaultStorageNames().accountPrefixes.localDataMigrationLock}${this.accountId}`
-      await navigator.locks.request(lockName, { mode: 'exclusive' }, () => migrate(this.accountId))
-      return
+      return navigator.locks.request(lockName, { mode: 'exclusive' }, task)
     }
-    await migrate(this.accountId)
+    return task()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
+    this.isStopped = true
     this.snapshotFormatUpgrade?.stop()
     this.itemReencryptor?.cancelScheduled()
     await this.lifecycle.stop(options)

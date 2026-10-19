@@ -8,6 +8,7 @@ import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { publishRealtimeBusItemDirty } from './realtimeBus'
 import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
+import { AbortError } from '../utils/abort'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
 
@@ -123,6 +124,14 @@ vi.mock('./VaultNetworkAdapter', () => ({
       this.disconnect()
     })
   },
+}))
+
+const mockOpenLocalStorage = vi.hoisted(() => vi.fn(async (_: string) => ({
+  storage: { close: vi.fn().mockResolvedValue(undefined) },
+})))
+
+vi.mock('./localEncryption/openLocalStorage', () => ({
+  openLocalStorage: mockOpenLocalStorage,
 }))
 
 vi.mock('./AutomergeRepoManager', () => ({
@@ -243,7 +252,7 @@ describe('SyncWorkerContext', () => {
   let internalEventHub: WorkerInternalEventHub
   let clientEventHub: ClientEventHub
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     mockRealtimeBus.itemDirtyListeners = []
     const hubs = createTestEventHubs()
@@ -256,6 +265,7 @@ describe('SyncWorkerContext', () => {
       clientEventHub,
       internalEventHub,
     })
+    await context.initialize()
   })
 
   it('marks item dirty in SnapshotManager when adapter triggers re-negotiation', () => {
@@ -329,7 +339,7 @@ describe('SyncWorkerContext', () => {
   })
 
   describe('manual recovery event handling', () => {
-    function createContext() {
+    async function createContext() {
       const { clientEventHub: ctxClientHub, internalEventHub: ctxInternalHub } = createTestEventHubs()
       const ctx = new SyncWorkerContext({
         accountId: 'test-account',
@@ -337,6 +347,7 @@ describe('SyncWorkerContext', () => {
         clientEventHub: ctxClientHub,
         internalEventHub: ctxInternalHub,
       })
+      await ctx.initialize()
       return { ctx, ctxInternalHub }
     }
 
@@ -345,7 +356,7 @@ describe('SyncWorkerContext', () => {
     })
 
     it('does not remove a manual recovery entry when itemMessageParsed is received', async () => {
-      const { ctx, ctxInternalHub } = createContext()
+      const { ctx, ctxInternalHub } = await createContext()
       await ctx.recoveryManager.quarantine(
         'item-1' as ItemId,
         'oversized',
@@ -360,8 +371,8 @@ describe('SyncWorkerContext', () => {
       expect(entries[0].kind).toBe('oversized')
     })
 
-    it('resolves pullDecryption quarantines when remoteMessagesParsed is received', () => {
-      const { ctx, ctxInternalHub } = createContext()
+    it('resolves pullDecryption quarantines when remoteMessagesParsed is received', async () => {
+      const { ctx, ctxInternalHub } = await createContext()
       const resolveSpy = vi.spyOn(ctx.recoveryManager, 'resolveQuarantines').mockResolvedValue(undefined)
 
       ctxInternalHub.emit({ type: 'remoteMessagesParsed', itemId: 'item-1' as ItemId })
@@ -369,8 +380,8 @@ describe('SyncWorkerContext', () => {
       expect(resolveSpy).toHaveBeenCalledWith(['item-1'], INBOUND_MESSAGE_RESOLVABLE_KINDS)
     })
 
-    it('reports decryptionFailure events as pullDecryption', () => {
-      const { ctx, ctxInternalHub } = createContext()
+    it('reports decryptionFailure events as pullDecryption', async () => {
+      const { ctx, ctxInternalHub } = await createContext()
       const reportSpy = vi.spyOn(ctx.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
       const error = new Error('bad')
 
@@ -434,13 +445,19 @@ describe('SyncWorkerContext', () => {
   })
 
   it('delegates initialize and shutdown to lifecycle manager', async () => {
-    const startSpy = vi.spyOn(context.lifecycle, 'start')
-    const stopSpy = vi.spyOn(context.lifecycle, 'stop')
+    const ctx = new SyncWorkerContext({
+      accountId: 'test-account-lifecycle',
+      keys: createMockKeyProvider(),
+      clientEventHub,
+      internalEventHub,
+    })
+    const startSpy = vi.spyOn(ctx.lifecycle, 'start')
+    const stopSpy = vi.spyOn(ctx.lifecycle, 'stop')
 
-    await context.initialize()
+    await ctx.initialize()
     expect(startSpy).toHaveBeenCalledTimes(1)
 
-    await context.shutdown({ clearLocalData: true })
+    await ctx.shutdown({ clearLocalData: true })
     expect(stopSpy).toHaveBeenCalledWith({ clearLocalData: true })
   })
 
@@ -489,6 +506,63 @@ describe('SyncWorkerContext', () => {
           expect.any(Function),
         )
         expect(migrate).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('opens local storage after migrating, under the same lock acquisition', async () => {
+      const calls: string[] = []
+      const request = vi.fn(async (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        calls.push('lock')
+        const result = await callback()
+        calls.push('unlock')
+        return result
+      })
+      vi.stubGlobal('navigator', { ...globalThis.navigator, locks: { request } })
+      mockOpenLocalStorage.mockImplementationOnce(async () => {
+        calls.push('open')
+        return { storage: { close: vi.fn().mockResolvedValue(undefined) } }
+      })
+      try {
+        const ctx = createMigratingContext(async () => {
+          calls.push('migrate')
+        })
+        vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+
+        await ctx.initialize()
+
+        expect(request).toHaveBeenCalledTimes(1)
+        expect(calls).toEqual(['lock', 'migrate', 'open', 'unlock'])
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('creates no Repo when shut down while waiting for the lock', async () => {
+      let releaseLock!: () => void
+      const lockWait = new Promise<void>(resolve => {
+        releaseLock = resolve
+      })
+      const request = vi.fn(async (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        await lockWait
+        return callback()
+      })
+      const close = vi.fn().mockResolvedValue(undefined)
+      mockOpenLocalStorage.mockResolvedValueOnce({ storage: { close } })
+      vi.stubGlobal('navigator', { ...globalThis.navigator, locks: { request } })
+      try {
+        const ctx = createMigratingContext(vi.fn().mockResolvedValue(undefined))
+        const startSpy = vi.spyOn(ctx.lifecycle, 'start')
+
+        const initializing = ctx.initialize()
+        await ctx.shutdown()
+        releaseLock()
+
+        await expect(initializing).rejects.toThrow(AbortError)
+        expect(ctx.repoManager).toBeUndefined()
+        expect(close).toHaveBeenCalledTimes(1)
+        expect(startSpy).not.toHaveBeenCalled()
       } finally {
         vi.unstubAllGlobals()
       }
@@ -568,7 +642,13 @@ describe('SyncWorkerContext', () => {
     })
 
     it('does not check the level without a minimum', async () => {
-      await context.initialize()
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-ungated',
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        internalEventHub,
+      })
+      await ctx.initialize()
       expect(mockReadDeviceDataVersion).not.toHaveBeenCalled()
     })
   })
@@ -578,7 +658,7 @@ describe('SyncWorkerContext', () => {
       expect(context.snapshotFormatUpgrade).toBeNull()
     })
 
-    it('is created when the app opts in', () => {
+    it('is created when the app opts in', async () => {
       const ctx = new SyncWorkerContext({
         accountId: 'test-account-upgrade',
         keys: createMockKeyProvider(),
@@ -586,6 +666,7 @@ describe('SyncWorkerContext', () => {
         internalEventHub,
         upgradeSnapshotFormat: true,
       })
+      await ctx.initialize()
       expect(ctx.snapshotFormatUpgrade).toBeInstanceOf(SnapshotFormatUpgrade)
     })
   })
