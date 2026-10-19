@@ -6,6 +6,7 @@ import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { goToMigration } from '../../migrate/detection'
 import { askOtherTabsToStop } from './setup'
+import { lockVault } from './session'
 
 export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   updateItems: updates => useAppStore.getState().updateItemsFromServer(updates),
@@ -29,7 +30,6 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   onMigrationRequired: () => {
     const { account } = useAppStore.getState()
     void (async () => {
-      const { lockVault } = await import('./session')
       await lockVault()
       goToMigration(account)
     })()
@@ -50,9 +50,7 @@ export const SyncBridge = createSyncBridge<Item, AccountMetadata>({
   sink: storeSink,
   telemetry: sentryTelemetry,
   getAccountId: () => useAppStore.getState().account,
-  lockVault: async () => {
-    // Imported lazily because session.ts depends on this module
-    const { lockVault } = await import('./session')
-    await lockVault()
-  },
+  // session.ts imports this module too. A dynamic import here would resolve to the bundle's entry
+  // chunk, whose exports are renamed, so the function would be undefined in a production build.
+  lockVault: () => lockVault(),
 })
