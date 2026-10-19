@@ -139,7 +139,7 @@ describe('accountsRouter security contracts', () => {
     const caller = accountsRouter.createCaller(ctx as any)
 
     const result = await caller.getKeyring({ account: 'acct-1' })
-    expect(result).toEqual({ success: true, keyring: expectedKeyring })
+    expect(result).toEqual({ success: true, keyring: expectedKeyring, randomDataKeys: false })
     expect(ctx.vault.getAccount).toHaveBeenCalledWith({
       account: 'acct-1',
       session: 'session-token',
@@ -339,7 +339,7 @@ describe('accountsRouter security contracts', () => {
 
       const result = await caller.getKeyring({ account: 'acct-1' })
 
-      expect(result).toEqual({ success: true, keyring: 'encrypted-keyring' })
+      expect(result).toEqual({ success: true, keyring: 'encrypted-keyring', randomDataKeys: false })
       expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
       expect(ctx.vault.getAccount).toHaveBeenCalledWith({
         account: 'acct-1',

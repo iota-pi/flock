@@ -200,8 +200,19 @@ type KeyDerivationParams = { salt?: string, iterations?: number, saltVersion?: n
  * Records the account and, when given, its key derivation parameters. They're always given as a
  * set: a missing `kdf` means PBKDF2. Without them, the stored ones are kept.
  */
+/**
+ * What the server last said about the account's data keys. Login fetches the keyring before it
+ * writes a new device's metadata, so the answer is kept until then.
+ */
+let lastKeyringAnswer: { account: string, randomDataKeys: boolean } | null = null
+
 async function writeStoredMetadata(account: string, params?: KeyDerivationParams) {
-  const keyParams = params ?? readStoredMetadata()
+  const stored = readStoredMetadata()
+  const keyParams = params ?? stored
+  // Learned from the server separately (see rememberRandomDataKeys), so a key derivation change keeps it
+  const randomDataKeys = lastKeyringAnswer?.account === account
+    ? lastKeyringAnswer.randomDataKeys || undefined
+    : stored?.account === account ? stored.randomDataKeys : undefined
   localStorage.setItem(
     getVaultStorageNames().vaultMetadataKey,
     JSON.stringify({
@@ -210,8 +221,26 @@ async function writeStoredMetadata(account: string, params?: KeyDerivationParams
       iterations: keyParams?.kdf ? undefined : keyParams?.iterations,
       saltVersion: keyParams?.saltVersion,
       kdf: keyParams?.kdf,
+      randomDataKeys,
     } satisfies VaultStoredMetadata),
   )
+}
+
+/** Records what the server says about the account's data keys, for the sync worker to read at start */
+function rememberRandomDataKeys(account: string, randomDataKeys: boolean) {
+  lastKeyringAnswer = { account, randomDataKeys }
+  const stored = readStoredMetadata()
+  if (stored?.account !== account || stored.randomDataKeys === (randomDataKeys || undefined)) return
+  localStorage.setItem(
+    getVaultStorageNames().vaultMetadataKey,
+    JSON.stringify({ ...stored, randomDataKeys: randomDataKeys || undefined } satisfies VaultStoredMetadata),
+  )
+}
+
+/** Whether the account's data keys are random, as this device last heard (see `VaultStoredMetadata`) */
+export function hasRandomDataKeys(account: string): boolean {
+  const stored = readStoredMetadata()
+  return stored?.account === account && stored.randomDataKeys === true
 }
 
 function clearStoredMetadata() {
@@ -369,7 +398,9 @@ export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Pro
 export async function syncKeyringFromServer(account: string): Promise<boolean> {
   let encryptedKeyringStr: string | undefined
   try {
-    encryptedKeyringStr = await getKeyring(account)
+    const response = await getKeyring(account)
+    encryptedKeyringStr = response.keyring
+    rememberRandomDataKeys(account, response.randomDataKeys)
   } catch (err) {
     console.warn('[vault] Failed to retrieve keyring from server (network error):', err)
     return false

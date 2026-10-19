@@ -181,6 +181,9 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
         })
         this.sink.onMigrationRequired?.(event.reason)
         break
+      case 'retiringLegacyStores':
+        this.sink.beforeRetiringLegacyStores?.(event.accountId)
+        break
       case 'workerError': {
         const error = new Error(event.error.message)
         if (event.error.name) {

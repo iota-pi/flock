@@ -10,6 +10,7 @@ import { resumePendingReencryption } from '../../api/reencrypt'
 
 vi.mock('../../api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
+  hasRandomDataKeys: vi.fn().mockReturnValue(false),
   reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
   hasVaultKey: vi.fn().mockReturnValue(true),
   syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
@@ -181,6 +182,8 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
       'test-account',
       'test-key',
+      undefined,
+      { randomDataKeys: false },
     )
     expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
   })
@@ -1157,6 +1160,8 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith(
       'account-success',
       'test-key',
+      undefined,
+      { randomDataKeys: false },
     )
 
     vi.useRealTimers()

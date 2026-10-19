@@ -123,6 +123,7 @@ export const accountsRouter = router({
       return {
         success: true,
         keyring: ctx.accountData.keyring,
+        randomDataKeys: ctx.accountData.randomDataKeys === true,
       }
     }),
 

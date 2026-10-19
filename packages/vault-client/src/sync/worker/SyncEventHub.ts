@@ -25,6 +25,10 @@ export type ClientEvent =
   | { type: 'tokenRefreshNeeded' }
   | { type: 'reencryptProgress'; done: number; total: number }
   | { type: 'migrationRequired'; reason: MigrationRequiredReason }
+  /** The worker is about to delete the plaintext stores the sealed ones replaced (see LocalEncryptionUpgrade) */
+  | { type: 'retiringLegacyStores'; accountId: string }
+  /** This device's local data can't be opened. `kver` is the missing key version, if that's the cause. */
+  | { type: 'localDataUnavailable'; kver?: string; unpushedChanges: number }
   | {
     type: 'workerError'
     error: {

@@ -56,10 +56,11 @@ export async function getSession(account: string, authToken: string): Promise<st
   return response.session
 }
 
-export async function getKeyring(account: string): Promise<string | undefined> {
+/** The account's encrypted keyring, and whether its data keys were created random (see `randomDataKeys`) */
+export async function getKeyring(account: string): Promise<{ keyring?: string, randomDataKeys: boolean }> {
   const response = await getVaultTrpcClient().accounts.getKeyring.query({ account })
   assertSuccess(response, 'getKeyring')
-  return response.keyring
+  return { keyring: response.keyring, randomDataKeys: response.randomDataKeys === true }
 }
 
 export async function updateKeyring(

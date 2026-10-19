@@ -29,6 +29,12 @@ export interface SyncStateSink<TDoc extends VaultDoc = VaultDoc, TMeta extends V
    * `SyncWorkerConfig.minDataVersion`). The app should stop sync and send the user there.
    */
   onMigrationRequired?(reason: MigrationRequiredReason): void
+  /**
+   * Called before the sync worker deletes the plaintext stores that sealed ones replaced. The app
+   * should ask its other tabs to stop syncing this account: the worker deletes them only once nothing
+   * else holds the account's sync locks. Don't make this tab stop.
+   */
+  beforeRetiringLegacyStores?(accountId: string): void
 }
 
 /** Error reporting and diagnostics, for example backed by Sentry */
