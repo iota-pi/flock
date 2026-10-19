@@ -305,7 +305,10 @@ This is device level 3 (Part 1 is account level 2):
   - **Device level:** both pass `sealedDataVersion: 3`. `DataVersionTracker` then records at most 2 until the session is sealed with no plaintext stores left, in both `onStart` and `onSyncedWithoutFailures`. The quota fallback and the password-derived-key guard therefore never record level 3.
   - **Account level:** level 3 has no server blockers, so the account level rises without a scan.
   - **Protocol 3:** `MIN_PROTOCOL_VERSION` rises with this release, so builds that keep local data in plaintext stop at their next login or write and update. That shortens the time an old tab can re-create the plaintext stores that sealed builds retire.
-- **Phase 2 (extraction):** `MIN_DEVICE_DATA_VERSION = 3`. The main app drops the plaintext fallback and the upgrade, which then runs only in `/migrate/`, and the device gate sends un-upgraded devices there. `hasLegacyLocalData` also reports the plaintext databases.
+- **Phase 2, step 1 (upgrade required):** `MIN_DEVICE_DATA_VERSION = 3`. The device gate sends a device below 3 with local data to `/migrate/` before its worker starts, and `hasLegacyLocalData` also reports the account's plaintext Automerge and WAL databases. The migration app seals the data, so nothing is lost: a device that hasn't upgraded goes through `/migrate/` once.
+  - **The main app still passes `upgradeLocalEncryption`.** It's how a new device seals at all, and the import code lives in the library, which the migration app shares. Once the gate has run, the main app only finds plaintext that an old build's tab wrote since, which it merges and retires.
+  - **A device that can't seal** (an account whose active data key is still password-derived) stays below 3 until the migration app rotates the account's key. Accounts below level 2 already go there, so this only affects accounts that deferred before the rotation finished.
+- **Phase 2, step 2 (retire the level):** removing the upgrade from the migration app would strand devices that never came back. Unlike an account level, the server can't see device levels, so there's no scan to wait for. Keep the upgrade, or replace it with "discard local data and download from the server" for such devices (losing changes they never synced) once that's accepted.
 
 ### Cleanup paths
 
@@ -369,7 +372,7 @@ Implemented in this order, one PR each:
 
 **Acceptance test** (`cypress/e2e/local-encryption.cy.ts`): after sync stops, every record in the sealed databases has the sealed shape, no plaintext databases or `indexDoc` remain, and a person's name appears in no IndexedDB database, localStorage key or Cache Storage entry. Automerge DEFLATE-compresses larger columns, so a byte search only proves this if a short name appears verbatim in unencrypted chunks; `src/app/vault/localEncryptionControl.spec.ts` checks that. The same spec covers the DSK re-wrap on rotation, and recovery from a lost DSK.
 
-**Phase 2 (later):** extraction, as described in "Data levels".
+**Phase 2:** step 1 (the upgrade is required) is done; step 2 is described in "Data levels".
 
 ## Related findings (separate fix)
 

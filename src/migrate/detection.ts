@@ -4,6 +4,7 @@
  */
 
 import { databaseExists } from '@vault/client/databaseExists'
+import { FLOCK_STORAGE_NAMES } from '../app/vault/storageNames'
 
 export { MIN_ACCOUNT_DATA_VERSION, MIN_DEVICE_DATA_VERSION } from '../shared/flockDataVersion'
 
@@ -68,12 +69,18 @@ export const LEGACY_SYNC_DATABASES = [
   'flock-sync-synced-heads',
 ]
 
+/** The account's plaintext databases, which sealed ones replaced at level 3 */
+function plaintextDatabases(accountId: string): string[] {
+  const { accountPrefixes } = FLOCK_STORAGE_NAMES
+  return [`${accountPrefixes.automergeDatabase}${accountId}`, `${accountPrefixes.walDatabase}${accountId}`]
+}
+
 /**
  * Whether this device holds sync data in a layout only the migration app reads. Checked by the
  * sync worker for a device with no data in the current layout (`SyncWorkerConfig.hasLegacyLocalData`).
  */
-export async function hasLegacyLocalData(): Promise<boolean> {
-  for (const name of LEGACY_SYNC_DATABASES) {
+export async function hasLegacyLocalData(accountId: string): Promise<boolean> {
+  for (const name of [...LEGACY_SYNC_DATABASES, ...plaintextDatabases(accountId)]) {
     if (await databaseExists(name)) return true
   }
   return false
