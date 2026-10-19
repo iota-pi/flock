@@ -11,6 +11,7 @@ export const FLOCK_STORAGE_NAMES: VaultStorageNames = {
   webAuthnRpName: 'Flock',
   accountPrefixes: {
     automergeDatabase: 'flock-automerge-db-',
+    sealedAutomergeDatabase: 'flock-automerge-sealed-',
     automergeBroadcastChannel: 'flock-automerge-broadcast-',
     indexChannel: 'flock-index-channel-',
     indexLock: 'flock-index-lock-',
@@ -20,6 +21,7 @@ export const FLOCK_STORAGE_NAMES: VaultStorageNames = {
     leaderLock: 'flock-sync-leader-',
     syncMetadataDatabase: 'flock-sync-metadata-',
     walDatabase: 'FlockVault_SyncWAL_',
+    sealedWalDatabase: 'FlockVault_SyncWAL_sealed_',
     manualRecoveryDatabase: 'FlockVault_ManualRecoveryDB_',
     accountStoreDatabase: 'FlockVault_',
   },

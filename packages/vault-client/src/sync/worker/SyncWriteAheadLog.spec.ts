@@ -2,6 +2,7 @@ import { SyncWriteAheadLog, clearWalInstancesCacheForTesting, toUint8Array } fro
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
+import { createAccountStore } from '../shared/createAccountStore'
 
 import {
   MockLocalforage,
@@ -119,6 +120,16 @@ describe('SyncWriteAheadLog', () => {
 
     const entries = await wal.readAll()
     expect(entries.size).toBe(0)
+  })
+
+  it('also clears the sealed WAL store via static SyncWriteAheadLog.clear(accountId)', async () => {
+    const sealed = createAccountStore('wal-entries-sealed', 'test-account')
+    await sealed.setItem('entry-1', { id: 'entry-1' })
+
+    await SyncWriteAheadLog.clear('test-account')
+
+    expect(await sealed.length()).toBe(0)
+    expect(activeStoreMap.has('test-vault-wal-sealed-test-account:wal-entries-sealed')).toBe(true)
   })
 
   it('recovers un-flushed entries when re-instantiated with same account (crash recovery simulation)', async () => {

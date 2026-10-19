@@ -6,9 +6,9 @@ import {
   runStorageOperation,
   getSyncMetadataStorage,
   SYNC_METADATA_KEYS,
+  databaseExists,
 } from '@vault/client/worker'
 import type { PersistedSyncCursors, ItemSyncTimestamps } from '@vault/client/worker'
-import { hasLegacyDatabase } from '../detection'
 
 /**
  * Brings a device's local sync metadata from Flock's older layouts into the current one:
@@ -132,7 +132,7 @@ async function readLegacyDatabase(
   accountId: string,
 ): Promise<{ current: unknown, store: LocalForage } | null> {
   try {
-    if (!(await hasLegacyDatabase(value.legacyDatabase.name))) return null
+    if (!(await databaseExists(value.legacyDatabase.name))) return null
     const store = openLegacyDatabase(value.legacyDatabase, accountId)
     const raw = await store.getItem<unknown>(value.legacyDatabase.key)
     const current = isPresent(raw) ? value.toCurrent(raw) : null
@@ -291,7 +291,7 @@ export async function clearLegacyLocalData(accountId: string): Promise<void> {
   await Promise.allSettled([
     ...LEGACY_METADATA_VALUES.map(async ({ legacyDatabase }) => {
       try {
-        if (!(await hasLegacyDatabase(legacyDatabase.name))) return
+        if (!(await databaseExists(legacyDatabase.name))) return
         const store = openLegacyDatabase(legacyDatabase, accountId)
         await runStorageOperation(() => store.clear())
       } catch (error) {

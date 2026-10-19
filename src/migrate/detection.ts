@@ -3,6 +3,8 @@
  * module it may import from there. See "Backwards compatibility" in docs/vault-extraction.md.
  */
 
+import { databaseExists } from '@vault/client'
+
 export { MIN_ACCOUNT_DATA_VERSION, MIN_DEVICE_DATA_VERSION } from '../shared/flockDataVersion'
 
 export const MIGRATE_PATH = '/migrate/'
@@ -67,125 +69,12 @@ export const LEGACY_SYNC_DATABASES = [
 ]
 
 /**
- * Probes whether an IndexedDB database exists without creating it,
- * by opening without a version and aborting versionchange if oldVersion === 0.
- */
-export function probeDatabaseExists(dbName: string): Promise<boolean> {
-  return new Promise(resolve => {
-    if (typeof indexedDB === 'undefined' || typeof indexedDB.open !== 'function') {
-      return resolve(false)
-    }
-
-    let isSettled = false
-
-    const timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => {
-      finish(false)
-    }, 2000)
-
-    function finish(result: boolean, dbToClose?: IDBDatabase): void {
-      if (!isSettled) {
-        isSettled = true
-        clearTimeout(timeoutId)
-        if (dbToClose) {
-          try {
-            dbToClose.close()
-          } catch {
-            // Ignore database close error
-          }
-        }
-        resolve(result)
-      }
-    }
-
-    try {
-      const request = indexedDB.open(dbName)
-
-      request.onupgradeneeded = event => {
-        if (event.oldVersion === 0) {
-          try {
-            const transaction = (event.target as IDBOpenDBRequest)?.transaction || request.transaction
-            transaction?.abort()
-          } catch {
-            // Ignore transaction abort error
-          }
-          try {
-            indexedDB.deleteDatabase(dbName)
-          } catch {
-            // Ignore database delete error
-          }
-          finish(false)
-        } else {
-          finish(true)
-        }
-      }
-
-      request.onsuccess = event => {
-        const db = (event.target as IDBOpenDBRequest)?.result
-        finish(true, db)
-      }
-
-      request.onerror = event => {
-        try {
-          event.preventDefault()
-          event.stopPropagation()
-        } catch {
-          // Ignore error cancellation failure
-        }
-        finish(false)
-      }
-
-      request.onblocked = () => {
-        finish(true)
-      }
-    } catch {
-      finish(false)
-    }
-  })
-}
-
-/**
- * Checks if a legacy database exists in IndexedDB before attempting to open it,
- * preventing accidental creation of legacy databases.
- * Uses indexedDB.databases() where supported, with fallback to probeDatabaseExists()
- * when indexedDB.databases() is unavailable, rejects, or hangs (e.g. Safari/Firefox workers).
- */
-export async function hasLegacyDatabase(dbName: string): Promise<boolean> {
-  if (typeof indexedDB === 'undefined') {
-    return false
-  }
-
-  if (typeof indexedDB.databases === 'function') {
-    try {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const dbs = await Promise.race([
-        indexedDB.databases(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('timeout')), 1500)
-        }),
-      ]).finally(() => {
-        if (timer !== undefined) {
-          clearTimeout(timer)
-        }
-      })
-      if (Array.isArray(dbs)) {
-        return dbs.some(db => db && db.name === dbName)
-      }
-    } catch {
-      // indexedDB.databases() failed or timed out (common in Safari/Firefox workers);
-      // fall back to probing via indexedDB.open
-    }
-  }
-
-  return probeDatabaseExists(dbName)
-}
-
-/**
  * Whether this device holds sync data in a layout only the migration app reads. Checked by the
  * sync worker for a device with no data in the current layout (`SyncWorkerConfig.hasLegacyLocalData`).
  */
 export async function hasLegacyLocalData(): Promise<boolean> {
   for (const name of LEGACY_SYNC_DATABASES) {
-    if (await hasLegacyDatabase(name)) return true
+    if (await databaseExists(name)) return true
   }
   return false
 }

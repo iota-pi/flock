@@ -2,15 +2,15 @@ import { getAutomergeDBName } from '../worker/AutomergeRepoManager'
 import { clearSyncMetadataStorage } from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
 import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
+import { getSealedAutomergeDBName } from '../shared/localDatabaseNames'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 
 /**
- * Deletes the Automerge IndexedDB database for an account.
+ * Deletes an IndexedDB database by name, such as an account's plaintext or sealed Automerge database.
  * Relies on the worker having already cleanly closed its storage connection
  * to prevent versionchange blocks and timeouts.
  */
-export async function clearAutomergeIndexedDb(accountId: string, timeoutMs: number = SYNC_TIMEOUTS.localDataCleanup): Promise<void> {
-  const dbName = getAutomergeDBName(accountId)
+export async function clearAutomergeIndexedDb(dbName: string, timeoutMs: number = SYNC_TIMEOUTS.localDataCleanup): Promise<void> {
   if (typeof indexedDB === 'undefined') {
     return
   }
@@ -74,7 +74,8 @@ export async function clearAccountLocalData(accountId: string): Promise<void> {
   if (!accountId) return
   try {
     await Promise.allSettled([
-      clearAutomergeIndexedDb(accountId).catch(err => console.error('[SyncBridge] Failed to clear Automerge IndexedDB', err)),
+      clearAutomergeIndexedDb(getAutomergeDBName(accountId)).catch(err => console.error('[SyncBridge] Failed to clear Automerge IndexedDB', err)),
+      clearAutomergeIndexedDb(getSealedAutomergeDBName(accountId)).catch(err => console.error('[SyncBridge] Failed to clear sealed Automerge IndexedDB', err)),
       clearSyncMetadataStorage(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncMetadataStorage', err)),
       SyncWriteAheadLog.clear(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
       clearManualRecoveryEntries(accountId).catch(err => console.error('[SyncBridge] Failed to clear ManualRecovery', err)),

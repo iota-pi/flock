@@ -96,12 +96,12 @@ export class SyncWriteAheadLog {
   }
 
   /**
-   * Clear all entries for an account without needing an active instance.
+   * Clear all entries for an account, plaintext and sealed, without needing an active instance.
    */
   public static async clear(accountId: string): Promise<void> {
     if (!accountId) return
-    const storage = SyncWriteAheadLog.getStorage(accountId)
-    await runStorageOperation(() => storage.clear())
+    const stores = [SyncWriteAheadLog.getStorage(accountId), createAccountStore('wal-entries-sealed', accountId)]
+    await Promise.all(stores.map(storage => runStorageOperation(() => storage.clear())))
   }
 
   constructor(

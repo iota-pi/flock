@@ -20,6 +20,8 @@ export interface VaultStorageNames {
   /** Prefixes for per-account resources. The account id is appended to each. */
   accountPrefixes: {
     automergeDatabase: string
+    /** Automerge documents sealed with the device storage key */
+    sealedAutomergeDatabase: string
     automergeBroadcastChannel: string
     indexChannel: string
     indexLock: string
@@ -30,6 +32,8 @@ export interface VaultStorageNames {
     leaderLock: string
     syncMetadataDatabase: string
     walDatabase: string
+    /** WAL entries sealed with the device storage key */
+    sealedWalDatabase: string
     manualRecoveryDatabase: string
     /** Fallback for other account stores, as `${prefix}${storeName}_${accountId}` */
     accountStoreDatabase: string
@@ -67,6 +71,7 @@ export function createVaultStorageNames(appName: string): VaultStorageNames {
     webAuthnRpName: appName,
     accountPrefixes: {
       automergeDatabase: `${prefix}-automerge-`,
+      sealedAutomergeDatabase: `${prefix}-automerge-sealed-`,
       automergeBroadcastChannel: `${prefix}-automerge-broadcast-`,
       indexChannel: `${prefix}-index-channel-`,
       indexLock: `${prefix}-index-lock-`,
@@ -76,6 +81,7 @@ export function createVaultStorageNames(appName: string): VaultStorageNames {
       leaderLock: `${prefix}-leader-`,
       syncMetadataDatabase: `${prefix}-sync-metadata-`,
       walDatabase: `${prefix}-wal-`,
+      sealedWalDatabase: `${prefix}-wal-sealed-`,
       manualRecoveryDatabase: `${prefix}-manual-recovery-`,
       accountStoreDatabase: `${prefix}-store-`,
     },

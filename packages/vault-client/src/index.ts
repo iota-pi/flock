@@ -17,6 +17,7 @@ export {
 } from './api/autoLockStore'
 export { reencryptAllItems, resumePendingReencryption, type ReencryptionTarget } from './api/reencrypt'
 export { assertSuccess } from './api/clientUtils'
+export { databaseExists } from './sync/utils/databaseExists'
 export { hasApiAuthToken, setApiAuthToken } from './api/runtime'
 export { ApiHttpError, getTrackedFetch } from './api/trackedFetch'
 export { configureVaultEndpoint, createVaultLinks, initVaultTrpcClient } from './api/vaultTrpcClient'

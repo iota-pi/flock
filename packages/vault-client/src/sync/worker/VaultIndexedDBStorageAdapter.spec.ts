@@ -75,7 +75,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
 
   describe('read-write transaction failures', () => {
     it('rejects when transaction.onerror fires', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
 
       const savePromise = adapter.save(['doc-1'], new Uint8Array([1]))
       await new Promise(r => setTimeout(r, 10))
@@ -88,7 +88,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('rejects when transaction.onabort fires', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
 
       const savePromise = adapter.save(['doc-1'], new Uint8Array([1]))
       await new Promise(r => setTimeout(r, 10))
@@ -102,7 +102,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
 
   describe('save() and remove()', () => {
     it('save() waits for transaction.oncomplete', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       let resolved = false
       const savePromise = adapter.save(['doc-1'], new Uint8Array([1, 2, 3])).then(() => {
         resolved = true
@@ -121,7 +121,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('remove() waits for transaction.oncomplete', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       let resolved = false
       const removePromise = adapter.remove(['doc-1']).then(() => {
         resolved = true
@@ -147,7 +147,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('waits for transaction.oncomplete', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       let resolved = false
       const removeRangePromise = adapter.removeRange(['doc-prefix']).then(() => {
         resolved = true
@@ -168,7 +168,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       const mockRequest: any = { onsuccess: null, onerror: null, result: { binary: new Uint8Array([1, 2, 3]) } }
       mockStore.get.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const loadPromise = adapter.load(['doc-1'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -182,7 +182,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       const mockRequest: any = { onsuccess: null, onerror: null, result: undefined }
       mockStore.get.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const loadPromise = adapter.load(['doc-1'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -195,7 +195,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       const mockRequest: any = { onsuccess: null, onerror: null, error: new Error('Get failed') }
       mockStore.get.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const loadPromise = adapter.load(['doc-1'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -229,7 +229,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       mockRequest.result = mockCursor
       mockStore.openCursor.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const rangePromise = adapter.loadRange(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -249,7 +249,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       }
       mockStore.openCursor.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const rangePromise = adapter.loadRange(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -279,7 +279,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       mockRequest.result = mockCursor
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const hasPromise = adapter.has(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -298,7 +298,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       }
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const hasPromise = adapter.has(['non-existent-doc'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -321,7 +321,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       mockRequest.result = mockCursor
       mockStore.openCursor.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const hasPromise = adapter.has(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -340,7 +340,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       }
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const hasPromise = adapter.has([])
       await new Promise(r => setTimeout(r, 10))
 
@@ -358,7 +358,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
       }
       mockStore.openKeyCursor.mockReturnValue(mockRequest)
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const hasPromise = adapter.has(['doc-prefix'])
       await new Promise(r => setTimeout(r, 10))
 
@@ -369,7 +369,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
 
   describe('close()', () => {
     it('awaits in-flight transactions before closing db', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       let saveFinished = false
       const savePromise = adapter.save(['doc-1'], new Uint8Array([1])).then(() => {
         saveFinished = true
@@ -403,7 +403,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('rejects new transactions while closing or once closed', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const savePromise = adapter.save(['doc-1'], new Uint8Array([1]))
       await new Promise(r => setTimeout(r, 10))
 
@@ -426,14 +426,14 @@ describe('VaultIndexedDBStorageAdapter', () => {
         mockDb._emit('close')
       })
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       await adapter.close()
 
       expect(mockDb.close).toHaveBeenCalledTimes(1)
     })
 
     it('resolves safely via fallback timer if close event is not emitted', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       // mockDb.close does not emit 'close' event
       await adapter.close()
 
@@ -445,7 +445,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
         mockDb._emit('close')
       })
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       const p1 = adapter.close()
       const p2 = adapter.close()
 
@@ -456,7 +456,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('closes database connection on versionchange event', async () => {
-      new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       // Wait for connect
       await new Promise(r => setTimeout(r, 10))
 
@@ -468,7 +468,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('reopens database connection on subsequent operation after versionchange event', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       await new Promise(r => setTimeout(r, 10))
       expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(1)
 
@@ -514,7 +514,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('retries transaction if connection was closed concurrently with InvalidStateError', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       await new Promise(r => setTimeout(r, 10))
 
       // First db.transaction throws InvalidStateError (simulating race with versionchange close)
@@ -558,7 +558,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
     })
 
     it('clears cached database reference on unexpected close event and reconnects on next operation', async () => {
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       await new Promise(r => setTimeout(r, 10))
       expect(globalThis.indexedDB.open).toHaveBeenCalledTimes(1)
 
@@ -596,7 +596,7 @@ describe('VaultIndexedDBStorageAdapter', () => {
         }),
       } as any
 
-      const adapter = new VaultIndexedDBStorageAdapter('test-db', 'documents')
+      const adapter = new VaultIndexedDBStorageAdapter('test-db', { storeName: 'documents' })
       await new Promise(r => setTimeout(r, 10))
 
       // Subsequent operation should attempt a new connection and succeed
