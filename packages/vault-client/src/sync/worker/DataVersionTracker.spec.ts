@@ -55,6 +55,23 @@ describe('DataVersionTracker', () => {
     await expect(readDeviceDataVersion('acct')).resolves.toBe(3)
   })
 
+  it('records no more than the device has reached', async () => {
+    let reached = 2
+    const tracker = new DataVersionTracker({
+      accountId: 'acct',
+      dataVersion: 3,
+      raiseAccountDataVersion: vi.fn(),
+      maxDeviceVersion: () => reached,
+    })
+
+    await tracker.onStart(false)
+    await expect(readDeviceDataVersion('acct')).resolves.toBe(2)
+
+    reached = Number.POSITIVE_INFINITY
+    await tracker.onSyncedWithoutFailures()
+    await expect(readDeviceDataVersion('acct')).resolves.toBe(3)
+  })
+
   it('asks the server to raise the account version once per session', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
     const { tracker, raiseAccountDataVersion } = createTracker(2, ['unboundSnapshots'])

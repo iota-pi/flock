@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/react'
 import { createSyncBridge, lockVaultKeys } from '@vault/client'
 import type { SyncStateSink, SyncStatus, SyncTelemetry } from '@vault/client'
+import { MIGRATION_CHANNEL, type MigrationChannelMessage } from './detection'
 
 export interface MigrationSyncState {
   status: SyncStatus
@@ -53,6 +54,13 @@ const sink: SyncStateSink = {
   startRequest: () => {},
   finishRequest: () => {},
   reset: () => setState(initialState),
+  beforeRetiringLegacyStores: accountId => {
+    if (typeof BroadcastChannel === 'undefined') return
+    // This page doesn't listen on the channel, so it can post from a channel of its own
+    const channel = new BroadcastChannel(MIGRATION_CHANNEL)
+    channel.postMessage({ type: 'started', account: accountId } satisfies MigrationChannelMessage)
+    channel.close()
+  },
 }
 
 const sentryTelemetry: SyncTelemetry = {

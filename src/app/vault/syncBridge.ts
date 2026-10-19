@@ -5,6 +5,7 @@ import { useAppStore } from '../../state/store'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { goToMigration } from '../../migrate/detection'
+import { askOtherTabsToStop } from './setup'
 
 export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   updateItems: updates => useAppStore.getState().updateItemsFromServer(updates),
@@ -22,6 +23,8 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   finishRequest: () => useAppStore.getState().finishRequest(),
   reset: () => useAppStore.getState().reset(),
   onDataRestored: () => useAppStore.getState().incrementGeneration(),
+  // Other tabs still syncing would hold on to the plaintext stores the worker is about to delete
+  beforeRetiringLegacyStores: account => askOtherTabsToStop({ type: 'started', account }),
   onLocalDataUnavailable: details => useAppStore.getState().setLocalDataUnavailable(details),
   onMigrationRequired: () => {
     const { account } = useAppStore.getState()

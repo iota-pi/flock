@@ -72,6 +72,11 @@ export interface SyncWorkerConfig {
    * sealed stores and then deleting the plaintext ones (see docs/local-encryption.md, Part 2)
    */
   upgradeLocalEncryption?: boolean
+  /**
+   * The app's data version (`SyncDomain.dataVersion`) at which local data is sealed. The device's
+   * recorded level stays below it until its storage is sealed and the plaintext stores are retired.
+   */
+  sealedDataVersion?: number
 }
 
 let globalEventPort: MessagePort | null = null
@@ -401,6 +406,7 @@ export class SyncWorker implements SyncApi {
         upgradeSnapshotFormat: this.config.upgradeSnapshotFormat,
         fetchManifestEverySync: this.config.fetchManifestEverySync,
         upgradeLocalEncryption: this.config.upgradeLocalEncryption,
+        sealedDataVersion: this.config.sealedDataVersion,
         randomDataKeys: options?.randomDataKeys,
         keys: this.keyring,
         localKeys: this.keyring,

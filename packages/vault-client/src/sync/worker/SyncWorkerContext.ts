@@ -82,6 +82,8 @@ export interface SyncWorkerContextConfig {
   fetchManifestEverySync?: boolean
   /** Seals local data (see SyncWorkerConfig) */
   upgradeLocalEncryption?: boolean
+  /** The data version at which local data is sealed (see SyncWorkerConfig) */
+  sealedDataVersion?: number
   /** Whether the account's data keys are random (see InitRepoOptions) */
   randomDataKeys?: boolean
   /** The account's data keys */
@@ -201,6 +203,7 @@ export class SyncWorkerContext {
       accountId: config.accountId,
       dataVersion: this.domain.dataVersion ?? 0,
       raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: config.accountId }),
+      maxDeviceVersion: this.maxDeviceVersion(config),
     })
     if (!config.upgradeSnapshotFormat) return
     this.snapshotFormatUpgrade = new SnapshotFormatUpgrade({
@@ -219,6 +222,20 @@ export class SyncWorkerContext {
         reencryptor: this.itemReencryptor,
       }),
     })
+  }
+
+  /**
+   * Caps the recorded device level below the sealed level until this session's storage is sealed and
+   * no plaintext stores are left, so a device on the quota fallback or the password-derived-key guard
+   * isn't recorded as migrated.
+   */
+  private maxDeviceVersion(config: SyncWorkerContextConfig): (() => number) | undefined {
+    const sealedDataVersion = config.sealedDataVersion
+    if (sealedDataVersion === undefined) return undefined
+    return () => {
+      const state = this.localStorageState
+      return state?.mode === 'sealed' && state.retired ? Number.POSITIVE_INFINITY : sealedDataVersion - 1
+    }
   }
 
   /** Records snapshots uploaded outside the snapshot pusher (by re-encryption), as the pusher does */

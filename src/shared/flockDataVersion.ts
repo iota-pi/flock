@@ -5,8 +5,13 @@
  *   items and a current salt.
  * - Version 2 is Argon2id key derivation with no live data under a password-derived key (Part 1 of
  *   docs/local-encryption.md). It changes only the account's data, not the device's.
+ * - Version 3 is local data sealed with a device storage key, with no plaintext stores left (Part 2
+ *   of docs/local-encryption.md). It changes only the device's data, not the account's.
  */
-export const FLOCK_DATA_VERSION = 2
+export const FLOCK_DATA_VERSION = 3
+
+/** The level at which a device's local data is sealed (see `SyncWorkerConfig.sealedDataVersion`) */
+export const SEALED_DATA_VERSION = 3
 
 /**
  * The lowest device level the main app reads. Devices below it go through the migration app

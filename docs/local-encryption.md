@@ -1,6 +1,6 @@
 # Local Encryption at Rest
 
-Design and implementation plan for two changes. **Part 1** moves password key derivation from PBKDF2 to Argon2id and takes data off password-derived keys. **Part 2** encrypts the vault's local data, so someone with access to the device can't read it while the app is locked or closed. Status: Part 1 **implemented, not yet released**; Part 2 **proposed**.
+Design and implementation plan for two changes. **Part 1** moves password key derivation from PBKDF2 to Argon2id and takes data off password-derived keys. **Part 2** encrypts the vault's local data, so someone with access to the device can't read it while the app is locked or closed. Status: both parts **implemented**. Part 1 shipped first; Part 2 ships as device level 3.
 
 **Part 1 ships first.** Part 2 wraps its device key with the active data key. On every account created so far, that key is derived from the original password (see "Why a password change alone isn't enough"). Shipping Part 2 first would leave local data only as strong as PBKDF2 of a password the user may have changed long ago.
 
@@ -183,9 +183,15 @@ password ──Argon2id──► master key ──wraps──► keyring (data k
 - **Device storage key (DSK).** A random AES-GCM-256 key, one per account per device. It never leaves the device and is never sent to the server.
 - **Stored as `{ kver, iv, ct }`:** the raw DSK bytes encrypted with data key `kver`. Data keys are imported with `encrypt`/`decrypt` only, so this is plain encryption, not WebCrypto `wrapKey`.
   - **Unwrapping** decrypts the raw bytes, imports them as a **non-extractable** key and zeroes the buffer. The raw bytes pass through JavaScript memory either way, so non-extractable is defence in depth, not a boundary.
-- **Never wrapped under a password-derived key.** `LocalEncryptionUpgrade` refuses to create a DSK until the account is at level 2, so no live data key is password-derived. The main thread passes the account level it last saw from `getSecurityParams` to the worker with the keyring. The device then stays on plaintext storage (the phase 1 fallback) until the migration has rotated. After Part 1 this only affects accounts that deferred between the password change and a successful rotation. They're upgraded at the first start after the rotation completes.
+- **Never wrapped under a password-derived key.** A DSK is created only when the active data key is random: its version isn't `'1'`, or the account was created with random data keys (`randomDataKeys`).
+  - **Why not the account level:** the level is the app's meaning, and an Argon2id account whose active key is still `'1'` (between migration steps 2 and 3) is still password-derived.
+  - **Where the device learns it:** `accounts.getKeyring` returns `randomDataKeys`, the device keeps it in its stored metadata (`hasRandomDataKeys`), and the main thread passes it to `initRepo`. Login fetches the keyring before it writes a new device's metadata, so the answer is held until then.
+  - **Until then** the device stays on plaintext storage. After Part 1 this only affects accounts that deferred between the password change and a successful rotation, and devices that have never been online since. They're sealed at the first start after that.
+  - **Residual risk:** a server that falsely claims `randomDataKeys` could get a legacy device's DSK wrapped under a derived v1. That's no weaker than the keyring cache unless the password has changed since, and it also needs the device's profile.
 - **Wrapped with a data key, not the master key.** A password change re-wraps the keyring but leaves the data keys unchanged, so the DSK is unaffected. Wrapping with the master key would strand the DSK on every other device: after a password change on device A, device B can't derive the old master key, so its unpushed local changes would be lost.
-- **Re-wrapped only as part of a deliberate rotation.** The keyring keeps every version, so an old wrap always stays readable. Re-wrapping opportunistically on start would buy nothing and could race a tab whose keyring is older. `reencryptAllItems` re-wraps the DSK under the new active key as its last step, holding the local storage lock, with a session and a fresh keyring.
+- **Re-wrapped only as part of a deliberate rotation.** The keyring keeps every version, so an old wrap always stays readable. Re-wrapping opportunistically on start would buy nothing and could race a tab whose keyring is older. The worker's `reencryptAllItems`, which every rotation path ends with, re-wraps the DSK under the new active key as its last step (`SyncWorkerContext.rewrapDeviceKey`), holding the local data lock.
+  - The DSK in memory is non-extractable, so the re-wrap decrypts the stored wrap again with its own key version.
+  - A failure is logged and leaves the old wrap, which stays readable.
 - **Why not seal with the data key directly?** A separate key keeps local writes off the data key's AES-GCM random-nonce budget. That budget is shared by every device and every sync message, and Automerge saves often. It also makes rotation cost one write instead of a full rewrite.
 
 ### Sealed records
@@ -202,8 +208,10 @@ Each record is sealed with AES-GCM using a fresh 96-bit IV. The associated data 
 A record moved to another key, entry, store or account fails to decrypt. Records store raw bytes (`{ key, v: 1, iv: Uint8Array, ct: Uint8Array }`), not base64, because IndexedDB structured-clones typed arrays. Storage keys stay plaintext, since `loadRange`/`has` need them for range queries.
 
 - **IndexedDB pitfall:** a transaction auto-commits as soon as it has no pending requests at the end of a task, so awaiting WebCrypto inside one throws `TransactionInactiveError`. Seal *before* opening the write transaction, and open (decrypt) *after* the read transaction completes. `loadRange` collects the raw records first and then decrypts them all with `Promise.all`.
-- **A record that fails to decrypt throws. It's never treated as missing.** `load` must not return `undefined`, and `loadRange` must not skip the chunk. Either would make a present document look absent or silently drop part of its history, while `has()` still reports it.
-  - **What happens instead:** the error reaches `AutomergeDocStore`, which quarantines the item with a new manual recovery kind, `localDecryption`. Its recovery is "replace from server".
+- **A record that fails to decrypt throws. It's never treated as missing.** `load` must not return `undefined`, and `loadRange` must not skip the chunk. Either would make a present document look absent or silently drop part of its history, while `has()` still reports it. Worse, automerge-repo only tracks chunks that loaded, so a later compaction could save over a skipped chunk and remove it.
+  - **The error doesn't reach the doc store:** automerge-repo's `StorageSource` loads without a `catch`, so a rejected load leaves the handle pending forever.
+  - **What happens instead:** the sealed codec reports each failure (`onOpenFailure`). The context marks the document unreadable, quarantines it once with the manual recovery kind `localDecryption`, and `AutomergeDocStore` gives up on it at once instead of waiting out its find timeouts.
+  - **Recovery:** "Replace from server" (`replaceFromServer`) drops the document's local chunks and stuck handle, forces a manifest sync to fetch the server's copy, and unquarantines the item only once that copy is stored. The user confirms first, since unsynced changes to it are lost.
 
 ### New databases, not in-place rewrite
 
@@ -245,36 +253,40 @@ The keyring is loaded in `initGlobalPrerequisites` before the context is created
 ### Upgrade (copy and seal)
 
 `LocalEncryptionUpgrade` is opt-in through `SyncWorkerConfig.upgradeLocalEncryption`, like `upgradeSnapshotFormat`. Inside `openLocalStorage()`, per account, it:
-1. **Detects plaintext data** with `indexedDB.databases()`, which lists the old Automerge or WAL database by name.
-   - **Without that API** (Firefox before 126), it opens the plaintext database with the old adapter's own schema (`createObjectStore` in `onupgradeneeded`), so a database it creates is well formed for any old build that opens it later.
+1. **Detects plaintext data** with `databaseExists`, which asks `indexedDB.databases()` and otherwise opens the database without a version and aborts the upgrade if it didn't exist, so it never creates one. The plaintext `indexDoc` key counts too.
 2. **Copies the Automerge records.** It reads in pages (a cursor over the raw records, batches of ~200), seals outside the transaction, then writes.
    - **What's copied:** `snapshot` and `incremental` chunks only. Their keys are content hashes (heads hash and `keyHash`), and the Repo merges every chunk it loads and compacts away superseded ones, so the copy is idempotent and resumes after a crash.
    - **`storage-adapter-id`** is copied only on the first import.
    - **`sync-state`** records are skipped. They're keyed per peer, not by content, so a copy could overwrite newer state, and the sync protocol rebuilds them.
 3. **Copies WAL entries** with `data` sealed and the descriptor fields (`id`, `itemId`, `seq`, `createdAt`, `replaces`) unchanged, so `WalEntryQuery` still works. The plaintext WAL is copied, not dropped: a plaintext entry may be a change no snapshot covers yet.
-4. **Merges the plaintext index** `indexDoc` into `indexDocSealed` (see "Index document").
+4. **Merges the plaintext index** `indexDoc` into `indexDocSealed` with `mergeIndexDocuments` (see "Index document"). On a re-import, deletions from either side win and the sealed side's settings win.
 5. **Writes `{ upgradedAt }`** to the sealed `meta` store.
 6. **Retires the plaintext stores** (next section). If that can't happen yet, the upgrade still counts as done, and the next start re-imports anything new and tries again.
 
 The upgrade runs on every start. It's a cheap check when nothing plaintext remains, and a merge if an old-build tab wrote to the plaintext stores since.
 
 **Failure handling:**
-- **Quota error mid-copy:** stop and keep the partial sealed data (it's idempotent). Run this session on the plaintext adapter, with a sync-status warning, and retry on the next start. This fallback exists only while plaintext compatibility ships (phase 1).
+- **Quota error mid-copy:** stop and keep the partial sealed data (it's idempotent), warn, and retry on the next start. This fallback exists only while plaintext compatibility ships (phase 1).
+  - **Before the first copy has finished** (no `upgradedAt`), this session runs on the plaintext adapter, the only complete copy.
+  - **After it,** the session stays sealed: the plaintext stores then hold at most an old tab's recent writes.
 - **DSK can't be unwrapped:** raise `LocalKeyUnavailableError`. **The data is never reset automatically.**
   - **Causes:** a missing `kver` in this tab's keyring (for example a keyring loaded from an older cache), a corrupted record, tampering.
-  - **First, retry with a fresh keyring:** wait for the key version (`waitForKey`, then a keyring refresh from the server when online, as `keyVersionMissing` does).
-  - **If it's still unavailable:** worker initialization fails with this error, and the app shows that local data can't be opened. It offers "Try again" and a user-confirmed "Discard local data and download from the server". That option states how many changes haven't been pushed, from the WAL entry count, which is readable without the DSK.
+  - **First, retry with a fresh keyring:** the worker emits `localDataUnavailable { kver, unpushedChanges }` and initialization fails. The worker can't receive a keyring until it's ready, so the main thread fetches the missing key from the server, and the existing init retry exports the keyring again.
+  - **If it's still unavailable:** a second failure in a row stops sync and calls `SyncStateSink.onLocalDataUnavailable`. Flock's `LocalDataUnavailableDialog` offers "Try again" and a user-confirmed "Discard local data and download from the server" (`discardLocalDataAndRestart`). That option states how many changes haven't been pushed, from the WAL entry count, which is readable without the DSK.
 
 ### Retiring the plaintext stores
 
 Deleting a database under a live old-build tab is unsafe. The old adapter closes on `versionchange`, then reconnects to a freshly created empty database. With the plaintext `indexDoc` gone, the old tab sees no items and saves an empty index. Its later loads find nothing in storage, and it carries on writing into the new empty stores. So before deleting the plaintext databases and the plaintext `indexDoc`:
-1. **Ask other tabs to stop.** Flock passes a `beforeRetiringLegacyStores` hook that posts `{ type: 'started' }` on `MIGRATION_CHANNEL`. Every build since level 1's extraction locks itself on that message (`handleMigrationMessage`). Other new-build tabs lock too, once per device.
-2. **Check nothing else is using the account.** Call `navigator.locks.query()` and look for other holders of the account's `leaderLock` and `indexLock`. Those names are pinned, so builds older than the takeover handler hold them too. Wait briefly (a few seconds) for them to release.
-3. **Delete, or wait for the next start.** If no one else holds them, delete. Otherwise, skip deletion this time and retry on the next start.
+1. **Check whether anything else is using the account.** `navigator.locks.query()` lists holders of, and waiters for, the account's `leaderLock` and `indexLock`. Those names are pinned, so builds older than the takeover handler hold them too. This engine hasn't requested them yet: its Repo and leader election start afterwards. Without Web Locks, nothing is deleted.
+2. **If so, ask other tabs to stop.** The worker emits `retiringLegacyStores`, and the app's `SyncStateSink.beforeRetiringLegacyStores` posts `{ type: 'started' }` on `MIGRATION_CHANNEL`. Every build since level 1's extraction locks itself on that message (`handleMigrationMessage`), and other new-build tabs lock too, once per device.
+   - **The main thread posts, on the channel object it listens with:** a `BroadcastChannel` never delivers to the object that sent the message, so the upgrading tab doesn't lock itself. Posting from the worker would reach this tab's own listener.
+3. **Delete, or wait for the next start.** Once nothing else holds the locks (it waits up to 5 s), delete. Otherwise, or if a deletion is blocked, skip deletion this time and retry on the next start.
 
 ### WAL
 
-`SyncWriteAheadLog` seals `entry.data` in `append` and in compaction (`setItem`) and opens it in `readAll`/`iterate`, with the WAL associated data above. Like IndexedDB, localforage's `iterate` callback can't await, so it collects the entries first and decrypts them afterwards. Everything else about the WAL is unchanged, including pruning, `replaces` and in-flight tracking.
+`SyncWriteAheadLog` seals `entry.data` in `append` and in compaction (`setItem`) and opens it in `readAll`, with the WAL associated data above. Like IndexedDB, localforage's `iterate` callback can't await, so it collects the entries first and decrypts them afterwards. Everything else about the WAL is unchanged, including pruning, `replaces` and in-flight tracking.
+
+- **An entry that can't be opened is skipped, not thrown.** The WAL only delivers changes, which the local document holds (sync rule 1), and throwing would stall every push. The entry stays for pruning, the item is reported as `localDecryption`, and a snapshot is requested instead. It supersedes nothing, so the entries it replaced stay deliverable.
 
 ### Index document
 
@@ -288,10 +300,12 @@ Deleting a database under a live old-build tab is unsafe. The old adapter closes
 ### Data levels
 
 This is device level 3 (Part 1 is account level 2):
-- **Phase 1 (compatibility):** `FLOCK_DATA_VERSION = 3`, `MIN_DEVICE_DATA_VERSION` stays 1. The main app passes `upgradeLocalEncryption: true`, and devices upgrade the next time they unlock.
-  - **Device level:** `DataVersionTracker` records `min(FLOCK_DATA_VERSION, maxDeviceLevel())`, not the current level blindly as `recordDeviceVersion` does now. Flock's `maxDeviceLevel` returns 3 only when the sealed `meta` store has `upgradedAt` and the plaintext stores are retired, otherwise 2. This applies to both `onStart` and `onSyncedWithoutFailures`. The quota fallback therefore never records level 3.
+- **Phase 1 (compatibility):** `FLOCK_DATA_VERSION = 3`, `MIN_DEVICE_DATA_VERSION` stays 1. Devices upgrade the next time they unlock.
+  - **Both workers seal.** The main app's and the migration app's workers both pass `upgradeLocalEncryption: true`. Otherwise, once the main app retired the plaintext stores, the migration app would find them empty, treat the device as new and download everything into plaintext again.
+  - **Device level:** both pass `sealedDataVersion: 3`. `DataVersionTracker` then records at most 2 until the session is sealed with no plaintext stores left, in both `onStart` and `onSyncedWithoutFailures`. The quota fallback and the password-derived-key guard therefore never record level 3.
   - **Account level:** level 3 has no server blockers, so the account level rises without a scan.
-- **Phase 2 (extraction):** `MIN_DEVICE_DATA_VERSION = 3`. The main app drops the plaintext adapter and the upgrade. `src/migrate/migrate.worker.ts` passes `upgradeLocalEncryption`, and the device gate sends un-upgraded devices to `/migrate/`. `hasLegacyLocalData` also reports the plaintext databases.
+  - **Protocol 3:** `MIN_PROTOCOL_VERSION` rises with this release, so builds that keep local data in plaintext stop at their next login or write and update. That shortens the time an old tab can re-create the plaintext stores that sealed builds retire.
+- **Phase 2 (extraction):** `MIN_DEVICE_DATA_VERSION = 3`. The main app drops the plaintext fallback and the upgrade, which then runs only in `/migrate/`, and the device gate sends un-upgraded devices there. `hasLegacyLocalData` also reports the plaintext databases.
 
 ### Cleanup paths
 
@@ -343,44 +357,19 @@ Part 1 ships before Part 2. Each step is a separate PR that passes `yarn test ru
 
 ### Part 2: local encryption
 
-1. **Local cipher** (`packages/vault-client/src/sync/worker/localEncryption/LocalCipher.ts`)
-   - Generate, store, unwrap and re-wrap the DSK, with the raw-bytes handling above.
-   - `seal(context, bytes)` / `open(context, record)` with the associated data table.
-   - Specs: round trip, each mismatched context field fails, wrong `kver` fails, re-wrap keeps the same DSK.
-2. **Record codec in the adapter**
-   - Refactor `VaultIndexedDBStorageAdapter` to take a record codec: the plaintext codec is today's behaviour, the sealed codec uses `LocalCipher`. Encoding happens outside transactions.
-   - Add the two-store schema for sealed databases.
-   - Specs (fake-indexeddb): sealed round trip, `loadRange` and `has`, no `TransactionInactiveError`, a corrupted record throws from both `load` and `loadRange`.
-3. **Storage names**
-   - Add the `sealedAutomergeDatabase` and `sealedWalDatabase` prefixes to `VaultStorageNames` and `createVaultStorageNames`.
-   - Add Flock's values (for example `flock-automerge-sealed-`, `FlockVault_SyncWAL_sealed_`) and extend its pinning spec.
-   - Update the cleanup paths and their specs.
-4. **Sealed WAL and index**
-   - WAL: seal `data` and decrypt after `iterate`. Update the WAL and `walThrashingPrevention` specs.
-   - Index: `IndexStore` reads and writes `indexDocSealed` through the cipher. `checkDeviceDataVersion` checks for either key.
-   - Specs: round trip, the existence check works without the DSK, a plaintext index is merged rather than overwritten.
-5. **`SyncWorkerContext` refactor**: create the Repo and its dependants in `initialize()` after `openLocalStorage()`, with one lock acquisition around `migrateLocalData` and `openLocalStorage`. This is the riskiest step for regressions, because most components take the Repo in the constructor today. Land it on its own, with plaintext storage only, before any sealing.
-6. **`LocalEncryptionUpgrade`**
-   - Covers race-safe DSK creation, the password-derived-key guard, the chunk filter, detection, the quota fallback and plaintext-store retirement (`beforeRetiringLegacyStores`, the lock check), plus `LocalKeyUnavailableError` with its recovery UI and the `localDecryption` quarantine kind.
-   - Specs:
-     - full copy, a crash at each step then resume;
-     - a plaintext database recreated after the upgrade, `storage-adapter-id` preserved, `sync-state` skipped;
-     - unpushed WAL entries survive;
-     - two tabs creating a DSK at once end with one key;
-     - deletion skipped while another holder has the leader lock;
-     - no automatic reset on unwrap failure.
-7. **Re-wrap in rotation**: `reencryptAllItems` re-wraps the DSK under the new active key as its last step.
-8. **Wiring and data level**
-   - `openLocalStorage` picks the sealed or plaintext adapter.
-   - `DataVersionTracker` takes `maxDeviceLevel`. `FLOCK_DATA_VERSION = 3`, and Flock passes the flag and the hook.
-   - Integration spec (`sync.integration.spec.ts`): two workers sync while one is mid-upgrade.
-9. **Acceptance test (Cypress)**
-   - **Control first:** with upgrade disabled, create a person with a unique short name and check the name is found in the plaintext Automerge database. Automerge DEFLATE-compresses larger columns, so without the control a byte search could pass even though nothing is encrypted.
-   - **Then:** with the upgrade enabled, lock, and assert that every record in the sealed databases has the sealed shape, that no plaintext databases or `indexDoc` key remain, and that the name's bytes appear in no IndexedDB database, localStorage key or Cache Storage entry.
-10. **Docs**
-    - Update "Local storage layout" in [sync-design.md](sync-design.md).
-    - Add an AGENTS.md sync rule: "Never write user content to local storage unsealed; seal and open outside IndexedDB transactions; a record that fails to decrypt throws, it's never treated as missing."
-11. **Phase 2 (later)**: extraction, as described in "Data levels".
+Implemented in this order, one PR each:
+1. Open local storage before creating the Repo (`SyncWorkerContext` creates the Repo in `initialize()`).
+2. `LocalCipher`: the DSK, its wrap, and sealing with the associated data above.
+3. Sealed storage names, a record codec for the IndexedDB adapter, and cleanup of the sealed databases.
+4. The sealed WAL and index.
+5. `openLocalStorage`, `LocalEncryptionUpgrade` and plaintext-store retirement, with `randomDataKeys` from `getKeyring`.
+6. Re-wrapping the DSK on rotation.
+7. Unreadable local data: the `localDecryption` quarantine, "Replace from server", and the local data recovery dialog.
+8. Flock's wiring: both workers seal, level 3 with the device-level cap, protocol 3, the acceptance test and these docs.
+
+**Acceptance test** (`cypress/e2e/local-encryption.cy.ts`): after sync stops, every record in the sealed databases has the sealed shape, no plaintext databases or `indexDoc` remain, and a person's name appears in no IndexedDB database, localStorage key or Cache Storage entry. Automerge DEFLATE-compresses larger columns, so a byte search only proves this if a short name appears verbatim in unencrypted chunks; `src/app/vault/localEncryptionControl.spec.ts` checks that. The same spec covers the DSK re-wrap on rotation, and recovery from a lost DSK.
+
+**Phase 2 (later):** extraction, as described in "Data levels".
 
 ## Related findings (separate fix)
 
