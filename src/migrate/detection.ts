@@ -3,7 +3,7 @@
  * module it may import from there. See "Backwards compatibility" in docs/vault-extraction.md.
  */
 
-import { databaseExists } from '@vault/client'
+import { databaseExists } from '@vault/client/databaseExists'
 
 export { MIN_ACCOUNT_DATA_VERSION, MIN_DEVICE_DATA_VERSION } from '../shared/flockDataVersion'
 
