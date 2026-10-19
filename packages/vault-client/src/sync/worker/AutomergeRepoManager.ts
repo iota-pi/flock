@@ -4,7 +4,7 @@ import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastCha
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../utils/storageManager'
 import { isQuotaError } from '../utils/storageQuota'
-import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
+import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { KeyProvider } from '../../api/Keyring'
@@ -77,13 +77,17 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     await this.close()
   }
 
-  init(vaultNetworkAdapter: VaultNetworkAdapter, options?: AutomergeRepoManagerOptions): Repo {
+  /** Creates the Repo on `storage`, which this manager then owns and closes on stop */
+  init(
+    vaultNetworkAdapter: VaultNetworkAdapter,
+    storage: VaultIndexedDBStorageAdapter,
+    options?: AutomergeRepoManagerOptions,
+  ): Repo {
     if (this.repo) {
       throw new Error(`Automerge repo for account ${this.accountId} has already been initialized`)
     }
 
-    const dbName = getAutomergeDBName(this.accountId)
-    this.indexedDbAdapter = new VaultIndexedDBStorageAdapter(dbName)
+    this.indexedDbAdapter = storage
     this.quotaAdapter = new QuotaHandlingStorageAdapter(this.indexedDbAdapter, options?.onQuotaError)
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
