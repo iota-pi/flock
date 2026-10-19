@@ -2,6 +2,9 @@ import { TRPCClientError } from '@trpc/client'
 import {
   clearVaultDeviceData,
   configureVaultHost,
+  createVaultAccount,
+  exportKeyringData,
+  getActiveKeyVersion,
   hasBiometricData,
   initialiseVault,
   lockVaultKeys,
@@ -9,16 +12,21 @@ import {
   needsKeyDerivationUpgrade,
   onLateSession,
   readCachedKeyring,
+  readStoredMetadata,
   rotateVaultKey,
   establishSessionFromKeyHash,
   StaleBiometricKeyError,
   storeVault,
   unlockWithBiometrics,
+  upgradeKeyDerivation,
 } from './vault'
-import { changePassword, getKeyring, getSession } from './client'
-import { decryptWithKey, deriveVaultKey, encryptWithKey, exportVaultKey } from './crypto'
+import { changePassword, createAccount, getKeyring, getSession, updateKeyring } from './client'
+import { decryptWithKey, deriveVaultKey, encryptWithKey, exportVaultKey, generateVaultKey } from './crypto'
+import { Keyring } from './Keyring'
 import { writeBiometricData } from './biometricStore'
 import { ApiHttpError } from './trackedFetch'
+import type { KdfParams } from './kdf'
+import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 
 vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
@@ -40,6 +48,12 @@ vi.mock('./util', async importOriginal => ({
   DEFAULT_CRYPTO_ITERATIONS: 1000,
 }))
 
+// Current parameters above the test floor, so an account can be created below them
+vi.mock('./kdf', async importOriginal => ({
+  ...await importOriginal<typeof import('./kdf')>(),
+  DEFAULT_KDF: { algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 },
+}))
+
 const PRF_OUTPUT = new Uint8Array(32).fill(7).buffer
 vi.mock('./webauthn', () => ({
   getPrfOutput: vi.fn(async () => PRF_OUTPUT),
@@ -49,11 +63,14 @@ vi.mock('./webauthn', () => ({
 
 const ACCOUNT = 'test-account'
 const PASSWORD = 'password123'
+const SALT = 'Y3VycmVudC1zYWx0'
 const LEGACY_SALT = 'bGVnYWN5LXNhbHQ='
 const decodeLegacySalt = (salt: string) => new TextEncoder().encode(salt).buffer
+const CURRENT_KDF: KdfParams = { algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }
+const OLD_KDF: KdfParams = { algorithm: 'argon2id', memoryKiB: 8, passes: 1, parallelism: 1 }
 
-/** Builds the server's keyring for an account whose master key comes from these parameters */
-async function seedServerKeyring(params: { salt: string, iterations: number, saltVersion?: number }) {
+/** Builds the server's keyring for a PBKDF2 account, whose v1 is the master key, rotated once */
+async function seedLegacyServerKeyring(params: { salt: string, iterations: number, saltVersion?: number }) {
   const keyHash = await initialiseVault({ password: PASSWORD, ...params })
   await establishSessionFromKeyHash(ACCOUNT, keyHash)
   await storeVault(ACCOUNT)
@@ -64,137 +81,217 @@ async function seedServerKeyring(params: { salt: string, iterations: number, sal
   vi.mocked(getKeyring).mockResolvedValue(keyring)
 }
 
-describe('key derivation upgrade at login', () => {
+/** Builds the server's keyring for an Argon2id account: a random v1 wrapped with the master key */
+async function seedArgon2idServerKeyring(kdf: KdfParams) {
+  const masterKey = await deriveVaultKey({ password: PASSWORD, salt: SALT, kdf, saltVersion: 1 })
+  const keys = new Keyring()
+  keys.replace(new Map([['1', await generateVaultKey()]]), '1')
+  const keyring = JSON.stringify(await encryptWithKey(masterKey, JSON.stringify(await keys.export()), 'master'))
+  vi.mocked(getKeyring).mockResolvedValue(keyring)
+  return { masterKey, keyring }
+}
+
+function loginArgon2id(kdf: KdfParams) {
+  return loginVault({ account: ACCOUNT, password: PASSWORD, salt: SALT, kdf, saltVersion: 1 })
+}
+
+describe('key derivation at login', () => {
   beforeEach(async () => {
     localStorage.clear()
-    configureVaultHost({ decodeLegacySalt })
+    configureVaultHost({ decodeLegacySalt, deriveLegacyKey })
     await clearVaultDeviceData()
     vi.clearAllMocks()
     vi.mocked(getKeyring).mockResolvedValue(undefined)
     vi.mocked(getSession).mockResolvedValue('mock-session')
   })
 
-  it('re-wraps every key under a current salt after logging in with a legacy salt', async () => {
-    await seedServerKeyring({ salt: LEGACY_SALT, iterations: 1000 })
+  it('re-wraps every key under the current Argon2id parameters when the account\'s are older', async () => {
+    await seedArgon2idServerKeyring(OLD_KDF)
 
-    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt: LEGACY_SALT, iterations: 1000 })
+    const result = await loginArgon2id(OLD_KDF)
 
     expect(result).toEqual({ keyDerivationUpgraded: true, biometricsCleared: false })
     expect(changePassword).toHaveBeenCalledTimes(1)
     const request = vi.mocked(changePassword).mock.calls[0][0]
-    expect(request).toMatchObject({
-      account: ACCOUNT,
-      saltVersion: 1,
-      newIterations: 1000,
-      expectedKeyringVersion: 2,
-      keyringVersion: 2,
-    })
-    expect(request.newSalt).not.toBe(LEGACY_SALT)
+    expect(request).toMatchObject({ account: ACCOUNT, saltVersion: 1, newKdf: CURRENT_KDF })
+    expect(request).not.toHaveProperty('newIterations')
+    expect(request.newSalt).not.toBe(SALT)
 
-    const newMasterKey = await deriveVaultKey({
-      password: PASSWORD,
-      salt: request.newSalt,
-      iterations: request.newIterations,
-      saltVersion: 1,
-    })
+    const newMasterKey = await deriveVaultKey({ password: PASSWORD, salt: request.newSalt, kdf: request.newKdf, saltVersion: 1 })
     const keyring = JSON.parse(await decryptWithKey(newMasterKey, JSON.parse(request.newKeyring)))
-    expect(keyring.activeVersion).toBe('2')
-    expect(Object.keys(keyring).sort()).toEqual(['1', '2', 'activeVersion'])
+    expect(Object.keys(keyring).sort()).toEqual(['1', 'activeVersion'])
 
-    // The new session comes from the new credentials, and the device remembers the new salt
+    // The new session comes from the new credentials, and the device remembers the new parameters
     expect(getSession).toHaveBeenLastCalledWith(ACCOUNT, request.newAuthToken)
-    expect(JSON.parse(localStorage.getItem('test-vault-meta')!)).toMatchObject({
-      salt: request.newSalt,
-      iterations: 1000,
-      saltVersion: 1,
-    })
+    expect(readStoredMetadata()).toMatchObject({ salt: request.newSalt, saltVersion: 1, kdf: CURRENT_KDF })
+    expect(readStoredMetadata()?.iterations).toBeUndefined()
   })
 
-  it('upgrades accounts with fewer iterations than the default', async () => {
-    const salt = 'Y3VycmVudC1zYWx0'
-    await seedServerKeyring({ salt, iterations: 500, saltVersion: 1 })
+  it('leaves current Argon2id parameters alone', async () => {
+    await seedArgon2idServerKeyring(CURRENT_KDF)
 
-    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt, iterations: 500, saltVersion: 1 })
+    const result = await loginArgon2id(CURRENT_KDF)
 
-    expect(result.keyDerivationUpgraded).toBe(true)
-    expect(changePassword).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ keyDerivationUpgraded: false, biometricsCleared: false })
+    expect(changePassword).not.toHaveBeenCalled()
+    expect(readStoredMetadata()).toMatchObject({ salt: SALT, kdf: CURRENT_KDF })
   })
 
-  it('leaves current key derivation alone', async () => {
-    const salt = 'Y3VycmVudC1zYWx0'
-    await seedServerKeyring({ salt, iterations: 1000, saltVersion: 1 })
+  it('does not re-wrap PBKDF2 accounts, which move to Argon2id with a new password', async () => {
+    await seedLegacyServerKeyring({ salt: LEGACY_SALT, iterations: 500 })
 
-    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt, iterations: 1000, saltVersion: 1 })
+    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt: LEGACY_SALT, iterations: 500 })
 
     expect(result).toEqual({ keyDerivationUpgraded: false, biometricsCleared: false })
     expect(changePassword).not.toHaveBeenCalled()
   })
 
-  it('does not upgrade offline', async () => {
-    await initialiseVault({ password: PASSWORD, salt: LEGACY_SALT, iterations: 1000 })
-    await storeVault(ACCOUNT)
-    vi.clearAllMocks()
-    vi.mocked(getSession).mockRejectedValue(new TypeError('Failed to fetch'))
+  it('never uses the master key as a data key on Argon2id accounts', async () => {
+    const { masterKey } = await seedArgon2idServerKeyring(CURRENT_KDF)
 
-    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt: LEGACY_SALT, iterations: 1000 })
+    await loginArgon2id(CURRENT_KDF)
 
-    expect(result.keyDerivationUpgraded).toBe(false)
-    expect(changePassword).not.toHaveBeenCalled()
+    const keys = JSON.parse(await exportKeyringData())
+    expect(keys['1']).toBeDefined()
+    expect(keys['1']).not.toBe(await exportVaultKey(masterKey))
   })
 
-  it('does not upgrade without the server keyring, which may hold keys this device lacks', async () => {
+  it('fails an Argon2id login that could not load any keys', async () => {
     vi.mocked(getKeyring).mockRejectedValue(new TypeError('Failed to fetch'))
 
-    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt: LEGACY_SALT, iterations: 1000 })
+    await expect(loginArgon2id(CURRENT_KDF)).rejects.toThrow('Could not load your encryption keys')
+    expect(getActiveKeyVersion()).toBe('1')
+    await expect(exportKeyringData()).resolves.toBe('{"activeVersion":"1"}')
+  })
+
+  it('refuses an Argon2id account the server has no keyring for, rather than making one', async () => {
+    await expect(loginArgon2id(CURRENT_KDF)).rejects.toThrow()
+    expect(updateKeyring).not.toHaveBeenCalled()
+  })
+
+  it('still stores a keyring for a PBKDF2 account that never had one', async () => {
+    await loginVault({ account: ACCOUNT, password: PASSWORD, salt: SALT, iterations: 1000, saltVersion: 1 })
+
+    expect(updateKeyring).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not upgrade offline', async () => {
+    const { keyring } = await seedArgon2idServerKeyring(OLD_KDF)
+    localStorage.setItem('test-vault-keyring-cache', keyring)
+    vi.mocked(getSession).mockRejectedValue(new TypeError('Failed to fetch'))
+
+    const result = await loginArgon2id(OLD_KDF)
 
     expect(result.keyDerivationUpgraded).toBe(false)
     expect(changePassword).not.toHaveBeenCalled()
   })
 
   it('still logs in when the upgrade fails', async () => {
-    await seedServerKeyring({ salt: LEGACY_SALT, iterations: 1000 })
+    await seedArgon2idServerKeyring(OLD_KDF)
     vi.mocked(changePassword).mockRejectedValueOnce(new Error('CONFLICT'))
 
-    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt: LEGACY_SALT, iterations: 1000 })
+    const result = await loginArgon2id(OLD_KDF)
 
     expect(result.keyDerivationUpgraded).toBe(false)
-    expect(JSON.parse(localStorage.getItem('test-vault-meta')!)).toMatchObject({ salt: LEGACY_SALT })
+    expect(readStoredMetadata()).toMatchObject({ salt: SALT, kdf: OLD_KDF })
   })
 
   it('reports that biometric unlock was cleared', async () => {
-    await seedServerKeyring({ salt: LEGACY_SALT, iterations: 1000 })
+    await seedArgon2idServerKeyring(OLD_KDF)
     writeBiometricData({ account: ACCOUNT, credentialId: 'cred', prfSalt: 'salt', encryptedMasterKey: { iv: '', cipher: '' } })
 
-    const result = await loginVault({ account: ACCOUNT, password: PASSWORD, salt: LEGACY_SALT, iterations: 1000 })
+    const result = await loginArgon2id(OLD_KDF)
 
     expect(result).toEqual({ keyDerivationUpgraded: true, biometricsCleared: true })
     expect(hasBiometricData()).toBe(false)
   })
 
   it('rejects legacy salts when the host supplies no decoder', async () => {
-    configureVaultHost({})
+    configureVaultHost({ deriveLegacyKey })
     await expect(loginVault({ account: ACCOUNT, password: PASSWORD, salt: LEGACY_SALT, iterations: 1000 }))
       .rejects.toThrow(/Unsupported salt version/)
   })
 
   it('decides which parameters need upgrading', () => {
-    expect(needsKeyDerivationUpgrade({ saltVersion: 1, iterations: 1000 })).toBe(false)
-    expect(needsKeyDerivationUpgrade({ saltVersion: 1, iterations: 999 })).toBe(true)
-    expect(needsKeyDerivationUpgrade({ saltVersion: 1 })).toBe(true)
-    expect(needsKeyDerivationUpgrade({ iterations: 1000 })).toBe(true)
+    expect(needsKeyDerivationUpgrade({ saltVersion: 1, kdf: CURRENT_KDF })).toBe(false)
+    expect(needsKeyDerivationUpgrade({ saltVersion: 1, kdf: OLD_KDF })).toBe(true)
+    expect(needsKeyDerivationUpgrade({ saltVersion: 1, kdf: { ...CURRENT_KDF, passes: 0 } })).toBe(true)
+    expect(needsKeyDerivationUpgrade({ kdf: CURRENT_KDF })).toBe(true)
+    // PBKDF2 accounts move in the migration app instead
+    expect(needsKeyDerivationUpgrade({ saltVersion: 1 })).toBe(false)
+    expect(needsKeyDerivationUpgrade({})).toBe(false)
+  })
+})
+
+describe('createVaultAccount', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    configureVaultHost({})
+    await clearVaultDeviceData()
+    vi.clearAllMocks()
+    vi.mocked(createAccount).mockResolvedValue({ account: ACCOUNT })
+  })
+
+  it('creates an Argon2id account whose data key is random, not derived from the password', async () => {
+    await expect(createVaultAccount(PASSWORD)).resolves.toBe(ACCOUNT)
+
+    const request = vi.mocked(createAccount).mock.calls[0][0]
+    expect(request).toMatchObject({ saltVersion: 1, kdf: CURRENT_KDF, randomDataKeys: true })
+    const masterKey = await deriveVaultKey({ password: PASSWORD, salt: request.salt, kdf: request.kdf, saltVersion: 1 })
+    const keyring = JSON.parse(await decryptWithKey(masterKey, JSON.parse(request.keyring!)))
+    expect(keyring.activeVersion).toBe('1')
+    expect(keyring['1']).not.toBe(await exportVaultKey(masterKey))
+  })
+
+  it('leaves the vault locked', async () => {
+    await createVaultAccount(PASSWORD)
+    expect(readCachedKeyring()).toBeNull()
+    expect(readStoredMetadata()).toBeNull()
+  })
+})
+
+describe('upgradeKeyDerivation', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    configureVaultHost({ deriveLegacyKey })
+    await clearVaultDeviceData()
+    vi.clearAllMocks()
+    vi.mocked(getSession).mockResolvedValue('mock-session')
+  })
+
+  it('moves a PBKDF2 account to Argon2id, keeping every key including v1', async () => {
+    await seedLegacyServerKeyring({ salt: SALT, iterations: 1000, saltVersion: 1 })
+    await loginVault({ account: ACCOUNT, password: PASSWORD, salt: SALT, iterations: 1000, saltVersion: 1 })
+
+    await upgradeKeyDerivation(ACCOUNT, 'new-password-456')
+
+    const request = vi.mocked(changePassword).mock.calls[0][0]
+    expect(request.newKdf).toEqual(CURRENT_KDF)
+    const newMasterKey = await deriveVaultKey({ password: 'new-password-456', salt: request.newSalt, kdf: request.newKdf, saltVersion: 1 })
+    const keyring = JSON.parse(await decryptWithKey(newMasterKey, JSON.parse(request.newKeyring)))
+    expect(Object.keys(keyring).sort()).toEqual(['1', '2', 'activeVersion'])
+    expect(readStoredMetadata()).toMatchObject({ kdf: CURRENT_KDF })
+    expect(getActiveKeyVersion()).toBe('2')
+  })
+
+  it('needs a session', async () => {
+    await initialiseVault({ password: PASSWORD, salt: SALT, iterations: 1000, saltVersion: 1 })
+
+    await expect(upgradeKeyDerivation(ACCOUNT, 'new-password-456')).rejects.toThrow(/connection to the server/)
+    expect(changePassword).not.toHaveBeenCalled()
   })
 })
 
 describe('biometric unlock with a stale key', () => {
   beforeEach(async () => {
     localStorage.clear()
-    configureVaultHost({})
+    configureVaultHost({ deriveLegacyKey })
     await clearVaultDeviceData()
     vi.clearAllMocks()
     vi.mocked(getKeyring).mockResolvedValue(undefined)
 
     // Save biometric unlock for a master key, along with a keyring wrapped with it
-    const params = { password: PASSWORD, salt: 'Y3VycmVudC1zYWx0', iterations: 1000, saltVersion: 1 }
+    const params = { password: PASSWORD, salt: 'Y3VycmVudC1zYWx0', iterations: 1000, saltVersion: 1, deriveLegacyKey }
     await initialiseVault(params)
     await storeVault(ACCOUNT)
     const masterKey = await deriveVaultKey(params)
@@ -312,5 +409,53 @@ describe('biometric unlock with a stale key', () => {
       expect(onSessionLost).not.toHaveBeenCalled()
       expect(hasBiometricData()).toBe(true)
     })
+  })
+})
+
+describe('biometric unlock without a cached keyring', () => {
+  async function saveBiometricUnlock(masterKey: CryptoKey) {
+    const prfKey = await crypto.subtle.importKey('raw', PRF_OUTPUT, { name: 'AES-GCM', length: 256 }, false, ['encrypt'])
+    const encrypted = await encryptWithKey(prfKey, await exportVaultKey(masterKey), 'master')
+    writeBiometricData({
+      account: ACCOUNT,
+      credentialId: 'cred',
+      prfSalt: 'salt',
+      encryptedMasterKey: { iv: encrypted.iv, cipher: encrypted.cipher },
+    })
+  }
+
+  beforeEach(async () => {
+    localStorage.clear()
+    configureVaultHost({ deriveLegacyKey })
+    await clearVaultDeviceData()
+    vi.clearAllMocks()
+    vi.mocked(getKeyring).mockResolvedValue(undefined)
+    vi.mocked(getSession).mockRejectedValue(new TypeError('Failed to fetch'))
+  })
+
+  it('refuses to unlock an Argon2id account offline with no keys to load', async () => {
+    const { masterKey } = await seedArgon2idServerKeyring(CURRENT_KDF)
+    localStorage.setItem('test-vault-meta', JSON.stringify({ account: ACCOUNT, salt: SALT, saltVersion: 1, kdf: CURRENT_KDF }))
+    await saveBiometricUnlock(masterKey)
+
+    await expect(unlockWithBiometrics(ACCOUNT)).rejects.toThrow('Could not load your encryption keys')
+  })
+
+  it('never takes another account\'s stored parameters as a sign that this one is PBKDF2', async () => {
+    const { masterKey } = await seedArgon2idServerKeyring(CURRENT_KDF)
+    // The last login on this device was a different, PBKDF2 account
+    localStorage.setItem('test-vault-meta', JSON.stringify({ account: 'other-account', salt: SALT, saltVersion: 1, iterations: 1000 }))
+    await saveBiometricUnlock(masterKey)
+
+    await expect(unlockWithBiometrics(ACCOUNT)).rejects.toThrow('Could not load your encryption keys')
+  })
+
+  it('still unlocks a PBKDF2 account offline, whose master key is data key v1', async () => {
+    const masterKey = await deriveVaultKey({ password: PASSWORD, salt: SALT, iterations: 1000, saltVersion: 1, deriveLegacyKey })
+    localStorage.setItem('test-vault-meta', JSON.stringify({ account: ACCOUNT, salt: SALT, saltVersion: 1, iterations: 1000 }))
+    await saveBiometricUnlock(masterKey)
+
+    await expect(unlockWithBiometrics(ACCOUNT)).resolves.toBeUndefined()
+    expect(JSON.parse(await exportKeyringData())['1']).toBe(await exportVaultKey(masterKey))
   })
 })

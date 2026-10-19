@@ -1,3 +1,4 @@
+import { KdfParamsSchema, type KdfParams } from '@vault/shared'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 const isCypress = typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
@@ -27,6 +28,8 @@ export type VaultStoredMetadata = {
   salt?: string,
   iterations?: number,
   saltVersion?: number,
+  /** Argon2id parameters. Without them, the account derives its key with PBKDF2 and `iterations`. */
+  kdf?: KdfParams,
 }
 
 export function readStoredMetadata(): VaultStoredMetadata | null {
@@ -40,6 +43,7 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
           salt: typeof parsed.salt === 'string' ? parsed.salt : undefined,
           iterations: typeof parsed.iterations === 'number' ? parsed.iterations : undefined,
           saltVersion: typeof parsed.saltVersion === 'number' ? parsed.saltVersion : undefined,
+          kdf: KdfParamsSchema.safeParse(parsed.kdf).data,
         }
       }
     } catch {

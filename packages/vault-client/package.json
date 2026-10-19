@@ -9,7 +9,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./worker": "./src/worker.ts",
-    "./storageNames": "./src/sync/shared/storageNames.ts"
+    "./storageNames": "./src/sync/shared/storageNames.ts",
+    "./kdfWorker": "./src/kdfWorker.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -23,6 +24,7 @@
     "@vault/shared": "workspace:*",
     "comlink": "^4.4.2",
     "fast-deep-equal": "^3.1.3",
+    "hash-wasm": "^4.12.0",
     "localforage": "^1.10.0",
     "lodash-es": "^4.17.23",
     "nanoid": "^6.0.0",

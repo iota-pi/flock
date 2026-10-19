@@ -23,12 +23,13 @@ import {
   generateVaultKey,
   CURRENT_SALT_VERSION,
   type CryptoResult,
+  type DeriveLegacyKey,
 } from './crypto'
+import { DEFAULT_KDF, setKdfWorkerFactory, type KdfParams } from './kdf'
 import {
   broadcastVaultEvent,
   readStoredMetadata,
   VaultStoredMetadata,
-  DEFAULT_CRYPTO_ITERATIONS,
   type VaultBroadcastEvent,
 } from './util'
 import { SyncWriteAheadLog } from '../sync/worker/SyncWriteAheadLog'
@@ -95,6 +96,16 @@ export interface VaultHostHooks {
    * upgraded). Without it, logging in to such an account fails.
    */
   decodeLegacySalt?: (salt: string) => ArrayBuffer
+  /**
+   * Derives PBKDF2 keys, for accounts without Argon2id parameters. Without it, logging in to such
+   * an account fails with `UnsupportedKeyDerivationError`.
+   */
+  deriveLegacyKey?: DeriveLegacyKey
+  /**
+   * Creates a worker that calls `exposeKdfWorker` (from `@vault/client/kdfWorker`), so Argon2id
+   * runs off the main thread. Without it, Argon2id runs in the calling realm.
+   */
+  createKdfWorker?: () => Worker
 }
 
 let hostHooks: VaultHostHooks = {}
@@ -103,6 +114,7 @@ let vaultEventsListener: BroadcastChannel | null = null
 /** Connects the vault to the host app. Call once at startup on the main thread. */
 export function configureVaultHost(hooks: VaultHostHooks): void {
   hostHooks = hooks
+  setKdfWorkerFactory(hooks.createKdfWorker)
 
   vaultEventsListener?.close()
   vaultEventsListener = null
@@ -129,6 +141,8 @@ export type { KeyProvider }
 /** This realm's keys. The sync worker keeps its own `Keyring`, loaded from `exportKeyringData`. */
 const keyring = new Keyring()
 let masterKey: CryptoKey | null = null
+// Whether the master key came from PBKDF2. On those accounts it is also data key v1 (see initialiseVault).
+let masterKeyIsLegacy = false
 let keyHash = ''
 let session = ''
 let activeAccount = ''
@@ -180,18 +194,22 @@ export function getVaultSession() {
   return session
 }
 
-async function writeStoredMetadata(
-  account: string,
-  params?: { salt?: string; iterations?: number; saltVersion?: number }
-) {
-  const existing = readStoredMetadata()
+type KeyDerivationParams = { salt?: string, iterations?: number, saltVersion?: number, kdf?: KdfParams }
+
+/**
+ * Records the account and, when given, its key derivation parameters. They're always given as a
+ * set: a missing `kdf` means PBKDF2. Without them, the stored ones are kept.
+ */
+async function writeStoredMetadata(account: string, params?: KeyDerivationParams) {
+  const keyParams = params ?? readStoredMetadata()
   localStorage.setItem(
     getVaultStorageNames().vaultMetadataKey,
     JSON.stringify({
       account,
-      salt: params?.salt ?? existing?.salt,
-      iterations: params?.iterations ?? existing?.iterations,
-      saltVersion: params?.saltVersion ?? existing?.saltVersion,
+      salt: keyParams?.salt,
+      iterations: keyParams?.kdf ? undefined : keyParams?.iterations,
+      saltVersion: keyParams?.saltVersion,
+      kdf: keyParams?.kdf,
     } satisfies VaultStoredMetadata),
   )
 }
@@ -286,14 +304,19 @@ export function handleSessionExpired(): Promise<void> {
   return sessionExpiryPromise
 }
 
+/**
+ * Derives the master key and its auth token. The keyring is loaded separately (from the cache or the
+ * server), except on PBKDF2 accounts, whose data key v1 is the master key itself.
+ */
 export async function initialiseVault({
   password,
+  kdf,
   iterations,
   salt,
   saltVersion,
 }: {
   password: string,
-  isNewAccount?: boolean,
+  kdf?: KdfParams,
   iterations?: number,
   salt: string,
   saltVersion?: number,
@@ -301,14 +324,34 @@ export async function initialiseVault({
   const derivedKey = await deriveVaultKey({
     password,
     salt,
+    kdf,
     iterations,
     saltVersion,
     decodeLegacySalt: hostHooks.decodeLegacySalt,
+    deriveLegacyKey: hostHooks.deriveLegacyKey,
   })
-  masterKey = derivedKey
-  keyring.replace(new Map([['1', derivedKey]]), '1')
+  setMasterKey(derivedKey, !kdf)
   keyHash = await hashVaultKey(derivedKey)
   return keyHash
+}
+
+/** Sets the master key, and on PBKDF2 accounts its role as data key v1 */
+function setMasterKey(key: CryptoKey, isLegacy: boolean) {
+  masterKey = key
+  masterKeyIsLegacy = isLegacy
+  if (isLegacy) {
+    keyring.replace(new Map([['1', key]]), '1')
+  } else {
+    keyring.clear()
+  }
+}
+
+/** Fails a login or unlock that ended up without any data keys, which can't decrypt anything */
+function assertKeyringLoaded() {
+  if (!keyring.hasKey()) {
+    clearKeyData()
+    throw new Error('Could not load your encryption keys. Check your connection and try again.')
+  }
 }
 
 export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Promise<void> {
@@ -345,13 +388,18 @@ export async function syncKeyringFromServer(account: string): Promise<boolean> {
         { cause: err },
       )
     }
-  } else {
+  } else if (masterKeyIsLegacy) {
+    // Accounts from before keyrings were stored get one at their next login. Accounts created
+    // since are created with one, so for them a missing keyring is an error.
     try {
       await storeVault(account)
     } catch (err) {
       console.warn('[vault] Failed to seed keyring to server (network error):', err)
     }
     return false
+  } else {
+    clearKeyData()
+    throw new Error('The server has no keyring for this account')
   }
 }
 
@@ -359,16 +407,18 @@ export async function loginVault({
   account,
   password,
   salt,
+  kdf,
   iterations,
   saltVersion,
 }: {
   account: string,
   password: string,
   salt: string,
+  kdf?: KdfParams,
   iterations?: number,
   saltVersion?: number,
 }): Promise<{ keyDerivationUpgraded: boolean, biometricsCleared: boolean }> {
-  await initialiseVault({ password, salt, iterations, saltVersion })
+  await initialiseVault({ password, salt, kdf, iterations, saltVersion })
 
   let passwordVerified = false
 
@@ -412,12 +462,13 @@ export async function loginVault({
 
   // If session was established, sync latest keyring from server
   const serverKeyringLoaded = sessionEstablished ? await syncKeyringFromServer(account) : false
+  assertKeyringLoaded()
 
-  await writeStoredMetadata(account, { salt, iterations, saltVersion })
+  await writeStoredMetadata(account, { salt, iterations, saltVersion, kdf })
 
-  // Upgrade outdated key derivation by changing the password to itself. The re-wrapped keyring must
-  // hold every key, so this waits until the server's keyring has been loaded.
-  if (serverKeyringLoaded && needsKeyDerivationUpgrade({ saltVersion, iterations })) {
+  // Upgrade outdated Argon2id parameters by changing the password to itself. The re-wrapped keyring
+  // must hold every key, so this waits until the server's keyring has been loaded.
+  if (serverKeyringLoaded && needsKeyDerivationUpgrade({ saltVersion, kdf })) {
     const hadBiometrics = hasBiometricData()
     try {
       await rewrapMasterKey({ account, currentAuthToken: keyHash, newPassword: password })
@@ -429,11 +480,19 @@ export async function loginVault({
   return { keyDerivationUpgraded: false, biometricsCleared: false }
 }
 
-/** Whether keys derived with these parameters should be re-derived with a new salt at the next login */
+/**
+ * Whether an Argon2id key derived with these parameters should be re-derived with the current ones
+ * at the next login. PBKDF2 accounts never are: they move to Argon2id in the app's migration, with
+ * a new password, since the old one's PBKDF2 output outlives the change (see `upgradeKeyDerivation`).
+ */
 export function needsKeyDerivationUpgrade(
-  { saltVersion, iterations }: { saltVersion?: number, iterations?: number },
+  { saltVersion, kdf }: { saltVersion?: number, kdf?: KdfParams },
 ): boolean {
-  return saltVersion !== CURRENT_SALT_VERSION || (iterations ?? 0) < DEFAULT_CRYPTO_ITERATIONS
+  if (!kdf) return false
+  return saltVersion !== CURRENT_SALT_VERSION
+    || kdf.memoryKiB < DEFAULT_KDF.memoryKiB
+    || kdf.passes < DEFAULT_KDF.passes
+    || kdf.parallelism < DEFAULT_KDF.parallelism
 }
 
 /** Exports the keyring as JSON, for the sync worker's `Keyring.load` */
@@ -443,12 +502,7 @@ export async function exportKeyringData(): Promise<string> {
 
 export async function storeVault(account: string, activeVersionOverride?: string) {
   const effectiveVersion = activeVersionOverride ?? keyring.activeVersion
-  const meta = readStoredMetadata()
-  await writeStoredMetadata(account, {
-    salt: meta?.salt,
-    iterations: meta?.iterations,
-    saltVersion: meta?.saltVersion,
-  })
+  await writeStoredMetadata(account)
   const plaintext = JSON.stringify(await keyring.export(effectiveVersion))
   const encryptionKey = requireMasterKey()
   const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
@@ -467,6 +521,7 @@ function clearKeyData() {
   keyGeneration += 1
   keyring.clear()
   masterKey = null
+  masterKeyIsLegacy = false
   keyHash = ''
   session = ''
   activeAccount = ''
@@ -520,24 +575,27 @@ export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
 export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {
   const {
     salt: currentSalt,
+    kdf: currentKdf,
     iterations: currentIterations,
     saltVersion: currentSaltVersion,
   } = await getSecurityParams(account)
   const currentMasterKey = await deriveVaultKey({
     password: currentPassword,
     salt: currentSalt,
+    kdf: currentKdf,
     iterations: currentIterations,
     saltVersion: currentSaltVersion,
     decodeLegacySalt: hostHooks.decodeLegacySalt,
+    deriveLegacyKey: hostHooks.deriveLegacyKey,
   })
   const currentAuthToken = await hashVaultKey(currentMasterKey)
   await rewrapMasterKey({ account, currentAuthToken, newPassword })
 }
 
 /**
- * Derives a new master key from `newPassword` with a fresh salt and the current parameters,
- * re-wraps the keyring with it and replaces the account's credentials. This signs out every other
- * session and clears biometric unlock on this device.
+ * Derives a new master key from `newPassword` with a fresh salt and the current Argon2id
+ * parameters, re-wraps the keyring with it and replaces the account's credentials. This signs out
+ * every other session and clears biometric unlock on this device.
  */
 async function rewrapMasterKey({
   account,
@@ -549,13 +607,13 @@ async function rewrapMasterKey({
   newPassword: string,
 }): Promise<void> {
   const newSalt = generateSalt()
-  const newIterations = DEFAULT_CRYPTO_ITERATIONS
+  const newKdf = DEFAULT_KDF
   const newSaltVersion = CURRENT_SALT_VERSION
 
   const newMasterKey = await deriveVaultKey({
     password: newPassword,
     salt: newSalt,
-    iterations: newIterations,
+    kdf: newKdf,
     saltVersion: newSaltVersion,
   })
   const newAuthToken = await hashVaultKey(newMasterKey)
@@ -570,23 +628,68 @@ async function rewrapMasterKey({
     currentAuthToken,
     newAuthToken,
     newSalt,
-    newIterations,
+    newKdf,
     newKeyring: JSON.stringify(encryptedKeyring),
     saltVersion: newSaltVersion,
     expectedKeyringVersion: currentKeyringVer,
     keyringVersion: currentKeyringVer,
   })
 
+  // The keyring keeps every data key, including a PBKDF2 account's v1, so only the master key changes
   masterKey = newMasterKey
+  masterKeyIsLegacy = false
   clearBiometricData()
   writeCachedKeyring(JSON.stringify(encryptedKeyring))
   await writeStoredMetadata(account, {
     salt: newSalt,
-    iterations: newIterations,
+    kdf: newKdf,
     saltVersion: newSaltVersion,
   })
   await establishSessionFromKeyHash(account, newAuthToken)
   broadcastVaultEvent({ type: 'PASSWORD_CHANGED', account })
+}
+
+/**
+ * Creates an account whose master key is derived with Argon2id and whose data key is random, so no
+ * data is ever encrypted with a key derived from the password. Returns the new account ID. The
+ * vault isn't unlocked: log in afterwards.
+ */
+export async function createVaultAccount(password: string): Promise<string> {
+  const salt = generateSalt()
+  const kdf = DEFAULT_KDF
+  const newMasterKey = await deriveVaultKey({ password, salt, kdf, saltVersion: CURRENT_SALT_VERSION })
+  const authToken = await hashVaultKey(newMasterKey)
+
+  const newKeyring = new Keyring()
+  newKeyring.replace(new Map([['1', await generateVaultKey()]]), '1')
+  const encryptedKeyring = await encryptWithKey(newMasterKey, JSON.stringify(await newKeyring.export()), 'master')
+
+  const { account } = await createAccount({
+    salt,
+    authToken,
+    saltVersion: CURRENT_SALT_VERSION,
+    kdf,
+    keyring: JSON.stringify(encryptedKeyring),
+    randomDataKeys: true,
+  })
+  return account
+}
+
+/**
+ * Moves a logged-in PBKDF2 account to Argon2id with a new password. Run it in the app's migration,
+ * with the session and server keyring the login loaded. The new password must differ from the old
+ * one: the old one's PBKDF2 output survives in backups (auth token hashes and data key v1).
+ */
+export async function upgradeKeyDerivation(account: string, newPassword: string): Promise<void> {
+  if (!session || !keyHash) {
+    throw new Error('Changing the password needs a connection to the server. Please try again once you are online.')
+  }
+  await rewrapMasterKey({ account, currentAuthToken: keyHash, newPassword })
+}
+
+/** The version of the data key new data is encrypted with */
+export function getActiveKeyVersion(): string {
+  return keyring.activeVersion
 }
 
 /**
@@ -692,8 +795,10 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
   })
 
   const derivedKey = await importVaultKey(exportedMasterKey)
-  masterKey = derivedKey
-  keyring.replace(new Map([['1', derivedKey]]), '1')
+  // The stored parameters may be another account's (whoever logged in last). Only this account's
+  // say it's PBKDF2; otherwise its keys come from the cache or the server, never the master key.
+  const meta = readStoredMetadata()
+  setMasterKey(derivedKey, meta?.account === account && !meta.kdf)
   keyHash = await hashVaultKey(derivedKey)
 
   // Phase 1: Load cached keyring for offline access
@@ -736,13 +841,9 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
     }
     console.info('[vault] Biometric unlock in offline mode:', outcome.error)
   }
+  assertKeyringLoaded()
 
-  const meta = readStoredMetadata()
-  await writeStoredMetadata(account, {
-    salt: meta?.salt,
-    iterations: meta?.iterations,
-    saltVersion: meta?.saltVersion,
-  })
+  await writeStoredMetadata(account)
 }
 
 type BiometricSessionOutcome = { error: unknown }

@@ -14,6 +14,7 @@ vi.mock('src/migrate/detection', async importOriginal => ({
 
 const lightTheme = getTheme(false)
 const NOT_UPGRADED = { keyDerivationUpgraded: false, biometricsCleared: false }
+const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
 
 const renderLoginPage = () => {
   const router = createMemoryRouter([
@@ -143,9 +144,9 @@ describe('LoginPage', () => {
   it('displays incorrect password error and does not show server failure message', async () => {
     vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({
       salt: 'test-salt',
-      iterations: 5000,
       saltVersion: 1,
-      dataVersion: 1,
+      kdf: ARGON2ID,
+      dataVersion: 2,
     })
     vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
 
@@ -171,9 +172,9 @@ describe('LoginPage', () => {
   it('allows dismissing error alert with close button', async () => {
     vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({
       salt: 'test-salt',
-      iterations: 5000,
       saltVersion: 1,
-      dataVersion: 1,
+      kdf: ARGON2ID,
+      dataVersion: 2,
     })
     vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
 
@@ -204,9 +205,9 @@ describe('LoginPage', () => {
   it('clears error alert when typing in input fields', async () => {
     vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({
       salt: 'test-salt',
-      iterations: 5000,
       saltVersion: 1,
-      dataVersion: 1,
+      kdf: ARGON2ID,
+      dataVersion: 2,
     })
     vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
 
@@ -235,7 +236,7 @@ describe('LoginPage', () => {
 
   it('tells the user when logging in upgraded their account encryption', async () => {
     useAppStore.setState({ message: null })
-    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', dataVersion: 1 })
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2 })
     vi.spyOn(vault, 'loginVault').mockResolvedValue({ keyDerivationUpgraded: true, biometricsCleared: true })
 
     renderLoginPage()
@@ -301,7 +302,7 @@ describe('LoginPage', () => {
 
     it('lets an account whose migration was deferred log in', async () => {
       localStorage.setItem('flock-migration-deferred', JSON.stringify({ 'old-account': Date.now() + 60_000 }))
-      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, dataVersion: 0 })
+      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 1 })
       const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
 
       await logIn()
@@ -310,8 +311,30 @@ describe('LoginPage', () => {
       expect(goToMigration).not.toHaveBeenCalled()
     })
 
-    it('sends a legacy key derivation to the migration app', async () => {
-      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', dataVersion: 1 })
+    it('sends an account the server describes as PBKDF2 to the migration app, whatever its level', async () => {
+      localStorage.setItem('flock-migration-deferred', JSON.stringify({ 'old-account': Date.now() + 60_000 }))
+      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, iterations: 600_000, dataVersion: 2 })
+      const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+      await logIn()
+
+      await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old-account'))
+      expect(loginVaultSpy).not.toHaveBeenCalled()
+    })
+
+    it('logs in with Argon2id parameters cached on the device when offline', async () => {
+      localStorage.setItem('FlockVaultMeta', JSON.stringify({ account: 'old-account', salt: 'cached-salt', saltVersion: 1, kdf: ARGON2ID }))
+      vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
+      const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+      await logIn()
+
+      await waitFor(() => expect(loginVaultSpy).toHaveBeenCalledWith(expect.objectContaining({ salt: 'cached-salt', kdf: ARGON2ID })))
+      expect(goToMigration).not.toHaveBeenCalled()
+    })
+
+    it('sends key derivation parameters this app no longer accepts to the migration app', async () => {
+      vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2 })
       vi.spyOn(vault, 'loginVault').mockRejectedValue(new vault.UnsupportedKeyDerivationError(0))
 
       await logIn()

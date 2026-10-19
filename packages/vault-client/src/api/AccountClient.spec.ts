@@ -24,6 +24,8 @@ vi.mock('./vaultTrpcClient', () => ({
   getVaultTrpcClient: vi.fn(() => mockTrpcClient),
 }))
 
+const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
+
 describe('AccountClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -53,6 +55,39 @@ describe('AccountClient', () => {
       salt: 'salt-2',
       iterations: 222,
       dataVersion: 1,
+    })
+  })
+
+  it('creates Argon2id accounts with their keyring and without iterations', async () => {
+    vi.mocked(getVaultTrpcClient().accounts.createAccount.mutate).mockResolvedValue({ account: 'acc-1' })
+
+    await createAccount({ salt: 'salt', authToken: 'token', saltVersion: 1, kdf: ARGON2ID, keyring: 'keyring', randomDataKeys: true })
+
+    expect(getVaultTrpcClient().accounts.createAccount.mutate).toHaveBeenCalledWith({
+      salt: 'salt',
+      authToken: 'token',
+      saltVersion: 1,
+      kdf: ARGON2ID,
+      keyring: 'keyring',
+      randomDataKeys: true,
+    })
+  })
+
+  it('returns the Argon2id parameters of an account, without a fallback iteration count', async () => {
+    vi.mocked(getVaultTrpcClient().accounts.getSecurityParams.query).mockResolvedValue({
+      salt: 'salt-4',
+      saltVersion: 1,
+      kdf: ARGON2ID,
+      dataVersion: 2,
+      success: true,
+    })
+
+    await expect(getSecurityParams('acc-1')).resolves.toEqual({
+      salt: 'salt-4',
+      iterations: undefined,
+      saltVersion: 1,
+      kdf: ARGON2ID,
+      dataVersion: 2,
     })
   })
 
@@ -136,7 +171,7 @@ describe('AccountClient', () => {
       currentAuthToken: 'cur-token',
       newAuthToken: 'new-token',
       newSalt: 'new-salt',
-      newIterations: 100,
+      newKdf: ARGON2ID,
       newKeyring: 'new-keyring',
     })
 
@@ -145,7 +180,7 @@ describe('AccountClient', () => {
       currentAuthToken: 'cur-token',
       newAuthToken: 'new-token',
       newSalt: 'new-salt',
-      newIterations: 100,
+      newKdf: ARGON2ID,
       newKeyring: 'new-keyring',
     })
   })
