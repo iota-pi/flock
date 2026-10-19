@@ -81,8 +81,10 @@ describe('createServer error reporting', () => {
         payload: {
           authToken: 'mock-token',
           salt: 'mock-salt',
-          iterations: 1000,
           saltVersion: 1,
+          kdf: { algorithm: 'argon2id', memoryKiB: 65536, passes: 3, parallelism: 1 },
+          keyring: 'mock-keyring',
+          randomDataKeys: true,
         },
       })
 

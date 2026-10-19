@@ -2,7 +2,7 @@
  * Version of the protocol this build speaks. Bump it with each protocol change, so that the server
  * can turn away writes from builds that predate the change (see `minProtocolVersion`).
  */
-export const VAULT_PROTOCOL_VERSION = 1
+export const VAULT_PROTOCOL_VERSION = 2
 
 /** Request header carrying the client's protocol version. Builds that don't send it count as version 0. */
 export const PROTOCOL_VERSION_HEADER = 'x-vault-protocol'

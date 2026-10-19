@@ -3,7 +3,7 @@
  * module it may import from there. See "Backwards compatibility" in docs/vault-extraction.md.
  */
 
-export { MIN_DATA_VERSION } from '../shared/flockDataVersion'
+export { MIN_ACCOUNT_DATA_VERSION, MIN_DEVICE_DATA_VERSION } from '../shared/flockDataVersion'
 
 export const MIGRATE_PATH = '/migrate/'
 

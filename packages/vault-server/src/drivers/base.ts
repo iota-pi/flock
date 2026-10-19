@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
+import type { ItemId, KdfParams, ManifestEntry, PageToken } from '@vault/shared'
 import {
   VaultKeySchema,
   VaultSessionRecordSchema,
@@ -21,6 +21,15 @@ export interface BaseData {
   account: string,
 }
 
+/** What a client needs to derive an account's master key, plus its data version */
+export interface SecurityParams {
+  salt: string,
+  iterations?: number,
+  saltVersion?: number,
+  kdf?: KdfParams,
+  dataVersion?: number,
+}
+
 export interface AuthData extends BaseData {
   session: string,
 }
@@ -33,6 +42,7 @@ export type UpdateAccountDataParams = BaseData & {
   salt?: string,
   iterations?: number,
   saltVersion?: number,
+  kdf?: KdfParams,
   keyringVersion?: number,
   expectedKeyringVersion?: number,
   lastAccess?: number,
@@ -46,6 +56,8 @@ export interface ItemFormatSummary {
   hasSnapshot: boolean
   /** The ciphertext format of the snapshot (undefined for snapshots from before formats existed) */
   snapshotFormat?: number
+  /** The key version the snapshot is encrypted with (undefined for snapshots from before versions, which mean '1') */
+  snapshotKver?: string
   /** Whether the item still carries a pre-Automerge `cipher` payload */
   hasCipher: boolean
 }
@@ -66,7 +78,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
   // Throws `AuthenticationError` when the account doesn't exist
-  abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion?: number }>
+  abstract getSecurityParams(data: BaseData): Promise<SecurityParams>
   abstract getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update

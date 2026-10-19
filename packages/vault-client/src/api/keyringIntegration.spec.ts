@@ -21,6 +21,7 @@ import { Keyring } from './Keyring'
 import { getSessionExpiredHandler } from './runtime'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
 import { clearActiveSessionToken } from '../sync/shared/workerAuthStore'
+import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 
 import { updateKeyring, getKeyring, getSession } from './client'
 
@@ -44,6 +45,7 @@ vi.mock('../sync/shared/workerAuthStore', () => ({
 describe('Vault Keyring Integration', () => {
   beforeEach(async () => {
     localStorage.clear()
+    configureVaultHost({ deriveLegacyKey })
     await clearVaultDeviceData()
     vi.clearAllMocks()
   })
@@ -316,7 +318,7 @@ describe('Vault Keyring Integration', () => {
 
   it('handleSessionExpired reports a lost session without locking vault when silent re-establishment fails', async () => {
     const onSessionLost = vi.fn()
-    configureVaultHost({ onSessionLost })
+    configureVaultHost({ onSessionLost, deriveLegacyKey })
     await loginVault({
       account: 'test-account',
       password: 'password123',
@@ -340,7 +342,7 @@ describe('Vault Keyring Integration', () => {
     expect(stored).toBeDefined()
     expect(JSON.parse(stored!).account).toBe('test-account')
 
-    configureVaultHost({})
+    configureVaultHost({ deriveLegacyKey })
   })
 
   it('handleSessionExpired shares promise across concurrent calls', async () => {

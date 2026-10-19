@@ -3,6 +3,7 @@ import { configureVaultEndpoint, configureVaultHost } from '@vault/client'
 import { configureVaultStorageNames } from '@vault/client/storageNames'
 import { useAppStore } from '../../state/store'
 import { FLOCK_STORAGE_NAMES } from './storageNames'
+import { deriveLegacyKey } from './legacyKeyDerivation'
 import { handleClientOutdated } from './clientOutdated'
 import { MIGRATION_CHANNEL } from '../../migrate/detection'
 import { handleMigrationMessage } from './migrationTakeover'
@@ -23,6 +24,10 @@ configureVaultHost({
       applyUpdate: forceAppUpdate,
     })
   },
+  deriveLegacyKey,
+  createKdfWorker: typeof Worker === 'undefined'
+    ? undefined
+    : () => new Worker(new URL('./kdf.worker.ts', import.meta.url), { type: 'module' }),
 })
 
 // The migration app runs the only engine while it works, so this tab steps aside

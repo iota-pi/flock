@@ -3,6 +3,7 @@ import { loadAccount } from './vault/session'
 import { useAppStore } from '../state/store'
 import { useLoggedIn } from '../state/selectors'
 import useSyncCoordinatorLifecycle from './vault/useSyncCoordinatorLifecycle'
+import useAccountLevelCheck from './vault/useAccountLevelCheck'
 import { prefetchSyncWorker } from './vault/prefetchSyncWorker'
 import { ensurePersistentStorage, getTrackedFetch, initVaultTrpcClient } from '@vault/client'
 import { initTrpcClient } from 'src/api/trpcClient'
@@ -57,6 +58,7 @@ export default function AppInitializer() {
   }, [navigate])
 
   useSyncCoordinatorLifecycle(account, loggedIn)
+  useAccountLevelCheck(account, loggedIn)
   useAutoClearPrayerNotifications()
 
   return null

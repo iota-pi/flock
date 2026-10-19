@@ -27,8 +27,10 @@ export const accountsRouter = router({
           account,
           authToken: hashString(input.authToken),
           salt: input.salt,
-          iterations: input.iterations,
           saltVersion: input.saltVersion,
+          kdf: input.kdf,
+          keyring: input.keyring,
+          randomDataKeys: input.randomDataKeys,
         })
         if (created) {
           return { account }
@@ -87,16 +89,18 @@ export const accountsRouter = router({
           salt: fakeSalt(input.account, fake.secret),
           iterations: fake.iterations,
           saltVersion: fake.saltVersion,
+          kdf: fake.kdf,
           dataVersion: ctx.dataVersionPolicy?.current,
         }
       }
 
-      const { salt, iterations, saltVersion, dataVersion } = params
+      const { salt, iterations, saltVersion, kdf, dataVersion } = params
       return {
         success: true,
         salt,
         iterations,
         saltVersion,
+        kdf,
         // Returned before login, so that the app can route accounts that need migrating
         dataVersion: dataVersion ?? 0,
       }
@@ -170,7 +174,7 @@ export const accountsRouter = router({
           account: input.account,
           authToken: newAuthTokenHash,
           salt: input.newSalt,
-          iterations: input.newIterations,
+          kdf: input.newKdf,
           keyring: input.newKeyring,
           saltVersion: input.saltVersion,
           ...(typeof input.keyringVersion === 'number'

@@ -4,27 +4,32 @@ import type {
   AccountCreationResponse,
   CreateAccountBody,
 } from './clientTypes'
-import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
+import type { KdfParams } from '@vault/shared'
+import { LEGACY_CRYPTO_ITERATIONS } from './util'
 
 export async function createAccount(
-  { salt, authToken, saltVersion }: CreateAccountBody,
+  { salt, authToken, saltVersion, kdf, keyring, randomDataKeys }: CreateAccountBody,
 ): Promise<AccountCreationResponse> {
   return getVaultTrpcClient().accounts.createAccount.mutate({
     salt,
     authToken,
-    iterations: DEFAULT_CRYPTO_ITERATIONS,
     saltVersion,
+    kdf,
+    keyring,
+    randomDataKeys,
   })
 }
 
 export async function getSecurityParams(
   account: string,
-): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion: number }> {
+): Promise<{ salt: string, iterations?: number, saltVersion?: number, kdf?: KdfParams, dataVersion: number }> {
   const response = await getVaultTrpcClient().accounts.getSecurityParams.query({ account })
   return {
     salt: response.salt,
-    iterations: response.iterations || LEGACY_CRYPTO_ITERATIONS,
+    // Accounts from before iterations were stored used the legacy count. Argon2id accounts have none.
+    iterations: response.kdf ? undefined : response.iterations || LEGACY_CRYPTO_ITERATIONS,
     saltVersion: response.saltVersion,
+    ...(response.kdf ? { kdf: response.kdf } : {}),
     dataVersion: response.dataVersion,
   }
 }
@@ -77,7 +82,7 @@ export async function changePassword({
   currentAuthToken,
   newAuthToken,
   newSalt,
-  newIterations,
+  newKdf,
   newKeyring,
   saltVersion,
   keyringVersion,
@@ -87,7 +92,7 @@ export async function changePassword({
   currentAuthToken: string,
   newAuthToken: string,
   newSalt: string,
-  newIterations: number,
+  newKdf: KdfParams,
   newKeyring: string,
   saltVersion?: number,
   keyringVersion?: number,
@@ -98,7 +103,7 @@ export async function changePassword({
     currentAuthToken,
     newAuthToken,
     newSalt,
-    newIterations,
+    newKdf,
     newKeyring,
     saltVersion,
     ...(typeof keyringVersion === 'number' ? { keyringVersion } : {}),

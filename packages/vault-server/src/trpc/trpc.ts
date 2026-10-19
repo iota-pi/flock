@@ -8,6 +8,7 @@ import {
   parseProtocolVersion,
   PROTOCOL_VERSION_HEADER,
 } from '@vault/shared'
+import type { KdfParams } from '@vault/shared'
 import type { DataVersionPolicy } from '../services/dataVersion'
 import { AuthenticationError } from '../drivers/errors'
 import { isSessionFor, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
@@ -37,16 +38,18 @@ export interface VaultServerOptions {
   /**
    * Made-up security parameters for accounts that don't exist, so that `getSecurityParams` doesn't
    * reveal which accounts do. The salt is an HMAC of the account ID with `secret`, so it is the same
-   * on every request; keep the secret stable and private. Set `iterations` and `saltVersion` to what
-   * new accounts use. Without this, unknown accounts get NOT_FOUND.
+   * on every request; keep the secret stable and private. Set `kdf` (or, for apps still creating
+   * PBKDF2 accounts, `iterations`) and `saltVersion` to what new accounts use, so the response looks
+   * like a real account's. Without this, unknown accounts get NOT_FOUND.
    */
   unknownAccountParams?: UnknownAccountParams
 }
 
 export interface UnknownAccountParams {
   secret: string
-  iterations: number
+  iterations?: number
   saltVersion?: number
+  kdf?: KdfParams
 }
 
 type TrpcContext = {

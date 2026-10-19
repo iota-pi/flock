@@ -4,7 +4,7 @@ import env from '../../env'
 import { exposeSyncWorker } from '@vault/client/worker'
 import { FLOCK_STORAGE_NAMES } from './storageNames'
 import { flockSyncDomain } from './syncDomain'
-import { hasLegacyLocalData, MIN_DATA_VERSION } from '../../migrate/detection'
+import { hasLegacyLocalData, MIN_DEVICE_DATA_VERSION } from '../../migrate/detection'
 
 exposeSyncWorker({
   automergeWasmUrl: wasmUrl,
@@ -12,6 +12,6 @@ exposeSyncWorker({
   storageNames: FLOCK_STORAGE_NAMES,
   domain: flockSyncDomain,
   // Older local data goes through the migration app (src/migrate/) instead
-  minDataVersion: MIN_DATA_VERSION,
+  minDataVersion: MIN_DEVICE_DATA_VERSION,
   hasLegacyLocalData,
 })

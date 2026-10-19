@@ -1,12 +1,15 @@
 import { flockDataVersionPolicy } from './flockDataVersion'
 import type { ItemFormatSummary } from '@vault/server'
 
+const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
+
 const migratedAccount = {
   account: 'acct-1',
   authToken: 'token',
   salt: 'salt',
-  iterations: 600_000,
   saltVersion: 1,
+  kdf: ARGON2ID,
+  keyringVersion: 2,
 }
 
 function findBlockers(accountData: Record<string, unknown> = {}, items: Partial<ItemFormatSummary>[] = []) {
@@ -16,6 +19,7 @@ function findBlockers(accountData: Record<string, unknown> = {}, items: Partial<
       deleted: false,
       hasSnapshot: true,
       snapshotFormat: 2,
+      snapshotKver: '2',
       hasCipher: false,
       ...item,
     }))),
@@ -40,9 +44,28 @@ describe('flockDataVersionPolicy', () => {
     await expect(findBlockers({ metadata: { updatedAt: 1 } })).resolves.toEqual([])
   })
 
-  it('needs the current key derivation', async () => {
-    await expect(findBlockers({ saltVersion: undefined })).resolves.toEqual(['legacyKeyDerivation'])
-    await expect(findBlockers({ iterations: undefined })).resolves.toEqual(['legacyKeyDerivation'])
+  it('needs Argon2id key derivation', async () => {
+    await expect(findBlockers({ kdf: undefined, iterations: 600_000 })).resolves.toEqual(['legacyKeyDerivation'])
+  })
+
+  it('needs data off the password-derived key v1', async () => {
+    // Never rotated, so v1 is still the active key
+    await expect(findBlockers({ keyringVersion: 1 })).resolves.toEqual(['passwordDerivedDataKey'])
+    await expect(findBlockers({ keyringVersion: undefined })).resolves.toEqual(['passwordDerivedDataKey'])
+    // Rotated, but not every snapshot re-encrypted yet (snapshots without a version are v1)
+    await expect(findBlockers({}, [{ snapshotKver: '1' }])).resolves.toEqual(['passwordDerivedDataKey'])
+    await expect(findBlockers({}, [{ snapshotKver: undefined }])).resolves.toEqual(['passwordDerivedDataKey'])
+  })
+
+  it('ignores v1 on accounts created with random data keys', async () => {
+    await expect(findBlockers({ randomDataKeys: true, keyringVersion: 1 }, [{ snapshotKver: '1' }])).resolves.toEqual([])
+  })
+
+  it('ignores v1 snapshots of deleted items and items without a snapshot', async () => {
+    await expect(findBlockers({}, [
+      { deleted: true, snapshotKver: '1' },
+      { hasSnapshot: false, snapshotKver: undefined },
+    ])).resolves.toEqual([])
   })
 
   it('needs snapshots bound to their document and no pre-Automerge items', async () => {

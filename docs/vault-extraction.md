@@ -98,19 +98,22 @@ As built:
   - If blockers remain once sync has settled (for example a `cipher` row that won't decrypt, which is quarantined to manual recovery), the page lists them and offers:
     - **Try again**: a full resync.
     - **Continue**: defers the main app's account-level check on this device for 30 days (`deferMigration`). The quarantined items stay under data recovery.
-- **Gates in the main app.** The main app no longer passes the legacy hooks, `decodeLegacySalt` or `migrateLocalData`. It sends data below the minimum to `/migrate/` (`goToMigration`) from three places:
+- **Gates in the main app.** The main app no longer passes the legacy hooks, `decodeLegacySalt` or `migrateLocalData`. Device and account levels have separate minimums (`MIN_DEVICE_DATA_VERSION`, `MIN_ACCOUNT_DATA_VERSION`), because a level can change only one of them. It sends data below the minimum to `/migrate/` (`goToMigration`) from four places:
   - The **worker**: `SyncWorkerConfig.minDataVersion`. Below it, a device with an index or with any per-store legacy database (`hasLegacyLocalData`) doesn't start. The worker emits `migrationRequired` and `initRepo` rejects with `MigrationRequiredError`. This runs before anything else in `initialize`, because starting would record the current level for a device whose only data is in a legacy layout.
   - The **hydrator**: with no `decodeLegacyItem`, a row without a snapshot is reported as `migration_required`. It is skipped rather than quarantined, and the sync doesn't count as complete. Flock's sink (`onMigrationRequired`) locks the vault and goes to `/migrate/`.
-  - The **login page**: when `getSecurityParams` reports an account level below the minimum, it routes before deriving keys (unless deferred). It also routes on `UnsupportedKeyDerivationError`, which comes from a cached legacy salt during an offline login.
+  - The **login page**: when `getSecurityParams` reports an account level below the minimum, it routes before deriving keys (unless deferred). It also routes any account reported without Argon2id parameters, and on `UnsupportedKeyDerivationError`, which comes from cached parameters it no longer accepts during an offline login.
+  - **After every unlock** (`useAccountLevelCheck`): once online, password and biometric unlocks alike check the account level, since an offline login and biometric unlock skip the login page's check.
 - **The snapshot rewrite** (`SnapshotFormatUpgrade`) is opt-in, and only the migration app runs it. The main app still *reads* unbound ciphertexts, because sync messages written before `MIN_PROTOCOL_VERSION` was raised can be unbound until they expire.
 - **Server:** the migration app calls `migration.getLegacySettings` and `migration.clearLegacySettings` (`src/vault/trpc/routers/migration.ts`). The `accounts.getMetadata`, `accounts.clearMetadata` and `accounts.updateMetadata` shims for cached builds are gone.
-- **Testing:** `scripts/seedLegacyAccount.ts` puts a local account back at level 0, with a `cipher` item and plaintext settings, for checking the flow by hand.
+- **Testing:** `scripts/seedLegacyAccount.ts` puts a local account back at level 0, with a `cipher` item and plaintext settings, for checking the flow by hand. It first turns an Argon2id account back into a PBKDF2 one with a password-derived key v1.
 
 Still to do for level 1:
 
 - ~~Raise `MIN_PROTOCOL_VERSION`, then remove the `accounts.*` shims.~~ Done: `MIN_PROTOCOL_VERSION` is 1, so builds that write unbound ciphertexts (protocol 0) can no longer write. Builds from between the protocol header and the migration app also send 1 and still call the shims, but they were live for only a day; their calls now fail with `NOT_FOUND` until they update.
 - 90 days after that deploy (the sync message TTL), stop reading unbound ciphertexts in the main app and reject unbound writes on the server.
 - Step 4: retire the level.
+
+Level 2 (Argon2id key derivation, no live data under a password-derived key) is described in Part 1 of [local-encryption.md](local-encryption.md). It changes only account data, so `MIN_DEVICE_DATA_VERSION` stays 1. Unlike level 1, it goes straight to the migration app: the account must choose a new password there, so there's no compatibility phase that migrates in the main app. The main app keeps a PBKDF2 hook (`src/app/vault/legacyKeyDerivation.ts`) only to unlock from cached parameters offline, until the level is retired.
 
 ## Stages
 

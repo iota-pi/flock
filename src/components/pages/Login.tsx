@@ -32,8 +32,9 @@ import {
   getBiometricLabel,
   StaleBiometricKeyError,
   UnsupportedKeyDerivationError,
+  type KdfParams,
 } from '@vault/client'
-import { goToMigration, isMigrationDeferred, MIN_DATA_VERSION } from 'src/migrate/detection'
+import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
 
 /** How long to wait for the server's login parameters when this device has them cached */
 const CACHED_PARAMS_WAIT_MS = 3000
@@ -128,10 +129,10 @@ function LoginPage() {
       setLoading(true)
       setError('')
       updateAuth({ account: accountInput })
-      let securityParams: { salt: string; iterations?: number; saltVersion?: number }
+      let securityParams: { salt: string; iterations?: number; saltVersion?: number; kdf?: KdfParams }
       const cached = readStoredMetadata()
       const cachedParams = cached?.salt && cached.account === accountInput
-        ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion }
+        ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion, kdf: cached.kdf }
         : null
       try {
         // With the parameters cached, a slow server doesn't hold up logging in
@@ -145,8 +146,10 @@ function LoginPage() {
             }),
           ])
           : await paramsRequest
-        // An account below the minimum level holds data this app no longer reads
-        if (params.dataVersion < MIN_DATA_VERSION && !isMigrationDeferred(accountInput)) {
+        // An account below the minimum level holds data this app no longer reads. One still on
+        // PBKDF2 always goes: this app derives PBKDF2 keys only from parameters cached on the device,
+        // so the server can't steer it into deriving a cheaper key than the account has.
+        if (!params.kdf || (params.dataVersion < MIN_ACCOUNT_DATA_VERSION && !isMigrationDeferred(accountInput))) {
           goToMigration(accountInput)
           return
         }
@@ -163,6 +166,7 @@ function LoginPage() {
               account: accountInput,
               password,
               salt: securityParams.salt,
+              kdf: securityParams.kdf,
               iterations: securityParams.iterations,
               saltVersion: securityParams.saltVersion,
             })
@@ -187,7 +191,8 @@ function LoginPage() {
           navigate(nextRoute)
         } catch (error) {
           if (error instanceof UnsupportedKeyDerivationError) {
-            // A cached legacy salt, from logging in offline: only the migration app reads it
+            // Cached key derivation parameters this app no longer accepts (a legacy salt, or PBKDF2
+            // below the minimum), from logging in offline: only the migration app reads them
             goToMigration(accountInput)
             return
           }

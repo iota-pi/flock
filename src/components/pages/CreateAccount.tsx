@@ -21,7 +21,7 @@ import {
   VisibilityIcon,
   VisibilityOffIcon,
 } from '../Icons'
-import { createAccount, initialiseVault, generateSalt } from '@vault/client'
+import { createVaultAccount } from '@vault/client'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
@@ -102,14 +102,7 @@ function CreateAccountPage() {
     async () => {
       setWaiting(true)
       try {
-        const salt = generateSalt()
-        const authToken = await initialiseVault({
-          password,
-          salt,
-          isNewAccount: true,
-          saltVersion: 1,
-        })
-        const { account } = await createAccount({ salt, authToken, saltVersion: 1 })
+        const account = await createVaultAccount(password)
         if (account.length > 0) {
           updateAuth({ account })
           setNewAccount(account)

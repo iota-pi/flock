@@ -11,7 +11,7 @@ const VaultEnvelopeSchema = z.union([
   TombstoneItemEnvelopeSchema,
 ])
 
-export type CreateAccountBody = Omit<z.infer<typeof CreateAccountBodySchema>, 'iterations'>
+export type CreateAccountBody = z.infer<typeof CreateAccountBodySchema>
 
 export type AccountCreationResponse = z.infer<typeof AccountCreationResponseSchema>
 

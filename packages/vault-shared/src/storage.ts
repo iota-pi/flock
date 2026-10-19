@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { DOC_BOUND_FORMAT } from './crypto'
+import { DOC_BOUND_FORMAT, KdfParamsSchema } from './crypto'
 
 export const VaultKeySchema = z.object({
   account: z.string(),
@@ -22,7 +22,12 @@ export const VaultAccountSchema = z.object({
   sessions: z.array(VaultSessionRecordSchema).optional(),
   authToken: z.string(),
   salt: z.string(),
-  iterations: z.number(),
+  /** PBKDF2 iterations, for accounts without `kdf` */
+  iterations: z.number().optional(),
+  /** Argon2id parameters. Accounts without them derive their key with PBKDF2. */
+  kdf: KdfParamsSchema.optional(),
+  /** Every data key was generated randomly, so none is derived from a password (set when the account is created) */
+  randomDataKeys: z.boolean().optional(),
   keyring: z.string().optional(),
   keyringVersion: z.number().optional(),
   saltVersion: z.number().optional(),

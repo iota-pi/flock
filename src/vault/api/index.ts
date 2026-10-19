@@ -12,10 +12,12 @@ import { PROTOCOL_VERSION_HEADER } from '@vault/shared'
 
 /**
  * Writes from builds below this protocol version are rejected, which makes them update. Raising it
- * retires the server code kept only for older builds (see docs/vault-extraction.md). At 1, builds
- * from before the protocol header (which write unbound ciphertexts) can no longer write.
+ * retires the server code kept only for older builds (see docs/vault-extraction.md).
+ * - At 1, builds from before the protocol header (which write unbound ciphertexts) can no longer write.
+ * - At 2, builds that can't derive Argon2id keys can no longer log in (`login` is a mutation), so
+ *   they update instead of reporting a wrong password.
  */
-const MIN_PROTOCOL_VERSION = 1
+const MIN_PROTOCOL_VERSION = 2
 
 
 async function createServer(devMode = false) {

@@ -3,7 +3,8 @@
 // through `@vault/client/storageNames`.
 
 export * from './api/vault'
-export { generateSalt, generateVaultKey, UnsupportedKeyDerivationError } from './api/crypto'
+export { generateSalt, generateVaultKey, UnsupportedKeyDerivationError, type DeriveLegacyKey } from './api/crypto'
+export { DEFAULT_KDF, type KdfParams } from './api/kdf'
 export {
   type AutoLockMode,
   type AutoLockSettings,

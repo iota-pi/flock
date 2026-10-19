@@ -2,6 +2,15 @@ import { z } from 'zod'
 
 import { CryptoResultSchema, DOC_BOUND_FORMAT } from '@vault/shared'
 import { DEFAULT_CRYPTO_ITERATIONS } from './util'
+import {
+  assertKdfAcceptable,
+  assertPbkdf2Acceptable,
+  deriveArgon2idBytes,
+  UnsupportedKeyDerivationError,
+  type KdfParams,
+} from './kdf'
+
+export { UnsupportedKeyDerivationError }
 
 
 export type CryptoResult = z.infer<typeof CryptoResultSchema>
@@ -20,23 +29,26 @@ export function generateSalt(): string {
   return fromBytes(saltArray.buffer)
 }
 
+/**
+ * Derives the 32-byte PBKDF2-SHA256 key of an account without Argon2id parameters. The app
+ * provides it while such accounts still log in (see `VaultHostHooks.deriveLegacyKey`).
+ */
+export type DeriveLegacyKey = (params: { password: string, salt: ArrayBuffer, iterations: number }) => Promise<ArrayBuffer>
+
 type InitialiseKeyParams = {
   password: string,
   salt: string,
+  /** Argon2id parameters. Without them, the key is derived with PBKDF2 through `deriveLegacyKey`. */
+  kdf?: KdfParams,
   iterations?: number,
   saltVersion?: number,
   /** Decodes salts from before `saltVersion` 1. Without it, such salts are rejected. */
   decodeLegacySalt?: (salt: string) => ArrayBuffer,
+  /** Derives PBKDF2 keys. Without it, accounts without `kdf` are rejected. */
+  deriveLegacyKey?: DeriveLegacyKey,
 }
 
 export const CURRENT_SALT_VERSION = 1
-
-export class UnsupportedKeyDerivationError extends Error {
-  constructor(saltVersion: number | undefined) {
-    super(`Unsupported salt version: ${saltVersion ?? 'none'}`)
-    this.name = 'UnsupportedKeyDerivationError'
-  }
-}
 
 function decodeSalt({ salt, saltVersion, decodeLegacySalt }: InitialiseKeyParams): ArrayBuffer {
   if (saltVersion === CURRENT_SALT_VERSION) {
@@ -48,25 +60,29 @@ function decodeSalt({ salt, saltVersion, decodeLegacySalt }: InitialiseKeyParams
   throw new UnsupportedKeyDerivationError(saltVersion)
 }
 
+/**
+ * Derives an account's master key from its password. The parameters come from the server or local
+ * metadata, so they're checked against `KDF_LIMITS` first.
+ */
 export async function deriveVaultKey(params: InitialiseKeyParams): Promise<CryptoKey> {
-  const { password, iterations } = params
-  const enc = new TextEncoder()
-  const keyBase = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveBits', 'deriveKey'],
-  )
+  const { password, kdf, deriveLegacyKey } = params
+  const salt = decodeSalt(params)
+  let keyBytes: ArrayBuffer | Uint8Array<ArrayBuffer>
+  if (kdf) {
+    assertKdfAcceptable(kdf)
+    keyBytes = await deriveArgon2idBytes(password, new Uint8Array(salt), kdf) as Uint8Array<ArrayBuffer>
+  } else {
+    const iterations = params.iterations || DEFAULT_CRYPTO_ITERATIONS
+    assertPbkdf2Acceptable(iterations)
+    if (!deriveLegacyKey) {
+      throw new UnsupportedKeyDerivationError('This app no longer derives PBKDF2 keys')
+    }
+    keyBytes = await deriveLegacyKey({ password, salt, iterations })
+  }
 
-  return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: decodeSalt(params),
-      iterations: iterations || DEFAULT_CRYPTO_ITERATIONS,
-      hash: 'SHA-256',
-    },
-    keyBase,
+  return crypto.subtle.importKey(
+    'raw',
+    keyBytes,
     { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt'],

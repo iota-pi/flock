@@ -1,14 +1,19 @@
 import { z } from 'zod'
-import { CryptoResultSchema } from './crypto'
+import { CryptoResultSchema, KdfParamsSchema } from './crypto'
 import { VaultSnapshotSchema } from './snapshots'
 import { ItemIdSchema, type ItemId } from './ids'
 
-
+// New credentials always use Argon2id and a random data key. Accounts still on PBKDF2 can log in
+// with what they have, but nothing creates PBKDF2 credentials any more.
 export const CreateAccountBodySchema = z.object({
   salt: z.string().min(1),
   authToken: z.string().min(1),
-  iterations: z.number().int().min(1),
   saltVersion: z.number().int().min(1).optional(),
+  kdf: KdfParamsSchema,
+  /** The account's keyring, encrypted with the master key */
+  keyring: z.string().min(1),
+  /** Every data key in `keyring` was generated randomly, rather than derived from the password */
+  randomDataKeys: z.literal(true),
 })
 
 export const AccountCreationResponseSchema = z.object({
@@ -36,7 +41,7 @@ export const ChangePasswordBodySchema = z.object({
   currentAuthToken: z.string().min(1),
   newAuthToken: z.string().min(1),
   newSalt: z.string().min(1),
-  newIterations: z.number().int().min(1),
+  newKdf: KdfParamsSchema,
   newKeyring: z.string().min(1),
   saltVersion: z.number().int().min(1).optional(),
   keyringVersion: z.number().int().min(1).optional(),
