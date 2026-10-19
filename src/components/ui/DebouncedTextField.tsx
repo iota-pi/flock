@@ -2,6 +2,7 @@ import {
   type MutableRefObject,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -23,6 +24,7 @@ type DebouncedTextFieldProps = Omit<TextFieldProps, 'value'> & {
   cancelPendingOnExternalChange?: boolean
   onValueChange?: (nextValue: string) => void
   debounceControlsRef?: MutableRefObject<DebouncedTextFieldControls | null>
+  blurOnEnter?: boolean
 }
 
 function DebouncedTextField({
@@ -30,12 +32,15 @@ function DebouncedTextField({
   onCommit,
   onChange,
   onBlur,
+  onKeyDown,
   debounceMs = 1000,
   flushOnBlur = true,
   flushOnUnmount = true,
   cancelPendingOnExternalChange = true,
   onValueChange,
   debounceControlsRef,
+  blurOnEnter,
+  slotProps,
   ...textFieldProps
 }: DebouncedTextFieldProps) {
   const [localValue, setLocalValue] = useState(value)
@@ -145,16 +150,85 @@ function DebouncedTextField({
     [onChange, onValueChange, queueDebouncedCommit],
   )
 
+  const shouldBlurOnEnter = blurOnEnter ?? !textFieldProps.multiline
+
+  const htmlInputProp = slotProps?.htmlInput
+  const callerEnterKeyHint =
+    typeof htmlInputProp === 'object' && htmlInputProp !== null && 'enterKeyHint' in htmlInputProp
+      ? (htmlInputProp as React.InputHTMLAttributes<HTMLInputElement>).enterKeyHint
+      : undefined
+
+  const resolvedEnterKeyHint = callerEnterKeyHint ?? (shouldBlurOnEnter ? 'done' : undefined)
+
+  const mergedSlotProps = useMemo(() => {
+    if (!resolvedEnterKeyHint) {
+      return slotProps
+    }
+
+    if (typeof slotProps?.htmlInput === 'function') {
+      const originalFn = slotProps.htmlInput
+      return {
+        ...slotProps,
+        htmlInput: (ownerState: Parameters<typeof originalFn>[0]) => ({
+          ...originalFn(ownerState),
+          enterKeyHint: resolvedEnterKeyHint,
+        }),
+      }
+    }
+
+    return {
+      ...slotProps,
+      htmlInput: {
+        ...slotProps?.htmlInput,
+        enterKeyHint: resolvedEnterKeyHint,
+      },
+    }
+  }, [resolvedEnterKeyHint, slotProps])
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      onKeyDown?.(event)
+      if (event.defaultPrevented) {
+        return
+      }
+
+      if (
+        shouldBlurOnEnter &&
+        event.key === 'Enter' &&
+        !event.nativeEvent.isComposing
+      ) {
+        event.preventDefault()
+        if (flushOnBlur && localValue !== lastCommittedValueRef.current) {
+          cancelDebouncedCommit()
+          handleCommit(localValue)
+        }
+        if (event.target instanceof HTMLElement) {
+          event.target.blur()
+        }
+      }
+    },
+    [
+      cancelDebouncedCommit,
+      flushOnBlur,
+      handleCommit,
+      localValue,
+      onKeyDown,
+      shouldBlurOnEnter,
+    ],
+  )
+
   const handleBlur = useCallback(
     (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (flushOnBlur) {
         cancelDebouncedCommit()
-        onCommit(localValue)
+        if (localValue !== lastCommittedValueRef.current) {
+          handleCommit(localValue)
+        }
       }
 
       onBlur?.(event)
     },
-    [cancelDebouncedCommit, flushOnBlur, localValue, onBlur, onCommit],
+    [cancelDebouncedCommit, flushOnBlur, handleCommit, localValue, onBlur],
   )
 
   return (
@@ -162,6 +236,8 @@ function DebouncedTextField({
       {...textFieldProps}
       onBlur={handleBlur}
       onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      slotProps={mergedSlotProps}
       value={localValue}
     />
   )

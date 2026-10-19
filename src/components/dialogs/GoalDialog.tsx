@@ -62,6 +62,17 @@ function GoalDialog({
     },
     [naturalGoal],
   )
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+        event.preventDefault()
+        if (event.target instanceof HTMLElement) {
+          event.target.blur()
+        }
+      }
+    },
+    [],
+  )
 
   return (
     <Dialog
@@ -90,10 +101,14 @@ function GoalDialog({
             helperText={hintMessage}
             label="Prayer Goal"
             onChange={handleChange}
+            onKeyDown={handleKeyDown}
             type="number"
             value={newGoal}
             variant="outlined"
             slotProps={{
+              htmlInput: {
+                enterKeyHint: 'done',
+              },
               input: {
                 endAdornment: (
                   <InputAdornment position="end">

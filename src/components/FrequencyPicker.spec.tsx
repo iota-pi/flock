@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '@mui/material/styles'
 import getTheme from '../theme'
@@ -94,5 +94,25 @@ describe('FrequencyPicker', () => {
     const lastCall = onChange.mock.calls.at(-1)?.[0]
     const expectedDays = 2 * (365.25 / 12)
     expect(lastCall).toBeCloseTo(expectedDays)
+  })
+
+  it('sets enterkeyhint="done" on custom amount input and blurs on Enter', () => {
+    renderWithTheme(
+      <FrequencyPicker
+        frequency={14}
+        id="frequency"
+        label="Frequency"
+        onChange={vi.fn()}
+      />
+    )
+
+    const amountInput = screen.getByRole('spinbutton') as HTMLInputElement
+    expect(amountInput.getAttribute('enterkeyhint')).toBe('done')
+
+    amountInput.focus()
+    expect(document.activeElement).toBe(amountInput)
+
+    fireEvent.keyDown(amountInput, { key: 'Enter' })
+    expect(document.activeElement).not.toBe(amountInput)
   })
 })

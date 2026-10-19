@@ -184,4 +184,129 @@ describe('DebouncedTextField', () => {
     expect(onCommit).toHaveBeenCalledTimes(1)
     expect(onCommit).toHaveBeenCalledWith('Flushed value')
   })
+
+  it('sets enterkeyhint="done" on single-line inputs by default', () => {
+    render(
+      <DebouncedTextField
+        label="Name"
+        onCommit={vi.fn()}
+        value=""
+      />,
+    )
+
+    const input = screen.getByLabelText('Name')
+    expect(input.getAttribute('enterkeyhint')).toBe('done')
+  })
+
+  it('blurs input and commits immediately on Enter key press for single-line field', () => {
+    const onCommit = vi.fn()
+
+    render(
+      <DebouncedTextField
+        debounceMs={1000}
+        label="Name"
+        onCommit={onCommit}
+        value=""
+      />,
+    )
+
+    const input = screen.getByLabelText('Name') as HTMLInputElement
+    input.focus()
+    expect(document.activeElement).toBe(input)
+
+    fireEvent.change(input, { target: { value: 'Committed on Enter' } })
+    expect(onCommit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(document.activeElement).not.toBe(input)
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith('Committed on Enter')
+  })
+
+  it('does not blur or prematurely commit on Enter when multiline is true, and omits enterkeyhint', () => {
+    const onCommit = vi.fn()
+
+    render(
+      <DebouncedTextField
+        debounceMs={1000}
+        label="Notes"
+        multiline
+        onCommit={onCommit}
+        value=""
+      />,
+    )
+
+    const input = screen.getByLabelText('Notes') as HTMLTextAreaElement
+    expect(input.getAttribute('enterkeyhint')).toBeNull()
+
+    input.focus()
+    expect(document.activeElement).toBe(input)
+
+    fireEvent.change(input, { target: { value: 'Multiline text' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(document.activeElement).toBe(input)
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('does not blur on Enter when IME is composing', () => {
+    const onCommit = vi.fn()
+
+    render(
+      <DebouncedTextField
+        debounceMs={1000}
+        label="Name"
+        onCommit={onCommit}
+        value=""
+      />,
+    )
+
+    const input = screen.getByLabelText('Name') as HTMLInputElement
+    input.focus()
+
+    fireEvent.change(input, { target: { value: 'Composing' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+
+    expect(document.activeElement).toBe(input)
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('respects blurOnEnter={false} when explicitly provided', () => {
+    const onCommit = vi.fn()
+
+    render(
+      <DebouncedTextField
+        blurOnEnter={false}
+        debounceMs={1000}
+        label="Name"
+        onCommit={onCommit}
+        value=""
+      />,
+    )
+
+    const input = screen.getByLabelText('Name') as HTMLInputElement
+    expect(input.getAttribute('enterkeyhint')).toBeNull()
+
+    input.focus()
+    fireEvent.change(input, { target: { value: 'No blur' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(document.activeElement).toBe(input)
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('respects caller-provided enterKeyHint in slotProps', () => {
+    render(
+      <DebouncedTextField
+        label="Search"
+        onCommit={vi.fn()}
+        slotProps={{ htmlInput: { enterKeyHint: 'search' } }}
+        value=""
+      />,
+    )
+
+    const input = screen.getByLabelText('Search')
+    expect(input.getAttribute('enterkeyhint')).toBe('search')
+  })
 })
