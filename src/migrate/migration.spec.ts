@@ -136,8 +136,9 @@ describe('migration', () => {
   })
 
   it('is complete once each level reaches its minimum', () => {
-    expect(isMigrationComplete({ device: 1, account: 2, blockers: [] })).toBe(true)
-    expect(isMigrationComplete({ device: 1, account: 1, blockers: ['legacyKeyDerivation'] })).toBe(false)
-    expect(isMigrationComplete({ device: 0, account: 2, blockers: [] })).toBe(false)
+    expect(isMigrationComplete({ device: 3, account: 2, blockers: [] })).toBe(true)
+    expect(isMigrationComplete({ device: 3, account: 1, blockers: ['legacyKeyDerivation'] })).toBe(false)
+    // A device whose local data isn't sealed yet
+    expect(isMigrationComplete({ device: 2, account: 2, blockers: [] })).toBe(false)
   })
 })

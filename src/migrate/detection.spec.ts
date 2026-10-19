@@ -35,11 +35,21 @@ describe('hasLegacyLocalData', () => {
     ;(globalThis as any).indexedDB = {
       databases: vi.fn().mockResolvedValue([{ name: 'other' }, { name: 'flock-sync-last-modified' }]),
     }
-    expect(await hasLegacyLocalData()).toBe(true)
+    expect(await hasLegacyLocalData('acct-1')).toBe(true)
+  })
+
+  it.each(['flock-automerge-db-acct-1', 'FlockVault_SyncWAL_acct-1'])('finds the account\'s plaintext database %s', async name => {
+    ;(globalThis as any).indexedDB = { databases: vi.fn().mockResolvedValue([{ name }]) }
+    expect(await hasLegacyLocalData('acct-1')).toBe(true)
+  })
+
+  it('ignores another account\'s plaintext databases', async () => {
+    ;(globalThis as any).indexedDB = { databases: vi.fn().mockResolvedValue([{ name: 'flock-automerge-db-acct-2' }]) }
+    expect(await hasLegacyLocalData('acct-1')).toBe(false)
   })
 
   it('is false without them', async () => {
     ;(globalThis as any).indexedDB = { databases: vi.fn().mockResolvedValue([{ name: 'other' }]) }
-    expect(await hasLegacyLocalData()).toBe(false)
+    expect(await hasLegacyLocalData('acct-1')).toBe(false)
   })
 })

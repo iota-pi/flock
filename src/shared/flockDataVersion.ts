@@ -15,9 +15,9 @@ export const SEALED_DATA_VERSION = 3
 
 /**
  * The lowest device level the main app reads. Devices below it go through the migration app
- * (`src/migrate/`) first.
+ * (`src/migrate/`) first. At 3, a device whose local data is still in plaintext is sealed there.
  */
-export const MIN_DEVICE_DATA_VERSION = 1
+export const MIN_DEVICE_DATA_VERSION = 3
 
 /**
  * The lowest account level the main app reads. Accounts below it go through the migration app

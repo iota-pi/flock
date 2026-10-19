@@ -95,7 +95,7 @@ describe('MigrateApp', () => {
   it('migrates, then returns to the main app once both levels are current', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
       .mockResolvedValueOnce({ device: 0, account: 1, blockers: ['legacySettings'] })
-      .mockResolvedValue({ device: 1, account: 2, blockers: [] })
+      .mockResolvedValue({ device: 3, account: 3, blockers: [] })
 
     await logIn()
     expect(startMigration).toHaveBeenCalledWith('acct-1', 'password')
@@ -207,7 +207,7 @@ describe('MigrateApp', () => {
 
   it('re-encrypts data still under the password-derived key once sync has settled, only once', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 1, account: 1, blockers: ['passwordDerivedDataKey'] })
+      .mockResolvedValue({ device: 3, account: 1, blockers: ['passwordDerivedDataKey'] })
 
     await logIn()
     await poll(3)
@@ -218,7 +218,7 @@ describe('MigrateApp', () => {
 
   it('shows what could not be migrated, and lets the user continue for now', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 1, account: 1, blockers: ['legacyCipherItems'] })
+      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyCipherItems'] })
 
     await logIn()
     await poll(6)
@@ -235,7 +235,7 @@ describe('MigrateApp', () => {
 
   it('does not offer to continue while the password still needs changing', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 1, account: 1, blockers: ['legacyKeyDerivation'] })
+      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyKeyDerivation'] })
 
     await logIn()
     await poll(6)
@@ -246,7 +246,7 @@ describe('MigrateApp', () => {
 
   it('retries with a full resync', async () => {
     vi.mocked(MigrationBridge.checkDataVersion)
-      .mockResolvedValue({ device: 1, account: 1, blockers: ['legacyCipherItems'] })
+      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyCipherItems'] })
 
     await logIn()
     await poll(6)
