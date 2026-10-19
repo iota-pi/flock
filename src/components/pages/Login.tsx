@@ -37,6 +37,11 @@ import {
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
 
 /** How long to wait for the server's login parameters when this device has them cached */
+/** Shown when an account needs the migration app but the server can't be reached */
+const ACCOUNT_UPDATE_NEEDS_SERVER =
+  "This account's security settings need updating, which needs a connection to the server. " +
+  'Check your internet connection and try again.'
+
 const CACHED_PARAMS_WAIT_MS = 3000
 
 
@@ -130,6 +135,7 @@ function LoginPage() {
       setError('')
       updateAuth({ account: accountInput })
       let securityParams: { salt: string; iterations?: number; saltVersion?: number; kdf?: KdfParams }
+      let reachedServer = false
       const cached = readStoredMetadata()
       const cachedParams = cached?.salt && cached.account === accountInput
         ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion, kdf: cached.kdf }
@@ -147,13 +153,13 @@ function LoginPage() {
           ])
           : await paramsRequest
         // An account below the minimum level holds data this app no longer reads. One still on
-        // PBKDF2 always goes: this app derives PBKDF2 keys only from parameters cached on the device,
-        // so the server can't steer it into deriving a cheaper key than the account has.
+        // PBKDF2 always goes: only the migration app derives PBKDF2 keys.
         if (!params.kdf || (params.dataVersion < MIN_ACCOUNT_DATA_VERSION && !isMigrationDeferred(accountInput))) {
           goToMigration(accountInput)
           return
         }
         securityParams = params
+        reachedServer = true
       } catch (err) {
         console.warn('[Login] getSecurityParams failed (offline or network error), checking cached metadata:', err)
         securityParams = cachedParams ?? { salt: '', iterations: undefined, saltVersion: undefined }
@@ -191,8 +197,14 @@ function LoginPage() {
           navigate(nextRoute)
         } catch (error) {
           if (error instanceof UnsupportedKeyDerivationError) {
-            // Cached key derivation parameters this app no longer accepts (a legacy salt, or PBKDF2
-            // below the minimum), from logging in offline: only the migration app reads them
+            // Cached key derivation parameters this app no longer accepts (PBKDF2, a legacy salt).
+            // Only the migration app reads them, and it needs the server, so without the server
+            // there's nothing to send the user to yet.
+            if (!reachedServer) {
+              updateAuth({ account: '' })
+              setError(ACCOUNT_UPDATE_NEEDS_SERVER)
+              return
+            }
             goToMigration(accountInput)
             return
           }

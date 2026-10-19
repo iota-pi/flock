@@ -90,7 +90,7 @@ So the migration is two parts: **change the password with Argon2id**, then **rot
   - **Legacy accounts don't need it set:** `storeVault` already sends the active key version as `keyringVersion`, so a legacy account with `keyringVersion > 1` has rotated off v1. The rotation needs no extra write.
 - **`createAccount` takes the keyring.** `CreateAccountBodySchema` requires `keyring` (encrypted with the master key), `kdf` and `randomDataKeys: true`.
   - **New accounts start at the current level** (`dataVersion` in `FLOCK_ACCOUNT_DEFAULTS`, as before). The schema guarantees they have nothing to migrate, so the level needn't be decided per request. If a future level needs that, the policy can gain a hook for it then.
-- **`deriveVaultKey` branches on `kdf`.** PBKDF2 becomes a host hook, like `decodeLegacySalt`: `VaultHostHooks.deriveLegacyKey`, which returns the 32 key bytes so the library still decides the key's properties. While phase 1 lasts it lives in `src/app/vault/legacyKeyDerivation.ts` and both apps pass it, since the main app may import only `detection.ts` from `src/migrate/`. It moves to `src/migrate/legacy/` at phase 2, as level 1's code did.
+- **`deriveVaultKey` branches on `kdf`.** PBKDF2 becomes a host hook, like `decodeLegacySalt`: `VaultHostHooks.deriveLegacyKey`, which returns the 32 key bytes so the library still decides the key's properties. It lived in `src/app/vault/legacyKeyDerivation.ts` while phase 1 lasted, passed by both apps. Since phase 2 it lives in `src/migrate/legacy/keyDerivation.ts` and only the migration app passes it, as level 1's code did.
 - **Argon2id runs off the main thread.** `VaultHostHooks.createKdfWorker` creates a worker that calls `exposeKdfWorker` (from `@vault/client/kdfWorker`). Each derivation gets a fresh worker, terminated afterwards, so its 64 MiB is released.
 - **The master key enters the keyring only on PBKDF2 accounts.** `initialiseVault` and `unlockWithBiometrics` seed `['1', masterKey]` only when the account has no `kdf`, where v1 really is the master key. On Argon2id accounts the keyring stays empty until it's loaded from cache or the server.
   - **No keys, no unlock:** a login or biometric unlock that ends with an empty keyring (no cache, keyring fetch failed) fails rather than unlocking keyless.
@@ -100,14 +100,14 @@ So the migration is two parts: **change the password with Argon2id**, then **rot
 
 Following "Backwards compatibility" in [vault-extraction.md](vault-extraction.md), this is account level 2, shipped as a compatibility release before anything is removed.
 - **Online password login** routes accounts below `MIN_ACCOUNT_DATA_VERSION` (2) to `/migrate/` before deriving keys, as `Login.tsx` does now. It also routes any account the server describes without `kdf`, whatever its level: **the main app never derives a PBKDF2 key from parameters the server sent**. Otherwise a server could describe an Argon2id account as PBKDF2 and get an auth token far cheaper to guess the password from.
-- **Offline password login** (or a slow server, where `Login.tsx` uses the cached parameters) on a device whose cached metadata is still PBKDF2 unlocks with the PBKDF2 hook, subject to the 100,000-iteration floor.
+- **Offline password login** (or a slow server, where `Login.tsx` uses the cached parameters) on a device whose cached metadata is still PBKDF2 unlocked with the PBKDF2 hook during phase 1, subject to the 100,000-iteration floor. Since phase 2 the main app can't derive it: the login page says the account needs a connection to the server, and the migration app takes over once one is available. Biometric unlock still works offline.
   - **Why this is allowed:** after the release, every existing device's cache is PBKDF2 until its next online login, so refusing would lock offline users out of an offline-first app (even users whose account was already migrated on another device).
   - **Sessions are allowed:** the parameters came from the device, not the server, so the auth token is the account's real one. Biometric unlock already sends the same token. Nothing is re-wrapped, and the account-level check below sends the user to `/migrate/` once the device is online.
 - **Account-level check after every unlock.** Once online, after a password *or biometric* unlock, the app calls `getSecurityParams` and, below the minimum and not deferred, locks and goes to `/migrate/`.
   - **Why biometrics needs it:** `handleClickBiometricUnlock` in `Login.tsx` skips the check today, and level 2 has no device or hydrator gate. Users who always unlock with biometrics would otherwise never be migrated.
 - **The main app stops upgrading PBKDF2 at login.** The `needsKeyDerivationUpgrade` path that re-wraps PBKDF2 to PBKDF2 goes away. It would sign out other sessions for no lasting benefit.
 - **Old builds.** A cached old build can't derive Argon2id keys. Raise `minProtocolVersion` in the same deploy: `login` and `createAccount` are mutations, so the gate in `trpc.ts` stops old builds at login and account creation and they update and reload.
-- **Phase 2 (later):** once the account-level scan shows no accounts below 2 (or the rest are accepted as abandoned), stop passing the PBKDF2 hook in the main app and move it to `src/migrate/legacy/`. The migration app keeps it until level 2 is retired.
+- **Phase 2 (done):** the main app no longer passes the PBKDF2 hook, which moved to `src/migrate/legacy/`. Meant for once the account-level scan shows no accounts below 2 (or the rest are accepted as abandoned): until then, a remaining PBKDF2 device can't unlock offline. The migration app keeps the hook until level 2 is retired.
 - **Release:** the server changes can deploy first. The client changes for new accounts and the forced migration must ship together: on their own, the new-account changes would leave the old login auto-upgrade re-wrapping legacy accounts to Argon2id with the *same* password, before the migration's password step exists.
 
 ### Migration (in the migration app)
@@ -356,7 +356,7 @@ Part 1 ships before Part 2. Each step is a separate PR that passes `yarn test ru
    - Split Flock's minimum into `MIN_DEVICE_DATA_VERSION` (1) and `MIN_ACCOUNT_DATA_VERSION` (2), and update `isMigrationComplete`.
    - Add the blocker descriptions to `BLOCKER_DESCRIPTIONS`.
    - Raise `minProtocolVersion` in the same deploy as the server changes.
-10. **Phase 2 (later)**: stop passing the PBKDF2 hook in the main app once the scan allows, and move it to `src/migrate/legacy/`. v1 stays in keyrings permanently.
+10. **Phase 2 (done)**: the main app no longer passes the PBKDF2 hook, which moved to `src/migrate/legacy/`. v1 stays in keyrings permanently.
 
 ### Part 2: local encryption
 

@@ -342,5 +342,17 @@ describe('LoginPage', () => {
       await waitFor(() => expect(goToMigration).toHaveBeenCalledWith('old-account'))
       expect(screen.queryByRole('alert')).toBeNull()
     })
+
+    it('asks for a connection when PBKDF2 parameters cached on the device can only be used by the migration app', async () => {
+      localStorage.setItem('FlockVaultMeta', JSON.stringify({ account: 'old-account', salt: 'cached-salt', iterations: 600000 }))
+      vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
+      // The main app no longer derives PBKDF2 keys
+      vi.spyOn(vault, 'loginVault').mockRejectedValue(new vault.UnsupportedKeyDerivationError('This app no longer derives PBKDF2 keys'))
+
+      await logIn()
+
+      expect(await screen.findByText(/need updating, which needs a connection to the server/)).toBeDefined()
+      expect(goToMigration).not.toHaveBeenCalled()
+    })
   })
 })
