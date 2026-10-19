@@ -303,11 +303,10 @@ describe('DynamoDriver', function () {
       kdf,
       keyring: 'encrypted-keyring',
       randomDataKeys: true,
-      dataVersion: 2,
     })
 
     const params = await driver.getSecurityParams({ account })
-    expect(params).toEqual({ salt, iterations: undefined, saltVersion: 1, kdf, dataVersion: 2 })
+    expect(params).toEqual({ salt, iterations: undefined, saltVersion: 1, kdf, dataVersion: undefined })
     const stored = await driver.getAccount({ account, session: authToken, isLogin: true })
     expect(stored).toMatchObject({ keyring: 'encrypted-keyring', randomDataKeys: true, keyringVersion: 1 })
     expect(stored).not.toHaveProperty('iterations')

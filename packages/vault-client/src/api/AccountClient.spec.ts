@@ -6,7 +6,7 @@ import {
   updateKeyring,
   changePassword,
 } from './AccountClient'
-import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
+import { LEGACY_CRYPTO_ITERATIONS } from './util'
 import { getVaultTrpcClient } from './vaultTrpcClient'
 
 const mockTrpcClient = {
@@ -31,18 +31,6 @@ describe('AccountClient', () => {
     vi.clearAllMocks()
   })
 
-  it('creates accounts with expected iterations', async () => {
-    vi.mocked(getVaultTrpcClient().accounts.createAccount.mutate).mockResolvedValue({ account: 'acc-1' })
-
-    await createAccount({ salt: 'salt', authToken: 'token' })
-
-    expect(getVaultTrpcClient().accounts.createAccount.mutate).toHaveBeenCalledWith({
-      salt: 'salt',
-      authToken: 'token',
-      iterations: DEFAULT_CRYPTO_ITERATIONS,
-    })
-  })
-
   it('gets security params for the active account', async () => {
     vi.mocked(getVaultTrpcClient().accounts.getSecurityParams.query).mockResolvedValue({
       salt: 'salt-2',
@@ -58,7 +46,7 @@ describe('AccountClient', () => {
     })
   })
 
-  it('creates Argon2id accounts with their keyring and without iterations', async () => {
+  it('creates accounts with their Argon2id parameters and keyring', async () => {
     vi.mocked(getVaultTrpcClient().accounts.createAccount.mutate).mockResolvedValue({ account: 'acc-1' })
 
     await createAccount({ salt: 'salt', authToken: 'token', saltVersion: 1, kdf: ARGON2ID, keyring: 'keyring', randomDataKeys: true })

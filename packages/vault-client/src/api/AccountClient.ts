@@ -5,7 +5,7 @@ import type {
   CreateAccountBody,
 } from './clientTypes'
 import type { KdfParams } from '@vault/shared'
-import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
+import { LEGACY_CRYPTO_ITERATIONS } from './util'
 
 export async function createAccount(
   { salt, authToken, saltVersion, kdf, keyring, randomDataKeys }: CreateAccountBody,
@@ -14,9 +14,9 @@ export async function createAccount(
     salt,
     authToken,
     saltVersion,
-    ...(kdf ? { kdf } : { iterations: DEFAULT_CRYPTO_ITERATIONS }),
-    ...(keyring ? { keyring } : {}),
-    ...(randomDataKeys ? { randomDataKeys } : {}),
+    kdf,
+    keyring,
+    randomDataKeys,
   })
 }
 

@@ -22,22 +22,15 @@ export const accountsRouter = router({
     .mutation(async ({ ctx, input }) => {
       for (let attempt = 0; attempt < MAX_CREATE_ACCOUNT_ATTEMPTS; attempt += 1) {
         const account = await ctx.vault.getNewAccountId()
-        const dataVersion = ctx.dataVersionPolicy?.newAccountVersion?.({
-          kdf: input.kdf,
-          keyring: input.keyring,
-          randomDataKeys: input.randomDataKeys,
-        })
         // Fails if another sign-up took the ID after getNewAccountId checked it
         const created = await ctx.vault.createAccount({
           account,
           authToken: hashString(input.authToken),
           salt: input.salt,
-          iterations: input.iterations,
           saltVersion: input.saltVersion,
           kdf: input.kdf,
           keyring: input.keyring,
           randomDataKeys: input.randomDataKeys,
-          dataVersion,
         })
         if (created) {
           return { account }
@@ -181,8 +174,7 @@ export const accountsRouter = router({
           account: input.account,
           authToken: newAuthTokenHash,
           salt: input.newSalt,
-          ...(input.newIterations !== undefined ? { iterations: input.newIterations } : {}),
-          ...(input.newKdf ? { kdf: input.newKdf } : {}),
+          kdf: input.newKdf,
           keyring: input.newKeyring,
           saltVersion: input.saltVersion,
           ...(typeof input.keyringVersion === 'number'

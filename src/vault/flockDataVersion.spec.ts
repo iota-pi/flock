@@ -1,5 +1,4 @@
 import { flockDataVersionPolicy } from './flockDataVersion'
-import { FLOCK_DATA_VERSION } from '../shared/flockDataVersion'
 import type { ItemFormatSummary } from '@vault/server'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
@@ -83,20 +82,5 @@ describe('flockDataVersionPolicy', () => {
       { deleted: true, snapshotFormat: undefined },
       { deleted: true, hasSnapshot: false, hasCipher: true },
     ])).resolves.toEqual([])
-  })
-
-  describe('newAccountVersion', () => {
-    const kdf = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
-
-    it('starts an account created with Argon2id and a keyring at the current version', () => {
-      expect(flockDataVersionPolicy.newAccountVersion?.({ kdf, keyring: 'keyring', randomDataKeys: true }))
-        .toBe(FLOCK_DATA_VERSION)
-    })
-
-    it('starts an account created the old way at the first version, so it still gets migrated', () => {
-      expect(flockDataVersionPolicy.newAccountVersion?.({})).toBe(1)
-      expect(flockDataVersionPolicy.newAccountVersion?.({ kdf })).toBe(1)
-      expect(flockDataVersionPolicy.newAccountVersion?.({ keyring: 'keyring' })).toBe(1)
-    })
   })
 })

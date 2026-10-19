@@ -83,12 +83,13 @@ So the migration is two parts: **change the password with Argon2id**, then **rot
 ### Format
 
 - **Account record and wire schemas** (`VaultAccountSchema`, `CreateAccountBodySchema`, `ChangePasswordBodySchema`, `getSecurityParams`) gain `kdf: { algorithm: 'argon2id', memoryKiB, passes, parallelism }`.
-  - `kdf` absent means PBKDF2 with `iterations`.
+  - **On a stored account,** `kdf` absent means PBKDF2 with `iterations`: those accounts can still log in until they migrate.
+  - **New credentials are always Argon2id.** `CreateAccountBodySchema` requires `kdf` and `ChangePasswordBodySchema` requires `newKdf`; neither accepts an iteration count. A PBKDF2 password change would otherwise leave an Argon2id account's `kdf` in place beside PBKDF2 credentials, and every later login would fail.
   - The client sets `kdf`, and the server stores and returns it, validating only its shape.
 - **`randomDataKeys: true` on the account record.** `createAccount` sets it for accounts created with a random v1. Without it, `kver === '1'` can't tell a legacy derived v1 from a new account's random v1.
   - **Legacy accounts don't need it set:** `storeVault` already sends the active key version as `keyringVersion`, so a legacy account with `keyringVersion > 1` has rotated off v1. The rotation needs no extra write.
-- **`createAccount` takes the keyring.** `CreateAccountBodySchema` gains `keyring` (encrypted with the master key) and `kdf`.
-  - **The server sets `dataVersion`** from the request, through the policy's `newAccountVersion` (it replaces `dataVersion` in `FLOCK_ACCOUNT_DEFAULTS`): the current level only when the request carries an Argon2id `kdf` and a keyring, otherwise 1. A cached old build that somehow creates a PBKDF2 account then still goes through the migration. `minProtocolVersion` already blocks this, but the server shouldn't depend on it.
+- **`createAccount` takes the keyring.** `CreateAccountBodySchema` requires `keyring` (encrypted with the master key), `kdf` and `randomDataKeys: true`.
+  - **New accounts start at the current level** (`dataVersion` in `FLOCK_ACCOUNT_DEFAULTS`, as before). The schema guarantees they have nothing to migrate, so the level needn't be decided per request. If a future level needs that, the policy can gain a hook for it then.
 - **`deriveVaultKey` branches on `kdf`.** PBKDF2 becomes a host hook, like `decodeLegacySalt`: `VaultHostHooks.deriveLegacyKey`, which returns the 32 key bytes so the library still decides the key's properties. While phase 1 lasts it lives in `src/app/vault/legacyKeyDerivation.ts` and both apps pass it, since the main app may import only `detection.ts` from `src/migrate/`. It moves to `src/migrate/legacy/` at phase 2, as level 1's code did.
 - **Argon2id runs off the main thread.** `VaultHostHooks.createKdfWorker` creates a worker that calls `exposeKdfWorker` (from `@vault/client/kdfWorker`). Each derivation gets a fresh worker, terminated afterwards, so its 64 MiB is released.
 - **The master key enters the keyring only on PBKDF2 accounts.** `initialiseVault` and `unlockWithBiometrics` seed `['1', masterKey]` only when the account has no `kdf`, where v1 really is the master key. On Argon2id accounts the keyring stays empty until it's loaded from cache or the server.
@@ -315,7 +316,7 @@ Part 1 ships before Part 2. Each step is a separate PR that passes `yarn test ru
    - Specs: the reference implementation's argon2id vector (`hash-wasm` takes no associated data, so RFC 9106 §5.3 can't be reproduced), each parameter below the floor or above the ceiling is rejected, an unknown algorithm is rejected, Cypress parameters.
 3. **Schemas and server**
    - Add `kdf` to the account record and to the create, change-password and security-params schemas, with shape validation only.
-   - Add `randomDataKeys` and `keyring` to `createAccount`. The server sets `dataVersion` from the request.
+   - Require `kdf`, `keyring` and `randomDataKeys` on `createAccount`, and `newKdf` on `changePassword`. Neither accepts PBKDF2 iterations.
    - `UnknownAccountParams` gains `kdf`. Add a spec that responses for real and unknown accounts have the same shape.
    - `listItemFormats` projects `kver`. Add the `legacyKeyDerivation` and `passwordDerivedDataKey` blocker rules.
    - Extend the driver specs and the Dynamo OCC tests.

@@ -3,20 +3,18 @@ import { CryptoResultSchema, KdfParamsSchema } from './crypto'
 import { VaultSnapshotSchema } from './snapshots'
 import { ItemIdSchema, type ItemId } from './ids'
 
-const KDF_OR_ITERATIONS_MESSAGE = 'Either Argon2id parameters or a PBKDF2 iteration count is required'
-
+// New credentials always use Argon2id and a random data key. Accounts still on PBKDF2 can log in
+// with what they have, but nothing creates PBKDF2 credentials any more.
 export const CreateAccountBodySchema = z.object({
   salt: z.string().min(1),
   authToken: z.string().min(1),
-  /** PBKDF2 iterations, for accounts without `kdf` */
-  iterations: z.number().int().min(1).optional(),
   saltVersion: z.number().int().min(1).optional(),
-  kdf: KdfParamsSchema.optional(),
-  /** The account's keyring, encrypted with the master key. Accounts created without one get it at their first login. */
-  keyring: z.string().min(1).optional(),
+  kdf: KdfParamsSchema,
+  /** The account's keyring, encrypted with the master key */
+  keyring: z.string().min(1),
   /** Every data key in `keyring` was generated randomly, rather than derived from the password */
-  randomDataKeys: z.literal(true).optional(),
-}).refine(body => body.kdf !== undefined || body.iterations !== undefined, KDF_OR_ITERATIONS_MESSAGE)
+  randomDataKeys: z.literal(true),
+})
 
 export const AccountCreationResponseSchema = z.object({
   account: z.string(),
@@ -43,14 +41,12 @@ export const ChangePasswordBodySchema = z.object({
   currentAuthToken: z.string().min(1),
   newAuthToken: z.string().min(1),
   newSalt: z.string().min(1),
-  /** PBKDF2 iterations, for a new password without `newKdf` */
-  newIterations: z.number().int().min(1).optional(),
-  newKdf: KdfParamsSchema.optional(),
+  newKdf: KdfParamsSchema,
   newKeyring: z.string().min(1),
   saltVersion: z.number().int().min(1).optional(),
   keyringVersion: z.number().int().min(1).optional(),
   expectedKeyringVersion: z.number().int().min(1).optional(),
-}).refine(body => body.newKdf !== undefined || body.newIterations !== undefined, KDF_OR_ITERATIONS_MESSAGE)
+})
 
 export const FetchItemsInputSchema = z.object({
   account: z.string().min(1),

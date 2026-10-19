@@ -312,7 +312,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       kdf,
       keyring,
       randomDataKeys,
-      dataVersion,
     }: VaultAccount,
   ): Promise<boolean> {
     let success = true
@@ -330,7 +329,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ...(kdf ? { kdf } : {}),
         ...(keyring ? { keyring } : {}),
         ...(randomDataKeys ? { randomDataKeys } : {}),
-        ...(dataVersion !== undefined ? { dataVersion } : {}),
         sessions: [],
         keyringVersion: 1,
       },

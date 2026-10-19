@@ -3,16 +3,8 @@ import { FLOCK_DATA_VERSION } from '../shared/flockDataVersion'
 import { SYNCED_METADATA_KEYS } from '../shared/schemas/metadata'
 import type { FlockAccountFields } from './types'
 
-/** The level an account starts at, before anything has migrated it */
-const FIRST_DATA_VERSION = 1
-
 export const flockDataVersionPolicy: DataVersionPolicy = {
   current: FLOCK_DATA_VERSION,
-  // Decided from the request rather than assumed: an account created without Argon2id parameters
-  // or a keyring (as an old build would create it) still has to be migrated
-  newAccountVersion({ kdf, keyring }) {
-    return kdf?.algorithm === 'argon2id' && keyring ? FLOCK_DATA_VERSION : FIRST_DATA_VERSION
-  },
   async findBlockers({ account, accountData, vault }) {
     const blockers: string[] = []
 
