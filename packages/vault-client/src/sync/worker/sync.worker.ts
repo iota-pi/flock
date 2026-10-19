@@ -3,7 +3,7 @@ import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
 
 import type { DocHandle } from '@automerge/automerge-repo/slim'
-import type { SyncApi } from './syncProtocol'
+import type { InitRepoOptions, SyncApi } from './syncProtocol'
 import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 
@@ -67,6 +67,11 @@ export interface SyncWorkerConfig {
    * every row on the server is seen. For an app's migration app.
    */
   fetchManifestEverySync?: boolean
+  /**
+   * Seals this device's local data with a device storage key, copying any plaintext data into the
+   * sealed stores and then deleting the plaintext ones (see docs/local-encryption.md, Part 2)
+   */
+  upgradeLocalEncryption?: boolean
 }
 
 let globalEventPort: MessagePort | null = null
@@ -360,7 +365,12 @@ export class SyncWorker implements SyncApi {
     })
   }
 
-  async initRepo(accountId: string, vaultKey: string, refreshAuthToken?: () => Promise<string | null>) {
+  async initRepo(
+    accountId: string,
+    vaultKey: string,
+    refreshAuthToken?: () => Promise<string | null>,
+    options?: InitRepoOptions,
+  ) {
     this.isShutDown = false
     if (this.isReady || !this.readyPromise) {
       this.isReady = false
@@ -390,7 +400,10 @@ export class SyncWorker implements SyncApi {
         hasLegacyLocalData: this.config.hasLegacyLocalData,
         upgradeSnapshotFormat: this.config.upgradeSnapshotFormat,
         fetchManifestEverySync: this.config.fetchManifestEverySync,
+        upgradeLocalEncryption: this.config.upgradeLocalEncryption,
+        randomDataKeys: options?.randomDataKeys,
         keys: this.keyring,
+        localKeys: this.keyring,
       })
       if (this.latestAuthToken) {
         context.apiClient.setToken(this.latestAuthToken)

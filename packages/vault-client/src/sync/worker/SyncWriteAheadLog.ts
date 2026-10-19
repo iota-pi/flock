@@ -506,6 +506,24 @@ export class SyncWriteAheadLog {
   }
 
   /**
+   * Copies entries from another WAL store, keeping their IDs, order and timestamps. Entries already
+   * here are skipped, so copying again after an interruption is safe. Returns how many were added.
+   */
+  async importEntries(entries: readonly WalEntry[]): Promise<number> {
+    const existing = new Set(await this.storage.keys())
+    let imported = 0
+    for (const entry of entries) {
+      if (existing.has(entry.id)) continue
+      const stored = await this.toStored(entry)
+      await runStorageOperation(() => this.storage.setItem(entry.id, stored), { retryOnQuotaError: false })
+      imported += 1
+    }
+    // The next append continues after the imported entries
+    this.isSeqInitialized = false
+    return imported
+  }
+
+  /**
    * Clear all entries (used on account switch or data clear).
    */
   async clear(): Promise<void> {

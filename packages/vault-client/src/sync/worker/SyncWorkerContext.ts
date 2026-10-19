@@ -31,9 +31,9 @@ import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { AbortError } from '../utils/abort'
-import { openLocalStorage } from './localEncryption/openLocalStorage'
-import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
-import type { KeyProvider } from '../../api/Keyring'
+import { openLocalStorage, type LocalStorage } from './localEncryption/openLocalStorage'
+import { LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
+import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -80,8 +80,14 @@ export interface SyncWorkerContextConfig {
   upgradeSnapshotFormat?: boolean
   /** Fetches the manifest on every sync (see SyncWorkerConfig) */
   fetchManifestEverySync?: boolean
+  /** Seals local data (see SyncWorkerConfig) */
+  upgradeLocalEncryption?: boolean
+  /** Whether the account's data keys are random (see InitRepoOptions) */
+  randomDataKeys?: boolean
   /** The account's data keys */
   keys: KeyProvider
+  /** Wraps the device storage key. Needed with `upgradeLocalEncryption`. */
+  localKeys?: LocalKeyWrapper
 }
 
 export class SyncWorkerContext {
@@ -118,6 +124,8 @@ export class SyncWorkerContext {
 
   private unsubscribers: Array<() => void> = []
   private isStopped = false
+  /** How this session stores local data, once `initialize` has opened it */
+  public localStorageState: Pick<LocalStorage, 'mode' | 'retired'> | null = null
   private readonly config: SyncWorkerContextConfig
   private readonly migrateLocalDataHook?: (accountId: string) => Promise<void>
   private readonly minDataVersion: number
@@ -149,12 +157,17 @@ export class SyncWorkerContext {
   }
 
   /** Creates the Repo and every component that takes it, once local storage is open */
-  private createComponents(config: SyncWorkerContextConfig, storage: VaultIndexedDBStorageAdapter): void {
-    this.initServices(config, storage)
+  private createComponents(config: SyncWorkerContextConfig, local: LocalStorage): void {
+    if (local.cipher) {
+      this.indexStore = new IndexStore(config.accountId, { cipher: local.cipher })
+      this.wal = new SyncWriteAheadLog(config.accountId, this.internalEventHub, { cipher: local.cipher })
+    }
+    this.localStorageState = { mode: local.mode, retired: local.retired }
+    this.initServices(config, local.storage)
     this.wireEvents()
   }
 
-  private initServices(config: SyncWorkerContextConfig, storage: VaultIndexedDBStorageAdapter): void {
+  private initServices(config: SyncWorkerContextConfig, storage: LocalStorage['storage']): void {
     const network = this.initNetworkAndRepo(config, storage)
     this.adapter = network.adapter
     this.repoManager = network.repoManager
@@ -223,7 +236,7 @@ export class SyncWorkerContext {
     this.registerLifecycleServices()
   }
 
-  private initNetworkAndRepo(config: SyncWorkerContextConfig, storage: VaultIndexedDBStorageAdapter) {
+  private initNetworkAndRepo(config: SyncWorkerContextConfig, storage: LocalStorage['storage']) {
     const adapter = new VaultNetworkAdapter(this.internalEventHub)
     const repoManager = new AutomergeRepoManager(config.accountId, config.keys)
     const repo = repoManager.init(adapter, storage, {
@@ -497,27 +510,72 @@ export class SyncWorkerContext {
   }
 
   async initialize(): Promise<void> {
+    try {
+      await this.initializeLocalData()
+    } catch (error) {
+      if (error instanceof LocalKeyUnavailableError || error instanceof LocalDataUnreadableError) {
+        await this.reportLocalDataUnavailable(error)
+      }
+      throw error
+    }
+    await this.lifecycle.start()
+    await this.accountSettings.load()
+    fireAndForget(
+      this.dataVersionTracker.onStart(this.hasLocalDataAtStart),
+      'SyncWorkerContext:recordDeviceDataVersion',
+    )
+  }
+
+  private hasLocalDataAtStart = false
+
+  /** Everything before services start: the device gate, migration, and opening local storage */
+  private async initializeLocalData(): Promise<void> {
     // Checked before anything else: starting would record the current level for a device whose
     // only data is in a layout the app no longer reads, stranding that data
     await this.checkDeviceDataVersion()
     // Stores only read the current layout, so the migration runs first. A failure must stop
     // initialization: starting would create an empty index, and a later migration would then keep it
     // over the old one. Local storage is opened under the same lock, before the Repo reads from it.
-    const { storage } = await this.withLocalDataLock(async () => {
+    const local = await this.withLocalDataLock(async () => {
       await this.migrateLocalDataHook?.(this.accountId)
-      return openLocalStorage(this.accountId)
+      return openLocalStorage({
+        accountId: this.accountId,
+        upgradeLocalEncryption: this.config.upgradeLocalEncryption,
+        keys: this.config.localKeys,
+        randomDataKeys: this.config.randomDataKeys,
+        onRetiring: () => this.clientEventHub.emit({ type: 'retiringLegacyStores', accountId: this.accountId }),
+        onQuotaFallback: () => this.clientEventHub.emit({
+          type: 'quotaExceeded',
+          message: "There isn't enough storage space to encrypt this device's data. It will be retried later.",
+        }),
+      })
     })
     // A shutdown while waiting for the lock has already stopped this context
     if (this.isStopped) {
-      await storage.close()
+      await local.storage.close()
       throw new AbortError('The sync worker context was shut down during initialization')
     }
-    this.createComponents(this.config, storage)
+    this.createComponents(this.config, local)
     // Checked before starting, which creates an empty index for a new device
-    const hasLocalData = await this.indexStore.hasIndex()
-    await this.lifecycle.start()
-    await this.accountSettings.load()
-    fireAndForget(this.dataVersionTracker.onStart(hasLocalData), 'SyncWorkerContext:recordDeviceDataVersion')
+    this.hasLocalDataAtStart = await this.indexStore.hasIndex()
+  }
+
+  /**
+   * Tells the app this device's local data can't be opened, with how many changes haven't been pushed
+   * (the WAL's entry count, which needs no key), so it can offer recovery. The data is never reset here.
+   */
+  private async reportLocalDataUnavailable(error: LocalKeyUnavailableError | LocalDataUnreadableError): Promise<void> {
+    let unpushedChanges = 0
+    try {
+      unpushedChanges = await SyncWriteAheadLog.getSealedStorage(this.accountId).length()
+    } catch (countError) {
+      console.warn('[SyncWorkerContext] Could not count unpushed changes', countError)
+    }
+    this.clientEventHub.emit({
+      type: 'localDataUnavailable',
+      ...(error instanceof LocalKeyUnavailableError && error.kver ? { kver: error.kver } : {}),
+      unpushedChanges,
+    })
   }
 
   /**
@@ -534,12 +592,13 @@ export class SyncWorkerContext {
   }
 
   /**
-   * Runs `task` while holding the account's local data Web Lock, when the app migrates local data.
-   * Otherwise a tab could copy an old value over one another tab's engine has already written since
-   * migrating.
+   * Runs `task` while holding the account's local data Web Lock, when the app migrates or seals local
+   * data. Otherwise a tab could copy an old value over one another tab's engine has already written
+   * since migrating, or two tabs could each create a device storage key.
    */
   private async withLocalDataLock<T>(task: () => Promise<T>): Promise<T> {
-    if (this.migrateLocalDataHook && typeof navigator !== 'undefined' && navigator?.locks?.request) {
+    const needsLock = this.migrateLocalDataHook || this.config.upgradeLocalEncryption
+    if (needsLock && typeof navigator !== 'undefined' && navigator?.locks?.request) {
       const lockName = `${getVaultStorageNames().accountPrefixes.localDataMigrationLock}${this.accountId}`
       return navigator.locks.request(lockName, { mode: 'exclusive' }, task)
     }

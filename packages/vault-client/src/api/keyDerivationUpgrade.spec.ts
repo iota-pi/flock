@@ -7,6 +7,7 @@ import {
   getActiveKeyVersion,
   hasBiometricData,
   initialiseVault,
+  hasRandomDataKeys,
   lockVaultKeys,
   loginVault,
   needsKeyDerivationUpgrade,
@@ -32,7 +33,7 @@ vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
   createAccount: vi.fn(),
   getSecurityParams: vi.fn(),
-  getKeyring: vi.fn().mockResolvedValue(undefined),
+  getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
   updateKeyring: vi.fn().mockResolvedValue(undefined),
   changePassword: vi.fn().mockResolvedValue(undefined),
 }))
@@ -78,7 +79,7 @@ async function seedLegacyServerKeyring(params: { salt: string, iterations: numbe
   const keyring = readCachedKeyring()!
   await clearVaultDeviceData()
   vi.clearAllMocks()
-  vi.mocked(getKeyring).mockResolvedValue(keyring)
+  vi.mocked(getKeyring).mockResolvedValue({ keyring, randomDataKeys: false })
 }
 
 /** Builds the server's keyring for an Argon2id account: a random v1 wrapped with the master key */
@@ -87,7 +88,7 @@ async function seedArgon2idServerKeyring(kdf: KdfParams) {
   const keys = new Keyring()
   keys.replace(new Map([['1', await generateVaultKey()]]), '1')
   const keyring = JSON.stringify(await encryptWithKey(masterKey, JSON.stringify(await keys.export()), 'master'))
-  vi.mocked(getKeyring).mockResolvedValue(keyring)
+  vi.mocked(getKeyring).mockResolvedValue({ keyring, randomDataKeys: false })
   return { masterKey, keyring }
 }
 
@@ -101,7 +102,7 @@ describe('key derivation at login', () => {
     configureVaultHost({ decodeLegacySalt, deriveLegacyKey })
     await clearVaultDeviceData()
     vi.clearAllMocks()
-    vi.mocked(getKeyring).mockResolvedValue(undefined)
+    vi.mocked(getKeyring).mockResolvedValue({ randomDataKeys: false })
     vi.mocked(getSession).mockResolvedValue('mock-session')
   })
 
@@ -125,6 +126,22 @@ describe('key derivation at login', () => {
     expect(getSession).toHaveBeenLastCalledWith(ACCOUNT, request.newAuthToken)
     expect(readStoredMetadata()).toMatchObject({ salt: request.newSalt, saltVersion: 1, kdf: CURRENT_KDF })
     expect(readStoredMetadata()?.iterations).toBeUndefined()
+  })
+
+  it("remembers whether the account's data keys are random, from a new device's first login", async () => {
+    const { keyring } = await seedArgon2idServerKeyring(CURRENT_KDF)
+    vi.mocked(getKeyring).mockResolvedValue({ keyring, randomDataKeys: true })
+
+    await loginArgon2id(CURRENT_KDF)
+
+    expect(readStoredMetadata()?.randomDataKeys).toBe(true)
+    expect(hasRandomDataKeys(ACCOUNT)).toBe(true)
+    expect(hasRandomDataKeys('another-account')).toBe(false)
+
+    vi.mocked(getKeyring).mockResolvedValue({ keyring, randomDataKeys: false })
+    await loginArgon2id(CURRENT_KDF)
+
+    expect(hasRandomDataKeys(ACCOUNT)).toBe(false)
   })
 
   it('leaves current Argon2id parameters alone', async () => {
@@ -288,7 +305,7 @@ describe('biometric unlock with a stale key', () => {
     configureVaultHost({ deriveLegacyKey })
     await clearVaultDeviceData()
     vi.clearAllMocks()
-    vi.mocked(getKeyring).mockResolvedValue(undefined)
+    vi.mocked(getKeyring).mockResolvedValue({ randomDataKeys: false })
 
     // Save biometric unlock for a master key, along with a keyring wrapped with it
     const params = { password: PASSWORD, salt: 'Y3VycmVudC1zYWx0', iterations: 1000, saltVersion: 1, deriveLegacyKey }
@@ -429,7 +446,7 @@ describe('biometric unlock without a cached keyring', () => {
     configureVaultHost({ deriveLegacyKey })
     await clearVaultDeviceData()
     vi.clearAllMocks()
-    vi.mocked(getKeyring).mockResolvedValue(undefined)
+    vi.mocked(getKeyring).mockResolvedValue({ randomDataKeys: false })
     vi.mocked(getSession).mockRejectedValue(new TypeError('Failed to fetch'))
   })
 

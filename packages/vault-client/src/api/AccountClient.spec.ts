@@ -114,10 +114,11 @@ describe('AccountClient', () => {
     vi.mocked(getVaultTrpcClient().accounts.getKeyring.query).mockResolvedValue({
       success: true,
       keyring: 'encrypted-keyring-data',
+      randomDataKeys: true,
     })
 
     const keyring = await getKeyring('acc-1')
-    expect(keyring).toBe('encrypted-keyring-data')
+    expect(keyring).toEqual({ keyring: 'encrypted-keyring-data', randomDataKeys: true })
     expect(getVaultTrpcClient().accounts.getKeyring.query).toHaveBeenCalledWith({
       account: 'acc-1',
     })
