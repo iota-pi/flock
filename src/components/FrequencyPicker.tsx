@@ -98,6 +98,18 @@ function FrequencyPicker({
     [onChange, customUnit],
   )
 
+  const handleCustomAmountKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+        event.preventDefault()
+        if (event.target instanceof HTMLElement) {
+          event.target.blur()
+        }
+      }
+    },
+    [],
+  )
+
   const handleCustomUnitChange = useCallback(
     (e: SelectChangeEvent<string>) => {
       const amount = parseInt(customAmountStr, 10) || 1
@@ -173,7 +185,14 @@ function FrequencyPicker({
                 variant="standard"
                 value={displayAmount}
                 onChange={handleCustomAmountChange}
-                slotProps={{ htmlInput: { min: 1, 'data-cy': 'custom-amount' } }}
+                onKeyDown={handleCustomAmountKeyDown}
+                slotProps={{
+                  htmlInput: {
+                    min: 1,
+                    enterKeyHint: 'done',
+                    'data-cy': 'custom-amount',
+                  },
+                }}
                 fullWidth
               />
             </Grid>
