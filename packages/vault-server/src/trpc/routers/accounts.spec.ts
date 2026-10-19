@@ -4,6 +4,7 @@ import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken } from '../../sessions'
 import { VersionConflictError } from '@vault/shared'
 
+const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
 
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
   const sessionValid = overrides?.sessionValid ?? true
@@ -87,6 +88,42 @@ describe('accountsRouter security contracts', () => {
     await expect(caller.createAccount({ salt: 'salt', authToken: 'auth', iterations: 1000 }))
       .resolves.toEqual({ account: 'acct-2' })
     expect(ctx.vault.createAccount).toHaveBeenCalledTimes(2)
+  })
+
+  it('stores Argon2id parameters and the keyring of a new account, at the level the policy picks', async () => {
+    const ctx = createContext({ authToken: '' })
+    const newAccountVersion = vi.fn(() => 4)
+    const caller = accountsRouter.createCaller({
+      ...ctx,
+      dataVersionPolicy: { current: 4, findBlockers: vi.fn(), newAccountVersion },
+    } as any)
+
+    await caller.createAccount({
+      salt: 'salt',
+      authToken: 'auth',
+      saltVersion: 1,
+      kdf: ARGON2ID,
+      keyring: 'encrypted-keyring',
+      randomDataKeys: true,
+    })
+
+    expect(newAccountVersion).toHaveBeenCalledWith({ kdf: ARGON2ID, keyring: 'encrypted-keyring', randomDataKeys: true })
+    expect(ctx.vault.createAccount).toHaveBeenCalledWith(expect.objectContaining({
+      authToken: hashString('auth'),
+      kdf: ARGON2ID,
+      keyring: 'encrypted-keyring',
+      randomDataKeys: true,
+      dataVersion: 4,
+    }))
+  })
+
+  it('rejects a new account with neither Argon2id parameters nor PBKDF2 iterations', async () => {
+    const ctx = createContext({ authToken: '' })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.createAccount({ salt: 'salt', authToken: 'auth' }))
+      .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(ctx.vault.createAccount).not.toHaveBeenCalled()
   })
 
   it('allows fetching keyring when authorized', async () => {
@@ -221,6 +258,47 @@ describe('accountsRouter security contracts', () => {
     })
   })
 
+  it('stores the Argon2id parameters of a new password', async () => {
+    const ctx = createContext()
+    const clientCurrentAuthToken = hashString('current-password')
+    ctx.vault.getAccount.mockResolvedValueOnce({
+      account: 'acct-1',
+      authToken: hashString(clientCurrentAuthToken),
+      sessions: [{ token: 'session-token', expiry: 12345 }],
+      salt: 'salt-1',
+      iterations: 600000,
+    } as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await caller.changePassword({
+      account: 'acct-1',
+      currentAuthToken: clientCurrentAuthToken,
+      newAuthToken: hashString('new-password'),
+      newSalt: 'new-salt',
+      newKdf: ARGON2ID,
+      newKeyring: 'new-keyring',
+      saltVersion: 1,
+    })
+
+    const update = (ctx.vault.updateAccountData.mock.calls as unknown as [Record<string, unknown>][])[0]?.[0]
+    expect(update).toMatchObject({ salt: 'new-salt', kdf: ARGON2ID, keyring: 'new-keyring', saltVersion: 1 })
+    expect(update).not.toHaveProperty('iterations')
+  })
+
+  it('rejects a new password with neither Argon2id parameters nor PBKDF2 iterations', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.changePassword({
+      account: 'acct-1',
+      currentAuthToken: hashString('current-password'),
+      newAuthToken: hashString('new-password'),
+      newSalt: 'new-salt',
+      newKeyring: 'new-keyring',
+    })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
+  })
+
   it('rejects password change if currentAuthToken is incorrect', async () => {
     const ctx = createContext()
     const clientCurrentAuthToken = hashString('correct-password')
@@ -340,6 +418,31 @@ describe('accountsRouter security contracts', () => {
         dataVersion: 3,
       })
       await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toEqual(params)
+    })
+
+    it('answers unknown accounts with the same fields as a real Argon2id account', async () => {
+      const ctx = createContext({ authToken: '' })
+      const realParams = { salt: 'salt-1', saltVersion: 1, kdf: ARGON2ID, dataVersion: 3 }
+      const getSecurityParams = vi.fn(async ({ account }: { account: string }) => {
+        if (account === 'real') return realParams
+        throw new AuthenticationError(`Could not find account ${account}`)
+      })
+      const caller = accountsRouter.createCaller({
+        ...ctx,
+        vault: { ...ctx.vault, getSecurityParams },
+        unknownAccountParams: { secret: 'server-secret', saltVersion: 1, kdf: ARGON2ID },
+        dataVersionPolicy: { current: 3, findBlockers: vi.fn() },
+      } as any)
+
+      const definedKeys = (params: object) => Object.entries(params)
+        .filter(([, value]) => value !== undefined)
+        .map(([key]) => key)
+        .sort()
+      const real = await caller.getSecurityParams({ account: 'real' })
+      const unknown = await caller.getSecurityParams({ account: 'unknown' })
+
+      expect(unknown.kdf).toEqual(ARGON2ID)
+      expect(definedKeys(unknown)).toEqual(definedKeys(real))
     })
 
     it('does not hide a database failure behind made-up parameters', async () => {

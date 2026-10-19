@@ -29,6 +29,7 @@ import BaseDriver, {
   AuthData,
   BaseData,
   ItemFormatSummary,
+  SecurityParams,
   StoredSyncMessage,
   UpdateAccountDataParams,
   VaultAccount,
@@ -308,6 +309,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       salt,
       iterations,
       saltVersion,
+      kdf,
+      keyring,
+      randomDataKeys,
+      dataVersion,
     }: VaultAccount,
   ): Promise<boolean> {
     let success = true
@@ -320,8 +325,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         created: Date.now(),
         lastAccess: Date.now(),
         salt,
-        iterations,
+        ...(iterations !== undefined ? { iterations } : {}),
         saltVersion,
+        ...(kdf ? { kdf } : {}),
+        ...(keyring ? { keyring } : {}),
+        ...(randomDataKeys ? { randomDataKeys } : {}),
+        ...(dataVersion !== undefined ? { dataVersion } : {}),
         sessions: [],
         keyringVersion: 1,
       },
@@ -375,7 +384,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new AuthenticationError(`Could not find account ${account}`)
   }
 
-  async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number, dataVersion?: number }> {
+  async getSecurityParams({ account }: BaseData): Promise<SecurityParams> {
     const response = await this.client.send(new GetCommand(
       {
         TableName: this.tables.accounts,
@@ -392,7 +401,13 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const dataVersion = dbAccount.dataVersion
 
       const returnedSalt = typeof salt === 'string' ? salt : account
-      return { salt: returnedSalt, iterations, saltVersion, dataVersion }
+      return {
+        salt: returnedSalt,
+        iterations,
+        saltVersion,
+        ...(dbAccount.kdf ? { kdf: dbAccount.kdf } : {}),
+        dataVersion,
+      }
     }
     throw new AuthenticationError(`Could not find account ${account}`)
   }
@@ -726,23 +741,26 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           '#snapshot': 'snapshot',
           '#iv': 'iv',
           '#format': 'format',
+          '#kver': 'kver',
           '#cipher': 'cipher',
         },
         ExpressionAttributeValues: {
           ':accountid': account,
         },
-        ProjectionExpression: '#itemKey, #metadata.#deleted, #snapshot.#iv, #snapshot.#format, #cipher',
+        ProjectionExpression: '#itemKey, #metadata.#deleted, #snapshot.#iv, #snapshot.#format, #snapshot.#kver, #cipher',
         ExclusiveStartKey: lastEvaluatedKey,
       }))
 
       for (const record of response.Items ?? []) {
         if (typeof record.item !== 'string') continue
         const snapshotFormat = record.snapshot?.format
+        const snapshotKver = record.snapshot?.kver
         formats.push({
           itemId: record.item as ItemId,
           deleted: record.metadata?.deleted === true,
           hasSnapshot: record.snapshot !== undefined,
           ...(typeof snapshotFormat === 'number' ? { snapshotFormat } : {}),
+          ...(typeof snapshotKver === 'string' ? { snapshotKver } : {}),
           hasCipher: typeof record.cipher === 'string' && record.cipher.length > 0,
         })
       }

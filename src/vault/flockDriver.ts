@@ -1,5 +1,4 @@
 import DynamoDriver, { type VaultTableNames } from '@vault/server/dynamo'
-import { FLOCK_DATA_VERSION } from '../shared/flockDataVersion'
 import type { FlockAccountFields } from './types'
 
 export const FLOCK_TABLES: VaultTableNames = {
@@ -8,9 +7,8 @@ export const FLOCK_TABLES: VaultTableNames = {
   syncMessages: process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages',
 }
 
-const FLOCK_ACCOUNT_DEFAULTS: FlockAccountFields & { dataVersion: number } = {
-  // New accounts have nothing to migrate
-  dataVersion: FLOCK_DATA_VERSION,
+// New accounts' data version comes from `flockDataVersionPolicy.newAccountVersion`
+const FLOCK_ACCOUNT_DEFAULTS: FlockAccountFields = {
   pushSubscriptions: [],
   reminderEnabled: false,
   reminderTime: '08:00',

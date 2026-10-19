@@ -270,22 +270,47 @@ describe('DynamoDriver', function () {
 
   it('listItemFormats describes how each item is stored', async () => {
     const account = generateAccountId()
-    const [legacy, unbound, bound, deleted] = [generateItemId(), generateItemId(), generateItemId(), generateItemId()]
+    const [legacy, unbound, bound, rotated, deleted] = [
+      generateItemId(), generateItemId(), generateItemId(), generateItemId(), generateItemId(),
+    ]
     const modified = Date.now()
     const payload = Buffer.from('snapshot').toString('base64')
 
     await driver.set({ account, item: legacy, cipher: 'legacy-cipher', metadata: { iv: 'iv', modified } })
     await driver.set({ account, item: unbound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1' } })
     await driver.set({ account, item: bound, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '1', format: 2 } })
+    await driver.set({ account, item: rotated, metadata: { iv: '', modified }, snapshot: { cipher: payload, iv: 'iv', kver: '2', format: 2 } })
     await driver.set({ account, item: deleted, metadata: { iv: '', modified, deleted: true } })
 
     const formats = await driver.listItemFormats({ account })
     expect(new Map(formats.map(format => [format.itemId, format]))).toEqual(new Map([
       [legacy, { itemId: legacy, deleted: false, hasSnapshot: false, hasCipher: true }],
-      [unbound, { itemId: unbound, deleted: false, hasSnapshot: true, hasCipher: false }],
-      [bound, { itemId: bound, deleted: false, hasSnapshot: true, snapshotFormat: 2, hasCipher: false }],
+      [unbound, { itemId: unbound, deleted: false, hasSnapshot: true, snapshotKver: '1', hasCipher: false }],
+      [bound, { itemId: bound, deleted: false, hasSnapshot: true, snapshotFormat: 2, snapshotKver: '1', hasCipher: false }],
+      [rotated, { itemId: rotated, deleted: false, hasSnapshot: true, snapshotFormat: 2, snapshotKver: '2', hasCipher: false }],
       [deleted, { itemId: deleted, deleted: true, hasSnapshot: false, hasCipher: false }],
     ]))
+  })
+
+  it('stores and returns the Argon2id parameters of an account', async () => {
+    const account = generateAccountId()
+    const kdf = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
+    await driver.createAccount({
+      account,
+      authToken,
+      salt,
+      saltVersion: 1,
+      kdf,
+      keyring: 'encrypted-keyring',
+      randomDataKeys: true,
+      dataVersion: 2,
+    })
+
+    const params = await driver.getSecurityParams({ account })
+    expect(params).toEqual({ salt, iterations: undefined, saltVersion: 1, kdf, dataVersion: 2 })
+    const stored = await driver.getAccount({ account, session: authToken, isLogin: true })
+    expect(stored).toMatchObject({ keyring: 'encrypted-keyring', randomDataKeys: true, keyringVersion: 1 })
+    expect(stored).not.toHaveProperty('iterations')
   })
 
   it('normalizes sessions when updating account data', async () => {
