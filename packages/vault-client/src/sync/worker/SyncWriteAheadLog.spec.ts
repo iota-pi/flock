@@ -112,24 +112,22 @@ describe('SyncWriteAheadLog', () => {
     expect(entries.size).toBe(0)
   })
 
-  it('clears all entries via static SyncWriteAheadLog.clear(accountId)', async () => {
-    await wal.append('item-1' as ItemId, new Uint8Array([1]))
-    await wal.append('item-2' as ItemId, new Uint8Array([2]))
-
-    await SyncWriteAheadLog.clear('test-account')
-
-    const entries = await wal.readAll()
-    expect(entries.size).toBe(0)
-  })
-
-  it('also clears the sealed WAL store via static SyncWriteAheadLog.clear(accountId)', async () => {
+  it('clears the sealed WAL store via static SyncWriteAheadLog.clearSealed(accountId)', async () => {
     const sealed = createAccountStore('wal-entries-sealed', 'test-account')
     await sealed.setItem('entry-1', { id: 'entry-1' })
 
-    await SyncWriteAheadLog.clear('test-account')
+    await SyncWriteAheadLog.clearSealed('test-account')
 
     expect(await sealed.length()).toBe(0)
-    expect(activeStoreMap.has('test-vault-wal-sealed-test-account:wal-entries-sealed')).toBe(true)
+  })
+
+  it('leaves the plaintext store to be deleted rather than cleared', async () => {
+    activeStoreMap.clear()
+    clearWalInstancesCacheForTesting()
+
+    await SyncWriteAheadLog.clearSealed('test-account')
+
+    expect(activeStoreMap.has('test-vault-wal-test-account:wal-entries')).toBe(false)
   })
 
   it('recovers un-flushed entries when re-instantiated with same account (crash recovery simulation)', async () => {

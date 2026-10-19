@@ -1437,7 +1437,7 @@ describe('SyncBridge', () => {
 
     it('preserves clearLocalData instruction when concurrent shutdown() is followed by shutdown({ clearLocalData: true })', async () => {
       const { SyncWriteAheadLog } = await import('../worker/SyncWriteAheadLog')
-      const walClearSpy = vi.spyOn(SyncWriteAheadLog, 'clear')
+      const walClearSpy = vi.spyOn(SyncWriteAheadLog, 'clearSealed')
 
       await SyncBridge.initialize('test-account-race-1')
 

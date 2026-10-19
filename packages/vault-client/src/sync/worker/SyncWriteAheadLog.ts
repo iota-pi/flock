@@ -109,12 +109,14 @@ export class SyncWriteAheadLog {
   }
 
   /**
-   * Clear all entries for an account, plaintext and sealed, without needing an active instance.
+   * Clears the account's sealed entries without needing an active instance. The plaintext store is
+   * deleted instead (`clearWriteAheadLog`): clearing it would create an empty plaintext database,
+   * which the app's legacy data detection would then find.
    */
-  public static async clear(accountId: string): Promise<void> {
+  public static async clearSealed(accountId: string): Promise<void> {
     if (!accountId) return
-    const stores = [SyncWriteAheadLog.getStorage(accountId), SyncWriteAheadLog.getSealedStorage(accountId)]
-    await Promise.all(stores.map(storage => runStorageOperation(() => storage.clear())))
+    const storage = SyncWriteAheadLog.getSealedStorage(accountId)
+    await runStorageOperation(() => storage.clear())
   }
 
   private readonly cipher?: LocalCipher

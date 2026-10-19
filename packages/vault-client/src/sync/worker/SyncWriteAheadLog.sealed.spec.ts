@@ -133,10 +133,10 @@ describe('SyncWriteAheadLog with a cipher', () => {
     expect((await plain.readAll()).size).toBe(1)
   })
 
-  it('is cleared with the plaintext store', async () => {
+  it('is cleared without an instance', async () => {
     await wal.append('item-1' as ItemId, MESSAGE)
 
-    await SyncWriteAheadLog.clear(ACCOUNT)
+    await SyncWriteAheadLog.clearSealed(ACCOUNT)
 
     expect(storeFor('sealedWalDatabase')!.data.size).toBe(0)
   })

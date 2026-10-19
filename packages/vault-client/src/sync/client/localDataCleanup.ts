@@ -3,6 +3,7 @@ import { clearSyncMetadataStorage } from '../worker/stores/syncMetadataStorage'
 import { SyncWriteAheadLog } from '../worker/SyncWriteAheadLog'
 import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
 import { getSealedAutomergeDBName } from '../shared/localDatabaseNames'
+import { getAccountDatabaseName } from '../shared/createAccountStore'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 
 /**
@@ -65,6 +66,18 @@ export async function clearAutomergeIndexedDb(dbName: string, timeoutMs: number 
 }
 
 /**
+ * Removes the account's write-ahead log entries: deletes the plaintext database, without creating it
+ * when it doesn't exist, and clears the sealed store.
+ */
+export async function clearWriteAheadLog(accountId: string): Promise<void> {
+  if (!accountId) return
+  await Promise.all([
+    clearAutomergeIndexedDb(getAccountDatabaseName('wal-entries', accountId)),
+    SyncWriteAheadLog.clearSealed(accountId),
+  ])
+}
+
+/**
  * Single source of truth for clearing all local account data during logout or account reset.
  * Cleans up Automerge IndexedDB, sync metadata, WAL, and manual recovery entries.
  * Must be executed after the sync worker has closed its connections to prevent concurrent database
@@ -77,7 +90,7 @@ export async function clearAccountLocalData(accountId: string): Promise<void> {
       clearAutomergeIndexedDb(getAutomergeDBName(accountId)).catch(err => console.error('[SyncBridge] Failed to clear Automerge IndexedDB', err)),
       clearAutomergeIndexedDb(getSealedAutomergeDBName(accountId)).catch(err => console.error('[SyncBridge] Failed to clear sealed Automerge IndexedDB', err)),
       clearSyncMetadataStorage(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncMetadataStorage', err)),
-      SyncWriteAheadLog.clear(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
+      clearWriteAheadLog(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
       clearManualRecoveryEntries(accountId).catch(err => console.error('[SyncBridge] Failed to clear ManualRecovery', err)),
     ])
   } catch (err) {

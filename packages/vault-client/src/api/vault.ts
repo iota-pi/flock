@@ -32,7 +32,7 @@ import {
   VaultStoredMetadata,
   type VaultBroadcastEvent,
 } from './util'
-import { SyncWriteAheadLog } from '../sync/worker/SyncWriteAheadLog'
+import { clearWriteAheadLog } from '../sync/client/localDataCleanup'
 import {
   clearBiometricData,
   readBiometricData,
@@ -576,7 +576,7 @@ export async function lockVaultKeys() {
  */
 export async function clearVaultDeviceData(account?: string) {
   if (account) {
-    await SyncWriteAheadLog.clear(account)
+    await clearWriteAheadLog(account)
     await clearManualRecoveryEntries(account)
   }
   clearKeyData()
