@@ -29,6 +29,7 @@ describe('DataRecoveryDialog', () => {
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
       handleRecreateItem: vi.fn(),
+      handleReplaceFromServer: vi.fn(),
       handleCompactItem: vi.fn(),
     })
 
@@ -67,6 +68,7 @@ describe('DataRecoveryDialog', () => {
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
       handleRecreateItem: vi.fn(),
+      handleReplaceFromServer: vi.fn(),
       handleCompactItem: vi.fn(),
     })
 
@@ -112,6 +114,7 @@ describe('DataRecoveryDialog', () => {
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
       handleRecreateItem,
+      handleReplaceFromServer: vi.fn(),
       handleCompactItem: handleRecreateItem,
     })
 
@@ -143,6 +146,7 @@ describe('DataRecoveryDialog', () => {
       handleForceOverwriteCorruptedItem: vi.fn(),
       handleForceDeleteCorruptedItem: vi.fn(),
       handleRecreateItem: vi.fn(),
+      handleReplaceFromServer: vi.fn(),
       handleCompactItem: vi.fn(),
     })
 
@@ -152,5 +156,40 @@ describe('DataRecoveryDialog', () => {
     expect(screen.getByRole('button', { name: /retry/i })).toBeDefined()
     expect(screen.getByRole('button', { name: /overwrite/i })).toBeDefined()
     expect(screen.getByRole('button', { name: /delete/i })).toBeDefined()
+  })
+
+  it('offers to replace an unreadable local copy from the server, after confirming', async () => {
+    const handleReplaceFromServer = vi.fn()
+    vi.spyOn(dataRecoveryHook, 'useDataRecovery').mockReturnValue({
+      recoveryItems: [
+        {
+          id: 'rec-3',
+          itemId: 'item-unreadable' as ItemId,
+          reason: 'A automerge record in local storage could not be decrypted',
+          kind: 'localDecryption',
+          createdAt: Date.now(),
+        },
+      ],
+      isRetrying: null,
+      handleDismissRecoveryItem: vi.fn(),
+      handleRetryCorruptedItem: vi.fn(),
+      handleForceOverwriteCorruptedItem: vi.fn(),
+      handleForceDeleteCorruptedItem: vi.fn(),
+      handleRecreateItem: vi.fn(),
+      handleReplaceFromServer,
+      handleCompactItem: vi.fn(),
+    })
+
+    render(<DataRecoveryDialog open={true} onClose={onClose} />)
+
+    expect(screen.getByText("This device's copy can't be read")).toBeDefined()
+    expect(screen.queryByRole('button', { name: /overwrite/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /replace from server/i }))
+    expect(handleReplaceFromServer).not.toHaveBeenCalled()
+
+    const confirm = await screen.findAllByRole('button', { name: /replace from server/i })
+    fireEvent.click(confirm[confirm.length - 1])
+
+    expect(handleReplaceFromServer).toHaveBeenCalledWith('item-unreadable')
   })
 })

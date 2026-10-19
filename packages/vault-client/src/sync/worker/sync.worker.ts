@@ -589,6 +589,9 @@ export class SyncWorker implements SyncApi {
   checkDataVersion = () =>
     this.withContext(ctx => ctx.dataVersionTracker.checkStatus())
 
+  replaceFromServer = (itemId: ItemId) =>
+    this.withContext(ctx => ctx.replaceFromServer(itemId))
+
   retryRecoveryItem = (itemId: ItemId) =>
     this.withContext(async ctx => {
       await ctx.recoveryManager.unquarantine(itemId)
@@ -643,8 +646,8 @@ export class SyncWorker implements SyncApi {
     onProgress?: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>
   ) =>
-    this.withContext(ctx =>
-      ctx.itemReencryptor.reencryptAllItems(
+    this.withContext(async ctx => {
+      const result = await ctx.itemReencryptor.reencryptAllItems(
         {
           accountId: ctx.accountId,
           repo: ctx.repo,
@@ -665,7 +668,10 @@ export class SyncWorker implements SyncApi {
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
         }
       )
-    )
+      // After a rotation, the device storage key moves to the new active data key too
+      await ctx.rewrapDeviceKey()
+      return result
+    })
 
   exportSyncState = (): Promise<BackupSyncState> =>
     this.withContext(async ctx => {

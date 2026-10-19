@@ -10,6 +10,8 @@ interface SyncState {
   generation: number
   isQuotaExceeded: boolean
   isLeaderConflict: boolean
+  /** Set when this device's local data can't be opened (see LocalDataUnavailableDialog) */
+  localDataUnavailable: { unpushedChanges: number } | null
 }
 
 export interface SyncSlice extends SyncState {
@@ -22,6 +24,7 @@ export interface SyncSlice extends SyncState {
   setQuotaExceeded: (exceeded: boolean) => void
   clearQuotaExceeded: () => void
   setLeaderConflict: (isConflict: boolean) => void
+  setLocalDataUnavailable: (details: SyncState['localDataUnavailable']) => void
 }
 
 const initialSyncState: SyncState = {
@@ -31,6 +34,7 @@ const initialSyncState: SyncState = {
   generation: 0,
   isQuotaExceeded: false,
   isLeaderConflict: false,
+  localDataUnavailable: null,
 }
 
 export const createSyncSlice: StateCreator<
@@ -72,5 +76,8 @@ export const createSyncSlice: StateCreator<
     set(() => ({
       isLeaderConflict: isConflict,
     }))
+  },
+  setLocalDataUnavailable: details => {
+    set(() => ({ localDataUnavailable: details }))
   },
 })

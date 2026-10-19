@@ -46,6 +46,8 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   /** The versions the latest keyring update looked for, so a version it couldn't find isn't retried at once */
   private checkedMissingKeyVersions = new Set<string>()
   private stopLateSessionListener: (() => void) | null = null
+  /** Starts in a row that found local data it couldn't open, per account */
+  private localDataFailures = new Map<string, number>()
 
   constructor(private readonly options: SyncBridgeOptions<TDoc, TMeta>) {
     this.sink = options.sink
@@ -53,6 +55,9 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     this.eventProcessor = new SyncEventProcessor<TDoc, TMeta>(this.sink, {
       onKeyVersionMissing: kver => {
         void this.handleKeyringUpdate(kver)
+      },
+      onLocalDataUnavailable: details => {
+        void this.handleLocalDataUnavailable(details)
       },
       onTokenRefreshNeeded: () => {
         void this.handleTokenRefresh()
@@ -96,6 +101,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       },
       getAccountId: options.getAccountId,
       onReady: () => {
+        this.localDataFailures.clear()
         this.stopLateSessionListener ??= onLateSession(() => {
           void this.handleLateSession()
         })
@@ -194,6 +200,31 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     }
     await this.handleKeyringUpdate()
     await this.handleReconnect()
+  }
+
+  /**
+   * The first time a start can't open local data, the key it needs may just be missing from this
+   * tab's keyring: it's fetched from the server, and the next start attempt (which exports the keyring
+   * again) uses it. A second failure in a row stops sync and leaves the choice to the user.
+   */
+  private handleLocalDataUnavailable = async (details: { kver?: string, unpushedChanges: number }) => {
+    const accountId = this.lifecycleManager.getCurrentAccountId()
+    if (!accountId) return
+    const failures = (this.localDataFailures.get(accountId) ?? 0) + 1
+    this.localDataFailures.set(accountId, failures)
+    if (failures === 1) {
+      if (details.kver && !hasVaultKey(details.kver)) {
+        try {
+          await syncKeyringFromServer(accountId)
+        } catch (err) {
+          console.warn('[SyncBridge] Failed to reload the keyring for local data:', err)
+        }
+      }
+      return
+    }
+    this.localDataFailures.delete(accountId)
+    await this.shutdown({ clearLocalData: false })
+    this.sink.onLocalDataUnavailable?.({ unpushedChanges: details.unpushedChanges })
   }
 
   private handleKeyringUpdate = async (kver?: string) => {
@@ -351,6 +382,20 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
 
   retryRecoveryItem(itemId: ItemId): Promise<void> {
     return this.execute(api => api.retryRecoveryItem(itemId))
+  }
+
+  replaceFromServer(itemId: ItemId): Promise<void> {
+    return this.execute(api => api.replaceFromServer(itemId))
+  }
+
+  /**
+   * Deletes this device's local data for the account and starts sync again, which downloads it from
+   * the server. Changes that weren't pushed are lost: only call this once the user has confirmed.
+   */
+  async discardLocalDataAndRestart(accountId: string): Promise<void> {
+    this.localDataFailures.delete(accountId)
+    await this.shutdown({ clearLocalData: true, accountId })
+    await this.initialize(accountId)
   }
 
   forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {

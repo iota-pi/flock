@@ -1,4 +1,4 @@
-import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl } from '@automerge/automerge-repo/slim'
+import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl, type DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import { ItemId, ItemIdSchema } from '@vault/shared'
 import type { VaultDoc, VaultMetadata } from '../../shared/types'
@@ -80,6 +80,12 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   private internalEventHub: WorkerInternalEventHub
   private storageAdapter?: DocStorageChecker | null
   public onDocHandleReplaced?: DocHandleReplacedListener
+  /**
+   * Whether a document's sealed local records failed to decrypt. Its handle never finishes loading
+   * (automerge-repo leaves it pending when storage throws), so finds give up at once instead of
+   * waiting out their timeouts.
+   */
+  public isLocallyUnreadable?: (documentId: DocumentId) => boolean
 
   async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.shutdown()
@@ -218,10 +224,12 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     }
 
     if (!existsInStorage) return undefined
+    if (this.isLocallyUnreadable?.(documentId)) return undefined
 
     // 3. Fast-path attempt (2s)
     handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreFastPath)
     if (handle && handle.isReady()) return handle
+    if (this.isLocallyUnreadable?.(documentId)) return undefined
 
     // 4. Extended attempt for confirmed-to-exist documents (8s)
     // Check cache in case it became ready after timedFind aborted
