@@ -1,7 +1,9 @@
 import {
   decryptBytesWithKey,
+  decryptWithAssociatedData,
   decryptWithKey,
   encryptBytesWithKey,
+  encryptWithAssociatedData,
   encryptWithKey,
   exportVaultKey,
   importVaultKey,
@@ -17,6 +19,26 @@ export interface KeyProvider {
   /** Encrypts with the active key. Pass the `docId` of the document the bytes belong to, to bind them to it. */
   encryptBytes(bytes: Uint8Array, docId?: string): Promise<CryptoResult>
   decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array>
+}
+
+/** A device key encrypted with data key `kver` */
+export interface LocalKeyWrap {
+  kver: string
+  iv: Uint8Array
+  ct: Uint8Array
+}
+
+/**
+ * Wraps the device's local storage key with the data keys. Kept apart from `KeyProvider` because only
+ * local storage needs ciphertexts bound to arbitrary associated data.
+ */
+export interface LocalKeyWrapper {
+  readonly activeVersion: string
+  hasKey(kver?: string): boolean
+  /** Encrypts `raw` with the active key, bound to `associatedData` */
+  wrapLocalKey(raw: Uint8Array, associatedData: Uint8Array): Promise<LocalKeyWrap>
+  /** Decrypts a wrap with the key it names. Throws when that key is missing or the wrap doesn't verify. */
+  unwrapLocalKey(wrap: LocalKeyWrap, associatedData: Uint8Array): Promise<Uint8Array>
 }
 
 export class VaultNotInitializedError extends Error {
@@ -52,7 +74,7 @@ export async function importKeyring(exported: ExportedKeyring): Promise<{
 }
 
 /** The account's data keys, by version, in one realm */
-export class Keyring implements KeyProvider {
+export class Keyring implements KeyProvider, LocalKeyWrapper {
   private keys = new Map<string, CryptoKey>()
   private active = '1'
   private waiters = new Set<KeyVersionWaiter>()
@@ -176,6 +198,16 @@ export class Keyring implements KeyProvider {
 
   async decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array> {
     return decryptBytesWithKey(this.getKey(data.kver || '1'), data, docId)
+  }
+
+  async wrapLocalKey(raw: Uint8Array, associatedData: Uint8Array): Promise<LocalKeyWrap> {
+    const kver = this.active
+    const { iv, ct } = await encryptWithAssociatedData(this.getKey(kver), raw, associatedData)
+    return { kver, iv, ct }
+  }
+
+  async unwrapLocalKey(wrap: LocalKeyWrap, associatedData: Uint8Array): Promise<Uint8Array> {
+    return decryptWithAssociatedData(this.getKey(wrap.kver), wrap, associatedData)
   }
 
   private notifyWaiters(): void {
