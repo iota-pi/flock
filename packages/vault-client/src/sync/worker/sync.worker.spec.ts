@@ -158,6 +158,7 @@ vi.mock('./SyncWorkerContext', () => {
       shutdown = mockContextShutdown
       claimLeader = mockContextClaimLeader
       retrySave = mockContextRetrySave
+      rewrapDeviceKey = vi.fn().mockResolvedValue(undefined)
 
       constructor(config?: any) {
         if (config?.onDocHandleReplaced) {
@@ -769,6 +770,24 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       expect(onProgressParam).toHaveBeenCalledWith(10, 10)
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 3, total: 10 })
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 10, total: 10 })
+    })
+
+    it('re-wraps the device storage key once every item has been re-encrypted', async () => {
+      const worker = new SyncWorker(workerConfig)
+      await worker.initRepo('account-1', 'vault-key-1')
+      const ctx = (worker as any)._context
+      const order: string[] = []
+      ctx.itemReencryptor.reencryptAllItems.mockImplementationOnce(async () => {
+        order.push('items')
+        return { succeeded: [], failed: [] }
+      })
+      ctx.rewrapDeviceKey.mockImplementationOnce(async () => {
+        order.push('rewrap')
+      })
+
+      await worker.reencryptAllItems()
+
+      expect(order).toEqual(['items', 'rewrap'])
     })
 
     it('does not touch manual recovery entries when a realtime bus ping arrives', async () => {

@@ -31,8 +31,8 @@ import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { AbortError } from '../utils/abort'
-import { openLocalStorage, type LocalStorage } from './localEncryption/openLocalStorage'
-import { LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
+import { DSK_KEY, openLocalStorage, type LocalStorage } from './localEncryption/openLocalStorage'
+import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
 
 /**
@@ -126,6 +126,8 @@ export class SyncWorkerContext {
   private isStopped = false
   /** How this session stores local data, once `initialize` has opened it */
   public localStorageState: Pick<LocalStorage, 'mode' | 'retired'> | null = null
+  /** The sealed database, whose `meta` store holds the wrapped device storage key */
+  private sealedStorage: LocalStorage['storage'] | null = null
   private readonly config: SyncWorkerContextConfig
   private readonly migrateLocalDataHook?: (accountId: string) => Promise<void>
   private readonly minDataVersion: number
@@ -163,6 +165,7 @@ export class SyncWorkerContext {
       this.wal = new SyncWriteAheadLog(config.accountId, this.internalEventHub, { cipher: local.cipher })
     }
     this.localStorageState = { mode: local.mode, retired: local.retired }
+    this.sealedStorage = local.mode === 'sealed' ? local.storage : null
     this.initServices(config, local.storage)
     this.wireEvents()
   }
@@ -614,6 +617,27 @@ export class SyncWorkerContext {
       unsub()
     }
     this.unsubscribers = []
+  }
+
+  /**
+   * Wraps the device storage key with the newly active data key, after a deliberate key rotation. The
+   * keyring keeps every version, so the old wrap stays readable and a failure here loses nothing: it
+   * is logged and left for the next rotation.
+   */
+  async rewrapDeviceKey(): Promise<void> {
+    const storage = this.sealedStorage
+    const keys = this.config.localKeys
+    if (!storage || !keys) return
+    try {
+      await this.withLocalDataLock(async () => {
+        const rewrapped = await LocalCipher.rewrap(await storage.getMeta(DSK_KEY), keys, this.accountId)
+        if (rewrapped) {
+          await storage.putMeta(DSK_KEY, rewrapped)
+        }
+      })
+    } catch (error) {
+      console.error('[SyncWorkerContext] Failed to re-wrap the device storage key', error)
+    }
   }
 
   async retrySave(): Promise<{ success: boolean; error?: string }> {

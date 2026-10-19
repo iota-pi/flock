@@ -9,7 +9,10 @@ import { publishRealtimeBusItemDirty } from './realtimeBus'
 import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
-import { LocalKeyUnavailableError } from './localEncryption/LocalCipher'
+import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
+import { DSK_KEY } from './localEncryption/openLocalStorage'
+import { Keyring } from '../../api/Keyring'
+import { generateVaultKey } from '../../api/crypto'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
 
@@ -139,7 +142,8 @@ const mockOpenLocalStorage = vi.hoisted(() => vi.fn(async (_: unknown): Promise<
   storage: { close: vi.fn().mockResolvedValue(undefined) },
 })))
 
-vi.mock('./localEncryption/openLocalStorage', () => ({
+vi.mock('./localEncryption/openLocalStorage', async importOriginal => ({
+  ...await importOriginal<typeof import('./localEncryption/openLocalStorage')>(),
   openLocalStorage: mockOpenLocalStorage,
 }))
 
@@ -546,6 +550,73 @@ describe('SyncWorkerContext', () => {
       expect(emitSpy).toHaveBeenCalledWith({ type: 'localDataUnavailable', kver: '2', unpushedChanges: 3 })
       expect(ctx.lifecycle.start).not.toHaveBeenCalled()
       expect(ctx.repoManager).toBeUndefined()
+    })
+  })
+
+  describe('rewrapDeviceKey', () => {
+    async function createSealedContext() {
+      const keyring = new Keyring()
+      keyring.replace(new Map([['1', await generateVaultKey()]]), '1')
+      const { cipher, wrap } = await LocalCipher.create(keyring, 'test-account-rewrap')
+      const meta = new Map<string, unknown>([[DSK_KEY, wrap]])
+      const storage = {
+        close: vi.fn(),
+        getMeta: vi.fn(async (key: string) => meta.get(key)),
+        putMeta: vi.fn(async (key: string, value: unknown) => {
+          meta.set(key, value)
+        }),
+      }
+      mockOpenLocalStorage.mockResolvedValueOnce({ mode: 'sealed', retired: true, cipher, storage })
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-rewrap',
+        keys: createMockKeyProvider(),
+        localKeys: keyring,
+        clientEventHub,
+        internalEventHub,
+        upgradeLocalEncryption: true,
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+      await ctx.initialize()
+      return { ctx, keyring, cipher, meta, storage }
+    }
+
+    it('wraps the same device key with the newly active data key', async () => {
+      const { ctx, keyring, cipher, meta } = await createSealedContext()
+      const record = await cipher.seal({ store: 'index' }, new Uint8Array([1, 2, 3]))
+      keyring.addKey('2', await generateVaultKey())
+      keyring.setActiveVersion('2')
+
+      await ctx.rewrapDeviceKey()
+
+      const rewrapped = meta.get(DSK_KEY) as { kver: string }
+      expect(rewrapped.kver).toBe('2')
+      const reopened = await LocalCipher.unwrap(rewrapped, keyring, 'test-account-rewrap')
+      expect(await reopened.open({ store: 'index' }, record)).toEqual(new Uint8Array([1, 2, 3]))
+    })
+
+    it('leaves a wrap that already uses the active key', async () => {
+      const { ctx, storage } = await createSealedContext()
+
+      await ctx.rewrapDeviceKey()
+
+      expect(storage.putMeta).not.toHaveBeenCalled()
+    })
+
+    it('logs a failure rather than failing the rotation, keeping the old wrap', async () => {
+      const { ctx, keyring, storage, meta } = await createSealedContext()
+      const wrap = meta.get(DSK_KEY)
+      keyring.replace(new Map([['2', await generateVaultKey()]]), '2')
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await expect(ctx.rewrapDeviceKey()).resolves.toBeUndefined()
+
+      expect(storage.putMeta).not.toHaveBeenCalled()
+      expect(meta.get(DSK_KEY)).toBe(wrap)
+      expect(errorSpy).toHaveBeenCalled()
+    })
+
+    it('does nothing on plaintext storage', async () => {
+      await expect(context.rewrapDeviceKey()).resolves.toBeUndefined()
     })
   })
 
