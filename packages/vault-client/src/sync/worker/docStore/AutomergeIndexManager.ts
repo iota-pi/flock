@@ -14,6 +14,48 @@ interface IndexBroadcastMessage {
 
 const INDEX_LOCK_TIMEOUT_MS = 10000
 
+export interface MergeIndexOptions {
+  /** Tombstones from either side win, rather than only the incoming ones for items not live locally */
+  tombstonesWin?: boolean
+  /** Which side's metadata wins for keys both have (default: incoming) */
+  metadata?: 'incoming' | 'local'
+}
+
+/**
+ * Merges another copy of an index into this device's. By default, items this device knows about stay
+ * as they are, so a backup can't hide items created since or bring deleted ones back. With
+ * `tombstonesWin`, a deletion on either side holds, since deletes are terminal. The sync times stay
+ * this device's own.
+ */
+export function mergeIndexDocuments(
+  local: AutomergeIndexDocument,
+  incoming: AutomergeIndexDocument,
+  options: MergeIndexOptions = {},
+): AutomergeIndexDocument & Required<Pick<AutomergeIndexDocument, 'itemIds' | 'tombstoneIds' | 'metadata'>> {
+  const itemIds = new Set(local.itemIds || [])
+  const tombstoneIds = new Set(local.tombstoneIds || [])
+  for (const id of incoming.tombstoneIds || []) {
+    if (options.tombstonesWin) {
+      itemIds.delete(id)
+      tombstoneIds.add(id)
+    } else if (!itemIds.has(id)) {
+      tombstoneIds.add(id)
+    }
+  }
+  for (const id of incoming.itemIds || []) {
+    if (!tombstoneIds.has(id)) itemIds.add(id)
+  }
+  const metadata = options.metadata === 'local'
+    ? { ...incoming.metadata, ...local.metadata }
+    : { ...local.metadata, ...incoming.metadata }
+  return {
+    ...local,
+    itemIds: Array.from(itemIds),
+    tombstoneIds: Array.from(tombstoneIds),
+    metadata,
+  }
+}
+
 export class AutomergeIndexManager implements LifecycleAware {
   readonly lifecycleName = 'IndexManager'
   private mutex = new AsyncMutex()
@@ -177,20 +219,7 @@ export class AutomergeIndexManager implements LifecycleAware {
    */
   async mergeIndex(backup: AutomergeIndexDocument): Promise<void> {
     return this.withLock(async () => {
-      const doc = await this.getIndexSnapshotInternal()
-      const itemIds = new Set(doc.itemIds || [])
-      const tombstoneIds = new Set(doc.tombstoneIds || [])
-      for (const id of backup.tombstoneIds || []) {
-        if (!itemIds.has(id)) tombstoneIds.add(id)
-      }
-      for (const id of backup.itemIds || []) {
-        if (!tombstoneIds.has(id)) itemIds.add(id)
-      }
-      doc.itemIds = Array.from(itemIds)
-      doc.tombstoneIds = Array.from(tombstoneIds)
-      if (backup.metadata) {
-        doc.metadata = { ...doc.metadata, ...backup.metadata }
-      }
+      const doc = mergeIndexDocuments(await this.getIndexSnapshotInternal(), backup)
       await this.indexStore.saveIndex(doc)
       this.emitIndexUpdated(doc.itemIds)
       if (backup.metadata) {

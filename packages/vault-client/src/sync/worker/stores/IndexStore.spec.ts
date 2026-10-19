@@ -5,7 +5,8 @@ import {
 } from './syncMetadataStorage'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
 
-import { createMockLocalForagePool } from '../__test__/testUtils'
+import { createMockLocalForagePool, createTestLocalCipher } from '../__test__/testUtils'
+import { LocalDataUnreadableError } from '../localEncryption/LocalCipher'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -58,4 +59,55 @@ describe('IndexStore', () => {
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual([['item-1', 1]])
   })
 
+  describe('sealed', () => {
+    const doc = {
+      accountId,
+      itemIds: ['item-1'],
+      tombstoneIds: ['item-0'],
+      metadata: { sortCriteria: ['name'] },
+    } as unknown as AutomergeIndexDocument
+
+    function metadataStore() {
+      return Array.from(instances.values()).find(instance => instance.data.size > 0)
+    }
+
+    it('stores the index sealed under its own key', async () => {
+      const sealedStore = new IndexStore(accountId, { cipher: await createTestLocalCipher(accountId) })
+
+      await sealedStore.saveIndex(doc)
+
+      expect(await sealedStore.getIndex()).toEqual(doc)
+      const stored = metadataStore()!
+      expect(stored.data.has(SYNC_METADATA_KEYS.INDEX_DOC)).toBe(false)
+      const sealed = stored.data.get(SYNC_METADATA_KEYS.INDEX_DOC_SEALED)
+      expect(sealed.v).toBe(1)
+      expect(new TextDecoder().decode(sealed.ct)).not.toContain('item-1')
+    })
+
+    it('ignores the plaintext index', async () => {
+      await store.saveIndex(doc)
+      const sealedStore = new IndexStore(accountId, { cipher: await createTestLocalCipher(accountId) })
+
+      expect(await sealedStore.getIndex()).toBeNull()
+    })
+
+    it('throws when the sealed index cannot be opened, rather than reporting no index', async () => {
+      await new IndexStore(accountId, { cipher: await createTestLocalCipher(accountId) }).saveIndex(doc)
+      const otherKey = new IndexStore(accountId, { cipher: await createTestLocalCipher(accountId) })
+
+      await expect(otherKey.getIndex()).rejects.toBeInstanceOf(LocalDataUnreadableError)
+    })
+
+    it('reports an index in either layout without decrypting it', async () => {
+      expect(await store.hasIndex()).toBe(false)
+
+      await new IndexStore(accountId, { cipher: await createTestLocalCipher(accountId) }).saveIndex(doc)
+      expect(await store.hasIndex()).toBe(true)
+
+      await store.clear()
+      await new IndexStore(accountId, { cipher: await createTestLocalCipher(accountId) }).clear()
+      await store.saveIndex(doc)
+      expect(await store.hasIndex()).toBe(true)
+    })
+  })
 })

@@ -1,6 +1,15 @@
 import type { Mock } from 'vitest'
 import { ClientEventHub, WorkerInternalEventHub } from '../SyncEventHub'
-import type { KeyProvider } from '../../../api/Keyring'
+import { Keyring, type KeyProvider } from '../../../api/Keyring'
+import { generateVaultKey } from '../../../api/crypto'
+import { LocalCipher } from '../localEncryption/LocalCipher'
+
+/** A real local cipher over a fresh one-key keyring */
+export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
+  const keyring = new Keyring()
+  keyring.replace(new Map([['1', await generateVaultKey()]]), '1')
+  return (await LocalCipher.create(keyring, accountId)).cipher
+}
 
 /**
  * Mock LocalForage storage instance implementing common localforage methods.

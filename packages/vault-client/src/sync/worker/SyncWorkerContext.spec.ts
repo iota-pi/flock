@@ -45,6 +45,7 @@ vi.mock('./stores/CursorStore', () => ({
 vi.mock('./stores/IndexStore', () => ({
   IndexStore: class MockIndexStore {
     clear = vi.fn().mockResolvedValue(undefined)
+    hasIndex = vi.fn().mockResolvedValue(false)
     getIndex = vi.fn().mockResolvedValue(null)
   },
 }))
@@ -477,9 +478,9 @@ describe('SyncWorkerContext', () => {
       const ctx = createMigratingContext(async accountId => {
         calls.push(`migrate:${accountId}`)
       })
-      vi.spyOn(ctx.indexStore, 'getIndex').mockImplementation(async () => {
-        calls.push('getIndex')
-        return null
+      vi.spyOn(ctx.indexStore, 'hasIndex').mockImplementation(async () => {
+        calls.push('hasIndex')
+        return false
       })
       vi.spyOn(ctx.lifecycle, 'start').mockImplementation(async () => {
         calls.push('start')
@@ -487,7 +488,7 @@ describe('SyncWorkerContext', () => {
 
       await ctx.initialize()
 
-      expect(calls.slice(0, 3)).toEqual(['migrate:test-account-migrate', 'getIndex', 'start'])
+      expect(calls.slice(0, 3)).toEqual(['migrate:test-account-migrate', 'hasIndex', 'start'])
     })
 
     it('holds the account\'s migration lock while it runs', async () => {
@@ -603,7 +604,7 @@ describe('SyncWorkerContext', () => {
         minDataVersion: 1,
         migrateLocalData: migrate,
       })
-      vi.spyOn(ctx.indexStore, 'getIndex').mockResolvedValue({} as any)
+      vi.spyOn(ctx.indexStore, 'hasIndex').mockResolvedValue(true)
       const startSpy = vi.spyOn(ctx.lifecycle, 'start')
 
       await expect(ctx.initialize()).rejects.toThrow(MigrationRequiredError)
@@ -634,7 +635,7 @@ describe('SyncWorkerContext', () => {
     it('starts a device at the minimum level', async () => {
       mockReadDeviceDataVersion.mockResolvedValueOnce(1)
       const ctx = createGatedContext()
-      vi.spyOn(ctx.indexStore, 'getIndex').mockResolvedValue({} as any)
+      vi.spyOn(ctx.indexStore, 'hasIndex').mockResolvedValue(true)
 
       await ctx.initialize()
 

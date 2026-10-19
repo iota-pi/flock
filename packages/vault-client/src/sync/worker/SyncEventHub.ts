@@ -47,6 +47,8 @@ export type WorkerInternalEvent =
   | { type: 'snapshotFallbackRequested'; itemId: ItemId }
   | { type: 'messageParsed'; itemId: ItemId; documentId: DocumentId; message: Uint8Array }
   | { type: 'decryptionFailure'; itemId: ItemId; error: unknown }
+  /** A record in this device's sealed storage failed to decrypt */
+  | { type: 'localDecryptionFailed'; itemId: ItemId; error: unknown }
   | { type: 'retryingStateChange'; isRetrying: boolean }
   | { type: 'keyVersionMissing'; kver: string }
   | { type: 'pendingPullsAvailable' }

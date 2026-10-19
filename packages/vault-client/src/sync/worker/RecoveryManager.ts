@@ -202,7 +202,7 @@ export class RecoveryManager implements LifecycleAware {
 
   async reportDecryptionFailure(
     itemId: ItemId,
-    kind: 'pullDecryption' | 'snapshotDecryption',
+    kind: 'pullDecryption' | 'snapshotDecryption' | 'localDecryption',
     error: unknown,
     failedBranches?: string[],
   ): Promise<void> {

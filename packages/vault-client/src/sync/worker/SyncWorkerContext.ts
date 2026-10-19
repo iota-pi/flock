@@ -465,6 +465,12 @@ export class SyncWorkerContext {
             'SyncWorkerContext:internalEvent:decryptionFailure',
           )
           break
+        case 'localDecryptionFailed':
+          fireAndForget(
+            this.recoveryManager.reportDecryptionFailure(event.itemId, 'localDecryption', event.error),
+            'SyncWorkerContext:internalEvent:localDecryptionFailed',
+          )
+          break
         case 'remoteMessagesParsed':
           fireAndForget(
             this.recoveryManager.resolveQuarantines([event.itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
@@ -508,7 +514,7 @@ export class SyncWorkerContext {
     }
     this.createComponents(this.config, storage)
     // Checked before starting, which creates an empty index for a new device
-    const hasLocalData = (await this.indexStore.getIndex()) !== null
+    const hasLocalData = await this.indexStore.hasIndex()
     await this.lifecycle.start()
     await this.accountSettings.load()
     fireAndForget(this.dataVersionTracker.onStart(hasLocalData), 'SyncWorkerContext:recordDeviceDataVersion')
@@ -521,7 +527,7 @@ export class SyncWorkerContext {
   private async checkDeviceDataVersion(): Promise<void> {
     if (this.minDataVersion === 0) return
     if (await readDeviceDataVersion(this.accountId) >= this.minDataVersion) return
-    const hasLocalData = (await this.indexStore.getIndex()) !== null
+    const hasLocalData = await this.indexStore.hasIndex()
     if (!hasLocalData && !(await this.hasLegacyLocalData?.(this.accountId))) return
     this.clientEventHub.emit({ type: 'migrationRequired', reason: 'device' })
     throw new MigrationRequiredError('device')
