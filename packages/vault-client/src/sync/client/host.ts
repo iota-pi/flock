@@ -35,6 +35,13 @@ export interface SyncStateSink<TDoc extends VaultDoc = VaultDoc, TMeta extends V
    * else holds the account's sync locks. Don't make this tab stop.
    */
   beforeRetiringLegacyStores?(accountId: string): void
+  /**
+   * Called when this device's local data can't be opened, even after reloading the keyring from the
+   * server. Sync has stopped. The app should explain, and offer to try again (`initialize`) or, once
+   * the user confirms, to discard the local data and download it again (`discardLocalDataAndRestart`).
+   * `unpushedChanges` is how many changes that would lose. The data is never discarded automatically.
+   */
+  onLocalDataUnavailable?(details: { unpushedChanges: number }): void
 }
 
 /** Error reporting and diagnostics, for example backed by Sentry */

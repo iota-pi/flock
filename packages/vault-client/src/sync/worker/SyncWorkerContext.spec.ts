@@ -10,6 +10,7 @@ import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
+import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
 import { Keyring } from '../../api/Keyring'
 import { generateVaultKey } from '../../api/crypto'
@@ -74,6 +75,8 @@ vi.mock('./docStore', () => ({
     shutdown = vi.fn().mockResolvedValue(undefined)
     saveDocToStorage = vi.fn().mockResolvedValue(undefined)
     readItemSnapshot = vi.fn().mockResolvedValue(null)
+    hasDataInStorage = vi.fn().mockResolvedValue(true)
+    isLocallyUnreadable?: (documentId: string) => boolean
     onLifecycleStop = vi.fn().mockImplementation(async () => {
       await this.shutdown()
     })
@@ -245,6 +248,7 @@ vi.mock('./ManifestSyncManager', () => ({
   ManifestSyncManager: class MockManifestSyncManager {
     readonly lifecycleName = 'ManifestSyncManager'
     shutdown = vi.fn()
+    sync = vi.fn().mockResolvedValue({ added: [], success: true })
     onLifecycleStop = vi.fn().mockImplementation(() => {
       this.shutdown()
     })
@@ -617,6 +621,78 @@ describe('SyncWorkerContext', () => {
 
     it('does nothing on plaintext storage', async () => {
       await expect(context.rewrapDeviceKey()).resolves.toBeUndefined()
+    })
+  })
+
+  describe('unreadable local documents', () => {
+    async function createContextWithOpenFailures() {
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-unreadable',
+        keys: createMockKeyProvider(),
+        clientEventHub,
+        internalEventHub,
+        upgradeLocalEncryption: true,
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+      await ctx.initialize()
+      const { onOpenFailure } = mockOpenLocalStorage.mock.lastCall![0] as {
+        onOpenFailure: (key: string[], error: unknown) => void
+      }
+      return { ctx, onOpenFailure }
+    }
+
+    it('quarantines a document once, however many of its chunks fail', async () => {
+      const { ctx, onOpenFailure } = await createContextWithOpenFailures()
+      const reportSpy = vi.spyOn(ctx.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
+      const error = new Error('bad tag')
+
+      onOpenFailure(['doc-1', 'snapshot', 'heads-1'], error)
+      onOpenFailure(['doc-1', 'incremental', 'change-1'], error)
+
+      expect(reportSpy).toHaveBeenCalledTimes(1)
+      expect(reportSpy).toHaveBeenCalledWith('doc-1', 'localDecryption', error)
+      expect(ctx.docStore.isLocallyUnreadable?.('doc-1' as DocumentId)).toBe(true)
+      expect(ctx.docStore.isLocallyUnreadable?.('doc-2' as DocumentId)).toBe(false)
+    })
+
+    it('ignores the storage ID record, which is not a document', async () => {
+      const { ctx, onOpenFailure } = await createContextWithOpenFailures()
+      const reportSpy = vi.spyOn(ctx.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
+
+      onOpenFailure(['storage-adapter-id'], new Error('bad tag'))
+
+      expect(reportSpy).not.toHaveBeenCalled()
+    })
+
+    it('replaces an unreadable document with the server\'s copy', async () => {
+      const { ctx, onOpenFailure } = await createContextWithOpenFailures()
+      vi.spyOn(ctx.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
+      const unquarantine = vi.spyOn(ctx.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
+      const removeRange = vi.fn().mockResolvedValue(undefined)
+      vi.mocked(ctx.repoManager.getStorage).mockReturnValue({ removeRange } as any)
+      ctx.repo = { delete: vi.fn() } as any
+      const itemId = 'item-unreadable' as ItemId
+      const documentId = toDocumentIdFromItemId(itemId)
+      onOpenFailure([documentId, 'snapshot', 'heads-1'], new Error('bad tag'))
+
+      await ctx.replaceFromServer(itemId)
+
+      expect(ctx.repo.delete).toHaveBeenCalledWith(documentId)
+      expect(removeRange).toHaveBeenCalledWith([documentId])
+      expect(ctx.manifestSyncManager.sync).toHaveBeenCalledWith(true)
+      expect(unquarantine).toHaveBeenCalledWith(itemId)
+      expect(ctx.docStore.isLocallyUnreadable?.(documentId)).toBe(false)
+    })
+
+    it('keeps the item quarantined when the server has no copy to replace it with', async () => {
+      const { ctx } = await createContextWithOpenFailures()
+      const unquarantine = vi.spyOn(ctx.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
+      ctx.repo = { delete: vi.fn() } as any
+      vi.mocked(ctx.docStore.hasDataInStorage).mockResolvedValueOnce(false)
+
+      await expect(ctx.replaceFromServer('item-gone' as ItemId)).rejects.toThrow(/could not be downloaded/)
+
+      expect(unquarantine).not.toHaveBeenCalled()
     })
   })
 

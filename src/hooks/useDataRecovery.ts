@@ -63,6 +63,21 @@ export function useDataRecovery() {
     }
   }, [setMessage])
 
+  const handleReplaceFromServer = useCallback(async (itemId: ItemId) => {
+    setIsRetrying(itemId)
+    try {
+      await SyncBridge.replaceFromServer(itemId)
+      setMessage({ message: "Replaced this device's copy with the server's." })
+    } catch (error: unknown) {
+      setMessage({
+        severity: 'error',
+        message: (error as Error).message || `Failed to replace ${itemId}.`,
+      })
+    } finally {
+      setIsRetrying(current => (current === itemId ? null : current))
+    }
+  }, [setMessage])
+
   const handleRetryCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
@@ -104,6 +119,7 @@ export function useDataRecovery() {
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
     handleRecreateItem,
+    handleReplaceFromServer,
     handleCompactItem: handleRecreateItem,
   }
 }

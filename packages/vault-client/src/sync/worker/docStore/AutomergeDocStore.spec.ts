@@ -368,6 +368,36 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(findSpy).toHaveBeenCalledTimes(1)
     })
 
+    it('gives up at once on a document whose local records failed to decrypt', async () => {
+      const customRepo = new Repo()
+      const itemId = 'locally-unreadable' as ItemId
+      const findSpy = vi.spyOn(customRepo, 'find')
+      const customStore = new AutomergeDocStore(customRepo)
+      customStore.isLocallyUnreadable = documentId => documentId === toDocumentIdFromItemId(itemId)
+
+      const handle = await customStore.findHandle(itemId, { knownToExist: true })
+
+      expect(handle).toBeUndefined()
+      expect(findSpy).not.toHaveBeenCalled()
+    })
+
+    it('skips the extended attempt once a fast-path load has failed to decrypt', async () => {
+      const customRepo = new Repo()
+      const itemId = 'unreadable-after-load' as ItemId
+      let unreadable = false
+      const findSpy = vi.spyOn(customRepo, 'find').mockImplementationOnce(async () => {
+        unreadable = true
+        throw new Error('Fast path timed out')
+      })
+      const customStore = new AutomergeDocStore(customRepo)
+      customStore.isLocallyUnreadable = () => unreadable
+
+      const handle = await customStore.findHandle(itemId, { knownToExist: true })
+
+      expect(handle).toBeUndefined()
+      expect(findSpy).toHaveBeenCalledTimes(1)
+    })
+
     it('fast-path times out, retries with extended timeout (docStoreExtended) and succeeds', async () => {
       const customRepo = new Repo()
       const itemId = 'extended-path-success' as ItemId

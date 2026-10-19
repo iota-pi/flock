@@ -1,4 +1,4 @@
-import type { Repo, DocHandle } from '@automerge/automerge-repo/slim'
+import type { Repo, DocHandle, DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 
 import { AutomergeDocStore, AutomergeIndexManager, type DocHandleReplacedListener } from './docStore'
@@ -126,6 +126,8 @@ export class SyncWorkerContext {
   private isStopped = false
   /** How this session stores local data, once `initialize` has opened it */
   public localStorageState: Pick<LocalStorage, 'mode' | 'retired'> | null = null
+  /** Documents whose sealed records failed to decrypt this session (see AutomergeDocStore.isLocallyUnreadable) */
+  private readonly unreadableDocuments = new Set<string>()
   /** The sealed database, whose `meta` store holds the wrapped device storage key */
   private sealedStorage: LocalStorage['storage'] | null = null
   private readonly config: SyncWorkerContextConfig
@@ -269,6 +271,7 @@ export class SyncWorkerContext {
   private createCoreServices(config: SyncWorkerContextConfig) {
     const storage = this.repoManager.getStorage()
     const docStore = new AutomergeDocStore(this.repo, this.internalEventHub, storage, this.domain.codec)
+    docStore.isLocallyUnreadable = documentId => this.unreadableDocuments.has(documentId)
     if (config.onDocHandleReplaced) {
       docStore.onDocHandleReplaced = config.onDocHandleReplaced
     }
@@ -547,6 +550,7 @@ export class SyncWorkerContext {
         keys: this.config.localKeys,
         randomDataKeys: this.config.randomDataKeys,
         onRetiring: () => this.clientEventHub.emit({ type: 'retiringLegacyStores', accountId: this.accountId }),
+        onOpenFailure: (key, error) => this.handleOpenFailure(key, error),
         onQuotaFallback: () => this.clientEventHub.emit({
           type: 'quotaExceeded',
           message: "There isn't enough storage space to encrypt this device's data. It will be retried later.",
@@ -638,6 +642,40 @@ export class SyncWorkerContext {
     } catch (error) {
       console.error('[SyncWorkerContext] Failed to re-wrap the device storage key', error)
     }
+  }
+
+  /**
+   * Records a document whose sealed chunks failed to decrypt, and quarantines it once. The data is
+   * left in place: it's replaced only when the user chooses to (see `replaceFromServer`).
+   */
+  private handleOpenFailure(key: string[], error: unknown): void {
+    const [documentId] = key
+    // The Repo's own storage ID record isn't a document
+    if (key.length < 2 || this.unreadableDocuments.has(documentId)) return
+    this.unreadableDocuments.add(documentId)
+    const itemId = toVaultItemIdFromAutomergeId(documentId as DocumentId)
+    this.internalEventHub.emit({ type: 'localDecryptionFailed', itemId, error })
+  }
+
+  /**
+   * Replaces an item whose local copy can't be decrypted with the server's copy. Changes this device
+   * hadn't pushed are lost, so the app asks first. The item stays quarantined if the server has no
+   * copy to replace it with.
+   */
+  async replaceFromServer(itemId: ItemId): Promise<void> {
+    const documentId = toDocumentIdFromItemId(itemId)
+    // Drops the handle that never finished loading. Its chunks are removed here rather than left to
+    // the Repo, which doesn't wait for that.
+    this.repo.delete(documentId)
+    await this.repoManager.getStorage()?.removeRange([documentId])
+    this.unreadableDocuments.delete(documentId)
+
+    // A forced sync fetches quarantined items, and there's no longer a local copy to keep
+    const result = await this.manifestSyncManager.sync(true)
+    if (!result.success || !(await this.docStore.hasDataInStorage(itemId))) {
+      throw new Error(`The server's copy of ${itemId} could not be downloaded. Try again once sync has finished.`)
+    }
+    await this.recoveryManager.unquarantine(itemId)
   }
 
   async retrySave(): Promise<{ success: boolean; error?: string }> {
