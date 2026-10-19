@@ -206,3 +206,44 @@ export async function decryptBytesWithKey(
 
   return new Uint8Array(plaintext)
 }
+
+/** AES-GCM ciphertext with its IV, as raw bytes */
+export interface SealedBytes {
+  iv: Uint8Array<ArrayBuffer>
+  ct: Uint8Array<ArrayBuffer>
+}
+
+function copyToArrayBuffer(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy
+}
+
+/** Encrypts bytes with a fresh 96-bit IV, bound to `associatedData` */
+export async function encryptWithAssociatedData(
+  key: CryptoKey,
+  bytes: Uint8Array,
+  associatedData: Uint8Array,
+): Promise<SealedBytes> {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: copyToArrayBuffer(associatedData) },
+    key,
+    copyToArrayBuffer(bytes),
+  )
+  return { iv, ct: new Uint8Array(ct) }
+}
+
+/** Decrypts bytes from `encryptWithAssociatedData`. Throws unless `associatedData` matches. */
+export async function decryptWithAssociatedData(
+  key: CryptoKey,
+  sealed: { iv: Uint8Array, ct: Uint8Array },
+  associatedData: Uint8Array,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: copyToArrayBuffer(sealed.iv), additionalData: copyToArrayBuffer(associatedData) },
+    key,
+    copyToArrayBuffer(sealed.ct),
+  )
+  return new Uint8Array(plaintext)
+}

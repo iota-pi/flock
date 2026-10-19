@@ -15,6 +15,7 @@ export const MANUAL_RECOVERY_KINDS = [
   'oversized',
   'snapshotFailure',
   'pushFailure',
+  'localDecryption',
   'unknown',
 ] as const
 export type ManualRecoveryKind = typeof MANUAL_RECOVERY_KINDS[number]
@@ -74,6 +75,8 @@ export function normalizeManualRecoveryEntry(value: unknown): ManualRecoveryEntr
 function kindRank(kind: ManualRecoveryKind): number {
   if (kind === 'pullDecryption') return 0
   if (kind === 'oversized') return 2
+  // The local document can't be read at all, which no other problem with it overrides
+  if (kind === 'localDecryption') return 3
   return 1
 }
 
