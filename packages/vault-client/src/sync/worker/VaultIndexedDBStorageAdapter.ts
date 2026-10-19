@@ -1,5 +1,42 @@
 import { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge-repo/slim'
 
+/**
+ * Turns a chunk's bytes into the record stored in IndexedDB and back. Both run outside any
+ * IndexedDB transaction, so they may await anything.
+ */
+export interface RecordCodec {
+  encode(key: StorageKey, bytes: Uint8Array): Promise<unknown>
+  /** Throws when the record can't be opened. Never return undefined for a record that failed. */
+  decode(key: StorageKey, record: unknown): Promise<Uint8Array | undefined>
+}
+
+/** The `{ key, binary }` records the adapter has always stored */
+export const plaintextRecordCodec: RecordCodec = {
+  encode: async (key, bytes) => ({ key, binary: bytes }),
+  decode: async (_key, record) => {
+    if (record && typeof record === 'object' && 'binary' in record) {
+      return (record as { binary: Uint8Array }).binary
+    }
+    return undefined
+  },
+}
+
+export interface VaultIndexedDBStorageAdapterOptions {
+  /** The object store holding chunks. Defaults to 'documents'. */
+  storeName?: string
+  /**
+   * Opens the database at this version and creates `storeName` and `extraStores` on upgrade.
+   * Without it the database opens at its current version, as older builds did.
+   */
+  version?: number
+  extraStores?: string[]
+  codec?: RecordCodec
+  /** Called for each record the codec fails to decode, before the load rejects */
+  onOpenFailure?: (key: StorageKey, error: unknown) => void
+}
+
+const META_STORE = 'meta'
+
 export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
   private db: IDBDatabase | null = null
   private dbPromise: Promise<IDBDatabase> | null = null
@@ -8,17 +45,29 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
   private activeTransactions = 0
   private drainResolve: (() => void) | null = null
   private closePromise: Promise<void> | null = null
+  private readonly storeName: string
+  private readonly version: number | undefined
+  private readonly extraStores: string[]
+  private readonly codec: RecordCodec
+  private readonly onOpenFailure: ((key: StorageKey, error: unknown) => void) | undefined
 
   constructor(
     private readonly databaseName: string,
-    private readonly storeName: string = 'documents'
+    options: VaultIndexedDBStorageAdapterOptions = {}
   ) {
+    this.storeName = options.storeName ?? 'documents'
+    this.version = options.version
+    this.extraStores = options.extraStores ?? []
+    this.codec = options.codec ?? plaintextRecordCodec
+    this.onOpenFailure = options.onOpenFailure
     this.dbPromise = this.connect()
   }
 
   private connect(): Promise<IDBDatabase> {
     const promise = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(this.databaseName)
+      const request = this.version === undefined
+        ? indexedDB.open(this.databaseName)
+        : indexedDB.open(this.databaseName, this.version)
 
       request.onerror = () => reject(request.error)
       request.onsuccess = event => {
@@ -34,8 +83,11 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
       }
       request.onupgradeneeded = event => {
         const db = (event.target as IDBOpenDBRequest).result as IDBDatabase
-        if (!db.objectStoreNames || !db.objectStoreNames.contains(this.storeName)) {
-          db.createObjectStore(this.storeName)
+        const storeNames = this.version === undefined ? [this.storeName] : [this.storeName, ...this.extraStores]
+        for (const name of storeNames) {
+          if (!db.objectStoreNames || !db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name)
+          }
         }
       }
     })
@@ -208,7 +260,9 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
             }
           }
 
-          transaction.onerror = () => safeReject(transaction.error)
+          // A failed request's error bubbles here before the transaction's own error is set
+          transaction.onerror = event =>
+            safeReject(transaction.error ?? (event?.target as IDBRequest | null)?.error ?? null)
           transaction.onabort = () =>
             safeReject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
           transaction.oncomplete = () => {
@@ -247,26 +301,57 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
     }
   }
 
-  async load(key: string[]): Promise<Uint8Array | undefined> {
+  private async decode(key: StorageKey, record: unknown): Promise<Uint8Array | undefined> {
+    try {
+      return await this.codec.decode(key, record)
+    } catch (error) {
+      this.onOpenFailure?.(key, error)
+      throw error
+    }
+  }
+
+  private async decodeChunks(records: { key: StorageKey, record: unknown }[]): Promise<Chunk[]> {
+    return Promise.all(records.map(async ({ key, record }) => ({ key, data: await this.decode(key, record) })))
+  }
+
+  private readRecords(range: IDBKeyRange | undefined, limit = Infinity): Promise<{ key: StorageKey, record: unknown }[]> {
     return this.withTransaction(this.storeName, 'readonly', store => {
       return new Promise((resolve, reject) => {
-        const request = store.get(key)
+        const request = store.openCursor(range)
+        const records: { key: StorageKey, record: unknown }[] = []
+
         request.onerror = () => reject(request.error)
         request.onsuccess = () => {
-          const result = request.result
-          if (result && typeof result === 'object' && 'binary' in result) {
-            resolve((result as { binary: Uint8Array }).binary)
+          const cursor = request.result
+          if (cursor && records.length < limit) {
+            records.push({ key: cursor.key as StorageKey, record: cursor.value })
+            cursor.continue()
           } else {
-            resolve(undefined)
+            resolve(records)
           }
         }
       })
     })
   }
 
+  async load(key: string[]): Promise<Uint8Array | undefined> {
+    const record = await this.withTransaction<unknown>(this.storeName, 'readonly', store => {
+      return new Promise((resolve, reject) => {
+        const request = store.get(key)
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => resolve(request.result)
+      })
+    })
+    if (record === undefined) {
+      return undefined
+    }
+    return this.decode(key, record)
+  }
+
   async save(key: string[], binary: Uint8Array): Promise<void> {
+    const record = await this.codec.encode(key, binary)
     return this.withTransaction(this.storeName, 'readwrite', store => {
-      store.put({ key, binary }, key)
+      store.put(record, key)
     })
   }
 
@@ -281,25 +366,43 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
     const upperBound = [...keyPrefix, '\uffff']
     const range = IDBKeyRange.bound(lowerBound, upperBound)
 
-    return this.withTransaction(this.storeName, 'readonly', store => {
-      return new Promise((resolve, reject) => {
-        const request = store.openCursor(range)
-        const chunks: Chunk[] = []
+    return this.decodeChunks(await this.readRecords(range))
+  }
 
+  /** Up to `limit` chunks in key order, starting after `afterKey` (exclusive), or from the start */
+  async loadPage(afterKey: string[] | undefined, limit: number): Promise<Chunk[]> {
+    if (limit <= 0) {
+      return []
+    }
+    const range = afterKey ? IDBKeyRange.lowerBound(afterKey, true) : undefined
+    return this.decodeChunks(await this.readRecords(range, limit))
+  }
+
+  /** Reads a value from the `meta` store, which the database must have been opened with */
+  async getMeta<T = unknown>(key: IDBValidKey): Promise<T | undefined> {
+    return this.withTransaction<T | undefined>(META_STORE, 'readonly', store => {
+      return new Promise((resolve, reject) => {
+        const request = store.get(key)
         request.onerror = () => reject(request.error)
-        request.onsuccess = () => {
-          const cursor = request.result
-          if (cursor) {
-            chunks.push({
-              data: (cursor.value as { binary: Uint8Array }).binary,
-              key: cursor.key as StorageKey,
-            })
-            cursor.continue()
-          } else {
-            resolve(chunks)
-          }
-        }
+        request.onsuccess = () => resolve(request.result as T | undefined)
       })
+    })
+  }
+
+  /** Adds a value to the `meta` store. Rejects with a `ConstraintError` if the key exists. */
+  async addMeta(key: IDBValidKey, value: unknown): Promise<void> {
+    return this.withTransaction(META_STORE, 'readwrite', store => {
+      return new Promise<void>((resolve, reject) => {
+        const request = store.add(value, key)
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => resolve()
+      })
+    })
+  }
+
+  async putMeta(key: IDBValidKey, value: unknown): Promise<void> {
+    return this.withTransaction(META_STORE, 'readwrite', store => {
+      store.put(value, key)
     })
   }
 

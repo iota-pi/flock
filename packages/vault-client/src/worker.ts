@@ -11,6 +11,7 @@ export type { MigrationRequiredReason } from './sync/shared/types'
 // its stores
 export { createAccountStore, getAccountDatabaseName } from './sync/shared/createAccountStore'
 export { runStorageOperation } from './sync/utils/storageManager'
+export { databaseExists } from './sync/utils/databaseExists'
 export { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './sync/worker/stores/syncMetadataStorage'
 export type { PersistedSyncCursors } from './sync/worker/stores/CursorStore'
 export type { ItemSyncTimestamps } from './sync/worker/stores/LastModifiedStore'

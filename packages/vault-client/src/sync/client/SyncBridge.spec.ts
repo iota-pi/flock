@@ -1465,8 +1465,8 @@ describe('SyncBridge', () => {
     })
 
     it('resolves when deleteDatabase succeeds immediately', async () => {
-      const clearPromise = clearAutomergeIndexedDb('acc-1')
-      expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith(expect.stringContaining('acc-1'))
+      const clearPromise = clearAutomergeIndexedDb('automerge-db-acc-1')
+      expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith('automerge-db-acc-1')
       mockReq.onsuccess?.()
       await expect(clearPromise).resolves.toBeUndefined()
     })
@@ -1534,6 +1534,19 @@ describe('SyncBridge', () => {
 
       // clearAccountLocalData uses Promise.allSettled and does not throw uncaught error
       await expect(clearPromise).resolves.toBeUndefined()
+    })
+
+    it('clearAccountLocalData deletes both the plaintext and sealed Automerge databases', async () => {
+      globalThis.indexedDB = {
+        deleteDatabase: vi.fn().mockImplementation(() => {
+          const req: typeof mockReq = { onsuccess: null, onerror: null, onblocked: null }
+          setTimeout(() => req.onsuccess?.(), 0)
+          return req
+        }),
+      } as any
+      await clearAccountLocalData('acc-1')
+      expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith('test-vault-automerge-acc-1')
+      expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith('test-vault-automerge-sealed-acc-1')
     })
   })
 })

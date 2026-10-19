@@ -12,6 +12,7 @@ export interface CreateAccountStoreOptions {
 const DB_PREFIX_KEY_BY_STORE: Record<string, keyof VaultStorageNames['accountPrefixes']> = {
   'manual-recovery-items': 'manualRecoveryDatabase',
   'wal-entries': 'walDatabase',
+  'wal-entries-sealed': 'sealedWalDatabase',
   'sync-metadata': 'syncMetadataDatabase',
 }
 

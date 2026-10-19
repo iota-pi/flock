@@ -38,6 +38,7 @@ describe('createAccountStore', () => {
     it('resolves expected db names for known store types', () => {
       expect(getAccountDatabaseName('manual-recovery-items', 'acc-1')).toBe('test-vault-manual-recovery-acc-1')
       expect(getAccountDatabaseName('wal-entries', 'acc-1')).toBe('test-vault-wal-acc-1')
+      expect(getAccountDatabaseName('wal-entries-sealed', 'acc-1')).toBe('test-vault-wal-sealed-acc-1')
       expect(getAccountDatabaseName('sync-metadata', 'acc-1')).toBe('test-vault-sync-metadata-acc-1')
     })
 

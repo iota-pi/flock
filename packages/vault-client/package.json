@@ -10,7 +10,8 @@
     ".": "./src/index.ts",
     "./worker": "./src/worker.ts",
     "./storageNames": "./src/sync/shared/storageNames.ts",
-    "./kdfWorker": "./src/kdfWorker.ts"
+    "./kdfWorker": "./src/kdfWorker.ts",
+    "./databaseExists": "./src/sync/utils/databaseExists.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@vault/server": "workspace:*",
+    "fake-indexeddb": "^6",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   }
