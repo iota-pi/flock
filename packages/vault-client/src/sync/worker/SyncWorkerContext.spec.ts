@@ -9,6 +9,7 @@ import { publishRealtimeBusItemDirty } from './realtimeBus'
 import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
+import { LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 
 // ── Internalized store mocks ─────────────────────────────────────────────────
 
@@ -44,13 +45,19 @@ vi.mock('./stores/CursorStore', () => ({
 
 vi.mock('./stores/IndexStore', () => ({
   IndexStore: class MockIndexStore {
+    constructor(readonly accountId: string, readonly options: { cipher?: unknown } = {}) {}
     clear = vi.fn().mockResolvedValue(undefined)
+    hasIndex = vi.fn().mockResolvedValue(false)
     getIndex = vi.fn().mockResolvedValue(null)
   },
 }))
 
+const mockSealedWalLength = vi.hoisted(() => vi.fn(async () => 0))
+
 vi.mock('./SyncWriteAheadLog', () => ({
   SyncWriteAheadLog: class MockSyncWriteAheadLog {
+    static getSealedStorage = () => ({ length: mockSealedWalLength })
+    constructor(readonly accountId: string, readonly hub?: unknown, readonly options: { cipher?: unknown } = {}) {}
     clear = vi.fn().mockResolvedValue(undefined)
     handleQuotaExceeded = vi.fn().mockResolvedValue(1)
     append = vi.fn().mockResolvedValue(undefined)
@@ -126,7 +133,9 @@ vi.mock('./VaultNetworkAdapter', () => ({
   },
 }))
 
-const mockOpenLocalStorage = vi.hoisted(() => vi.fn(async (_: string) => ({
+const mockOpenLocalStorage = vi.hoisted(() => vi.fn(async (_: unknown): Promise<any> => ({
+  mode: 'plaintext',
+  retired: false,
   storage: { close: vi.fn().mockResolvedValue(undefined) },
 })))
 
@@ -461,6 +470,85 @@ describe('SyncWorkerContext', () => {
     expect(stopSpy).toHaveBeenCalledWith({ clearLocalData: true })
   })
 
+  describe('local encryption', () => {
+    function createSealingContext() {
+      const localKeys = { activeVersion: '1' } as any
+      const ctx = new SyncWorkerContext({
+        accountId: 'test-account-sealed',
+        keys: createMockKeyProvider(),
+        localKeys,
+        clientEventHub,
+        internalEventHub,
+        upgradeLocalEncryption: true,
+        randomDataKeys: true,
+      })
+      vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
+      return { ctx, localKeys }
+    }
+
+    it('opens local storage under the local data lock, with the keys and what the server said about them', async () => {
+      const request = vi.fn(async (_name: string, _options: unknown, callback: () => Promise<unknown>) => callback())
+      vi.stubGlobal('navigator', { ...globalThis.navigator, locks: { request } })
+      try {
+        const { ctx, localKeys } = createSealingContext()
+
+        await ctx.initialize()
+
+        expect(request).toHaveBeenCalledWith(
+          'test-vault-local-data-migration-test-account-sealed',
+          { mode: 'exclusive' },
+          expect.any(Function),
+        )
+        expect(mockOpenLocalStorage).toHaveBeenCalledWith(expect.objectContaining({
+          accountId: 'test-account-sealed',
+          upgradeLocalEncryption: true,
+          keys: localKeys,
+          randomDataKeys: true,
+        }))
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('seals the index and WAL with the device key when storage is sealed', async () => {
+      const cipher = { seal: vi.fn() }
+      mockOpenLocalStorage.mockResolvedValueOnce({
+        mode: 'sealed', retired: true, cipher, storage: { close: vi.fn() },
+      })
+      const { ctx } = createSealingContext()
+
+      await ctx.initialize()
+
+      expect((ctx.indexStore as any).options.cipher).toBe(cipher)
+      expect((ctx.wal as any).options.cipher).toBe(cipher)
+      expect(ctx.localStorageState).toEqual({ mode: 'sealed', retired: true })
+    })
+
+    it('asks the app to stop other tabs before retiring the plaintext stores', async () => {
+      const { ctx } = createSealingContext()
+      const emitSpy = vi.spyOn(clientEventHub, 'emit')
+      await ctx.initialize()
+      const options = mockOpenLocalStorage.mock.lastCall![0] as { onRetiring: () => void }
+
+      options.onRetiring()
+
+      expect(emitSpy).toHaveBeenCalledWith({ type: 'retiringLegacyStores', accountId: 'test-account-sealed' })
+    })
+
+    it('reports local data it cannot open, with the unpushed change count, and does not start', async () => {
+      mockOpenLocalStorage.mockRejectedValueOnce(new LocalKeyUnavailableError('2'))
+      mockSealedWalLength.mockResolvedValueOnce(3)
+      const { ctx } = createSealingContext()
+      const emitSpy = vi.spyOn(clientEventHub, 'emit')
+
+      await expect(ctx.initialize()).rejects.toBeInstanceOf(LocalKeyUnavailableError)
+
+      expect(emitSpy).toHaveBeenCalledWith({ type: 'localDataUnavailable', kver: '2', unpushedChanges: 3 })
+      expect(ctx.lifecycle.start).not.toHaveBeenCalled()
+      expect(ctx.repoManager).toBeUndefined()
+    })
+  })
+
   describe('migrateLocalData', () => {
     function createMigratingContext(migrateLocalData: (accountId: string) => Promise<void>) {
       return new SyncWorkerContext({
@@ -477,9 +565,9 @@ describe('SyncWorkerContext', () => {
       const ctx = createMigratingContext(async accountId => {
         calls.push(`migrate:${accountId}`)
       })
-      vi.spyOn(ctx.indexStore, 'getIndex').mockImplementation(async () => {
-        calls.push('getIndex')
-        return null
+      vi.spyOn(ctx.indexStore, 'hasIndex').mockImplementation(async () => {
+        calls.push('hasIndex')
+        return false
       })
       vi.spyOn(ctx.lifecycle, 'start').mockImplementation(async () => {
         calls.push('start')
@@ -487,7 +575,7 @@ describe('SyncWorkerContext', () => {
 
       await ctx.initialize()
 
-      expect(calls.slice(0, 3)).toEqual(['migrate:test-account-migrate', 'getIndex', 'start'])
+      expect(calls.slice(0, 3)).toEqual(['migrate:test-account-migrate', 'hasIndex', 'start'])
     })
 
     it('holds the account\'s migration lock while it runs', async () => {
@@ -522,7 +610,7 @@ describe('SyncWorkerContext', () => {
       vi.stubGlobal('navigator', { ...globalThis.navigator, locks: { request } })
       mockOpenLocalStorage.mockImplementationOnce(async () => {
         calls.push('open')
-        return { storage: { close: vi.fn().mockResolvedValue(undefined) } }
+        return { mode: 'plaintext', retired: false, storage: { close: vi.fn().mockResolvedValue(undefined) } }
       })
       try {
         const ctx = createMigratingContext(async () => {
@@ -549,7 +637,7 @@ describe('SyncWorkerContext', () => {
         return callback()
       })
       const close = vi.fn().mockResolvedValue(undefined)
-      mockOpenLocalStorage.mockResolvedValueOnce({ storage: { close } })
+      mockOpenLocalStorage.mockResolvedValueOnce({ mode: 'plaintext', retired: false, storage: { close } })
       vi.stubGlobal('navigator', { ...globalThis.navigator, locks: { request } })
       try {
         const ctx = createMigratingContext(vi.fn().mockResolvedValue(undefined))
@@ -603,7 +691,7 @@ describe('SyncWorkerContext', () => {
         minDataVersion: 1,
         migrateLocalData: migrate,
       })
-      vi.spyOn(ctx.indexStore, 'getIndex').mockResolvedValue({} as any)
+      vi.spyOn(ctx.indexStore, 'hasIndex').mockResolvedValue(true)
       const startSpy = vi.spyOn(ctx.lifecycle, 'start')
 
       await expect(ctx.initialize()).rejects.toThrow(MigrationRequiredError)
@@ -634,7 +722,7 @@ describe('SyncWorkerContext', () => {
     it('starts a device at the minimum level', async () => {
       mockReadDeviceDataVersion.mockResolvedValueOnce(1)
       const ctx = createGatedContext()
-      vi.spyOn(ctx.indexStore, 'getIndex').mockResolvedValue({} as any)
+      vi.spyOn(ctx.indexStore, 'hasIndex').mockResolvedValue(true)
 
       await ctx.initialize()
 

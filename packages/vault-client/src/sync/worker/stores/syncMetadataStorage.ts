@@ -12,6 +12,8 @@ export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
 export const SYNC_METADATA_KEYS = {
   CURSORS: 'cursors',
   INDEX_DOC: 'indexDoc',
+  /** The index sealed with the device storage key (see IndexStore) */
+  INDEX_DOC_SEALED: 'indexDocSealed',
   LAST_MODIFIED: 'lastModified',
   SYNCED_HEADS: 'syncedHeads',
   /** Set once this device has rewritten every snapshot bound to its document (see SnapshotFormatUpgrade) */

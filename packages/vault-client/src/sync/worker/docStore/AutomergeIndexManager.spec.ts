@@ -1,4 +1,4 @@
-import { AutomergeIndexManager } from './AutomergeIndexManager'
+import { AutomergeIndexManager, mergeIndexDocuments } from './AutomergeIndexManager'
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import type { ItemId } from '@vault/shared'
@@ -509,5 +509,48 @@ describe('AutomergeIndexManager', () => {
 
       managerA.close()
     })
+  })
+})
+
+describe('mergeIndexDocuments', () => {
+  const id = (value: string) => value as ItemId
+
+  it('keeps local items and deletions, and adds what only the incoming copy knows', () => {
+    const merged = mergeIndexDocuments(
+      { itemIds: [id('a'), id('b')], tombstoneIds: [id('x')], metadata: { sort: 'local', mine: 1 } },
+      { itemIds: [id('c'), id('x')], tombstoneIds: [id('a'), id('y')], metadata: { sort: 'incoming' } },
+    )
+
+    expect(new Set(merged.itemIds)).toEqual(new Set(['a', 'b', 'c']))
+    expect(new Set(merged.tombstoneIds)).toEqual(new Set(['x', 'y']))
+    expect(merged.metadata).toEqual({ sort: 'incoming', mine: 1 })
+  })
+
+  it('lets deletions from either side win when asked', () => {
+    const merged = mergeIndexDocuments(
+      { itemIds: [id('a'), id('b')], tombstoneIds: [id('x')] },
+      { itemIds: [id('x'), id('c')], tombstoneIds: [id('a')] },
+      { tombstonesWin: true },
+    )
+
+    expect(new Set(merged.itemIds)).toEqual(new Set(['b', 'c']))
+    expect(new Set(merged.tombstoneIds)).toEqual(new Set(['a', 'x']))
+  })
+
+  it('keeps local metadata when asked', () => {
+    const merged = mergeIndexDocuments(
+      { metadata: { sort: 'local' } },
+      { metadata: { sort: 'incoming', other: true } },
+      { metadata: 'local' },
+    )
+
+    expect(merged.metadata).toEqual({ sort: 'local', other: true })
+  })
+
+  it('keeps the local sync times', () => {
+    const merged = mergeIndexDocuments({ lastSyncTime: 5, lastManifestSyncTime: 6 }, { lastSyncTime: 9 })
+
+    expect(merged.lastSyncTime).toBe(5)
+    expect(merged.lastManifestSyncTime).toBe(6)
   })
 })

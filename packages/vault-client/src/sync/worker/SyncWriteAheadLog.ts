@@ -10,6 +10,7 @@ import {
   clearAccountStoreInstancesCacheForTesting,
 } from '../shared/createAccountStore'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
+import type { LocalCipher, SealedRecord } from './localEncryption/LocalCipher'
 
 export interface WalEntry extends WalEntryDescriptor {
   id: string
@@ -19,6 +20,14 @@ export interface WalEntry extends WalEntryDescriptor {
   seq?: number
   isBatched?: boolean
   replaces?: string[]
+}
+
+/** A WAL entry as stored: in plaintext, or with `data` sealed and the descriptor left readable */
+type StoredWalEntry = Omit<WalEntry, 'data'> & { data?: unknown, sealed?: SealedRecord }
+
+export interface SyncWriteAheadLogOptions {
+  /** Seals message bytes with the device storage key, in the sealed WAL store */
+  cipher?: LocalCipher
 }
 
 export function toUint8Array(data: unknown): Uint8Array {
@@ -95,21 +104,53 @@ export class SyncWriteAheadLog {
     return createAccountStore('wal-entries', accountId)
   }
 
+  public static getSealedStorage(accountId: string): LocalForage {
+    return createAccountStore('wal-entries-sealed', accountId)
+  }
+
   /**
    * Clear all entries for an account, plaintext and sealed, without needing an active instance.
    */
   public static async clear(accountId: string): Promise<void> {
     if (!accountId) return
-    const stores = [SyncWriteAheadLog.getStorage(accountId), createAccountStore('wal-entries-sealed', accountId)]
+    const stores = [SyncWriteAheadLog.getStorage(accountId), SyncWriteAheadLog.getSealedStorage(accountId)]
     await Promise.all(stores.map(storage => runStorageOperation(() => storage.clear())))
   }
+
+  private readonly cipher?: LocalCipher
 
   constructor(
     public readonly accountId: string,
     internalEventHub?: WorkerInternalEventHub,
+    options: SyncWriteAheadLogOptions = {},
   ) {
-    this.storage = SyncWriteAheadLog.getStorage(accountId)
+    this.cipher = options.cipher
+    this.storage = options.cipher
+      ? SyncWriteAheadLog.getSealedStorage(accountId)
+      : SyncWriteAheadLog.getStorage(accountId)
     this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
+  }
+
+  /** Seals the entry's message bytes, outside any storage transaction */
+  private async toStored(entry: WalEntry): Promise<StoredWalEntry> {
+    if (!this.cipher) return entry
+    const { data, ...descriptor } = entry
+    const sealed = await this.cipher.seal({ store: 'wal', entryId: entry.id, itemId: entry.itemId }, data)
+    return { ...descriptor, sealed }
+  }
+
+  /** Reads an entry's message bytes. Returns null when they can't be opened. */
+  private async openData(entry: StoredWalEntry): Promise<Uint8Array | null> {
+    if (!this.cipher) return entry.data ? toUint8Array(entry.data) : null
+    try {
+      return await this.cipher.open({ store: 'wal', entryId: entry.id, itemId: entry.itemId }, entry.sealed)
+    } catch (error) {
+      // The local doc holds the change, so a snapshot delivers it instead. The entry stays for pruning.
+      console.error(`[SyncWriteAheadLog] WAL entry ${entry.id} for ${entry.itemId} could not be decrypted`, error)
+      this.internalEventHub.emit({ type: 'localDecryptionFailed', itemId: entry.itemId, error })
+      this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId: entry.itemId })
+      return null
+    }
   }
 
   public get eventHub(): WorkerInternalEventHub {
@@ -198,7 +239,8 @@ export class SyncWriteAheadLog {
       }
 
       // Save new compacted entry first
-      await runStorageOperation(() => this.storage.setItem(newId, compactedEntry), { retryOnQuotaError: false })
+      const stored = await this.toStored(compactedEntry)
+      await runStorageOperation(() => this.storage.setItem(newId, stored), { retryOnQuotaError: false })
 
       // Remove the old individual entries
       await this.remove(oldIds)
@@ -357,7 +399,8 @@ export class SyncWriteAheadLog {
       seq: this.seqCounter,
     }
 
-    await runStorageOperation(() => this.storage.setItem(id, entry))
+    const stored = await this.toStored(entry)
+    await runStorageOperation(() => this.storage.setItem(id, stored))
 
     return id
   }
@@ -367,36 +410,45 @@ export class SyncWriteAheadLog {
    * Reconciles any superseded entries left behind by interrupted compactions.
    */
   async readAll(): Promise<Map<ItemId, WalEntry[]>> {
-    const rawEntries: WalEntry[] = []
-    const supersededIds = new Set<string>()
+    const storedEntries: StoredWalEntry[] = []
     let maxSeq = 0
     let maxCreatedAt = 0
 
-    await this.storage.iterate<WalEntry, void>(entry => {
-      if (entry && entry.id && entry.itemId && entry.data) {
+    // localforage's iterate callback can't await, so entries are opened once it has finished
+    await this.storage.iterate<StoredWalEntry, void>(entry => {
+      if (entry && entry.id && entry.itemId && (this.cipher ? entry.sealed : entry.data)) {
         if (typeof entry.seq === 'number' && entry.seq > maxSeq) {
           maxSeq = entry.seq
         }
         if (typeof entry.createdAt === 'number' && entry.createdAt > maxCreatedAt) {
           maxCreatedAt = entry.createdAt
         }
-        const normalizedData = toUint8Array(entry.data)
-        const validEntry: WalEntry = {
-          id: entry.id,
-          itemId: entry.itemId,
-          data: normalizedData,
-          createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
-          seq: typeof entry.seq === 'number' ? entry.seq : 0,
-          isBatched: entry.isBatched === true,
-          replaces: Array.isArray(entry.replaces)
-            ? entry.replaces.filter((r): r is string => typeof r === 'string' && r.length > 0 && r !== entry.id)
-            : undefined,
-        }
-        rawEntries.push(validEntry)
-        if (validEntry.replaces) {
-          for (const oldId of validEntry.replaces) {
-            supersededIds.add(oldId)
-          }
+        storedEntries.push(entry)
+      }
+    })
+
+    const openedData = await Promise.all(storedEntries.map(entry => this.openData(entry)))
+    const rawEntries: WalEntry[] = []
+    const supersededIds = new Set<string>()
+    storedEntries.forEach((entry, index) => {
+      const data = openedData[index]
+      // An entry that can't be opened supersedes nothing, so the entries it replaced stay deliverable
+      if (!data) return
+      const validEntry: WalEntry = {
+        id: entry.id,
+        itemId: entry.itemId,
+        data,
+        createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
+        seq: typeof entry.seq === 'number' ? entry.seq : 0,
+        isBatched: entry.isBatched === true,
+        replaces: Array.isArray(entry.replaces)
+          ? entry.replaces.filter((r): r is string => typeof r === 'string' && r.length > 0 && r !== entry.id)
+          : undefined,
+      }
+      rawEntries.push(validEntry)
+      if (validEntry.replaces) {
+        for (const oldId of validEntry.replaces) {
+          supersededIds.add(oldId)
         }
       }
     })
@@ -451,6 +503,24 @@ export class SyncWriteAheadLog {
     }
 
     await Promise.all(uniqueIds.map(id => runStorageOperation(() => this.storage.removeItem(id))))
+  }
+
+  /**
+   * Copies entries from another WAL store, keeping their IDs, order and timestamps. Entries already
+   * here are skipped, so copying again after an interruption is safe. Returns how many were added.
+   */
+  async importEntries(entries: readonly WalEntry[]): Promise<number> {
+    const existing = new Set(await this.storage.keys())
+    let imported = 0
+    for (const entry of entries) {
+      if (existing.has(entry.id)) continue
+      const stored = await this.toStored(entry)
+      await runStorageOperation(() => this.storage.setItem(entry.id, stored), { retryOnQuotaError: false })
+      imported += 1
+    }
+    // The next append continues after the imported entries
+    this.isSeqInitialized = false
+    return imported
   }
 
   /**

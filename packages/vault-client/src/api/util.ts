@@ -30,6 +30,11 @@ export type VaultStoredMetadata = {
   saltVersion?: number,
   /** Argon2id parameters. Without them, the account derives its key with PBKDF2 and `iterations`. */
   kdf?: KdfParams,
+  /**
+   * Whether the account was created with a random data key v1, as the server last said. With it, an
+   * active key version of '1' isn't derived from a password, so local data may be sealed with it.
+   */
+  randomDataKeys?: boolean,
 }
 
 export function readStoredMetadata(): VaultStoredMetadata | null {
@@ -44,6 +49,7 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
           iterations: typeof parsed.iterations === 'number' ? parsed.iterations : undefined,
           saltVersion: typeof parsed.saltVersion === 'number' ? parsed.saltVersion : undefined,
           kdf: KdfParamsSchema.safeParse(parsed.kdf).data,
+          randomDataKeys: parsed.randomDataKeys === true ? true : undefined,
         }
       }
     } catch {

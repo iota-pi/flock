@@ -16,6 +16,7 @@ vi.mock('comlink', () => ({
 
 vi.mock('../../api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
+  hasRandomDataKeys: vi.fn().mockReturnValue(false),
   handleSessionExpired: vi.fn().mockResolvedValue(undefined),
   getVaultSession: vi.fn().mockReturnValue(null),
 }))
@@ -263,7 +264,7 @@ describe('WorkerLifecycleManager', () => {
 
       // The new account should remain active and not be clobbered
       expect(manager.getCurrentAccountId()).toBe('account-new-success')
-      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key')
+      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key', undefined, { randomDataKeys: false })
 
       vi.useRealTimers()
     })

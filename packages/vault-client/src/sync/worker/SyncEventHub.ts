@@ -25,6 +25,10 @@ export type ClientEvent =
   | { type: 'tokenRefreshNeeded' }
   | { type: 'reencryptProgress'; done: number; total: number }
   | { type: 'migrationRequired'; reason: MigrationRequiredReason }
+  /** The worker is about to delete the plaintext stores the sealed ones replaced (see LocalEncryptionUpgrade) */
+  | { type: 'retiringLegacyStores'; accountId: string }
+  /** This device's local data can't be opened. `kver` is the missing key version, if that's the cause. */
+  | { type: 'localDataUnavailable'; kver?: string; unpushedChanges: number }
   | {
     type: 'workerError'
     error: {
@@ -47,6 +51,8 @@ export type WorkerInternalEvent =
   | { type: 'snapshotFallbackRequested'; itemId: ItemId }
   | { type: 'messageParsed'; itemId: ItemId; documentId: DocumentId; message: Uint8Array }
   | { type: 'decryptionFailure'; itemId: ItemId; error: unknown }
+  /** A record in this device's sealed storage failed to decrypt */
+  | { type: 'localDecryptionFailed'; itemId: ItemId; error: unknown }
   | { type: 'retryingStateChange'; isRetrying: boolean }
   | { type: 'keyVersionMissing'; kver: string }
   | { type: 'pendingPullsAvailable' }

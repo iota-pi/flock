@@ -29,7 +29,7 @@ vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
   createAccount: vi.fn(),
   getSecurityParams: vi.fn(),
-  getKeyring: vi.fn().mockResolvedValue(undefined),
+  getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
   updateKeyring: vi.fn().mockResolvedValue(undefined),
   changePassword: vi.fn().mockResolvedValue(undefined),
 }))
@@ -390,7 +390,7 @@ describe('Vault Keyring Integration', () => {
   })
 
   it('succeeds and preserves local keys when storeVault fails during loginVault for new account', async () => {
-    vi.mocked(getKeyring).mockResolvedValueOnce(undefined)
+    vi.mocked(getKeyring).mockResolvedValueOnce({ randomDataKeys: false })
     vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network error on seed'))
 
     await loginVault({
@@ -410,12 +410,13 @@ describe('Vault Keyring Integration', () => {
   })
 
   it('throws and clears local keys when decryption of retrieved keyring fails during loginVault', async () => {
-    vi.mocked(getKeyring).mockResolvedValueOnce(
-      JSON.stringify({
+    vi.mocked(getKeyring).mockResolvedValueOnce({
+      keyring: JSON.stringify({
         iv: 'invalid-iv',
         cipher: 'invalid-cipher',
-      })
-    )
+      }),
+      randomDataKeys: false,
+    })
 
     await expect(
       loginVault({
@@ -511,7 +512,7 @@ describe('Vault Keyring Integration', () => {
     beforeEach(async () => {
       // Drop responses queued by earlier tests that didn't use them
       vi.mocked(getSession).mockReset().mockResolvedValue('mock-session')
-      vi.mocked(getKeyring).mockReset().mockResolvedValue(undefined)
+      vi.mocked(getKeyring).mockReset().mockResolvedValue({ randomDataKeys: false })
 
       // Log in once to seed the keyring cache, then forget the keys
       await loginVault(loginParams)

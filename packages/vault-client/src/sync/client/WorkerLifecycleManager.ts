@@ -3,7 +3,7 @@ import * as Comlink from 'comlink'
 import type { SyncApi } from '../worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
 import type { SyncStatus } from '../shared/types'
-import { exportKeyringData, getVaultSession } from '../../api/vault'
+import { exportKeyringData, getVaultSession, hasRandomDataKeys } from '../../api/vault'
 import {
   SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'
@@ -238,7 +238,10 @@ export class WorkerLifecycleManager {
         pingChannel.port1.start()
         worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
-        await untilAborted(wrappedApi.initRepo(accountId, vaultKey), signal)
+        await untilAborted(
+          wrappedApi.initRepo(accountId, vaultKey, undefined, { randomDataKeys: hasRandomDataKeys(accountId) }),
+          signal,
+        )
         const currentSession = getVaultSession()
         if (currentSession) {
           await untilAborted(wrappedApi.updateAuthToken(currentSession), signal)

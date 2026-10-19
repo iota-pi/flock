@@ -3,6 +3,11 @@ import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/m
 import type { BackupSyncState } from '../shared/backupSyncState'
 import { ItemId } from '@vault/shared'
 
+export interface InitRepoOptions {
+  /** Whether the account's data keys are random, so an active key version of '1' may seal local data */
+  randomDataKeys?: boolean
+}
+
 /**
  * The sync worker's Comlink API. `TDoc` and `TMeta` are the app's document and metadata types,
  * as produced by its DocCodec.
@@ -11,7 +16,8 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   initRepo: (
     accountId: string,
     vaultKey: string,
-    refreshAuthToken?: () => Promise<string | null>
+    refreshAuthToken?: () => Promise<string | null>,
+    options?: InitRepoOptions,
   ) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
   bootstrapItems: () => Promise<void>
