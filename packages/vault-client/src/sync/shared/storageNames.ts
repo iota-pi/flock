@@ -13,7 +13,7 @@ export interface VaultStorageNames {
   autoLockSettingsKey: string
   /** BroadcastChannel for key rotation and password change events */
   vaultEventsChannel: string
-  /** localforage database holding the session token shared with the sync worker */
+  /** localforage database where earlier builds stored the session token. It's only deleted now. */
   authDatabase: string
   /** Relying party name shown in WebAuthn prompts */
   webAuthnRpName: string

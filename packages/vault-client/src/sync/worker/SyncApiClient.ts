@@ -89,9 +89,8 @@ export class SyncApiClient {
   }
 
   /**
-   * Retrieves a valid authentication token.
-   * Checks persistence store, then runtime token, then cached in-memory token,
-   * falling back to refreshAuthToken if needed.
+   * Retrieves a valid authentication token: the cached one, then the realm's in-memory session token
+   * (`getActiveSessionToken`), then refreshAuthToken, then the runtime token.
    */
   async getValidToken(): Promise<string | null> {
     if (this.currentToken) {

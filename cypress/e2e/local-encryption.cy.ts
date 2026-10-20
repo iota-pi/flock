@@ -189,6 +189,8 @@ describe('Local encryption', () => {
       expect(records.filter(r => r.database === `FlockVault_SyncWAL_${account}`), 'plaintext WAL entries').to.be.empty
       expect(records.some(r => r.key === 'indexDoc'), 'plaintext index').to.equal(false)
       expect(records.some(r => r.key === 'indexDocSealed'), 'sealed index').to.equal(true)
+      // The session token is kept only in memory
+      expect(records.some(r => r.key === 'active_session_token'), 'stored session token').to.equal(false)
 
       // The name is nowhere: not in IndexedDB, localStorage or Cache Storage
       const leaks = records.filter(r => valueContains(r.value, name) || valueContains(r.key, name))
