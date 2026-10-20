@@ -14,12 +14,12 @@ describe('shouldRenewSession', () => {
   const authToken = 'test-token-123'
   const now = 1_700_000_000_000
 
-  it('returns false when session was renewed recently (> 29 days remaining)', () => {
+  it('returns false when session was renewed recently (> 48 hours remaining)', () => {
     const accountData = {
       sessions: [
         {
           token: authToken,
-          expiry: now + SESSION_EXPIRY_MS, // exactly 30 days remaining
+          expiry: now + SESSION_EXPIRY_MS, // exactly 72 hours remaining
         },
       ],
     }
@@ -27,12 +27,12 @@ describe('shouldRenewSession', () => {
     expect(shouldRenewSession(accountData, authToken, now)).toBe(false)
   })
 
-  it('returns false when exactly at 29 days remaining', () => {
+  it('returns false when exactly at 48 hours remaining', () => {
     const accountData = {
       sessions: [
         {
           token: authToken,
-          expiry: now + SESSION_RENEWAL_THRESHOLD_MS, // exactly 29 days remaining
+          expiry: now + SESSION_RENEWAL_THRESHOLD_MS, // exactly 48 hours remaining
         },
       ],
     }
@@ -40,12 +40,12 @@ describe('shouldRenewSession', () => {
     expect(shouldRenewSession(accountData, authToken, now)).toBe(false)
   })
 
-  it('returns true when session has aged past threshold (< 29 days remaining)', () => {
+  it('returns true when session has aged past threshold (< 48 hours remaining)', () => {
     const accountData = {
       sessions: [
         {
           token: authToken,
-          expiry: now + SESSION_RENEWAL_THRESHOLD_MS - 1000, // 28.99 days remaining
+          expiry: now + SESSION_RENEWAL_THRESHOLD_MS - 1000, // just under 48 hours remaining
         },
       ],
     }
@@ -162,9 +162,9 @@ describe('protectedProcedure session renewal behavior', () => {
     }
   }
 
-  it('does NOT call extendSession when session is fresh (> 29 days remaining)', async () => {
+  it('does NOT call extendSession when session is fresh (> 48 hours remaining)', async () => {
     const ctx = createMockContext({
-      expiry: Date.now() + SESSION_EXPIRY_MS, // fresh 30-day session
+      expiry: Date.now() + SESSION_EXPIRY_MS, // fresh 72-hour session
     })
     const caller = testRouter.createCaller(ctx as any)
 

@@ -5,7 +5,7 @@ import type { VaultAccountWithAuth } from './base'
 import { generateItemId, type ItemId } from '@vault/shared'
 import { generateAccountId } from '../util'
 import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
-import { isSessionFor } from '../sessions'
+import { isSessionFor, SESSION_EXPIRY_MS } from '../sessions'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -342,6 +342,29 @@ describe('DynamoDriver', function () {
     expect(tokens.length).toBe(8)
     expect(tokens).toContain('session-9')
     expect(tokens).not.toContain('session-1')
+  })
+
+  it('drops sessions that expire later than the current session lifetime allows', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      salt,
+      iterations,
+    })
+
+    const now = Date.now()
+    await driver.updateAccountData({
+      account,
+      sessions: [
+        { token: 'old-lifetime', expiry: now + 30 * 24 * 60 * 60 * 1000 },
+        { token: 'current-lifetime', expiry: now + SESSION_EXPIRY_MS },
+      ],
+    })
+
+    await expect(driver.getAccount({ account, session: 'old-lifetime' })).rejects.toThrow(AuthenticationError)
+    const result = await driver.getAccount({ account, session: 'current-lifetime' })
+    expect(result.sessions?.map(entry => entry.token)).toEqual(['current-lifetime'])
   })
 
   it('can save and retrieve keyring', async () => {

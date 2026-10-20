@@ -1,8 +1,8 @@
 import { hashString, safeEqual } from './util'
 
-export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+export const SESSION_EXPIRY_MS = 72 * 60 * 60 * 1000 // 72 hours
 export const SESSION_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000 // 1 day
-export const SESSION_RENEWAL_THRESHOLD_MS = SESSION_EXPIRY_MS - SESSION_RENEWAL_WINDOW_MS // 29 days
+export const SESSION_RENEWAL_THRESHOLD_MS = SESSION_EXPIRY_MS - SESSION_RENEWAL_WINDOW_MS // 48 hours
 export const MAX_ACTIVE_SESSIONS = 8
 
 /**
