@@ -20,8 +20,9 @@ import {
   describeBlocker,
   finishMigration,
   isMigrationComplete,
+  needsReencryption,
   OfflineError,
-  reencryptPasswordDerivedData,
+  reencryptOutdatedItems,
   startMigration,
 } from './migration'
 import { getSyncState, MigrationBridge, subscribeSyncState } from './migrationBridge'
@@ -161,12 +162,12 @@ export default function MigrateApp() {
     }
   }, [startSync])
 
-  const reencrypt = useCallback(async () => {
+  const reencrypt = useCallback(async (blockers: string[]) => {
     reencryptionStartedRef.current = true
     reencryptionRunningRef.current = true
     setReencryption({ done: 0, total: 0 })
     try {
-      const { failed } = await reencryptPasswordDerivedData(account, (done, total) => setReencryption({ done, total }))
+      const { failed } = await reencryptOutdatedItems(account, blockers, (done, total) => setReencryption({ done, total }))
       if (failed.length > 0) {
         Sentry.captureMessage('Migration re-encryption failed for some items', { extra: { failed: failed.length } })
       }
@@ -201,9 +202,9 @@ export default function MigrateApp() {
       // Waits until local data is migrated and sync has settled, so a rewrite still in progress
       // isn't reported as blocked
       const settled = status.device >= MIN_DEVICE_DATA_VERSION && syncStatusRef.current === 'idle'
-      if (settled && status.blockers.includes('passwordDerivedDataKey') && !reencryptionStartedRef.current) {
+      if (settled && needsReencryption(status.blockers) && !reencryptionStartedRef.current) {
         // Every item is local once sync has settled, so all of them get re-encrypted
-        void reencrypt()
+        void reencrypt(status.blockers)
       }
       idlePolls = settled && !reencryptionRunningRef.current ? idlePolls + 1 : 0
       if (idlePolls >= POLLS_BEFORE_BLOCKED) {

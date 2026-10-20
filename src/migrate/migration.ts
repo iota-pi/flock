@@ -79,7 +79,7 @@ export async function startMigration(account: string, password: string): Promise
 /**
  * Moves the account to Argon2id with a new password. It runs before sync starts, and signs out
  * every other session, so no other device keeps writing with the password-derived key v1 while
- * `reencryptPasswordDerivedData` moves the data off it.
+ * `reencryptOutdatedItems` moves the data off it.
  */
 export async function changeToArgon2id(account: string, newPassword: string): Promise<void> {
   await upgradeKeyDerivation(account, newPassword)
@@ -91,14 +91,26 @@ export async function beginSync(account: string): Promise<void> {
 }
 
 /**
- * Re-encrypts every item with a random data key. Rotates first while the password-derived key v1
- * is still active; after an interrupted run, only re-encrypts what's left.
+ * Blockers that re-encrypting every item clears: it writes each snapshot again under the active key,
+ * bound to its item. A device rewrites unbound snapshots only once (`SnapshotFormatUpgrade`), so
+ * snapshots an older build uploaded after that stay unbound until this runs.
  */
-export async function reencryptPasswordDerivedData(
+const REENCRYPTION_BLOCKERS = ['passwordDerivedDataKey', 'unboundSnapshots']
+
+export function needsReencryption(blockers: string[]): boolean {
+  return blockers.some(blocker => REENCRYPTION_BLOCKERS.includes(blocker))
+}
+
+/**
+ * Re-encrypts every item with the active data key. While the password-derived key v1 is still
+ * active, rotates to a random key first; after an interrupted run, only re-encrypts what's left.
+ */
+export async function reencryptOutdatedItems(
   account: string,
+  blockers: string[],
   onProgress: (done: number, total: number) => void,
 ): Promise<{ failed: Array<{ itemId: string, error: string }> }> {
-  if (getActiveKeyVersion() === '1') {
+  if (blockers.includes('passwordDerivedDataKey') && getActiveKeyVersion() === '1') {
     return reencryptAllItems(MigrationBridge, account, onProgress)
   }
   return MigrationBridge.reencryptAllItems(onProgress)
