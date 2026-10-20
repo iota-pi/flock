@@ -130,6 +130,10 @@ export const accountsRouter = router({
   updateKeyring: protectedProcedure
     .input(UpdateKeyringBodySchema)
     .mutation(async ({ ctx, input }) => {
+      if (!safeEqual(ctx.accountData.authToken, hashString(input.currentAuthToken))) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
+      }
+
       try {
         await ctx.vault.updateAccountData({
           account: input.account,

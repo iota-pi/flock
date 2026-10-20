@@ -14,6 +14,9 @@ const NEW_ACCOUNT = {
   randomDataKeys: true as const,
 }
 
+/** What the client sends as proof of the master key, and the hash the server stores of it */
+const CURRENT_AUTH_TOKEN = 'current-auth-token'
+
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
   const sessionValid = overrides?.sessionValid ?? true
   const vault = {
@@ -25,7 +28,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
       if (!sessionValid) {
         throw new AuthenticationError('Unauthorized')
       }
-      return { metadata: { theme: 'light' } }
+      return { metadata: { theme: 'light' }, authToken: hashString(CURRENT_AUTH_TOKEN) }
     }),
     extendSession: vi.fn(async () => undefined),
     addSession: vi.fn(async () => undefined),
@@ -162,6 +165,7 @@ describe('accountsRouter security contracts', () => {
 
     const result = await caller.updateKeyring({
       account: 'acct-1',
+      currentAuthToken: CURRENT_AUTH_TOKEN,
       keyring: newKeyring,
     })
 
@@ -178,6 +182,7 @@ describe('accountsRouter security contracts', () => {
 
     await expect(caller.updateKeyring({
       account: 'acct-1',
+      currentAuthToken: CURRENT_AUTH_TOKEN,
       keyring: 'some-keyring',
     })).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
@@ -191,6 +196,7 @@ describe('accountsRouter security contracts', () => {
 
     const result = await caller.updateKeyring({
       account: 'acct-1',
+      currentAuthToken: CURRENT_AUTH_TOKEN,
       keyring: newKeyring,
       keyringVersion: 2,
       expectedKeyringVersion: 1,
@@ -205,6 +211,26 @@ describe('accountsRouter security contracts', () => {
     })
   })
 
+  it('rejects a keyring update without proof of the current password', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.updateKeyring({
+      account: 'acct-1',
+      currentAuthToken: 'wrong-auth-token',
+      keyring: 'garbage-keyring',
+      keyringVersion: 99,
+    })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      message: 'Incorrect current password',
+    })
+    await expect(caller.updateKeyring({
+      account: 'acct-1',
+      keyring: 'garbage-keyring',
+    } as any)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
+  })
+
   it('throws CONFLICT when updateKeyring hits a keyringVersion conflict', async () => {
     const ctx = createContext()
     ctx.vault.updateAccountData.mockRejectedValueOnce(new VersionConflictError('keyringVersion has changed'))
@@ -212,6 +238,7 @@ describe('accountsRouter security contracts', () => {
 
     await expect(caller.updateKeyring({
       account: 'acct-1',
+      currentAuthToken: CURRENT_AUTH_TOKEN,
       keyring: 'some-keyring',
       expectedKeyringVersion: 1,
     })).rejects.toMatchObject({
