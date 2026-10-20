@@ -145,8 +145,9 @@ Following "Backwards compatibility" in [vault-extraction.md](vault-extraction.md
      - **They stop writing v1 snapshots.** Online devices otherwise keep encrypting with v1 until a message under the new version makes them refresh their keyring (`keyVersionMissing` → `SyncBridge.handleKeyringUpdate`). A v1 snapshot written during re-encryption would keep the blocker set.
      - **The new random key never lands in a PBKDF2-wrapped cache.** A device that refreshed its keyring between a rotation and the password change would cache the new key wrapped under the *old* password, where a copied profile could crack it at PBKDF2 cost. Once signed out, a device can fetch the keyring only with the new password.
 3. **Rotate and re-encrypt.**
-   - **When:** once sync has settled (device level reached, sync idle) and the server still reports `passwordDerivedDataKey`, so every item is local first.
-   - **Rotate:** while v1 is still active, the existing `reencryptAllItems(bridge, account)` flow adds a random key, makes it active (which raises `keyringVersion`) and re-encrypts. Once a random key is active, only the bridge's re-encryption runs.
+   - **When:** once sync has settled (device level reached, sync idle) and the server still reports `passwordDerivedDataKey` or `unboundSnapshots`, so every item is local first.
+   - **Unbound snapshots:** a device rewrites them only once (`SnapshotFormatUpgrade` records `snapshotsDocBound`). So a snapshot an older build uploaded afterwards stays unbound until this re-encryption writes it again. That alone never rotates.
+   - **Rotate:** only for `passwordDerivedDataKey`. While v1 is still active, the existing `reencryptAllItems(bridge, account)` flow adds a random key, makes it active (which raises `keyringVersion`) and re-encrypts. Once a random key is active, only the bridge's re-encryption runs.
    - **Re-encrypt:** run `reencryptAllItems` with a progress view (the `ReencryptVaultDialog` path).
    - **Resume:** an interruption resumes from the table above, not only via the per-device `REENCRYPT_PENDING_KEY_PREFIX` flag.
    - **Items that can't be re-encrypted** keep their v1 snapshot and keep the blocker set.

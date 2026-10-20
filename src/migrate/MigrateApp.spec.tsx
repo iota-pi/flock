@@ -5,7 +5,7 @@ import {
   changeToArgon2id,
   finishMigration,
   OfflineError,
-  reencryptPasswordDerivedData,
+  reencryptOutdatedItems,
   startMigration,
 } from './migration'
 import { MigrationBridge } from './migrationBridge'
@@ -16,7 +16,7 @@ vi.mock('./migration', async importOriginal => ({
   startMigration: vi.fn(),
   changeToArgon2id: vi.fn(),
   beginSync: vi.fn(),
-  reencryptPasswordDerivedData: vi.fn(),
+  reencryptOutdatedItems: vi.fn(),
   finishMigration: vi.fn(),
 }))
 
@@ -77,7 +77,7 @@ describe('MigrateApp', () => {
     vi.mocked(startMigration).mockReset().mockResolvedValue({ needsNewPassword: false })
     vi.mocked(changeToArgon2id).mockReset().mockResolvedValue(undefined)
     vi.mocked(beginSync).mockReset().mockResolvedValue(undefined)
-    vi.mocked(reencryptPasswordDerivedData).mockReset().mockResolvedValue({ failed: [] })
+    vi.mocked(reencryptOutdatedItems).mockReset().mockResolvedValue({ failed: [] })
     vi.mocked(finishMigration).mockReset().mockResolvedValue(undefined)
     vi.mocked(MigrationBridge.checkDataVersion).mockReset()
   })
@@ -212,8 +212,29 @@ describe('MigrateApp', () => {
     await logIn()
     await poll(3)
 
-    expect(reencryptPasswordDerivedData).toHaveBeenCalledTimes(1)
-    expect(reencryptPasswordDerivedData).toHaveBeenCalledWith('acct-1', expect.any(Function))
+    expect(reencryptOutdatedItems).toHaveBeenCalledTimes(1)
+    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['passwordDerivedDataKey'], expect.any(Function))
+  })
+
+  it('re-encrypts every item when snapshots are still unbound', async () => {
+    vi.mocked(MigrationBridge.checkDataVersion)
+      .mockResolvedValue({ device: 3, account: 1, blockers: ['unboundSnapshots'] })
+
+    await logIn()
+    await poll(3)
+
+    expect(reencryptOutdatedItems).toHaveBeenCalledTimes(1)
+    expect(reencryptOutdatedItems).toHaveBeenCalledWith('acct-1', ['unboundSnapshots'], expect.any(Function))
+  })
+
+  it("doesn't re-encrypt for blockers re-encryption can't clear", async () => {
+    vi.mocked(MigrationBridge.checkDataVersion)
+      .mockResolvedValue({ device: 3, account: 1, blockers: ['legacyCipherItems'] })
+
+    await logIn()
+    await poll(3)
+
+    expect(reencryptOutdatedItems).not.toHaveBeenCalled()
   })
 
   it('shows what could not be migrated, and lets the user continue for now', async () => {

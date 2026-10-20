@@ -13,7 +13,8 @@ import {
   isMigrationComplete,
   KeyDerivationDowngradeError,
   OfflineError,
-  reencryptPasswordDerivedData,
+  needsReencryption,
+  reencryptOutdatedItems,
   startMigration,
 } from './migration'
 import { MigrationBridge } from './migrationBridge'
@@ -109,7 +110,7 @@ describe('migration', () => {
     vi.mocked(reencryptAllItems).mockResolvedValue({ succeeded: [], failed: [] })
     const onProgress = vi.fn()
 
-    await reencryptPasswordDerivedData('acct-1', onProgress)
+    await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress)
 
     expect(reencryptAllItems).toHaveBeenCalledWith(MigrationBridge, 'acct-1', onProgress)
     expect(MigrationBridge.reencryptAllItems).not.toHaveBeenCalled()
@@ -120,10 +121,30 @@ describe('migration', () => {
     vi.mocked(MigrationBridge.reencryptAllItems).mockResolvedValue({ succeeded: [], failed: [] })
     const onProgress = vi.fn()
 
-    await reencryptPasswordDerivedData('acct-1', onProgress)
+    await reencryptOutdatedItems('acct-1', ['passwordDerivedDataKey'], onProgress)
 
     expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
     expect(reencryptAllItems).not.toHaveBeenCalled()
+  })
+
+  it("doesn't rotate a random key v1 just to bind unbound snapshots", async () => {
+    vi.mocked(getActiveKeyVersion).mockReturnValue('1')
+    vi.mocked(MigrationBridge.reencryptAllItems).mockResolvedValue({ succeeded: [], failed: [] })
+    const onProgress = vi.fn()
+
+    await reencryptOutdatedItems('acct-1', ['unboundSnapshots'], onProgress)
+
+    expect(MigrationBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
+    expect(reencryptAllItems).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [['unboundSnapshots'], true],
+    [['passwordDerivedDataKey', 'legacySettings'], true],
+    [['legacyCipherItems', 'legacyKeyDerivation'], false],
+    [[], false],
+  ])('needsReencryption(%j) is %s', (blockers, expected) => {
+    expect(needsReencryption(blockers)).toBe(expected)
   })
 
   it('cleans up, locks and returns to the main app', async () => {
