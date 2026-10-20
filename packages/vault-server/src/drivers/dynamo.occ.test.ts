@@ -2,7 +2,7 @@ import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { getConnectionParams } from './dynamo'
 import { generateAccountId } from '../util'
 import { AuthenticationError } from './errors'
-import { hashSessionToken, isSessionFor } from '../sessions'
+import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../sessions'
 import { VersionConflictError } from '@vault/shared'
 
 const driver = new DynamoDriver()
@@ -274,7 +274,7 @@ describe('DynamoDriver conditional account writes', () => {
             UpdateExpression: 'SET sessions = :sessions',
             ExpressionAttributeValues: {
               ':sessions': [
-                { token: sessionA, expiry: Date.now() + 30 * 24 * 60 * 60 * 1000 },
+                { token: sessionA, expiry: Date.now() + SESSION_EXPIRY_MS },
               ],
             },
           }))
