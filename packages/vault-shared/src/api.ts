@@ -31,6 +31,8 @@ export const AccountInputSchema = z.looseObject({
 
 export const UpdateKeyringBodySchema = z.object({
   account: z.string().min(1),
+  /** Proves the caller holds the master key, so a session token alone can't replace the keyring */
+  currentAuthToken: z.string().min(1),
   keyring: z.string().min(1),
   keyringVersion: z.number().int().min(1).optional(),
   expectedKeyringVersion: z.number().int().min(1).optional(),

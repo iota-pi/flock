@@ -535,7 +535,13 @@ export async function storeVault(account: string, activeVersionOverride?: string
   if (session) {
     const currentVer = parseInt(effectiveVersion, 10)
     const expectedVer = Math.max(currentVer - 1, 1)
-    await updateKeyring(account, encryptedStr, expectedVer, currentVer)
+    await updateKeyring({
+      account,
+      currentAuthToken: keyHash,
+      keyring: encryptedStr,
+      expectedKeyringVersion: expectedVer,
+      keyringVersion: currentVer,
+    })
   }
 
   writeCachedKeyring(encryptedStr)
