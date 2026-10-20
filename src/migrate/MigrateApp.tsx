@@ -55,6 +55,7 @@ export default function MigrateApp() {
   const [consented, setConsented] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState('')
   const [reencryption, setReencryption] = useState<ReencryptionProgress | null>(null)
   // The password the user logged in with, kept only until the new one is set, to tell them apart
   const [currentPassword, setCurrentPassword] = useState('')
@@ -86,6 +87,7 @@ export default function MigrateApp() {
   const handleSubmit = useCallback(async (event: SubmitEvent) => {
     event.preventDefault()
     setLoading(true)
+    setLoadingMessage('Signing in and preparing the update…')
     setError('')
     try {
       const { needsNewPassword } = await startMigration(account, password)
@@ -104,6 +106,7 @@ export default function MigrateApp() {
       setError(err instanceof Error ? err.message : 'Login failed.')
     } finally {
       setLoading(false)
+      setLoadingMessage('')
     }
   }, [account, password, startSync])
 
@@ -126,6 +129,7 @@ export default function MigrateApp() {
     event.preventDefault()
     if (!canChangePassword) return
     setLoading(true)
+    setLoadingMessage('Changing your password and preparing the update…')
     setError('')
     try {
       await changeToArgon2id(account, newPassword)
@@ -133,6 +137,7 @@ export default function MigrateApp() {
       console.error('[MigrateApp] Failed to change the password', err)
       setError(err instanceof Error ? err.message : 'Changing your password failed.')
       setLoading(false)
+      setLoadingMessage('')
       return
     }
     setCurrentPassword('')
@@ -146,11 +151,13 @@ export default function MigrateApp() {
       setPhase({ kind: 'syncNotStarted' })
     } finally {
       setLoading(false)
+      setLoadingMessage('')
     }
   }, [account, canChangePassword, newPassword, startSync])
 
   const handleRetryStartSync = useCallback(async () => {
     setLoading(true)
+    setLoadingMessage('Starting your data update…')
     setError('')
     try {
       await startSync()
@@ -159,6 +166,7 @@ export default function MigrateApp() {
       setError(err instanceof Error ? err.message : 'Starting sync failed.')
     } finally {
       setLoading(false)
+      setLoadingMessage('')
     }
   }, [startSync])
 
@@ -270,7 +278,13 @@ export default function MigrateApp() {
                     autoComplete="current-password"
                     required
                   />
-                  <Button type="submit" variant="contained" disabled={loading || !account || !password}>
+                  {loading && (
+                    <Box role="status" aria-live="polite">
+                      <LinearProgress sx={{ mb: 1 }} />
+                      <Typography variant="body2" color="text.secondary">{loadingMessage}</Typography>
+                    </Box>
+                  )}
+                  <Button type="submit" variant="contained" loading={loading} disabled={!account || !password}>
                     Update my data
                   </Button>
                 </Stack>
@@ -319,7 +333,13 @@ export default function MigrateApp() {
                     control={<Checkbox checked={consented} onChange={event => setConsented(event.target.checked)} />}
                     label="I understand, and I've saved my new password somewhere safe"
                   />
-                  <Button type="submit" variant="contained" disabled={loading || !canChangePassword}>
+                  {loading && (
+                    <Box role="status" aria-live="polite">
+                      <LinearProgress sx={{ mb: 1 }} />
+                      <Typography variant="body2" color="text.secondary">{loadingMessage}</Typography>
+                    </Box>
+                  )}
+                  <Button type="submit" variant="contained" loading={loading} disabled={!canChangePassword}>
                     Change password and continue
                   </Button>
                 </Stack>
