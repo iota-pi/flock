@@ -1,7 +1,4 @@
-import {
-  clearActiveSessionToken,
-  setActiveSessionToken,
-} from '../sync/shared/workerAuthStore'
+import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
 import { clearManualRecoveryEntries } from '../sync/shared/manualRecoveryStore'
 import { setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import {
@@ -257,12 +254,9 @@ export async function establishSessionFromKeyHash(account: string, nextKeyHash: 
   keyHash = nextKeyHash
   session = nextSession
   setApiAuthToken(session)
-  await setActiveSessionToken(session)
-  if (generation !== keyGeneration) {
-    await clearActiveSessionToken()
-    return
-  }
   setApiSessionExpiredHandler(handleSessionExpired)
+  // The session is kept only in memory: this removes one an earlier build stored
+  await deleteStoredSessionToken()
 }
 
 /**
@@ -321,7 +315,6 @@ export function handleSessionExpired(): Promise<void> {
 
       session = ''
       setApiAuthToken('')
-      await clearActiveSessionToken()
       hostHooks.onSessionLost?.(
         'Sync paused: unable to re-establish session. Please re-enter your password to resume syncing.'
       )
@@ -566,7 +559,7 @@ function clearKeyData() {
  */
 export async function lockVaultKeys() {
   clearKeyData()
-  await clearActiveSessionToken()
+  await deleteStoredSessionToken()
 }
 
 /**
@@ -582,7 +575,7 @@ export async function clearVaultDeviceData(account?: string) {
   clearKeyData()
   clearBiometricData()
   clearCachedKeyring()
-  await clearActiveSessionToken()
+  await deleteStoredSessionToken()
   clearStoredMetadata()
 }
 

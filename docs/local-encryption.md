@@ -377,15 +377,14 @@ Implemented in this order, one PR each:
 
 ## Related findings (separate fix)
 
-- **Session tokens outlive closed tabs.** The session token (`authDatabase`) is cleared only by an explicit lock. If the tab is closed while unlocked, it stays in IndexedDB for up to 30 days (`SESSION_EXPIRY_MS`). Without the keys, a copied token can't read anything, but it can make authenticated writes:
-  - **Soft-delete everything.** The server accepts payload-less tombstone snapshots (`toTombstoneSnapshot`), so a stolen token could soft-delete every item, and other devices would apply the deletions.
-  - **Replace the keyring.** `accounts.updateKeyring` is a `protectedProcedure`, so it needs only the session. A stolen token can upload a garbage keyring with a higher `keyringVersion`.
-    - **Effect:** every later login that reaches the server throws "Failed to decrypt keyring from server during login", even after the cached keyring verified the password. Every device is locked out.
-    - **It also breaks Part 1's migration**, whose rotation step uploads the keyring.
-  - **Fix options:**
-    - Clear the token on `pagehide`, re-establishing the session at unlock as login already does.
-    - Require proof of the keys for keyring uploads (the current auth token, as `changePassword` does).
-    - Bind deletions to something only key holders can produce.
+- **Session tokens outlived closed tabs (fixed).** The session token was stored in IndexedDB (`authDatabase`) and cleared only by an explicit lock, so a tab closed while unlocked left it there for up to 30 days. Without the keys, a copied token can't read anything, but it could make authenticated writes:
+  - **Soft-delete everything.** The server accepts payload-less tombstone snapshots (`toTombstoneSnapshot`), so a stolen token could soft-delete every item, and other devices would apply the deletions. Overwriting snapshots with garbage works the same way: devices with local data keep it, but a new device couldn't download it.
+  - **Replace the keyring.** A stolen token could upload a garbage keyring with a higher `keyringVersion`, after which every login that reached the server failed to decrypt it and every device was locked out.
+  - **What changed:**
+    - **The token is kept only in memory** (`workerAuthStore`). Every unlock already gets a new session, and the main thread passes it to the sync worker (`initRepo`, `updateAuthToken`). Unlocking and locking delete `authDatabase`, which earlier builds left behind.
+    - **Sessions last 72 hours** (`SESSION_EXPIRY_MS`), not 30 days. Unlocked clients re-establish an expired session silently from the key hash. The server drops sessions whose expiry is beyond the lifetime, which ended the ones issued under the 30-day rule.
+    - **Keyring uploads prove the master key.** `accounts.updateKeyring` requires `currentAuthToken`, as `changePassword` does (protocol 4).
+  - **Still open:** writes only key holders can make. A token taken from a running, unlocked app still works until it expires, and can delete or overwrite items. Fixing that needs writes the server or other devices can authenticate, such as signatures from a key in the keyring.
 
 ## Decisions
 

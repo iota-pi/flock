@@ -10,8 +10,7 @@ import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerIn
 import type { VaultDoc, VaultMetadata } from '../shared/types'
 import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
 import { Keyring } from '../../api/Keyring'
-import { getActiveSessionToken } from '../shared/workerAuthStore'
-import { setApiAuthToken } from '../../api/runtime'
+import { clearActiveSessionToken, setActiveSessionToken } from '../shared/workerAuthStore'
 import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
@@ -265,16 +264,9 @@ export class SyncWorker implements SyncApi {
     await Automerge.initializeWasm(this.config.automergeWasmUrl)
   }
 
-  /** Loads the keyring exported by the main thread, and the session token it stored for this realm */
+  /** Loads the keyring exported by the main thread */
   private async loadKeyring(vaultKey: string): Promise<void> {
     await this.keyring.load(vaultKey)
-
-    const sessionToken = await getActiveSessionToken()
-    if (sessionToken) {
-      setApiAuthToken(sessionToken)
-    } else {
-      log.warn('Missing session token for realtime sync; network pushes will not start.')
-    }
   }
 
   private subscribeClientEvents(): void {
@@ -386,6 +378,9 @@ export class SyncWorker implements SyncApi {
 
     try {
       this.initWorkerState()
+      if (options?.authToken !== undefined) {
+        this.setAuthToken(options.authToken)
+      }
       await this.initGlobalPrerequisites(vaultKey)
 
       const context = new SyncWorkerContext({
@@ -641,11 +636,17 @@ export class SyncWorker implements SyncApi {
   }
 
   updateAuthToken = async (token: string | null): Promise<void> => {
-    this.latestAuthToken = token
+    this.setAuthToken(token)
     if (this._context) {
       this._context.apiClient.setToken(token)
     }
     this.resolveTokenRefresh(token)
+  }
+
+  /** Holds the session token in memory only, for contexts created later and the API client's fallback */
+  private setAuthToken(token: string | null): void {
+    this.latestAuthToken = token
+    setActiveSessionToken(token)
   }
 
   reencryptAllItems = (
@@ -711,6 +712,7 @@ export class SyncWorker implements SyncApi {
   async shutdown(options?: { clearLocalData?: boolean }) {
     this.resolveTokenRefresh(null)
     this.latestAuthToken = null
+    clearActiveSessionToken()
     this.isShutDown = true
     this.isReady = false
     if (this.readyReject) {
