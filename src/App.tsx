@@ -23,6 +23,7 @@ import QuotaWarningSnackbar from './components/QuotaWarningSnackbar'
 import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
 import LeaderConflictDialog from './components/dialogs/LeaderConflictDialog'
 import LocalDataUnavailableDialog from './components/dialogs/LocalDataUnavailableDialog'
+import AppUpdateSnackbar from './components/AppUpdateSnackbar'
 
 
 const Root = styled('div')({
@@ -117,6 +118,7 @@ function RootLayout() {
       </Content>
 
       <QuotaWarningSnackbar onOpenDetails={() => setIsQuotaDialogOpen(true)} />
+      <AppUpdateSnackbar />
       <QuotaExceededDialog
         open={isQuotaDialogOpen}
         onClose={() => setIsQuotaDialogOpen(false)}
