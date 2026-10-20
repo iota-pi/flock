@@ -5,6 +5,7 @@ import type { AppStore } from '../store'
 
 export interface UIState {
   activeRequests: number
+  appUpdateReady: boolean
   darkMode: boolean | null
   filters: FilterCriterion[]
   justCreatedAccount: boolean
@@ -14,6 +15,7 @@ export interface UIState {
 type SetUiPayload = Partial<UIState>
 
 export interface UiSlice extends UIState {
+  setAppUpdateReady: (ready: boolean) => void
   setUi: (payload: SetUiPayload) => void
   startRequest: () => void
   finishRequest: (error?: string) => void
@@ -21,6 +23,7 @@ export interface UiSlice extends UIState {
 
 const initialUiState: UIState = {
   activeRequests: 0,
+  appUpdateReady: false,
   darkMode: null,
   filters: DEFAULT_FILTER_CRITERIA,
   justCreatedAccount: false,
@@ -34,6 +37,7 @@ export const createUiSlice: StateCreator<
   UiSlice
 > = (set, get) => ({
   ...initialUiState,
+  setAppUpdateReady: ready => set({ appUpdateReady: ready }),
   setUi: payload => {
     set(() => ({ ...payload }))
   },

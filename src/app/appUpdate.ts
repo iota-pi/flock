@@ -20,6 +20,7 @@ const BLOCKED_RETRY_MS = 30_000
 let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | null = null
 let registration: ServiceWorkerRegistration | undefined
 let updatePending = false
+let updateRequested = false
 let forceUpdate = false
 let loginsInProgress = 0
 let sessionLock: { release: () => void } | null = null
@@ -50,7 +51,8 @@ function syncSessionLock(): void {
 
 function applyNow(): void {
   updatePending = false
-  console.info('[PWA] Applying the new version of the app')
+  updateRequested = false
+  useAppStore.getState().setAppUpdateReady(false)
   void updateServiceWorker?.(true)
 }
 
@@ -63,7 +65,7 @@ function retryWhenUnblocked(): void {
 }
 
 function applyPendingUpdate(): void {
-  if (!updatePending || !updateServiceWorker || !canApplyUpdate()) return
+  if (!updatePending || !updateServiceWorker || (!updateRequested && !forceUpdate) || !canApplyUpdate()) return
 
   // A forced update applies regardless: other tabs are running the same unusable build
   const locks = getLocks()
@@ -88,8 +90,8 @@ function applyPendingUpdate(): void {
 export function registerAppUpdates(registerSW: RegisterSW): void {
   updateServiceWorker = registerSW({
     onNeedRefresh() {
-      console.info('[PWA] A new version of the app is ready')
       updatePending = true
+      useAppStore.getState().setAppUpdateReady(true)
       applyPendingUpdate()
     },
     onOfflineReady() {
@@ -109,6 +111,12 @@ export function registerAppUpdates(registerSW: RegisterSW): void {
       applyPendingUpdate()
     }
   })
+}
+
+/** Applies a ready update after the user chooses to reload. */
+export function requestAppUpdate(): void {
+  updateRequested = true
+  applyPendingUpdate()
 }
 
 /** Asks the browser to look for a new service worker. Call when the lock or login screen shows. */
