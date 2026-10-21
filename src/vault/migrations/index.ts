@@ -6,6 +6,7 @@ import { VaultAccount, VaultItem } from '@vault/server'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { flockDataVersionPolicy } from '../flockDataVersion'
 import { createFlockDriver, FLOCK_TABLES } from '../flockDriver'
+import { dropDeletedItemPayloads } from './deletedItemPayloads'
 
 const ddb = new DynamoDBClient(getConnectionParams())
 const client = DynamoDBDocumentClient.from(ddb)
@@ -186,6 +187,17 @@ const migrations: { [name: string]: () => Promise<void> } = {
       lastEvaluatedKey = response?.LastEvaluatedKey
     } while (lastEvaluatedKey)
     console.info(`Removed legacy plaintext metadata from ${updated} accounts`)
+  },
+  async countDeletedItemPayloads () {
+    // Read-only: how many deleted items dropDeletedItemPayloads would strip
+    const { found } = await dropDeletedItemPayloads(client, FLOCK_TABLES.items, { dryRun: true })
+    console.info(`${found} deleted items still hold a snapshot payload or legacy cipher`)
+  },
+  async dropDeletedItemPayloads () {
+    // Destructive: removes deleted items' content, keeping their metadata and version. Run
+    // countDeletedItemPayloads first. Safe to run again if the Lambda times out.
+    const { dropped } = await dropDeletedItemPayloads(client, FLOCK_TABLES.items)
+    console.info(`Dropped the payloads of ${dropped} deleted items`)
   },
   async countAccountsByDataVersion () {
     // Read-only report of how far each account's stored data has been migrated (see "Backwards
