@@ -6,6 +6,7 @@ import {
   exportKeyringData,
   getActiveKeyVersion,
   hasBiometricData,
+  hasVaultKey,
   initialiseVault,
   hasRandomDataKeys,
   lockVaultKeys,
@@ -45,6 +46,7 @@ vi.mock('../sync/shared/workerAuthStore', () => ({
 vi.mock('./util', async importOriginal => ({
   ...await importOriginal<typeof import('./util')>(),
   DEFAULT_CRYPTO_ITERATIONS: 1000,
+  KEYRING_FETCH_RETRY_DELAYS: [0, 0],
 }))
 
 // Current parameters above the test floor, so an account can be created below them
@@ -184,8 +186,56 @@ describe('key derivation at login', () => {
     vi.mocked(getKeyring).mockRejectedValue(new TypeError('Failed to fetch'))
 
     await expect(loginArgon2id(CURRENT_KDF)).rejects.toThrow('Could not load your encryption keys')
+    expect(getKeyring).toHaveBeenCalledTimes(3)
     expect(getActiveKeyVersion()).toBe('1')
     await expect(exportKeyringData()).resolves.toBe('{"activeVersion":"1"}')
+  })
+
+  it('retries the keyring fetch when a login has no cached keys', async () => {
+    await seedArgon2idServerKeyring(CURRENT_KDF)
+    vi.mocked(getKeyring).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    await loginArgon2id(CURRENT_KDF)
+
+    expect(getKeyring).toHaveBeenCalledTimes(2)
+    expect(hasVaultKey('1')).toBe(true)
+  })
+
+  it('doesn\'t retry a rate-limited keyring fetch', async () => {
+    await seedArgon2idServerKeyring(CURRENT_KDF)
+    const rateLimited = new TRPCClientError('TOO_MANY_REQUESTS')
+    Object.assign(rateLimited, { data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 } })
+    vi.mocked(getKeyring).mockRejectedValueOnce(rateLimited)
+
+    await expect(loginArgon2id(CURRENT_KDF)).rejects.toThrow('Could not load your encryption keys')
+    expect(getKeyring).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a server error but not a rejected session', async () => {
+    await seedArgon2idServerKeyring(CURRENT_KDF)
+    vi.mocked(getKeyring).mockRejectedValueOnce(new ApiHttpError({ status: 502, url: 'getKeyring' }))
+    await loginArgon2id(CURRENT_KDF)
+    expect(getKeyring).toHaveBeenCalledTimes(2)
+
+    await lockVaultKeys()
+    localStorage.clear()
+    vi.mocked(getKeyring).mockClear()
+    vi.mocked(getKeyring).mockRejectedValueOnce(new ApiHttpError({ status: 401, url: 'getKeyring' }))
+    await expect(loginArgon2id(CURRENT_KDF)).rejects.toThrow('Could not load your encryption keys')
+    expect(getKeyring).toHaveBeenCalledTimes(1)
+  })
+
+  it('doesn\'t delay a login whose cached keys already unlocked it', async () => {
+    await seedArgon2idServerKeyring(CURRENT_KDF)
+    await loginArgon2id(CURRENT_KDF)
+    await lockVaultKeys()
+    vi.mocked(getKeyring).mockClear()
+    vi.mocked(getKeyring).mockRejectedValue(new TypeError('Failed to fetch'))
+
+    await loginArgon2id(CURRENT_KDF)
+
+    expect(getKeyring).toHaveBeenCalledTimes(1)
+    expect(hasVaultKey('1')).toBe(true)
   })
 
   it('refuses an Argon2id account the server has no keyring for, rather than making one', async () => {

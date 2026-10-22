@@ -4,6 +4,8 @@ import { getVaultStorageNames } from '../sync/shared/storageNames'
 const isCypress = typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
 export const DEFAULT_CRYPTO_ITERATIONS = isCypress ? 1 : 600000
 export const LEGACY_CRYPTO_ITERATIONS = isCypress ? 1 : 100000
+/** Waits between attempts to fetch the keyring when an unlock has no other keys to use */
+export const KEYRING_FETCH_RETRY_DELAYS: readonly number[] = [500, 2000]
 
 export type VaultBroadcastEvent =
   | { type: 'KEY_ROTATED'; account: string; keyVersion: string }

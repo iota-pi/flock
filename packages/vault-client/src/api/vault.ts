@@ -25,10 +25,13 @@ import {
 import { DEFAULT_KDF, setKdfWorkerFactory, type KdfParams } from './kdf'
 import {
   broadcastVaultEvent,
+  KEYRING_FETCH_RETRY_DELAYS,
   readStoredMetadata,
   VaultStoredMetadata,
   type VaultBroadcastEvent,
 } from './util'
+import { RetryStrategy } from '../sync/utils/RetryStrategy'
+import { classifySyncError } from '../sync/worker/utils/errorClassifier'
 import { clearWriteAheadLog } from '../sync/client/localDataCleanup'
 import {
   clearBiometricData,
@@ -388,11 +391,35 @@ export async function loadKeyringFromEncrypted(encryptedKeyringStr: string): Pro
   }
 }
 
-/** Loads the server's keyring. Returns whether it was loaded (rather than missing or unreachable). */
-export async function syncKeyringFromServer(account: string): Promise<boolean> {
+/** Whether a failed request might succeed if sent again. A rate limit won't lift in time to help. */
+function isTransientRequestError(error: unknown): boolean {
+  const { isNetwork, isServerError, isAuth } = classifySyncError(error)
+  return (isNetwork || isServerError) && !isAuth && !isRateLimitedError(error)
+}
+
+/**
+ * Fetches the keyring, retrying transient failures. For unlocks with no other keys, which fail if
+ * this one request is lost.
+ */
+function getKeyringWithRetry(account: string) {
+  const generation = keyGeneration
+  return RetryStrategy.executeWithRetry(() => getKeyring(account), {
+    delays: KEYRING_FETCH_RETRY_DELAYS,
+    shouldRetry: error => generation === keyGeneration && isTransientRequestError(error),
+    onRetry: (error, attempt) => {
+      console.warn(`[vault] Failed to retrieve keyring (attempt ${attempt}); retrying:`, error)
+    },
+  })
+}
+
+/**
+ * Loads the server's keyring. Returns whether it was loaded (rather than missing or unreachable).
+ * With `retry`, transient failures are retried before giving up.
+ */
+export async function syncKeyringFromServer(account: string, { retry = false } = {}): Promise<boolean> {
   let encryptedKeyringStr: string | undefined
   try {
-    const response = await getKeyring(account)
+    const response = retry ? await getKeyringWithRetry(account) : await getKeyring(account)
     encryptedKeyringStr = response.keyring
     rememberRandomDataKeys(account, response.randomDataKeys)
   } catch (err) {
@@ -491,8 +518,11 @@ export async function loginVault({
     void finishSessionInBackground(sessionAttempt, account)
   }
 
-  // If session was established, sync latest keyring from server
-  const serverKeyringLoaded = sessionEstablished ? await syncKeyringFromServer(account) : false
+  // If session was established, sync latest keyring from server. Without the cache's keys (as on a
+  // new device) the login fails unless this loads, so it's retried.
+  const serverKeyringLoaded = sessionEstablished
+    ? await syncKeyringFromServer(account, { retry: !keyring.hasKey() })
+    : false
   assertKeyringLoaded()
 
   await writeStoredMetadata(account, { salt, iterations, saltVersion, kdf })
@@ -855,7 +885,7 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
   const generation = keyGeneration
   const sessionAttempt = (async () => {
     await establishSessionFromKeyHash(account, keyHash)
-    await syncKeyringFromServer(account)
+    await syncKeyringFromServer(account, { retry: !keyring.hasKey() })
   })().then(
     (): BiometricSessionOutcome => ({ error: undefined }),
     (error: unknown): BiometricSessionOutcome => ({ error }),
