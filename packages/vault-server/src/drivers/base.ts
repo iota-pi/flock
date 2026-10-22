@@ -75,7 +75,11 @@ export default abstract class BaseDriver<T = unknown> {
   // Retrieve account data and validate session; `isLogin` instructs implementation
   // to validate against `authToken` instead of session hash. Throws `AuthenticationError` when the
   // account doesn't exist or the credentials don't match.
+  // Throws `TooManyLoginAttemptsError` for a login while the account is locked (see `loginThrottle.ts`).
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
+
+  // Count a failed login towards the account's limit. Does nothing for an account that doesn't exist.
+  abstract recordFailedLogin(data: BaseData): Promise<void>
 
   // Throws `AuthenticationError` when the account doesn't exist
   abstract getSecurityParams(data: BaseData): Promise<SecurityParams>

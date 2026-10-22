@@ -21,3 +21,13 @@ export function isClientOutdatedError(error: unknown): boolean {
   const { message, data } = error as { message?: unknown, data?: { code?: unknown } }
   return message === CLIENT_OUTDATED_MESSAGE && data?.code === 'PRECONDITION_FAILED'
 }
+
+/** Message of the error the server returns for a login to an account with too many recent failed logins */
+export const TOO_MANY_REQUESTS_MESSAGE = 'TOO_MANY_REQUESTS'
+
+/** Whether the server turned a request down for being over a rate limit (HTTP 429) */
+export function isRateLimitedError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { data } = error as { data?: { code?: unknown, httpStatus?: unknown } }
+  return data?.code === 'TOO_MANY_REQUESTS' || data?.httpStatus === 429
+}

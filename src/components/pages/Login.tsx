@@ -34,14 +34,18 @@ import {
   UnsupportedKeyDerivationError,
   type KdfParams,
 } from '@vault/client'
+import { isRateLimitedError } from '@vault/shared'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
 
-/** How long to wait for the server's login parameters when this device has them cached */
 /** Shown when an account needs the migration app but the server can't be reached */
 const ACCOUNT_UPDATE_NEEDS_SERVER =
   "This account's security settings need updating, which needs a connection to the server. " +
   'Check your internet connection and try again.'
 
+/** Shown when the server refuses logins to an account after too many failed ones */
+const TOO_MANY_ATTEMPTS = 'Too many login attempts. Please wait a few minutes and try again.'
+
+/** How long to wait for the server's login parameters when this device has them cached */
 const CACHED_PARAMS_WAIT_MS = 3000
 
 
@@ -208,8 +212,12 @@ function LoginPage() {
             goToMigration(accountInput)
             return
           }
-          console.error('Error during vault initialization:', error)
           updateAuth({ account: '' })
+          if (isRateLimitedError(error)) {
+            setError(TOO_MANY_ATTEMPTS)
+            return
+          }
+          console.error('Error during vault initialization:', error)
           setError(error instanceof Error ? error.message : 'Login failed.')
         } finally {
           setLoading(false)

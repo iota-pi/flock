@@ -141,6 +141,24 @@ describe('LoginPage', () => {
     })
   })
 
+  it('tells the user to wait when the server refuses logins to the account', async () => {
+    const error = Object.assign(new Error('TOO_MANY_REQUESTS'), { data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 } })
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({ salt: 'test-salt', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2 })
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(error)
+
+    renderLoginPage()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'my-account' } })
+      fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
+      fireEvent.click(screen.getByRole('button', { name: /Login/i }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Too many login attempts/i)).toBeDefined()
+    })
+  })
+
   it('displays incorrect password error and does not show server failure message', async () => {
     vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({
       salt: 'test-salt',

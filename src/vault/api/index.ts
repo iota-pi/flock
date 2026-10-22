@@ -57,7 +57,7 @@ async function createServer(devMode = false) {
         if (process.env.SENTRY_DSN) {
           const isExpectedClientError =
             error instanceof TRPCError &&
-            (error.code === 'UNAUTHORIZED' || error.code === 'NOT_FOUND') &&
+            (error.code === 'UNAUTHORIZED' || error.code === 'NOT_FOUND' || error.code === 'TOO_MANY_REQUESTS') &&
             !error.cause
 
           if (!isExpectedClientError) {

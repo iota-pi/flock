@@ -1,7 +1,8 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { getConnectionParams } from './dynamo'
 import { generateAccountId } from '../util'
-import { AuthenticationError } from './errors'
+import { AuthenticationError, TooManyLoginAttemptsError } from './errors'
+import { FAILED_LOGIN_WINDOW_MS, MAX_FAILED_LOGINS } from '../loginThrottle'
 import { hashSessionToken, isSessionFor } from '../sessions'
 import { VersionConflictError } from '@vault/shared'
 
@@ -340,6 +341,47 @@ describe('DynamoDriver conditional account writes', () => {
         .rejects.toBeInstanceOf(AuthenticationError)
       await expect(driver.getAccount({ account, session: 'no-such-session' }))
         .rejects.toBeInstanceOf(AuthenticationError)
+    })
+  })
+
+  describe('Failed logins', () => {
+    it('locks an account after too many failed logins, even for the right password', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+
+      for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
+        await driver.recordFailedLogin({ account })
+      }
+      const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
+      expect(raw.Item?.failedLogins).toBe(MAX_FAILED_LOGINS)
+      await expect(driver.getAccount({ account, session: 'token', isLogin: true }))
+        .rejects.toBeInstanceOf(TooManyLoginAttemptsError)
+    })
+
+    it('starts a new count once the window has passed', async () => {
+      const account = uniqueAccountId()
+      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
+      await driver.client.send(new UpdateCommand({
+        TableName: driver.tables.accounts,
+        Key: { account },
+        UpdateExpression: 'SET failedLogins = :count, failedLoginsSince = :since',
+        ExpressionAttributeValues: { ':count': MAX_FAILED_LOGINS, ':since': Date.now() - FAILED_LOGIN_WINDOW_MS - 1000 },
+      }))
+
+      await driver.recordFailedLogin({ account })
+
+      const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
+      expect(raw.Item?.failedLogins).toBe(1)
+      await expect(driver.getAccount({ account, session: 'token', isLogin: true }))
+        .resolves.toMatchObject({ account })
+    })
+
+    it('does not create an item for an account that does not exist', async () => {
+      const account = uniqueAccountId()
+      await driver.recordFailedLogin({ account })
+
+      const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
+      expect(raw.Item).toBeUndefined()
     })
   })
 

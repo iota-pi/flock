@@ -46,6 +46,7 @@ import {
   isWebAuthnPrfSupported,
 } from './webauthn'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
+import { isRateLimitedError } from '@vault/shared'
 import { ApiHttpError } from './trackedFetch'
 import { importKeyring, Keyring, VaultNotInitializedError, type KeyProvider } from './Keyring'
 
@@ -466,9 +467,11 @@ export async function loginVault({
 
   // Phase 2: Best-effort server session. Once the cached keyring has verified the password, a slow
   // server doesn't hold up unlocking: the session is finished in the background instead.
+  let sessionError: unknown
   const sessionAttempt = establishSessionFromKeyHash(account, keyHash).then(
     () => true,
     (err: unknown) => {
+      sessionError = err
       console.info('[vault] Operating in offline mode — sync deferred:', err)
       return false
     },
@@ -483,6 +486,10 @@ export async function loginVault({
 
   if (!passwordVerified) {
     clearKeyData()
+    // Says nothing about the password, so the caller can tell the user to wait (see `isRateLimitedError`)
+    if (isRateLimitedError(sessionError)) {
+      throw sessionError
+    }
     throw new Error('Incorrect password. Please try again.')
   }
 

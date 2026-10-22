@@ -7,12 +7,13 @@ import {
   LoginBodySchema,
   UpdateKeyringBodySchema,
   ChangePasswordBodySchema,
+  TOO_MANY_REQUESTS_MESSAGE,
   VersionConflictError,
 } from '@vault/shared'
 import { fakeSalt, hashString, safeEqual } from '../../util'
 import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 import { raiseDataVersion } from '../../services/dataVersion'
-import { AuthenticationError } from '../../drivers/errors'
+import { AuthenticationError, TooManyLoginAttemptsError } from '../../drivers/errors'
 
 const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
 
@@ -50,7 +51,14 @@ export const accountsRouter = router({
           isLogin: true,
         })
       } catch (error) {
+        if (error instanceof TooManyLoginAttemptsError) {
+          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE })
+        }
         if (error instanceof AuthenticationError) {
+          // Failing to count it mustn't turn a wrong password into a server error
+          await ctx.vault.recordFailedLogin({ account: input.account }).catch(countError => {
+            console.warn('[accounts.login] Could not count a failed login:', countError)
+          })
           throw new TRPCError({ code: 'UNAUTHORIZED' })
         }
         throw error

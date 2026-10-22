@@ -106,6 +106,15 @@ describe('key derivation at login', () => {
     vi.mocked(getSession).mockResolvedValue('mock-session')
   })
 
+  it('reports a rate-limited login as such rather than as a wrong password', async () => {
+    await seedArgon2idServerKeyring(CURRENT_KDF)
+    const rateLimited = new TRPCClientError('TOO_MANY_REQUESTS')
+    Object.assign(rateLimited, { data: { code: 'TOO_MANY_REQUESTS', httpStatus: 429 } })
+    vi.mocked(getSession).mockRejectedValue(rateLimited)
+
+    await expect(loginArgon2id(CURRENT_KDF)).rejects.toBe(rateLimited)
+  })
+
   it('re-wraps every key under the current Argon2id parameters when the account\'s are older', async () => {
     await seedArgon2idServerKeyring(OLD_KDF)
 
