@@ -39,9 +39,7 @@ vi.mock('./client', () => ({
 }))
 
 vi.mock('../sync/shared/workerAuthStore', () => ({
-  setActiveSessionToken: vi.fn(),
-  getActiveSessionToken: vi.fn().mockResolvedValue('mock-session'),
-  clearActiveSessionToken: vi.fn(),
+  deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('./util', async importOriginal => ({
@@ -199,6 +197,13 @@ describe('key derivation at login', () => {
     await loginVault({ account: ACCOUNT, password: PASSWORD, salt: SALT, iterations: 1000, saltVersion: 1 })
 
     expect(updateKeyring).toHaveBeenCalledTimes(1)
+    // Proves the master key with the same auth token the login sent
+    const loginAuthToken = vi.mocked(getSession).mock.calls.at(-1)?.[1]
+    expect(loginAuthToken).toBeTruthy()
+    expect(updateKeyring).toHaveBeenCalledWith(expect.objectContaining({
+      account: ACCOUNT,
+      currentAuthToken: loginAuthToken,
+    }))
   })
 
   it('does not upgrade offline', async () => {

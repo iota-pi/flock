@@ -20,7 +20,7 @@ import {
 import { Keyring } from './Keyring'
 import { getSessionExpiredHandler } from './runtime'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
-import { clearActiveSessionToken } from '../sync/shared/workerAuthStore'
+import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 
 import { updateKeyring, getKeyring, getSession } from './client'
@@ -37,9 +37,7 @@ vi.mock('./client', () => ({
 const SALT = 'c2FsdDEyMw=='
 
 vi.mock('../sync/shared/workerAuthStore', () => ({
-  setActiveSessionToken: vi.fn(),
-  getActiveSessionToken: vi.fn().mockResolvedValue('mock-session'),
-  clearActiveSessionToken: vi.fn(),
+  deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
 }))
 
 describe('Vault Keyring Integration', () => {
@@ -279,8 +277,8 @@ describe('Vault Keyring Integration', () => {
     expect(stored).toBeDefined()
     expect(JSON.parse(stored!).account).toBe('test-account')
 
-    // active session token should be cleared
-    expect(clearActiveSessionToken).toHaveBeenCalled()
+    // and a session token an earlier build stored is deleted
+    expect(deleteStoredSessionToken).toHaveBeenCalled()
   })
 
   it('removes the session expired handler when locking', async () => {

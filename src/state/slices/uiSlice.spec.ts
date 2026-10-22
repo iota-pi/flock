@@ -4,6 +4,7 @@ import type { UIState } from './uiSlice'
 
 const initialState: UIState = {
   activeRequests: 0,
+  appUpdateReady: false,
   darkMode: null,
   filters: useAppStore.getState().filters,
   justCreatedAccount: false,

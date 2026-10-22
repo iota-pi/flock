@@ -39,8 +39,9 @@ Locking forgets the keys and shuts the worker down (`lockVault` in `src/app/vaul
 - **Forensic remnants.** Deleting the plaintext database after migration doesn't securely erase the disk. Old pages can survive until the browser's storage engine compacts them. Full-disk encryption is the only mitigation.
 - **Storage keys and sync bookkeeping.** Automerge storage keys (document IDs plus content hashes) stay readable, because range queries need them. So the number of items and roughly when each changed can still be read. Cursors, heads, versions, WAL entry descriptors and manual recovery reasons stay plaintext, since they hold no user content.
 - **Ciphertext that already exists under v1.** Sync messages (for up to 90 days), DynamoDB backups and backup files the user downloaded before the migration stay encrypted with the password-derived v1 key. They can be brute-forced at PBKDF2 cost against the *original* password. That's why the migration requires a new password.
-  - **Deleted items keep theirs indefinitely.** A deleted item's row keeps its last real snapshot, and re-encryption only walks the active index (`listAutomergeItemIds`), which leaves tombstones out. The `passwordDerivedDataKey` blocker ignores deleted items too, so the migration finishes with their content still under v1 on the server and in its backups. Anyone who gets that data can still guess the original password at PBKDF2 cost and read what was deleted.
-  - **Follow-up:** deletion is terminal and deleted content is never read again, so a server migration can drop the snapshot payload of deleted items, keeping `metadata.deleted` and the version. It belongs with the destructive cleanups that run when level 2 is retired.
+  - **Deleted items kept theirs until cleaned up.** A deleted item's row keeps its last real snapshot, and re-encryption only walks the active index (`listAutomergeItemIds`), which leaves tombstones out. The `passwordDerivedDataKey` blocker ignores deleted items too, so the migration finishes with their content still under v1. Anyone who gets that data can still guess the original password at PBKDF2 cost and read what was deleted.
+  - **Cleanup:** the `dropDeletedItemPayloads` server migration (`src/vault/migrations/deletedItemPayloads.ts`) removes the snapshot and any legacy `cipher` from deleted rows. It keeps `metadata`, the top-level `deleted` flag, `version` and `modifiedAt`, so the manifest doesn't change and no device re-fetches or re-uploads anything. It doesn't wait for level 2 to be retired, because nothing reads a deleted item's content: clients learn of deletions from the manifest, the level checks skip deleted items, and the migration app never fetches them. Run `countDeletedItemPayloads` (read-only) first. Both are idempotent, so a run the Lambda cuts short can be started again.
+  - **What it can't reach:** sync messages for those items until their 90-day TTL, DynamoDB backups until they age out, and backup files users downloaded. Items deleted later still upload a full snapshot with the deletion, under whatever key is active then (not v1 once the account has migrated), so the cleanup can be run again but doesn't need to be.
 
 ## Part 1: Argon2id and random data keys
 
@@ -377,15 +378,14 @@ Implemented in this order, one PR each:
 
 ## Related findings (separate fix)
 
-- **Session tokens outlive closed tabs.** The session token (`authDatabase`) is cleared only by an explicit lock. If the tab is closed while unlocked, it stays in IndexedDB for up to 30 days (`SESSION_EXPIRY_MS`). Without the keys, a copied token can't read anything, but it can make authenticated writes:
-  - **Soft-delete everything.** The server accepts payload-less tombstone snapshots (`toTombstoneSnapshot`), so a stolen token could soft-delete every item, and other devices would apply the deletions.
-  - **Replace the keyring.** `accounts.updateKeyring` is a `protectedProcedure`, so it needs only the session. A stolen token can upload a garbage keyring with a higher `keyringVersion`.
-    - **Effect:** every later login that reaches the server throws "Failed to decrypt keyring from server during login", even after the cached keyring verified the password. Every device is locked out.
-    - **It also breaks Part 1's migration**, whose rotation step uploads the keyring.
-  - **Fix options:**
-    - Clear the token on `pagehide`, re-establishing the session at unlock as login already does.
-    - Require proof of the keys for keyring uploads (the current auth token, as `changePassword` does).
-    - Bind deletions to something only key holders can produce.
+- **Session tokens outlived closed tabs (fixed).** The session token was stored in IndexedDB (`authDatabase`) and cleared only by an explicit lock, so a tab closed while unlocked left it there for up to 30 days. Without the keys, a copied token can't read anything, but it could make authenticated writes:
+  - **Soft-delete everything.** The server accepts payload-less tombstone snapshots (`toTombstoneSnapshot`), so a stolen token could soft-delete every item, and other devices would apply the deletions. Overwriting snapshots with garbage works the same way: devices with local data keep it, but a new device couldn't download it.
+  - **Replace the keyring.** A stolen token could upload a garbage keyring with a higher `keyringVersion`, after which every login that reached the server failed to decrypt it and every device was locked out.
+  - **What changed:**
+    - **The token is kept only in memory** (`workerAuthStore`). Every unlock already gets a new session, and the main thread passes it to the sync worker (`initRepo`, `updateAuthToken`). Unlocking and locking delete `authDatabase`, which earlier builds left behind.
+    - **Sessions last 72 hours** (`SESSION_EXPIRY_MS`), not 30 days. Unlocked clients re-establish an expired session silently from the key hash. The server drops sessions whose expiry is beyond the lifetime, which ended the ones issued under the 30-day rule.
+    - **Keyring uploads prove the master key.** `accounts.updateKeyring` requires `currentAuthToken`, as `changePassword` does (protocol 4).
+  - **Still open:** writes only key holders can make. A token taken from a running, unlocked app still works until it expires, and can delete or overwrite items. Fixing that needs writes the server or other devices can authenticate, such as signatures from a key in the keyring.
 
 ## Decisions
 

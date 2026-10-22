@@ -101,6 +101,8 @@ const DATA_ATTRIBUTE_NAMES = {
 
 export { MAX_ITEM_SIZE }
 const MAX_SESSION_UPDATE_ATTEMPTS = 3
+/** Allows for clock differences between server instances when checking a session expiry against its lifetime */
+const SESSION_CLOCK_SKEW_MS = 60_000
 
 /**
  * Validates a VaultItem.
@@ -163,6 +165,10 @@ function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSession
     }
 
     if (typeof expiry !== 'number' || !Number.isFinite(expiry) || expiry <= now) {
+      continue
+    }
+    // Ends sessions issued under a longer lifetime, rather than letting them run it out
+    if (expiry > now + SESSION_EXPIRY_MS + SESSION_CLOCK_SKEW_MS) {
       continue
     }
 

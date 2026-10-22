@@ -63,14 +63,22 @@ export async function getKeyring(account: string): Promise<{ keyring?: string, r
   return { keyring: response.keyring, randomDataKeys: response.randomDataKeys === true }
 }
 
-export async function updateKeyring(
+export async function updateKeyring({
+  account,
+  currentAuthToken,
+  keyring,
+  expectedKeyringVersion,
+  keyringVersion,
+}: {
   account: string,
+  currentAuthToken: string,
   keyring: string,
   expectedKeyringVersion?: number,
   keyringVersion?: number,
-): Promise<void> {
+}): Promise<void> {
   const response = await getVaultTrpcClient().accounts.updateKeyring.mutate({
     account,
+    currentAuthToken,
     keyring,
     ...(typeof expectedKeyringVersion === 'number' ? { expectedKeyringVersion } : {}),
     ...(typeof keyringVersion === 'number' ? { keyringVersion } : {}),

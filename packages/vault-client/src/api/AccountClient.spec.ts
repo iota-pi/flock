@@ -129,9 +129,10 @@ describe('AccountClient', () => {
       success: true,
     })
 
-    await updateKeyring('acc-1', 'new-keyring-data')
+    await updateKeyring({ account: 'acc-1', currentAuthToken: 'cur-token', keyring: 'new-keyring-data' })
     expect(getVaultTrpcClient().accounts.updateKeyring.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
+      currentAuthToken: 'cur-token',
       keyring: 'new-keyring-data',
     })
   })
@@ -141,9 +142,16 @@ describe('AccountClient', () => {
       success: true,
     })
 
-    await updateKeyring('acc-1', 'new-keyring-data', 1, 2)
+    await updateKeyring({
+      account: 'acc-1',
+      currentAuthToken: 'cur-token',
+      keyring: 'new-keyring-data',
+      expectedKeyringVersion: 1,
+      keyringVersion: 2,
+    })
     expect(getVaultTrpcClient().accounts.updateKeyring.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
+      currentAuthToken: 'cur-token',
       keyring: 'new-keyring-data',
       expectedKeyringVersion: 1,
       keyringVersion: 2,

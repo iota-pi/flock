@@ -26,19 +26,36 @@ describe('app updates', () => {
     options.onRegisteredSW?.('/service-worker.js', registration as unknown as ServiceWorkerRegistration)
   })
 
-  it('applies a new version straight away while nobody is logged in', () => {
+  it('signals a new version is ready and applies it once requested while nobody is logged in', () => {
     options.onNeedRefresh?.()
+    expect(useAppStore.getState().appUpdateReady).toBe(true)
+    expect(updateSW).not.toHaveBeenCalled()
+
+    appUpdate.requestAppUpdate()
     expect(updateSW).toHaveBeenCalledWith(true)
+    expect(useAppStore.getState().appUpdateReady).toBe(false)
+  })
+
+  it('does not apply an update until requested', () => {
+    options.onNeedRefresh?.()
+    expect(useAppStore.getState().appUpdateReady).toBe(true)
+    expect(updateSW).not.toHaveBeenCalled()
+
+    useAppStore.setState({ loggedIn: false })
+    expect(updateSW).not.toHaveBeenCalled()
   })
 
   it('waits until the app locks when someone is logged in', () => {
     useAppStore.setState({ loggedIn: true })
 
     options.onNeedRefresh?.()
+    expect(useAppStore.getState().appUpdateReady).toBe(true)
+    appUpdate.requestAppUpdate()
     expect(updateSW).not.toHaveBeenCalled()
 
     useAppStore.setState({ loggedIn: false })
     expect(updateSW).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().appUpdateReady).toBe(false)
   })
 
   it('does not interrupt a login, and applies it afterwards if the login failed', async () => {
@@ -48,16 +65,20 @@ describe('app updates', () => {
     }))
 
     options.onNeedRefresh?.()
+    expect(useAppStore.getState().appUpdateReady).toBe(true)
+    appUpdate.requestAppUpdate()
     expect(updateSW).not.toHaveBeenCalled()
 
     finishLogin()
     await expect(login).rejects.toThrow('Incorrect password')
     expect(updateSW).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().appUpdateReady).toBe(false)
   })
 
   it('keeps waiting after a successful login', async () => {
     const login = appUpdate.whileLoggingIn(async () => {
       options.onNeedRefresh?.()
+      appUpdate.requestAppUpdate()
       useAppStore.setState({ loggedIn: true })
     })
 
@@ -137,17 +158,23 @@ describe('app updates', () => {
       holdLockInOtherTab()
 
       options.onNeedRefresh?.()
+      expect(useAppStore.getState().appUpdateReady).toBe(true)
+      appUpdate.requestAppUpdate()
       await vi.advanceTimersByTimeAsync(60_000)
       expect(updateSW).not.toHaveBeenCalled()
 
       releaseOtherTab()
       await vi.advanceTimersByTimeAsync(30_000)
       expect(updateSW).toHaveBeenCalledTimes(1)
+      expect(useAppStore.getState().appUpdateReady).toBe(false)
     })
 
-    it('applies straight away when no tab is logged in', async () => {
+    it('applies once requested when no tab is logged in', async () => {
       options.onNeedRefresh?.()
+      expect(useAppStore.getState().appUpdateReady).toBe(true)
+      appUpdate.requestAppUpdate()
       await vi.waitFor(() => expect(updateSW).toHaveBeenCalledWith(true))
+      expect(useAppStore.getState().appUpdateReady).toBe(false)
     })
 
     it('applies a forced update even while another tab is logged in', () => {

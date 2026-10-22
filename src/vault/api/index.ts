@@ -18,8 +18,10 @@ import { PROTOCOL_VERSION_HEADER } from '@vault/shared'
  *   they update instead of reporting a wrong password.
  * - At 3, builds that keep local data in plaintext stop at their next login or write and update, so
  *   they stop re-creating the plaintext stores that sealed builds retire.
+ * - At 4, keyring uploads must prove the master key (`currentAuthToken`). Builds that don't send it
+ *   update instead of failing a key rotation.
  */
-const MIN_PROTOCOL_VERSION = 3
+const MIN_PROTOCOL_VERSION = 4
 
 
 async function createServer(devMode = false) {

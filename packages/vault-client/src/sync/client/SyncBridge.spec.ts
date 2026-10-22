@@ -7,6 +7,7 @@ import { createFakeSink, createFakeTelemetry } from './__test__/fakeHost'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { attemptSessionRecovery } from '../../api/sessionRecovery'
 import { resumePendingReencryption } from '../../api/reencrypt'
+import { getVaultSession } from '../../api/vault'
 
 vi.mock('../../api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
@@ -174,6 +175,7 @@ describe('SyncBridge', () => {
   })
 
   it('initializes and configures the sync worker', async () => {
+    vi.mocked(getVaultSession).mockReturnValueOnce('session-1')
     const initPromise = SyncBridge.initialize('test-account')
     expect(sink.state.syncStatus).toBe('connecting')
     await initPromise
@@ -184,7 +186,8 @@ describe('SyncBridge', () => {
       'test-account',
       'test-key',
       undefined,
-      { randomDataKeys: false },
+      // The session goes to the worker in memory, so it can sync before updateAuthToken
+      { randomDataKeys: false, authToken: 'session-1' },
     )
     expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
   })
@@ -1162,7 +1165,7 @@ describe('SyncBridge', () => {
       'account-success',
       'test-key',
       undefined,
-      { randomDataKeys: false },
+      { randomDataKeys: false, authToken: null },
     )
 
     vi.useRealTimers()
