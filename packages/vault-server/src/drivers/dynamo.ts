@@ -37,7 +37,8 @@ import BaseDriver, {
   VaultItem,
   VaultSessionRecord,
 } from './base'
-import { AuthenticationError, ExpiredSessionError, InvalidPageTokenError } from './errors'
+import { AuthenticationError, ExpiredSessionError, InvalidPageTokenError, TooManyLoginAttemptsError } from './errors'
+import { FAILED_LOGIN_WINDOW_MS, isLoginLocked, type FailedLoginRecord } from '../loginThrottle'
 import { MAX_ITEM_SIZE, VersionConflictError } from '@vault/shared'
 import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
 import {
@@ -363,6 +364,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     ))
     if (response?.Item) {
       if (isLogin) {
+        // Checked first, so that a locked account gives guessers no answer
+        if (isLoginLocked(response.Item as FailedLoginRecord, Date.now())) {
+          throw new TooManyLoginAttemptsError(`Too many failed logins for account ${account}`)
+        }
         // For logins, check authToken instead
         if (safeEqual(session, response.Item.authToken as string)) {
           return {
@@ -386,6 +391,42 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       throw new ExpiredSessionError('Invalid session token')
     }
     throw new AuthenticationError(`Could not find account ${account}`)
+  }
+
+  async recordFailedLogin({ account }: BaseData): Promise<void> {
+    const now = Date.now()
+    const values = { ':one': 1, ':windowStart': now - FAILED_LOGIN_WINDOW_MS }
+    // Count within the current window. The conditions keep both writes from creating an item for an
+    // account that doesn't exist.
+    try {
+      await this.client.send(new UpdateCommand({
+        TableName: this.tables.accounts,
+        Key: { account },
+        UpdateExpression: 'ADD failedLogins :one',
+        ConditionExpression: 'attribute_exists(account) AND failedLoginsSince > :windowStart',
+        ExpressionAttributeValues: values,
+      }))
+      return
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        throw error
+      }
+    }
+    // Or start a new window. If a concurrent failure started it first, this one goes uncounted.
+    try {
+      await this.client.send(new UpdateCommand({
+        TableName: this.tables.accounts,
+        Key: { account },
+        UpdateExpression: 'SET failedLogins = :one, failedLoginsSince = :now',
+        ConditionExpression:
+          'attribute_exists(account) AND (attribute_not_exists(failedLoginsSince) OR failedLoginsSince <= :windowStart)',
+        ExpressionAttributeValues: { ...values, ':now': now },
+      }))
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        throw error
+      }
+    }
   }
 
   async getSecurityParams({ account }: BaseData): Promise<SecurityParams> {

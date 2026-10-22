@@ -1,5 +1,5 @@
 import { accountsRouter } from './accounts'
-import { AuthenticationError } from '../../drivers/errors'
+import { AuthenticationError, TooManyLoginAttemptsError } from '../../drivers/errors'
 import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken } from '../../sessions'
 import { VersionConflictError } from '@vault/shared'
@@ -32,6 +32,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     }),
     extendSession: vi.fn(async () => undefined),
     addSession: vi.fn(async () => undefined),
+    recordFailedLogin: vi.fn(async () => undefined),
   }
 
   return {
@@ -76,7 +77,33 @@ describe('accountsRouter security contracts', () => {
       code: 'UNAUTHORIZED',
     })
     expect(ctx.vault.addSession).not.toHaveBeenCalled()
+    expect(ctx.vault.recordFailedLogin).toHaveBeenCalledWith({ account: 'acct-1' })
   })
+
+  it('still reports a wrong password as UNAUTHORIZED when counting the failure fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ctx = createContext()
+    ctx.vault.getAccount.mockRejectedValueOnce(new AuthenticationError('Could not find account acct-1'))
+    ctx.vault.recordFailedLogin.mockRejectedValueOnce(new Error('DynamoDB timeout'))
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+  })
+
+  it('refuses logins to an account with too many failed logins as TOO_MANY_REQUESTS', async () => {
+    const ctx = createContext()
+    ctx.vault.getAccount.mockRejectedValueOnce(new TooManyLoginAttemptsError('Too many failed logins'))
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: 'secret-password' })).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+    })
+    expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
+    expect(ctx.vault.addSession).not.toHaveBeenCalled()
+  })
+
 
   it('does not report a database failure during login as UNAUTHORIZED', async () => {
     const ctx = createContext()
