@@ -15,6 +15,9 @@ import { classifySyncError } from './utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
 import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../syncConfig'
 import type { LegacyItemEnvelope, SyncDomain } from './domain'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('ManifestHydrator')
 
 const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
@@ -119,7 +122,7 @@ export class ManifestHydrator {
           throw error
         }
         hasBatchFailures = true
-        console.error('[ManifestHydrator] Failed to fetch snapshot batch', {
+        log.error('Failed to fetch snapshot batch', {
           batch,
           error,
         })
@@ -173,7 +176,7 @@ export class ManifestHydrator {
     for (const settled of results) {
       if (settled.status === 'rejected') {
         hasHydrationFailures = true
-        console.error('[ManifestHydrator] Unexpected error hydrating item', settled.reason)
+        log.error('Unexpected error hydrating item', settled.reason)
         continue
       }
 
@@ -198,14 +201,14 @@ export class ManifestHydrator {
           break
         case 'decryption_failure':
           hasHydrationFailures = true
-          console.warn(
-            `[ManifestHydrator] Item ${result.itemId} could not be decrypted; quarantining to manual recovery`,
+          log.warn(
+            `Item ${result.itemId} could not be decrypted; quarantining to manual recovery`,
           )
           this.deps.onDecryptionFailure?.(result.itemId, result.error)
           break
         case 'error':
           hasHydrationFailures = true
-          console.error('[ManifestHydrator] Failed to hydrate fetched item envelope', {
+          log.error('Failed to hydrate fetched item envelope', {
             itemId: result.itemId,
             error: result.error,
           })
@@ -213,7 +216,7 @@ export class ManifestHydrator {
         case 'key_unavailable':
           // Not quarantined, and this sync doesn't count as complete, so the next one fetches it again
           hasHydrationFailures = true
-          console.warn(`[ManifestHydrator] Item ${result.itemId} waits for its key; will retry at the next sync`)
+          log.warn(`Item ${result.itemId} waits for its key; will retry at the next sync`)
           break
         case 'migration_required':
           // Not synced, so this sync must not count as complete (see DataVersionTracker)

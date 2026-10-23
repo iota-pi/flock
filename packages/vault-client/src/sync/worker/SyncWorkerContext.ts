@@ -34,6 +34,9 @@ import { AbortError } from '../utils/abort'
 import { DSK_KEY, openLocalStorage, type LocalStorage } from './localEncryption/openLocalStorage'
 import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncWorkerContext')
 
 /**
  * Slim configuration for SyncWorkerContext.
@@ -575,7 +578,7 @@ export class SyncWorkerContext {
     try {
       unpushedChanges = await SyncWriteAheadLog.getSealedStorage(this.accountId).length()
     } catch (countError) {
-      console.warn('[SyncWorkerContext] Could not count unpushed changes', countError)
+      log.warn('Could not count unpushed changes', countError)
     }
     this.clientEventHub.emit({
       type: 'localDataUnavailable',
@@ -641,7 +644,7 @@ export class SyncWorkerContext {
         }
       })
     } catch (error) {
-      console.error('[SyncWorkerContext] Failed to re-wrap the device storage key', error)
+      log.error('Failed to re-wrap the device storage key', error)
     }
   }
 

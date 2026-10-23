@@ -17,6 +17,9 @@ import type {
   PutSnapshotResultItem,
 } from '@vault/shared'
 import type { VaultItem } from '../../api/clientTypes'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncApiClient')
 
 function safeSetApiAuthToken(token: string) {
   try {
@@ -157,7 +160,7 @@ export class SyncApiClient {
           try {
             refreshed = await this.refreshAuth()
           } catch (refreshErr) {
-            console.warn('[SyncApiClient] Token refresh callback failed:', refreshErr)
+            log.warn('Token refresh callback failed:', refreshErr)
           }
         }
         if (!refreshed) {
@@ -170,7 +173,7 @@ export class SyncApiClient {
         if (refreshed) {
           this.currentToken = refreshed
           safeSetApiAuthToken(refreshed)
-          console.info('[SyncApiClient] Acquired fresh auth token')
+          log.info('Acquired fresh auth token')
         }
         return refreshed
       } finally {
@@ -201,7 +204,7 @@ export class SyncApiClient {
         throw err
       }
 
-      console.warn('[SyncApiClient] Auth error detected; attempting transparent token refresh and retry...', err)
+      log.warn('Auth error detected; attempting transparent token refresh and retry...', err)
       const refreshedToken = await this.refreshToken()
       if (!refreshedToken || refreshedToken === token) {
         throw toAuthExpiredError(err)

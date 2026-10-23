@@ -9,6 +9,9 @@ import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { RecoveryManager } from './RecoveryManager'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('ItemOperations')
 
 export interface ItemOperationsDeps {
   accountId: string
@@ -310,7 +313,7 @@ export class ItemOperations {
           }
         }
       } catch (remapErr) {
-        console.warn(`[ItemOperations] Error remapping references to ${oldItemId}:`, remapErr)
+        log.warn(`Error remapping references to ${oldItemId}:`, remapErr)
       }
     }
 

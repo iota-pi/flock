@@ -1,4 +1,7 @@
 import { getVaultStorageNames } from '../sync/shared/storageNames'
+import { createLogger } from '../sync/utils/logger'
+
+const log = createLogger('biometricStore')
 
 export type BiometricStoredData = {
   account?: string
@@ -17,7 +20,7 @@ function notifyBiometricsChanged(): void {
     try {
       listener()
     } catch (e) {
-      console.error('[biometricStore] listener error', e)
+      log.error('listener error', e)
     }
   })
 }

@@ -5,6 +5,7 @@ import type { PollOutcome } from './SyncPoller'
 
 import type { DocumentId, Message, DocHandle } from '@automerge/automerge-repo/slim'
 import type { RepoDoc } from './docStore/AutomergeDocStore'
+import { createLogger, type Logger } from '../utils/logger'
 
 export type ClientEvent =
   | { type: 'ready' }
@@ -68,10 +69,12 @@ export class EventHub<T> {
   protected listeners = new Set<EventListener<T>>()
   protected readonly hubName: string
   protected readonly listenerDescription: string
+  protected readonly log: Logger
 
   constructor(hubName = 'EventHub', listenerDescription = 'listener') {
     this.hubName = hubName
     this.listenerDescription = listenerDescription
+    this.log = createLogger(hubName)
   }
 
   subscribe(listener: EventListener<T>): () => void {
@@ -102,12 +105,12 @@ export class EventHub<T> {
         const result = listener(event)
         if (result instanceof Promise) {
           result.catch(err =>
-            console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
+            this.log.error(`Error in ${this.listenerDescription}:`, err)
           )
         }
       } catch (err) {
         hasError = true
-        console.error(`[${this.hubName}] Error in ${this.listenerDescription}:`, err)
+        this.log.error(`Error in ${this.listenerDescription}:`, err)
       }
     }
     return !hasError
@@ -139,7 +142,7 @@ export class ClientEventHub extends EventHub<ClientEvent> {
       try {
         this.externalPort.postMessage(event)
       } catch (err) {
-        console.error('[ClientEventHub] Error posting to external port:', err)
+        this.log.error('Error posting to external port:', err)
         return false
       }
     }

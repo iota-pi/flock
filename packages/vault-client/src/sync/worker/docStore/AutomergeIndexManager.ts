@@ -5,6 +5,9 @@ import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import { AsyncMutex } from '../../utils/AsyncMutex'
 import type { LifecycleAware } from '../ServiceLifecycleManager'
 import { getVaultStorageNames } from '../../shared/storageNames'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('AutomergeIndexManager')
 
 interface IndexBroadcastMessage {
   type: 'indexUpdated' | 'metadataUpdated'
@@ -97,7 +100,7 @@ export class AutomergeIndexManager implements LifecycleAware {
         }
       }
     } catch (err) {
-      console.warn('[AutomergeIndexManager] Failed to create BroadcastChannel:', err)
+      log.warn('Failed to create BroadcastChannel:', err)
       this.broadcastChannel = null
     }
   }
@@ -138,7 +141,7 @@ export class AutomergeIndexManager implements LifecycleAware {
         itemIds,
       })
     } catch (_) {
-      console.warn('[AutomergeIndexManager] Failed to broadcast index update')
+      log.warn('Failed to broadcast index update')
     }
   }
 
@@ -154,7 +157,7 @@ export class AutomergeIndexManager implements LifecycleAware {
         metadata,
       })
     } catch (_) {
-      console.warn('[AutomergeIndexManager] Failed to broadcast metadata update')
+      log.warn('Failed to broadcast metadata update')
     }
   }
 
@@ -164,7 +167,7 @@ export class AutomergeIndexManager implements LifecycleAware {
       try {
         this.broadcastChannel.close()
       } catch (_) {
-        console.warn('[AutomergeIndexManager] Failed to close broadcast channel')
+        log.warn('Failed to close broadcast channel')
       }
       this.broadcastChannel = null
     }

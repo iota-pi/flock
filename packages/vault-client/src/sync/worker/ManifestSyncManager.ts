@@ -14,6 +14,9 @@ import { ManifestDeltaCalculator, type SyncDeltas } from './ManifestDeltaCalcula
 import { ManifestHydrator } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { KeyProvider } from '../../api/Keyring'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('ManifestSyncManager')
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
@@ -126,14 +129,14 @@ export class ManifestSyncManager implements LifecycleAware {
       }
       if (isAuthError(e)) {
         if (hasKnownItems) {
-          console.info('[ManifestSyncManager] No auth token, using local data only')
+          log.info('No auth token, using local data only')
         } else {
-          console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
+          log.warn('No API auth token found and no local data, cannot sync manifest from server')
         }
         return null
       }
       if (hasKnownItems) {
-        console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
+        log.warn('Failed to fetch manifest, falling back to local data', e)
         return null
       }
       // Logged by handleSyncError
@@ -157,7 +160,7 @@ export class ManifestSyncManager implements LifecycleAware {
         }
       } catch (err) {
         if (signal.aborted || isAbortError(err)) throw err
-        console.warn('[ManifestSyncManager] Failed to read manual recovery entries', err)
+        log.warn('Failed to read manual recovery entries', err)
       }
     }
 
@@ -198,7 +201,7 @@ export class ManifestSyncManager implements LifecycleAware {
     try {
       await this.deps.snapshotManager.flushPendingSnapshots()
     } catch (flushErr) {
-      console.warn('[ManifestSyncManager] Failed to flush pending snapshots before sync', flushErr)
+      log.warn('Failed to flush pending snapshots before sync', flushErr)
     }
   }
 
@@ -206,8 +209,8 @@ export class ManifestSyncManager implements LifecycleAware {
     if (!hasFailures) {
       await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
     } else {
-      console.warn(
-        '[ManifestSyncManager] Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry',
+      log.warn(
+        'Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry',
       )
     }
   }
@@ -222,10 +225,10 @@ export class ManifestSyncManager implements LifecycleAware {
       return { added: [], success: false }
     }
     if (hasKnownItems) {
-      console.warn('[ManifestSyncManager] Manifest sync failed, falling back to local data', e)
+      log.warn('Manifest sync failed, falling back to local data', e)
       return { added: [], success: false }
     }
-    console.error('[ManifestSyncManager] Manifest sync failed', e)
+    log.error('Manifest sync failed', e)
     throw new Error(`[ManifestSyncManager] Manifest sync failed: ${(e as Error).message || String(e)}`, { cause: e })
   }
 
@@ -342,7 +345,7 @@ export class ManifestSyncManager implements LifecycleAware {
     try {
       await this.deps.migrateLegacySettings()
     } catch (error) {
-      console.warn('[ManifestSyncManager] Legacy settings migration skipped (will retry on next sync):', error)
+      log.warn('Legacy settings migration skipped (will retry on next sync):', error)
     }
   }
 }

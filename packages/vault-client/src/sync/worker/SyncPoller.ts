@@ -16,6 +16,9 @@ import { SyncApiClient } from './SyncApiClient'
 import { checkAlive } from '../utils/abort'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { RecoveryManager } from './RecoveryManager'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncPoller')
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 export const MAX_CONSECUTIVE_PUSH_FAILURES = 5
@@ -128,7 +131,7 @@ export class SyncPoller {
       try {
         batchEntries = await this.loadWalEntries(inFlightWalIds)
       } catch (err) {
-        console.error('[SyncPoller] Failed to load WAL entries', err)
+        log.error('Failed to load WAL entries', err)
         return 'failure'
       }
 
@@ -160,11 +163,11 @@ export class SyncPoller {
       }
 
       if (classified.isAuth) {
-        console.error('[SyncPoller] Auth failure during polling', error)
+        log.error('Auth failure during polling', error)
         return 'auth-failure'
       }
 
-      console.error('[SyncPoller] Polling failed', error)
+      log.error('Polling failed', error)
       return 'failure'
     } finally {
       this.abortController = null
@@ -236,7 +239,7 @@ export class SyncPoller {
       )
     } catch (error) {
       if (hasPageTokens && this.isRejectedRequest(error)) {
-        console.warn('[SyncPoller] Server rejected a page token; restarting pagination from the cursors', error)
+        log.warn('Server rejected a page token; restarting pagination from the cursors', error)
         this.pullQueueManager.resetPagination()
       }
       throw error
@@ -288,7 +291,7 @@ export class SyncPoller {
         }
         this.acknowledgeSuccessfulPush(chunkEntry, result)
       } else {
-        console.warn(`[SyncPoller] Push failed for item ${result.itemId}`, result)
+        log.warn(`Push failed for item ${result.itemId}`, result)
       }
     }
 
@@ -299,8 +302,8 @@ export class SyncPoller {
         const errorMsg = pushResult?.error || 'Push unacknowledged by server'
 
         if (failures >= MAX_CONSECUTIVE_PUSH_FAILURES) {
-          console.error(
-            `[SyncPoller] Item ${sentItemId} reached max consecutive push failures (${failures}). Quarantining to manual recovery.`
+          log.error(
+            `Item ${sentItemId} reached max consecutive push failures (${failures}). Quarantining to manual recovery.`
           )
           quarantinedItemIds.add(sentItemId)
           this.consecutivePushFailures.delete(sentItemId)
@@ -315,13 +318,13 @@ export class SyncPoller {
                 `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
               )
             } catch (qErr) {
-              console.error(`[SyncPoller] Failed to quarantine item ${sentItemId}:`, qErr)
+              log.error(`Failed to quarantine item ${sentItemId}:`, qErr)
             }
           }
         } else {
           this.consecutivePushFailures.set(sentItemId, failures)
-          console.warn(
-            `[SyncPoller] Push failed for item ${sentItemId} (attempt ${failures}/${MAX_CONSECUTIVE_PUSH_FAILURES}): ${errorMsg}, preserving in WAL`
+          log.warn(
+            `Push failed for item ${sentItemId} (attempt ${failures}/${MAX_CONSECUTIVE_PUSH_FAILURES}): ${errorMsg}, preserving in WAL`
           )
         }
       }
@@ -332,7 +335,7 @@ export class SyncPoller {
       try {
         await this.wal.remove(idsToRemove)
       } catch (walErr) {
-        console.error('[SyncPoller] Failed to remove acknowledged/quarantined IDs from WAL', walErr)
+        log.error('Failed to remove acknowledged/quarantined IDs from WAL', walErr)
         throw walErr
       }
     }
@@ -362,7 +365,7 @@ export class SyncPoller {
         })
       }
     } catch (err) {
-      console.warn('[SyncPoller] Failed to decode acknowledged sync message', err)
+      log.warn('Failed to decode acknowledged sync message', err)
     }
   }
 
@@ -384,7 +387,7 @@ export class SyncPoller {
         await this.pullQueueManager.processPullResults(response.pullResults)
       }
     } catch (pullErr) {
-      console.error('[SyncPoller] Error processing pull results', pullErr)
+      log.error('Error processing pull results', pullErr)
       throw pullErr
     }
   }

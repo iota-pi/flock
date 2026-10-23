@@ -2,6 +2,9 @@ import { getOnlineState } from '../utils/onlineStatus'
 import type { VaultBroadcastEvent } from '../../api/vault'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncDOMListeners')
 
 export interface SyncDOMListenersCallbacks {
   setOnlineState?: (isOnline: boolean) => Promise<void> | void
@@ -60,7 +63,7 @@ export class SyncDOMListeners {
           }
         }
       } catch (err) {
-        console.warn('[SyncDOMListeners] Failed to create vault events BroadcastChannel:', err)
+        log.warn('Failed to create vault events BroadcastChannel:', err)
       }
     }
   }
@@ -102,11 +105,11 @@ export class SyncDOMListeners {
         try {
           await currentCallbacks.onReconnect()
         } catch (error) {
-          console.error('[SyncDOMListeners] onReconnect callback failed:', error)
+          log.error('onReconnect callback failed:', error)
         }
       }
     } catch (err) {
-      console.error('[SyncDOMListeners] Error handling network change:', err)
+      log.error('Error handling network change:', err)
     }
   }
 

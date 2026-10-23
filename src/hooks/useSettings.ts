@@ -8,6 +8,11 @@ import {
   hasBiometricData,
   subscribeBiometrics,
   isWebAuthnPrfSupported,
+  readAutoLockSettings,
+  writeAutoLockSettings,
+  getAutoLockSummary,
+  createLogger,
+  type AutoLockSettings,
 } from '@vault/client'
 import { lockVault, removeVaultFromDevice } from '../app/vault/session'
 import { useMetadata } from '../state/selectors'
@@ -19,12 +24,7 @@ import useSubscriptionSettings from './useSubscriptionSettings'
 import type { Item } from '../state/items'
 import { useDataRecovery } from './useDataRecovery'
 
-import {
-  readAutoLockSettings,
-  writeAutoLockSettings,
-  getAutoLockSummary,
-  type AutoLockSettings,
-} from '@vault/client'
+const log = createLogger('useSettings')
 
 export default function useSettings(items: Item[]) {
   const account = useAppStore(state => state.account)
@@ -61,7 +61,7 @@ export default function useSettings(items: Item[]) {
         await enableBiometrics(account)
         setMessage({ severity: 'success', message: 'Biometric unlock enabled' })
       } catch (err) {
-        console.error('[useSettings] enableBiometrics failed', err)
+        log.error('enableBiometrics failed', err)
         const msg = err instanceof Error ? err.message : 'Failed to enable biometrics'
         setMessage({ severity: 'error', message: msg })
       }
@@ -106,7 +106,7 @@ export default function useSettings(items: Item[]) {
       setMessage({ message: 'Default prayer frequencies saved' })
     } catch (err) {
       setMessage({ message: 'Failed to save defaults', severity: 'error' })
-      console.error('Failed to save default frequencies', err)
+      log.error('Failed to save default frequencies', err)
     }
   }, [setDefaultFrequencies, setMessage])
 
@@ -117,7 +117,7 @@ export default function useSettings(items: Item[]) {
         setMessage({ message: 'Full sync started', severity: 'success' })
       }
     } catch (err) {
-      console.error('Sync failed', err)
+      log.error('Sync failed', err)
       setMessage({ message: 'Sync failed', severity: 'error' })
     }
   }, [setMessage])

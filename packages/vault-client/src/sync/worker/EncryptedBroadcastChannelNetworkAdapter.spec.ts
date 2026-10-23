@@ -235,7 +235,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[EncryptedBroadcastChannel] Error sending message:',
+      '[EncryptedBroadcastChannelNetworkAdapter] Error sending message:',
       expect.any(Error)
     )
     expect(innerAdapterMock.disconnect).not.toHaveBeenCalled()
@@ -380,7 +380,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[EncryptedBroadcastChannel] Error decrypting message:',
+      '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
       expect.any(Error)
     )
     expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
@@ -568,7 +568,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
     await vi.waitFor(() => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Error decrypting message:',
+        '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
         expect.any(Error)
       )
     })
@@ -722,7 +722,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       })
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Timed out waiting for key version 3. Buffering message until key arrives.'
+        '[EncryptedBroadcastChannelNetworkAdapter] Timed out waiting for key version 3. Buffering message until key arrives.'
       )
       expect(messageListener).toHaveBeenCalledWith({
         ...msg2,
@@ -1197,7 +1197,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       })
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Error sending message:',
+        '[EncryptedBroadcastChannelNetworkAdapter] Error sending message:',
         expect.any(Error)
       )
 
@@ -1243,7 +1243,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       })
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Error decrypting message:',
+        '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
         expect.any(Error)
       )
 

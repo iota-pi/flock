@@ -35,3 +35,4 @@ export type { ManualRecoveryEntry, ManualRecoveryKind } from './sync/shared/manu
 export { getOnlineState } from './sync/utils/onlineStatus'
 export { ensurePersistentStorage } from './sync/utils/storageQuota'
 export { fireAndForget } from './sync/utils/fireAndForget'
+export { createLogger, type Logger } from './sync/utils/logger'

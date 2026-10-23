@@ -20,6 +20,9 @@ import { getOnlineState } from '../utils/onlineStatus'
 import type { ItemId, PutSnapshotResultItem, VaultSnapshotInput } from '@vault/shared'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { KeyProvider } from '../../api/Keyring'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('reencryptAllItems')
 
 const MAX_BATCH_RETRIES = 3
 const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
@@ -33,7 +36,7 @@ async function quarantineItem(
   try {
     await recoveryManager.quarantine(itemId, 'snapshotFailure', reason)
   } catch (storageErr) {
-    console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
+    log.error(`Failed to quarantine item ${itemId}:`, storageErr)
   }
 }
 
@@ -133,8 +136,8 @@ export class ItemReencryptor {
   ): number {
     const delayMs = this.retryStrategy.nextDelay()
 
-    console.warn(
-      `[reencryptAllItems] Scheduling re-encryption retry (attempt ${this.retryStrategy.attempt}) in ${delayMs}ms`
+    log.warn(
+      `Scheduling re-encryption retry (attempt ${this.retryStrategy.attempt}) in ${delayMs}ms`
     )
 
     if (deps.scheduleRetry) {
@@ -149,7 +152,7 @@ export class ItemReencryptor {
           this.reencryptAllItems(deps, onProgress),
           'reencryptAllItems:scheduledRetry',
           err => {
-            console.warn('[reencryptAllItems] Scheduled retry failed:', err)
+            log.warn('Scheduled retry failed:', err)
           },
         )
       }, delayMs)
@@ -167,8 +170,8 @@ export class ItemReencryptor {
     if (classified.isNetwork || classified.isServerError) {
       const errMsg = classified.message || (lastError instanceof Error ? lastError.message : String(lastError))
       const errorType = classified.isServerError ? 'server error' : 'network error'
-      console.warn(
-        `[reencryptAllItems] Transient ${errorType} during upload: ${errMsg}. Aborting operation.`
+      log.warn(
+        `Transient ${errorType} during upload: ${errMsg}. Aborting operation.`
       )
       throw new Error(
         `Re-encryption aborted: ${errorType} (${errMsg})`,
@@ -189,7 +192,7 @@ export class ItemReencryptor {
   ): Promise<void> {
     const manager = recoveryManager
     if (!manager) {
-      console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}: No RecoveryManager available`)
+      log.error(`Failed to quarantine item ${itemId}: No RecoveryManager available`)
       return
     }
     await quarantineItem(manager, itemId, reason)
@@ -257,7 +260,7 @@ export class ItemReencryptor {
       })))
     } catch (err) {
       // The snapshots are stored either way; the next manifest sync just fetches them again
-      console.warn('[reencryptAllItems] Failed to record uploaded snapshots:', err)
+      log.warn('Failed to record uploaded snapshots:', err)
     }
   }
 
@@ -307,8 +310,8 @@ export class ItemReencryptor {
         delays: batchRetryDelays ?? this.batchRetryDelays,
         signal,
         onRetry: (err, attempt) => {
-          console.warn(
-            `[reencryptAllItems] Retry ${attempt}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
+          log.warn(
+            `Retry ${attempt}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
             err
           )
         },
@@ -330,8 +333,8 @@ export class ItemReencryptor {
             const results = await this.uploadBatch(apiClient, accountId, readySnapshots, signal)
             return { uploadSuccess: true, lastError: null, results }
           } catch (err) {
-            console.warn(
-              `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch:`,
+            log.warn(
+              `Attempt ${attempt} failed to upload snapshots for batch:`,
               err
             )
 
@@ -391,7 +394,7 @@ export class ItemReencryptor {
 
     if (!getOnlineState()) {
       const errMsg = 'Network is offline'
-      console.warn(`[reencryptAllItems] Aborting: ${errMsg}`)
+      log.warn(`Aborting: ${errMsg}`)
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
     }
 
@@ -414,7 +417,7 @@ export class ItemReencryptor {
           readySnapshots.push({ itemId, snapshot: result.value.snapshot, heads: result.value.heads })
         } else if (result.value.type === 'not-ready') {
           const errorMsg = `Failed to build snapshot for item ${itemId}: Document or vault was not ready after retries`
-          console.error(`[reencryptAllItems] ${errorMsg}`)
+          log.error(`${errorMsg}`)
           failureDetails.push({ itemId, errorMsg })
         } else if (result.value.type === 'error') {
           const errorMsg = result.value.reason
@@ -441,9 +444,9 @@ export class ItemReencryptor {
 
     for (const failure of failureDetails) {
       if (failure.rawError !== undefined) {
-        console.error(`[reencryptAllItems] ${failure.errorMsg}`, failure.rawError)
+        log.error(`${failure.errorMsg}`, failure.rawError)
       } else {
-        console.error(`[reencryptAllItems] ${failure.errorMsg}`)
+        log.error(`${failure.errorMsg}`)
       }
       failed.push({ itemId: failure.itemId, error: failure.errorMsg })
       await this.quarantineItem(
@@ -476,7 +479,7 @@ export class ItemReencryptor {
           await this.reportStored(batch, results)
         } else {
           const errMsg = this.handleBatchUploadFailure(lastError)
-          console.error(`[reencryptAllItems] ${errMsg}`)
+          log.error(`${errMsg}`)
           for (const item of batch) {
             failed.push({ itemId: item.itemId, error: errMsg })
             await this.quarantineItem(

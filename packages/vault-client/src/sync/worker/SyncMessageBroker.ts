@@ -14,6 +14,9 @@ import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { RecoveryManager } from './RecoveryManager'
 import type { KeyProvider } from '../../api/Keyring'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncMessageBroker')
 
 interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
@@ -242,7 +245,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
         this.flush()
       } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
         if (this.isItemBlocked(itemId)) {
-          console.warn(`[SyncMessageBroker] Dropping outgoing sync message for blocked item ${itemId}`)
+          log.warn(`Dropping outgoing sync message for blocked item ${itemId}`)
           return
         }
 
@@ -253,8 +256,8 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
         }
 
         if (message.data.byteLength > MAX_INCREMENTAL_MESSAGE_BYTES) {
-          console.warn(
-            `[SyncMessageBroker] Sync message for item ${itemId} (${message.data.byteLength} bytes) exceeds the incremental limit; falling back to snapshot sync`
+          log.warn(
+            `Sync message for item ${itemId} (${message.data.byteLength} bytes) exceeds the incremental limit; falling back to snapshot sync`
           )
           this.fallbackToSnapshot(itemId)
           return
@@ -265,16 +268,16 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
             await this.wal.append(itemId, message.data)
             this.flush()
           } catch (err) {
-            console.error(`[SyncMessageBroker] Failed to append sync message to WAL for item ${itemId}:`, err)
+            log.error(`Failed to append sync message to WAL for item ${itemId}:`, err)
             this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
           }
         } else {
-          console.warn(`[SyncMessageBroker] WAL unavailable for item ${itemId}, falling back to snapshot sync`)
+          log.warn(`WAL unavailable for item ${itemId}, falling back to snapshot sync`)
           this.handleWalAppendFailure(itemId, documentId as DocumentId, new Error('WAL not initialized'))
         }
       }
     } catch (err) {
-      console.error('[SyncMessageBroker] Error handling outgoing message:', err)
+      log.error('Error handling outgoing message:', err)
     }
   }
 

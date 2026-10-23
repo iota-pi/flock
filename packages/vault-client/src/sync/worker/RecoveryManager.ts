@@ -14,7 +14,9 @@ import {
 import { normalizeSyncError } from '@vault/shared'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { createLogger } from '../utils/logger'
 
+const log = createLogger('RecoveryManager')
 
 // Quarantines that a fresh, successfully parsed remote message proves were transient
 export const INBOUND_MESSAGE_RESOLVABLE_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['pullDecryption'])
@@ -96,7 +98,7 @@ export class RecoveryManager implements LifecycleAware {
       this.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
       return entries
     } catch (error) {
-      console.error('[RecoveryManager] Failed to push recovery entries change', error)
+      log.error('Failed to push recovery entries change', error)
       return []
     }
   }
@@ -145,7 +147,7 @@ export class RecoveryManager implements LifecycleAware {
       const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
       this.setRecoveryCooldown(itemId, Date.now() + cooldownMs)
     } catch (err) {
-      console.error(`[RecoveryManager] Failed to quarantine item ${itemId}:`, err)
+      log.error(`Failed to quarantine item ${itemId}:`, err)
       throw err
     } finally {
       this.setInFlight(itemId, false)
@@ -159,7 +161,7 @@ export class RecoveryManager implements LifecycleAware {
     try {
       await removeManualRecoveryEntryByItemId(accountId, itemId)
     } catch (error) {
-      console.error(`[RecoveryManager] Failed to remove manual recovery entry for item ${itemId}:`, error)
+      log.error(`Failed to remove manual recovery entry for item ${itemId}:`, error)
       throw error
     }
 
@@ -207,7 +209,7 @@ export class RecoveryManager implements LifecycleAware {
     failedBranches?: string[],
   ): Promise<void> {
     const normalizedError = normalizeSyncError(error)
-    console.error('[RecoveryManager] Failed to decrypt item', {
+    log.error('Failed to decrypt item', {
       itemId,
       error: normalizedError,
     })
@@ -216,7 +218,7 @@ export class RecoveryManager implements LifecycleAware {
     try {
       await this.quarantine(itemId, kind, null, { checkCooldown: true, failedBranches })
     } catch (quarantineError) {
-      console.error('[RecoveryManager] Failed to record manual recovery entry', quarantineError)
+      log.error('Failed to record manual recovery entry', quarantineError)
     }
   }
 }

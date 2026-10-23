@@ -1,4 +1,7 @@
 import { fireAndForget } from './fireAndForget'
+import { createLogger } from './logger'
+
+const log = createLogger('AsyncQueue')
 
 export type AsyncQueueWorker<T> = (item: T) => Promise<void> | void
 
@@ -125,7 +128,7 @@ export class AsyncQueue<T> {
           if (this.options?.onError) {
             this.options.onError(err, item)
           } else {
-            console.error('[AsyncQueue] Unhandled error in queue worker:', err)
+            log.error('Unhandled error in queue worker:', err)
           }
         } finally {
           this.isCurrentItemRunning = false
@@ -135,7 +138,7 @@ export class AsyncQueue<T> {
         }
       }
     } catch (err) {
-      console.error('[AsyncQueue] Unexpected error in drain loop:', err)
+      log.error('Unexpected error in drain loop:', err)
     } finally {
       this.isProcessing = false
       if (this.items.length > 0) {
@@ -144,7 +147,7 @@ export class AsyncQueue<T> {
         try {
           this.resolveIdleWaiters()
         } catch (err) {
-          console.error('[AsyncQueue] Error resolving idle waiters:', err)
+          log.error('Error resolving idle waiters:', err)
         }
       }
     }

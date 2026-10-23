@@ -1,5 +1,8 @@
 import { fireAndForget } from '../../utils/fireAndForget'
 import { getVaultStorageNames } from '../../shared/storageNames'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('LeaderElection')
 
 export interface LeaderElectionCallbacks {
   onLeaderGranted: () => void
@@ -157,7 +160,7 @@ export class LeaderElection {
         }, this.presenceHeartbeatIntervalMs)
       }
     } catch (err) {
-      console.warn('[LeaderElection] Failed to initialize leader presence BroadcastChannel:', err)
+      log.warn('Failed to initialize leader presence BroadcastChannel:', err)
       this.presenceChannel = null
     }
   }
@@ -352,8 +355,8 @@ export class LeaderElection {
     this.consecutiveFailures += 1
 
     if (this.consecutiveFailures < this.maxLockRetries) {
-      console.error(
-        `[LeaderElection] Failed to acquire lock (attempt ${this.consecutiveFailures}/${this.maxLockRetries})`,
+      log.error(
+        `Failed to acquire lock (attempt ${this.consecutiveFailures}/${this.maxLockRetries})`,
         err
       )
       const delay = this.retryDelayMs * Math.pow(2, this.consecutiveFailures - 1)
@@ -364,8 +367,8 @@ export class LeaderElection {
         }
       }, delay)
     } else {
-      console.warn(
-        `[LeaderElection] Web Locks permanently failed after ${this.consecutiveFailures} attempts. Falling back to leader mode so syncing is not blocked.`,
+      log.warn(
+        `Web Locks permanently failed after ${this.consecutiveFailures} attempts. Falling back to leader mode so syncing is not blocked.`,
         err
       )
       this.grantLeadership(true)

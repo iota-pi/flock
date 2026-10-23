@@ -6,6 +6,9 @@ import { AsyncMutex } from '../utils/AsyncMutex'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SnapshotTracker')
 
 export interface SnapshotTrackerOptions {
   accountId: string
@@ -217,7 +220,7 @@ export class SnapshotTracker {
           }
         } catch (recoveryErr) {
           if (isAbortError(recoveryErr)) throw recoveryErr
-          console.error('[SnapshotTracker] Failed to read manual recovery entries during startup audit', recoveryErr)
+          log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
         }
       }
 
@@ -238,12 +241,12 @@ export class SnapshotTracker {
         }
       }
       if (auditCount > 0) {
-        console.info(`[SnapshotTracker] Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
+        log.info(`Startup audit restored ${auditCount} un-snapshotted items to dirty queue`)
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
       if (isAbortError(error) || this.shutDown) return { auditCount: 0, oversizedItemIds }
-      console.error('[SnapshotTracker] Failed to load lastModified timestamps', error)
+      log.error('Failed to load lastModified timestamps', error)
     }
 
     return { auditCount, oversizedItemIds }
@@ -276,7 +279,7 @@ export class SnapshotTracker {
         }
         await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
       } catch (error) {
-        console.error('[SnapshotTracker] Failed to save lastModified timestamps', error)
+        log.error('Failed to save lastModified timestamps', error)
       }
     })
   }

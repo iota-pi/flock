@@ -17,6 +17,9 @@ import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
 import { SYNC_TIMEOUTS } from '../../syncConfig'
 import type { LifecycleAware } from '../ServiceLifecycleManager'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('AutomergeDocStore')
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -134,7 +137,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
       const data = await this.repo.storageSubsystem.loadDocData(documentId)
       return (data && data.length > 0) ? data : undefined
     } catch (error) {
-      console.error(`[AutomergeDocStore] Storage error loading document data for ${itemId}:`, error)
+      log.error(`Storage error loading document data for ${itemId}:`, error)
       throw error
     }
   }
@@ -145,7 +148,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
       try {
         return await this.storageAdapter.has([documentId])
       } catch (error) {
-        console.error(`[AutomergeDocStore] Storage error checking document existence for ${itemId}:`, error)
+        log.error(`Storage error checking document existence for ${itemId}:`, error)
         throw error
       }
     }
@@ -217,7 +220,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         try {
           existsInStorage = await this.hasDataInStorage(itemId)
         } catch (error) {
-          console.warn(`[AutomergeDocStore] Failed to check storage for ${itemId}:`, error)
+          log.warn(`Failed to check storage for ${itemId}:`, error)
           existsInStorage = false
         }
       }
@@ -236,8 +239,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     handle = this.repo.handles[documentId]
     if (handle && handle.isReady()) return handle
 
-    console.warn(
-      `[AutomergeDocStore] Document ${itemId} exists in storage but fast-path timed out. Retrying with extended timeout.`
+    log.warn(
+      `Document ${itemId} exists in storage but fast-path timed out. Retrying with extended timeout.`
     )
     handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreExtended)
 
@@ -256,8 +259,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         if (handle) return handle
 
         if (options.knownToExist) {
-          console.error(
-            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
+          log.error(
+            `Refusing to overwrite existing storage data for ${itemId}. ` +
             `Document is known to exist but handle could not be loaded within the timeout.`
           )
           return undefined
@@ -270,8 +273,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         try {
           dataExists = await this.hasDataInStorage(itemId)
         } catch (storageError) {
-          console.error(
-            `[AutomergeDocStore] Refusing to overwrite storage data for ${itemId}. ` +
+          log.error(
+            `Refusing to overwrite storage data for ${itemId}. ` +
             `Storage check failed with an error, cannot confirm document does not exist:`,
             storageError
           )
@@ -279,8 +282,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         }
 
         if (dataExists) {
-          console.error(
-            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
+          log.error(
+            `Refusing to overwrite existing storage data for ${itemId}. ` +
             `Document exists in storage but could not be loaded within the timeout.`
           )
           return undefined
@@ -291,7 +294,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         try {
           this.repo.delete(documentId)
         } catch (error) {
-          console.error('[AutomergeDocStore] Failed to clear unavailable handle before import', {
+          log.error('Failed to clear unavailable handle before import', {
             itemId,
             error,
           })
@@ -349,7 +352,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
       handle.change(change)
       return true
     } catch (error) {
-      console.warn(`[AutomergeDocStore] Failed to change document for ${itemId}:`, error)
+      log.warn(`Failed to change document for ${itemId}:`, error)
       return false
     }
   }
@@ -431,15 +434,15 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
                 await this.seedImportedDocument(normalizedItemId, mergedBinary)
                 return this.buildHydrateResult(mergedDoc, incomingHeads)
               } catch (mergeError) {
-                console.error('[AutomergeDocStore] Non-destructive direct merge failed', {
+                log.error('Non-destructive direct merge failed', {
                   itemId: normalizedItemId,
                   error: mergeError,
                 })
               }
             }
 
-            console.error(
-              `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}. ` +
+            log.error(
+              `Refusing to overwrite existing storage data for ${normalizedItemId}. ` +
               `Document exists in storage but handle could not be loaded within timeout and fallback merge failed.`
             )
             throw new Error(
@@ -452,7 +455,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
           return this.buildHydrateResult(handle.doc(), incomingHeads)
         }
       } catch (error) {
-        console.error('[AutomergeDocStore] Failed to hydrate document', {
+        log.error('Failed to hydrate document', {
           itemId,
           error,
         })
@@ -507,14 +510,14 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     for (const itemId of await indexManager.listAutomergeItemIds()) {
       const handle = await this.findHandle(itemId, { knownToExist: true })
       if (!handle || !handle.isReady()) {
-        console.warn(`[AutomergeDocStore] Skipping item ${itemId}: document could not be loaded in time`)
+        log.warn(`Skipping item ${itemId}: document could not be loaded in time`)
         skipped.push(itemId)
         continue
       }
 
       const doc = handle.doc()
       if (!doc) {
-        console.warn(`[AutomergeDocStore] Skipping item ${itemId}: document handle doc is empty`)
+        log.warn(`Skipping item ${itemId}: document handle doc is empty`)
         skipped.push(itemId)
         continue
       }
@@ -547,7 +550,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
           await indexManager.mergeIndex(indexDoc)
         }
       } catch (err) {
-        console.error('[AutomergeDocStore] Failed to restore index metadata from backup', err)
+        log.error('Failed to restore index metadata from backup', err)
       }
     }
 
@@ -571,7 +574,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
           activeItemIds.push(normalizedItemId)
         }
       } catch (err) {
-        console.error(`[AutomergeDocStore] Failed to restore document for ${normalizedItemId}`, err)
+        log.error(`Failed to restore document for ${normalizedItemId}`, err)
       }
     }
 

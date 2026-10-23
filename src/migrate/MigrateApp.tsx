@@ -11,7 +11,7 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import { readStoredMetadata, type DataVersionStatus } from '@vault/client'
+import { createLogger, type DataVersionStatus, readStoredMetadata } from '@vault/client'
 import { usePasswordStrength } from '../hooks/usePasswordStrength'
 import { deferMigration, MIN_DEVICE_DATA_VERSION, readMigrationHandoff } from './detection'
 import {
@@ -26,6 +26,8 @@ import {
   startMigration,
 } from './migration'
 import { getSyncState, MigrationBridge, subscribeSyncState } from './migrationBridge'
+
+const log = createLogger('MigrateApp')
 
 export const POLL_INTERVAL_MS = 5000
 /** Idle polls without progress before the remaining blockers are shown */
@@ -101,7 +103,7 @@ export default function MigrateApp() {
       await startSync()
     } catch (err) {
       if (!(err instanceof OfflineError)) {
-        console.error('[MigrateApp] Failed to start migration', err)
+        log.error('Failed to start migration', err)
       }
       setError(err instanceof Error ? err.message : 'Login failed.')
     } finally {
@@ -134,7 +136,7 @@ export default function MigrateApp() {
     try {
       await changeToArgon2id(account, newPassword)
     } catch (err) {
-      console.error('[MigrateApp] Failed to change the password', err)
+      log.error('Failed to change the password', err)
       setError(err instanceof Error ? err.message : 'Changing your password failed.')
       setLoading(false)
       setLoadingMessage('')
@@ -146,7 +148,7 @@ export default function MigrateApp() {
     try {
       await startSync()
     } catch (err) {
-      console.error('[MigrateApp] Failed to start sync after changing the password', err)
+      log.error('Failed to start sync after changing the password', err)
       setError(err instanceof Error ? err.message : 'Starting sync failed.')
       setPhase({ kind: 'syncNotStarted' })
     } finally {
@@ -162,7 +164,7 @@ export default function MigrateApp() {
     try {
       await startSync()
     } catch (err) {
-      console.error('[MigrateApp] Failed to start sync', err)
+      log.error('Failed to start sync', err)
       setError(err instanceof Error ? err.message : 'Starting sync failed.')
     } finally {
       setLoading(false)
@@ -180,7 +182,7 @@ export default function MigrateApp() {
         Sentry.captureMessage('Migration re-encryption failed for some items', { extra: { failed: failed.length } })
       }
     } catch (err) {
-      console.warn('[MigrateApp] Re-encryption failed', err)
+      log.warn('Re-encryption failed', err)
       Sentry.captureException(err)
     } finally {
       reencryptionRunningRef.current = false
@@ -199,7 +201,7 @@ export default function MigrateApp() {
       try {
         status = await MigrationBridge.checkDataVersion()
       } catch (err) {
-        console.warn('[MigrateApp] Failed to check the data version', err)
+        log.warn('Failed to check the data version', err)
         return
       }
       if (cancelled) return
@@ -236,7 +238,7 @@ export default function MigrateApp() {
     try {
       await MigrationBridge.fullResync()
     } catch (err) {
-      console.warn('[MigrateApp] Full resync failed', err)
+      log.warn('Full resync failed', err)
     }
   }, [])
 

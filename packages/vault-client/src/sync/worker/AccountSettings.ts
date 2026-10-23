@@ -7,6 +7,9 @@ import type { DocCodec, LegacySettingsContext, LegacySettingsSource } from './do
 import { reconcileAutomergeList } from './utils/crdtReconcile'
 import { isPlainObject } from './utils/objectUtils'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('AccountSettings')
 
 export interface AccountSettingsDeps {
   accountId: string
@@ -99,7 +102,7 @@ export class AccountSettings {
     try {
       this.settings = await this.readSettings()
     } catch (err) {
-      console.warn('[AccountSettings] Failed to read the settings document:', err)
+      log.warn('Failed to read the settings document:', err)
     }
     this.emit()
   }

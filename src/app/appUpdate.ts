@@ -1,5 +1,8 @@
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
 import { useAppStore } from '../state/store'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('appUpdate')
 
 type RegisterSW = (options?: RegisterSWOptions) => (reloadPage?: boolean) => Promise<void>
 
@@ -95,7 +98,7 @@ export function registerAppUpdates(registerSW: RegisterSW): void {
       applyPendingUpdate()
     },
     onOfflineReady() {
-      console.info('[PWA] App is ready to work offline.')
+      log.info('App is ready to work offline.')
     },
     onRegisteredSW(_url, swRegistration) {
       registration = swRegistration

@@ -1,4 +1,7 @@
 import { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge-repo/slim'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('VaultIndexedDBStorageAdapter')
 
 /**
  * Turns a chunk's bytes into the record stored in IndexedDB and back. Both run outside any
@@ -102,8 +105,8 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
   }
 
   private handleVersionChange(db: IDBDatabase): void {
-    console.warn(
-      `[VaultIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection to yield to upgrade/deletion.`
+    log.warn(
+      `Database versionchange event received for ${this.databaseName}. Closing connection to yield to upgrade/deletion.`
     )
 
     if (this.db === db) {
@@ -114,7 +117,7 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
     try {
       db.close()
     } catch (err) {
-      console.warn(`[VaultIndexedDBStorageAdapter] Error closing db on versionchange:`, err)
+      log.warn(`Error closing db on versionchange:`, err)
     }
   }
 
@@ -123,8 +126,8 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
       return
     }
 
-    console.warn(
-      `[VaultIndexedDBStorageAdapter] Database connection unexpectedly closed for ${this.databaseName}.`
+    log.warn(
+      `Database connection unexpectedly closed for ${this.databaseName}.`
     )
 
     if (this.db === db) {
@@ -228,8 +231,8 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
             (err instanceof Error && (err.name === 'InvalidStateError' || /closed|closing/i.test(err.message)))
 
           if (isInvalidState && !this.isExplicitlyClosed && !this.isClosing && attempt < MAX_RETRIES) {
-            console.warn(
-              `[VaultIndexedDBStorageAdapter] Transaction creation failed on closing/closed connection for ${this.databaseName}. Reconnecting... (attempt ${attempt + 1})`,
+            log.warn(
+              `Transaction creation failed on closing/closed connection for ${this.databaseName}. Reconnecting... (attempt ${attempt + 1})`,
               err
             )
             if (this.db === db) {

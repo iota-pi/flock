@@ -49,6 +49,9 @@ import { getVaultStorageNames } from '../sync/shared/storageNames'
 import { isRateLimitedError } from '@vault/shared'
 import { ApiHttpError } from './trackedFetch'
 import { importKeyring, Keyring, VaultNotInitializedError, type KeyProvider } from './Keyring'
+import { createLogger } from '../sync/utils/logger'
+
+const log = createLogger('vault')
 
 export {
   createAccount,
@@ -178,7 +181,7 @@ export async function reloadKeyringFromStorage(): Promise<{
     const keyringData = await exportKeyringData()
     return { success: true, keyringData }
   } catch (err) {
-    console.warn('[vault] Failed to decrypt cached keyring with current masterKey:', err)
+    log.warn('Failed to decrypt cached keyring with current masterKey:', err)
     return { success: false, passwordChanged: true }
   }
 }
@@ -291,7 +294,7 @@ async function finishSessionInBackground(attempt: Promise<boolean>, account: str
   try {
     await syncKeyringFromServer(account)
   } catch (err) {
-    console.warn('[vault] Failed to sync the keyring after a late session:', err)
+    log.warn('Failed to sync the keyring after a late session:', err)
     return
   }
   if (generation !== keyGeneration) return
@@ -310,10 +313,10 @@ export function handleSessionExpired(): Promise<void> {
       if (account && keyHash) {
         try {
           await establishSessionFromKeyHash(account, keyHash)
-          console.info('[vault] Session silently re-established')
+          log.info('Session silently re-established')
           return
         } catch (err) {
-          console.warn('[vault] Silent session re-establishment failed:', err)
+          log.warn('Silent session re-establishment failed:', err)
         }
       }
 
@@ -407,7 +410,7 @@ function getKeyringWithRetry(account: string) {
     delays: KEYRING_FETCH_RETRY_DELAYS,
     shouldRetry: error => generation === keyGeneration && isTransientRequestError(error),
     onRetry: (error, attempt) => {
-      console.warn(`[vault] Failed to retrieve keyring (attempt ${attempt}); retrying:`, error)
+      log.warn(`Failed to retrieve keyring (attempt ${attempt}); retrying:`, error)
     },
   })
 }
@@ -423,7 +426,7 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
     encryptedKeyringStr = response.keyring
     rememberRandomDataKeys(account, response.randomDataKeys)
   } catch (err) {
-    console.warn('[vault] Failed to retrieve keyring from server (network error):', err)
+    log.warn('Failed to retrieve keyring from server (network error):', err)
     return false
   }
 
@@ -434,7 +437,7 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
       return true
     } catch (err) {
       clearKeyData()
-      console.error('[vault] Failed to decrypt keyring from server during login:', err)
+      log.error('Failed to decrypt keyring from server during login:', err)
       throw new Error(
         `Failed to decrypt keyring from server during login: ${err instanceof Error ? err.message : String(err)}`,
         { cause: err },
@@ -446,7 +449,7 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
     try {
       await storeVault(account)
     } catch (err) {
-      console.warn('[vault] Failed to seed keyring to server (network error):', err)
+      log.warn('Failed to seed keyring to server (network error):', err)
     }
     return false
   } else {
@@ -492,7 +495,7 @@ export async function loginVault({
     () => true,
     (err: unknown) => {
       sessionError = err
-      console.info('[vault] Operating in offline mode — sync deferred:', err)
+      log.info('Operating in offline mode — sync deferred:', err)
       return false
     },
   )
@@ -514,7 +517,7 @@ export async function loginVault({
   }
 
   if (sessionEstablished === undefined) {
-    console.info('[vault] The server is slow to respond; finishing the session in the background')
+    log.info('The server is slow to respond; finishing the session in the background')
     void finishSessionInBackground(sessionAttempt, account)
   }
 
@@ -535,7 +538,7 @@ export async function loginVault({
       await rewrapMasterKey({ account, currentAuthToken: keyHash, newPassword: password })
       return { keyDerivationUpgraded: true, biometricsCleared: hadBiometrics }
     } catch (err) {
-      console.warn('[vault] Failed to upgrade key derivation; will retry at the next login:', err)
+      log.warn('Failed to upgrade key derivation; will retry at the next login:', err)
     }
   }
   return { keyDerivationUpgraded: false, biometricsCleared: false }
@@ -895,7 +898,7 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
     : await sessionAttempt
 
   if (!outcome) {
-    console.info('[vault] The server is slow to respond; finishing the session in the background')
+    log.info('The server is slow to respond; finishing the session in the background')
     void finishBiometricSessionInBackground(sessionAttempt, generation)
   } else if (outcome.error) {
     if (isUnauthorizedError(outcome.error)) {
@@ -906,7 +909,7 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
       clearCachedKeyring()
       throw new StaleBiometricKeyError()
     }
-    console.info('[vault] Biometric unlock in offline mode:', outcome.error)
+    log.info('Biometric unlock in offline mode:', outcome.error)
   }
   assertKeyringLoaded()
 
@@ -933,7 +936,7 @@ async function finishBiometricSessionInBackground(attempt: Promise<BiometricSess
     )
     return
   }
-  console.info('[vault] Biometric unlock in offline mode:', error)
+  log.info('Biometric unlock in offline mode:', error)
 }
 
 /** Whether the server rejected a request's credentials (as opposed to a network failure) */

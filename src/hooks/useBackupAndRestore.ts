@@ -3,13 +3,15 @@ import {
   setMetadata,
   storeItems,
 } from '../features/items/mutations/itemMutations'
-import { exportData } from '@vault/client'
+import { createLogger, exportData } from '@vault/client'
 import type { BackupPayloadV2 } from '../types/backup'
 import type { BackupSyncState } from '@vault/client'
 import type { Item } from '../state/items'
 import { SyncBridge } from '../app/vault/syncBridge'
 import { useAppStore } from '../state/store'
 import type { BaseToastMessage } from '../state/slices/toastSlice'
+
+const log = createLogger('useBackupAndRestore')
 
 type SetMessage = (payload: BaseToastMessage) => void
 
@@ -37,7 +39,7 @@ export default function useBackupAndRestore({
         try {
           syncState = await SyncBridge.exportSyncState()
         } catch (e) {
-          console.error('[useBackupAndRestore] Failed to export sync state', e)
+          log.error('Failed to export sync state', e)
         }
 
         const backupPayload: BackupPayloadV2 = {
@@ -98,7 +100,7 @@ export default function useBackupAndRestore({
         return true
       } catch (err) {
         setMessage({ message: 'Restore failed', severity: 'error' })
-        console.error('Restore failed', err)
+        log.error('Restore failed', err)
         return false
       }
     },
@@ -113,7 +115,7 @@ export default function useBackupAndRestore({
         return true
       } catch (err) {
         setMessage({ message: 'Import failed', severity: 'error' })
-        console.error('Import failed', err)
+        log.error('Import failed', err)
         return false
       }
     },

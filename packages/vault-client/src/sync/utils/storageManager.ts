@@ -1,4 +1,7 @@
 import { isQuotaError } from './storageQuota'
+import { createLogger } from './logger'
+
+const log = createLogger('storageManager')
 
 type QuotaExceededListener = (message: string) => void
 
@@ -25,7 +28,7 @@ function reportQuotaExceeded(): void {
     try {
       listener(message)
     } catch (err) {
-      console.error('[StorageManager] Error in quota listener:', err)
+      log.error('Error in quota listener:', err)
     }
   }
 }

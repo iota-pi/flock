@@ -23,6 +23,9 @@ import { AsyncQueue } from '../utils/AsyncQueue'
 import { BoundedQueue } from '../utils/boundedCollections'
 import { fireAndForget } from '../utils/fireAndForget'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('EncryptedBroadcastChannelNetworkAdapter')
 
 const DEFAULT_MAX_CRYPTO_RETRIES = 3
 const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
@@ -157,11 +160,11 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
       } catch (err) {
         item.retries += 1
         if (item.retries >= this.maxCryptoRetries) {
-          console.error('[EncryptedBroadcastChannel] Error sending message:', err)
+          log.error('Error sending message:', err)
           return
         } else {
-          console.warn(
-            `[EncryptedBroadcastChannel] Error sending message (attempt ${item.retries}/${this.maxCryptoRetries}), retrying:`,
+          log.warn(
+            `Error sending message (attempt ${item.retries}/${this.maxCryptoRetries}), retrying:`,
             err
           )
           if (this.cryptoRetryDelayMs > 0) {
@@ -191,8 +194,8 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         this.maxPendingMessagesPerKey,
         {
           onEvict: () => {
-            console.warn(
-              `[EncryptedBroadcastChannel] Pending queue for key version ${kver} exceeded max capacity (${this.maxPendingMessagesPerKey}). Evicting oldest message.`
+            log.warn(
+              `Pending queue for key version ${kver} exceeded max capacity (${this.maxPendingMessagesPerKey}). Evicting oldest message.`
             )
           },
         },
@@ -227,7 +230,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         }
       }
     } catch (err) {
-      console.error(`[EncryptedBroadcastChannel] Error waiting for key version ${kver}:`, err)
+      log.error(`Error waiting for key version ${kver}:`, err)
     } finally {
       this.activeKeyWaiters.delete(kver)
     }
@@ -271,8 +274,8 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
             const classified = classifySyncError(err)
             if (classified.isMissingKey) {
               const kver = classified.kver ?? '1'
-              console.warn(
-                `[EncryptedBroadcastChannel] Timed out waiting for key version ${kver}. Buffering message until key arrives.`
+              log.warn(
+                `Timed out waiting for key version ${kver}. Buffering message until key arrives.`
               )
               this.bufferPendingMessage(kver, message)
               this.ensureKeyWaiter(kver)
@@ -292,14 +295,14 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
       } catch (err) {
         item.retries += 1
         if (item.retries >= this.maxCryptoRetries) {
-          console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
+          log.error('Error decrypting message:', err)
           if (kver && this.options.onKeyVersionMissing) {
             this.options.onKeyVersionMissing(kver)
           }
           return
         } else {
-          console.warn(
-            `[EncryptedBroadcastChannel] Error decrypting message (attempt ${item.retries}/${this.maxCryptoRetries}), retrying:`,
+          log.warn(
+            `Error decrypting message (attempt ${item.retries}/${this.maxCryptoRetries}), retrying:`,
             err
           )
           if (kver && this.options.onKeyVersionMissing) {

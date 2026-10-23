@@ -1,4 +1,7 @@
 import { getVaultStorageNames } from './storageNames'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('workerAuthStore')
 
 /**
  * This realm's session token, kept only in memory. On disk it would outlive the tab, and a copy of
@@ -31,7 +34,7 @@ export function deleteStoredSessionToken(): Promise<void> {
     request.onsuccess = () => resolve()
     request.onblocked = () => resolve()
     request.onerror = () => {
-      console.warn('[vault] Could not delete the stored session token', request.error)
+      log.warn('Could not delete the stored session token', request.error)
       resolve()
     }
   })

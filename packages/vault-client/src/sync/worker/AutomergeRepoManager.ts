@@ -8,6 +8,9 @@ import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapte
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { KeyProvider } from '../../api/Keyring'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('AutomergeRepoManager')
 
 export interface AutomergeStorageAdapter extends StorageAdapterInterface {
   has(key: string[]): Promise<boolean>
@@ -130,7 +133,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
       try {
         this.broadcastAdapter.disconnect()
       } catch (err) {
-        console.error(`[AutomergeRepoManager] Error disconnecting broadcast adapter for ${this.accountId}:`, err)
+        log.error(`Error disconnecting broadcast adapter for ${this.accountId}:`, err)
       }
       this.broadcastAdapter = null
     }
@@ -139,7 +142,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
       try {
         await this.repo.shutdown()
       } catch (err) {
-        console.error(`[AutomergeRepoManager] Error shutting down repo for ${this.accountId}:`, err)
+        log.error(`Error shutting down repo for ${this.accountId}:`, err)
       }
       this.repo = null
     }
@@ -152,7 +155,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
       try {
         await this.indexedDbAdapter.close()
       } catch (err) {
-        console.error(`[AutomergeRepoManager] Error closing IndexedDB connection for ${this.accountId}:`, err)
+        log.error(`Error closing IndexedDB connection for ${this.accountId}:`, err)
       }
       this.indexedDbAdapter = null
     }

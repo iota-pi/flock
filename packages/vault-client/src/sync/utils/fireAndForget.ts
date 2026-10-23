@@ -1,3 +1,5 @@
+import { createLogger } from './logger'
+
 /**
  * Safely executes a promise or promise-returning function in a fire-and-forget fashion,
  * ensuring that any unhandled rejection is caught and logged with a diagnostic tag,
@@ -23,10 +25,10 @@ export function fireAndForget(
           try {
             onError(err)
           } catch (handlerErr) {
-            console.error(`[${tag}] Error in fireAndForget onError handler:`, handlerErr)
+            createLogger(tag).error('Error in fireAndForget onError handler:', handlerErr)
           }
         } else {
-          console.error(`[${tag}] Unhandled async error:`, err)
+          createLogger(tag).error('Unhandled async error:', err)
         }
       })
     }
@@ -35,10 +37,10 @@ export function fireAndForget(
       try {
         onError(err)
       } catch (handlerErr) {
-        console.error(`[${tag}] Error in fireAndForget onError handler:`, handlerErr)
+        createLogger(tag).error('Error in fireAndForget onError handler:', handlerErr)
       }
     } else {
-      console.error(`[${tag}] Unhandled synchronous error:`, err)
+      createLogger(tag).error('Unhandled synchronous error:', err)
     }
   }
 }

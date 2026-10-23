@@ -1,8 +1,10 @@
 import { useEffect } from 'react'
-import { getSecurityParams } from '@vault/client'
+import { createLogger, getSecurityParams } from '@vault/client'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from '../../migrate/detection'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { lockVault } from './session'
+
+const log = createLogger('useAccountLevelCheck')
 
 /**
  * Sends an unlocked account below the minimum level to the migration app. The login page checks
@@ -15,7 +17,7 @@ export async function checkAccountLevel(account: string, isCancelled: () => bool
     params = await getSecurityParams(account)
   } catch (error) {
     // Unreachable: checked again when the device is next online
-    console.warn('[useAccountLevelCheck] getSecurityParams failed', error)
+    log.warn('getSecurityParams failed', error)
     return
   }
   if (isCancelled()) return

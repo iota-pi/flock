@@ -1,5 +1,8 @@
 import * as Comlink from 'comlink'
 import type { KdfParams } from '@vault/shared'
+import { createLogger } from '../sync/utils/logger'
+
+const log = createLogger('kdf')
 
 export type { KdfParams }
 
@@ -120,13 +123,13 @@ export async function deriveArgon2idBytes(password: string, salt: Uint8Array, kd
   try {
     worker = createKdfWorker()
   } catch (err) {
-    console.warn('[vault] Could not start the key derivation worker; deriving here instead:', err)
+    log.warn('Could not start the key derivation worker; deriving here instead:', err)
     return computeArgon2id(password, salt, kdf)
   }
   try {
     return await deriveInWorker(worker, password, salt, kdf)
   } catch (err) {
-    console.warn('[vault] The key derivation worker failed; deriving here instead:', err)
+    log.warn('The key derivation worker failed; deriving here instead:', err)
     return computeArgon2id(password, salt, kdf)
   } finally {
     worker.terminate()

@@ -1,4 +1,7 @@
 import { rotateVaultKey, exportKeyringData } from './vault'
+import { createLogger } from '../sync/utils/logger'
+
+const log = createLogger('reencrypt')
 
 /** The parts of the sync bridge that re-encryption drives */
 export interface ReencryptionTarget {
@@ -47,13 +50,13 @@ export async function reencryptAllItems(
 export async function resumePendingReencryption(syncBridge: ReencryptionTarget, account: string): Promise<void> {
   const pendingKey = `${REENCRYPT_PENDING_KEY_PREFIX}${account}`
   if (localStorage.getItem(pendingKey) === 'true') {
-    console.info(`[vault] Resuming interrupted re-encryption for ${account}...`)
+    log.info(`Resuming interrupted re-encryption for ${account}...`)
     try {
       await syncBridge.reencryptAllItems(() => {})
       localStorage.removeItem(pendingKey)
-      console.info(`[vault] Resumed re-encryption completed successfully.`)
+      log.info(`Resumed re-encryption completed successfully.`)
     } catch (err) {
-      console.error(`[vault] Failed to resume re-encryption:`, err)
+      log.error(`Failed to resume re-encryption:`, err)
     }
   }
 }

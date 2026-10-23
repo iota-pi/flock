@@ -13,6 +13,9 @@ import type { PreparedSnapshotItem } from './SnapshotBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SnapshotPusher')
 
 export interface SnapshotPusherOptions {
   accountId: string
@@ -137,7 +140,7 @@ export class SnapshotPusher {
 
     const delayMs = this.retryStrategy.nextDelay()
 
-    console.warn(`[SnapshotPusher] Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
+    log.warn(`Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
 
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
@@ -202,7 +205,7 @@ export class SnapshotPusher {
       if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
         throw error
       }
-      console.error('[SnapshotPusher] Failed to put snapshots', error)
+      log.error('Failed to put snapshots', error)
       return { success: false, responded: false, persisted: 0 }
     }
   }
@@ -218,8 +221,8 @@ export class SnapshotPusher {
       const detailedReason =
         reason ||
         `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`
-      console.error(
-        `[SnapshotPusher] Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
+      log.error(
+        `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
       )
       this.consecutiveFailures.delete(itemId)
       this.tracker.removeDirtyItemIfTickMatches(itemId, tick)
@@ -238,7 +241,7 @@ export class SnapshotPusher {
             `Snapshot failure: ${detailedReason}`,
           )
         } catch (recoveryError) {
-          console.error('[SnapshotPusher] Failed to record manual recovery entry', recoveryError)
+          log.error('Failed to record manual recovery entry', recoveryError)
         }
       }
     } else {
@@ -257,8 +260,8 @@ export class SnapshotPusher {
     this.tracker.recordOversized(itemId, modified)
 
     if (!isAlreadyOversized) {
-      console.error(
-        `[SnapshotPusher] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
+      log.error(
+        `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
       this.eventHub?.emit({
         type: 'quotaExceeded',
@@ -302,7 +305,7 @@ export class SnapshotPusher {
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
       this.oversizedItems.delete(itemId)
-      console.warn(`[SnapshotPusher] Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
+      log.warn(`Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
       const tombstone = toTombstoneSnapshot(snapshot)
       return {
         type: 'ready',
@@ -526,11 +529,11 @@ export class SnapshotPusher {
         return { persisted, total, success: false }
       }
       if (classified.isAuth) {
-        console.warn('[SnapshotPusher] Cannot push snapshots: auth failure', error)
+        log.warn('Cannot push snapshots: auth failure', error)
         success = false
         return { persisted, total, success }
       }
-      console.error('[SnapshotPusher] Error during pushSnapshots', error)
+      log.error('Error during pushSnapshots', error)
       success = false
       return { persisted, total, success }
     } finally {

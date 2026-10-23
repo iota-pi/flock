@@ -11,6 +11,9 @@ import Typography from '@mui/material/Typography'
 
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from '../../app/vault/syncBridge'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('LeaderConflictDialog')
 
 export default function LeaderConflictDialog() {
   const isLeaderConflict = useAppStore(state => state.isLeaderConflict)
@@ -21,7 +24,7 @@ export default function LeaderConflictDialog() {
     try {
       await SyncBridge.claimLeader()
     } catch (err) {
-      console.error('[LeaderConflictDialog] Failed to claim sync leadership:', err)
+      log.error('Failed to claim sync leadership:', err)
     } finally {
       setClaiming(false)
     }
