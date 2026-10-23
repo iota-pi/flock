@@ -4,7 +4,7 @@ import { SyncBridge } from '../app/vault/syncBridge'
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   enableBiometrics,
-  disableBiometrics,
+  clearBiometricData,
   hasBiometricData,
   subscribeBiometrics,
   isWebAuthnPrfSupported,
@@ -54,7 +54,7 @@ export default function useSettings(items: Item[]) {
 
   const handleToggleBiometrics = useCallback(async () => {
     if (biometricsEnabled) {
-      disableBiometrics()
+      clearBiometricData()
       setMessage({ message: 'Biometric unlock disabled' })
     } else {
       try {

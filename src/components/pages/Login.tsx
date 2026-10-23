@@ -29,13 +29,13 @@ import {
   readBiometricData,
   readStoredMetadata,
   unlockWithBiometrics,
-  getBiometricLabel,
   StaleBiometricKeyError,
   UnsupportedKeyDerivationError,
   type KdfParams,
   createLogger,
 } from '@vault/client'
 import { isRateLimitedError } from '@vault/shared'
+import { getBiometricLabel } from '../../utils/biometricLabel'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
 
 const log = createLogger('Login')

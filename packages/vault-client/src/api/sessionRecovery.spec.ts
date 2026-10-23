@@ -1,4 +1,5 @@
 import { attemptSessionRecovery } from './sessionRecovery'
+import * as session from './session'
 import * as vault from './vault'
 
 describe('sessionRecovery', () => {
@@ -7,22 +8,22 @@ describe('sessionRecovery', () => {
   })
 
   it('returns true immediately if a session already exists', async () => {
-    vi.spyOn(vault, 'getVaultSession').mockReturnValue('existing-session')
+    vi.spyOn(session, 'getVaultSession').mockReturnValue('existing-session')
     const result = await attemptSessionRecovery('test-account')
     expect(result).toBe(true)
   })
 
   it('returns false if no keyHash is available', async () => {
-    vi.spyOn(vault, 'getVaultSession').mockReturnValue('')
-    vi.spyOn(vault, 'getKeyHash').mockReturnValue('')
+    vi.spyOn(session, 'getVaultSession').mockReturnValue('')
+    vi.spyOn(session, 'getKeyHash').mockReturnValue('')
     const result = await attemptSessionRecovery('test-account')
     expect(result).toBe(false)
   })
 
   it('successfully establishes session and syncs keyring when keyHash is available', async () => {
-    vi.spyOn(vault, 'getVaultSession').mockReturnValue('')
-    vi.spyOn(vault, 'getKeyHash').mockReturnValue('mock-key-hash')
-    const establishSpy = vi.spyOn(vault, 'establishSessionFromKeyHash').mockResolvedValue(undefined)
+    vi.spyOn(session, 'getVaultSession').mockReturnValue('')
+    vi.spyOn(session, 'getKeyHash').mockReturnValue('mock-key-hash')
+    const establishSpy = vi.spyOn(session, 'establishSessionFromKeyHash').mockResolvedValue(undefined)
     const syncSpy = vi.spyOn(vault, 'syncKeyringFromServer').mockResolvedValue(true)
 
     const result = await attemptSessionRecovery('test-account')
@@ -33,9 +34,9 @@ describe('sessionRecovery', () => {
   })
 
   it('returns false when establishing session throws an error', async () => {
-    vi.spyOn(vault, 'getVaultSession').mockReturnValue('')
-    vi.spyOn(vault, 'getKeyHash').mockReturnValue('mock-key-hash')
-    vi.spyOn(vault, 'establishSessionFromKeyHash').mockRejectedValue(new Error('Network error'))
+    vi.spyOn(session, 'getVaultSession').mockReturnValue('')
+    vi.spyOn(session, 'getKeyHash').mockReturnValue('mock-key-hash')
+    vi.spyOn(session, 'establishSessionFromKeyHash').mockRejectedValue(new Error('Network error'))
 
     const result = await attemptSessionRecovery('test-account')
     expect(result).toBe(false)

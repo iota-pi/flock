@@ -16,9 +16,15 @@ vi.mock('comlink', () => ({
 
 vi.mock('../../api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
-  hasRandomDataKeys: vi.fn().mockReturnValue(false),
+}))
+
+vi.mock('../../api/session', () => ({
   handleSessionExpired: vi.fn().mockResolvedValue(undefined),
   getVaultSession: vi.fn().mockReturnValue(null),
+}))
+
+vi.mock('../../api/storedMetadata', () => ({
+  hasRandomDataKeys: vi.fn().mockReturnValue(false),
 }))
 
 class MockWorker {

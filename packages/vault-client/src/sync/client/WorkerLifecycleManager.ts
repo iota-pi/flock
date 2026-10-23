@@ -3,7 +3,9 @@ import * as Comlink from 'comlink'
 import type { SyncApi } from '../worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
 import type { SyncStatus } from '../shared/types'
-import { exportKeyringData, getVaultSession, hasRandomDataKeys } from '../../api/vault'
+import { exportKeyringData } from '../../api/vault'
+import { getVaultSession } from '../../api/session'
+import { hasRandomDataKeys } from '../../api/storedMetadata'
 import {
   SyncWorkerHealthMonitor,
 } from './syncWorkerHealth'

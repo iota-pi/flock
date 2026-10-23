@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   hasBiometricData: vi.fn(() => false),
   subscribeBiometrics: vi.fn((_: () => void) => () => {}),
   enableBiometrics: vi.fn(async () => undefined),
-  disableBiometrics: vi.fn(async () => undefined),
+  clearBiometricData: vi.fn(),
 }))
 
 vi.mock('../app/vault/session', () => ({
@@ -45,7 +45,7 @@ vi.mock('@vault/client', async importOriginal => ({
   subscribeBiometrics: mocks.subscribeBiometrics,
   isWebAuthnPrfSupported: vi.fn(async () => true),
   enableBiometrics: mocks.enableBiometrics,
-  disableBiometrics: mocks.disableBiometrics,
+  clearBiometricData: mocks.clearBiometricData,
 }))
 
 vi.mock('../features/items/mutations/itemMutations', () => ({
@@ -243,7 +243,7 @@ describe('useSettings backup portability', () => {
     await act(async () => {
       await result.current.actions.handleToggleBiometrics()
     })
-    expect(mocks.disableBiometrics).toHaveBeenCalledTimes(1)
+    expect(mocks.clearBiometricData).toHaveBeenCalledTimes(1)
     expect(mocks.setMessage).toHaveBeenCalledWith({
       message: 'Biometric unlock disabled',
     })

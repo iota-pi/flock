@@ -6,17 +6,14 @@ import {
   storeVault,
   rotateVaultKey,
   exportKeyringData,
-  handleSessionExpired,
-  readCachedKeyring,
   hasVaultKey,
   reloadKeyringFromStorage,
   clearVaultDeviceData,
-  configureVaultHost,
-  lockVaultKeys,
-  readStoredMetadata,
-  onLateSession,
-  getVaultSession,
 } from './vault'
+import { getVaultSession, handleSessionExpired, lockVaultKeys, onLateSession } from './session'
+import { readCachedKeyring } from './keyringCache'
+import { readStoredMetadata } from './storedMetadata'
+import { configureVaultHost } from './vaultHost'
 import { Keyring } from './Keyring'
 import { getSessionExpiredHandler } from './runtime'
 import { getVaultStorageNames } from '../sync/shared/storageNames'

@@ -5,7 +5,7 @@ import {
 } from './errorClassifier'
 import { AbortError } from '../../utils/abort'
 import { MissingKeyError } from './decryptWithKeyResolution'
-import { VaultNotInitializedError } from '../../../api/vault'
+import { VaultNotInitializedError } from '../../../api/Keyring'
 
 const isNetworkError = (error: unknown) => classifySyncError(error).isNetwork
 const isServerError = (error: unknown) => classifySyncError(error).isServerError

@@ -3,7 +3,35 @@
 // through `@vault/client/storageNames`.
 
 export * from './api/vault'
-export { generateSalt, generateVaultKey, UnsupportedKeyDerivationError, type DeriveLegacyKey } from './api/crypto'
+export {
+  establishSessionFromKeyHash,
+  getKeyHash,
+  getVaultSession,
+  handleSessionExpired,
+  lockVaultKeys,
+  onLateSession,
+} from './api/session'
+export { enableBiometrics, unlockWithBiometrics, StaleBiometricKeyError } from './api/biometrics'
+export {
+  clearBiometricData,
+  readBiometricData,
+  hasBiometricData,
+  subscribeBiometrics,
+} from './api/biometricStore'
+export { isWebAuthnPrfSupported } from './api/webauthn'
+export { readCachedKeyring, writeCachedKeyring, clearCachedKeyring } from './api/keyringCache'
+export { readStoredMetadata, hasRandomDataKeys } from './api/storedMetadata'
+export { configureVaultHost, type VaultHostHooks } from './api/vaultHost'
+export { VaultNotInitializedError, type KeyProvider } from './api/Keyring'
+export { createAccount, getSecurityParams } from './api/client'
+export type { VaultBroadcastEvent } from './api/util'
+export {
+  generateSalt,
+  generateVaultKey,
+  UnsupportedKeyDerivationError,
+  type CryptoResult,
+  type DeriveLegacyKey,
+} from './api/crypto'
 export { DEFAULT_KDF, type KdfParams } from './api/kdf'
 export {
   type AutoLockMode,

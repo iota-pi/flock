@@ -1,31 +1,26 @@
 import { TRPCClientError } from '@trpc/client'
 import {
   clearVaultDeviceData,
-  configureVaultHost,
   createVaultAccount,
   exportKeyringData,
   getActiveKeyVersion,
-  hasBiometricData,
   hasVaultKey,
   initialiseVault,
-  hasRandomDataKeys,
-  lockVaultKeys,
   loginVault,
   needsKeyDerivationUpgrade,
-  onLateSession,
-  readCachedKeyring,
-  readStoredMetadata,
   rotateVaultKey,
-  establishSessionFromKeyHash,
-  StaleBiometricKeyError,
   storeVault,
-  unlockWithBiometrics,
   upgradeKeyDerivation,
 } from './vault'
+import { establishSessionFromKeyHash, lockVaultKeys, onLateSession } from './session'
+import { StaleBiometricKeyError, unlockWithBiometrics } from './biometrics'
+import { hasBiometricData, writeBiometricData } from './biometricStore'
+import { readCachedKeyring } from './keyringCache'
+import { hasRandomDataKeys, readStoredMetadata } from './storedMetadata'
+import { configureVaultHost } from './vaultHost'
 import { changePassword, createAccount, getKeyring, getSession, updateKeyring } from './client'
 import { decryptWithKey, deriveVaultKey, encryptWithKey, exportVaultKey, generateVaultKey } from './crypto'
 import { Keyring } from './Keyring'
-import { writeBiometricData } from './biometricStore'
 import { ApiHttpError } from './trackedFetch'
 import type { KdfParams } from './kdf'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'

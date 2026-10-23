@@ -7,18 +7,24 @@ import { createFakeSink, createFakeTelemetry } from './__test__/fakeHost'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { attemptSessionRecovery } from '../../api/sessionRecovery'
 import { resumePendingReencryption } from '../../api/reencrypt'
-import { getVaultSession } from '../../api/vault'
+import { getVaultSession } from '../../api/session'
 
 vi.mock('../../api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
-  hasRandomDataKeys: vi.fn().mockReturnValue(false),
   reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
   hasVaultKey: vi.fn().mockReturnValue(true),
   syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../api/session', () => ({
   getVaultSession: vi.fn().mockReturnValue(null),
   handleSessionExpired: vi.fn().mockResolvedValue(undefined),
   getKeyHash: vi.fn().mockReturnValue(null),
   onLateSession: vi.fn().mockReturnValue(() => undefined),
+}))
+
+vi.mock('../../api/storedMetadata', () => ({
+  hasRandomDataKeys: vi.fn().mockReturnValue(false),
 }))
 
 vi.mock('../../api/sessionRecovery', () => ({

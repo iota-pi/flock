@@ -1,4 +1,5 @@
-import { getVaultSession, getKeyHash, establishSessionFromKeyHash, syncKeyringFromServer } from './vault'
+import { getVaultSession, getKeyHash, establishSessionFromKeyHash } from './session'
+import { syncKeyringFromServer } from './vault'
 import { createLogger } from '../sync/utils/logger'
 
 const log = createLogger('sessionRecovery')

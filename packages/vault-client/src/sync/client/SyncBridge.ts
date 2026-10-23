@@ -1,13 +1,7 @@
 import type * as Comlink from 'comlink'
 
-import {
-  hasVaultKey,
-  reloadKeyringFromStorage,
-  syncKeyringFromServer,
-  handleSessionExpired,
-  getVaultSession,
-  onLateSession,
-} from '../../api/vault'
+import { hasVaultKey, reloadKeyringFromStorage, syncKeyringFromServer } from '../../api/vault'
+import { handleSessionExpired, getVaultSession, onLateSession } from '../../api/session'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
