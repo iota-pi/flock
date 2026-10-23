@@ -1,4 +1,5 @@
 import { createLogger } from '../sync/utils/logger'
+import { SESSION_REJECTED_CODE, SESSION_REJECTED_STATUS } from '../sync/worker/utils/errorClassifier'
 import { clearBiometricData, readBiometricData, writeBiometricData } from './biometricStore'
 import { decryptWithKey, encryptWithKey, exportVaultKey, hashVaultKey, importVaultKey } from './crypto'
 import { clearCachedKeyring, loadCachedKeyring } from './keyringCache'
@@ -133,12 +134,16 @@ function finishLateBiometricSession({ error }: BiometricSessionOutcome) {
   log.info('Biometric unlock in offline mode:', error)
 }
 
-/** Whether the server rejected a request's credentials (as opposed to a network failure) */
+/**
+ * Whether the server rejected a request's credentials (as opposed to a network failure). Stricter
+ * than `classifySyncError().isAuth` on purpose: a match clears the saved key and cached keyring,
+ * and a 403 can only come from something between us and the server (such as a captive portal).
+ */
 function isUnauthorizedError(err: unknown): boolean {
   let current: unknown = err
   while (current && typeof current === 'object') {
-    if (current instanceof ApiHttpError && current.status === 401) return true
-    if ((current as { data?: { code?: unknown } }).data?.code === 'UNAUTHORIZED') return true
+    if (current instanceof ApiHttpError && current.status === SESSION_REJECTED_STATUS) return true
+    if ((current as { data?: { code?: unknown } }).data?.code === SESSION_REJECTED_CODE) return true
     current = (current as { cause?: unknown }).cause
   }
   return false
