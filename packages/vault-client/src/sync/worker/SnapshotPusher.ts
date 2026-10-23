@@ -57,7 +57,6 @@ export class SnapshotPusher {
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushResult>()
   private pushAbortController: AbortController | null = null
   private pendingPushRequested = false
-  private requestedCursor: number | null = null
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   public readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
@@ -89,10 +88,6 @@ export class SnapshotPusher {
     return this.pendingPushRequested
   }
 
-  get snapshotRequestCursor(): number | null {
-    return this.requestedCursor
-  }
-
   get retryTimeoutId(): ReturnType<typeof setTimeout> | null {
     return this.retryTimer
   }
@@ -114,14 +109,6 @@ export class SnapshotPusher {
   resetRetry(): void {
     this.retryStrategy.reset()
     this.cancelRetry()
-  }
-
-  scheduleSnapshotPush(cursor?: number): void {
-    if (!this.tracker.isOperational) return
-    if (typeof cursor === 'number') {
-      this.requestedCursor = cursor
-    }
-    fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:scheduleSnapshotPush')
   }
 
   async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
@@ -169,11 +156,10 @@ export class SnapshotPusher {
     }
     const dirtyItemIds = this.tracker.getDirtyItemIds()
     if (dirtyItemIds.length === 0) {
-      this.requestedCursor = null
       return null
     }
 
-    const snapshotCursor = this.requestedCursor ?? (this.getLatestCursor ? this.getLatestCursor() : 0)
+    const snapshotCursor = this.getLatestCursor ? this.getLatestCursor() : 0
 
     return {
       dirtyItemIds,
@@ -529,10 +515,6 @@ export class SnapshotPusher {
       total = result.total
       success = result.success
 
-      if (success) {
-        this.requestedCursor = null
-      }
-
       if (success && this.tracker.dirtyCount === 0) {
         this.retryStrategy.reset()
       }
@@ -613,7 +595,6 @@ export class SnapshotPusher {
     this.consecutiveFailures.clear()
     this.oversizedItems.clear()
     this.pendingPushRequested = false
-    this.requestedCursor = null
     this.pushGuard.clear()
     this.retryStrategy.reset()
   }
