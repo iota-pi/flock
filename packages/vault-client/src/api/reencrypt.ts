@@ -1,15 +1,13 @@
 import { rotateVaultKey, exportKeyringData } from './vault'
 import { createLogger } from '../sync/utils/logger'
+import type { ReencryptResult } from '../sync/worker/syncProtocol'
 
 const log = createLogger('reencrypt')
 
 /** The parts of the sync bridge that re-encryption drives */
 export interface ReencryptionTarget {
   updateVaultKey(vaultKey: string): Promise<void>
-  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<{
-    succeeded: string[]
-    failed: Array<{ itemId: string; error: string }>
-  }>
+  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<ReencryptResult>
 }
 
 export const REENCRYPT_PENDING_KEY_PREFIX = 'vault_reencrypt_pending_'
@@ -18,7 +16,7 @@ export async function reencryptAllItems(
   syncBridge: ReencryptionTarget,
   account: string,
   onProgress?: (done: number, total: number) => void
-): Promise<{ succeeded: string[]; failed: Array<{ itemId: string; error: string }> }> {
+): Promise<ReencryptResult> {
   const pendingKey = `${REENCRYPT_PENDING_KEY_PREFIX}${account}`
   localStorage.setItem(pendingKey, 'true')
 

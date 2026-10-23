@@ -10,6 +10,7 @@ import { SnapshotBuilder } from './snapshotBuilder'
 import type { DocCodec } from './domain'
 import { SnapshotPusher } from './SnapshotPusher'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import type { SnapshotPushResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { KeyProvider } from '../../api/Keyring'
 
@@ -130,7 +131,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     return this.tracker.deleteDirtyItem(itemId)
   }
 
-  async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
+  async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     // Saved first, and in any tab: a follower can't push, but its edits must still survive the page closing
     this.tracker.flushPendingSave()
     return this.pusher.flushPendingSnapshots()

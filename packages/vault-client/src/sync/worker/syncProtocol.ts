@@ -10,6 +10,24 @@ export interface InitRepoOptions {
   authToken?: string | null
 }
 
+/** How many of the snapshots a push tried to upload the server persisted */
+export interface SnapshotPushResult {
+  persisted: number
+  total: number
+}
+
+/** Whether saving the items that failed to save locally (e.g. over quota) succeeded this time */
+export interface RetrySaveResult {
+  success: boolean
+  error?: string
+}
+
+/** The items re-encrypted under the active data key, and those that couldn't be */
+export interface ReencryptResult {
+  succeeded: ItemId[]
+  failed: Array<{ itemId: ItemId; error: string }>
+}
+
 /**
  * The sync worker's Comlink API. `TDoc` and `TMeta` are the app's document and metadata types,
  * as produced by its DocCodec.
@@ -31,8 +49,8 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   flushSync: () => Promise<void>
   fullResync: () => Promise<boolean>
-  pushSnapshots: () => Promise<{ persisted: number; total: number }>
-  retrySave: () => Promise<{ success: boolean; error?: string }>
+  pushSnapshots: () => Promise<SnapshotPushResult>
+  retrySave: () => Promise<RetrySaveResult>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
   /** Replaces an item whose local copy can't be decrypted with the server's copy */
   replaceFromServer: (itemId: ItemId) => Promise<void>
@@ -46,10 +64,7 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   reencryptAllItems: (
     onProgress?: (done: number, total: number) => void,
     refreshAuthToken?: () => Promise<string | null>
-  ) => Promise<{
-    succeeded: ItemId[]
-    failed: Array<{ itemId: ItemId; error: string }>
-  }>
+  ) => Promise<ReencryptResult>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   claimLeader: () => Promise<void>

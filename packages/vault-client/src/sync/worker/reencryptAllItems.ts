@@ -18,6 +18,7 @@ import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
 import { getOnlineState } from '../utils/onlineStatus'
 import type { ItemId, PutSnapshotResultItem, VaultSnapshotInput } from '@vault/shared'
+import type { ReencryptResult } from './syncProtocol'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
@@ -52,11 +53,6 @@ export interface ReencryptDeps {
   reencryptor?: ItemReencryptor
   signal?: AbortSignal
   batchRetryDelays?: readonly number[]
-}
-
-export interface ReencryptResult {
-  succeeded: ItemId[]
-  failed: Array<{ itemId: ItemId; error: string }>
 }
 
 export interface ProcessChunkContext {

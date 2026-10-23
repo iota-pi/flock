@@ -15,6 +15,7 @@ import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { SyncOrchestrator } from './SyncOrchestrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -226,7 +227,7 @@ export class StorageRecoveryService implements LifecycleAware {
    * 6. flushPendingSyncIfOnline()
    * 7. resolveQuotaStatus()
    */
-  async retrySave(): Promise<{ success: boolean; error?: string }> {
+  async retrySave(): Promise<RetrySaveResult> {
     try {
       await this.probeStorageAvailability()
       const blockedIds = this.deps.broker.getBlockedItemIds?.() ?? []

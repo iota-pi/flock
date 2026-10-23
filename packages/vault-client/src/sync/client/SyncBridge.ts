@@ -6,7 +6,7 @@ import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/m
 import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
 import type { DataVersionStatus, VaultDoc, VaultMetadata } from '../shared/types'
-import type { SyncApi } from '../worker/syncProtocol'
+import type { ReencryptResult, RetrySaveResult, SnapshotPushResult, SyncApi } from '../worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'
@@ -365,11 +365,11 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.execute(api => api.fullResync())
   }
 
-  pushSnapshots(): Promise<{ persisted: number; total: number }> {
+  pushSnapshots(): Promise<SnapshotPushResult> {
     return this.execute(api => api.pushSnapshots())
   }
 
-  retrySave(): Promise<{ success: boolean; error?: string }> {
+  retrySave(): Promise<RetrySaveResult> {
     return this.execute(api => api.retrySave())
   }
 
@@ -415,10 +415,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.execute(api => api.updateVaultKey(vaultKey))
   }
 
-  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<{
-    succeeded: ItemId[]
-    failed: Array<{ itemId: ItemId; error: string }>
-  }> {
+  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<ReencryptResult> {
     return this.execute(async api => {
       const unsubscribe = onProgress
         ? this.eventProcessor.subscribeReencryptProgress(onProgress)

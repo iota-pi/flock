@@ -1,4 +1,5 @@
 import type { VaultSnapshotInput } from '@vault/shared'
+import type { SnapshotPushResult } from './syncProtocol'
 import { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { classifySyncError } from './utils/errorClassifier'
@@ -29,9 +30,8 @@ export interface SnapshotPusherOptions {
   maxPayloadBytes?: number
 }
 
-export interface SnapshotPushResult {
-  persisted: number
-  total: number
+/** A push's result, and whether every batch in it was sent and accepted */
+interface SnapshotPushOutcome extends SnapshotPushResult {
   success: boolean
 }
 
@@ -57,7 +57,7 @@ export class SnapshotPusher {
 
   public readonly consecutiveFailures = new Map<ItemId, number>()
   public readonly oversizedItems = new Set<ItemId>()
-  private readonly pushGuard = new SingleFlightGuard<SnapshotPushResult>()
+  private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
   private pushAbortController: AbortController | null = null
   private pendingPushRequested = false
   private retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -114,7 +114,7 @@ export class SnapshotPusher {
     this.cancelRetry()
   }
 
-  async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
+  async triggerSnapshotPush(): Promise<SnapshotPushResult> {
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }
     }
@@ -391,7 +391,7 @@ export class SnapshotPusher {
       snapshotCursor: number
     },
     signal?: AbortSignal,
-  ): Promise<{ persisted: number; total: number; success: boolean }> {
+  ): Promise<SnapshotPushOutcome> {
     const { dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
@@ -452,7 +452,7 @@ export class SnapshotPusher {
     return { persisted, total, success }
   }
 
-  private startPush(): Promise<SnapshotPushResult> {
+  private startPush(): Promise<SnapshotPushOutcome> {
     if (!this.tracker.isOperational) {
       return Promise.resolve({ persisted: 0, total: 0, success: true })
     }
@@ -465,7 +465,7 @@ export class SnapshotPusher {
     return this.runPush()
   }
 
-  private async runPush(): Promise<SnapshotPushResult> {
+  private async runPush(): Promise<SnapshotPushOutcome> {
     // Only set when this call ran the push rather than coalescing onto one
     let settledSuccess: boolean | null = null
     const result = await this.pushGuard.run(
@@ -485,7 +485,7 @@ export class SnapshotPusher {
     return result
   }
 
-  async pushSnapshots(): Promise<{ persisted: number; total: number }> {
+  async pushSnapshots(): Promise<SnapshotPushResult> {
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }
     }
@@ -493,7 +493,7 @@ export class SnapshotPusher {
     return { persisted: res.persisted, total: res.total }
   }
 
-  private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushResult> {
+  private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushOutcome> {
     const abortController = new AbortController()
     this.pushAbortController = abortController
     const { signal } = abortController
@@ -556,7 +556,7 @@ export class SnapshotPusher {
     }
   }
 
-  async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
+  async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     this.tracker.clearDebounceTimers()
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }

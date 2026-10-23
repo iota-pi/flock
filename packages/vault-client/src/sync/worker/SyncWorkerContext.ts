@@ -35,6 +35,7 @@ import { DSK_KEY, openLocalStorage, type LocalStorage } from './localEncryption/
 import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
+import type { RetrySaveResult } from './syncProtocol'
 
 const log = createLogger('SyncWorkerContext')
 
@@ -710,7 +711,7 @@ export class SyncWorkerContext {
     await recoveryManager.unquarantine(itemId)
   }
 
-  async retrySave(): Promise<{ success: boolean; error?: string }> {
+  async retrySave(): Promise<RetrySaveResult> {
     return this.services.storageRecoveryService.retrySave()
   }
 
