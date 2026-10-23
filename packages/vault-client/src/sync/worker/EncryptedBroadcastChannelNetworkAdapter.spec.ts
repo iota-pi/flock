@@ -1090,11 +1090,11 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       retryAdapter.send(message)
 
-      // During second attempt (awaiting retryWaitPromise), the message must still be at the head of sendQueue with retries: 1
+      // During second attempt (awaiting retryWaitPromise), the message must still be at the head of sendQueue
       await vi.waitFor(() => {
         expect(attempts).toBe(2)
         expect((retryAdapter as any).sendQueue.length).toBe(1)
-        expect((retryAdapter as any).sendQueue[0].retries).toBe(1)
+        expect((retryAdapter as any).sendQueue[0]).toBe(message)
       })
 
       // Resolve retry wait promise to let attempt 2 complete
@@ -1148,11 +1148,11 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       innerCallback(incomingMessage)
 
-      // During second attempt (awaiting retryWaitPromise), message must still be retained at head of receiveQueue with retries: 1
+      // During second attempt (awaiting retryWaitPromise), message must still be retained at head of receiveQueue
       await vi.waitFor(() => {
         expect(attempts).toBe(2)
         expect((retryAdapter as any).receiveQueue.length).toBe(1)
-        expect((retryAdapter as any).receiveQueue[0].retries).toBe(1)
+        expect((retryAdapter as any).receiveQueue[0]).toBe(incomingMessage)
       })
 
       // Resolve retry wait promise to let attempt 2 complete
