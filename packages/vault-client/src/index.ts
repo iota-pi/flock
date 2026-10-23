@@ -2,7 +2,16 @@
 // hooks. The sync worker's entry point is `@vault/client/worker`, and storage names are configured
 // through `@vault/client/storageNames`.
 
-export * from './api/vault'
+export {
+  changePassword,
+  clearVaultDeviceData,
+  createVaultAccount,
+  exportData,
+  getActiveKeyVersion,
+  importData,
+  loginVault,
+  upgradeKeyDerivation,
+} from './api/vault'
 export {
   establishSessionFromKeyHash,
   getKeyHash,
@@ -19,7 +28,6 @@ export {
   subscribeBiometrics,
 } from './api/biometricStore'
 export { isWebAuthnPrfSupported } from './api/webauthn'
-export { readCachedKeyring, writeCachedKeyring, clearCachedKeyring } from './api/keyringCache'
 export { readStoredMetadata, hasRandomDataKeys } from './api/storedMetadata'
 export { configureVaultHost, type VaultHostHooks } from './api/vaultHost'
 export { VaultNotInitializedError, type KeyProvider } from './api/Keyring'
