@@ -38,12 +38,55 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncWorkerContext')
 
+/** The host app's settings, which every session's context is built with (see SyncWorkerConfig) */
+export interface SyncSessionConfig {
+  /** The app's document codec and hooks. Defaults to passing documents through untouched. */
+  domain?: SyncDomain
+  /**
+   * Brings the account's local data from older layouts into the current one. Runs once per
+   * session before any store is read, one tab at a time. Stores only read the current layout.
+   */
+  migrateLocalData?: (accountId: string) => Promise<void>
+  /**
+   * The lowest level of local data this app reads (see `SyncDomain.dataVersion`). Below it, if the
+   * device holds any data for the account, sync doesn't start: the worker emits `migrationRequired`
+   * and `initRepo` rejects with `MigrationRequiredError`, so the app can send the user to its
+   * migration app. Leave it unset in the migration app itself.
+   */
+  minDataVersion?: number
+  /**
+   * Whether the device holds the account's data in a layout the app no longer reads. Checked with
+   * `minDataVersion` for devices with no data in the current layout.
+   */
+  hasLegacyLocalData?: (accountId: string) => Promise<boolean>
+  /**
+   * Rewrites every snapshot once per device, so snapshots from before ciphertexts were bound to
+   * their document are replaced (see SnapshotFormatUpgrade). For an app's migration app.
+   */
+  upgradeSnapshotFormat?: boolean
+  /**
+   * Fetches the manifest on every sync, rather than at most daily on a device that has items, so
+   * every row on the server is seen. For an app's migration app.
+   */
+  fetchManifestEverySync?: boolean
+  /**
+   * Seals this device's local data with a device storage key, copying any plaintext data into the
+   * sealed stores and then deleting the plaintext ones (see docs/local-encryption.md, Part 2)
+   */
+  upgradeLocalEncryption?: boolean
+  /**
+   * The app's data version (`SyncDomain.dataVersion`) at which local data is sealed. The device's
+   * recorded level stays below it until its storage is sealed and the plaintext stores are retired.
+   */
+  sealedDataVersion?: number
+}
+
 /**
  * Slim configuration for SyncWorkerContext.
  * All stores and managers are constructed internally; only primitive inputs and
  * optional callback bridges back to the Comlink layer are accepted here.
  */
-export interface SyncWorkerContextConfig {
+export interface SyncWorkerContextConfig extends SyncSessionConfig {
   accountId: string
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
@@ -71,22 +114,6 @@ export interface SyncWorkerContextConfig {
   refreshAuthToken?: () => Promise<string | null>
   /** Optional override for testing. */
   apiClient?: SyncApiClient
-  /** The app's document codec and hooks. Defaults to passing documents through untouched. */
-  domain?: SyncDomain
-  /** Brings local data from older layouts into the current one (see SyncWorkerConfig) */
-  migrateLocalData?: (accountId: string) => Promise<void>
-  /** The lowest device level sync starts with (see SyncWorkerConfig) */
-  minDataVersion?: number
-  /** Whether the device holds data in layouts the app no longer reads (see SyncWorkerConfig) */
-  hasLegacyLocalData?: (accountId: string) => Promise<boolean>
-  /** Rewrites this device's unbound snapshots once (see SyncWorkerConfig) */
-  upgradeSnapshotFormat?: boolean
-  /** Fetches the manifest on every sync (see SyncWorkerConfig) */
-  fetchManifestEverySync?: boolean
-  /** Seals local data (see SyncWorkerConfig) */
-  upgradeLocalEncryption?: boolean
-  /** The data version at which local data is sealed (see SyncWorkerConfig) */
-  sealedDataVersion?: number
   /** Whether the account's data keys are random (see InitRepoOptions) */
   randomDataKeys?: boolean
   /** The account's data keys */

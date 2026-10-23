@@ -79,7 +79,13 @@ export class WorkerLifecycleManager {
     this.initRetryStrategy.attempt = val
   }
 
-  private _restartResolve: (() => void) | null = null
+  /** Settles the pending `initializationPromise` that mutations wait on while a crashed worker restarts */
+  private pendingRestart: PromiseWithResolvers<void> | null = null
+
+  private resolvePendingRestart(): void {
+    this.pendingRestart?.resolve()
+    this.pendingRestart = null
+  }
 
   private readonly healthMonitor = new SyncWorkerHealthMonitor({
     setSyncStatus: status => this.callbacks.onStatusChange(status),
@@ -301,13 +307,11 @@ export class WorkerLifecycleManager {
               this.syncApi = null
               if (willRestart) {
                 // Keep initializationPromise as a pending promise so mutations queue up
-                this.initializationPromise = new Promise(resolve => {
-                  this._restartResolve = resolve
-                })
+                this.pendingRestart = Promise.withResolvers<void>()
+                this.initializationPromise = this.pendingRestart.promise
               } else {
                 this.initializationPromise = null
-                this._restartResolve?.()
-                this._restartResolve = null
+                this.resolvePendingRestart()
               }
             }
           },
@@ -316,18 +320,13 @@ export class WorkerLifecycleManager {
               if (this.currentAccountId === accountId) {
                 this.initializationPromise = null
                 this.callbacks.onRestart(accountId)
-                  .then(() => {
-                    this._restartResolve?.()
-                    this._restartResolve = null
-                  })
+                  .then(() => this.resolvePendingRestart())
                   .catch(err => {
                     log.error('Auto-restart initialization failed:', err)
-                    this._restartResolve?.()
-                    this._restartResolve = null
+                    this.resolvePendingRestart()
                   })
               } else {
-                this._restartResolve?.()
-                this._restartResolve = null
+                this.resolvePendingRestart()
               }
             }, SYNC_TIMEOUTS.workerRestartDelay)
           },
@@ -439,10 +438,7 @@ export class WorkerLifecycleManager {
       this.currentAccountId = null
     }
     this.initRetryCount = 0
-    if (this._restartResolve) {
-      this._restartResolve()
-      this._restartResolve = null
-    }
+    this.resolvePendingRestart()
     this.healthMonitor.stopWorkerHeartbeat()
     this.healthMonitor.resetCrashMetrics()
 

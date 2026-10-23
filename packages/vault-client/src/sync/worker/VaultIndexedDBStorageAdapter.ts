@@ -46,7 +46,7 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
   private isExplicitlyClosed = false
   private isClosing = false
   private activeTransactions = 0
-  private drainResolve: (() => void) | null = null
+  private drained: PromiseWithResolvers<void> | null = null
   private closePromise: Promise<void> | null = null
   private readonly storeName: string
   private readonly version: number | undefined
@@ -165,9 +165,8 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
 
       // Wait for any active in-flight transactions to drain
       if (this.activeTransactions > 0) {
-        await new Promise<void>(resolve => {
-          this.drainResolve = resolve
-        })
+        this.drained = Promise.withResolvers<void>()
+        await this.drained.promise
       }
 
       const db = this.db
@@ -297,9 +296,9 @@ export class VaultIndexedDBStorageAdapter implements StorageAdapterInterface {
       }
     } finally {
       this.activeTransactions -= 1
-      if (this.activeTransactions === 0 && this.drainResolve) {
-        this.drainResolve()
-        this.drainResolve = null
+      if (this.activeTransactions === 0 && this.drained) {
+        this.drained.resolve()
+        this.drained = null
       }
     }
   }

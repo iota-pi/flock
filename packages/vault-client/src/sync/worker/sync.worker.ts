@@ -2,7 +2,6 @@
 import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
 
-import type { DocHandle } from '@automerge/automerge-repo/slim'
 import type { InitRepoOptions, SyncApi } from './syncProtocol'
 import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
@@ -15,14 +14,14 @@ import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import { ItemId } from '@vault/shared'
-import { SyncWorkerContext } from './SyncWorkerContext'
+import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
+import { ItemSubscriptions } from './ItemSubscriptions'
 import type { WalEntry } from './SyncWriteAheadLog'
 import type { RepoDoc } from './docStore'
-import { toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { PollOutcome } from './SyncPoller'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../../api/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
-import type { SyncDomain } from './domain'
 import { getTrackedFetch } from '../../api/trackedFetch'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
@@ -31,52 +30,15 @@ import { AbortError } from '../utils/abort'
 const log = createLogger('SyncWorker')
 
 /** Everything the host app supplies to the sync worker (see exposeSyncWorker) */
-export interface SyncWorkerConfig {
+export interface SyncWorkerConfig extends SyncSessionConfig {
   /** URL of Automerge's wasm binary, as resolved by the app's bundler */
   automergeWasmUrl: string
   /** Vault API base URL */
   endpoint: string
   storageNames: VaultStorageNames
-  /** The app's document codec and hooks */
-  domain?: SyncDomain
-  /**
-   * Brings the account's local data from older layouts into the current one. Runs once per
-   * session before any store is read, one tab at a time. Stores only read the current layout.
-   */
-  migrateLocalData?: (accountId: string) => Promise<void>
-  /**
-   * The lowest level of local data this app reads (see `SyncDomain.dataVersion`). Below it, if the
-   * device holds any data for the account, sync doesn't start: the worker emits `migrationRequired`
-   * and `initRepo` rejects with `MigrationRequiredError`, so the app can send the user to its
-   * migration app. Leave it unset in the migration app itself.
-   */
-  minDataVersion?: number
-  /**
-   * Whether the device holds the account's data in a layout the app no longer reads. Checked with
-   * `minDataVersion` for devices with no data in the current layout.
-   */
-  hasLegacyLocalData?: (accountId: string) => Promise<boolean>
-  /**
-   * Rewrites every snapshot once per device, so snapshots from before ciphertexts were bound to
-   * their document are replaced (see SnapshotFormatUpgrade). For an app's migration app.
-   */
-  upgradeSnapshotFormat?: boolean
-  /**
-   * Fetches the manifest on every sync, rather than at most daily on a device that has items, so
-   * every row on the server is seen. For an app's migration app.
-   */
-  fetchManifestEverySync?: boolean
-  /**
-   * Seals this device's local data with a device storage key, copying any plaintext data into the
-   * sealed stores and then deleting the plaintext ones (see docs/local-encryption.md, Part 2)
-   */
-  upgradeLocalEncryption?: boolean
-  /**
-   * The app's data version (`SyncDomain.dataVersion`) at which local data is sealed. The device's
-   * recorded level stays below it until its storage is sealed and the plaintext stores are retired.
-   */
-  sealedDataVersion?: number
 }
+
+const NOT_INITIALIZED_MESSAGE = 'SyncWorker not initialized. Call initRepo first.'
 
 let globalEventPort: MessagePort | null = null
 
@@ -143,9 +105,7 @@ function installWorkerListeners(): void {
 
 export class SyncWorker implements SyncApi {
   private _context: SyncWorkerContext | null = null
-  private readyPromise: Promise<SyncWorkerContext> | null = null
-  private readyResolve: ((ctx: SyncWorkerContext) => void) | null = null
-  private readyReject: ((err: unknown) => void) | null = null
+  private ready = createReady()
   private isReady = false
   private isShutDown = false
   private clientEventHub = new ClientEventHub()
@@ -153,33 +113,38 @@ export class SyncWorker implements SyncApi {
   private isOnline = true
   private syncStatusManager = new SyncStatusManager(this.clientEventHub)
   private unsubscribeRealtimeBus: (() => void) | null = null
-  private subscribedIds = new Set<ItemId>()
-  private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<RepoDoc>; listener: () => void }>()
-  private tokenRefreshPromise: Promise<string | null> | null = null
-  private tokenRefreshResolve: ((token: string | null) => void) | null = null
+  private readonly subscriptions = new ItemSubscriptions(
+    () => this.context.services.repo,
+    (itemId, handle) => this.handleItemChange(itemId, handle.doc() || null),
+  )
+
+  private tokenRefresh: PromiseWithResolvers<string | null> | null = null
   private tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
   private latestAuthToken: string | null = null
   private readonly keyring = new Keyring()
+  private readonly automergeWasmUrl: string
+  /** The settings every session's context is built with */
+  private readonly sessionConfig: SyncSessionConfig
 
-  constructor(private readonly config: SyncWorkerConfig) {
-    this.initReadyPromise()
+  constructor(config: SyncWorkerConfig) {
+    const { automergeWasmUrl, endpoint, storageNames, ...sessionConfig } = config
+    this.automergeWasmUrl = automergeWasmUrl
+    this.sessionConfig = sessionConfig
   }
 
   requestAuthTokenRefresh = (): Promise<string | null> => {
-    if (this.tokenRefreshPromise) {
-      return this.tokenRefreshPromise
+    if (this.tokenRefresh) {
+      return this.tokenRefresh.promise
     }
 
-    this.tokenRefreshPromise = new Promise<string | null>(resolve => {
-      this.tokenRefreshResolve = resolve
-      this.tokenRefreshTimeoutId = setTimeout(() => {
-        log.warn('Token refresh timed out waiting for main thread')
-        this.resolveTokenRefresh(null)
-      }, 10000)
-    })
+    this.tokenRefresh = Promise.withResolvers<string | null>()
+    this.tokenRefreshTimeoutId = setTimeout(() => {
+      log.warn('Token refresh timed out waiting for main thread')
+      this.resolveTokenRefresh(null)
+    }, 10000)
 
     this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
-    return this.tokenRefreshPromise
+    return this.tokenRefresh.promise
   }
 
   private resolveTokenRefresh(token: string | null): void {
@@ -187,35 +152,19 @@ export class SyncWorker implements SyncApi {
       clearTimeout(this.tokenRefreshTimeoutId)
       this.tokenRefreshTimeoutId = null
     }
-    const resolve = this.tokenRefreshResolve
-    this.tokenRefreshResolve = null
-    this.tokenRefreshPromise = null
-    if (resolve) {
-      resolve(token)
-    }
-  }
-
-  private initReadyPromise() {
-    this.readyPromise = new Promise<SyncWorkerContext>((resolve, reject) => {
-      this.readyResolve = resolve
-      this.readyReject = reject
-    })
-    // Callers that wait on it still see the rejection. Without one, a rejection nobody waits for
-    // (a failed initRepo or a shutdown before it) would be reported as an unhandled worker error.
-    this.readyPromise.catch(() => {})
+    const tokenRefresh = this.tokenRefresh
+    this.tokenRefresh = null
+    tokenRefresh?.resolve(token)
   }
 
   private async ensureReady(): Promise<SyncWorkerContext> {
     if (this.isShutDown) {
-      throw new Error("SyncWorker not initialized. Call initRepo first.")
+      throw new Error(NOT_INITIALIZED_MESSAGE)
     }
     if (this.isReady && this._context) {
       return this._context
     }
-    if (this.readyPromise) {
-      return this.readyPromise
-    }
-    throw new Error("SyncWorker not initialized. Call initRepo first.")
+    return this.ready.promise
   }
 
   private async withContext<T>(fn: (ctx: SyncWorkerContext) => Promise<T> | T): Promise<T> {
@@ -224,14 +173,14 @@ export class SyncWorker implements SyncApi {
   }
 
   private get context(): SyncWorkerContext {
-    if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
+    if (!this._context) throw new Error(NOT_INITIALIZED_MESSAGE)
     return this._context
   }
 
-  private async teardownSession(): Promise<void> {
+  private async teardownSession(options?: { clearLocalData?: boolean }): Promise<void> {
     this.resolveTokenRefresh(null)
     const accountId = this._context?.accountId
-    this.clearListeners()
+    this.subscriptions.clear()
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
@@ -239,7 +188,7 @@ export class SyncWorker implements SyncApi {
     if (accountId) {
       teardownRealtimeBus(accountId)
     }
-    await this._context?.shutdown()
+    await this._context?.shutdown(options)
     this._context = null
   }
 
@@ -261,7 +210,7 @@ export class SyncWorker implements SyncApi {
 
   private async initGlobalPrerequisites(vaultKey: string): Promise<void> {
     await this.loadKeyring(vaultKey)
-    await Automerge.initializeWasm(this.config.automergeWasmUrl)
+    await Automerge.initializeWasm(this.automergeWasmUrl)
   }
 
   /** Loads the keyring exported by the main thread */
@@ -309,11 +258,11 @@ export class SyncWorker implements SyncApi {
           this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
           break
         case 'docHandleReplaced':
-          this.handleDocHandleReplaced(event.itemId, event.handle)
+          this.subscriptions.rebind(event.itemId, event.handle)
           break
         case 'itemMessageParsed':
           if ((event.itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-            this.subscribeToItems([event.itemId])
+            this.subscriptions.subscribe([event.itemId])
           }
           break
       }
@@ -336,7 +285,7 @@ export class SyncWorker implements SyncApi {
     adapter.setAccount(accountId)
 
     const localItemIds = await indexManager.listAutomergeItemIds()
-    this.updateItemSubscriptions(localItemIds)
+    this.subscriptions.update(localItemIds)
     this.clientEventHub.emit({
       type: 'indexUpdated',
       itemIds: localItemIds.filter(id => !accountSettings.isSettingsDoc(id)),
@@ -351,7 +300,7 @@ export class SyncWorker implements SyncApi {
 
   private setupRealtimeBus(accountId: string): void {
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(accountId, itemIds => {
-      this.subscribeToItems(itemIds)
+      this.subscriptions.subscribe(itemIds)
       if (this._context) {
         // Pings also name deleted items, which mustn't come back. A deliberate restore reaches this
         // tab as a doc change, which re-indexes the item.
@@ -370,9 +319,9 @@ export class SyncWorker implements SyncApi {
     options?: InitRepoOptions,
   ) {
     this.isShutDown = false
-    if (this.isReady || !this.readyPromise) {
+    if (this.isReady) {
       this.isReady = false
-      this.initReadyPromise()
+      this.ready = createReady()
     }
 
     await this.teardownSession()
@@ -389,20 +338,13 @@ export class SyncWorker implements SyncApi {
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
         refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
-        onDocumentReceived: itemId => this.subscribeToItems([itemId]),
-        onDocHandleReplaced: (itemId, handle) => this.handleDocHandleReplaced(itemId, handle),
+        onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
+        onDocHandleReplaced: (itemId, handle) => this.subscriptions.rebind(itemId, handle),
         onIndexUpdated: itemIds => {
-          if (this._context === context) this.updateItemSubscriptions(itemIds)
+          if (this._context === context) this.subscriptions.update(itemIds)
         },
         onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
-        domain: this.config.domain,
-        migrateLocalData: this.config.migrateLocalData,
-        minDataVersion: this.config.minDataVersion,
-        hasLegacyLocalData: this.config.hasLegacyLocalData,
-        upgradeSnapshotFormat: this.config.upgradeSnapshotFormat,
-        fetchManifestEverySync: this.config.fetchManifestEverySync,
-        upgradeLocalEncryption: this.config.upgradeLocalEncryption,
-        sealedDataVersion: this.config.sealedDataVersion,
+        ...this.sessionConfig,
         randomDataKeys: options?.randomDataKeys,
         keys: this.keyring,
         localKeys: this.keyring,
@@ -422,11 +364,11 @@ export class SyncWorker implements SyncApi {
       this.syncStatusManager.reset(this.isOnline)
 
       this.isReady = true
-      this.readyResolve?.(context)
+      this.ready.resolve(context)
     } catch (err) {
       this.isReady = false
-      this.readyReject?.(err)
-      this.initReadyPromise()
+      this.ready.reject(err)
+      this.ready = createReady()
       throw err
     }
   }
@@ -444,103 +386,27 @@ export class SyncWorker implements SyncApi {
     this.syncStatusManager.handlePollResult(outcome)
   }
 
-  private bindItemHandle(id: ItemId, handle: DocHandle<RepoDoc>) {
-    const existing = this.changeListenersByItemId.get(id)
-    if (existing) {
-      existing.handle.off('change', existing.listener)
+  /** Sends a subscribed item's state to the app and keeps the index in step with it */
+  private handleItemChange(id: ItemId, doc: RepoDoc | null): void {
+    const { accountSettings, docStore, indexManager } = this.context.services
+    if (accountSettings.isSettingsDoc(id)) {
+      accountSettings.handleSettingsDoc(doc)
+      return
     }
-
-    const handleChange = () => {
-      try {
-        const doc = handle.doc() || null
-        if (this.context.services.accountSettings.isSettingsDoc(id)) {
-          this.context.services.accountSettings.handleSettingsDoc(doc)
-          return
-        }
-        const item = this.context.services.docStore.decodeSnapshot(id, doc)
-        if (item?.deleted) {
-          fireAndForget(
-            this.context.services.indexManager.removeAutomergeItemIdsFromIndex([id]),
-            'SyncWorker:removeAutomergeItemIdsFromIndex',
-          )
-          this.unsubscribe(id)
-        } else if (item) {
-          fireAndForget(
-            this.context.services.indexManager.addAutomergeItemIdsToIndex([id]),
-            'SyncWorker:addAutomergeItemIdsToIndex',
-          )
-        }
-        this.clientEventHub.emit({ type: 'itemUpdated', id, item })
-      } catch (err) {
-        log.error(`Error handling Automerge doc change for item ${id}:`, err)
-      }
-    }
-    handle.on('change', handleChange)
-    this.changeListenersByItemId.set(id, { handle, listener: handleChange })
-    handleChange()
-  }
-
-  private handleDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>) {
-    if (this.subscribedIds.has(itemId) || this.changeListenersByItemId.has(itemId)) {
-      this.subscribedIds.add(itemId)
-      this.bindItemHandle(itemId, handle)
-    }
-  }
-
-  subscribeToItems(itemIds: ItemId[]) {
-    const repo = this.context.services.repo
-    for (const id of itemIds) {
-      if (this.subscribedIds.has(id)) continue
-      this.subscribedIds.add(id)
-
-      const url = toAutomergeUrlFromItemId(id)
+    const item = docStore.decodeSnapshot(id, doc)
+    if (item?.deleted) {
       fireAndForget(
-        repo.find<RepoDoc>(url).then(
-          handle => {
-            if (!this.subscribedIds.has(id)) return
-            const currentHandle = (repo.handles?.[handle.documentId] as DocHandle<RepoDoc> | undefined) ?? handle
-            this.bindItemHandle(id, currentHandle)
-          },
-          (err: unknown) => {
-            // Forgotten so a later subscribe tries again, unless a handle has been bound since
-            if (!this.changeListenersByItemId.has(id)) {
-              this.subscribedIds.delete(id)
-            }
-            throw err
-          },
-        ),
-        'SyncWorker:subscribeToItems:find',
+        indexManager.removeAutomergeItemIdsFromIndex([id]),
+        'SyncWorker:removeAutomergeItemIdsFromIndex',
+      )
+      this.subscriptions.unsubscribe(id)
+    } else if (item) {
+      fireAndForget(
+        indexManager.addAutomergeItemIdsToIndex([id]),
+        'SyncWorker:addAutomergeItemIdsToIndex',
       )
     }
-  }
-
-  updateItemSubscriptions(itemIds: ItemId[]) {
-    this.subscribeToItems(itemIds)
-
-    const itemIdsSet = new Set(itemIds)
-    for (const subscribedId of Array.from(this.subscribedIds)) {
-      if (!itemIdsSet.has(subscribedId)) {
-        this.unsubscribe(subscribedId)
-      }
-    }
-  }
-
-  private unsubscribe(itemId: ItemId) {
-    this.subscribedIds.delete(itemId)
-    const sub = this.changeListenersByItemId.get(itemId)
-    this.changeListenersByItemId.delete(itemId)
-
-    if (sub) {
-      sub.handle.off('change', sub.listener)
-    }
-  }
-
-  clearListeners() {
-    for (const [, sub] of this.changeListenersByItemId) {
-      sub.handle.off('change', sub.listener)
-    }
-    this.subscribedIds.clear()
-    this.changeListenersByItemId.clear()
+    this.clientEventHub.emit({ type: 'itemUpdated', id, item })
   }
 
   // Sync API Pass-through Delegation
@@ -714,30 +580,27 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.claimLeader())
 
   async shutdown(options?: { clearLocalData?: boolean }) {
-    this.resolveTokenRefresh(null)
     this.latestAuthToken = null
     clearActiveSessionToken()
     this.isShutDown = true
     this.isReady = false
-    if (this.readyReject) {
-      this.readyReject(new Error("SyncWorker not initialized. Call initRepo first."))
-    }
-    this.initReadyPromise()
+    this.ready.reject(new Error(NOT_INITIALIZED_MESSAGE))
+    this.ready = createReady()
 
-    const accountId = this._context?.accountId
-    this.clearListeners()
-    if (this.unsubscribeRealtimeBus) {
-      this.unsubscribeRealtimeBus()
-      this.unsubscribeRealtimeBus = null
-    }
-    if (accountId) {
-      teardownRealtimeBus(accountId)
-    } else {
+    if (!this._context) {
+      // With no session to name an account, every account's bus is closed
       teardownRealtimeBus()
     }
-    await this._context?.shutdown(options)
-    this._context = null
+    await this.teardownSession(options)
   }
+}
+
+function createReady(): PromiseWithResolvers<SyncWorkerContext> {
+  const ready = Promise.withResolvers<SyncWorkerContext>()
+  // Callers that wait on it still see the rejection. Without one, a rejection nobody waits for
+  // (a failed initRepo or a shutdown before it) would be reported as an unhandled worker error.
+  ready.promise.catch(() => {})
+  return ready
 }
 
 /**

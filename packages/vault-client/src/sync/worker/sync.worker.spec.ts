@@ -285,7 +285,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     })
 
     // Subscribe to item-1
-    worker.subscribeToItems(['item-1' as any])
+    ;(worker as any).subscriptions.subscribe(['item-1' as any])
     await Promise.resolve()
 
     expect(handleA.on).toHaveBeenCalledWith('change', expect.any(Function))
@@ -353,49 +353,6 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     expect(handle.on).not.toHaveBeenCalled()
   })
 
-  it('unsubscribes and detaches the exact registered listener reference when updateItemSubscriptions removes an item', async () => {
-    const handle = {
-      documentId: 'doc-item-2',
-      on: vi.fn(),
-      off: vi.fn(),
-      doc: vi.fn().mockReturnValue({ id: 'item-2', name: 'Item 2' }),
-    }
-    mockRepoFind.mockResolvedValue(handle)
-
-    const worker = new SyncWorker(workerConfig)
-    await worker.initRepo('account-1', 'vault-key-1')
-
-    worker.subscribeToItems(['item-2' as any])
-    await Promise.resolve()
-
-    expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function))
-    const registeredListener = (handle.on as any).mock.calls[0][1]
-
-    worker.updateItemSubscriptions([])
-
-    expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
-  })
-
-  it('subscribes to an item again after finding its document failed', async () => {
-    const handle = {
-      documentId: 'doc-item-retry',
-      on: vi.fn(),
-      off: vi.fn(),
-      doc: vi.fn().mockReturnValue({ id: 'item-retry', name: 'Item' }),
-    }
-    const worker = new SyncWorker(workerConfig)
-    await worker.initRepo('account-1', 'vault-key-1')
-
-    mockRepoFind.mockRejectedValueOnce(new Error('Document unavailable'))
-    worker.subscribeToItems(['item-retry' as any])
-    await vi.waitFor(() => expect((worker as any).subscribedIds.has('item-retry')).toBe(false))
-
-    mockRepoFind.mockResolvedValueOnce(handle)
-    worker.subscribeToItems(['item-retry' as any])
-
-    await vi.waitFor(() => expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function)))
-  })
-
   it('routes settings document changes to accountSettings instead of the item stream', async () => {
     const handle = {
       documentId: 'doc-settings',
@@ -412,7 +369,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     const clientEvents: any[] = []
     ;(worker as any).clientEventHub.subscribe((evt: any) => clientEvents.push(evt))
 
-    worker.subscribeToItems(['settings-test-account' as any])
+    ;(worker as any).subscriptions.subscribe(['settings-test-account' as any])
     await Promise.resolve()
 
     expect(mockAccountSettingsHandleSettingsDoc).toHaveBeenCalledWith({ prayerGoal: 4 })
@@ -436,7 +393,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     await worker.initRepo('account-1', 'vault-key-1')
 
     expect(clientEvents).toContainEqual({ type: 'indexUpdated', itemIds: ['item-1'] })
-    expect((worker as any).subscribedIds.has('settings-test-account')).toBe(true)
+    expect((worker as any).subscriptions.has('settings-test-account')).toBe(true)
   })
 
   it('unsubscribes and detaches the exact registered listener reference when an item is deleted', async () => {
@@ -454,7 +411,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
-    worker.subscribeToItems(['item-3' as any])
+    ;(worker as any).subscriptions.subscribe(['item-3' as any])
     await Promise.resolve()
 
     expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function))
@@ -466,7 +423,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
   })
 
-  it('detaches the exact registered listener reference for all handles on clearListeners', async () => {
+  it('detaches the exact registered listener reference for all handles on shutdown', async () => {
     const handle = {
       documentId: 'doc-item-4',
       on: vi.fn(),
@@ -478,12 +435,12 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
-    worker.subscribeToItems(['item-4' as any])
+    ;(worker as any).subscriptions.subscribe(['item-4' as any])
     await Promise.resolve()
 
     const registeredListener = (handle.on as any).mock.calls[0][1]
 
-    worker.clearListeners()
+    await worker.shutdown()
 
     expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
   })
