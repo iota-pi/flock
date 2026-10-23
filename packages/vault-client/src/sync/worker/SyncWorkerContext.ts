@@ -92,57 +92,55 @@ export interface SyncWorkerContextConfig {
   localKeys?: LocalKeyWrapper
 }
 
+/** The components `initialize` builds once local storage is open */
+export interface SyncWorkerServices {
+  repo: Repo
+  repoManager: AutomergeRepoManager
+  adapter: VaultNetworkAdapter
+  broker: SyncMessageBroker
+  indexStore: IndexStore
+  cursorStore: CursorStore
+  lastModifiedStore: LastModifiedStore
+  syncedHeadsStore: SyncedHeadsStore
+  wal: SyncWriteAheadLog
+  docStore: AutomergeDocStore
+  indexManager: AutomergeIndexManager
+  recoveryManager: RecoveryManager
+  pullQueueManager: SyncPullQueueManager
+  snapshotManager: SnapshotManager
+  orchestrator: SyncOrchestrator
+  manifestSyncManager: ManifestSyncManager
+  itemOperations: ItemOperations
+  storageRecoveryService: StorageRecoveryService
+  itemReencryptor: ItemReencryptor
+  accountSettings: AccountSettings
+  snapshotFormatUpgrade: SnapshotFormatUpgrade | null
+  dataVersionTracker: DataVersionTracker
+}
+
 export class SyncWorkerContext {
   public readonly accountId: string
-  public repo!: Repo
-  public adapter!: VaultNetworkAdapter
-  public broker!: SyncMessageBroker
-  public repoManager!: AutomergeRepoManager
   public readonly clientEventHub: ClientEventHub
   public readonly internalEventHub: WorkerInternalEventHub
   public readonly apiClient: SyncApiClient
   public readonly domain: SyncDomain
-
-  public indexStore!: IndexStore
-  public cursorStore!: CursorStore
-  public lastModifiedStore!: LastModifiedStore
-  public syncedHeadsStore!: SyncedHeadsStore
-  public wal!: SyncWriteAheadLog
-
-  public docStore!: AutomergeDocStore
-  public indexManager!: AutomergeIndexManager
-  public recoveryManager!: RecoveryManager
-  public pullQueueManager!: SyncPullQueueManager
-  public snapshotManager!: SnapshotManager
-  public orchestrator!: SyncOrchestrator
-  public manifestSyncManager!: ManifestSyncManager
-  public itemOperations!: ItemOperations
-  public storageRecoveryService!: StorageRecoveryService
-  public itemReencryptor!: ItemReencryptor
-  public accountSettings!: AccountSettings
-  public snapshotFormatUpgrade: SnapshotFormatUpgrade | null = null
-  public dataVersionTracker!: DataVersionTracker
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
-
-  private unsubscribers: Array<() => void> = []
-  private isStopped = false
   /** How this session stores local data, once `initialize` has opened it */
   public localStorageState: Pick<LocalStorage, 'mode' | 'retired'> | null = null
+
+  private _services: SyncWorkerServices | null = null
+  private unsubscribers: Array<() => void> = []
+  private isStopped = false
+  private hasLocalDataAtStart = false
   /** Documents whose sealed records failed to decrypt this session (see AutomergeDocStore.isLocallyUnreadable) */
   private readonly unreadableDocuments = new Set<string>()
   /** The sealed database, whose `meta` store holds the wrapped device storage key */
   private sealedStorage: LocalStorage['storage'] | null = null
   private readonly config: SyncWorkerContextConfig
-  private readonly migrateLocalDataHook?: (accountId: string) => Promise<void>
-  private readonly minDataVersion: number
-  private readonly hasLegacyLocalData?: (accountId: string) => Promise<boolean>
 
   constructor(config: SyncWorkerContextConfig) {
     this.config = config
     this.accountId = config.accountId
-    this.migrateLocalDataHook = config.migrateLocalData
-    this.minDataVersion = config.minDataVersion ?? 0
-    this.hasLegacyLocalData = config.hasLegacyLocalData
     this.clientEventHub = config.clientEventHub
     this.internalEventHub = config.internalEventHub
     const domain = config.domain ?? DEFAULT_SYNC_DOMAIN
@@ -150,78 +148,215 @@ export class SyncWorkerContext {
     this.apiClient = config.apiClient ?? new SyncApiClient({
       refreshAuthToken: config.refreshAuthToken,
     })
-
-    this.initStores(config.accountId)
   }
 
-  private initStores(accountId: string): void {
-    this.cursorStore = new CursorStore(accountId)
-    this.indexStore = new IndexStore(accountId)
-    this.lastModifiedStore = new LastModifiedStore(accountId)
-    this.syncedHeadsStore = new SyncedHeadsStore(accountId)
-    this.wal = new SyncWriteAheadLog(accountId, this.internalEventHub)
+  /** The components `initialize` builds. Throws before local storage has been opened. */
+  get services(): SyncWorkerServices {
+    if (!this._services) {
+      throw new Error('SyncWorkerContext has not been initialized')
+    }
+    return this._services
   }
 
   /** Creates the Repo and every component that takes it, once local storage is open */
-  private createComponents(config: SyncWorkerContextConfig, local: LocalStorage): void {
-    if (local.cipher) {
-      this.indexStore = new IndexStore(config.accountId, { cipher: local.cipher })
-      this.wal = new SyncWriteAheadLog(config.accountId, this.internalEventHub, { cipher: local.cipher })
-    }
+  private createComponents(local: LocalStorage): void {
     this.localStorageState = { mode: local.mode, retired: local.retired }
     this.sealedStorage = local.mode === 'sealed' ? local.storage : null
-    this.initServices(config, local.storage)
-    this.wireEvents()
+    const services = this.createServices(local)
+    this._services = services
+    services.snapshotManager.setLeader(services.orchestrator.leader)
+    services.orchestrator.setManifestSyncManager(services.manifestSyncManager)
+    this.subscribeInternalEvents(services)
+    this.subscribeCrossTabDirtyItems(services)
+    this.registerLifecycleServices(services)
   }
 
-  private initServices(config: SyncWorkerContextConfig, storage: LocalStorage['storage']): void {
-    const network = this.initNetworkAndRepo(config, storage)
-    this.adapter = network.adapter
-    this.repoManager = network.repoManager
-    this.repo = network.repo
+  private createServices(local: LocalStorage): SyncWorkerServices {
+    const { accountId, keys, clientEventHub, internalEventHub } = this.config
+    const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
+    const indexStore = new IndexStore(accountId, cipherOptions)
+    const cursorStore = new CursorStore(accountId)
+    const lastModifiedStore = new LastModifiedStore(accountId)
+    const syncedHeadsStore = new SyncedHeadsStore(accountId)
+    const wal = new SyncWriteAheadLog(accountId, internalEventHub, cipherOptions)
 
-    const core = this.createCoreServices(config)
-    this.docStore = core.docStore
-    this.indexManager = core.indexManager
-    this.pullQueueManager = core.pullQueueManager
-    this.broker = core.broker
-    this.recoveryManager = core.recoveryManager
-    this.snapshotManager = core.snapshotManager
+    const { adapter, repoManager, repo } = this.createNetworkAndRepo(local.storage, syncedHeadsStore)
 
-    const ops = this.createOrchestrationAndOperations(config)
-    this.orchestrator = ops.orchestrator
-    this.itemOperations = ops.itemOperations
-    this.accountSettings = ops.accountSettings
-    this.manifestSyncManager = ops.manifestSyncManager
-    this.storageRecoveryService = ops.storageRecoveryService
-    this.itemReencryptor = new ItemReencryptor({
-      codec: this.domain.codec,
-      keys: config.keys,
-      onSnapshotsStored: stored => this.recordStoredSnapshots(stored),
+    const docStore = new AutomergeDocStore(repo, internalEventHub, repoManager.getStorage(), this.domain.codec)
+    docStore.isLocallyUnreadable = documentId => this.unreadableDocuments.has(documentId)
+    if (this.config.onDocHandleReplaced) {
+      docStore.onDocHandleReplaced = this.config.onDocHandleReplaced
+    }
+
+    // The settings are created later, so these callbacks read them from the finished services
+    const indexManager = new AutomergeIndexManager(
+      accountId,
+      indexStore,
+      itemIds => {
+        this.config.onIndexUpdated?.(itemIds)
+        const settingsId = this._services?.accountSettings.docId
+        clientEventHub.emit({ type: 'indexUpdated', itemIds: itemIds.filter(id => id !== settingsId) })
+      },
+      metadata => this._services?.accountSettings.handleLocalMetadata(metadata),
+    )
+
+    const pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, internalEventHub)
+    const recoveryManager = new RecoveryManager({ accountId, eventHub: clientEventHub })
+
+    const broker = new SyncMessageBroker({
+      adapter,
+      clientEventHub,
+      internalEventHub,
+      indexManager,
+      pullQueueManager,
+      keys,
+      wal,
+      apiClient: this.apiClient,
+      recoveryManager,
+      // The storage recovery service takes the broker, so it's read once the services are built
+      onQuotaExceeded: error => this.services.storageRecoveryService.handleQuotaExceeded(error),
     })
-    this.dataVersionTracker = new DataVersionTracker({
-      accountId: config.accountId,
-      dataVersion: this.domain.dataVersion ?? 0,
-      raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: config.accountId }),
-      maxDeviceVersion: this.maxDeviceVersion(config),
-    })
-    if (!config.upgradeSnapshotFormat) return
-    this.snapshotFormatUpgrade = new SnapshotFormatUpgrade({
-      accountId: config.accountId,
-      onUpgraded: () => fireAndForget(
-        this.dataVersionTracker.onSnapshotsUpgraded(),
-        'SyncWorkerContext:raiseAccountDataVersion',
-      ),
-      rewriteSnapshots: signal => this.itemReencryptor.reencryptAllItems({
-        accountId: config.accountId,
-        signal,
-        repo: this.repo,
-        indexManager: this.indexManager,
+
+    const snapshotManager = new SnapshotManager(
+      {
+        accountId,
+        repo,
+        broker,
+        getLatestCursor: () => pullQueueManager.getGlobalLatestCursor(),
+        eventHub: clientEventHub,
+        recoveryManager,
         apiClient: this.apiClient,
-        recoveryManager: this.recoveryManager,
-        reencryptor: this.itemReencryptor,
-      }),
+        codec: this.domain.codec,
+        keys,
+      },
+      lastModifiedStore
+    )
+
+    const orchestrator = new SyncOrchestrator(accountId, broker, clientEventHub, internalEventHub, pullQueueManager)
+
+    const markDocumentDirty = (id: ItemId) => {
+      snapshotManager.markItemDirty(id)
+      // Only the leader uploads snapshots, so tell it about edits made in this tab
+      publishRealtimeBusItemDirty(accountId, [id])
+    }
+
+    const itemOperations = new ItemOperations({
+      accountId,
+      docStore,
+      indexManager,
+      eventHub: clientEventHub,
+      markDocumentDirty,
+      recoveryManager,
+      hooks: this.domain.hooks,
     })
+
+    const accountSettings = new AccountSettings({
+      accountId,
+      docStore,
+      indexManager,
+      eventHub: clientEventHub,
+      markDocumentDirty,
+      syncedKeys: this.domain.syncedMetadataKeys,
+      legacySettings: this.domain.legacySettings,
+      withAuth: request => this.apiClient.executeWithAuth(() => request()),
+    })
+
+    const itemReencryptor = new ItemReencryptor({
+      codec: this.domain.codec,
+      keys,
+      onSnapshotsStored: stored => this.recordStoredSnapshots(stored, snapshotManager, broker),
+    })
+
+    const dataVersionTracker = new DataVersionTracker({
+      accountId,
+      dataVersion: this.domain.dataVersion ?? 0,
+      raiseAccountDataVersion: () => this.apiClient.raiseDataVersion({ account: accountId }),
+      maxDeviceVersion: this.maxDeviceVersion(),
+    })
+
+    const snapshotFormatUpgrade = this.config.upgradeSnapshotFormat
+      ? new SnapshotFormatUpgrade({
+        accountId,
+        onUpgraded: () => fireAndForget(
+          dataVersionTracker.onSnapshotsUpgraded(),
+          'SyncWorkerContext:raiseAccountDataVersion',
+        ),
+        rewriteSnapshots: signal => itemReencryptor.reencryptAllItems({
+          accountId,
+          signal,
+          repo,
+          indexManager,
+          apiClient: this.apiClient,
+          recoveryManager,
+          reencryptor: itemReencryptor,
+        }),
+      })
+      : null
+
+    const manifestSyncManager = new ManifestSyncManager({
+      accountId,
+      docStore,
+      indexManager,
+      snapshotManager,
+      keys,
+      recoveryManager,
+      apiClient: this.apiClient,
+      onKeyVersionMissing: kver => clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      storeItems: (items, options) => itemOperations.storeItems(items, options),
+      decodeLegacyItem: this.domain.decodeLegacyItem,
+      migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
+      onMigrationRequired: () => clientEventHub.emit({ type: 'migrationRequired', reason: 'account' }),
+      fetchManifestEverySync: this.config.fetchManifestEverySync,
+      onSyncedWithoutFailures: () => {
+        snapshotFormatUpgrade?.onSyncedWithoutFailures()
+        fireAndForget(dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
+      },
+      onDecryptionFailure: (itemId, error) => {
+        fireAndForget(recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error), 'SyncWorkerContext:reportDecryptionFailure')
+      },
+      onItemSnapshotHydrated: (itemId, heads) => {
+        const docId = toDocumentIdFromItemId(itemId)
+        adapter.setSyncedHeads(docId, heads)
+      },
+    })
+
+    const storageRecoveryService = new StorageRecoveryService({
+      accountId,
+      clientEventHub,
+      wal,
+      docStore,
+      snapshotManager,
+      lastModifiedStore,
+      broker,
+      adapter,
+      orchestrator,
+      onQuotaStatusChange: this.config.onQuotaStatusChange,
+    })
+
+    return {
+      repo,
+      repoManager,
+      adapter,
+      broker,
+      indexStore,
+      cursorStore,
+      lastModifiedStore,
+      syncedHeadsStore,
+      wal,
+      docStore,
+      indexManager,
+      recoveryManager,
+      pullQueueManager,
+      snapshotManager,
+      orchestrator,
+      manifestSyncManager,
+      itemOperations,
+      storageRecoveryService,
+      itemReencryptor,
+      accountSettings,
+      snapshotFormatUpgrade,
+      dataVersionTracker,
+    }
   }
 
   /**
@@ -229,8 +364,8 @@ export class SyncWorkerContext {
    * no plaintext stores are left, so a device on the quota fallback or the password-derived-key guard
    * isn't recorded as migrated.
    */
-  private maxDeviceVersion(config: SyncWorkerContextConfig): (() => number) | undefined {
-    const sealedDataVersion = config.sealedDataVersion
+  private maxDeviceVersion(): (() => number) | undefined {
+    const sealedDataVersion = this.config.sealedDataVersion
     if (sealedDataVersion === undefined) return undefined
     return () => {
       const state = this.localStorageState
@@ -239,43 +374,43 @@ export class SyncWorkerContext {
   }
 
   /** Records snapshots uploaded outside the snapshot pusher (by re-encryption), as the pusher does */
-  private async recordStoredSnapshots(stored: StoredSnapshot[]): Promise<void> {
+  private async recordStoredSnapshots(
+    stored: StoredSnapshot[],
+    snapshotManager: SnapshotManager,
+    broker: SyncMessageBroker,
+  ): Promise<void> {
     const versions: [ItemId, number][] = stored.flatMap(({ itemId, version }) => (
       typeof version === 'number' ? [[itemId, version] as [ItemId, number]] : []
     ))
     if (versions.length > 0) {
-      await this.snapshotManager.importVersions(versions)
+      await snapshotManager.importVersions(versions)
     }
     for (const { itemId, heads } of stored) {
       if (heads && heads.length > 0) {
-        this.broker.setSyncedHeads(itemId, heads)
+        broker.setSyncedHeads(itemId, heads)
       }
     }
   }
 
-  private wireEvents(): void {
-    this.wireCrossServiceDependencies()
-    this.registerLifecycleServices()
-  }
-
-  private initNetworkAndRepo(config: SyncWorkerContextConfig, storage: LocalStorage['storage']) {
+  private createNetworkAndRepo(storage: LocalStorage['storage'], syncedHeadsStore: SyncedHeadsStore) {
     const adapter = new VaultNetworkAdapter(this.internalEventHub)
-    const repoManager = new AutomergeRepoManager(config.accountId, config.keys)
+    const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys)
     const repo = repoManager.init(adapter, storage, {
-      onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       onDocumentReceived: docId => {
         const itemId = toVaultItemIdFromAutomergeId(docId)
         if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
-          config.onDocumentReceived?.(itemId)
+          this.config.onDocumentReceived?.(itemId)
         }
       },
       onQuotaError: error => {
-        if (this.storageRecoveryService) {
-          fireAndForget(this.storageRecoveryService.handleQuotaExceeded(error), 'SyncWorkerContext:onQuotaError')
+        const storageRecoveryService = this._services?.storageRecoveryService
+        if (storageRecoveryService) {
+          fireAndForget(storageRecoveryService.handleQuotaExceeded(error), 'SyncWorkerContext:onQuotaError')
         }
       },
     })
-    adapter.setSyncedHeadsStore?.(this.syncedHeadsStore)
+    adapter.setSyncedHeadsStore?.(syncedHeadsStore)
     adapter.setHeadsValidator?.((documentId, heads) => {
       const handle = repo.handles[documentId] as DocHandle<unknown> | undefined
       if (!handle?.isReady()) return false
@@ -285,178 +420,27 @@ export class SyncWorkerContext {
     return { adapter, repoManager, repo }
   }
 
-  private createCoreServices(config: SyncWorkerContextConfig) {
-    const storage = this.repoManager.getStorage()
-    const docStore = new AutomergeDocStore(this.repo, this.internalEventHub, storage, this.domain.codec)
-    docStore.isLocallyUnreadable = documentId => this.unreadableDocuments.has(documentId)
-    if (config.onDocHandleReplaced) {
-      docStore.onDocHandleReplaced = config.onDocHandleReplaced
-    }
-
-    const indexManager = new AutomergeIndexManager(
-      config.accountId,
-      this.indexStore,
-      itemIds => {
-        config.onIndexUpdated?.(itemIds)
-        const settingsId = this.accountSettings?.docId
-        config.clientEventHub.emit({ type: 'indexUpdated', itemIds: itemIds.filter(id => id !== settingsId) })
-      },
-      metadata => this.accountSettings?.handleLocalMetadata(metadata),
-    )
-
-    const pullQueueManager = new SyncPullQueueManager(
-      this.cursorStore,
-      config.keys,
-      docStore,
-      this.internalEventHub
-    )
-
-    const recoveryManager = new RecoveryManager({
-      accountId: config.accountId,
-      eventHub: config.clientEventHub,
-    })
-
-    const broker = new SyncMessageBroker(
-      this.adapter,
-      config.clientEventHub,
-      config.internalEventHub,
-      indexManager,
-      pullQueueManager,
-      config.keys,
-      this.wal,
-      null,
-      this.apiClient,
-      recoveryManager,
-    )
-
-    const snapshotManager = new SnapshotManager(
-      {
-        accountId: config.accountId,
-        repo: this.repo,
-        broker,
-        getLatestCursor: () => pullQueueManager.getGlobalLatestCursor(),
-        eventHub: config.clientEventHub,
-        recoveryManager,
-        apiClient: this.apiClient,
-        codec: this.domain.codec,
-        keys: config.keys,
-      },
-      this.lastModifiedStore
-    )
-
-    return { docStore, indexManager, pullQueueManager, broker, recoveryManager, snapshotManager }
-  }
-
-  private createOrchestrationAndOperations(config: SyncWorkerContextConfig) {
-    const orchestrator = new SyncOrchestrator(
-      config.accountId,
-      this.broker,
-      config.clientEventHub,
-      config.internalEventHub,
-      this.pullQueueManager
-    )
-
-    const markDocumentDirty = (id: ItemId) => {
-      this.snapshotManager.markItemDirty(id)
-      // Only the leader uploads snapshots, so tell it about edits made in this tab
-      publishRealtimeBusItemDirty(config.accountId, [id])
-    }
-
-    const itemOperations = new ItemOperations({
-      accountId: config.accountId,
-      docStore: this.docStore,
-      indexManager: this.indexManager,
-      eventHub: config.clientEventHub,
-      markDocumentDirty,
-      recoveryManager: this.recoveryManager,
-      hooks: this.domain.hooks,
-    })
-
-    const accountSettings = new AccountSettings({
-      accountId: config.accountId,
-      docStore: this.docStore,
-      indexManager: this.indexManager,
-      eventHub: config.clientEventHub,
-      markDocumentDirty,
-      syncedKeys: this.domain.syncedMetadataKeys,
-      legacySettings: this.domain.legacySettings,
-      withAuth: request => this.apiClient.executeWithAuth(() => request()),
-    })
-
-    const manifestSyncManager = new ManifestSyncManager({
-      accountId: config.accountId,
-      docStore: this.docStore,
-      indexManager: this.indexManager,
-      snapshotManager: this.snapshotManager,
-      keys: config.keys,
-      recoveryManager: this.recoveryManager,
-      apiClient: this.apiClient,
-      onKeyVersionMissing: kver => config.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
-      storeItems: (items, options) => itemOperations.storeItems(items, options),
-      decodeLegacyItem: this.domain.decodeLegacyItem,
-      migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
-      onMigrationRequired: () => config.clientEventHub.emit({ type: 'migrationRequired', reason: 'account' }),
-      fetchManifestEverySync: config.fetchManifestEverySync,
-      onSyncedWithoutFailures: () => {
-        this.snapshotFormatUpgrade?.onSyncedWithoutFailures()
-        fireAndForget(this.dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
-      },
-      onDecryptionFailure: (itemId, error) => {
-        fireAndForget(this.recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error), 'SyncWorkerContext:reportDecryptionFailure')
-      },
-      onItemSnapshotHydrated: (itemId, heads) => {
-        const docId = toDocumentIdFromItemId(itemId)
-        this.adapter.setSyncedHeads(docId, heads)
-      },
-    })
-
-    const storageRecoveryService = new StorageRecoveryService({
-      accountId: config.accountId,
-      clientEventHub: config.clientEventHub,
-      wal: this.wal,
-      docStore: this.docStore,
-      snapshotManager: this.snapshotManager,
-      lastModifiedStore: this.lastModifiedStore,
-      broker: this.broker,
-      adapter: this.adapter,
-      orchestrator,
-      onQuotaStatusChange: config.onQuotaStatusChange,
-    })
-
-    return { orchestrator, itemOperations, accountSettings, manifestSyncManager, storageRecoveryService }
-  }
-
-  private wireCrossServiceDependencies(): void {
-    this.snapshotManager.setLeader(this.orchestrator.leader)
-    this.orchestrator.setManifestSyncManager(this.manifestSyncManager)
-    this.broker.setStorageRecoveryService(this.storageRecoveryService)
-    this.broker.setRecoveryManager(this.recoveryManager)
-    this.subscribeInternalEvents()
-    this.subscribeCrossTabDirtyItems()
-  }
-
-  private subscribeCrossTabDirtyItems(): void {
+  private subscribeCrossTabDirtyItems({ snapshotManager }: SyncWorkerServices): void {
     const unsub = subscribeRealtimeBusItemDirty(this.accountId, itemIds => {
       for (const itemId of itemIds) {
-        this.snapshotManager.markItemDirty(itemId)
+        snapshotManager.markItemDirty(itemId)
       }
     })
     this.unsubscribers.push(unsub)
   }
 
-  private get syncedHeadsService(): LifecycleAware {
-    return {
+  private registerLifecycleServices(services: SyncWorkerServices): void {
+    const { syncedHeadsStore, adapter } = services
+    const syncedHeadsService: LifecycleAware = {
       lifecycleName: 'SyncedHeads',
       onLifecycleStart: async () => {
-        const storedHeads = await this.syncedHeadsStore.loadSyncedHeads()
+        const storedHeads = await syncedHeadsStore.loadSyncedHeads()
         if (storedHeads && storedHeads.length > 0) {
-          this.adapter.loadSyncedHeads(storedHeads)
+          adapter.loadSyncedHeads(storedHeads)
         }
       },
     }
-  }
 
-  private registerLifecycleServices(): void {
     // Teardown runs in LIFO order (reverse registration order).
     // Startup runs in FIFO order (registration order).
     // Register items that should stop last first, and items that should stop first last.
@@ -464,22 +448,22 @@ export class SyncWorkerContext {
     // Note: Local storage clearing during account logout is handled exclusively by the
     // main thread (clearAccountLocalData in localDataCleanup.ts) after the worker has cleanly
     // closed all connections. The worker must not attempt to clear databases on shutdown.
-    const services: LifecycleAware<{ clearLocalData?: boolean }>[] = [
-      this.repoManager,
-      this.adapter,
-      this.broker,
-      this.storageRecoveryService,
-      this.indexManager,
-      this.recoveryManager,
-      this.docStore,
-      this.snapshotManager,
-      this.syncedHeadsService,
-      this.pullQueueManager,
-      this.manifestSyncManager,
-      this.orchestrator,
+    const lifecycleServices: LifecycleAware<{ clearLocalData?: boolean }>[] = [
+      services.repoManager,
+      services.adapter,
+      services.broker,
+      services.storageRecoveryService,
+      services.indexManager,
+      services.recoveryManager,
+      services.docStore,
+      services.snapshotManager,
+      syncedHeadsService,
+      services.pullQueueManager,
+      services.manifestSyncManager,
+      services.orchestrator,
     ]
 
-    for (const svc of services) {
+    for (const svc of lifecycleServices) {
       this.lifecycle.register({
         name: svc.lifecycleName,
         onStart: svc.onLifecycleStart?.bind(svc),
@@ -488,43 +472,43 @@ export class SyncWorkerContext {
     }
   }
 
-  private subscribeInternalEvents(): void {
+  private subscribeInternalEvents({ snapshotManager, recoveryManager, snapshotFormatUpgrade }: SyncWorkerServices): void {
     const unsub = this.internalEventHub.subscribe(event => {
       switch (event.type) {
         case 'leaderChange':
-          this.snapshotManager.setLeader(event.isLeader)
-          this.snapshotFormatUpgrade?.onLeaderChange(event.isLeader)
+          snapshotManager.setLeader(event.isLeader)
+          snapshotFormatUpgrade?.onLeaderChange(event.isLeader)
           break
         case 'decryptionFailure':
           fireAndForget(
-            this.recoveryManager.reportDecryptionFailure(event.itemId, 'pullDecryption', event.error),
+            recoveryManager.reportDecryptionFailure(event.itemId, 'pullDecryption', event.error),
             'SyncWorkerContext:internalEvent:decryptionFailure',
           )
           break
         case 'localDecryptionFailed':
           fireAndForget(
-            this.recoveryManager.reportDecryptionFailure(event.itemId, 'localDecryption', event.error),
+            recoveryManager.reportDecryptionFailure(event.itemId, 'localDecryption', event.error),
             'SyncWorkerContext:internalEvent:localDecryptionFailed',
           )
           break
         case 'remoteMessagesParsed':
           fireAndForget(
-            this.recoveryManager.resolveQuarantines([event.itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
+            recoveryManager.resolveQuarantines([event.itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
             'SyncWorkerContext:internalEvent:remoteMessagesParsed',
           )
           break
         case 'renegotiationTriggered': {
           const itemId = toVaultItemIdFromAutomergeId(event.documentId)
-          this.snapshotManager.markItemDirty(itemId, 0)
+          snapshotManager.markItemDirty(itemId, 0)
           break
         }
         case 'walAppendFailed':
         case 'snapshotFallbackRequested':
-          this.snapshotManager.markItemDirty(event.itemId, 0)
+          snapshotManager.markItemDirty(event.itemId, 0)
           break
         case 'walEntriesPruned':
           for (const itemId of event.itemIds) {
-            this.snapshotManager.markItemDirty(itemId, 0)
+            snapshotManager.markItemDirty(itemId, 0)
           }
           break
       }
@@ -542,14 +526,12 @@ export class SyncWorkerContext {
       throw error
     }
     await this.lifecycle.start()
-    await this.accountSettings.load()
+    await this.services.accountSettings.load()
     fireAndForget(
-      this.dataVersionTracker.onStart(this.hasLocalDataAtStart),
+      this.services.dataVersionTracker.onStart(this.hasLocalDataAtStart),
       'SyncWorkerContext:recordDeviceDataVersion',
     )
   }
-
-  private hasLocalDataAtStart = false
 
   /** Everything before services start: the device gate, migration, and opening local storage */
   private async initializeLocalData(): Promise<void> {
@@ -560,7 +542,7 @@ export class SyncWorkerContext {
     // initialization: starting would create an empty index, and a later migration would then keep it
     // over the old one. Local storage is opened under the same lock, before the Repo reads from it.
     const local = await this.withLocalDataLock(async () => {
-      await this.migrateLocalDataHook?.(this.accountId)
+      await this.config.migrateLocalData?.(this.accountId)
       return openLocalStorage({
         accountId: this.accountId,
         upgradeLocalEncryption: this.config.upgradeLocalEncryption,
@@ -579,9 +561,9 @@ export class SyncWorkerContext {
       await local.storage.close()
       throw new AbortError('The sync worker context was shut down during initialization')
     }
-    this.createComponents(this.config, local)
+    this.createComponents(local)
     // Checked before starting, which creates an empty index for a new device
-    this.hasLocalDataAtStart = await this.indexStore.hasIndex()
+    this.hasLocalDataAtStart = await this.services.indexStore.hasIndex()
   }
 
   /**
@@ -607,10 +589,12 @@ export class SyncWorkerContext {
    * send it through its migration app. A device without local data starts at the current level.
    */
   private async checkDeviceDataVersion(): Promise<void> {
-    if (this.minDataVersion === 0) return
-    if (await readDeviceDataVersion(this.accountId) >= this.minDataVersion) return
-    const hasLocalData = await this.indexStore.hasIndex()
-    if (!hasLocalData && !(await this.hasLegacyLocalData?.(this.accountId))) return
+    const minDataVersion = this.config.minDataVersion ?? 0
+    if (minDataVersion === 0) return
+    if (await readDeviceDataVersion(this.accountId) >= minDataVersion) return
+    // Local storage isn't open yet, but finding an index doesn't need its key
+    const hasLocalData = await new IndexStore(this.accountId).hasIndex()
+    if (!hasLocalData && !(await this.config.hasLegacyLocalData?.(this.accountId))) return
     this.clientEventHub.emit({ type: 'migrationRequired', reason: 'device' })
     throw new MigrationRequiredError('device')
   }
@@ -621,7 +605,7 @@ export class SyncWorkerContext {
    * since migrating, or two tabs could each create a device storage key.
    */
   private async withLocalDataLock<T>(task: () => Promise<T>): Promise<T> {
-    const needsLock = this.migrateLocalDataHook || this.config.upgradeLocalEncryption
+    const needsLock = this.config.migrateLocalData || this.config.upgradeLocalEncryption
     if (needsLock && typeof navigator !== 'undefined' && navigator?.locks?.request) {
       const lockName = `${getVaultStorageNames().accountPrefixes.localDataMigrationLock}${this.accountId}`
       return navigator.locks.request(lockName, { mode: 'exclusive' }, task)
@@ -631,8 +615,8 @@ export class SyncWorkerContext {
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     this.isStopped = true
-    this.snapshotFormatUpgrade?.stop()
-    this.itemReencryptor?.cancelScheduled()
+    this._services?.snapshotFormatUpgrade?.stop()
+    this._services?.itemReencryptor.cancelScheduled()
     await this.lifecycle.stop(options)
     for (const unsub of this.unsubscribers) {
       unsub()
@@ -680,26 +664,27 @@ export class SyncWorkerContext {
    * copy to replace it with.
    */
   async replaceFromServer(itemId: ItemId): Promise<void> {
+    const { repo, repoManager, manifestSyncManager, docStore, recoveryManager } = this.services
     const documentId = toDocumentIdFromItemId(itemId)
     // Drops the handle that never finished loading. Its chunks are removed here rather than left to
     // the Repo, which doesn't wait for that.
-    this.repo.delete(documentId)
-    await this.repoManager.getStorage()?.removeRange([documentId])
+    repo.delete(documentId)
+    await repoManager.getStorage()?.removeRange([documentId])
     this.unreadableDocuments.delete(documentId)
 
     // A forced sync fetches quarantined items, and there's no longer a local copy to keep
-    const result = await this.manifestSyncManager.sync(true)
-    if (!result.success || !(await this.docStore.hasDataInStorage(itemId))) {
+    const result = await manifestSyncManager.sync(true)
+    if (!result.success || !(await docStore.hasDataInStorage(itemId))) {
       throw new Error(`The server's copy of ${itemId} could not be downloaded. Try again once sync has finished.`)
     }
-    await this.recoveryManager.unquarantine(itemId)
+    await recoveryManager.unquarantine(itemId)
   }
 
   async retrySave(): Promise<{ success: boolean; error?: string }> {
-    return this.storageRecoveryService.retrySave()
+    return this.services.storageRecoveryService.retrySave()
   }
 
   claimLeader(): void {
-    this.orchestrator.claimLeader()
+    this.services.orchestrator.claimLeader()
   }
 }

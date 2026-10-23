@@ -76,15 +76,14 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     } as unknown as SyncPullQueueManager
 
     wal = new SyncWriteAheadLog(accountId)
-    broker = new SyncMessageBroker(
+    broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
-      undefined,
       pullQueueManager,
       keys,
       wal,
-    )
+    })
 
     broker.setSendEnabled(true)
     await broker.setAccount(accountId)

@@ -9,7 +9,6 @@ import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../utils/storageQuota'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
-import type { StorageRecoveryService } from './StorageRecoveryService'
 import type { SyncApiClient } from './SyncApiClient'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -19,6 +18,20 @@ import type { KeyProvider } from '../../api/Keyring'
 interface SyncBrokerControl {
   setOnlineState(isOnline: boolean): void
   setSendEnabled(sendEnabled: boolean): void
+}
+
+export interface SyncMessageBrokerDeps {
+  adapter: VaultNetworkAdapter
+  clientEventHub: ClientEventHub
+  internalEventHub: WorkerInternalEventHub
+  indexManager?: AutomergeIndexManager
+  pullQueueManager: SyncPullQueueManager
+  keys: KeyProvider
+  wal?: SyncWriteAheadLog | null
+  apiClient?: SyncApiClient
+  recoveryManager?: RecoveryManager | null
+  /** Frees space after a WAL append runs out of storage. Without it, the app is told the quota was exceeded. */
+  onQuotaExceeded?: (error: unknown) => Promise<void>
 }
 
 export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
@@ -33,30 +46,25 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
 
   private syncPoller: SyncPoller
   private wal: SyncWriteAheadLog | null = null
-  private storageRecovery: StorageRecoveryService | null = null
-  private recoveryManager: RecoveryManager | null = null
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
   private unsubscribeClientEvents: (() => void) | null = null
   private unsubscribeInternalEvents: (() => void) | null = null
+  private readonly adapter: VaultNetworkAdapter
+  private readonly clientEventHub: ClientEventHub
+  private readonly internalEventHub: WorkerInternalEventHub
+  private readonly pullQueueManager: SyncPullQueueManager
+  private readonly onQuotaExceeded?: (error: unknown) => Promise<void>
 
-  constructor(
-    private adapter: VaultNetworkAdapter,
-    private clientEventHub: ClientEventHub,
-    private internalEventHub: WorkerInternalEventHub,
-    private indexManager: AutomergeIndexManager | undefined,
-    private pullQueueManager: SyncPullQueueManager,
-    keys: KeyProvider,
-    wal?: SyncWriteAheadLog | null,
-    storageRecovery?: StorageRecoveryService | null,
-    apiClient?: SyncApiClient,
-    recoveryManager?: RecoveryManager | null,
-  ) {
-    this.storageRecovery = storageRecovery ?? null
-    this.recoveryManager = recoveryManager ?? null
+  constructor(deps: SyncMessageBrokerDeps) {
+    this.adapter = deps.adapter
+    this.clientEventHub = deps.clientEventHub
+    this.internalEventHub = deps.internalEventHub
+    this.pullQueueManager = deps.pullQueueManager
+    this.onQuotaExceeded = deps.onQuotaExceeded
     this.adapter?.setInternalEventHub?.(this.internalEventHub)
     this.pullQueueManager?.setInternalEventHub?.(this.internalEventHub)
-    this.setWal(wal ?? null)
+    this.setWal(deps.wal ?? null)
 
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
       switch (event.type) {
@@ -83,16 +91,16 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
       }
     })
 
-    this.syncPoller = new SyncPoller(
-      this.pullQueueManager,
-      this.clientEventHub,
-      this.internalEventHub,
-      keys,
-      this.indexManager,
-      this.wal,
-      apiClient,
-      this.recoveryManager,
-    )
+    this.syncPoller = new SyncPoller({
+      pullQueueManager: this.pullQueueManager,
+      clientEventHub: this.clientEventHub,
+      internalEventHub: this.internalEventHub,
+      keys: deps.keys,
+      indexManager: deps.indexManager,
+      wal: this.wal,
+      apiClient: deps.apiClient,
+      recoveryManager: deps.recoveryManager,
+    })
 
     this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
       if (event.type === 'quotaResolved') {
@@ -105,15 +113,6 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
         }
       }
     })
-  }
-
-  setRecoveryManager(recoveryManager: RecoveryManager | null): void {
-    this.recoveryManager = recoveryManager
-    this.syncPoller.setRecoveryManager(recoveryManager)
-  }
-
-  setStorageRecoveryService(storageRecovery: StorageRecoveryService | null): void {
-    this.storageRecovery = storageRecovery
   }
 
   blockItem(itemId: ItemId): void {
@@ -284,8 +283,8 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.adapter.triggerReNegotiation(documentId)
     this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
     if (isQuotaError(err)) {
-      if (this.storageRecovery) {
-        fireAndForget(this.storageRecovery.handleQuotaExceeded(err), 'SyncMessageBroker:handleQuotaExceeded')
+      if (this.onQuotaExceeded) {
+        fireAndForget(this.onQuotaExceeded(err), 'SyncMessageBroker:handleQuotaExceeded')
       } else {
         this.clientEventHub.emit({
           type: 'quotaExceeded',

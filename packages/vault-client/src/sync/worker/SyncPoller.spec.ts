@@ -56,16 +56,15 @@ describe('SyncPoller', () => {
       unquarantine: vi.fn().mockResolvedValue(undefined),
     } as unknown as RecoveryManager
 
-    poller = new SyncPoller(
+    poller = new SyncPoller({
       pullQueueManager,
       clientEventHub,
       internalEventHub,
       keys,
       indexManager,
-      mockWal,
-      undefined,
-      mockRecoveryManager,
-    )
+      wal: mockWal,
+      recoveryManager: mockRecoveryManager,
+    })
     poller.setAccount('test-account')
     poller.setOnlineState(true)
   })
@@ -982,15 +981,15 @@ describe('SyncPoller', () => {
         pollSyncBatch: vi.fn().mockRejectedValue(new AuthError('No active session token available')),
       } as unknown as SyncApiClient
 
-      const authPoller = new SyncPoller(
+      const authPoller = new SyncPoller({
         pullQueueManager,
         clientEventHub,
         internalEventHub,
         keys,
         indexManager,
-        mockWal,
-        mockApiClient,
-      )
+        wal: mockWal,
+        apiClient: mockApiClient,
+      })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)
 
@@ -1011,15 +1010,15 @@ describe('SyncPoller', () => {
           pullResults: [],
         })
 
-      const authPoller = new SyncPoller(
+      const authPoller = new SyncPoller({
         pullQueueManager,
         clientEventHub,
         internalEventHub,
         keys,
         indexManager,
-        mockWal,
-        apiClient,
-      )
+        wal: mockWal,
+        apiClient: apiClient,
+      })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)
 
@@ -1042,15 +1041,15 @@ describe('SyncPoller', () => {
 
       mockPollSyncBatchWithToken.mockRejectedValue({ httpStatus: 401, message: 'Unauthorized' })
 
-      const authPoller = new SyncPoller(
+      const authPoller = new SyncPoller({
         pullQueueManager,
         clientEventHub,
         internalEventHub,
         keys,
         indexManager,
-        mockWal,
-        apiClient,
-      )
+        wal: mockWal,
+        apiClient: apiClient,
+      })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)
 

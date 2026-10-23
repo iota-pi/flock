@@ -41,6 +41,17 @@ function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
 
 const POLL_CHUNK_SIZE = SYNC_BATCH_SIZES.pollChunk
 
+export interface SyncPollerDeps {
+  pullQueueManager: SyncPullQueueManager
+  clientEventHub: ClientEventHub
+  internalEventHub: WorkerInternalEventHub
+  keys: KeyProvider
+  indexManager?: AutomergeIndexManager
+  wal?: SyncWriteAheadLog | null
+  apiClient?: SyncApiClient
+  recoveryManager?: RecoveryManager | null
+}
+
 export class SyncPoller {
   private account: string | null = null
   private isOnline = true
@@ -48,24 +59,23 @@ export class SyncPoller {
   private abortController: AbortController | null = null
   private readonly apiClient: SyncApiClient
   public readonly consecutivePushFailures = new Map<ItemId, number>()
-  private recoveryManager: RecoveryManager | null = null
+  private readonly recoveryManager: RecoveryManager | null
+  private readonly pullQueueManager: SyncPullQueueManager
+  private readonly clientEventHub: ClientEventHub
+  private readonly internalEventHub: WorkerInternalEventHub
+  private readonly keys: KeyProvider
+  private readonly indexManager?: AutomergeIndexManager
+  private wal: SyncWriteAheadLog | null
 
-  constructor(
-    private pullQueueManager: SyncPullQueueManager,
-    private clientEventHub: ClientEventHub,
-    private internalEventHub: WorkerInternalEventHub,
-    private readonly keys: KeyProvider,
-    private indexManager?: AutomergeIndexManager,
-    private wal?: SyncWriteAheadLog | null,
-    apiClient?: SyncApiClient,
-    recoveryManager?: RecoveryManager | null,
-  ) {
-    this.apiClient = apiClient ?? new SyncApiClient()
-    this.recoveryManager = recoveryManager ?? null
-  }
-
-  setRecoveryManager(recoveryManager: RecoveryManager | null): void {
-    this.recoveryManager = recoveryManager
+  constructor(deps: SyncPollerDeps) {
+    this.pullQueueManager = deps.pullQueueManager
+    this.clientEventHub = deps.clientEventHub
+    this.internalEventHub = deps.internalEventHub
+    this.keys = deps.keys
+    this.indexManager = deps.indexManager
+    this.wal = deps.wal ?? null
+    this.apiClient = deps.apiClient ?? new SyncApiClient()
+    this.recoveryManager = deps.recoveryManager ?? null
   }
 
   setAccount(account: string | null): void {

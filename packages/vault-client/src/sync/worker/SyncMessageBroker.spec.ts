@@ -58,15 +58,15 @@ describe('SyncMessageBroker', () => {
       setInternalEventHub: vi.fn(),
     } as unknown as SyncWriteAheadLog
 
-    broker = new SyncMessageBroker(
+    broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
       indexManager,
       pullQueueManager,
       keys,
-      mockWal,
-    )
+      wal: mockWal,
+    })
   })
 
   it('does not write to WAL if send is not enabled or account is not set', () => {

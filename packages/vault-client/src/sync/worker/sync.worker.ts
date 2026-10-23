@@ -296,11 +296,11 @@ export class SyncWorker implements SyncApi {
           break
         case 'multipleLeadersDetected':
           log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
-          this._context?.repoManager.pauseBroadcastSync()
+          this._context?.services.repoManager.pauseBroadcastSync()
           break
         case 'soleLeaderRestored':
           log.info('Sole leader restored. Resuming BroadcastChannel sync.')
-          this._context?.repoManager.resumeBroadcastSync()
+          this._context?.services.repoManager.resumeBroadcastSync()
           break
         case 'retryingStateChange':
           this.syncStatusManager.setDegradedPull(event.isRetrying)
@@ -324,21 +324,22 @@ export class SyncWorker implements SyncApi {
     await context.initialize()
     // A shutdown during initialization has stopped the context, which mustn't be brought back to life
     this.assertNotShutDown()
+    const { orchestrator, snapshotManager, broker, adapter, indexManager, accountSettings } = context.services
 
-    context.orchestrator.setOnlineState(this.isOnline)
-    context.snapshotManager.onOnlineStateChange(this.isOnline)
+    orchestrator.setOnlineState(this.isOnline)
+    snapshotManager.onOnlineStateChange(this.isOnline)
 
     // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
     // sending messages before the broker is ready
-    await context.broker.setAccount(accountId)
+    await broker.setAccount(accountId)
     this.assertNotShutDown()
-    context.adapter.setAccount(accountId)
+    adapter.setAccount(accountId)
 
-    const localItemIds = await context.indexManager.listAutomergeItemIds()
+    const localItemIds = await indexManager.listAutomergeItemIds()
     this.updateItemSubscriptions(localItemIds)
     this.clientEventHub.emit({
       type: 'indexUpdated',
-      itemIds: localItemIds.filter(id => !context.accountSettings.isSettingsDoc(id)),
+      itemIds: localItemIds.filter(id => !accountSettings.isSettingsDoc(id)),
     })
   }
 
@@ -355,7 +356,7 @@ export class SyncWorker implements SyncApi {
         // Pings also name deleted items, which mustn't come back. A deliberate restore reaches this
         // tab as a doc change, which re-indexes the item.
         fireAndForget(
-          this._context.indexManager.addAutomergeItemIdsToIndex(itemIds, { skipTombstoned: true }),
+          this._context.services.indexManager.addAutomergeItemIdsToIndex(itemIds, { skipTombstoned: true }),
           'SyncWorker:addAutomergeItemIdsToIndex',
         )
       }
@@ -433,8 +434,8 @@ export class SyncWorker implements SyncApi {
   setOnlineState = (isOnline: boolean) => {
     this.isOnline = isOnline
     return this.withContext(ctx => {
-      ctx.orchestrator.setOnlineState(isOnline)
-      ctx.snapshotManager.onOnlineStateChange(isOnline)
+      ctx.services.orchestrator.setOnlineState(isOnline)
+      ctx.services.snapshotManager.onOnlineStateChange(isOnline)
       this.syncStatusManager.setOnlineState(isOnline)
     })
   }
@@ -452,20 +453,20 @@ export class SyncWorker implements SyncApi {
     const handleChange = () => {
       try {
         const doc = handle.doc() || null
-        if (this.context.accountSettings.isSettingsDoc(id)) {
-          this.context.accountSettings.handleSettingsDoc(doc)
+        if (this.context.services.accountSettings.isSettingsDoc(id)) {
+          this.context.services.accountSettings.handleSettingsDoc(doc)
           return
         }
-        const item = this.context.docStore.decodeSnapshot(id, doc)
+        const item = this.context.services.docStore.decodeSnapshot(id, doc)
         if (item?.deleted) {
           fireAndForget(
-            this.context.indexManager.removeAutomergeItemIdsFromIndex([id]),
+            this.context.services.indexManager.removeAutomergeItemIdsFromIndex([id]),
             'SyncWorker:removeAutomergeItemIdsFromIndex',
           )
           this.unsubscribe(id)
         } else if (item) {
           fireAndForget(
-            this.context.indexManager.addAutomergeItemIdsToIndex([id]),
+            this.context.services.indexManager.addAutomergeItemIdsToIndex([id]),
             'SyncWorker:addAutomergeItemIdsToIndex',
           )
         }
@@ -487,7 +488,7 @@ export class SyncWorker implements SyncApi {
   }
 
   subscribeToItems(itemIds: ItemId[]) {
-    const repo = this.context.repo
+    const repo = this.context.services.repo
     for (const id of itemIds) {
       if (this.subscribedIds.has(id)) continue
       this.subscribedIds.add(id)
@@ -545,41 +546,41 @@ export class SyncWorker implements SyncApi {
   // Sync API Pass-through Delegation
   bootstrapItems = () =>
     this.withContext(async ctx => {
-      await ctx.manifestSyncManager.sync()
+      await ctx.services.manifestSyncManager.sync()
     })
 
   mutateItem = (id: ItemId, changes: Partial<VaultDoc>) =>
-    this.withContext(ctx => ctx.itemOperations.mutateItem(id, changes))
+    this.withContext(ctx => ctx.services.itemOperations.mutateItem(id, changes))
 
   createItem = (item: VaultDoc) =>
-    this.withContext(ctx => ctx.itemOperations.createItem(item))
+    this.withContext(ctx => ctx.services.itemOperations.createItem(item))
 
   storeItems = (items: VaultDoc[]) =>
-    this.withContext(ctx => ctx.itemOperations.storeItems(items))
+    this.withContext(ctx => ctx.services.itemOperations.storeItems(items))
 
   mutateMetadata = (changes: Partial<VaultMetadata>) =>
-    this.withContext(ctx => ctx.accountSettings.mutate(changes))
+    this.withContext(ctx => ctx.services.accountSettings.mutate(changes))
 
   exportAllBinaries = () =>
-    this.withContext(ctx => ctx.docStore.exportAllBinaries(ctx.indexManager))
+    this.withContext(ctx => ctx.services.docStore.exportAllBinaries(ctx.services.indexManager))
 
   restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
-    this.withContext(ctx => ctx.docStore.restoreFromBinaries(documents, ctx.indexManager))
+    this.withContext(ctx => ctx.services.docStore.restoreFromBinaries(documents, ctx.services.indexManager))
 
   flushSync = (): Promise<void> =>
-    this.withContext(ctx => ctx.orchestrator.flush())
+    this.withContext(ctx => ctx.services.orchestrator.flush())
 
   fullResync = () =>
     this.withContext(async ctx => {
-      const result = await ctx.manifestSyncManager.sync(true)
+      const result = await ctx.services.manifestSyncManager.sync(true)
       if (result.success) {
-        ctx.orchestrator.flush()
+        ctx.services.orchestrator.flush()
       }
       return result.success
     })
 
   pushSnapshots = () =>
-    this.withContext(ctx => ctx.snapshotManager.flushPendingSnapshots())
+    this.withContext(ctx => ctx.services.snapshotManager.flushPendingSnapshots())
 
   retrySave = () =>
     this.withContext(ctx => ctx.retrySave()).catch(() => ({
@@ -588,50 +589,50 @@ export class SyncWorker implements SyncApi {
     }))
 
   checkDataVersion = () =>
-    this.withContext(ctx => ctx.dataVersionTracker.checkStatus())
+    this.withContext(ctx => ctx.services.dataVersionTracker.checkStatus())
 
   replaceFromServer = (itemId: ItemId) =>
     this.withContext(ctx => ctx.replaceFromServer(itemId))
 
   retryRecoveryItem = (itemId: ItemId) =>
     this.withContext(async ctx => {
-      await ctx.recoveryManager.unquarantine(itemId)
-      ctx.snapshotManager.clearOversized(itemId)
-      ctx.snapshotManager.markItemDirty(itemId)
+      await ctx.services.recoveryManager.unquarantine(itemId)
+      ctx.services.snapshotManager.clearOversized(itemId)
+      ctx.services.snapshotManager.markItemDirty(itemId)
       fireAndForget(
-        ctx.snapshotManager.flushPendingSnapshots(),
+        ctx.services.snapshotManager.flushPendingSnapshots(),
         'SyncWorker:retryRecoveryItem:flushPendingSnapshots',
       )
     })
 
   forceOverwriteRecoveryItem = (itemId: ItemId) =>
-    this.withContext(ctx => ctx.itemOperations.forceOverwriteRecoveryItem(itemId))
+    this.withContext(ctx => ctx.services.itemOperations.forceOverwriteRecoveryItem(itemId))
 
   forceDeleteRecoveryItem = (itemId: ItemId) =>
-    this.withContext(ctx => ctx.itemOperations.forceDeleteRecoveryItem(itemId))
+    this.withContext(ctx => ctx.services.itemOperations.forceDeleteRecoveryItem(itemId))
 
   recreateOversizedItem = (itemId: ItemId): Promise<ItemId> =>
     this.withContext(async ctx => {
-      const newItemId = await ctx.itemOperations.recreateOversizedItem(itemId)
+      const newItemId = await ctx.services.itemOperations.recreateOversizedItem(itemId)
       // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
-      ctx.snapshotManager.clearOversized(itemId)
+      ctx.services.snapshotManager.clearOversized(itemId)
       fireAndForget(
-        ctx.snapshotManager.flushPendingSnapshots(),
+        ctx.services.snapshotManager.flushPendingSnapshots(),
         'SyncWorker:recreateOversizedItem:flushPendingSnapshots',
       )
       return newItemId
     })
 
   dismissRecoveryItem = (entryId: string) =>
-    this.withContext(ctx => ctx.recoveryManager.dismissEntry(entryId))
+    this.withContext(ctx => ctx.services.recoveryManager.dismissEntry(entryId))
 
   listRecoveryItems = (options?: ReadManualRecoveryOptions) =>
-    this.withContext(ctx => ctx.recoveryManager.listRecoveryItems(undefined, options))
+    this.withContext(ctx => ctx.services.recoveryManager.listRecoveryItems(undefined, options))
 
   updateVaultKey = async (vaultKey: string) => {
     await this.loadKeyring(vaultKey)
     return this.withContext(ctx => {
-      ctx.pullQueueManager?.onKeyringUpdated()
+      ctx.services.pullQueueManager.onKeyringUpdated()
     })
   }
 
@@ -654,15 +655,16 @@ export class SyncWorker implements SyncApi {
     refreshAuthToken?: () => Promise<string | null>
   ) =>
     this.withContext(async ctx => {
-      const result = await ctx.itemReencryptor.reencryptAllItems(
+      const { itemReencryptor, repo, indexManager, recoveryManager } = ctx.services
+      const result = await itemReencryptor.reencryptAllItems(
         {
           accountId: ctx.accountId,
-          repo: ctx.repo,
-          indexManager: ctx.indexManager,
+          repo,
+          indexManager,
           refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
-          recoveryManager: ctx.recoveryManager,
+          recoveryManager,
           apiClient: ctx.apiClient,
-          reencryptor: ctx.itemReencryptor,
+          reencryptor: itemReencryptor,
         },
         (done, total) => {
           if (onProgress) {
@@ -682,28 +684,30 @@ export class SyncWorker implements SyncApi {
 
   exportSyncState = (): Promise<BackupSyncState> =>
     this.withContext(async ctx => {
-      const cursors = ctx.pullQueueManager.exportCursors()
-      const walMap = ctx.wal ? await ctx.wal.readAll() : new Map<ItemId, WalEntry[]>()
+      const { pullQueueManager, wal, snapshotManager } = ctx.services
+      const cursors = pullQueueManager.exportCursors()
+      const walMap = await wal.readAll()
       const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
         itemId,
         entries.map((e: WalEntry) => e.data.toBase64()),
       ])
-      const lastModified = ctx.snapshotManager.exportLastModified()
+      const lastModified = snapshotManager.exportLastModified()
 
       return { cursors, pendingSync, lastModified }
     })
 
   restoreSyncState = (state: Partial<BackupSyncState>) =>
     this.withContext(async ctx => {
-      if (state.cursors) await ctx.pullQueueManager.importCursors(state.cursors)
-      if (state.pendingSync && ctx.wal) {
+      const { pullQueueManager, wal, snapshotManager } = ctx.services
+      if (state.cursors) await pullQueueManager.importCursors(state.cursors)
+      if (state.pendingSync) {
         for (const [itemId, base64Msgs] of state.pendingSync) {
           for (const msg of base64Msgs) {
-            await ctx.wal.append(itemId, Uint8Array.fromBase64(msg))
+            await wal.append(itemId, Uint8Array.fromBase64(msg))
           }
         }
       }
-      if (state.lastModified) await ctx.snapshotManager.importLastModified(state.lastModified)
+      if (state.lastModified) await snapshotManager.importLastModified(state.lastModified)
     })
 
   claimLeader = () =>

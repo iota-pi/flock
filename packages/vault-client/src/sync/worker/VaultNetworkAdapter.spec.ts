@@ -73,7 +73,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const cursorStore = new CursorStore('test-account')
     pullQueueManager = new SyncPullQueueManager(cursorStore, keys)
     const wal = new SyncWriteAheadLog('test-account')
-    broker = new SyncMessageBroker(adapter, clientEventHub, internalEventHub, mockDocStore as any, pullQueueManager, keys, wal)
+    broker = new SyncMessageBroker({ adapter, clientEventHub, internalEventHub, indexManager: mockDocStore as any, pullQueueManager, keys, wal })
     orchestrator = new SyncOrchestrator(
       'test-account',
       broker,
