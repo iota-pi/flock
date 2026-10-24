@@ -173,7 +173,6 @@ export class SyncOrchestrator implements LifecycleAware {
         this.internalEventHub.emit({ type: 'soleLeaderRestored' })
       },
       onLeaderConflict: (isConflict: boolean) => {
-        this.internalEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
         this.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
       },
     }

@@ -601,19 +601,6 @@ describe('AutomergeDocStore Unit Tests', () => {
       ).rejects.toThrow('IndexedDB transaction aborted')
     })
 
-    it('allows dynamic switching between adapter and fallback via setStorageAdapter', async () => {
-      const store = new AutomergeDocStore(repo, undefined, null)
-      const mockAdapter: DocStorageChecker = {
-        has: vi.fn().mockResolvedValue(true),
-      }
-
-      store.setStorageAdapter(mockAdapter)
-      expect(await store.hasDataInStorage('dyn-item' as ItemId)).toBe(true)
-      expect(mockAdapter.has).toHaveBeenCalled()
-
-      store.setStorageAdapter(null)
-      expect(await store.hasDataInStorage('dyn-item' as ItemId)).toBe(false)
-    })
   })
 
   // =========================================================================

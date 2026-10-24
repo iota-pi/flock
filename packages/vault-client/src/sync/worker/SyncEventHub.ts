@@ -43,7 +43,6 @@ export type WorkerInternalEvent =
   | { type: 'pollResult'; outcome: PollOutcome }
   | { type: 'multipleLeadersDetected' }
   | { type: 'soleLeaderRestored' }
-  | { type: 'leaderConflict'; hasConflict: boolean }
   | { type: 'flushNeeded' }
   | { type: 'itemMessageParsed'; itemId: ItemId }
   | { type: 'remoteMessagesParsed'; itemId: ItemId }
@@ -56,7 +55,6 @@ export type WorkerInternalEvent =
   | { type: 'localDecryptionFailed'; itemId: ItemId; error: unknown }
   | { type: 'retryingStateChange'; isRetrying: boolean }
   | { type: 'keyVersionMissing'; kver: string }
-  | { type: 'pendingPullsAvailable' }
   | { type: 'pushAcknowledged'; itemId: ItemId; heads: string[] }
   | { type: 'leaderChange'; isLeader: boolean }
   | { type: 'renegotiationTriggered'; documentId: DocumentId }

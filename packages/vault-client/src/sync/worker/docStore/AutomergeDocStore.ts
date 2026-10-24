@@ -101,10 +101,6 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     this.storageAdapter = storageAdapter
   }
 
-  public setStorageAdapter(storageAdapter: DocStorageChecker | null): void {
-    this.storageAdapter = storageAdapter
-  }
-
   public setInternalEventHub(hub: WorkerInternalEventHub): void {
     this.internalEventHub = hub
   }

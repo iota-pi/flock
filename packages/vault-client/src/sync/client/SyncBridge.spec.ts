@@ -191,7 +191,6 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
       'test-account',
       'test-key',
-      undefined,
       // The session goes to the worker in memory, so it can sync before updateAuthToken
       { randomDataKeys: false, authToken: 'session-1' },
     )
@@ -1170,7 +1169,6 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith(
       'account-success',
       'test-key',
-      undefined,
       { randomDataKeys: false, authToken: null },
     )
 

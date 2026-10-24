@@ -101,10 +101,6 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
    * `indexUpdated` event sent to the app leaves out.
    */
   onIndexUpdated?: (itemIds: ItemId[]) => void
-  /**
-   * Called when an inbound item sync message has been parsed.
-   */
-  onItemMessageParsed?: (itemId: ItemId) => void
   /** Optional callback to refresh the authentication token with the main thread. */
   refreshAuthToken?: () => Promise<string | null>
   /** Optional override for testing. */
@@ -310,7 +306,6 @@ export class SyncWorkerContext {
           indexManager,
           apiClient: this.apiClient,
           recoveryManager,
-          reencryptor: itemReencryptor,
         }),
       })
       : null

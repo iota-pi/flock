@@ -1793,14 +1793,8 @@ describe('SyncPullQueueManager', () => {
 
       // Key arrives in keyring
       mockHasVaultKey.mockImplementation(() => true)
-      const onPendingPullsAvailableSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
-        if (e.type === 'pendingPullsAvailable') onPendingPullsAvailableSpy()
-      })
-
       manager.onKeyringUpdated()
 
-      expect(onPendingPullsAvailableSpy).toHaveBeenCalled()
       expect(manager.hasImmediatePendingPulls()).toBe(true)
       expect(manager.getCursors()).toEqual([{ itemId: 'item-blocked', cursor: 0 }])
     })

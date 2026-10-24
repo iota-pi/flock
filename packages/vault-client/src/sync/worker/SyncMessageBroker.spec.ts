@@ -264,6 +264,31 @@ describe('SyncMessageBroker', () => {
     expect(flushSpy).not.toHaveBeenCalled()
   })
 
+  it('keeps using the WAL it was given after setAccount', async () => {
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+
+    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage('item123', [1, 2, 3]) })
+    await Promise.resolve()
+
+    expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
+  })
+
+  it('never creates its own WAL on setAccount, falling back to snapshot sync instead', async () => {
+    const failureSpy = vi.fn()
+    internalEventHub.subscribe(e => {
+      if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
+    })
+    broker.setWal(null)
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+
+    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage('item-no-wal', [7, 8, 9]) })
+    await Promise.resolve()
+
+    expect(failureSpy).toHaveBeenCalledWith('item-no-wal', expect.any(Error))
+  })
+
   it('flags items for snapshot-only sync without triggering renegotiation when WAL prunes entries', async () => {
     const prunedSpy = vi.fn()
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')

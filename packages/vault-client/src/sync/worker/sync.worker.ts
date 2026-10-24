@@ -315,7 +315,6 @@ export class SyncWorker implements SyncApi {
   async initRepo(
     accountId: string,
     vaultKey: string,
-    refreshAuthToken?: () => Promise<string | null>,
     options?: InitRepoOptions,
   ) {
     this.isShutDown = false
@@ -337,7 +336,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
-        refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
+        refreshAuthToken: () => this.requestAuthTokenRefresh(),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
         onIndexUpdated: itemIds => {
           if (this._context === context) this.subscriptions.update(itemIds)
@@ -514,10 +513,7 @@ export class SyncWorker implements SyncApi {
     setActiveSessionToken(token)
   }
 
-  reencryptAllItems = (
-    onProgress?: (done: number, total: number) => void,
-    refreshAuthToken?: () => Promise<string | null>
-  ) =>
+  reencryptAllItems = () =>
     this.withContext(async ctx => {
       const { itemReencryptor, repo, indexManager, recoveryManager } = ctx.services
       const result = await itemReencryptor.reencryptAllItems(
@@ -525,19 +521,11 @@ export class SyncWorker implements SyncApi {
           accountId: ctx.accountId,
           repo,
           indexManager,
-          refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
+          refreshAuthToken: () => this.requestAuthTokenRefresh(),
           recoveryManager,
           apiClient: ctx.apiClient,
-          reencryptor: itemReencryptor,
         },
         (done, total) => {
-          if (onProgress) {
-            try {
-              onProgress(done, total)
-            } catch {
-              // Ignore
-            }
-          }
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
         }
       )
