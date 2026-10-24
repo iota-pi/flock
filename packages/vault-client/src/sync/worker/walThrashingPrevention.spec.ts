@@ -60,12 +60,11 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
-    adapter = new VaultNetworkAdapter()
+    adapter = new VaultNetworkAdapter(internalEventHub)
     adapter.connect('peer-1' as any)
 
     pullQueueManager = {
       setAccount: vi.fn().mockResolvedValue(undefined),
-      setInternalEventHub: vi.fn(),
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),
@@ -76,7 +75,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     } as unknown as SyncPullQueueManager
 
-    wal = new SyncWriteAheadLog(accountId)
+    wal = new SyncWriteAheadLog(accountId, internalEventHub)
     broker = new SyncMessageBroker({
       adapter,
       clientEventHub,

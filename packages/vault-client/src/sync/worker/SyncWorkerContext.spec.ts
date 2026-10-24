@@ -131,7 +131,6 @@ vi.mock('./VaultNetworkAdapter', () => ({
     triggerReNegotiation = vi.fn()
     setSyncedHeadsStore = vi.fn()
     setHeadsValidator = vi.fn()
-    setInternalEventHub = vi.fn()
     setSyncedHeads = vi.fn()
     loadSyncedHeads = vi.fn()
     resetReNegotiationCircuit = vi.fn()

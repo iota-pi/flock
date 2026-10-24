@@ -60,7 +60,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
    */
   private hasUnsavedSyncedHeads = false
   private headsValidator: HeadsValidator | null = null
-  private internalEventHub: WorkerInternalEventHub
+  private readonly internalEventHub: WorkerInternalEventHub
 
   constructor(internalEventHub?: WorkerInternalEventHub) {
     super({
@@ -71,10 +71,6 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
 
   public get eventHub(): WorkerInternalEventHub {
     return this.internalEventHub
-  }
-
-  setInternalEventHub(hub: WorkerInternalEventHub): void {
-    this.internalEventHub = hub
   }
 
   async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
