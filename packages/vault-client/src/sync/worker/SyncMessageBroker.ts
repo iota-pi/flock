@@ -6,7 +6,7 @@ import type { ItemId } from '@vault/shared'
 import { AutomergeIndexManager } from './docStore'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
-import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../utils/storageQuota'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
@@ -192,10 +192,8 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.unblockAllItems()
     this.snapshotOnlyItems.clear()
     this.account = nextAccount
-    if (!this.wal || this.wal.accountId !== this.account) {
-      const wal = this.account ? new SyncWriteAheadLog(this.account, this.internalEventHub) : null
-      this.setWal(wal)
-    }
+    // Never build a WAL here: only the owner knows whether it must be sealed (sync rule 10).
+    // Without a WAL, outgoing messages fall back to snapshot sync.
 
     await this.pullQueueManager.setAccount(this.account)
     this.syncPoller.setAccount(this.account)

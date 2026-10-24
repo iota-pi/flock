@@ -121,6 +121,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('queues sync messages to SyncWriteAheadLog on send()', async () => {
     const accountId = 'account-queues'
     adapter.setAccount(accountId)
+    broker.setWal(new SyncWriteAheadLog(accountId))
     await broker.setAccount(accountId)
 
     const message1: Message = {
@@ -147,6 +148,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('stores all incoming sync messages in SyncWriteAheadLog', async () => {
     const accountId = 'account-bounds'
     adapter.setAccount(accountId)
+    broker.setWal(new SyncWriteAheadLog(accountId))
     await broker.setAccount(accountId)
 
     for (let i = 0; i < 20; i++) {
@@ -171,6 +173,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
     const accountId = 'account-chunking'
     adapter.setAccount(accountId)
+    broker.setWal(new SyncWriteAheadLog(accountId))
     await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockImplementation(async (input: any) => ({
@@ -219,6 +222,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('safely slices successfully sent messages and retains concurrent local edits', async () => {
     const accountId = 'account-concurrent'
     adapter.setAccount(accountId)
+    broker.setWal(new SyncWriteAheadLog(accountId))
     await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockImplementation(async (input: any) => {
@@ -280,6 +284,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('retains messages in SyncWriteAheadLog if the poll call fails', async () => {
     const accountId = 'account-fails'
     adapter.setAccount(accountId)
+    broker.setWal(new SyncWriteAheadLog(accountId))
     await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockRejectedValue(new Error('Network error'))
@@ -316,6 +321,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     const accountId = 'account-quota'
     adapter.setAccount(accountId)
+    broker.setWal(new SyncWriteAheadLog(accountId))
     await broker.setAccount(accountId)
     broker.setSendEnabled(true)
 
@@ -672,6 +678,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('immediately triggers next poll if hasMore is true', async () => {
     const accountId = 'account-pagination'
     adapter.setAccount(accountId)
+    broker.setWal(new SyncWriteAheadLog(accountId))
     await broker.setAccount(accountId)
 
     orchestrator = new SyncOrchestrator(
