@@ -38,7 +38,6 @@ export interface StorageRecoveryServiceDeps {
   broker: SyncMessageBroker
   adapter: VaultNetworkAdapter
   orchestrator: SyncOrchestrator
-  onQuotaStatusChange?: (isQuotaExceeded: boolean) => void
 }
 
 export class StorageRecoveryService implements LifecycleAware {
@@ -111,7 +110,6 @@ export class StorageRecoveryService implements LifecycleAware {
   async handleQuotaExceeded(errorOrMessage?: unknown): Promise<void> {
     log.warn('Storage quota exceeded. Running emergency WAL compaction...', errorOrMessage)
     this.isQuotaExceeded = true
-    this.deps.onQuotaStatusChange?.(true)
 
     try {
       await this.handleEmergencyCompaction()
@@ -213,7 +211,6 @@ export class StorageRecoveryService implements LifecycleAware {
   resolveQuotaStatus(): void {
     resetQuotaExceededStatus()
     this.isQuotaExceeded = false
-    this.deps.onQuotaStatusChange?.(false)
     this.deps.clientEventHub.emit({ type: 'quotaResolved' })
   }
 

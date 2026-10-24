@@ -13,7 +13,6 @@ describe('StorageRecoveryService', () => {
   let mockBroker: any
   let mockAdapter: any
   let mockOrchestrator: any
-  let onQuotaStatusChange: any
   let service: StorageRecoveryService
 
   beforeEach(() => {
@@ -44,7 +43,6 @@ describe('StorageRecoveryService', () => {
       online: true,
       flush: vi.fn(),
     }
-    onQuotaStatusChange = vi.fn()
 
     service = new StorageRecoveryService({
       accountId: 'test-account',
@@ -56,7 +54,6 @@ describe('StorageRecoveryService', () => {
       broker: mockBroker,
       adapter: mockAdapter,
       orchestrator: mockOrchestrator,
-      onQuotaStatusChange,
     })
   })
 
@@ -96,7 +93,6 @@ describe('StorageRecoveryService', () => {
       await service.handleQuotaExceeded('Storage limit reached')
 
       expect(service.getQuotaExceeded()).toBe(true)
-      expect(onQuotaStatusChange).toHaveBeenCalledWith(true)
       expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({
         type: 'quotaExceeded',
@@ -126,7 +122,6 @@ describe('StorageRecoveryService', () => {
       await service.handleQuotaExceeded('Quota error')
 
       expect(service.getQuotaExceeded()).toBe(true)
-      expect(onQuotaStatusChange).toHaveBeenCalledWith(true)
       expect(emitSpy).toHaveBeenCalledWith({
         type: 'quotaExceeded',
         message: 'Quota error',
@@ -160,12 +155,11 @@ describe('StorageRecoveryService', () => {
       expect(mockAdapter.resetReNegotiationCircuit).toHaveBeenCalledTimes(1)
     })
 
-    it('resolveQuotaStatus resets status, calls onQuotaStatusChange(false), and emits quotaResolved', () => {
+    it('resolveQuotaStatus resets status and emits quotaResolved', () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
       service.resolveQuotaStatus()
 
       expect(service.getQuotaExceeded()).toBe(false)
-      expect(onQuotaStatusChange).toHaveBeenCalledWith(false)
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
   })
@@ -195,7 +189,6 @@ describe('StorageRecoveryService', () => {
 
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
       expect(service.getQuotaExceeded()).toBe(false)
-      expect(onQuotaStatusChange).toHaveBeenCalledWith(false)
     })
 
     it('includes blocked items from broker in dirtyIds during retrySave', async () => {

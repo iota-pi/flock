@@ -3,6 +3,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import { AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocStore'
 import type { VaultDoc } from '../../shared/types'
 import { passthroughCodec } from '../domain'
+import { WorkerInternalEventHub } from '../SyncEventHub'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string }> }
 import { ItemId } from '@vault/shared'
@@ -546,9 +547,13 @@ describe('items operations', () => {
     expect(importSpy).toHaveBeenCalledWith(remoteBinary, expect.objectContaining({ docId: expect.any(String) }))
   })
 
-  it('should notify onDocHandleReplaced when seedImportedDocument imports a document', async () => {
+  it('should emit docHandleReplaced once when seedImportedDocument imports a document', async () => {
+    const hub = new WorkerInternalEventHub()
     const handleReplacedListener = vi.fn()
-    docStore.onDocHandleReplaced = handleReplacedListener
+    hub.subscribe(event => {
+      if (event.type === 'docHandleReplaced') handleReplacedListener(event.itemId, event.handle)
+    })
+    docStore.setInternalEventHub(hub)
 
     const doc = Automerge.change(Automerge.init<VaultDoc>(), d => {
       d.id = 'seeded-item' as ItemId
