@@ -16,9 +16,8 @@ import {
   type CryptoResult,
 } from './crypto'
 import { DEFAULT_KDF, type KdfParams } from './kdf'
-import { broadcastVaultEvent, KEYRING_FETCH_RETRY_DELAYS } from './util'
-import { RetryStrategy } from '../sync/utils/RetryStrategy'
-import { classifySyncError } from '../sync/worker/utils/errorClassifier'
+import { broadcastVaultEvent } from './util'
+import { retryTransientFailures } from './requestRetry'
 import { clearWriteAheadLog } from '../sync/client/localDataCleanup'
 import { clearBiometricData, hasBiometricData } from './biometricStore'
 import { isRateLimitedError } from '@vault/shared'
@@ -96,24 +95,14 @@ export function loadKeyringFromEncrypted(encryptedKeyringStr: string): Promise<v
   return vaultKeys.loadEncryptedKeyring(encryptedKeyringStr)
 }
 
-/** Whether a failed request might succeed if sent again. A rate limit won't lift in time to help. */
-function isTransientRequestError(error: unknown): boolean {
-  const { isNetwork, isServerError, isAuth } = classifySyncError(error)
-  return (isNetwork || isServerError) && !isAuth && !isRateLimitedError(error)
-}
-
 /**
  * Fetches the keyring, retrying transient failures. For unlocks with no other keys, which fail if
  * this one request is lost.
  */
 function getKeyringWithRetry(account: string) {
   const generation = vaultKeys.currentGeneration
-  return RetryStrategy.executeWithRetry(() => getKeyring(account), {
-    delays: KEYRING_FETCH_RETRY_DELAYS,
-    shouldRetry: error => vaultKeys.isCurrent(generation) && isTransientRequestError(error),
-    onRetry: (error, attempt) => {
-      log.warn(`Failed to retrieve keyring (attempt ${attempt}); retrying:`, error)
-    },
+  return retryTransientFailures('retrieve keyring', () => getKeyring(account), {
+    stillWanted: () => vaultKeys.isCurrent(generation),
   })
 }
 

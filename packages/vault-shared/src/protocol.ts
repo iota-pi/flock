@@ -31,3 +31,10 @@ export function isRateLimitedError(error: unknown): boolean {
   const { data } = error as { data?: { code?: unknown, httpStatus?: unknown } }
   return data?.code === 'TOO_MANY_REQUESTS' || data?.httpStatus === 429
 }
+
+/** Whether the server answered that what was asked for doesn't exist (HTTP 404), such as an unknown account */
+export function isNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { data } = error as { data?: { code?: unknown, httpStatus?: unknown } }
+  return data?.code === 'NOT_FOUND' || data?.httpStatus === 404
+}

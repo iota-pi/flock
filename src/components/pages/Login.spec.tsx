@@ -119,8 +119,8 @@ describe('LoginPage', () => {
     })
   })
 
-  it('displays error if getSecurityParams fails and no cached metadata is present', async () => {
-    vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
+  it('asks for a connection, after retrying, if getSecurityParams fails and no cached metadata is present', async () => {
+    const paramsSpy = vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(new Error('Network offline'))
     const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
 
     renderLoginPage()
@@ -130,9 +130,30 @@ describe('LoginPage', () => {
     const loginButton = screen.getByRole('button', { name: /Login/i })
 
     await act(async () => {
-      fireEvent.change(accountInput, { target: { value: 'unknown-account' } })
+      fireEvent.change(accountInput, { target: { value: 'my-account' } })
       fireEvent.change(passwordInput, { target: { value: 'secret123' } })
       fireEvent.click(loginButton)
+    })
+
+    await waitFor(() => {
+      expect(loginVaultSpy).not.toHaveBeenCalled()
+      expect(screen.getByText(/Could not reach the server/i)).toBeDefined()
+    })
+    expect(paramsSpy).toHaveBeenCalledWith('my-account', { retry: true })
+    expect(screen.queryByText(/Could not find matching account ID/i)).toBeNull()
+  })
+
+  it('says the account was not found only when the server says so', async () => {
+    const notFound = Object.assign(new Error('Account not found'), { data: { code: 'NOT_FOUND', httpStatus: 404 } })
+    vi.spyOn(vault, 'getSecurityParams').mockRejectedValue(notFound)
+    const loginVaultSpy = vi.spyOn(vault, 'loginVault').mockResolvedValue(NOT_UPGRADED)
+
+    renderLoginPage()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Account ID/i), { target: { value: 'unknown-account' } })
+      fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'secret123' } })
+      fireEvent.click(screen.getByRole('button', { name: /Login/i }))
     })
 
     await waitFor(() => {

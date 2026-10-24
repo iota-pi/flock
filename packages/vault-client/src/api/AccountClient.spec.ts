@@ -24,6 +24,11 @@ vi.mock('./vaultTrpcClient', () => ({
   getVaultTrpcClient: vi.fn(() => mockTrpcClient),
 }))
 
+vi.mock('./util', async importOriginal => ({
+  ...await importOriginal<typeof import('./util')>(),
+  REQUEST_RETRY_DELAYS: [0, 0],
+}))
+
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
 
 describe('AccountClient', () => {
@@ -43,6 +48,40 @@ describe('AccountClient', () => {
       salt: 'salt-2',
       iterations: 222,
       dataVersion: 1,
+    })
+  })
+
+  describe('getSecurityParams with retry', () => {
+    const PARAMS = { salt: 'salt-5', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2, success: true }
+    const query = () => vi.mocked(getVaultTrpcClient().accounts.getSecurityParams.query)
+
+    it('retries a lost request', async () => {
+      query().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue(PARAMS)
+
+      await expect(getSecurityParams('acc-1', { retry: true })).resolves.toMatchObject({ salt: 'salt-5' })
+      expect(query()).toHaveBeenCalledTimes(2)
+    })
+
+    it('gives up after the last retry', async () => {
+      query().mockRejectedValue(new TypeError('Failed to fetch'))
+
+      await expect(getSecurityParams('acc-1', { retry: true })).rejects.toThrow('Failed to fetch')
+      expect(query()).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not retry an account that does not exist', async () => {
+      const notFound = Object.assign(new Error('Account not found'), { data: { code: 'NOT_FOUND', httpStatus: 404 } })
+      query().mockRejectedValue(notFound)
+
+      await expect(getSecurityParams('acc-1', { retry: true })).rejects.toBe(notFound)
+      expect(query()).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not retry unless asked to', async () => {
+      query().mockRejectedValue(new TypeError('Failed to fetch'))
+
+      await expect(getSecurityParams('acc-1')).rejects.toThrow('Failed to fetch')
+      expect(query()).toHaveBeenCalledTimes(1)
     })
   })
 

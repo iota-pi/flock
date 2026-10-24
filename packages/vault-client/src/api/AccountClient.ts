@@ -6,6 +6,7 @@ import type {
 } from './clientTypes'
 import type { KdfParams } from '@vault/shared'
 import { LEGACY_CRYPTO_ITERATIONS } from './util'
+import { retryTransientFailures } from './requestRetry'
 
 export async function createAccount(
   { salt, authToken, saltVersion, kdf, keyring, randomDataKeys }: CreateAccountBody,
@@ -20,10 +21,16 @@ export async function createAccount(
   })
 }
 
+/**
+ * The account's key derivation parameters. With `retry`, transient failures are retried, for a
+ * login that has no cached parameters to fall back on.
+ */
 export async function getSecurityParams(
   account: string,
+  { retry = false } = {},
 ): Promise<{ salt: string, iterations?: number, saltVersion?: number, kdf?: KdfParams, dataVersion: number }> {
-  const response = await getVaultTrpcClient().accounts.getSecurityParams.query({ account })
+  const query = () => getVaultTrpcClient().accounts.getSecurityParams.query({ account })
+  const response = retry ? await retryTransientFailures('get security params', query) : await query()
   return {
     salt: response.salt,
     // Accounts from before iterations were stored used the legacy count. Argon2id accounts have none.
