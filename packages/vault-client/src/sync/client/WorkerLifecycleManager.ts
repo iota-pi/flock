@@ -247,7 +247,7 @@ export class WorkerLifecycleManager {
         worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
         await untilAborted(
-          wrappedApi.initRepo(accountId, vaultKey, undefined, {
+          wrappedApi.initRepo(accountId, vaultKey, {
             randomDataKeys: hasRandomDataKeys(accountId),
             authToken: getVaultSession() || null,
           }),

@@ -36,7 +36,6 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   initRepo: (
     accountId: string,
     vaultKey: string,
-    refreshAuthToken?: () => Promise<string | null>,
     options?: InitRepoOptions,
   ) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
@@ -61,10 +60,7 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   listRecoveryItems: (options?: ReadManualRecoveryOptions) => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
   updateAuthToken: (token: string | null) => Promise<void>
-  reencryptAllItems: (
-    onProgress?: (done: number, total: number) => void,
-    refreshAuthToken?: () => Promise<string | null>
-  ) => Promise<ReencryptResult>
+  reencryptAllItems: () => Promise<ReencryptResult>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   claimLeader: () => Promise<void>

@@ -270,7 +270,7 @@ describe('WorkerLifecycleManager', () => {
 
       // The new account should remain active and not be clobbered
       expect(manager.getCurrentAccountId()).toBe('account-new-success')
-      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key', undefined, { randomDataKeys: false, authToken: null })
+      expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-new-success', 'test-key', { randomDataKeys: false, authToken: null })
 
       vi.useRealTimers()
     })
