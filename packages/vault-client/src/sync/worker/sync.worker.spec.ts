@@ -701,7 +701,6 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       const eventSpy = vi.fn()
       ;(worker as any).clientEventHub.subscribe(eventSpy)
 
-      const onProgressParam = vi.fn()
       // Mock itemReencryptor.reencryptAllItems to invoke the onProgress callback it receives
       ;(worker as any)._context.services.itemReencryptor.reencryptAllItems.mockImplementationOnce(
         async (_deps: any, onProgress: (done: number, total: number) => void) => {
@@ -711,10 +710,8 @@ describe('SyncWorker readiness and queueing before initialization', () => {
         }
       )
 
-      await worker.reencryptAllItems(onProgressParam)
+      await worker.reencryptAllItems()
 
-      expect(onProgressParam).toHaveBeenCalledWith(3, 10)
-      expect(onProgressParam).toHaveBeenCalledWith(10, 10)
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 3, total: 10 })
       expect(eventSpy).toHaveBeenCalledWith({ type: 'reencryptProgress', done: 10, total: 10 })
     })
