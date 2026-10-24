@@ -51,7 +51,6 @@ export interface ReencryptDeps {
   refreshAuthToken?: () => Promise<string | null>
   scheduleRetry?: (delayMs?: number) => void
   recoveryManager?: RecoveryManager
-  reencryptor?: ItemReencryptor
   signal?: AbortSignal
   batchRetryDelays?: readonly number[]
 }

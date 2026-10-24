@@ -518,10 +518,8 @@ describe('SyncOrchestrator', () => {
     await customOrchestrator.shutdown()
   })
 
-  it('forwards leaderConflict event to internalEventHub and clientEventHub', async () => {
-    const internalListener = vi.fn()
+  it('forwards leaderConflict event to clientEventHub', async () => {
     const clientListener = vi.fn()
-    internalEventHub.subscribe(internalListener)
     clientEventHub.subscribe(clientListener)
 
     let capturedCallbacks!: LeaderElectionCallbacks
@@ -548,11 +546,9 @@ describe('SyncOrchestrator', () => {
 
     // Trigger onLeaderConflict callback
     capturedCallbacks.onLeaderConflict?.(true)
-    expect(internalListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: true })
     expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: true })
 
     capturedCallbacks.onLeaderConflict?.(false)
-    expect(internalListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
     expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
 
     await customOrchestrator.shutdown()

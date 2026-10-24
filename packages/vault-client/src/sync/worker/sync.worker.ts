@@ -526,7 +526,6 @@ export class SyncWorker implements SyncApi {
           refreshAuthToken: () => this.requestAuthTokenRefresh(),
           recoveryManager,
           apiClient: ctx.apiClient,
-          reencryptor: itemReencryptor,
         },
         (done, total) => {
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
