@@ -65,8 +65,8 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
     this.onQuotaExceeded = deps.onQuotaExceeded
-    this.adapter?.setInternalEventHub?.(this.internalEventHub)
-    this.pullQueueManager?.setInternalEventHub?.(this.internalEventHub)
+    this.adapter.setInternalEventHub(this.internalEventHub)
+    this.pullQueueManager.setInternalEventHub(this.internalEventHub)
     this.setWal(deps.wal ?? null)
 
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {

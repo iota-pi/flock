@@ -44,6 +44,7 @@ describe('SyncMessageBroker', () => {
     } as unknown as AutomergeIndexManager
     pullQueueManager = {
       setAccount: vi.fn().mockResolvedValue(undefined),
+      setInternalEventHub: vi.fn(),
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),

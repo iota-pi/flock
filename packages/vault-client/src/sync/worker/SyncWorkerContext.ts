@@ -441,8 +441,8 @@ export class SyncWorkerContext {
         }
       },
     })
-    adapter.setSyncedHeadsStore?.(syncedHeadsStore)
-    adapter.setHeadsValidator?.((documentId, heads) => {
+    adapter.setSyncedHeadsStore(syncedHeadsStore)
+    adapter.setHeadsValidator((documentId, heads) => {
       const handle = repo.handles[documentId] as DocHandle<unknown> | undefined
       if (!handle?.isReady()) return false
       const doc = handle.doc()

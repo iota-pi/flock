@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
-import * as runtime from '../../api/runtime'
+import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { classifySyncError } from './utils/errorClassifier'
 import {
   putSnapshotsWithToken,
@@ -20,22 +20,6 @@ import type { VaultItem } from '../../api/clientTypes'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncApiClient')
-
-function safeSetApiAuthToken(token: string) {
-  try {
-    runtime.setApiAuthToken?.(token)
-  } catch {
-    // Ignore
-  }
-}
-
-function safeGetApiAuthToken(): string {
-  try {
-    return runtime.getApiAuthToken?.() || ''
-  } catch {
-    return ''
-  }
-}
 
 export class AuthError extends Error {
   readonly code = 'UNAUTHORIZED' as const
@@ -88,7 +72,7 @@ export class SyncApiClient {
    */
   setToken(token: string | null): void {
     this.currentToken = token
-    safeSetApiAuthToken(token || '')
+    setApiAuthToken(token || '')
   }
 
   /**
@@ -104,11 +88,11 @@ export class SyncApiClient {
       const latest = await this.getAuth()
       if (latest) {
         this.currentToken = latest
-        safeSetApiAuthToken(latest)
+        setApiAuthToken(latest)
         return latest
       } else {
         this.currentToken = null
-        safeSetApiAuthToken('')
+        setApiAuthToken('')
       }
     } catch {
       // Fall through on store read error
@@ -119,7 +103,7 @@ export class SyncApiClient {
       if (refreshed) return refreshed
     }
 
-    const runtimeToken = safeGetApiAuthToken()
+    const runtimeToken = getApiAuthToken()
     if (runtimeToken) {
       this.currentToken = runtimeToken
       return runtimeToken
@@ -136,7 +120,7 @@ export class SyncApiClient {
       const latest = await this.getAuth()
       if (latest) {
         this.currentToken = latest
-        safeSetApiAuthToken(latest)
+        setApiAuthToken(latest)
         return latest
       }
     } catch {
@@ -172,7 +156,7 @@ export class SyncApiClient {
         }
         if (refreshed) {
           this.currentToken = refreshed
-          safeSetApiAuthToken(refreshed)
+          setApiAuthToken(refreshed)
           log.info('Acquired fresh auth token')
         }
         return refreshed
@@ -195,7 +179,7 @@ export class SyncApiClient {
       throw new AuthError('No active session token available')
     }
 
-    safeSetApiAuthToken(token)
+    setApiAuthToken(token)
 
     try {
       return await operation(token)
@@ -210,7 +194,7 @@ export class SyncApiClient {
         throw toAuthExpiredError(err)
       }
 
-      safeSetApiAuthToken(refreshedToken)
+      setApiAuthToken(refreshedToken)
 
       try {
         return await operation(refreshedToken)

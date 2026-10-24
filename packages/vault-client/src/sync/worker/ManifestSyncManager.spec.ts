@@ -49,6 +49,7 @@ vi.mock('../shared/manualRecoveryStore', () => ({
 
 const mockHasApiAuthToken = vi.fn()
 vi.mock('../../api/runtime', () => ({
+  setApiAuthToken: vi.fn(),
   hasApiAuthToken: () => mockHasApiAuthToken(),
   getApiAuthToken: () => (mockHasApiAuthToken() ? 'session-token' : ''),
 }))
