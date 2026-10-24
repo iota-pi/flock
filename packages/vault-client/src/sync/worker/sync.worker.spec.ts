@@ -56,7 +56,6 @@ const mockRecoveryManagerListRecoveryItems = vi.fn().mockResolvedValue([])
 const mockOrchestratorSetOnlineState = vi.fn()
 const mockOrchestratorFlush = vi.fn()
 const mockSnapshotManagerOnOnlineStateChange = vi.fn()
-const mockDocStoreOnDocHandleReplaced = vi.fn()
 const mockAccountSettingsHandleSettingsDoc = vi.fn()
 
 const { mockRepoFind } = vi.hoisted(() => ({
@@ -121,7 +120,6 @@ vi.mock('./SyncWorkerContext', () => {
         docStore: {
           // SyncWorker.bindItemHandle decodes through the doc store; return a clean item shape
           decodeSnapshot: vi.fn().mockImplementation((id: string, doc: unknown) => (doc ? ({ ...(doc as object), id }) : null)),
-          onDocHandleReplaced: mockDocStoreOnDocHandleReplaced,
           exportAllBinaries: vi.fn().mockResolvedValue({}),
           restoreFromBinaries: vi.fn().mockResolvedValue([]),
         },
@@ -149,12 +147,6 @@ vi.mock('./SyncWorkerContext', () => {
       claimLeader = mockContextClaimLeader
       retrySave = mockContextRetrySave
       rewrapDeviceKey = vi.fn().mockResolvedValue(undefined)
-
-      constructor(config?: any) {
-        if (config?.onDocHandleReplaced) {
-          this.services.docStore.onDocHandleReplaced = config.onDocHandleReplaced
-        }
-      }
     }
   }
 })
@@ -262,8 +254,8 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
   })
 })
 
-describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
-  it('rebinds change listener from old handle to new handle when onDocHandleReplaced is called', async () => {
+describe('SyncWorker docHandleReplaced / change listener rebinding', () => {
+  it('rebinds change listener from old handle to new handle when docHandleReplaced is emitted', async () => {
     const handleAChangeListeners: Array<() => void> = []
     const handleA = {
       documentId: 'doc-item-1',
@@ -308,8 +300,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
 
     clientEvents.length = 0
 
-    // Invoke the onDocHandleReplaced callback wired by SyncWorker into SyncWorkerContext config
-    ;(worker as any)._context.services.docStore.onDocHandleReplaced('item-1' as any, handleB)
+    ;(worker as any).internalEventHub.emit({ type: 'docHandleReplaced', itemId: 'item-1', handle: handleB })
 
     // 1. Old handle listener must be unbound with the exact registered reference
     const registeredListenerA = (handleA.on as any).mock.calls[0][1]
@@ -318,12 +309,13 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     // 2. New handle listener must be bound
     expect(handleB.on).toHaveBeenCalledWith('change', expect.any(Function))
 
-    // 3. Immediate snapshot must be emitted for the new handle
-    expect(clientEvents).toContainEqual({
+    // 3. Exactly one immediate snapshot must be emitted for the new handle
+    expect(handleB.on).toHaveBeenCalledTimes(1)
+    expect(clientEvents.filter(evt => evt.type === 'itemUpdated')).toEqual([{
       type: 'itemUpdated',
       id: 'item-1',
       item: expect.objectContaining({ id: 'item-1', name: 'Compacted / Seeded Item' }),
-    })
+    }])
 
     // 4. Subsequent changes on handleB must trigger the listener and emit itemUpdated
     clientEvents.length = 0
@@ -337,7 +329,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     })
   })
 
-  it('does not bind listener when onDocHandleReplaced is called for an unsubscribed item', async () => {
+  it('does not bind listener when docHandleReplaced is emitted for an unsubscribed item', async () => {
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
@@ -348,7 +340,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
       doc: vi.fn().mockReturnValue({ id: 'item-unsub', name: 'Unsubscribed Item' }),
     }
 
-    ;(worker as any)._context.services.docStore.onDocHandleReplaced('item-unsub' as any, handle)
+    ;(worker as any).internalEventHub.emit({ type: 'docHandleReplaced', itemId: 'item-unsub', handle })
 
     expect(handle.on).not.toHaveBeenCalled()
   })
@@ -463,6 +455,20 @@ function createDeferred<T = void>() {
   })
   return { promise, resolve, reject }
 }
+
+describe('SyncWorker quota status', () => {
+  it('updates quota status once per quotaExceeded / quotaResolved client event', async () => {
+    const worker = new SyncWorker(workerConfig)
+    await worker.initRepo('account-1', 'vault-key-1')
+    const setQuotaExceeded = vi.spyOn((worker as any).syncStatusManager, 'setQuotaExceeded')
+
+    ;(worker as any).clientEventHub.emit({ type: 'quotaExceeded', message: 'Storage limit reached' })
+    expect(setQuotaExceeded.mock.calls).toEqual([[true]])
+
+    ;(worker as any).clientEventHub.emit({ type: 'quotaResolved' })
+    expect(setQuotaExceeded.mock.calls).toEqual([[true], [false]])
+  })
+})
 
 describe('SyncWorker shutdown during initialization', () => {
   beforeEach(() => {

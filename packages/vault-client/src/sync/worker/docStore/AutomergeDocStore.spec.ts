@@ -701,24 +701,20 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(importSpy).toHaveBeenCalledWith(expect.any(Uint8Array), { docId: documentId })
     })
 
-    it('notifies onDocHandleReplaced and emits docHandleReplaced on internalEventHub when creating document', async () => {
+    it('emits docHandleReplaced once on internalEventHub when creating document', async () => {
       const hub = new WorkerInternalEventHub()
-      const emitSpy = vi.spyOn(hub, 'emit')
-      const listenerSpy = vi.fn()
+      const replacedEvents: unknown[] = []
+      hub.subscribe(event => {
+        if (event.type === 'docHandleReplaced') replacedEvents.push(event)
+      })
 
       const store = new AutomergeDocStore(repo, hub)
-      store.onDocHandleReplaced = listenerSpy
       vi.spyOn(store, 'hasDataInStorage').mockResolvedValue(false)
 
       const itemId = 'event-notify-item' as ItemId
       const handle = await store.findOrCreateHandle(itemId)
 
-      expect(listenerSpy).toHaveBeenCalledWith(itemId, handle)
-      expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({
-        type: 'docHandleReplaced',
-        itemId,
-        handle,
-      }))
+      expect(replacedEvents).toEqual([{ type: 'docHandleReplaced', itemId, handle }])
     })
 
     it('throws wrapped error if repo.import fails during creation', async () => {

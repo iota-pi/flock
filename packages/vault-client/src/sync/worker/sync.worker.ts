@@ -339,11 +339,9 @@ export class SyncWorker implements SyncApi {
         internalEventHub: this.internalEventHub,
         refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
-        onDocHandleReplaced: (itemId, handle) => this.subscriptions.rebind(itemId, handle),
         onIndexUpdated: itemIds => {
           if (this._context === context) this.subscriptions.update(itemIds)
         },
-        onQuotaStatusChange: exceeded => this.syncStatusManager.setQuotaExceeded(exceeded),
         ...this.sessionConfig,
         randomDataKeys: options?.randomDataKeys,
         keys: this.keyring,

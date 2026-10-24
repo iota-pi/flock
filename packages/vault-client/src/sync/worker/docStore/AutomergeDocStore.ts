@@ -66,8 +66,6 @@ export function normalizeItemSnapshot(
   return codec.decode(itemId, { ...snapshot, id: hasId ? snapshot.id : itemId })
 }
 
-export type DocHandleReplacedListener = (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
-
 export interface ItemLockCoordinator {
   withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T>
 }
@@ -82,7 +80,6 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private internalEventHub: WorkerInternalEventHub
   private storageAdapter?: DocStorageChecker | null
-  public onDocHandleReplaced?: DocHandleReplacedListener
   /**
    * Whether a document's sealed local records failed to decrypt. Its handle never finishes loading
    * (automerge-repo leaves it pending when storage throws), so finds give up at once instead of
@@ -113,7 +110,6 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   }
 
   private notifyDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
-    this.onDocHandleReplaced?.(itemId, handle)
     this.internalEventHub.emit({ type: 'docHandleReplaced', itemId, handle })
   }
 
@@ -587,6 +583,5 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
 
   async shutdown(): Promise<void> {
     this.storageAdapter = null
-    this.onDocHandleReplaced = undefined
   }
 }

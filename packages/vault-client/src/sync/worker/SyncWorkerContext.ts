@@ -1,7 +1,7 @@
 import type { Repo, DocHandle, DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 
-import { AutomergeDocStore, AutomergeIndexManager, type DocHandleReplacedListener } from './docStore'
+import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
@@ -96,17 +96,11 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
    * so the Comlink layer can subscribe to change events on that handle.
    */
   onDocumentReceived?: (itemId: ItemId) => void
-  /** Called when a doc handle is replaced (e.g. after compaction/import). */
-  onDocHandleReplaced?: DocHandleReplacedListener
   /**
    * Called with every indexed document ID, including the settings document, which the
    * `indexUpdated` event sent to the app leaves out.
    */
   onIndexUpdated?: (itemIds: ItemId[]) => void
-  /**
-   * Called when storage quota state changes (exceeded / resolved).
-   */
-  onQuotaStatusChange?: (isQuotaExceeded: boolean) => void
   /**
    * Called when an inbound item sync message has been parsed.
    */
@@ -215,9 +209,6 @@ export class SyncWorkerContext {
 
     const docStore = new AutomergeDocStore(repo, internalEventHub, repoManager.getStorage(), this.domain.codec)
     docStore.isLocallyUnreadable = documentId => this.unreadableDocuments.has(documentId)
-    if (this.config.onDocHandleReplaced) {
-      docStore.onDocHandleReplaced = this.config.onDocHandleReplaced
-    }
 
     // The settings are created later, so these callbacks read them from the finished services
     const indexManager = new AutomergeIndexManager(
@@ -361,7 +352,6 @@ export class SyncWorkerContext {
       broker,
       adapter,
       orchestrator,
-      onQuotaStatusChange: this.config.onQuotaStatusChange,
     })
 
     return {
