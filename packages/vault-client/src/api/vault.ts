@@ -24,6 +24,7 @@ import { clearBiometricData, hasBiometricData } from './biometricStore'
 import { isRateLimitedError } from '@vault/shared'
 import { Keyring } from './Keyring'
 import { createLogger } from '../sync/utils/logger'
+import { errorMessage } from '../sync/utils/errorMessage'
 import { clearCachedKeyring, loadCachedKeyring, readCachedKeyring, writeCachedKeyring } from './keyringCache'
 import { clearStoredMetadata, rememberRandomDataKeys, writeStoredMetadata } from './storedMetadata'
 import {
@@ -140,7 +141,7 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
       clearKeyData()
       log.error('Failed to decrypt keyring from server during login:', err)
       throw new Error(
-        `Failed to decrypt keyring from server during login: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to decrypt keyring from server during login: ${errorMessage(err)}`,
         { cause: err },
       )
     }
@@ -439,7 +440,7 @@ export async function rotateVaultKey(account: string): Promise<void> {
   } catch (err) {
     keyring.removeKey(nextActiveVer)
     throw new Error(
-      `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`,
+      `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${errorMessage(err)}`,
       { cause: err },
     )
   }

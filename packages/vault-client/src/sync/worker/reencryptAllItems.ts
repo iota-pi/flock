@@ -9,6 +9,7 @@ import { SyncApiClient, toAuthExpiredError } from './SyncApiClient'
 import { classifySyncError } from './utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { AbortError, isAbortError } from '../utils/abort'
+import { errorMessage } from '../utils/errorMessage'
 import {
   SizeAwareBatchAccumulator,
   DEFAULT_MAX_BATCH_BYTES,
@@ -164,7 +165,7 @@ export class ItemReencryptor {
     }
 
     if (classified.isNetwork || classified.isServerError) {
-      const errMsg = classified.message || (lastError instanceof Error ? lastError.message : String(lastError))
+      const errMsg = classified.message || errorMessage(lastError)
       const errorType = classified.isServerError ? 'server error' : 'network error'
       log.warn(
         `Transient ${errorType} during upload: ${errMsg}. Aborting operation.`
@@ -425,8 +426,7 @@ export class ItemReencryptor {
         if (signal?.aborted || isAbortError(result.reason)) {
           throw result.reason
         }
-        const errorDetail =
-          result.reason instanceof Error ? result.reason.message : String(result.reason)
+        const errorDetail = errorMessage(result.reason)
         failureDetails.push({
           itemId,
           errorMsg: `Failed to build snapshot for item ${itemId}: ${errorDetail}`,

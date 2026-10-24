@@ -1,5 +1,6 @@
 import type { SyncStatus } from '../shared/types'
 import { createLogger } from '../utils/logger'
+import { errorMessage } from '../utils/errorMessage'
 
 const log = createLogger('syncWorkerHealth')
 
@@ -105,7 +106,7 @@ export const sendPing = (
 function isExternalAbort(signal: AbortSignal): boolean {
   if (!signal.aborted) return false
   const reason = signal.reason
-  const msg = reason instanceof Error ? reason.message : String(reason)
+  const msg = errorMessage(reason)
   return msg !== 'Heartbeat timeout'
 }
 
