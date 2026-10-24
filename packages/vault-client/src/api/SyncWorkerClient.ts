@@ -14,19 +14,18 @@ type SyncMessageEnvelope = {
   format?: typeof DOC_BOUND_FORMAT
 }
 
-let cachedClient: { authToken: string; client: ReturnType<typeof createTRPCProxyClient<VaultRouter>> } | null = null
+let untrackedClient: ReturnType<typeof createTRPCProxyClient<VaultRouter>> | null = null
 
-function createWorkerSyncClient(authToken: string) {
-  if (cachedClient && cachedClient.authToken === authToken) {
-    return cachedClient.client
-  }
-
-  const client = createTRPCProxyClient<VaultRouter>({
-    links: createVaultLinks({ authToken }),
+/**
+ * The client for the sync worker's background requests (polls and snapshot uploads). It skips the
+ * tracked fetch, so these requests don't show as activity in the sync status. Like the other
+ * clients, it sends the realm's current session token.
+ */
+function getUntrackedClient() {
+  untrackedClient ??= createTRPCProxyClient<VaultRouter>({
+    links: createVaultLinks(),
   })
-
-  cachedClient = { authToken, client }
-  return client
+  return untrackedClient
 }
 
 export type PullSyncMessagesResponse = {
@@ -62,25 +61,21 @@ export type PollSyncBatchResponse = {
 }
 
 
-export async function pollSyncBatchWithToken(
-  input: z.infer<typeof SyncPollBatchSchema> & { authToken: string },
+export async function pollSyncBatch(
+  input: z.infer<typeof SyncPollBatchSchema>,
   options?: { signal?: AbortSignal }
 ): Promise<PollSyncBatchResponse> {
-  const client = createWorkerSyncClient(input.authToken)
-  const { authToken, ...rpcInput } = input
-  return client.sync.pollSync.mutate(rpcInput, options?.signal ? { signal: options.signal } : undefined)
+  return getUntrackedClient().sync.pollSync.mutate(input, options?.signal ? { signal: options.signal } : undefined)
 }
 
-export async function putSnapshotsWithToken(
+export async function putSnapshots(
   input: {
     account: string
-    authToken: string
     snapshots: VaultSnapshotInput[]
   },
   options?: { signal?: AbortSignal }
 ): Promise<{ success: boolean; persisted: number; total: number; results?: PutSnapshotResultItem[] }> {
-  const client = createWorkerSyncClient(input.authToken)
-  return client.items.putSnapshots.mutate(
+  return getUntrackedClient().items.putSnapshots.mutate(
     {
       account: input.account,
       snapshots: input.snapshots,

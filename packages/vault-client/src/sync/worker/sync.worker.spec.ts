@@ -1,5 +1,6 @@
 import { SyncWorker, exposeSyncWorker, type SyncWorkerConfig } from './sync.worker'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { getApiAuthToken } from '../../api/runtime'
 import type { ItemId } from '@vault/shared'
 
 const { realtimeListeners } = vi.hoisted(() => ({
@@ -138,9 +139,7 @@ vi.mock('./SyncWorkerContext', () => {
         },
       }
 
-      apiClient = {
-        setToken: vi.fn(),
-      }
+      apiClient = {}
 
       initialize = mockContextInitialize
       shutdown = mockContextShutdown
@@ -697,7 +696,33 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       const token = await refreshPromise
 
       expect(token).toBe('new-session-token-xyz')
-      expect((worker as any)._context.apiClient.setToken).toHaveBeenCalledWith('new-session-token-xyz')
+      expect(getApiAuthToken()).toBe('new-session-token-xyz')
+    })
+
+    it('shares one main-thread round trip between concurrent refresh requests', async () => {
+      const worker = new SyncWorker(workerConfig)
+      await worker.initRepo('account-1', 'vault-key-1')
+
+      const eventSpy = vi.fn()
+      ;(worker as any).clientEventHub.subscribe(eventSpy)
+
+      const first = worker.requestAuthTokenRefresh()
+      const second = worker.requestAuthTokenRefresh()
+      await worker.updateAuthToken('shared-token')
+
+      expect(await first).toBe('shared-token')
+      expect(await second).toBe('shared-token')
+      expect(eventSpy.mock.calls.filter(([event]) => event.type === 'tokenRefreshNeeded')).toHaveLength(1)
+    })
+
+    it('forgets the session token at shutdown', async () => {
+      const worker = new SyncWorker(workerConfig)
+      await worker.initRepo('account-1', 'vault-key-1', { authToken: 'session-token' })
+      expect(getApiAuthToken()).toBe('session-token')
+
+      await worker.shutdown()
+
+      expect(getApiAuthToken()).toBe('')
     })
 
     it('emits reencryptProgress event during reencryptAllItems', async () => {

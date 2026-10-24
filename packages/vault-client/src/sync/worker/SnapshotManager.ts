@@ -74,7 +74,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       builder: this.builder,
       broker: deps.broker,
       recoveryManager,
-      apiClient: deps.apiClient,
+      apiClient: deps.apiClient!,
       eventHub: deps.eventHub,
       getLatestCursor: deps.getLatestCursor,
       maxPayloadBytes: options?.maxPayloadBytes,

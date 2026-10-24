@@ -276,7 +276,7 @@ export class SyncWorkerContext {
       markDocumentDirty,
       syncedKeys: this.domain.syncedMetadataKeys,
       legacySettings: this.domain.legacySettings,
-      withAuth: request => this.apiClient.executeWithAuth(() => request()),
+      withAuth: request => this.apiClient.executeWithAuth(request),
     })
 
     const itemReencryptor = new ItemReencryptor({

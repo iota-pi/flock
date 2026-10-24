@@ -151,7 +151,7 @@ describe('SyncMessageBroker', () => {
     expect(mockWal.append).not.toHaveBeenCalled()
   })
 
-  it('notifies onItemMessageParsed and delivers message to adapter when messageParsed is emitted', async () => {
+  it('emits itemMessageParsed when message is received', async () => {
     const mockOnItemParsed = vi.fn()
     const receiveSpy = vi.spyOn(adapter, 'receiveServerMessage')
     internalEventHub.subscribe(e => {

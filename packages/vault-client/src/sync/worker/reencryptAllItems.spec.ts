@@ -2,17 +2,13 @@ import { ItemReencryptor } from './reencryptAllItems'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { BuildSnapshotResult } from './snapshotBuilder'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 
-const mockPutSnapshotsWithToken = vi.fn()
-const mockGetActiveSessionToken = vi.fn()
+const mockPutSnapshots = vi.fn()
 const mockListAutomergeItemIds = vi.fn()
 
 vi.mock('../../api/SyncWorkerClient', () => ({
-  putSnapshotsWithToken: (...args: any[]) => mockPutSnapshotsWithToken(...args),
-}))
-
-vi.mock('../shared/workerAuthStore', () => ({
-  getActiveSessionToken: () => mockGetActiveSessionToken(),
+  putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
 }))
 
 vi.mock('../shared/manualRecoveryStore', () => ({
@@ -60,6 +56,7 @@ describe('reencryptAllItems', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    setApiAuthToken('')
     itemReencryptor = new ItemReencryptor({ keys })
 
     mockHandle = {
@@ -95,13 +92,13 @@ describe('reencryptAllItems', () => {
     await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow('SyncWorker not initialized')
   })
 
-  it('throws an error if authToken is missing', async () => {
-    mockGetActiveSessionToken.mockResolvedValue(null)
+  it('throws an error if there is no session token', async () => {
+    setApiAuthToken('')
     await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow('No active session token available')
   })
 
   it('handles empty item list', async () => {
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue([])
 
     const onProgress = vi.fn()
@@ -109,13 +106,13 @@ describe('reencryptAllItems', () => {
 
     expect(result).toEqual({ succeeded: [], failed: [] })
     expect(onProgress).toHaveBeenCalledWith(0, 0)
-    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    expect(mockPutSnapshots).not.toHaveBeenCalled()
   })
 
   it('successfully processes and uploads items in batches', async () => {
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+    mockPutSnapshots.mockResolvedValue({ success: true })
 
     const onProgress = vi.fn()
     const result = await itemReencryptor.reencryptAllItems(context as any, onProgress)
@@ -124,16 +121,16 @@ describe('reencryptAllItems', () => {
       succeeded: ['item-1', 'item-2'],
       failed: [],
     })
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(onProgress).toHaveBeenCalledWith(2, 2)
   })
 
   it('reports the versions and heads of the snapshots the server stored', async () => {
     const onSnapshotsStored = vi.fn()
     const reencryptor = new ItemReencryptor({ keys, onSnapshotsStored })
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
-    mockPutSnapshotsWithToken.mockResolvedValue({
+    mockPutSnapshots.mockResolvedValue({
       success: true,
       persisted: 2,
       results: [{ itemId: 'item-1', version: 4 }, { itemId: 'item-2', version: 9 }],
@@ -148,9 +145,9 @@ describe('reencryptAllItems', () => {
   })
 
   it('records failed items and quarantines to manual recovery store if server upload fails', async () => {
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: false })
+    mockPutSnapshots.mockResolvedValue({ success: false })
 
     const result = await itemReencryptor.reencryptAllItems(context as any)
 
@@ -171,13 +168,13 @@ describe('reencryptAllItems', () => {
   })
 
   it('continues processing remaining batches if a single batch upload fails', async () => {
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     // 12 items -> batch 1 (0-10), batch 2 (10-12)
     const items = Array.from({ length: 12 }, (_, i) => `item-${i}`)
     mockListAutomergeItemIds.mockResolvedValue(items)
 
     // First batch fails upload 3 times, second batch succeeds
-    mockPutSnapshotsWithToken
+    mockPutSnapshots
       .mockResolvedValueOnce({ success: false })
       .mockResolvedValueOnce({ success: false })
       .mockResolvedValueOnce({ success: false })
@@ -191,7 +188,7 @@ describe('reencryptAllItems', () => {
     expect(result.failed).toHaveLength(10)
 
     // 3 attempts for batch 1 + 1 attempt for batch 2 = 4 calls
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(4)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(4)
     expect(onProgress).toHaveBeenCalledWith(10, 12)
     expect(onProgress).toHaveBeenCalledWith(12, 12)
   })
@@ -199,9 +196,9 @@ describe('reencryptAllItems', () => {
   it('continues processing remaining items if a single item fails to build snapshot and quarantines it', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-bad', 'item-2'])
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+    mockPutSnapshots.mockResolvedValue({ success: true })
 
     let badItemAttempts = 0
     mockRepo.find.mockImplementation(async (url: string) => {
@@ -235,8 +232,8 @@ describe('reencryptAllItems', () => {
 
     // Should have retried bad item 3 times
     expect(badItemAttempts).toBe(3)
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
-    const callArgs = mockPutSnapshotsWithToken.mock.calls[0][0]
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+    const callArgs = mockPutSnapshots.mock.calls[0][0]
     expect(callArgs.snapshots).toHaveLength(2)
     expect(callArgs.snapshots.map((s: any) => s.itemId)).toEqual(['item-1', 'item-2'])
     expect(onProgress).toHaveBeenCalledWith(3, 3)
@@ -248,9 +245,9 @@ describe('reencryptAllItems', () => {
   it('continues processing remaining items if buildSnapshot returns type error and quarantines it', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-bad-doc', 'item-2'])
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+    mockPutSnapshots.mockResolvedValue({ success: true })
 
     mockRepo.find.mockImplementation(async (url: string) => {
       if (url === 'automerge:item-bad-doc') {
@@ -280,7 +277,7 @@ describe('reencryptAllItems', () => {
       kind: 'snapshotFailure',
       reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-bad-doc: Document data not available',
     })
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(onProgress).toHaveBeenCalledWith(3, 3)
 
     consoleErrorSpy.mockRestore()
@@ -288,9 +285,9 @@ describe('reencryptAllItems', () => {
   })
 
   it('retries when buildSnapshot returns not-ready and succeeds if subsequent attempt is ready', async () => {
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-retry'])
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+    mockPutSnapshots.mockResolvedValue({ success: true })
 
     let attempts = 0
     mockRepo.find.mockImplementation(async () => {
@@ -313,13 +310,13 @@ describe('reencryptAllItems', () => {
     expect(attempts).toBe(2)
     expect(result.succeeded).toEqual(['item-retry'])
     expect(result.failed).toEqual([])
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
   })
 
   it('retries when buildSnapshot returns not-ready and records item as failed and quarantined if retries are exhausted', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-always-not-ready'])
 
     let attempts = 0
@@ -346,7 +343,7 @@ describe('reencryptAllItems', () => {
       kind: 'snapshotFailure',
       reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-always-not-ready: Item item-always-not-ready document or vault was not ready',
     })
-    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    expect(mockPutSnapshots).not.toHaveBeenCalled()
 
     consoleErrorSpy.mockRestore()
     consoleWarnSpy.mockRestore()
@@ -355,7 +352,7 @@ describe('reencryptAllItems', () => {
   it('records not-ready item in failureDetails and quarantines it if returned directly to processChunk', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
 
     const reencryptor = new ItemReencryptor({ keys })
     vi.spyOn(reencryptor as any, 'buildSnapshotWithRetry').mockResolvedValueOnce({ type: 'not-ready' })
@@ -363,7 +360,7 @@ describe('reencryptAllItems', () => {
     const processContext = {
       accountId: 'test-account',
       repo: mockRepo,
-      apiClient: { syncLatestToken: vi.fn(), putSnapshots: vi.fn() } as any,
+      apiClient: { putSnapshots: vi.fn() } as any,
       recoveryManager: { quarantine: vi.fn() } as any,
     }
 
@@ -389,7 +386,7 @@ describe('reencryptAllItems', () => {
   it('logs error and continues gracefully if quarantining a failed item encounters a storage error', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-bad-storage'])
     vi.mocked(upsertManualRecoveryEntry).mockRejectedValueOnce(new Error('IndexedDB disk full'))
 
@@ -417,61 +414,76 @@ describe('reencryptAllItems', () => {
     const items = Array.from({ length: 12 }, (_, i) => `item-${i}`)
     mockListAutomergeItemIds.mockResolvedValue(items)
 
-    mockGetActiveSessionToken
-      .mockResolvedValueOnce('token-1')
-      .mockResolvedValueOnce('token-1')
-      .mockResolvedValueOnce('token-2')
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+    setApiAuthToken('token-1')
+    const tokensSent: string[] = []
+    mockPutSnapshots.mockImplementation(async () => {
+      tokensSent.push(getApiAuthToken())
+      // The main thread sends a new token while the first batch is in flight
+      setApiAuthToken('token-2')
+      return { success: true }
+    })
 
     const result = await itemReencryptor.reencryptAllItems(context as any)
 
     expect(result.succeeded).toHaveLength(12)
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
-    expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('token-1')
-    expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('token-2')
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
+    expect(tokensSent).toEqual(['token-1', 'token-2'])
   })
 
   it('recovers from 401 auth error using refreshAuthToken and retries successfully', async () => {
-    mockGetActiveSessionToken.mockResolvedValue('old-token')
+    setApiAuthToken('old-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
-    const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-token')
+    const refreshAuthToken = vi.fn().mockImplementation(async () => {
+      setApiAuthToken('refreshed-token')
+      return 'refreshed-token'
+    })
     const deps = {
       ...context,
       refreshAuthToken,
     }
 
-    mockPutSnapshotsWithToken
-      .mockRejectedValueOnce({ data: { httpStatus: 401 }, message: 'UNAUTHORIZED' })
-      .mockResolvedValueOnce({ success: true })
+    const tokensSent: string[] = []
+    mockPutSnapshots
+      .mockImplementationOnce(async () => {
+        tokensSent.push(getApiAuthToken())
+        throw { data: { httpStatus: 401 }, message: 'UNAUTHORIZED' }
+      })
+      .mockImplementationOnce(async () => {
+        tokensSent.push(getApiAuthToken())
+        return { success: true }
+      })
 
     const result = await itemReencryptor.reencryptAllItems(deps as any)
 
     expect(refreshAuthToken).toHaveBeenCalledTimes(1)
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
-    expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('old-token')
-    expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('refreshed-token')
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
+    expect(tokensSent).toEqual(['old-token', 'refreshed-token'])
     expect(result.succeeded).toEqual(['item-1', 'item-2'])
     expect(result.failed).toEqual([])
     expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
   })
 
-  it('recovers from 401 auth error when a newer token is in store', async () => {
-    mockGetActiveSessionToken
-      .mockResolvedValueOnce('stale-token')
-      .mockResolvedValueOnce('stale-token')
-      .mockResolvedValueOnce('new-store-token')
+  it('recovers from 401 auth error when a newer token has arrived', async () => {
+    setApiAuthToken('stale-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
 
-    mockPutSnapshotsWithToken
-      .mockRejectedValueOnce({ data: { httpStatus: 401 } })
-      .mockResolvedValueOnce({ success: true })
+    const tokensSent: string[] = []
+    mockPutSnapshots
+      .mockImplementationOnce(async () => {
+        tokensSent.push(getApiAuthToken())
+        setApiAuthToken('new-token')
+        throw { data: { httpStatus: 401 } }
+      })
+      .mockImplementationOnce(async () => {
+        tokensSent.push(getApiAuthToken())
+        return { success: true }
+      })
 
     const result = await itemReencryptor.reencryptAllItems(context as any)
 
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
-    expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('stale-token')
-    expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('new-store-token')
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
+    expect(tokensSent).toEqual(['stale-token', 'new-token'])
     expect(result.succeeded).toEqual(['item-1'])
     expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
   })
@@ -480,9 +492,9 @@ describe('reencryptAllItems', () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
     mockListAutomergeItemIds.mockResolvedValue(items)
-    mockGetActiveSessionToken.mockResolvedValue('expired-token')
+    setApiAuthToken('expired-token')
 
-    mockPutSnapshotsWithToken.mockRejectedValue({
+    mockPutSnapshots.mockRejectedValue({
       data: { httpStatus: 401 },
       message: 'UNAUTHORIZED',
     })
@@ -494,16 +506,23 @@ describe('reencryptAllItems', () => {
     // CRITICAL: Items must NOT be quarantined into manualRecoveryStore
     expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
     // CRITICAL: Subsequent batches must NOT be processed (only attempt 1 was made before aborting)
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
     consoleWarnSpy.mockRestore()
   })
 
-  it('initializes token via refreshAuthToken if initial getActiveSessionToken is empty', async () => {
-    mockGetActiveSessionToken.mockResolvedValue(null)
-    const refreshAuthToken = vi.fn().mockResolvedValue('recovered-token')
+  it('gets a token via refreshAuthToken if the worker has none', async () => {
+    setApiAuthToken('')
+    const refreshAuthToken = vi.fn().mockImplementation(async () => {
+      setApiAuthToken('recovered-token')
+      return 'recovered-token'
+    })
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+    const tokensSent: string[] = []
+    mockPutSnapshots.mockImplementation(async () => {
+      tokensSent.push(getApiAuthToken())
+      return { success: true }
+    })
 
     const deps = {
       ...context,
@@ -514,9 +533,7 @@ describe('reencryptAllItems', () => {
 
     expect(refreshAuthToken).toHaveBeenCalledTimes(1)
     expect(result.succeeded).toEqual(['item-1'])
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledWith(
-      expect.objectContaining({ authToken: 'recovered-token' })
-    )
+    expect(tokensSent).toEqual(['recovered-token'])
   })
 
   describe('network failure during key rotation', () => {
@@ -526,12 +543,12 @@ describe('reencryptAllItems', () => {
 
     it('aborts immediately and DOES NOT quarantine items when upload fails with a network error', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       // 20 items -> 2 batches of 10
       const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
       mockListAutomergeItemIds.mockResolvedValue(items)
 
-      mockPutSnapshotsWithToken.mockRejectedValue(new TypeError('Failed to fetch'))
+      mockPutSnapshots.mockRejectedValue(new TypeError('Failed to fetch'))
 
       await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow(
         /Re-encryption aborted: network error/
@@ -540,14 +557,14 @@ describe('reencryptAllItems', () => {
       // CRITICAL: Items must NOT be quarantined into manualRecoveryStore
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
       // CRITICAL: Subsequent batches must NOT be processed (only batch 1 retried 3 times)
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
 
       consoleWarnSpy.mockRestore()
     })
 
     it('aborts immediately and DOES NOT quarantine items when offline (navigator.onLine === false)', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
       mockListAutomergeItemIds.mockResolvedValue(items)
 
@@ -565,7 +582,7 @@ describe('reencryptAllItems', () => {
 
         // CRITICAL: No items quarantined, no upload attempts made while offline
         expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
-        expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+        expect(mockPutSnapshots).not.toHaveBeenCalled()
       } finally {
         Object.defineProperty(globalThis, 'navigator', {
           value: originalNavigator,
@@ -578,9 +595,9 @@ describe('reencryptAllItems', () => {
 
     it('invokes scheduleRetry callback when provided upon encountering a network error', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-      mockPutSnapshotsWithToken.mockRejectedValue(new Error('The network connection was lost.'))
+      mockPutSnapshots.mockRejectedValue(new Error('The network connection was lost.'))
 
       const scheduleRetry = vi.fn()
       const deps = {
@@ -600,11 +617,11 @@ describe('reencryptAllItems', () => {
     })
 
     it('distinguishes permanent upload failures from transient network errors', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-perm-fail'])
 
       // Permanent failure (e.g. 400 Bad Request)
-      mockPutSnapshotsWithToken.mockRejectedValue({
+      mockPutSnapshots.mockRejectedValue({
         data: { httpStatus: 400 },
         message: 'Bad Request: Invalid snapshot schema',
       })
@@ -629,12 +646,12 @@ describe('reencryptAllItems', () => {
 
     it('aborts immediately and DOES NOT quarantine items when upload fails with HTTP 500 Internal Server Error', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       // 20 items -> 2 batches of 10
       const items = Array.from({ length: 20 }, (_, i) => `item-${i}`)
       mockListAutomergeItemIds.mockResolvedValue(items)
 
-      mockPutSnapshotsWithToken.mockRejectedValue({
+      mockPutSnapshots.mockRejectedValue({
         data: { httpStatus: 500, code: 'INTERNAL_SERVER_ERROR' },
         message: 'Internal server error',
       })
@@ -646,17 +663,17 @@ describe('reencryptAllItems', () => {
       // CRITICAL: Items must NOT be quarantined into manualRecoveryStore due to a transient server outage
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
       // CRITICAL: Subsequent batches must NOT be processed (only batch 1 retried 3 times)
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
 
       consoleWarnSpy.mockRestore()
     })
 
     it('aborts and DOES NOT quarantine items on tRPC INTERNAL_SERVER_ERROR error code', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
 
-      mockPutSnapshotsWithToken.mockRejectedValue({
+      mockPutSnapshots.mockRejectedValue({
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Server error occurred while persisting snapshot',
       })
@@ -666,17 +683,17 @@ describe('reencryptAllItems', () => {
       )
 
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
 
       consoleWarnSpy.mockRestore()
     })
 
     it('aborts and DOES NOT quarantine items on 503 Service Unavailable', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
 
-      mockPutSnapshotsWithToken.mockRejectedValue({
+      mockPutSnapshots.mockRejectedValue({
         status: 503,
         message: 'Service Unavailable',
       })
@@ -692,9 +709,9 @@ describe('reencryptAllItems', () => {
 
     it('invokes scheduleRetry callback when provided upon encountering a server error', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
-      mockPutSnapshotsWithToken.mockRejectedValue({
+      mockPutSnapshots.mockRejectedValue({
         httpStatus: 500,
         message: 'Internal server error',
       })
@@ -717,9 +734,9 @@ describe('reencryptAllItems', () => {
     })
 
     it('splits ready snapshots into multiple upload batches when payload exceeds maxBatchBytes', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2', 'item-3'])
-      mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+      mockPutSnapshots.mockResolvedValue({ success: true })
 
       // Each snapshot is ~150 bytes in mock (cipher 11 + iv 7 + id 6 + base 128 = 152 bytes)
       // Setting maxBatchBytes to 200 ensures each batch holds at most 1 item!
@@ -739,18 +756,18 @@ describe('reencryptAllItems', () => {
         failed: [],
       })
       // 3 items each exceeding maxBatchBytes when combined -> 3 upload calls instead of 1
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
-      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
-      expect(mockPutSnapshotsWithToken.mock.calls[1][0].snapshots).toHaveLength(1)
-      expect(mockPutSnapshotsWithToken.mock.calls[2][0].snapshots).toHaveLength(1)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
+      expect(mockPutSnapshots.mock.calls[0][0].snapshots).toHaveLength(1)
+      expect(mockPutSnapshots.mock.calls[1][0].snapshots).toHaveLength(1)
+      expect(mockPutSnapshots.mock.calls[2][0].snapshots).toHaveLength(1)
     })
 
     it('handles failure of one size-partitioned batch while allowing another to succeed', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('mock-token')
+      setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
       // Batch 1 fails, Batch 2 succeeds
-      mockPutSnapshotsWithToken
+      mockPutSnapshots
         .mockResolvedValueOnce({ success: false })
         .mockResolvedValueOnce({ success: false })
         .mockResolvedValueOnce({ success: false })
@@ -896,7 +913,6 @@ describe('ItemReencryptor class', () => {
       }
       const mockApiClient = {
         putSnapshots: vi.fn().mockResolvedValue({ success: true }),
-        syncLatestToken: vi.fn().mockResolvedValue(undefined),
       }
       const mockRecoveryManager = {
         quarantine: vi.fn().mockResolvedValue(undefined),
@@ -933,7 +949,6 @@ describe('ItemReencryptor class', () => {
       }
       const mockApiClient = {
         putSnapshots: vi.fn().mockRejectedValue(new Error('The network connection was lost.')),
-        syncLatestToken: vi.fn().mockResolvedValue(undefined),
       }
       const mockRecoveryManager = {
         quarantine: vi.fn().mockResolvedValue(undefined),
@@ -974,7 +989,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     itemReencryptor = new ItemReencryptor({ keys })
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
     mockHandle = {
@@ -1012,14 +1027,14 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
       })
     ).rejects.toThrow('User cancelled')
 
-    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    expect(mockPutSnapshots).not.toHaveBeenCalled()
     expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
   })
 
   it('aborts during batch upload retry and does NOT quarantine items', async () => {
     const controller = new AbortController()
 
-    mockPutSnapshotsWithToken.mockImplementation(async () => {
+    mockPutSnapshots.mockImplementation(async () => {
       // Abort after first failed attempt
       controller.abort(new Error('Operation cancelled'))
       throw new Error('Upload failed')
@@ -1041,7 +1056,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
       macrotaskRun = true
     }, 0)
 
-    mockPutSnapshotsWithToken
+    mockPutSnapshots
       .mockRejectedValueOnce(new Error('transient network glitch'))
       .mockImplementationOnce(async () => {
         expect(macrotaskRun).toBe(true)
@@ -1068,7 +1083,7 @@ describe('concurrency and retry race safety (H11)', () => {
     vi.clearAllMocks()
     vi.useRealTimers()
     itemReencryptor = new ItemReencryptor({ keys })
-    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
     mockHandle = {
@@ -1101,7 +1116,7 @@ describe('concurrency and retry race safety (H11)', () => {
     const uploadPromise = new Promise(resolve => {
       resolveUpload = resolve
     })
-    mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+    mockPutSnapshots.mockImplementation(() => uploadPromise)
 
     const onProgress1 = vi.fn()
     const onProgress2 = vi.fn()
@@ -1118,7 +1133,7 @@ describe('concurrency and retry race safety (H11)', () => {
 
     expect(res1).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
     expect(res2).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(onProgress1).toHaveBeenCalledWith(2, 2)
     expect(onProgress2).toHaveBeenCalledWith(2, 2)
     expect(itemReencryptor.isReencrypting).toBe(false)
@@ -1130,7 +1145,7 @@ describe('concurrency and retry race safety (H11)', () => {
     const uploadPromise = new Promise(resolve => {
       resolveUpload = resolve
     })
-    mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+    mockPutSnapshots.mockImplementation(() => uploadPromise)
 
     const retryProgress = vi.fn()
     const manualProgress = vi.fn()
@@ -1152,7 +1167,7 @@ describe('concurrency and retry race safety (H11)', () => {
     const result = await manualPromise
 
     expect(result).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(retryProgress).toHaveBeenCalledWith(2, 2)
     expect(manualProgress).toHaveBeenCalledWith(2, 2)
     expect(itemReencryptor.isReencrypting).toBe(false)
@@ -1160,7 +1175,7 @@ describe('concurrency and retry race safety (H11)', () => {
 
   it('cancels pending scheduled retry timeout when reencryptAllItems is invoked manually', async () => {
     vi.useFakeTimers()
-    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+    mockPutSnapshots.mockResolvedValue({ success: true })
 
     const retryProgress = vi.fn()
     const manualProgress = vi.fn()
@@ -1174,13 +1189,13 @@ describe('concurrency and retry race safety (H11)', () => {
     const result = await manualPromise
     expect(result.succeeded).toEqual(['item-1', 'item-2'])
     expect(manualProgress).toHaveBeenCalledWith(2, 2)
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
     // Advance time past the scheduled retry duration
     vi.advanceTimersByTime(100_000)
 
     // The scheduled retry should NOT have run because it was cancelled by manual invocation
-    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(retryProgress).not.toHaveBeenCalled()
   })
 
@@ -1194,7 +1209,7 @@ describe('concurrency and retry race safety (H11)', () => {
     const uploadPromise = new Promise(resolve => {
       resolveUpload = resolve
     })
-    mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+    mockPutSnapshots.mockImplementation(() => uploadPromise)
 
     const abortController = new AbortController()
 

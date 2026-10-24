@@ -1,10 +1,5 @@
 import { IDBFactory } from 'fake-indexeddb'
-import {
-  clearActiveSessionToken,
-  deleteStoredSessionToken,
-  getActiveSessionToken,
-  setActiveSessionToken,
-} from './workerAuthStore'
+import { deleteStoredSessionToken } from './workerAuthStore'
 import { getVaultStorageNames } from './storageNames'
 
 /** Stores a session token the way earlier builds did (localforage's object store) */
@@ -40,22 +35,11 @@ describe('workerAuthStore', () => {
   })
 
   afterEach(() => {
-    clearActiveSessionToken()
     if (originalIndexedDb === undefined) {
       delete (globalThis as any).indexedDB
     } else {
       ;(globalThis as any).indexedDB = originalIndexedDb
     }
-  })
-
-  it('keeps the session token in memory without creating a database', async () => {
-    setActiveSessionToken('session-1')
-
-    expect(await getActiveSessionToken()).toBe('session-1')
-    expect(await listDatabases(factory)).toEqual([])
-
-    clearActiveSessionToken()
-    expect(await getActiveSessionToken()).toBeNull()
   })
 
   it('deletes a session token an earlier build stored', async () => {

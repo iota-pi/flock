@@ -37,15 +37,14 @@ function clientOutdatedLink(): TRPCLink<VaultRouter> {
 
 /**
  * Links for a tRPC client of the vault's server, including app routers built on the same tRPC
- * instance. They send the session token (`authToken`, or else the realm's current one) and this
- * build's protocol version, report when the server says the build is too old, and fail requests
- * that get no response in time (see `withRequestTimeout`).
+ * instance. They send the realm's session token (`getApiAuthToken`) and this build's protocol
+ * version, report when the server says the build is too old, and fail requests that get no
+ * response in time (see `withRequestTimeout`).
  */
 export function createVaultLinks(
-  { url = getVaultTrpcUrl(), customFetch, authToken }: {
+  { url = getVaultTrpcUrl(), customFetch }: {
     url?: string,
     customFetch?: typeof fetch,
-    authToken?: string,
   } = {},
 ): TRPCLink<VaultRouter>[] {
   return [
@@ -53,7 +52,7 @@ export function createVaultLinks(
     httpBatchLink({
       url,
       headers: () => {
-        const token = authToken ?? getApiAuthToken()
+        const token = getApiAuthToken()
         return {
           [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION),
           ...(token ? { Authorization: `Basic ${token}` } : {}),

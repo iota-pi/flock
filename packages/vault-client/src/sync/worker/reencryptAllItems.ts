@@ -47,7 +47,6 @@ export interface ReencryptDeps {
   repo: Repo
   indexManager: AutomergeIndexManager
   apiClient?: SyncApiClient
-  getAuthToken?: () => Promise<string | null>
   refreshAuthToken?: () => Promise<string | null>
   scheduleRetry?: (delayMs?: number) => void
   recoveryManager?: RecoveryManager
@@ -394,8 +393,6 @@ export class ItemReencryptor {
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
     }
 
-    await ctx.apiClient.syncLatestToken()
-
     const batchRetryDelays = ctx.batchRetryDelays ?? this.batchRetryDelays
     const settled = await Promise.allSettled(
       chunk.map(itemId =>
@@ -525,7 +522,6 @@ export class ItemReencryptor {
       const { accountId, repo, indexManager } = deps
       const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
       const apiClient = deps.apiClient ?? new SyncApiClient({
-        getAuthToken: deps.getAuthToken,
         refreshAuthToken: deps.refreshAuthToken,
       })
       const initialToken = await apiClient.getValidToken()

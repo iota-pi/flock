@@ -18,7 +18,7 @@ The local Automerge doc in IndexedDB is always the complete, authoritative state
 
 ## Incremental sync (WAL)
 
-- Outbound Automerge sync messages are appended to `SyncWriteAheadLog` (it has its own IndexedDB database). `SyncPoller` encrypts and pushes them via `pollSyncBatchWithToken`, and entries are removed once the server acknowledges them.
+- Outbound Automerge sync messages are appended to `SyncWriteAheadLog` (it has its own IndexedDB database). `SyncPoller` encrypts and pushes them via `pollSyncBatch`, and entries are removed once the server acknowledges them.
 - **Pruning is safe.** When the WAL exceeds `MAX_ENTRIES`, `performPruneOldest` drops old entries. Nothing is lost, because the local doc is authoritative and the next snapshot captures the full merged state.
 - **Torn compaction self-heals.** If the worker crashes mid-compaction, `readAll()` finds entries listed in another entry's `replaces` array and purges them.
 - **In-flight safety.** `SyncPoller.executePoll` calls `wal.unmarkInFlight` in a `finally` block, so entries cannot get stuck in-flight.

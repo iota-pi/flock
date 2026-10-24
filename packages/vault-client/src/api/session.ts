@@ -1,5 +1,6 @@
 import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
 import { createLogger } from '../sync/utils/logger'
+import { SingleFlightGuard } from '../sync/utils/SingleFlightGuard'
 import { getSession } from './client'
 import { setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import { readStoredMetadata } from './storedMetadata'
@@ -11,7 +12,7 @@ const log = createLogger('session')
 /** How long a login waits for the server once the cached keyring has verified the password */
 const LOGIN_SERVER_WAIT_MS = 3000
 
-let sessionExpiryPromise: Promise<void> | null = null
+const sessionExpiry = new SingleFlightGuard()
 const lateSessionListeners = new Set<() => void>()
 
 export function getKeyHash(): string {
@@ -37,37 +38,28 @@ export async function establishSessionFromKeyHash(account: string, nextKeyHash: 
   await deleteStoredSessionToken()
 }
 
+/** Tries a silent re-login, telling the host the session is lost if that fails. Concurrent calls share one attempt. */
 export function handleSessionExpired(): Promise<void> {
-  if (sessionExpiryPromise) {
-    return sessionExpiryPromise
-  }
+  return sessionExpiry.run(async () => {
+    const { keyHash } = vaultKeys
+    const account = vaultKeys.activeAccount || readStoredMetadata()?.account || getHostHooks().getAccountId?.()
 
-  sessionExpiryPromise = (async () => {
-    try {
-      const { keyHash } = vaultKeys
-      const account = vaultKeys.activeAccount || readStoredMetadata()?.account || getHostHooks().getAccountId?.()
-
-      if (account && keyHash) {
-        try {
-          await establishSessionFromKeyHash(account, keyHash)
-          log.info('Session silently re-established')
-          return
-        } catch (err) {
-          log.warn('Silent session re-establishment failed:', err)
-        }
+    if (account && keyHash) {
+      try {
+        await establishSessionFromKeyHash(account, keyHash)
+        log.info('Session silently re-established')
+        return
+      } catch (err) {
+        log.warn('Silent session re-establishment failed:', err)
       }
-
-      vaultKeys.session = ''
-      setApiAuthToken('')
-      getHostHooks().onSessionLost?.(
-        'Sync paused: unable to re-establish session. Please re-enter your password to resume syncing.'
-      )
-    } finally {
-      sessionExpiryPromise = null
     }
-  })()
 
-  return sessionExpiryPromise
+    vaultKeys.session = ''
+    setApiAuthToken('')
+    getHostHooks().onSessionLost?.(
+      'Sync paused: unable to re-establish session. Please re-enter your password to resume syncing.'
+    )
+  })
 }
 
 /**

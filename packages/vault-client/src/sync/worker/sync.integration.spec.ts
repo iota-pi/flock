@@ -1,4 +1,5 @@
 import { interpretAsDocumentId, type PeerId } from '@automerge/automerge-repo/slim'
+import { setApiAuthToken } from '../../api/runtime'
 import * as Automerge from '@automerge/automerge/slim'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
@@ -34,15 +35,13 @@ vi.mock('localforage', () => ({
   },
 }))
 
-const mockPollSyncBatchWithToken = vi.fn()
+const mockPollSyncBatch = vi.fn()
 vi.mock('../../api/SyncWorkerClient', () => ({
-  pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
-  putSnapshotsWithToken: vi.fn().mockResolvedValue({ success: true }),
+  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  putSnapshots: vi.fn().mockResolvedValue({ success: true }),
 }))
 
-vi.mock('../shared/workerAuthStore', () => ({
-  getActiveSessionToken: vi.fn().mockResolvedValue('mock-session-token'),
-}))
+setApiAuthToken('mock-session-token')
 
 const vault = createMockVault()
 const keys = createMockKeyProvider(vault)
@@ -134,7 +133,7 @@ describe('Sync System Integration Test Suite', () => {
     expect(itemEntries[0].data).toEqual(syncData)
 
     // 3. Server poll receives and accepts the push
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [{ itemId, cursor: 1 }],
       pullResults: [],
@@ -160,7 +159,7 @@ describe('Sync System Integration Test Suite', () => {
     pullQueueManager.addPendingItem(itemId)
 
     // First poll receives message with cursor 10
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
       pullResults: [
@@ -177,7 +176,7 @@ describe('Sync System Integration Test Suite', () => {
     expect(parsedMessages).toHaveLength(1)
 
     // Second poll with overlap window returns same message with cursor 10 -> skipped by dedup cache
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
       pullResults: [
@@ -227,7 +226,7 @@ describe('Sync System Integration Test Suite', () => {
     })
 
     // Server returns success when reconnecting
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [
         { itemId: item1, cursor: 5 },
@@ -255,7 +254,7 @@ describe('Sync System Integration Test Suite', () => {
     expect(recoveredEntries.has('item-crash-recover' as ItemId)).toBe(true)
 
     // 3. New poller instance reads from recovered WAL and syncs to server
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [{ itemId: 'item-crash-recover' as ItemId, cursor: 1 }],
       pullResults: [],
@@ -297,14 +296,14 @@ describe('Sync System Integration Test Suite', () => {
 
     // Pull attempts 1 through 4: stays in pending pull items for retry
     for (let attempt = 1; attempt <= 4; attempt++) {
-      mockPollSyncBatchWithToken.mockResolvedValueOnce(corruptMessageResponse)
+      mockPollSyncBatch.mockResolvedValueOnce(corruptMessageResponse)
       await broker.poller.executePoll()
       expect(pullQueueManager.hasPendingPulls()).toBe(true)
       expect(failureSpy).not.toHaveBeenCalled()
     }
 
     // Attempt 5: permanently fails and invokes onDecryptionFailure
-    mockPollSyncBatchWithToken.mockResolvedValueOnce(corruptMessageResponse)
+    mockPollSyncBatch.mockResolvedValueOnce(corruptMessageResponse)
     await broker.poller.executePoll()
 
     expect(failureSpy).toHaveBeenCalledWith(
@@ -321,7 +320,7 @@ describe('Sync System Integration Test Suite', () => {
     const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
 
     // Simulate poll returning an incremental message for an already-deleted item
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
       pullResults: [
@@ -371,7 +370,7 @@ describe('Sync System Integration Test Suite', () => {
 
     // Repeated polls do NOT increment retryCount or quarantine
     for (let attempt = 1; attempt <= 5; attempt++) {
-      mockPollSyncBatchWithToken.mockResolvedValueOnce(keyMissingResponse)
+      mockPollSyncBatch.mockResolvedValueOnce(keyMissingResponse)
       await broker.poller.executePoll()
       expect(failureSpy).not.toHaveBeenCalled()
     }
@@ -389,7 +388,7 @@ describe('Sync System Integration Test Suite', () => {
 
     const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
     // Next poll with key now available successfully parses and decrypts
-    mockPollSyncBatchWithToken.mockResolvedValueOnce(keyMissingResponse)
+    mockPollSyncBatch.mockResolvedValueOnce(keyMissingResponse)
     await broker.poller.executePoll()
 
     expect(receiveSpy).toHaveBeenCalled()

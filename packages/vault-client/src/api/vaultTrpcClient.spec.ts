@@ -4,6 +4,7 @@ import { configureVaultStorageNames, createVaultStorageNames } from '../sync/sha
 import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import { createVaultLinks } from './vaultTrpcClient'
 import { getTrackedFetch } from './trackedFetch'
+import { setApiAuthToken } from './runtime'
 
 function trpcErrorResponse(message: string, code: string, httpStatus: number) {
   return new Response(
@@ -43,16 +44,19 @@ describe('createVaultLinks', () => {
     expect(headers.get(PROTOCOL_VERSION_HEADER)).toBe(String(VAULT_PROTOCOL_VERSION))
   })
 
-  it('sends the given session token', async () => {
+  it("sends the realm's current session token", async () => {
     const customFetch = vi.fn<typeof fetch>(async () => trpcErrorResponse('Unauthorized', 'UNAUTHORIZED', 401))
-    const client = createTRPCProxyClient<VaultRouter>({
-      links: createVaultLinks({ url: 'http://vault.test/trpc', customFetch, authToken: 'worker-token' }),
-    })
+    const client = createClient(customFetch)
 
+    setApiAuthToken('first-token')
     await expect(client.accounts.raiseDataVersion.mutate({ account: 'acct' })).rejects.toThrow()
+    setApiAuthToken('second-token')
+    await expect(client.accounts.raiseDataVersion.mutate({ account: 'acct' })).rejects.toThrow()
+    setApiAuthToken('')
 
-    const headers = new Headers(customFetch.mock.calls[0][1]?.headers)
-    expect(headers.get('Authorization')).toBe('Basic worker-token')
+    expect(new Headers(customFetch.mock.calls[0][1]?.headers).get('Authorization')).toBe('Basic first-token')
+    const headers = new Headers(customFetch.mock.calls[1][1]?.headers)
+    expect(headers.get('Authorization')).toBe('Basic second-token')
     expect(headers.get(PROTOCOL_VERSION_HEADER)).toBe(String(VAULT_PROTOCOL_VERSION))
   })
 

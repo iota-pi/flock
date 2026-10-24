@@ -24,7 +24,7 @@ export interface SnapshotPusherOptions {
   builder: SnapshotBuilder
   broker: SyncMessageBroker
   recoveryManager?: RecoveryManager
-  apiClient?: SyncApiClient
+  apiClient: SyncApiClient
   eventHub?: ClientEventHub
   getLatestCursor?: () => number
   maxPayloadBytes?: number
@@ -71,7 +71,7 @@ export class SnapshotPusher {
     this.eventHub = options.eventHub
     this.getLatestCursor = options.getLatestCursor
     this.maxPayloadBytes = options.maxPayloadBytes ?? MAX_ITEM_SIZE_BYTES
-    this.apiClient = options.apiClient ?? new SyncApiClient()
+    this.apiClient = options.apiClient
     this.recoveryManager = options.recoveryManager ?? new RecoveryManager({
       accountId: options.accountId,
       eventHub: options.eventHub,
