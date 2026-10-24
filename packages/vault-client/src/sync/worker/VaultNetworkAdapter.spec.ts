@@ -9,6 +9,8 @@ import {
   CIRCUIT_BREAKER_COOLDOWN_MS,
 } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { registerQuotaReporter } from '../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -72,7 +74,17 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const cursorStore = new CursorStore('test-account')
     pullQueueManager = new SyncPullQueueManager(cursorStore, keys, undefined, internalEventHub)
     const wal = new SyncWriteAheadLog('test-account', internalEventHub)
-    broker = new SyncMessageBroker({ adapter, clientEventHub, internalEventHub, indexManager: mockDocStore as any, pullQueueManager, keys, wal })
+    broker = new SyncMessageBroker({
+      adapter,
+      clientEventHub,
+      internalEventHub,
+      indexManager: mockDocStore as any,
+      pullQueueManager,
+      keys,
+      wal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: clientEventHub }),
+    })
     orchestrator = new SyncOrchestrator({
       accountId: 'test-account',
       broker,

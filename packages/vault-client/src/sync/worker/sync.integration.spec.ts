@@ -5,6 +5,8 @@ import * as Automerge from '@automerge/automerge/slim'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncPoller } from './SyncPoller'
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
@@ -94,6 +96,8 @@ describe('Sync System Integration Test Suite', () => {
       pullQueueManager,
       keys,
       wal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
     })
 
     adapter.setAccount(accountId)
@@ -260,7 +264,16 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [],
     })
 
-    const newPoller = new SyncPoller({ pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, wal: newWal })
+    const newPoller = new SyncPoller({
+      pullQueueManager,
+      clientEventHub,
+      internalEventHub,
+      keys,
+      indexManager,
+      wal: newWal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
+    })
     newPoller.setAccount(accountId)
     newPoller.setOnlineState(true)
 

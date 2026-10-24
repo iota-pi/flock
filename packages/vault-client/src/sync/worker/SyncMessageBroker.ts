@@ -31,8 +31,8 @@ export interface SyncMessageBrokerDeps {
   pullQueueManager: SyncPullQueueManager
   keys: KeyProvider
   wal?: SyncWriteAheadLog | null
-  apiClient?: SyncApiClient
-  recoveryManager?: RecoveryManager | null
+  apiClient: SyncApiClient
+  recoveryManager: RecoveryManager
   /** Frees space after a WAL append runs out of storage. Without it, the app is told the quota was exceeded. */
   onQuotaExceeded?: (error: unknown) => Promise<void>
 }

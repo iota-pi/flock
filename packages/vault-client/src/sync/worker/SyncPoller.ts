@@ -12,7 +12,7 @@ import { parseBatchedMessages } from './utils/messageParser'
 import { BATCHED_MESSAGE_VERSION, packBatchedMessages } from './utils/binaryFraming'
 import { classifySyncError } from './utils/errorClassifier'
 import type { PushResultItem, PollSyncBatchResponse } from '../../api/SyncWorkerClient'
-import { SyncApiClient } from './SyncApiClient'
+import type { SyncApiClient } from './SyncApiClient'
 import { checkAlive } from '../utils/abort'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { RecoveryManager } from './RecoveryManager'
@@ -51,8 +51,8 @@ export interface SyncPollerDeps {
   keys: KeyProvider
   indexManager?: AutomergeIndexManager
   wal?: SyncWriteAheadLog | null
-  apiClient?: SyncApiClient
-  recoveryManager?: RecoveryManager | null
+  apiClient: SyncApiClient
+  recoveryManager: RecoveryManager
 }
 
 export class SyncPoller {
@@ -62,7 +62,7 @@ export class SyncPoller {
   private abortController: AbortController | null = null
   private readonly apiClient: SyncApiClient
   public readonly consecutivePushFailures = new Map<ItemId, number>()
-  private readonly recoveryManager: RecoveryManager | null
+  private readonly recoveryManager: RecoveryManager
   private readonly pullQueueManager: SyncPullQueueManager
   private readonly clientEventHub: ClientEventHub
   private readonly internalEventHub: WorkerInternalEventHub
@@ -77,8 +77,8 @@ export class SyncPoller {
     this.keys = deps.keys
     this.indexManager = deps.indexManager
     this.wal = deps.wal ?? null
-    this.apiClient = deps.apiClient ?? new SyncApiClient()
-    this.recoveryManager = deps.recoveryManager ?? null
+    this.apiClient = deps.apiClient
+    this.recoveryManager = deps.recoveryManager
   }
 
   setAccount(account: string | null): void {
@@ -310,16 +310,14 @@ export class SyncPoller {
           for (const m of messages) {
             if (m.id) quarantinedIds.push(m.id)
           }
-          if (this.recoveryManager) {
-            try {
-              await this.recoveryManager.quarantine(
-                sentItemId,
-                'pushFailure',
-                `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
-              )
-            } catch (qErr) {
-              log.error(`Failed to quarantine item ${sentItemId}:`, qErr)
-            }
+          try {
+            await this.recoveryManager.quarantine(
+              sentItemId,
+              'pushFailure',
+              `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
+            )
+          } catch (qErr) {
+            log.error(`Failed to quarantine item ${sentItemId}:`, qErr)
           }
         } else {
           this.consecutivePushFailures.set(sentItemId, failures)

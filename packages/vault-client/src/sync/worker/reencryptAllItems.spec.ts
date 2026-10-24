@@ -1,4 +1,6 @@
 import { ItemReencryptor } from './reencryptAllItems'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { BuildSnapshotResult } from './snapshotBuilder'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -52,6 +54,8 @@ describe('reencryptAllItems', () => {
     accountId: string | null
     repo: any
     indexManager: any
+    apiClient: SyncApiClient
+    recoveryManager: RecoveryManager
   }
 
   beforeEach(() => {
@@ -76,6 +80,8 @@ describe('reencryptAllItems', () => {
       accountId: 'test-account',
       repo: mockRepo,
       indexManager: mockIndexManager,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
     }
   })
 
@@ -440,7 +446,7 @@ describe('reencryptAllItems', () => {
     })
     const deps = {
       ...context,
-      refreshAuthToken,
+      apiClient: new SyncApiClient({ refreshAuthToken }),
     }
 
     const tokensSent: string[] = []
@@ -526,7 +532,7 @@ describe('reencryptAllItems', () => {
 
     const deps = {
       ...context,
-      refreshAuthToken,
+      apiClient: new SyncApiClient({ refreshAuthToken }),
     }
 
     const result = await itemReencryptor.reencryptAllItems(deps as any)
@@ -1009,6 +1015,8 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
       accountId: 'test-account',
       repo: mockRepo,
       indexManager: mockIndexManager,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
     }
   })
 
@@ -1103,6 +1111,8 @@ describe('concurrency and retry race safety (H11)', () => {
       accountId: 'test-account',
       repo: mockRepo,
       indexManager: mockIndexManager,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
     }
   })
 

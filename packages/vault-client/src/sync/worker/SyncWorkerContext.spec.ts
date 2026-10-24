@@ -1,4 +1,5 @@
 import { SyncWorkerContext } from './SyncWorkerContext'
+import { SyncApiClient } from './SyncApiClient'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS } from './RecoveryManager'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
@@ -285,6 +286,7 @@ describe('SyncWorkerContext', () => {
       keys: createMockKeyProvider(),
       clientEventHub,
       internalEventHub,
+      apiClient: new SyncApiClient(),
     })
     await context.initialize()
   })
@@ -367,6 +369,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub: ctxClientHub,
         internalEventHub: ctxInternalHub,
+        apiClient: new SyncApiClient(),
       })
       await ctx.initialize()
       return { ctx, ctxInternalHub }
@@ -471,6 +474,7 @@ describe('SyncWorkerContext', () => {
       keys: createMockKeyProvider(),
       clientEventHub,
       internalEventHub,
+      apiClient: new SyncApiClient(),
     })
     const startSpy = vi.spyOn(ctx.lifecycle, 'start')
     const stopSpy = vi.spyOn(ctx.lifecycle, 'stop')
@@ -491,6 +495,7 @@ describe('SyncWorkerContext', () => {
         localKeys,
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
         randomDataKeys: true,
       })
@@ -569,6 +574,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
         sealedDataVersion: 3,
       })
@@ -608,6 +614,7 @@ describe('SyncWorkerContext', () => {
         localKeys: keyring,
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
       })
       vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
@@ -662,6 +669,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
       })
       vi.spyOn(ctx.lifecycle, 'start').mockResolvedValue(undefined)
@@ -734,6 +742,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         migrateLocalData,
       })
     }
@@ -850,6 +859,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         minDataVersion: 1,
         hasLegacyLocalData: options.hasLegacyLocalData,
       })
@@ -866,6 +876,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         minDataVersion: 1,
         migrateLocalData: migrate,
       })
@@ -913,6 +924,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
       })
       await ctx.initialize()
       expect(mockReadDeviceDataVersion).not.toHaveBeenCalled()
@@ -930,6 +942,7 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         clientEventHub,
         internalEventHub,
+        apiClient: new SyncApiClient(),
         upgradeSnapshotFormat: true,
       })
       await ctx.initialize()
@@ -955,17 +968,17 @@ describe('SyncWorkerContext', () => {
     ])
   })
 
-  it('initializes apiClient with refreshAuthToken when provided in config', async () => {
-    const mockRefresh = vi.fn().mockResolvedValue('token-123')
+  it('uses the given apiClient', async () => {
+    const apiClient = new SyncApiClient()
     const ctx = new SyncWorkerContext({
-      accountId: 'test-account-refresh',
+      accountId: 'test-account-api-client',
       keys: createMockKeyProvider(),
       clientEventHub,
       internalEventHub,
-      refreshAuthToken: mockRefresh,
+      apiClient,
     })
 
-    expect((ctx.apiClient as any).refreshAuth).toBe(mockRefresh)
+    expect(ctx.apiClient).toBe(apiClient)
   })
 })
 

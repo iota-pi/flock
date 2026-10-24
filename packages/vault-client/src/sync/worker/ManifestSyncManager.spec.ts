@@ -1,4 +1,6 @@
 import { ManifestSyncManager } from './ManifestSyncManager'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import type { ItemId } from '@vault/shared'
 
 // Mock dependencies
@@ -106,6 +108,8 @@ describe('ManifestSyncManager', () => {
       keys,
       storeItems: storeItemsSpy,
       migrateLegacySettings: migrateLegacySettingsSpy,
+      recoveryManager: new RecoveryManager({ accountId: 'acc-123' }),
+      apiClient: new SyncApiClient(),
     } as any
 
     manifestSyncManager = new ManifestSyncManager(depsObj as any)

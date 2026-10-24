@@ -4,8 +4,8 @@ import { chunk } from 'lodash-es'
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { buildSnapshot as buildSnapshotFromBuilder, type BuildSnapshotResult } from './snapshotBuilder'
 import type { DocCodec } from './domain'
-import { RecoveryManager } from './RecoveryManager'
-import { SyncApiClient, toAuthExpiredError } from './SyncApiClient'
+import type { RecoveryManager } from './RecoveryManager'
+import { toAuthExpiredError, type SyncApiClient } from './SyncApiClient'
 import { classifySyncError } from './utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { AbortError, isAbortError } from '../utils/abort'
@@ -46,10 +46,9 @@ export interface ReencryptDeps {
   accountId: string
   repo: Repo
   indexManager: AutomergeIndexManager
-  apiClient?: SyncApiClient
-  refreshAuthToken?: () => Promise<string | null>
+  apiClient: SyncApiClient
   scheduleRetry?: (delayMs?: number) => void
-  recoveryManager?: RecoveryManager
+  recoveryManager: RecoveryManager
   signal?: AbortSignal
   batchRetryDelays?: readonly number[]
 }
@@ -183,14 +182,9 @@ export class ItemReencryptor {
   async quarantineItem(
     itemId: ItemId,
     reason: string,
-    recoveryManager?: RecoveryManager
+    recoveryManager: RecoveryManager
   ): Promise<void> {
-    const manager = recoveryManager
-    if (!manager) {
-      log.error(`Failed to quarantine item ${itemId}: No RecoveryManager available`)
-      return
-    }
-    await quarantineItem(manager, itemId, reason)
+    await quarantineItem(recoveryManager, itemId, reason)
   }
 
   // --- Pipeline Stages ---
@@ -519,11 +513,7 @@ export class ItemReencryptor {
     }
 
     const runPromise = this.reencryptGuard.run(async () => {
-      const { accountId, repo, indexManager } = deps
-      const recoveryManager = deps.recoveryManager ?? new RecoveryManager({ accountId })
-      const apiClient = deps.apiClient ?? new SyncApiClient({
-        refreshAuthToken: deps.refreshAuthToken,
-      })
+      const { accountId, repo, indexManager, recoveryManager, apiClient } = deps
       const initialToken = await apiClient.getValidToken()
       if (!initialToken) {
         throw new Error('No active session token available')

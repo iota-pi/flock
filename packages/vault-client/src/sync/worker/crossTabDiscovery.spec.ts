@@ -2,6 +2,7 @@ import { toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../shared/types'
 import { ItemOperations } from './ItemOperations'
+import { RecoveryManager } from './RecoveryManager'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import type { Message, PeerId } from '@automerge/automerge-repo/slim'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -76,6 +77,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
       } as any,
       eventHub: { emit: emitMock } as any,
       markDocumentDirty: markDocumentDirtyMock,
+      recoveryManager: new RecoveryManager({ accountId: 'account-1', eventHub: { emit: emitMock } as any }),
     })
 
     const newItem: VaultDoc = {

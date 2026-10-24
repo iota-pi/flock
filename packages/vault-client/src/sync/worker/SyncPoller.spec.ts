@@ -62,6 +62,7 @@ describe('SyncPoller', () => {
       keys,
       indexManager,
       wal: mockWal,
+      apiClient: new SyncApiClient(),
       recoveryManager: mockRecoveryManager,
     })
     poller.setAccount('test-account')
@@ -988,6 +989,7 @@ describe('SyncPoller', () => {
         indexManager,
         wal: mockWal,
         apiClient: mockApiClient,
+        recoveryManager: mockRecoveryManager,
       })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)
@@ -1026,7 +1028,8 @@ describe('SyncPoller', () => {
         keys,
         indexManager,
         wal: mockWal,
-        apiClient: apiClient,
+        apiClient,
+        recoveryManager: mockRecoveryManager,
       })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)
@@ -1051,7 +1054,8 @@ describe('SyncPoller', () => {
         keys,
         indexManager,
         wal: mockWal,
-        apiClient: apiClient,
+        apiClient,
+        recoveryManager: mockRecoveryManager,
       })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)

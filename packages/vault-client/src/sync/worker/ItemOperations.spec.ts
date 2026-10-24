@@ -1,4 +1,5 @@
 import { ItemOperations, ItemOperationsDeps } from './ItemOperations'
+import { RecoveryManager } from './RecoveryManager'
 import type { VaultDoc } from '../shared/types'
 import { passthroughCodec } from './domain'
 import { settingsDocId, type ItemId } from '@vault/shared'
@@ -64,6 +65,7 @@ describe('ItemOperations', () => {
         emit: emitMock,
       } as any,
       markDocumentDirty: markDocumentDirtyMock,
+      recoveryManager: new RecoveryManager({ accountId: 'account-1', eventHub: { emit: emitMock } as any }),
     }
 
     operations = new ItemOperations(deps)

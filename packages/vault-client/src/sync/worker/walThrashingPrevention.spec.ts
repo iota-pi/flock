@@ -10,6 +10,8 @@ const keys = createMockKeyProvider()
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
@@ -83,6 +85,8 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
       pullQueueManager,
       keys,
       wal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
     })
 
     broker.setSendEnabled(true)

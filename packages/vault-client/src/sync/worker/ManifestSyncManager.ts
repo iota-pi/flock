@@ -2,10 +2,10 @@ import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
 import type { ItemId, ManifestEntry } from '@vault/shared'
-import { SyncApiClient } from './SyncApiClient'
+import type { SyncApiClient } from './SyncApiClient'
 import type { StoreItemsOptions } from './ItemOperations'
 import type { SyncDomain } from './domain'
-import { RecoveryManager } from './RecoveryManager'
+import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../syncConfig'
@@ -28,8 +28,8 @@ export interface ManifestSyncManagerDeps {
   indexManager: AutomergeIndexManager
   snapshotManager: SnapshotManager
   keys: KeyProvider
-  recoveryManager?: RecoveryManager
-  apiClient?: SyncApiClient
+  recoveryManager: RecoveryManager
+  apiClient: SyncApiClient
   onKeyVersionMissing?: (kver: string) => void
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
@@ -67,8 +67,8 @@ export class ManifestSyncManager implements LifecycleAware {
 
   constructor(deps: ManifestSyncManagerDeps) {
     this.deps = deps
-    this.apiClient = this.deps.apiClient ?? new SyncApiClient()
-    this.recoveryManager = this.deps.recoveryManager ?? new RecoveryManager({ accountId: this.deps.accountId })
+    this.apiClient = this.deps.apiClient
+    this.recoveryManager = this.deps.recoveryManager
     this.hydrator = new ManifestHydrator({
       accountId: this.deps.accountId,
       apiClient: this.apiClient,

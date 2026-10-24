@@ -1,5 +1,7 @@
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { SnapshotManager } from './SnapshotManager'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -68,6 +70,8 @@ describe('SnapshotManager Retry Mechanism', () => {
     repo: any
     broker: any
     eventHub: any
+    recoveryManager: RecoveryManager
+    apiClient: SyncApiClient
     keys: KeyProvider
   }
   let lastModifiedStore: LastModifiedStore
@@ -97,6 +101,8 @@ describe('SnapshotManager Retry Mechanism', () => {
       repo: mockRepo,
       broker: createMockBroker(),
       eventHub: mockEventHub,
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),
+      apiClient: new SyncApiClient(),
       keys,
     }
 
@@ -1018,6 +1024,8 @@ describe('SnapshotManager Retry Mechanism', () => {
           repo: mockRepo,
           broker: createMockBroker(),
           eventHub: mockEventHub as any,
+          recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),
+          apiClient: new SyncApiClient(),
           keys,
         },
         lastModifiedStore,
@@ -1056,6 +1064,8 @@ describe('SnapshotManager Retry Mechanism', () => {
           repo: mockRepo,
           broker: createMockBroker(),
           eventHub: mockEventHub as any,
+          recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),
+          apiClient: new SyncApiClient(),
           keys,
         },
         lastModifiedStore,

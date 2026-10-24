@@ -7,7 +7,7 @@ import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { RecoveryManager } from './RecoveryManager'
+import type { RecoveryManager } from './RecoveryManager'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
 import { createLogger } from '../utils/logger'
 
@@ -19,7 +19,7 @@ export interface ItemOperationsDeps {
   indexManager: AutomergeIndexManager
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
-  recoveryManager?: RecoveryManager
+  recoveryManager: RecoveryManager
   hooks?: SyncDomainHooks
 }
 
@@ -34,10 +34,7 @@ export class ItemOperations {
   private readonly recreateGuard = new KeyedSingleFlightGuard<ItemId, ItemId>()
 
   constructor(private deps: ItemOperationsDeps) {
-    this.recoveryManager = deps.recoveryManager ?? new RecoveryManager({
-      accountId: deps.accountId,
-      eventHub: deps.eventHub,
-    })
+    this.recoveryManager = deps.recoveryManager
   }
 
   private async applyDocumentChange(

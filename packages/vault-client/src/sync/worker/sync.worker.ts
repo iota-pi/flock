@@ -16,6 +16,7 @@ import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
+import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
 import type { WalEntry } from './SyncWriteAheadLog'
 import type { RepoDoc } from './docStore'
@@ -335,7 +336,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
-        refreshAuthToken: () => this.requestAuthTokenRefresh(),
+        apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
         onIndexUpdated: itemIds => {
           if (this._context === context) this.subscriptions.update(itemIds)
@@ -517,7 +518,6 @@ export class SyncWorker implements SyncApi {
           accountId: ctx.accountId,
           repo,
           indexManager,
-          refreshAuthToken: () => this.requestAuthTokenRefresh(),
           recoveryManager,
           apiClient: ctx.apiClient,
         },

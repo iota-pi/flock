@@ -101,10 +101,8 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
    * `indexUpdated` event sent to the app leaves out.
    */
   onIndexUpdated?: (itemIds: ItemId[]) => void
-  /** Optional callback to refresh the authentication token with the main thread. */
-  refreshAuthToken?: () => Promise<string | null>
-  /** Optional override for testing. */
-  apiClient?: SyncApiClient
+  /** The client every component calls the server through, so they share its token refresh */
+  apiClient: SyncApiClient
   /** Whether the account's data keys are random (see InitRepoOptions) */
   randomDataKeys?: boolean
   /** The account's data keys */
@@ -166,9 +164,7 @@ export class SyncWorkerContext {
     this.internalEventHub = config.internalEventHub
     const domain = config.domain ?? DEFAULT_SYNC_DOMAIN
     this.domain = { ...domain, codec: withSettingsDocPassthrough(domain.codec, config.accountId) }
-    this.apiClient = config.apiClient ?? new SyncApiClient({
-      refreshAuthToken: config.refreshAuthToken,
-    })
+    this.apiClient = config.apiClient
   }
 
   /** The components `initialize` builds. Throws before local storage has been opened. */
