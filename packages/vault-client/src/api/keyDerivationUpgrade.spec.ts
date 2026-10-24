@@ -41,7 +41,7 @@ vi.mock('../sync/shared/workerAuthStore', () => ({
 vi.mock('./util', async importOriginal => ({
   ...await importOriginal<typeof import('./util')>(),
   DEFAULT_CRYPTO_ITERATIONS: 1000,
-  KEYRING_FETCH_RETRY_DELAYS: [0, 0],
+  REQUEST_RETRY_DELAYS: [0, 0],
 }))
 
 // Current parameters above the test floor, so an account can be created below them

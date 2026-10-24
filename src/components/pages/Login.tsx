@@ -34,7 +34,7 @@ import {
   type KdfParams,
   createLogger,
 } from '@vault/client'
-import { isRateLimitedError } from '@vault/shared'
+import { isNotFoundError, isRateLimitedError } from '@vault/shared'
 import { getBiometricLabel } from '../../utils/biometricLabel'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
 
@@ -47,6 +47,12 @@ const ACCOUNT_UPDATE_NEEDS_SERVER =
 
 /** Shown when the server refuses logins to an account after too many failed ones */
 const TOO_MANY_ATTEMPTS = 'Too many login attempts. Please wait a few minutes and try again.'
+
+/** Shown when the server says the account doesn't exist */
+const ACCOUNT_NOT_FOUND = 'Could not find matching account ID and password.'
+
+/** Shown when the server can't be reached and this device has no login parameters for the account */
+const SERVER_UNREACHABLE = 'Could not reach the server. Check your internet connection and try again.'
 
 /** How long to wait for the server's login parameters when this device has them cached */
 const CACHED_PARAMS_WAIT_MS = 3000
@@ -143,13 +149,15 @@ function LoginPage() {
       updateAuth({ account: accountInput })
       let securityParams: { salt: string; iterations?: number; saltVersion?: number; kdf?: KdfParams }
       let reachedServer = false
+      let paramsError: unknown
       const cached = readStoredMetadata()
       const cachedParams = cached?.salt && cached.account === accountInput
         ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion, kdf: cached.kdf }
         : null
       try {
-        // With the parameters cached, a slow server doesn't hold up logging in
-        const paramsRequest = getSecurityParams(accountInput)
+        // With the parameters cached, a slow server doesn't hold up logging in. Without them, the
+        // login can't go ahead unless this request succeeds, so it's retried.
+        const paramsRequest = getSecurityParams(accountInput, { retry: !cachedParams })
         paramsRequest.catch(() => undefined)
         const params = cachedParams
           ? await Promise.race([
@@ -169,6 +177,7 @@ function LoginPage() {
         reachedServer = true
       } catch (err) {
         log.warn('getSecurityParams failed (offline or network error), checking cached metadata:', err)
+        paramsError = err
         securityParams = cachedParams ?? { salt: '', iterations: undefined, saltVersion: undefined }
       }
 
@@ -227,7 +236,13 @@ function LoginPage() {
         }
       } else {
         updateAuth({ account: '' })
-        setError('Could not find matching account ID and password.')
+        if (isNotFoundError(paramsError)) {
+          setError(ACCOUNT_NOT_FOUND)
+        } else if (isRateLimitedError(paramsError)) {
+          setError(TOO_MANY_ATTEMPTS)
+        } else {
+          setError(SERVER_UNREACHABLE)
+        }
         setLoading(false)
       }
     },

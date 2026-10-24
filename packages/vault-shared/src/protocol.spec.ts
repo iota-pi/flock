@@ -1,4 +1,4 @@
-import { isClientOutdatedError, isRateLimitedError, parseProtocolVersion } from './protocol'
+import { isClientOutdatedError, isNotFoundError, isRateLimitedError, parseProtocolVersion } from './protocol'
 
 describe('parseProtocolVersion', () => {
   it('reads a positive integer header', () => {
@@ -38,5 +38,18 @@ describe('isRateLimitedError', () => {
     expect(isRateLimitedError({ data: { code: 'UNAUTHORIZED', httpStatus: 401 } })).toBe(false)
     expect(isRateLimitedError(new Error('TOO_MANY_REQUESTS'))).toBe(false)
     expect(isRateLimitedError(null)).toBe(false)
+  })
+})
+
+describe('isNotFoundError', () => {
+  it('recognises errors for things that do not exist', () => {
+    expect(isNotFoundError({ data: { code: 'NOT_FOUND' } })).toBe(true)
+    expect(isNotFoundError({ data: { httpStatus: 404 } })).toBe(true)
+  })
+
+  it('ignores other errors', () => {
+    expect(isNotFoundError({ data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } })).toBe(false)
+    expect(isNotFoundError(new TypeError('Failed to fetch'))).toBe(false)
+    expect(isNotFoundError(null)).toBe(false)
   })
 })
