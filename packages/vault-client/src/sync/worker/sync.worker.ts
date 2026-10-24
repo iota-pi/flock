@@ -530,7 +530,6 @@ export class SyncWorker implements SyncApi {
           refreshAuthToken: refreshAuthToken ?? (() => this.requestAuthTokenRefresh()),
           recoveryManager,
           apiClient: ctx.apiClient,
-          reencryptor: itemReencryptor,
         },
         (done, total) => {
           if (onProgress) {

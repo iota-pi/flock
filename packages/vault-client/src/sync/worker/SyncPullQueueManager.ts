@@ -280,7 +280,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     if (unblockedAny) {
       const isRetrying = this.retryTracker.isAnyRetrying()
       this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-      this.internalEventHub.emit({ type: 'pendingPullsAvailable' })
       this.internalEventHub.emit({ type: 'flushNeeded' })
     }
   }
