@@ -1028,21 +1028,6 @@ describe('AutomergeDocStore Unit Tests', () => {
       await customRepo.shutdown()
     })
 
-    it('setInternalEventHub allows updating internal event hub', async () => {
-      const customHub = new WorkerInternalEventHub()
-      const emitSpy = vi.spyOn(customHub, 'emit')
-      docStore.setInternalEventHub(customHub)
-
-      const itemId = 'custom-hub-item' as ItemId
-      const binary = createDocBinary(itemId)
-      await docStore.seedImportedDocument(itemId, binary)
-
-      expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({
-        type: 'docHandleReplaced',
-        itemId,
-      }))
-    })
-
     it('exportAllBinaries and restoreFromBinaries correctly roundtrips documents', async () => {
       const accountId = 'test-docstore-backup-account'
       const indexStore = new IndexStore(accountId)

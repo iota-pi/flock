@@ -65,13 +65,13 @@ describe('SyncOrchestrator', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
 
-    orchestrator = new SyncOrchestrator(
-      'account-1',
-      mockBroker,
+    orchestrator = new SyncOrchestrator({
+      accountId: 'account-1',
+      broker: mockBroker,
       clientEventHub,
       internalEventHub,
-      mockPullQueueManager
-    )
+      pullQueueManager: mockPullQueueManager,
+    })
   })
 
   afterEach(() => {
@@ -486,24 +486,21 @@ describe('SyncOrchestrator', () => {
     internalEventHub.subscribe(internalListener)
 
     let capturedCallbacks!: LeaderElectionCallbacks
-    const customOrchestrator = new SyncOrchestrator(
-      'account-1',
-      mockBroker,
+    const customOrchestrator = new SyncOrchestrator({
+      accountId: 'account-1',
+      broker: mockBroker,
       clientEventHub,
       internalEventHub,
-      mockPullQueueManager,
-      undefined,
-      {
-        createLeaderElection: (_accountId, callbacks) => {
-          capturedCallbacks = callbacks
-          return {
-            acquire: vi.fn().mockResolvedValue(undefined),
-            release: vi.fn(),
-            claimLeadership: vi.fn(),
-          }
-        },
-      }
-    )
+      pullQueueManager: mockPullQueueManager,
+      createLeaderElection: (_accountId, callbacks) => {
+        capturedCallbacks = callbacks
+        return {
+          acquire: vi.fn().mockResolvedValue(undefined),
+          release: vi.fn(),
+          claimLeadership: vi.fn(),
+        }
+      },
+    })
 
     await customOrchestrator.start()
 
@@ -523,24 +520,21 @@ describe('SyncOrchestrator', () => {
     clientEventHub.subscribe(clientListener)
 
     let capturedCallbacks!: LeaderElectionCallbacks
-    const customOrchestrator = new SyncOrchestrator(
-      'account-1',
-      mockBroker,
+    const customOrchestrator = new SyncOrchestrator({
+      accountId: 'account-1',
+      broker: mockBroker,
       clientEventHub,
       internalEventHub,
-      mockPullQueueManager,
-      undefined,
-      {
-        createLeaderElection: (_accountId, callbacks) => {
-          capturedCallbacks = callbacks
-          return {
-            acquire: vi.fn().mockResolvedValue(undefined),
-            release: vi.fn(),
-            claimLeadership: vi.fn(),
-          }
-        },
-      }
-    )
+      pullQueueManager: mockPullQueueManager,
+      createLeaderElection: (_accountId, callbacks) => {
+        capturedCallbacks = callbacks
+        return {
+          acquire: vi.fn().mockResolvedValue(undefined),
+          release: vi.fn(),
+          claimLeadership: vi.fn(),
+        }
+      },
+    })
 
     await customOrchestrator.start()
 
@@ -560,17 +554,14 @@ describe('SyncOrchestrator', () => {
       release: vi.fn(),
       claimLeadership: vi.fn(),
     }
-    const customOrchestrator = new SyncOrchestrator(
-      'account-1',
-      mockBroker,
+    const customOrchestrator = new SyncOrchestrator({
+      accountId: 'account-1',
+      broker: mockBroker,
       clientEventHub,
       internalEventHub,
-      mockPullQueueManager,
-      undefined,
-      {
-        createLeaderElection: () => mockLeaderElection,
-      }
-    )
+      pullQueueManager: mockPullQueueManager,
+      createLeaderElection: () => mockLeaderElection,
+    })
 
     await customOrchestrator.start()
 
@@ -590,13 +581,13 @@ describe('SyncOrchestrator', () => {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
       }
 
-      const orchestratorWithPQM = new SyncOrchestrator(
-        'account-1',
-        mockBroker,
+      const orchestratorWithPQM = new SyncOrchestrator({
+        accountId: 'account-1',
+        broker: mockBroker,
         clientEventHub,
         internalEventHub,
-        customPullQueueManager
-      )
+        pullQueueManager: customPullQueueManager,
+      })
 
       // Promote to leader
       orchestratorWithPQM.setLeader(true)
@@ -647,13 +638,13 @@ describe('SyncOrchestrator', () => {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
       }
 
-      const orchestratorWithPQM = new SyncOrchestrator(
-        'account-1',
-        mockBroker,
+      const orchestratorWithPQM = new SyncOrchestrator({
+        accountId: 'account-1',
+        broker: mockBroker,
         clientEventHub,
         internalEventHub,
-        customPullQueueManager
-      )
+        pullQueueManager: customPullQueueManager,
+      })
 
       orchestratorWithPQM.setLeader(true)
       expect(customPullQueueManager.loadCursors).toHaveBeenCalledTimes(1)
@@ -876,15 +867,15 @@ describe('SyncOrchestrator', () => {
     })
 
     it('triggers manifest sync and starts periodic schedule on leader promotion when online', async () => {
-      const customOrchestrator = new SyncOrchestrator(
-        'account-1',
-        mockBroker,
+      const customOrchestrator = new SyncOrchestrator({
+        accountId: 'account-1',
+        broker: mockBroker,
         clientEventHub,
         internalEventHub,
-        mockPullQueueManager,
-        mockManifestSyncManager,
-        { manifestSyncIntervalMs: 5000 }
-      )
+        pullQueueManager: mockPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
+        manifestSyncIntervalMs: 5000,
+      })
       customOrchestrator.setOnlineState(true)
       expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
 
@@ -902,15 +893,15 @@ describe('SyncOrchestrator', () => {
     })
 
     it('periodically runs manifest sync at configured interval', async () => {
-      const customOrchestrator = new SyncOrchestrator(
-        'account-1',
-        mockBroker,
+      const customOrchestrator = new SyncOrchestrator({
+        accountId: 'account-1',
+        broker: mockBroker,
         clientEventHub,
         internalEventHub,
-        mockPullQueueManager,
-        mockManifestSyncManager,
-        { manifestSyncIntervalMs: 10000 }
-      )
+        pullQueueManager: mockPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
+        manifestSyncIntervalMs: 10000,
+      })
 
       customOrchestrator.setLeader(true)
       customOrchestrator.setOnlineState(true)
@@ -928,15 +919,15 @@ describe('SyncOrchestrator', () => {
     })
 
     it('stops periodic manifest sync when going offline', async () => {
-      const customOrchestrator = new SyncOrchestrator(
-        'account-1',
-        mockBroker,
+      const customOrchestrator = new SyncOrchestrator({
+        accountId: 'account-1',
+        broker: mockBroker,
         clientEventHub,
         internalEventHub,
-        mockPullQueueManager,
-        mockManifestSyncManager,
-        { manifestSyncIntervalMs: 5000 }
-      )
+        pullQueueManager: mockPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
+        manifestSyncIntervalMs: 5000,
+      })
 
       customOrchestrator.setLeader(true)
       customOrchestrator.setOnlineState(true)
@@ -954,15 +945,15 @@ describe('SyncOrchestrator', () => {
     })
 
     it('stops periodic manifest sync when losing leadership', async () => {
-      const customOrchestrator = new SyncOrchestrator(
-        'account-1',
-        mockBroker,
+      const customOrchestrator = new SyncOrchestrator({
+        accountId: 'account-1',
+        broker: mockBroker,
         clientEventHub,
         internalEventHub,
-        mockPullQueueManager,
-        mockManifestSyncManager,
-        { manifestSyncIntervalMs: 5000 }
-      )
+        pullQueueManager: mockPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
+        manifestSyncIntervalMs: 5000,
+      })
 
       customOrchestrator.setLeader(true)
       customOrchestrator.setOnlineState(true)

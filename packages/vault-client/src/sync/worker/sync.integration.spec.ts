@@ -76,9 +76,9 @@ describe('Sync System Integration Test Suite', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     cursorStore = new CursorStore(accountId)
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys)
-    wal = new SyncWriteAheadLog(accountId)
-    adapter = new VaultNetworkAdapter()
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, undefined, internalEventHub)
+    wal = new SyncWriteAheadLog(accountId, internalEventHub)
+    adapter = new VaultNetworkAdapter(internalEventHub)
 
     indexManager = {
       updateLastSyncTime: vi.fn().mockResolvedValue(undefined),

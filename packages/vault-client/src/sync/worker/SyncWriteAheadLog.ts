@@ -101,7 +101,7 @@ export class SyncWriteAheadLog {
   }
 
   private storage: LocalForage
-  private internalEventHub: WorkerInternalEventHub
+  private readonly internalEventHub: WorkerInternalEventHub
 
   public static getStorage(accountId: string): LocalForage {
     return createAccountStore('wal-entries', accountId)
@@ -160,10 +160,6 @@ export class SyncWriteAheadLog {
 
   public get eventHub(): WorkerInternalEventHub {
     return this.internalEventHub
-  }
-
-  public setInternalEventHub(hub: WorkerInternalEventHub): void {
-    this.internalEventHub = hub
   }
 
   private readonly inFlightEntryIds = new Set<string>()

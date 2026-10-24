@@ -250,7 +250,7 @@ export class SyncWorkerContext {
       lastModifiedStore
     )
 
-    const orchestrator = new SyncOrchestrator(accountId, broker, clientEventHub, internalEventHub, pullQueueManager)
+    const orchestrator = new SyncOrchestrator({ accountId, broker, clientEventHub, internalEventHub, pullQueueManager })
 
     const markDocumentDirty = (id: ItemId) => {
       snapshotManager.markItemDirty(id)

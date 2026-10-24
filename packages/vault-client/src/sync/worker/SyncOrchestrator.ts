@@ -36,7 +36,13 @@ export interface ManifestSyncManagerLike {
   abort?: () => void
 }
 
-export interface SyncOrchestratorOptions {
+export interface SyncOrchestratorDeps {
+  accountId: string
+  broker: SyncMessageBroker
+  clientEventHub: ClientEventHub
+  internalEventHub: WorkerInternalEventHub
+  pullQueueManager: SyncPullQueueManagerLike
+  manifestSyncManager?: ManifestSyncManagerLike
   manifestSyncIntervalMs?: number
   createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
 }
@@ -92,18 +98,23 @@ export class SyncOrchestrator implements LifecycleAware {
 
   private unsubscribeInternalEvents: (() => void) | null = null
 
-  constructor(
-    private accountId: string,
-    private broker: SyncMessageBroker,
-    private clientEventHub: ClientEventHub,
-    private internalEventHub: WorkerInternalEventHub,
-    private pullQueueManager: SyncPullQueueManagerLike,
-    manifestSyncManager?: ManifestSyncManagerLike,
-    private options?: SyncOrchestratorOptions
-  ) {
-    this.poller = broker.poller
-    this.manifestSyncManager = manifestSyncManager ?? null
-    this.manifestSyncIntervalMs = options?.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
+  private readonly accountId: string
+  private readonly broker: SyncMessageBroker
+  private readonly clientEventHub: ClientEventHub
+  private readonly internalEventHub: WorkerInternalEventHub
+  private readonly pullQueueManager: SyncPullQueueManagerLike
+  private readonly createLeaderElection?: SyncOrchestratorDeps['createLeaderElection']
+
+  constructor(deps: SyncOrchestratorDeps) {
+    this.accountId = deps.accountId
+    this.broker = deps.broker
+    this.clientEventHub = deps.clientEventHub
+    this.internalEventHub = deps.internalEventHub
+    this.pullQueueManager = deps.pullQueueManager
+    this.createLeaderElection = deps.createLeaderElection
+    this.poller = deps.broker.poller
+    this.manifestSyncManager = deps.manifestSyncManager ?? null
+    this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
       if (event.type === 'flushNeeded') {
         this.flush()
@@ -176,8 +187,8 @@ export class SyncOrchestrator implements LifecycleAware {
         this.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
       },
     }
-    this.leaderElection = this.options?.createLeaderElection
-      ? this.options.createLeaderElection(this.accountId, callbacks)
+    this.leaderElection = this.createLeaderElection
+      ? this.createLeaderElection(this.accountId, callbacks)
       : new LeaderElection(this.accountId, callbacks)
     fireAndForget(this.leaderElection.acquire(), 'SyncOrchestrator:leaderElection:acquire')
   }

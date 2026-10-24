@@ -553,7 +553,7 @@ describe('items operations', () => {
     hub.subscribe(event => {
       if (event.type === 'docHandleReplaced') handleReplacedListener(event.itemId, event.handle)
     })
-    docStore.setInternalEventHub(hub)
+    docStore = new AutomergeDocStore(testRepo, hub)
 
     const doc = Automerge.change(Automerge.init<VaultDoc>(), d => {
       d.id = 'seeded-item' as ItemId

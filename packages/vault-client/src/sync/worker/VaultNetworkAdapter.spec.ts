@@ -69,18 +69,18 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
-    adapter = new VaultNetworkAdapter()
+    adapter = new VaultNetworkAdapter(internalEventHub)
     const cursorStore = new CursorStore('test-account')
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys)
-    const wal = new SyncWriteAheadLog('test-account')
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, undefined, internalEventHub)
+    const wal = new SyncWriteAheadLog('test-account', internalEventHub)
     broker = new SyncMessageBroker({ adapter, clientEventHub, internalEventHub, indexManager: mockDocStore as any, pullQueueManager, keys, wal })
-    orchestrator = new SyncOrchestrator(
-      'test-account',
+    orchestrator = new SyncOrchestrator({
+      accountId: 'test-account',
       broker,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-    )
+    })
 
     // Keep offline by default to avoid automatic background runs in static tests
     orchestrator.setOnlineState(false)
@@ -121,7 +121,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('queues sync messages to SyncWriteAheadLog on send()', async () => {
     const accountId = 'account-queues'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId))
+    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     const message1: Message = {
@@ -148,7 +148,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('stores all incoming sync messages in SyncWriteAheadLog', async () => {
     const accountId = 'account-bounds'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId))
+    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     for (let i = 0; i < 20; i++) {
@@ -173,7 +173,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
     const accountId = 'account-chunking'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId))
+    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockImplementation(async (input: any) => ({
@@ -222,7 +222,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('safely slices successfully sent messages and retains concurrent local edits', async () => {
     const accountId = 'account-concurrent'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId))
+    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockImplementation(async (input: any) => {
@@ -284,7 +284,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('retains messages in SyncWriteAheadLog if the poll call fails', async () => {
     const accountId = 'account-fails'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId))
+    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockRejectedValue(new Error('Network error'))
@@ -321,7 +321,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     const accountId = 'account-quota'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId))
+    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
     broker.setSendEnabled(true)
 
@@ -678,16 +678,16 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('immediately triggers next poll if hasMore is true', async () => {
     const accountId = 'account-pagination'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId))
+    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
-    orchestrator = new SyncOrchestrator(
+    orchestrator = new SyncOrchestrator({
       accountId,
       broker,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-    )
+    })
 
     let pollCount = 0
     mockPollSyncBatchWithToken.mockImplementation(async input => {

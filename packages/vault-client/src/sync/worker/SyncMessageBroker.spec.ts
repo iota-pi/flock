@@ -44,7 +44,6 @@ describe('SyncMessageBroker', () => {
     } as unknown as AutomergeIndexManager
     pullQueueManager = {
       setAccount: vi.fn().mockResolvedValue(undefined),
-      setInternalEventHub: vi.fn(),
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),
@@ -56,7 +55,6 @@ describe('SyncMessageBroker', () => {
       readAll: vi.fn().mockResolvedValue(new Map()),
       remove: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn().mockResolvedValue(undefined),
-      setInternalEventHub: vi.fn(),
     } as unknown as SyncWriteAheadLog
 
     broker = new SyncMessageBroker({

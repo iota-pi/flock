@@ -57,7 +57,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   private readonly saveCursorsDebounced = debounce(() => fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors'), 1000)
 
   private lockCoordinator?: ItemLockCoordinator
-  private internalEventHub: WorkerInternalEventHub
+  private readonly internalEventHub: WorkerInternalEventHub
 
   constructor(
     private readonly cursorStore: CursorStore,
@@ -72,10 +72,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   public get eventHub(): WorkerInternalEventHub {
     return this.internalEventHub
-  }
-
-  public setInternalEventHub(hub: WorkerInternalEventHub): void {
-    this.internalEventHub = hub
   }
 
   private makeBatchProgressKey(itemId: ItemId, cursor: number): string {

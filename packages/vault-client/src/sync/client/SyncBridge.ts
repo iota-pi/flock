@@ -3,10 +3,8 @@ import type * as Comlink from 'comlink'
 import { hasVaultKey, reloadKeyringFromStorage, syncKeyringFromServer } from '../../api/vault'
 import { handleSessionExpired, getVaultSession, onLateSession } from '../../api/session'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
-import type { BackupSyncState } from '../shared/backupSyncState'
-import type { ItemId } from '@vault/shared'
-import type { DataVersionStatus, VaultDoc, VaultMetadata } from '../shared/types'
-import type { ReencryptResult, RetrySaveResult, SnapshotPushResult, SyncApi } from '../worker/syncProtocol'
+import type { VaultDoc, VaultMetadata } from '../shared/types'
+import type { ReencryptResult, SyncApi } from '../worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'
@@ -317,6 +315,33 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return fn(api)
   }
 
+  /** Calls the worker's method of the same name once it's ready */
+  private forward<K extends keyof SyncApi>(name: K): SyncApi<TDoc, TMeta>[K] {
+    const call = (...args: unknown[]) => this.execute(api => (api[name] as (...a: unknown[]) => Promise<unknown>)(...args))
+    return call as SyncApi<TDoc, TMeta>[K]
+  }
+
+  readonly mutateItem = this.forward('mutateItem')
+  readonly createItem = this.forward('createItem')
+  readonly storeItems = this.forward('storeItems')
+  readonly mutateMetadata = this.forward('mutateMetadata')
+  readonly exportAllBinaries = this.forward('exportAllBinaries')
+  readonly flushSync = this.forward('flushSync')
+  readonly fullResync = this.forward('fullResync')
+  readonly pushSnapshots = this.forward('pushSnapshots')
+  readonly retrySave = this.forward('retrySave')
+  readonly checkDataVersion = this.forward('checkDataVersion')
+  readonly retryRecoveryItem = this.forward('retryRecoveryItem')
+  readonly replaceFromServer = this.forward('replaceFromServer')
+  readonly forceOverwriteRecoveryItem = this.forward('forceOverwriteRecoveryItem')
+  readonly forceDeleteRecoveryItem = this.forward('forceDeleteRecoveryItem')
+  readonly recreateOversizedItem = this.forward('recreateOversizedItem')
+  readonly dismissRecoveryItem = this.forward('dismissRecoveryItem')
+  readonly updateVaultKey = this.forward('updateVaultKey')
+  readonly exportSyncState = this.forward('exportSyncState')
+  readonly restoreSyncState = this.forward('restoreSyncState')
+  readonly claimLeader = this.forward('claimLeader')
+
   listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
     return this.execute(async api => {
       const entries = await api.listRecoveryItems(options)
@@ -337,54 +362,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     })
   }
 
-  mutateItem(id: ItemId, changes: Partial<TDoc>): Promise<void> {
-    return this.execute(api => api.mutateItem(id, changes))
-  }
-
-  createItem(item: TDoc): Promise<void> {
-    return this.execute(api => api.createItem(item))
-  }
-
-  storeItems(items: TDoc[]): Promise<void> {
-    return this.execute(api => api.storeItems(items))
-  }
-
-  mutateMetadata(changes: Partial<TMeta>): Promise<void> {
-    return this.execute(api => api.mutateMetadata(changes))
-  }
-
-  exportAllBinaries(): Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }> {
-    return this.execute(api => api.exportAllBinaries())
-  }
-
-  flushSync(): Promise<void> {
-    return this.execute(api => api.flushSync())
-  }
-
-  fullResync(): Promise<boolean> {
-    return this.execute(api => api.fullResync())
-  }
-
-  pushSnapshots(): Promise<SnapshotPushResult> {
-    return this.execute(api => api.pushSnapshots())
-  }
-
-  retrySave(): Promise<RetrySaveResult> {
-    return this.execute(api => api.retrySave())
-  }
-
-  checkDataVersion(): Promise<DataVersionStatus> {
-    return this.execute(api => api.checkDataVersion())
-  }
-
-  retryRecoveryItem(itemId: ItemId): Promise<void> {
-    return this.execute(api => api.retryRecoveryItem(itemId))
-  }
-
-  replaceFromServer(itemId: ItemId): Promise<void> {
-    return this.execute(api => api.replaceFromServer(itemId))
-  }
-
   /**
    * Deletes this device's local data for the account and starts sync again, which downloads it from
    * the server. Changes that weren't pushed are lost: only call this once the user has confirmed.
@@ -393,26 +370,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     this.localDataFailures.delete(accountId)
     await this.shutdown({ clearLocalData: true, accountId })
     await this.initialize(accountId)
-  }
-
-  forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
-    return this.execute(api => api.forceOverwriteRecoveryItem(itemId))
-  }
-
-  forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
-    return this.execute(api => api.forceDeleteRecoveryItem(itemId))
-  }
-
-  recreateOversizedItem(itemId: ItemId): Promise<ItemId> {
-    return this.execute(api => api.recreateOversizedItem(itemId))
-  }
-
-  dismissRecoveryItem(entryId: string): Promise<void> {
-    return this.execute(api => api.dismissRecoveryItem(entryId))
-  }
-
-  updateVaultKey(vaultKey: string): Promise<void> {
-    return this.execute(api => api.updateVaultKey(vaultKey))
   }
 
   reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<ReencryptResult> {
@@ -426,18 +383,6 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         unsubscribe?.()
       }
     })
-  }
-
-  exportSyncState(): Promise<BackupSyncState> {
-    return this.execute(api => api.exportSyncState())
-  }
-
-  restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
-    return this.execute(api => api.restoreSyncState(state))
-  }
-
-  claimLeader(): Promise<void> {
-    return this.execute(api => api.claimLeader())
   }
 }
 

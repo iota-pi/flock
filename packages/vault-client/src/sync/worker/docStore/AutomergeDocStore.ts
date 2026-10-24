@@ -78,7 +78,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   readonly lifecycleName = 'DocStore'
   private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
   private itemMutex = new KeyedAsyncMutex<ItemId>()
-  private internalEventHub: WorkerInternalEventHub
+  private readonly internalEventHub: WorkerInternalEventHub
   private storageAdapter?: DocStorageChecker | null
   /**
    * Whether a document's sealed local records failed to decrypt. Its handle never finishes loading
@@ -99,10 +99,6 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   ) {
     this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
     this.storageAdapter = storageAdapter
-  }
-
-  public setInternalEventHub(hub: WorkerInternalEventHub): void {
-    this.internalEventHub = hub
   }
 
   private notifyDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
