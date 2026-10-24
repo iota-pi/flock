@@ -116,6 +116,7 @@ vi.mock('./SyncMessageBroker', () => ({
   SyncMessageBroker: class MockSyncMessageBroker {
     readonly lifecycleName = 'SyncMessageBroker'
     unblockAllItems = vi.fn()
+    getBlockedItemIds = vi.fn().mockReturnValue([])
     poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
     shutdown = vi.fn().mockResolvedValue(undefined)
     onLifecycleStop = vi.fn().mockImplementation(async () => {
@@ -129,6 +130,8 @@ vi.mock('./VaultNetworkAdapter', () => ({
     readonly lifecycleName = 'VaultNetworkAdapter'
     triggerReNegotiation = vi.fn()
     setSyncedHeadsStore = vi.fn()
+    setHeadsValidator = vi.fn()
+    setInternalEventHub = vi.fn()
     setSyncedHeads = vi.fn()
     loadSyncedHeads = vi.fn()
     resetReNegotiationCircuit = vi.fn()

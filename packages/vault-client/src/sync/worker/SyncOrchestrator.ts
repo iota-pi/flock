@@ -110,8 +110,8 @@ export class SyncOrchestrator implements LifecycleAware {
       }
     })
     // Sync initial states with the broker
-    this.broker?.setOnlineState?.(this.isOnline)
-    this.broker?.setSendEnabled?.(this.isLeader)
+    this.broker.setOnlineState(this.isOnline)
+    this.broker.setSendEnabled(this.isLeader)
   }
 
   get isOperational(): boolean {

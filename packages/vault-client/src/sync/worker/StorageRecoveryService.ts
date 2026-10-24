@@ -150,8 +150,8 @@ export class StorageRecoveryService implements LifecycleAware {
    * Resets broker and network renegotiation circuits once storage is available.
    */
   resetStorageCircuits(): void {
-    this.deps.broker.unblockAllItems?.()
-    this.deps.adapter.resetReNegotiationCircuit?.()
+    this.deps.broker.unblockAllItems()
+    this.deps.adapter.resetReNegotiationCircuit()
   }
 
   /**
@@ -176,7 +176,7 @@ export class StorageRecoveryService implements LifecycleAware {
   triggerRenegotiations(dirtyIds: ItemId[]): void {
     for (const itemId of dirtyIds) {
       const documentId = toDocumentIdFromItemId(itemId)
-      this.deps.adapter.triggerReNegotiation?.(documentId)
+      this.deps.adapter.triggerReNegotiation(documentId)
     }
   }
 
@@ -230,7 +230,7 @@ export class StorageRecoveryService implements LifecycleAware {
   async retrySave(): Promise<RetrySaveResult> {
     try {
       await this.probeStorageAvailability()
-      const blockedIds = this.deps.broker.getBlockedItemIds?.() ?? []
+      const blockedIds = this.deps.broker.getBlockedItemIds()
       this.resetStorageCircuits()
 
       const dirtyIds = Array.from(

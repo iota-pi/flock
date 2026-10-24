@@ -145,7 +145,7 @@ export class ManifestSyncManager implements LifecycleAware {
   }
 
   private async collectLocalSyncState(signal: AbortSignal, isAlive: () => boolean) {
-    const tombstoneItemIds = (await this.deps.indexManager.listAutomergeTombstoneIds?.()) ?? []
+    const tombstoneItemIds = await this.deps.indexManager.listAutomergeTombstoneIds()
     const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
     const localVersionsMap = new Map(this.deps.snapshotManager.exportItemVersions())
     checkAlive(signal, isAlive)

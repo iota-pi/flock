@@ -65,6 +65,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
 
     pullQueueManager = {
       setAccount: vi.fn().mockResolvedValue(undefined),
+      setInternalEventHub: vi.fn(),
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),

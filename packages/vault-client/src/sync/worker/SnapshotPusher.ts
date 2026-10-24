@@ -338,10 +338,10 @@ export class SnapshotPusher {
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
       // Tombstones deliberately carry no heads: the server does not hold the document state
       if (item.heads && item.heads.length > 0) {
-        this.broker.setSyncedHeads?.(item.snapshot.itemId, item.heads)
+        this.broker.setSyncedHeads(item.snapshot.itemId, item.heads)
       }
-      this.broker.clearSnapshotOnlyItem?.(item.snapshot.itemId)
-      this.broker.unblockItem?.(item.snapshot.itemId)
+      this.broker.clearSnapshotOnlyItem(item.snapshot.itemId)
+      this.broker.unblockItem(item.snapshot.itemId)
       fireAndForget(
         this.recoveryManager.unquarantine(item.snapshot.itemId),
         'SnapshotPusher:unquarantine',

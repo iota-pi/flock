@@ -172,7 +172,7 @@ export class SyncPoller {
     } finally {
       this.abortController = null
       if (this.wal && inFlightWalIds.length > 0) {
-        this.wal.unmarkInFlight?.(inFlightWalIds)
+        this.wal.unmarkInFlight(inFlightWalIds)
       }
       this.clientEventHub.emit({ type: 'finishRequest' })
     }
@@ -190,7 +190,7 @@ export class SyncPoller {
       }
     }
     if (inFlightWalIds.length > 0) {
-      this.wal.markInFlight?.(inFlightWalIds)
+      this.wal.markInFlight(inFlightWalIds)
     }
     return batchEntries
   }

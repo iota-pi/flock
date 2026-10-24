@@ -34,6 +34,14 @@ const vault = {
 }
 const keys = createMockKeyProvider(vault)
 
+function createMockBroker() {
+  return {
+    setSyncedHeads: vi.fn(),
+    clearSnapshotOnlyItem: vi.fn(),
+    unblockItem: vi.fn(),
+  } as any
+}
+
 vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
   getHeads: vi.fn().mockReturnValue(['mock-head']),
@@ -91,7 +99,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     context = {
       accountId: 'test-account',
       repo: mockRepo,
-      broker: {} as any,
+      broker: createMockBroker(),
       eventHub: mockEventHub,
       keys,
     }
@@ -1012,7 +1020,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         {
           accountId: 'test-account',
           repo: mockRepo,
-          broker: {} as any,
+          broker: createMockBroker(),
           eventHub: mockEventHub as any,
           keys,
         },
@@ -1050,7 +1058,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         {
           accountId: 'test-account',
           repo: mockRepo,
-          broker: {} as any,
+          broker: createMockBroker(),
           eventHub: mockEventHub as any,
           keys,
         },
