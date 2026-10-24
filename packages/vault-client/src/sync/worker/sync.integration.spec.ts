@@ -87,7 +87,7 @@ describe('Sync System Integration Test Suite', () => {
       listAutomergeItemIds: vi.fn().mockResolvedValue([]),
     } as unknown as AutomergeIndexManager
 
-    broker = new SyncMessageBroker(
+    broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
@@ -95,7 +95,7 @@ describe('Sync System Integration Test Suite', () => {
       pullQueueManager,
       keys,
       wal,
-    )
+    })
 
     adapter.setAccount(accountId)
     adapter.connect('client-peer' as PeerId)
@@ -261,7 +261,7 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [],
     })
 
-    const newPoller = new SyncPoller(pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, newWal)
+    const newPoller = new SyncPoller({ pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, wal: newWal })
     newPoller.setAccount(accountId)
     newPoller.setOnlineState(true)
 

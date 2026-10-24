@@ -1,4 +1,8 @@
-import { getVaultSession, getKeyHash, establishSessionFromKeyHash, syncKeyringFromServer } from './vault'
+import { getVaultSession, getKeyHash, establishSessionFromKeyHash } from './session'
+import { syncKeyringFromServer } from './vault'
+import { createLogger } from '../sync/utils/logger'
+
+const log = createLogger('sessionRecovery')
 
 export async function attemptSessionRecovery(account: string): Promise<boolean> {
   if (getVaultSession()) {
@@ -14,7 +18,7 @@ export async function attemptSessionRecovery(account: string): Promise<boolean> 
     await syncKeyringFromServer(account)
     return true
   } catch (err) {
-    console.warn('[sessionRecovery] Failed to recover session on reconnect:', err)
+    log.warn('Failed to recover session on reconnect:', err)
     return false
   }
 }

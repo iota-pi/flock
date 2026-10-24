@@ -1,6 +1,9 @@
 import { fireAndForget } from '../utils/fireAndForget'
 import { runStorageOperation } from '../utils/storageManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SnapshotFormatUpgrade')
 
 export interface SnapshotFormatUpgradeDeps {
   accountId: string
@@ -60,7 +63,7 @@ export class SnapshotFormatUpgrade {
     const { failed } = await this.deps.rewriteSnapshots(signal)
     if (signal.aborted) return
     if (failed.length > 0) {
-      console.warn(`[SnapshotFormatUpgrade] ${failed.length} snapshots were not rewritten (will retry next session)`)
+      log.warn(`${failed.length} snapshots were not rewritten (will retry next session)`)
       return
     }
 

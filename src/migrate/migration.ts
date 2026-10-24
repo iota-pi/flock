@@ -7,6 +7,7 @@ import {
   reencryptAllItems,
   upgradeKeyDerivation,
   type DataVersionStatus,
+  createLogger,
 } from '@vault/client'
 import {
   MIGRATION_CHANNEL,
@@ -16,6 +17,8 @@ import {
 } from './detection'
 import { clearLegacyLocalData } from './legacy/localData'
 import { MigrationBridge, setMigrationAccount } from './migrationBridge'
+
+const log = createLogger('migration')
 
 export class OfflineError extends Error {
   constructor() {
@@ -49,7 +52,7 @@ export async function startMigration(account: string, password: string): Promise
   try {
     params = await getSecurityParams(account)
   } catch (error) {
-    console.warn('[migration] getSecurityParams failed', error)
+    log.warn('getSecurityParams failed', error)
     throw new OfflineError()
   }
 
@@ -125,7 +128,7 @@ export async function finishMigration(account: string): Promise<void> {
   try {
     await clearLegacyLocalData(account)
   } catch (error) {
-    console.warn('[migration] Failed to clear legacy local data', error)
+    log.warn('Failed to clear legacy local data', error)
   }
   await MigrationBridge.shutdown({ clearLocalData: false, accountId: account })
   await lockVaultKeys()

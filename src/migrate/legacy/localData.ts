@@ -9,6 +9,9 @@ import {
   databaseExists,
 } from '@vault/client/worker'
 import type { PersistedSyncCursors, ItemSyncTimestamps } from '@vault/client/worker'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('localData')
 
 /**
  * Brings a device's local sync metadata from Flock's older layouts into the current one:
@@ -138,7 +141,7 @@ async function readLegacyDatabase(
     const current = isPresent(raw) ? value.toCurrent(raw) : null
     return isPresent(current) ? { current, store } : null
   } catch (error) {
-    console.warn(`[localData] Failed to read legacy database ${value.legacyDatabase.name}`, error)
+    log.warn(`Failed to read legacy database ${value.legacyDatabase.name}`, error)
     return null
   }
 }
@@ -173,7 +176,7 @@ async function migrateMetadataValue(value: LegacyMetadataValue, accountId: strin
   if (legacy) {
     await runStorageOperation(() => metadata.setItem(value.key, legacy.current))
     await runStorageOperation(() => legacy.store.removeItem(value.legacyDatabase.key)).catch(error => {
-      console.warn(`[localData] Failed to remove legacy value from ${value.legacyDatabase.name}`, error)
+      log.warn(`Failed to remove legacy value from ${value.legacyDatabase.name}`, error)
     })
   }
 }
@@ -295,11 +298,11 @@ export async function clearLegacyLocalData(accountId: string): Promise<void> {
         const store = openLegacyDatabase(legacyDatabase, accountId)
         await runStorageOperation(() => store.clear())
       } catch (error) {
-        console.warn(`[localData] Error clearing legacy store ${legacyDatabase.name}:`, error)
+        log.warn(`Error clearing legacy store ${legacyDatabase.name}:`, error)
       }
     }),
     runStorageOperation(() => getLegacyManualRecoveryMetaStorage(accountId).clear()).catch(error => {
-      console.warn('[localData] Error clearing legacy manual recovery metadata:', error)
+      log.warn('Error clearing legacy manual recovery metadata:', error)
     }),
   ])
 }

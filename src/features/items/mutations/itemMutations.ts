@@ -13,7 +13,9 @@ import type { AccountMetadata } from 'src/state/metadata'
 import { useAppStore } from 'src/state/store'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'
 import { SyncBridge } from 'src/app/vault/syncBridge'
+import { createLogger } from '@vault/client'
 
+const log = createLogger('itemMutations')
 
 const stripItemWriteSchema = personItemSchema.strip()
   .or(groupItemSchema.strip())
@@ -201,7 +203,7 @@ export function mutateItem(
   const rollback = applyOptimisticItemUpdate(itemId, updatedItem)
 
   void SyncBridge.mutateItem(itemId, changes).catch(error => {
-    console.error('[itemMutations] mutateItem SyncBridge error:', error)
+    log.error('mutateItem SyncBridge error:', error)
     rollback()
   })
 
@@ -220,7 +222,7 @@ export async function storeItems(
   try {
     await SyncBridge.storeItems(current)
   } catch (error) {
-    console.error('[itemMutations] storeItems SyncBridge error:', error)
+    log.error('storeItems SyncBridge error:', error)
     rollbacks.forEach(rollback => rollback())
     throw error
   }
@@ -242,7 +244,7 @@ export async function createItem(
 
   const rollback = applyOptimisticItemUpdate(nextItem.id, nextItem)
   void SyncBridge.createItem(nextItem).catch(error => {
-    console.error('[itemMutations] createItem SyncBridge error:', error)
+    log.error('createItem SyncBridge error:', error)
     rollback()
   })
 
@@ -307,7 +309,7 @@ export async function setMetadata(
   try {
     await SyncBridge.mutateMetadata(nextMetadata)
   } catch (error) {
-    console.error('[itemMutations] setMetadata SyncBridge error:', error)
+    log.error('setMetadata SyncBridge error:', error)
     rollback()
     throw error
   }

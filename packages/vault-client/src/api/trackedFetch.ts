@@ -88,8 +88,9 @@ export function getTrackedFetch(
       throw error
     }
 
-    // The server rejects an expired or revoked session with 401. Requests without a token (such as
-    // logging in) can also get 401, which says nothing about the session.
+    // The server rejects an expired or revoked session with 401. It never sends 403, but the handler
+    // tries a silent re-login first, so a 403 from something in between costs little. Requests
+    // without a token (such as logging in) can also get 401, which says nothing about the session.
     const expiryHandler = getSessionExpiredHandler()
     if (authToken && (response.status === 401 || response.status === 403) && expiryHandler) {
       expiryHandler()

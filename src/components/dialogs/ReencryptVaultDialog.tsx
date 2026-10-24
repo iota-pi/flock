@@ -8,9 +8,11 @@ import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 
-import { reencryptAllItems } from '@vault/client'
+import { createLogger, reencryptAllItems } from '@vault/client'
 import { SyncBridge } from 'src/app/vault/syncBridge'
 import { useAppStore } from 'src/state/store'
+
+const log = createLogger('ReencryptVaultDialog')
 
 interface Props {
   open: boolean
@@ -58,7 +60,7 @@ export default function ReencryptVaultDialog({ open, onClose }: Props) {
         handleClose()
       }
     } catch (err) {
-      console.error('[ReencryptVaultDialog] reencryptAllItems failed', err)
+      log.error('reencryptAllItems failed', err)
       setStatus('error')
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred during re-encryption.')
     }

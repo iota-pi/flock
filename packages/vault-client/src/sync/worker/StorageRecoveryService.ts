@@ -15,7 +15,11 @@ import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { SyncOrchestrator } from './SyncOrchestrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('StorageRecoveryService')
 
 export class QuotaExceededRetryError extends Error {
   constructor(message: string) {
@@ -95,7 +99,7 @@ export class StorageRecoveryService implements LifecycleAware {
     try {
       return await this.deps.wal.handleQuotaExceeded()
     } catch (err) {
-      console.error('[StorageRecoveryService] Error during emergency WAL compaction:', err)
+      log.error('Error during emergency WAL compaction:', err)
       throw err
     }
   }
@@ -105,14 +109,14 @@ export class StorageRecoveryService implements LifecycleAware {
    * updates status manager, and emits quotaExceeded event.
    */
   async handleQuotaExceeded(errorOrMessage?: unknown): Promise<void> {
-    console.warn('[StorageRecoveryService] Storage quota exceeded. Running emergency WAL compaction...', errorOrMessage)
+    log.warn('Storage quota exceeded. Running emergency WAL compaction...', errorOrMessage)
     this.isQuotaExceeded = true
     this.deps.onQuotaStatusChange?.(true)
 
     try {
       await this.handleEmergencyCompaction()
     } catch (compactionErr) {
-      console.error('[StorageRecoveryService] Failed emergency compaction during quota handling:', compactionErr)
+      log.error('Failed emergency compaction during quota handling:', compactionErr)
     }
 
     const message =
@@ -161,7 +165,7 @@ export class StorageRecoveryService implements LifecycleAware {
         if (isQuotaError(saveErr)) {
           throw new QuotaExceededRetryError('Storage quota is still exceeded while saving documents.')
         }
-        console.warn(`[StorageRecoveryService] Failed to save doc for item ${itemId} during retrySave`, saveErr)
+        log.warn(`Failed to save doc for item ${itemId} during retrySave`, saveErr)
       }
     }
   }
@@ -223,7 +227,7 @@ export class StorageRecoveryService implements LifecycleAware {
    * 6. flushPendingSyncIfOnline()
    * 7. resolveQuotaStatus()
    */
-  async retrySave(): Promise<{ success: boolean; error?: string }> {
+  async retrySave(): Promise<RetrySaveResult> {
     try {
       await this.probeStorageAvailability()
       const blockedIds = this.deps.broker.getBlockedItemIds?.() ?? []
@@ -244,7 +248,7 @@ export class StorageRecoveryService implements LifecycleAware {
       if (err instanceof QuotaExceededRetryError) {
         return { success: false, error: err.message }
       }
-      console.error('[StorageRecoveryService] Unexpected error during retrySave', err)
+      log.error('Unexpected error during retrySave', err)
       return { success: false, error: (err as Error).message || 'Failed to retry save' }
     }
   }

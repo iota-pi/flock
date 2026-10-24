@@ -109,7 +109,7 @@ describe('global pull pagination (client ↔ router)', () => {
       pollSyncBatch: (input: Parameters<typeof caller.pollSync>[0]) => caller.pollSync(input),
     } as unknown as SyncApiClient
     const indexManager = { updateLastSyncTime: vi.fn() } as unknown as AutomergeIndexManager
-    const poller = new SyncPoller(pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, null, apiClient)
+    const poller = new SyncPoller({ pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, apiClient })
     poller.setAccount(ACCOUNT)
 
     const outcomes: string[] = []

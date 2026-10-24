@@ -1,6 +1,9 @@
 import { runStorageOperation } from '../utils/storageManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 import type { DataVersionStatus, MigrationRequiredReason } from '../shared/types'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('DataVersionTracker')
 
 /** Thrown when sync can't start until the app's migration app has run */
 export class MigrationRequiredError extends Error {
@@ -70,7 +73,7 @@ export class DataVersionTracker {
     this.hasAskedServer = true
     const { dataVersion, blockers } = await this.deps.raiseAccountDataVersion()
     if (blockers.length > 0) {
-      console.info(`[DataVersionTracker] Account data is at version ${dataVersion}; still to migrate: ${blockers.join(', ')}`)
+      log.info(`Account data is at version ${dataVersion}; still to migrate: ${blockers.join(', ')}`)
     }
   }
 

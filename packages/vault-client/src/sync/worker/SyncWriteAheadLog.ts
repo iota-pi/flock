@@ -11,6 +11,9 @@ import {
 } from '../shared/createAccountStore'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { LocalCipher, SealedRecord } from './localEncryption/LocalCipher'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncWriteAheadLog')
 
 export interface WalEntry extends WalEntryDescriptor {
   id: string
@@ -148,7 +151,7 @@ export class SyncWriteAheadLog {
       return await this.cipher.open({ store: 'wal', entryId: entry.id, itemId: entry.itemId }, entry.sealed)
     } catch (error) {
       // The local doc holds the change, so a snapshot delivers it instead. The entry stays for pruning.
-      console.error(`[SyncWriteAheadLog] WAL entry ${entry.id} for ${entry.itemId} could not be decrypted`, error)
+      log.error(`WAL entry ${entry.id} for ${entry.itemId} could not be decrypted`, error)
       this.internalEventHub.emit({ type: 'localDecryptionFailed', itemId: entry.itemId, error })
       this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId: entry.itemId })
       return null
@@ -325,7 +328,7 @@ export class SyncWriteAheadLog {
         this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: prunedItemIds })
       }
     } catch (err) {
-      console.error('[SyncWriteAheadLog] Failed to prune oldest entries', err)
+      log.error('Failed to prune oldest entries', err)
     }
   }
 
@@ -339,8 +342,8 @@ export class SyncWriteAheadLog {
     try {
       const currentLength = await this.storage.length()
       if (currentLength >= MAX_ENTRIES) {
-        console.warn(
-          `[SyncWriteAheadLog] WAL entry count (${currentLength}) reached threshold (${MAX_ENTRIES}). Compacting entries by item...`
+        log.warn(
+          `WAL entry count (${currentLength}) reached threshold (${MAX_ENTRIES}). Compacting entries by item...`
         )
         // Step 1: Compact multiple entries per item
         await this.compact()
@@ -349,14 +352,14 @@ export class SyncWriteAheadLog {
         // Step 2: If still over limit (e.g. >2,000 unique items), prune oldest
         if (newLength >= MAX_ENTRIES) {
           const overflow = newLength - MAX_ENTRIES + PRUNE_BATCH_SIZE
-          console.warn(
-            `[SyncWriteAheadLog] WAL still at ${newLength} entries after compaction. Pruning ${overflow} oldest entries.`
+          log.warn(
+            `WAL still at ${newLength} entries after compaction. Pruning ${overflow} oldest entries.`
           )
           await this.pruneOldest(overflow)
         }
       }
     } catch (err) {
-      console.error('[SyncWriteAheadLog] Error checking WAL size limit', err)
+      log.error('Error checking WAL size limit', err)
     }
   }
 
@@ -365,16 +368,16 @@ export class SyncWriteAheadLog {
    * Returns the number of entries reduced.
    */
   async handleQuotaExceeded(): Promise<number> {
-    console.warn('[SyncWriteAheadLog] Handling QuotaExceededError: compacting entries...')
+    log.warn('Handling QuotaExceededError: compacting entries...')
     let reduced: number
     try {
       reduced = await this.compact()
       if (reduced === 0) {
-        console.warn(`[SyncWriteAheadLog] Compaction freed 0 entries. Emergency pruning oldest ${PRUNE_BATCH_SIZE} entries...`)
+        log.warn(`Compaction freed 0 entries. Emergency pruning oldest ${PRUNE_BATCH_SIZE} entries...`)
         await this.pruneOldest(PRUNE_BATCH_SIZE)
       }
     } catch (err) {
-      console.error('[SyncWriteAheadLog] Error during emergency compaction/prune:', err)
+      log.error('Error during emergency compaction/prune:', err)
       throw err
     }
     return reduced

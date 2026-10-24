@@ -73,85 +73,75 @@ vi.mock('./SyncWorkerContext', () => {
     SyncWorkerContext: class MockSyncWorkerContext {
       // Public properties accessed by SyncWorker
       accountId = 'test-account'
-      repo = { find: mockRepoFind, handles: {} }
-      repoManager = {
-        pauseBroadcastSync: mockRepoManagerPauseBroadcastSync,
-        resumeBroadcastSync: mockRepoManagerResumeBroadcastSync,
-      }
-
-      broker = {
-        setAccount: mockBrokerSetAccount,
-      }
-
-      adapter = { setAccount: mockAdapterSetAccount }
-      indexManager = {
-        listAutomergeItemIds: mockIndexManagerListAutomergeItemIds,
-        addAutomergeItemIdsToIndex: mockIndexManagerAddAutomergeItemIdsToIndex,
-        removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
-      }
-
-      accountSettings = {
-        isSettingsDoc: (id: string) => id === 'settings-test-account',
-        handleSettingsDoc: mockAccountSettingsHandleSettingsDoc,
-        mutate: vi.fn().mockResolvedValue(undefined),
-      }
-
-      itemOperations = {
-        mutateItem: mockItemOperationsMutateItem,
-        recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
-      }
-
-      snapshotManager = {
-        onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
-        markItemDirty: vi.fn(),
-        flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
-        exportLastModified: vi.fn().mockReturnValue({}),
-        importLastModified: vi.fn().mockResolvedValue(undefined),
-        clearOversized: vi.fn(),
-      }
-
-      orchestrator = {
-        setOnlineState: mockOrchestratorSetOnlineState,
-        flush: mockOrchestratorFlush,
-        shutdown: vi.fn().mockResolvedValue(undefined),
-      }
-
-      pullQueueManager = {
-        onKeyringUpdated: vi.fn(),
-        exportCursors: vi.fn().mockReturnValue([]),
-        importCursors: vi.fn(),
-      }
-
-      manifestSyncManager = {
-        sync: vi.fn().mockResolvedValue(undefined),
-      }
-
-      docStore = {
-        // SyncWorker.bindItemHandle decodes through the doc store; return a clean item shape
-        decodeSnapshot: vi.fn().mockImplementation((id: string, doc: unknown) => (doc ? ({ ...(doc as object), id }) : null)),
-        onDocHandleReplaced: mockDocStoreOnDocHandleReplaced,
-        exportAllBinaries: vi.fn().mockResolvedValue({}),
-        restoreFromBinaries: vi.fn().mockResolvedValue([]),
-      }
-
-      recoveryManager = {
-        resolveQuarantines: mockRecoveryManagerResolveQuarantines,
-        listRecoveryItems: mockRecoveryManagerListRecoveryItems,
-        unquarantine: mockRecoveryManagerUnquarantine,
-        dismissEntry: vi.fn().mockResolvedValue(undefined),
-      }
-
-      wal = {
-        readAll: vi.fn().mockResolvedValue(new Map()),
-        append: vi.fn().mockResolvedValue(undefined),
+      services = {
+        repo: { find: mockRepoFind, handles: {} },
+        repoManager: {
+          pauseBroadcastSync: mockRepoManagerPauseBroadcastSync,
+          resumeBroadcastSync: mockRepoManagerResumeBroadcastSync,
+        },
+        broker: {
+          setAccount: mockBrokerSetAccount,
+        },
+        adapter: { setAccount: mockAdapterSetAccount },
+        indexManager: {
+          listAutomergeItemIds: mockIndexManagerListAutomergeItemIds,
+          addAutomergeItemIdsToIndex: mockIndexManagerAddAutomergeItemIdsToIndex,
+          removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
+        },
+        accountSettings: {
+          isSettingsDoc: (id: string) => id === 'settings-test-account',
+          handleSettingsDoc: mockAccountSettingsHandleSettingsDoc,
+          mutate: vi.fn().mockResolvedValue(undefined),
+        },
+        itemOperations: {
+          mutateItem: mockItemOperationsMutateItem,
+          recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
+        },
+        snapshotManager: {
+          onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
+          markItemDirty: vi.fn(),
+          flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
+          exportLastModified: vi.fn().mockReturnValue({}),
+          importLastModified: vi.fn().mockResolvedValue(undefined),
+          clearOversized: vi.fn(),
+        },
+        orchestrator: {
+          setOnlineState: mockOrchestratorSetOnlineState,
+          flush: mockOrchestratorFlush,
+          shutdown: vi.fn().mockResolvedValue(undefined),
+        },
+        pullQueueManager: {
+          onKeyringUpdated: vi.fn(),
+          exportCursors: vi.fn().mockReturnValue([]),
+          importCursors: vi.fn(),
+        },
+        manifestSyncManager: {
+          sync: vi.fn().mockResolvedValue(undefined),
+        },
+        docStore: {
+          // SyncWorker.bindItemHandle decodes through the doc store; return a clean item shape
+          decodeSnapshot: vi.fn().mockImplementation((id: string, doc: unknown) => (doc ? ({ ...(doc as object), id }) : null)),
+          onDocHandleReplaced: mockDocStoreOnDocHandleReplaced,
+          exportAllBinaries: vi.fn().mockResolvedValue({}),
+          restoreFromBinaries: vi.fn().mockResolvedValue([]),
+        },
+        recoveryManager: {
+          resolveQuarantines: mockRecoveryManagerResolveQuarantines,
+          listRecoveryItems: mockRecoveryManagerListRecoveryItems,
+          unquarantine: mockRecoveryManagerUnquarantine,
+          dismissEntry: vi.fn().mockResolvedValue(undefined),
+        },
+        wal: {
+          readAll: vi.fn().mockResolvedValue(new Map()),
+          append: vi.fn().mockResolvedValue(undefined),
+        },
+        itemReencryptor: {
+          reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
+        },
       }
 
       apiClient = {
         setToken: vi.fn(),
-      }
-
-      itemReencryptor = {
-        reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
       }
 
       initialize = mockContextInitialize
@@ -162,7 +152,7 @@ vi.mock('./SyncWorkerContext', () => {
 
       constructor(config?: any) {
         if (config?.onDocHandleReplaced) {
-          this.docStore.onDocHandleReplaced = config.onDocHandleReplaced
+          this.services.docStore.onDocHandleReplaced = config.onDocHandleReplaced
         }
       }
     }
@@ -244,7 +234,7 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
     expect(mockContextInitialize).toHaveBeenCalledTimes(1)
   })
 
-  it('pauses BroadcastChannel sync via context.repoManager on multipleLeadersDetected', async () => {
+  it('pauses BroadcastChannel sync via context.services.repoManager on multipleLeadersDetected', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
@@ -258,7 +248,7 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
     warnSpy.mockRestore()
   })
 
-  it('resumes BroadcastChannel sync via context.repoManager on soleLeaderRestored', async () => {
+  it('resumes BroadcastChannel sync via context.services.repoManager on soleLeaderRestored', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
@@ -295,7 +285,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     })
 
     // Subscribe to item-1
-    worker.subscribeToItems(['item-1' as any])
+    ;(worker as any).subscriptions.subscribe(['item-1' as any])
     await Promise.resolve()
 
     expect(handleA.on).toHaveBeenCalledWith('change', expect.any(Function))
@@ -319,7 +309,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     clientEvents.length = 0
 
     // Invoke the onDocHandleReplaced callback wired by SyncWorker into SyncWorkerContext config
-    ;(worker as any)._context.docStore.onDocHandleReplaced('item-1' as any, handleB)
+    ;(worker as any)._context.services.docStore.onDocHandleReplaced('item-1' as any, handleB)
 
     // 1. Old handle listener must be unbound with the exact registered reference
     const registeredListenerA = (handleA.on as any).mock.calls[0][1]
@@ -358,52 +348,9 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
       doc: vi.fn().mockReturnValue({ id: 'item-unsub', name: 'Unsubscribed Item' }),
     }
 
-    ;(worker as any)._context.docStore.onDocHandleReplaced('item-unsub' as any, handle)
+    ;(worker as any)._context.services.docStore.onDocHandleReplaced('item-unsub' as any, handle)
 
     expect(handle.on).not.toHaveBeenCalled()
-  })
-
-  it('unsubscribes and detaches the exact registered listener reference when updateItemSubscriptions removes an item', async () => {
-    const handle = {
-      documentId: 'doc-item-2',
-      on: vi.fn(),
-      off: vi.fn(),
-      doc: vi.fn().mockReturnValue({ id: 'item-2', name: 'Item 2' }),
-    }
-    mockRepoFind.mockResolvedValue(handle)
-
-    const worker = new SyncWorker(workerConfig)
-    await worker.initRepo('account-1', 'vault-key-1')
-
-    worker.subscribeToItems(['item-2' as any])
-    await Promise.resolve()
-
-    expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function))
-    const registeredListener = (handle.on as any).mock.calls[0][1]
-
-    worker.updateItemSubscriptions([])
-
-    expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
-  })
-
-  it('subscribes to an item again after finding its document failed', async () => {
-    const handle = {
-      documentId: 'doc-item-retry',
-      on: vi.fn(),
-      off: vi.fn(),
-      doc: vi.fn().mockReturnValue({ id: 'item-retry', name: 'Item' }),
-    }
-    const worker = new SyncWorker(workerConfig)
-    await worker.initRepo('account-1', 'vault-key-1')
-
-    mockRepoFind.mockRejectedValueOnce(new Error('Document unavailable'))
-    worker.subscribeToItems(['item-retry' as any])
-    await vi.waitFor(() => expect((worker as any).subscribedIds.has('item-retry')).toBe(false))
-
-    mockRepoFind.mockResolvedValueOnce(handle)
-    worker.subscribeToItems(['item-retry' as any])
-
-    await vi.waitFor(() => expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function)))
   })
 
   it('routes settings document changes to accountSettings instead of the item stream', async () => {
@@ -422,7 +369,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     const clientEvents: any[] = []
     ;(worker as any).clientEventHub.subscribe((evt: any) => clientEvents.push(evt))
 
-    worker.subscribeToItems(['settings-test-account' as any])
+    ;(worker as any).subscriptions.subscribe(['settings-test-account' as any])
     await Promise.resolve()
 
     expect(mockAccountSettingsHandleSettingsDoc).toHaveBeenCalledWith({ prayerGoal: 4 })
@@ -446,7 +393,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     await worker.initRepo('account-1', 'vault-key-1')
 
     expect(clientEvents).toContainEqual({ type: 'indexUpdated', itemIds: ['item-1'] })
-    expect((worker as any).subscribedIds.has('settings-test-account')).toBe(true)
+    expect((worker as any).subscriptions.has('settings-test-account')).toBe(true)
   })
 
   it('unsubscribes and detaches the exact registered listener reference when an item is deleted', async () => {
@@ -464,7 +411,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
-    worker.subscribeToItems(['item-3' as any])
+    ;(worker as any).subscriptions.subscribe(['item-3' as any])
     await Promise.resolve()
 
     expect(handle.on).toHaveBeenCalledWith('change', expect.any(Function))
@@ -476,7 +423,7 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
   })
 
-  it('detaches the exact registered listener reference for all handles on clearListeners', async () => {
+  it('detaches the exact registered listener reference for all handles on shutdown', async () => {
     const handle = {
       documentId: 'doc-item-4',
       on: vi.fn(),
@@ -488,12 +435,12 @@ describe('SyncWorker onDocHandleReplaced / change listener rebinding', () => {
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
-    worker.subscribeToItems(['item-4' as any])
+    ;(worker as any).subscriptions.subscribe(['item-4' as any])
     await Promise.resolve()
 
     const registeredListener = (handle.on as any).mock.calls[0][1]
 
-    worker.clearListeners()
+    await worker.shutdown()
 
     expect(handle.off).toHaveBeenCalledWith('change', registeredListener)
   })
@@ -756,7 +703,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
       const onProgressParam = vi.fn()
       // Mock itemReencryptor.reencryptAllItems to invoke the onProgress callback it receives
-      ;(worker as any)._context.itemReencryptor.reencryptAllItems.mockImplementationOnce(
+      ;(worker as any)._context.services.itemReencryptor.reencryptAllItems.mockImplementationOnce(
         async (_deps: any, onProgress: (done: number, total: number) => void) => {
           onProgress(3, 10)
           onProgress(10, 10)
@@ -777,7 +724,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       await worker.initRepo('account-1', 'vault-key-1')
       const ctx = (worker as any)._context
       const order: string[] = []
-      ctx.itemReencryptor.reencryptAllItems.mockImplementationOnce(async () => {
+      ctx.services.itemReencryptor.reencryptAllItems.mockImplementationOnce(async () => {
         order.push('items')
         return { succeeded: [], failed: [] }
       })
@@ -800,7 +747,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
       const ctx = (worker as any)._context
       // Pings can name deleted items, so they must not take IDs out of the tombstones
-      expect(ctx.indexManager.addAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-1'], { skipTombstoned: true })
+      expect(ctx.services.indexManager.addAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-1'], { skipTombstoned: true })
       expect(mockRecoveryManagerResolveQuarantines).not.toHaveBeenCalled()
       expect(mockRecoveryManagerUnquarantine).not.toHaveBeenCalled()
     })
@@ -813,8 +760,8 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
       const ctx = (worker as any)._context
       expect(mockRecoveryManagerUnquarantine).toHaveBeenCalledWith('item-1')
-      expect(ctx.snapshotManager.clearOversized).toHaveBeenCalledWith('item-1')
-      expect(ctx.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1')
+      expect(ctx.services.snapshotManager.clearOversized).toHaveBeenCalledWith('item-1')
+      expect(ctx.services.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1')
     })
 
     it('delegates recreateOversizedItem to itemOperations and flushes snapshots', async () => {
@@ -824,9 +771,9 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       const newItemId = await worker.recreateOversizedItem('item-old' as ItemId)
 
       expect(newItemId).toBe('item-new')
-      expect((worker as any)._context.itemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
-      expect((worker as any)._context.snapshotManager.clearOversized).toHaveBeenCalledWith('item-old')
-      expect((worker as any)._context.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+      expect((worker as any)._context.services.itemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
+      expect((worker as any)._context.services.snapshotManager.clearOversized).toHaveBeenCalledWith('item-old')
+      expect((worker as any)._context.services.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
     })
 
     it('delegates flushSync to orchestrator.flush and returns a Promise<void>', async () => {

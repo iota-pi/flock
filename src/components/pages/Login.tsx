@@ -29,13 +29,16 @@ import {
   readBiometricData,
   readStoredMetadata,
   unlockWithBiometrics,
-  getBiometricLabel,
   StaleBiometricKeyError,
   UnsupportedKeyDerivationError,
   type KdfParams,
+  createLogger,
 } from '@vault/client'
 import { isRateLimitedError } from '@vault/shared'
+import { getBiometricLabel } from '../../utils/biometricLabel'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
+
+const log = createLogger('Login')
 
 /** Shown when an account needs the migration app but the server can't be reached */
 const ACCOUNT_UPDATE_NEEDS_SERVER =
@@ -165,7 +168,7 @@ function LoginPage() {
         securityParams = params
         reachedServer = true
       } catch (err) {
-        console.warn('[Login] getSecurityParams failed (offline or network error), checking cached metadata:', err)
+        log.warn('getSecurityParams failed (offline or network error), checking cached metadata:', err)
         securityParams = cachedParams ?? { salt: '', iterations: undefined, saltVersion: undefined }
       }
 
@@ -217,7 +220,7 @@ function LoginPage() {
             setError(TOO_MANY_ATTEMPTS)
             return
           }
-          console.error('Error during vault initialization:', error)
+          log.error('Error during vault initialization:', error)
           setError(error instanceof Error ? error.message : 'Login failed.')
         } finally {
           setLoading(false)
@@ -250,7 +253,7 @@ function LoginPage() {
 
         navigate(nextRoute)
       } catch (err: unknown) {
-        console.error('[Login] Biometric unlock failed', err)
+        log.error('Biometric unlock failed', err)
         setShowPasswordForm(true)
         if (err instanceof StaleBiometricKeyError) {
           setError(

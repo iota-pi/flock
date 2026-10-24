@@ -19,6 +19,9 @@ import { BoundedMap, BoundedSet } from '../utils/boundedCollections'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncPullQueueManager')
 
 interface ProcessItemMessagesResult {
   highestCursor: number
@@ -150,7 +153,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         this.retryTracker.loadState(stored)
       }
     } catch (error) {
-      console.error('[SyncPullQueueManager] Failed to load cursors', error)
+      log.error('Failed to load cursors', error)
     }
   }
 
@@ -160,7 +163,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     try {
       await this.cursorStore.saveCursors(data)
     } catch (error) {
-      console.error('[SyncPullQueueManager] Failed to save cursors', error)
+      log.error('Failed to save cursors', error)
     }
   }
 
@@ -246,7 +249,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         try {
           this.notifyMessageParsed(itemId, documentId, decrypted)
         } catch (error) {
-          console.error('[SyncPullQueueManager] Error processing message', error)
+          log.error('Error processing message', error)
           hasError = true
         }
       }
@@ -503,7 +506,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
             cursorsUpdated = true
           }
         } catch (innerError) {
-          console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)
+          log.error(`Pull sync failed for item: ${result.itemId}`, innerError)
         }
       }
 
@@ -519,7 +522,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         this.saveCursorsDebounced()
       }
     } catch (error) {
-      console.error('[SyncPullQueueManager] Pull sync batch failed', error)
+      log.error('Pull sync batch failed', error)
       throw error
     } finally {
       const isRetrying = this.retryTracker.isAnyRetrying()
@@ -528,7 +531,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         try {
           publishRealtimeBusSyncPing(this.account, Array.from(successfullyPulledItemIds))
         } catch (error) {
-          console.error('[SyncPullQueueManager] publishRealtimeBusSyncPing failed', error)
+          log.error('publishRealtimeBusSyncPing failed', error)
         }
       }
     }

@@ -1,5 +1,8 @@
 import { ItemId } from '@vault/shared'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('realtimeBus')
 
 export type SyncPingListener = (itemIds: ItemId[]) => void
 export type ItemDirtyListener = (itemIds: ItemId[]) => void
@@ -40,7 +43,7 @@ function notifyListeners(
     try {
       listener(itemIds)
     } catch (error) {
-      console.error(`[realtimeBus] Error in ${listenerName}:`, error)
+      log.error(`Error in ${listenerName}:`, error)
     }
   }
 }
@@ -69,11 +72,11 @@ function getChannel(accountId: string): BroadcastChannel | null {
       }
     }
     channel.onmessageerror = event => {
-      console.warn('[realtimeBus] Error deserializing message on BroadcastChannel:', event)
+      log.warn('Error deserializing message on BroadcastChannel:', event)
     }
     state.channel = channel
   } catch (error) {
-    console.warn('[realtimeBus] BroadcastChannel is not supported or failed to initialize:', error)
+    log.warn('BroadcastChannel is not supported or failed to initialize:', error)
     state.channel = null
   }
 
@@ -146,7 +149,7 @@ function postToBus(accountId: string, type: 'sync_ping' | 'item_dirty', itemIds:
   try {
     channel.postMessage({ type, itemIds })
   } catch (error) {
-    console.warn('[realtimeBus] Failed to post message to BroadcastChannel:', error)
+    log.warn('Failed to post message to BroadcastChannel:', error)
   }
 }
 

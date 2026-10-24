@@ -4,6 +4,9 @@ import { clearAutomergeIndexedDb } from '../../client/localDataCleanup'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
 import { runStorageOperation } from '../../utils/storageManager'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('retireLegacyStores')
 
 export interface RetireLegacyStoresOptions {
   accountId: string
@@ -56,7 +59,7 @@ export async function retireLegacyStores(options: RetireLegacyStoresOptions): Pr
     await clearAutomergeIndexedDb(getAutomergeDBName(accountId), timeoutMs)
     await clearAutomergeIndexedDb(getAccountDatabaseName('wal-entries', accountId), timeoutMs)
   } catch (error) {
-    console.warn('[retireLegacyStores] Could not delete the plaintext stores yet; retrying at the next start', error)
+    log.warn('Could not delete the plaintext stores yet; retrying at the next start', error)
     return false
   }
   const metadata = getSyncMetadataStorage(accountId)

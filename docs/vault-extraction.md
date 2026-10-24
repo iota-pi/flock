@@ -247,7 +247,7 @@ Follow-ups (done; the paths and entry points above are from before them):
 
 - Entry points. The exports map had one entry per module Flock imported, mirroring the file layout. Each package now has a few curated barrels instead:
   - `@vault/shared`: every shared module (`src/index.ts`).
-  - `@vault/client` (`src/index.ts`): the main thread's API. That covers accounts, sessions, keys and biometrics (`api/vault.ts`), auto-lock, re-encryption, the tRPC client and its fetch, `createSyncBridge` and its host types, and the few sync types and helpers Flock's UI reads.
+  - `@vault/client` (`src/index.ts`): the main thread's API. That covers accounts and keys (`api/vault.ts`, with the in-memory keys in `api/VaultKeyState.ts`), sessions (`api/session.ts`), biometric unlock (`api/biometrics.ts`), the cached keyring and stored metadata (`api/keyringCache.ts`, `api/storedMetadata.ts`), the host hooks (`api/vaultHost.ts`), auto-lock, re-encryption, the tRPC client and its fetch, `createSyncBridge` and its host types, and the few sync types and helpers Flock's UI reads.
   - `@vault/client/worker` (`src/worker.ts`): `exposeSyncWorker`, the `domain.ts` hooks, `Keyring` and the storage primitives `migrateLocalData` needs. Only the app's worker imports it, so the engine stays out of the main bundle.
   - `@vault/client/storageNames`: `storageNames.ts`, which has no imports. It is separate so test setup can configure names without evaluating the rest of the client. Otherwise the client's modules bind the real `localforage` before a spec can mock it.
   - `@vault/server` (`src/index.ts`): the tRPC context and routers, services, the driver interface (`BaseDriver`) and errors.

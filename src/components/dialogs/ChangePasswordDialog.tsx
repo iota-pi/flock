@@ -9,12 +9,13 @@ import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import IconButton from '@mui/material/IconButton'
 
-import { changePassword, hasBiometricData } from '@vault/client'
+import { changePassword, createLogger, hasBiometricData } from '@vault/client'
 import { useAppStore } from 'src/state/store'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import { SaveIcon, VisibilityIcon, VisibilityOffIcon } from '../Icons'
 
+const log = createLogger('ChangePasswordDialog')
 
 interface Props {
   onClose: () => void,
@@ -80,7 +81,7 @@ export default function ChangePasswordDialog({
         onPasswordChanged()
       }
     } catch (err) {
-      console.error('[ChangePasswordDialog] changePassword failed', err)
+      log.error('changePassword failed', err)
       const msg = err instanceof Error ? err.message : 'Failed to change password. Please verify your current password.'
       setErrorText(msg)
     } finally {

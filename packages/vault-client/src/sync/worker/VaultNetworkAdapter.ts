@@ -18,6 +18,9 @@ import { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedSet } from '../utils/boundedCollections'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('VaultNetworkAdapter')
 
 export const MAX_OUTBOUND_QUEUE_SIZE = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
 const MAX_SEEDED_DOCUMENTS = 5000
@@ -179,7 +182,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
           return
         }
       } catch (err) {
-        console.warn('[VaultNetworkAdapter] Failed to decode sync message while enqueuing', err)
+        log.warn('Failed to decode sync message while enqueuing', err)
       }
     }
 
@@ -187,14 +190,14 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   }
 
   protected override onOutboundQueueEvict(evicted: Message): void {
-    console.warn(
-      `[VaultNetworkAdapter] Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
+    log.warn(
+      `Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
     )
     if (evicted?.documentId) {
       const renegotiated = this.triggerReNegotiation(evicted.documentId)
       if (!renegotiated) {
-        console.warn(
-          `[VaultNetworkAdapter] Renegotiation for evicted document ${evicted.documentId} deferred due to active circuit breaker.`
+        log.warn(
+          `Renegotiation for evicted document ${evicted.documentId} deferred due to active circuit breaker.`
         )
       }
     }
@@ -236,8 +239,8 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
 
     if (circuit.circuitOpenUntil) {
       if (now < circuit.circuitOpenUntil) {
-        console.warn(
-          `[VaultNetworkAdapter] Renegotiation circuit breaker is OPEN for document ${documentId}. Skipping renegotiation.`
+        log.warn(
+          `Renegotiation circuit breaker is OPEN for document ${documentId}. Skipping renegotiation.`
         )
         this.scheduleReNegotiationRetry(documentId, circuit, circuit.circuitOpenUntil - now)
         return false
@@ -249,8 +252,8 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
 
     if (circuit.timestamps.length >= MAX_RENEGOTIATION_ATTEMPTS) {
       circuit.circuitOpenUntil = now + CIRCUIT_BREAKER_COOLDOWN_MS
-      console.warn(
-        `[VaultNetworkAdapter] Renegotiation limit reached for document ${documentId} (${circuit.timestamps.length} attempts in ${RENEGOTIATION_WINDOW_MS}ms). Tripping circuit breaker for ${CIRCUIT_BREAKER_COOLDOWN_MS}ms.`
+      log.warn(
+        `Renegotiation limit reached for document ${documentId} (${circuit.timestamps.length} attempts in ${RENEGOTIATION_WINDOW_MS}ms). Tripping circuit breaker for ${CIRCUIT_BREAKER_COOLDOWN_MS}ms.`
       )
       this.scheduleReNegotiationRetry(documentId, circuit, CIRCUIT_BREAKER_COOLDOWN_MS)
       return false
@@ -320,7 +323,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
           return
         }
       } catch (err) {
-        console.warn('[VaultNetworkAdapter] Failed to decode sync message', err)
+        log.warn('Failed to decode sync message', err)
       }
     }
 
@@ -365,7 +368,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
         changes: decoded.changes,
       })
     } catch (err) {
-      console.warn('[VaultNetworkAdapter] Failed to decode server sync message, delivering as-is', err)
+      log.warn('Failed to decode server sync message, delivering as-is', err)
     }
     this.receiveMessage(documentId, sanitized)
   }
@@ -457,7 +460,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       await this.syncedHeadsStore.saveSyncedHeads(entries)
     } catch (err) {
       this.hasUnsavedSyncedHeads = true
-      console.error('[VaultNetworkAdapter] Failed to persist synced heads', err)
+      log.error('Failed to persist synced heads', err)
     }
   }
 

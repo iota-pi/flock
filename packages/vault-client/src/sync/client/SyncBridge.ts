@@ -1,18 +1,12 @@
 import type * as Comlink from 'comlink'
 
-import {
-  hasVaultKey,
-  reloadKeyringFromStorage,
-  syncKeyringFromServer,
-  handleSessionExpired,
-  getVaultSession,
-  onLateSession,
-} from '../../api/vault'
+import { hasVaultKey, reloadKeyringFromStorage, syncKeyringFromServer } from '../../api/vault'
+import { handleSessionExpired, getVaultSession, onLateSession } from '../../api/session'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
 import type { DataVersionStatus, VaultDoc, VaultMetadata } from '../shared/types'
-import type { SyncApi } from '../worker/syncProtocol'
+import type { ReencryptResult, RetrySaveResult, SnapshotPushResult, SyncApi } from '../worker/syncProtocol'
 import { WorkerLifecycleManager } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'
@@ -21,6 +15,9 @@ import { resumePendingReencryption } from '../../api/reencrypt'
 import { getOnlineState } from '../utils/onlineStatus'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './host'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncBridge')
 
 export interface SyncBridgeOptions<TDoc extends VaultDoc, TMeta extends VaultMetadata> {
   /** Creates the app's sync worker (whose entry file calls exposeSyncWorker) */
@@ -158,7 +155,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     try {
       recovered = await attemptSessionRecovery(account)
     } catch (err) {
-      console.warn('[SyncBridge] Failed to attempt session recovery on reconnect:', err)
+      log.warn('Failed to attempt session recovery on reconnect:', err)
     }
 
     if (
@@ -176,7 +173,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         try {
           await api.flushSync()
         } catch (error) {
-          console.error('[SyncBridge] flushSync failed on reconnect:', error)
+          log.error('flushSync failed on reconnect:', error)
         }
       }
     }
@@ -184,7 +181,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     try {
       await resumePendingReencryption(this, account)
     } catch (error) {
-      console.warn('[SyncBridge] resumePendingReencryption failed on reconnect:', error)
+      log.warn('resumePendingReencryption failed on reconnect:', error)
     }
   }
 
@@ -195,7 +192,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       try {
         await syncApi.updateAuthToken(getVaultSession() || null)
       } catch (err) {
-        console.warn('[SyncBridge] Failed to pass the late session to the worker:', err)
+        log.warn('Failed to pass the late session to the worker:', err)
       }
     }
     await this.handleKeyringUpdate()
@@ -217,7 +214,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         try {
           await syncKeyringFromServer(accountId)
         } catch (err) {
-          console.warn('[SyncBridge] Failed to reload the keyring for local data:', err)
+          log.warn('Failed to reload the keyring for local data:', err)
         }
       }
       return
@@ -241,7 +238,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         }
         let result = await reloadKeyringFromStorage()
         if (result.passwordChanged) {
-          console.warn('[SyncBridge] Password changed in another tab/device. Locking vault.')
+          log.warn('Password changed in another tab/device. Locking vault.')
           this.pendingMissingKeyVersions.clear()
           await this.options.lockVault()
           return
@@ -254,7 +251,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
             await syncKeyringFromServer(currentAccountId)
             result = await reloadKeyringFromStorage()
           } catch (err) {
-            console.warn('[SyncBridge] Failed to sync keyring from server:', err)
+            log.warn('Failed to sync keyring from server:', err)
           }
         }
         const syncApi = this.lifecycleManager.getSyncApi()
@@ -280,7 +277,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
         await syncApi.updateAuthToken(token)
       }
     } catch (err) {
-      console.error('[SyncBridge] Failed to handle token refresh:', err)
+      log.error('Failed to handle token refresh:', err)
       const syncApi = this.lifecycleManager.getSyncApi()
       if (syncApi) {
         try {
@@ -368,11 +365,11 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.execute(api => api.fullResync())
   }
 
-  pushSnapshots(): Promise<{ persisted: number; total: number }> {
+  pushSnapshots(): Promise<SnapshotPushResult> {
     return this.execute(api => api.pushSnapshots())
   }
 
-  retrySave(): Promise<{ success: boolean; error?: string }> {
+  retrySave(): Promise<RetrySaveResult> {
     return this.execute(api => api.retrySave())
   }
 
@@ -418,10 +415,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.execute(api => api.updateVaultKey(vaultKey))
   }
 
-  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<{
-    succeeded: ItemId[]
-    failed: Array<{ itemId: ItemId; error: string }>
-  }> {
+  reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<ReencryptResult> {
     return this.execute(async api => {
       const unsubscribe = onProgress
         ? this.eventProcessor.subscribeReencryptProgress(onProgress)

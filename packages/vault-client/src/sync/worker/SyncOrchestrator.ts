@@ -10,6 +10,9 @@ import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from '@vault/shared'
 import { SYNC_TIMEOUTS } from '../syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SyncOrchestrator')
 
 export interface LeaderElectionLike {
   acquire: () => Promise<void>
@@ -267,7 +270,7 @@ export class SyncOrchestrator implements LifecycleAware {
 
       fireAndForget(this.executeWrappedPoll(true), 'SyncOrchestrator:executeWrappedPoll')
     } catch (err) {
-      console.error('[SyncOrchestrator] Error during flushSyncBatch:', err)
+      log.error('Error during flushSyncBatch:', err)
     }
   }
 
@@ -430,7 +433,7 @@ export class SyncOrchestrator implements LifecycleAware {
       })
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error('[SyncOrchestrator] Error during executeWrappedPoll:', err)
+        log.error('Error during executeWrappedPoll:', err)
       }
     }
   }
@@ -439,7 +442,7 @@ export class SyncOrchestrator implements LifecycleAware {
     try {
       await this.pullQueueManager.loadCursors()
     } catch (error) {
-      console.error('[SyncOrchestrator] Failed to reload cursors on leader promotion', error)
+      log.error('Failed to reload cursors on leader promotion', error)
     }
   }
 
@@ -504,7 +507,7 @@ export class SyncOrchestrator implements LifecycleAware {
           if (signal.aborted || isAbortError(error) || !this.isOperational) {
             return
           }
-          console.warn('[SyncOrchestrator] Manifest sync failed', error)
+          log.warn('Manifest sync failed', error)
         } finally {
           if (this.manifestSyncAbortController === abortController) {
             this.manifestSyncAbortController = null
@@ -513,7 +516,7 @@ export class SyncOrchestrator implements LifecycleAware {
       })
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error('[SyncOrchestrator] Error during triggerManifestSync:', err)
+        log.error('Error during triggerManifestSync:', err)
       }
     }
   }

@@ -9,6 +9,9 @@ import { passthroughCodec, type DocCodec } from './domain'
 import { ItemId } from '@vault/shared'
 import { classifySyncError } from './utils/errorClassifier'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SnapshotBuilder')
 
 export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
@@ -112,10 +115,10 @@ export class SnapshotBuilder {
     } catch (error: unknown) {
       const classified = classifySyncError(error)
       if (classified.isTransientVault) {
-        console.warn('[SnapshotBuilder] Vault is locked or uninitialized during snapshot build, waiting', error)
+        log.warn('Vault is locked or uninitialized during snapshot build, waiting', error)
         return { type: 'not-ready' }
       }
-      console.error('[SnapshotBuilder] failed to encrypt snapshot binary', error)
+      log.error('failed to encrypt snapshot binary', error)
       return {
         type: 'error',
         reason: error instanceof Error ? error.message : 'Failed to encrypt snapshot binary',

@@ -4,7 +4,9 @@ import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
+import { createLogger } from '@vault/client'
 
+const log = createLogger('AsyncBoundary')
 
 type AsyncBoundaryProps = {
   children: ReactNode
@@ -101,7 +103,7 @@ class AsyncErrorBoundary extends Component<AsyncErrorBoundaryProps, AsyncErrorBo
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    console.error('[AsyncBoundary] render failed', error, errorInfo)
+    log.error('render failed', error, errorInfo)
     if (isChunkLoadError(error)) {
       handleChunkErrorReload()
       return

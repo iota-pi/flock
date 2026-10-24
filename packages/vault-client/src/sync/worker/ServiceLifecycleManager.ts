@@ -1,3 +1,5 @@
+import { createLogger, type Logger } from '../utils/logger'
+
 export type LifecycleHook = () => Promise<void> | void
 export type LifecycleStopHook<TOptions = unknown> = (options?: TOptions) => Promise<void> | void
 
@@ -34,10 +36,10 @@ export class ServiceLifecycleManager<TOptions = unknown> {
   private status: LifecycleStatus = 'uninitialized'
   private startPromise: Promise<void> | null = null
 
-  constructor(private readonly contextName?: string) {}
+  private readonly log: Logger
 
-  private get logPrefix(): string {
-    return `[ServiceLifecycleManager${this.contextName ? `:${this.contextName}` : ''}]`
+  constructor(contextName?: string) {
+    this.log = createLogger(`ServiceLifecycleManager${contextName ? `:${contextName}` : ''}`)
   }
 
   public register(service: ServiceRegistration<TOptions> | LifecycleAware<TOptions>): this
@@ -65,7 +67,7 @@ export class ServiceLifecycleManager<TOptions = unknown> {
 
     const existing = this.services.find(s => s.name === registration.name)
     if (existing) {
-      console.warn(`${this.logPrefix} Service "${registration.name}" already registered. Replacing registration.`)
+      this.log.warn(`Service "${registration.name}" already registered. Replacing registration.`)
       const index = this.services.indexOf(existing)
       this.services[index] = registration
     } else {
@@ -104,7 +106,7 @@ export class ServiceLifecycleManager<TOptions = unknown> {
           this.startedServices.push(service)
         } catch (err) {
           this.status = 'errored'
-          console.error(`${this.logPrefix} Error starting service "${service.name}":`, err)
+          this.log.error(`Error starting service "${service.name}":`, err)
 
           // Roll back already started services in LIFO order
           const rollbackServices = [...this.startedServices].reverse()
@@ -113,8 +115,8 @@ export class ServiceLifecycleManager<TOptions = unknown> {
               try {
                 await startedService.onStop()
               } catch (rollbackErr) {
-                console.error(
-                  `${this.logPrefix} Error rolling back service "${startedService.name}":`,
+                this.log.error(
+                  `Error rolling back service "${startedService.name}":`,
                   rollbackErr
                 )
               }
@@ -150,7 +152,7 @@ export class ServiceLifecycleManager<TOptions = unknown> {
         try {
           await service.onStop(options)
         } catch (err) {
-          console.error(`${this.logPrefix} Error stopping service "${service.name}":`, err)
+          this.log.error(`Error stopping service "${service.name}":`, err)
         }
       }
     }
@@ -173,7 +175,7 @@ export class ServiceLifecycleManager<TOptions = unknown> {
 
   public clear(): void {
     if (this.status === 'running' || this.status === 'starting' || this.status === 'stopping') {
-      console.warn(`${this.logPrefix} Clearing services while lifecycle is active (${this.status}).`)
+      this.log.warn(`Clearing services while lifecycle is active (${this.status}).`)
     }
     this.services = []
     this.startedServices = []

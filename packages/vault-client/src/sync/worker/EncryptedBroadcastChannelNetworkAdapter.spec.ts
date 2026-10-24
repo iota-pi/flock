@@ -235,7 +235,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[EncryptedBroadcastChannel] Error sending message:',
+      '[EncryptedBroadcastChannelNetworkAdapter] Error sending message:',
       expect.any(Error)
     )
     expect(innerAdapterMock.disconnect).not.toHaveBeenCalled()
@@ -380,7 +380,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[EncryptedBroadcastChannel] Error decrypting message:',
+      '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
       expect.any(Error)
     )
     expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
@@ -568,7 +568,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
     await vi.waitFor(() => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Error decrypting message:',
+        '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
         expect.any(Error)
       )
     })
@@ -722,7 +722,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       })
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Timed out waiting for key version 3. Buffering message until key arrives.'
+        '[EncryptedBroadcastChannelNetworkAdapter] Timed out waiting for key version 3. Buffering message until key arrives.'
       )
       expect(messageListener).toHaveBeenCalledWith({
         ...msg2,
@@ -1090,11 +1090,11 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       retryAdapter.send(message)
 
-      // During second attempt (awaiting retryWaitPromise), the message must still be at the head of sendQueue with retries: 1
+      // During second attempt (awaiting retryWaitPromise), the message must still be at the head of sendQueue
       await vi.waitFor(() => {
         expect(attempts).toBe(2)
         expect((retryAdapter as any).sendQueue.length).toBe(1)
-        expect((retryAdapter as any).sendQueue[0].retries).toBe(1)
+        expect((retryAdapter as any).sendQueue[0]).toBe(message)
       })
 
       // Resolve retry wait promise to let attempt 2 complete
@@ -1148,11 +1148,11 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       innerCallback(incomingMessage)
 
-      // During second attempt (awaiting retryWaitPromise), message must still be retained at head of receiveQueue with retries: 1
+      // During second attempt (awaiting retryWaitPromise), message must still be retained at head of receiveQueue
       await vi.waitFor(() => {
         expect(attempts).toBe(2)
         expect((retryAdapter as any).receiveQueue.length).toBe(1)
-        expect((retryAdapter as any).receiveQueue[0].retries).toBe(1)
+        expect((retryAdapter as any).receiveQueue[0]).toBe(incomingMessage)
       })
 
       // Resolve retry wait promise to let attempt 2 complete
@@ -1197,7 +1197,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       })
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Error sending message:',
+        '[EncryptedBroadcastChannelNetworkAdapter] Error sending message:',
         expect.any(Error)
       )
 
@@ -1243,7 +1243,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       })
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannel] Error decrypting message:',
+        '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
         expect.any(Error)
       )
 

@@ -1,4 +1,7 @@
 import type { SyncStatus } from '../shared/types'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('syncWorkerHealth')
 
 const HEARTBEAT_INTERVAL_MS = 15000
 const HEARTBEAT_TIMEOUT_MS = 30000
@@ -183,7 +186,7 @@ export class SyncWorkerHealthMonitor {
     try {
       worker.terminate()
     } catch (err) {
-      console.error('[SyncBridge] Error terminating crashed worker:', err)
+      log.error('Error terminating crashed worker:', err)
     }
 
     const now = Date.now()
@@ -205,8 +208,8 @@ export class SyncWorkerHealthMonitor {
     onCrash(willRestart)
 
     if (!willRestart) {
-      console.error(
-        `[SyncBridge] Worker halted after ${currentCount} consecutive ${isTimeout ? 'timeouts' : 'crashes'}. Halting auto-restart.`
+      log.error(
+        `Worker halted after ${currentCount} consecutive ${isTimeout ? 'timeouts' : 'crashes'}. Halting auto-restart.`
       )
       const errorMsg = isTimeout
         ? 'Sync worker became unresponsive repeatedly. Please refresh the page to try again.'
@@ -214,8 +217,8 @@ export class SyncWorkerHealthMonitor {
       this.reporter.setFatalError(errorMsg)
       this.reporter.setSyncStatus('dead')
     } else {
-      console.warn(
-        `[SyncBridge] Attempting automatic restart (${isTimeout ? 'timeout' : 'crash'} count: ${currentCount}/${maxAllowed})...`
+      log.warn(
+        `Attempting automatic restart (${isTimeout ? 'timeout' : 'crash'} count: ${currentCount}/${maxAllowed})...`
       )
       this.reporter.setSyncStatus('connecting')
       this.reporter.setSyncWarning('Sync connection lost. Reconnecting...')
@@ -241,12 +244,12 @@ export class SyncWorkerHealthMonitor {
     }
 
     const handleError = (event: Event) => {
-      console.error('[SyncBridge] Web worker error:', event)
+      log.error('Web worker error:', event)
       handleCrash(false)
     }
 
     const handleMsgError = (event: Event) => {
-      console.error('[SyncBridge] Web worker message error:', event)
+      log.error('Web worker message error:', event)
       handleCrash(false)
     }
 
@@ -291,7 +294,7 @@ export class SyncWorkerHealthMonitor {
       this.lastTickTime = now
 
       if (timeSinceLastTick > heartbeatIntervalMs * 2.5) {
-        console.warn(`[SyncBridge] Sleep/throttle detected (${timeSinceLastTick}ms elapsed since last tick). Discarding stale ping.`)
+        log.warn(`Sleep/throttle detected (${timeSinceLastTick}ms elapsed since last tick). Discarding stale ping.`)
         if (this.isPinging && this.activePingAbortController) {
           this.activePingAbortController.abort(new Error('System sleep detected'))
         } else {
@@ -325,7 +328,7 @@ export class SyncWorkerHealthMonitor {
         // Check if system sleep / clock jump occurred while ping was in flight
         const nowAfterPing = Date.now()
         if (nowAfterPing - this.lastTickTime > heartbeatIntervalMs * 2.5) {
-          console.warn('[SyncBridge] Sleep/throttle detected during ping. Discarding timeout.')
+          log.warn('Sleep/throttle detected during ping. Discarding timeout.')
           this.consecutiveMissedPings = 0
           return
         }
@@ -333,7 +336,7 @@ export class SyncWorkerHealthMonitor {
         // 3. Activity awareness: if worker emitted events recently, it is alive and functional
         const timeSinceActivity = Date.now() - this.lastWorkerActivityTime
         if (timeSinceActivity < heartbeatTimeoutMs) {
-          console.info(`[SyncBridge] Worker ping timed out but activity was observed ${timeSinceActivity}ms ago. Skipping crash.`)
+          log.info(`Worker ping timed out but activity was observed ${timeSinceActivity}ms ago. Skipping crash.`)
           this.consecutiveMissedPings = 0
           return
         }
@@ -341,14 +344,14 @@ export class SyncWorkerHealthMonitor {
         // 4. Progressive confirmation before termination
         this.consecutiveMissedPings += 1
         if (this.consecutiveMissedPings < maxMissedPings) {
-          console.warn(
-            `[SyncBridge] Worker heartbeat missed (attempt ${this.consecutiveMissedPings}/${maxMissedPings}). Probing before termination...`
+          log.warn(
+            `Worker heartbeat missed (attempt ${this.consecutiveMissedPings}/${maxMissedPings}). Probing before termination...`
           )
           this.reporter.setSyncWarning('Sync connection is slow. Checking...')
           return
         }
 
-        console.error(`[SyncBridge] Worker heartbeat failed after ${this.consecutiveMissedPings} missed pings:`, error)
+        log.error(`Worker heartbeat failed after ${this.consecutiveMissedPings} missed pings:`, error)
         handleCrash(true)
       } finally {
         if (this.activePingAbortController === abortController) {

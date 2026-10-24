@@ -5,6 +5,9 @@ import { clearManualRecoveryEntries } from '../shared/manualRecoveryStore'
 import { getSealedAutomergeDBName } from '../shared/localDatabaseNames'
 import { getAccountDatabaseName } from '../shared/createAccountStore'
 import { SYNC_TIMEOUTS } from '../syncConfig'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('localDataCleanup')
 
 /**
  * Deletes an IndexedDB database by name, such as an account's plaintext or sealed Automerge database.
@@ -36,9 +39,9 @@ export async function clearAutomergeIndexedDb(dbName: string, timeoutMs: number 
     timer = setTimeout(() => {
       if (settled) return
       const errMsg = isBlocked
-        ? `[SyncBridge] deleteDatabase blocked and timed out after ${timeoutMs}ms for ${dbName}`
-        : `[SyncBridge] deleteDatabase timed out after ${timeoutMs}ms for ${dbName}`
-      console.error(errMsg)
+        ? `deleteDatabase blocked and timed out after ${timeoutMs}ms for ${dbName}`
+        : `deleteDatabase timed out after ${timeoutMs}ms for ${dbName}`
+      log.error(errMsg)
       cleanup()
       reject(new Error(errMsg))
     }, timeoutMs)
@@ -51,8 +54,8 @@ export async function clearAutomergeIndexedDb(dbName: string, timeoutMs: number 
 
     req.onerror = () => {
       if (settled) return
-      console.error(`[SyncBridge] Error deleting IndexedDB database ${dbName}:`, req.error)
-      const err = req.error || new Error(`[SyncBridge] Error deleting IndexedDB database ${dbName}`)
+      log.error(`Error deleting IndexedDB database ${dbName}:`, req.error)
+      const err = req.error || new Error(`Error deleting IndexedDB database ${dbName}`)
       cleanup()
       reject(err)
     }
@@ -60,7 +63,7 @@ export async function clearAutomergeIndexedDb(dbName: string, timeoutMs: number 
     req.onblocked = () => {
       if (settled) return
       isBlocked = true
-      console.warn(`[SyncBridge] deleteDatabase blocked for ${dbName}, waiting for open connections to close`)
+      log.warn(`deleteDatabase blocked for ${dbName}, waiting for open connections to close`)
     }
   })
 }
@@ -87,13 +90,13 @@ export async function clearAccountLocalData(accountId: string): Promise<void> {
   if (!accountId) return
   try {
     await Promise.allSettled([
-      clearAutomergeIndexedDb(getAutomergeDBName(accountId)).catch(err => console.error('[SyncBridge] Failed to clear Automerge IndexedDB', err)),
-      clearAutomergeIndexedDb(getSealedAutomergeDBName(accountId)).catch(err => console.error('[SyncBridge] Failed to clear sealed Automerge IndexedDB', err)),
-      clearSyncMetadataStorage(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncMetadataStorage', err)),
-      clearWriteAheadLog(accountId).catch(err => console.error('[SyncBridge] Failed to clear SyncWriteAheadLog', err)),
-      clearManualRecoveryEntries(accountId).catch(err => console.error('[SyncBridge] Failed to clear ManualRecovery', err)),
+      clearAutomergeIndexedDb(getAutomergeDBName(accountId)).catch(err => log.error('Failed to clear Automerge IndexedDB', err)),
+      clearAutomergeIndexedDb(getSealedAutomergeDBName(accountId)).catch(err => log.error('Failed to clear sealed Automerge IndexedDB', err)),
+      clearSyncMetadataStorage(accountId).catch(err => log.error('Failed to clear SyncMetadataStorage', err)),
+      clearWriteAheadLog(accountId).catch(err => log.error('Failed to clear SyncWriteAheadLog', err)),
+      clearManualRecoveryEntries(accountId).catch(err => log.error('Failed to clear ManualRecovery', err)),
     ])
   } catch (err) {
-    console.error(`[SyncBridge] Error clearing local data for account ${accountId}:`, err)
+    log.error(`Error clearing local data for account ${accountId}:`, err)
   }
 }

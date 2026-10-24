@@ -1,5 +1,8 @@
 import { DocumentId } from '@automerge/automerge-repo/slim'
 import { ItemId, MAX_ITEM_SIZE_BYTES } from '@vault/shared'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('messageParser')
 
 export const DEFAULT_MAX_MESSAGE_SIZE = MAX_ITEM_SIZE_BYTES
 
@@ -54,12 +57,12 @@ export function parseBatchedMessages(
         onMessageParsed(itemId, documentId, msg)
         options?.onMessageSuccess?.(currentIndex)
       } catch (error) {
-        console.error('[messageParser] Error processing message in batch', error)
+        log.error('Error processing message in batch', error)
         success = false
         break
       }
     } catch (error) {
-      console.error('[messageParser] Error parsing message batch structure', error)
+      log.error('Error parsing message batch structure', error)
       success = false
       break
     }

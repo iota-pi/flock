@@ -77,9 +77,14 @@ const SERVER_ERROR_SUBSTRINGS = [
   'gateway timeout',
 ] as const
 
-const AUTH_HTTP_STATUSES = new Set([401, 403])
+/** The status and tRPC code the server sends when it rejects a request's credentials */
+export const SESSION_REJECTED_STATUS = 401
+export const SESSION_REJECTED_CODE = 'UNAUTHORIZED'
 
-const AUTH_ERROR_CODES = new Set(['UNAUTHORIZED', 'FORBIDDEN'])
+// The server never sends 403 or FORBIDDEN, but backing off sync is cheap, so treat them as auth too
+const AUTH_HTTP_STATUSES = new Set([SESSION_REJECTED_STATUS, 403])
+
+const AUTH_ERROR_CODES = new Set([SESSION_REJECTED_CODE, 'FORBIDDEN'])
 
 const AUTH_ERROR_NAMES = new Set([
   'UnauthorizedError',

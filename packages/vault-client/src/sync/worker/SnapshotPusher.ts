@@ -1,4 +1,5 @@
 import type { VaultSnapshotInput } from '@vault/shared'
+import type { SnapshotPushResult } from './syncProtocol'
 import { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { classifySyncError } from './utils/errorClassifier'
@@ -13,6 +14,9 @@ import type { PreparedSnapshotItem } from './SnapshotBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SnapshotPusher')
 
 export interface SnapshotPusherOptions {
   accountId: string
@@ -26,9 +30,8 @@ export interface SnapshotPusherOptions {
   maxPayloadBytes?: number
 }
 
-export interface SnapshotPushResult {
-  persisted: number
-  total: number
+/** A push's result, and whether every batch in it was sent and accepted */
+interface SnapshotPushOutcome extends SnapshotPushResult {
   success: boolean
 }
 
@@ -54,10 +57,9 @@ export class SnapshotPusher {
 
   public readonly consecutiveFailures = new Map<ItemId, number>()
   public readonly oversizedItems = new Set<ItemId>()
-  private readonly pushGuard = new SingleFlightGuard<SnapshotPushResult>()
+  private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
   private pushAbortController: AbortController | null = null
   private pendingPushRequested = false
-  private requestedCursor: number | null = null
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   public readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
@@ -89,10 +91,6 @@ export class SnapshotPusher {
     return this.pendingPushRequested
   }
 
-  get snapshotRequestCursor(): number | null {
-    return this.requestedCursor
-  }
-
   get retryTimeoutId(): ReturnType<typeof setTimeout> | null {
     return this.retryTimer
   }
@@ -116,15 +114,7 @@ export class SnapshotPusher {
     this.cancelRetry()
   }
 
-  scheduleSnapshotPush(cursor?: number): void {
-    if (!this.tracker.isOperational) return
-    if (typeof cursor === 'number') {
-      this.requestedCursor = cursor
-    }
-    fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:scheduleSnapshotPush')
-  }
-
-  async triggerSnapshotPush(): Promise<{ persisted: number; total: number }> {
+  async triggerSnapshotPush(): Promise<SnapshotPushResult> {
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }
     }
@@ -150,7 +140,7 @@ export class SnapshotPusher {
 
     const delayMs = this.retryStrategy.nextDelay()
 
-    console.warn(`[SnapshotPusher] Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
+    log.warn(`Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
 
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
@@ -169,11 +159,10 @@ export class SnapshotPusher {
     }
     const dirtyItemIds = this.tracker.getDirtyItemIds()
     if (dirtyItemIds.length === 0) {
-      this.requestedCursor = null
       return null
     }
 
-    const snapshotCursor = this.requestedCursor ?? (this.getLatestCursor ? this.getLatestCursor() : 0)
+    const snapshotCursor = this.getLatestCursor ? this.getLatestCursor() : 0
 
     return {
       dirtyItemIds,
@@ -216,7 +205,7 @@ export class SnapshotPusher {
       if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
         throw error
       }
-      console.error('[SnapshotPusher] Failed to put snapshots', error)
+      log.error('Failed to put snapshots', error)
       return { success: false, responded: false, persisted: 0 }
     }
   }
@@ -232,8 +221,8 @@ export class SnapshotPusher {
       const detailedReason =
         reason ||
         `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`
-      console.error(
-        `[SnapshotPusher] Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
+      log.error(
+        `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
       )
       this.consecutiveFailures.delete(itemId)
       this.tracker.removeDirtyItemIfTickMatches(itemId, tick)
@@ -252,7 +241,7 @@ export class SnapshotPusher {
             `Snapshot failure: ${detailedReason}`,
           )
         } catch (recoveryError) {
-          console.error('[SnapshotPusher] Failed to record manual recovery entry', recoveryError)
+          log.error('Failed to record manual recovery entry', recoveryError)
         }
       }
     } else {
@@ -271,8 +260,8 @@ export class SnapshotPusher {
     this.tracker.recordOversized(itemId, modified)
 
     if (!isAlreadyOversized) {
-      console.error(
-        `[SnapshotPusher] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
+      log.error(
+        `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
       this.eventHub?.emit({
         type: 'quotaExceeded',
@@ -316,7 +305,7 @@ export class SnapshotPusher {
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
       this.oversizedItems.delete(itemId)
-      console.warn(`[SnapshotPusher] Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
+      log.warn(`Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
       const tombstone = toTombstoneSnapshot(snapshot)
       return {
         type: 'ready',
@@ -402,7 +391,7 @@ export class SnapshotPusher {
       snapshotCursor: number
     },
     signal?: AbortSignal,
-  ): Promise<{ persisted: number; total: number; success: boolean }> {
+  ): Promise<SnapshotPushOutcome> {
     const { dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
@@ -463,7 +452,7 @@ export class SnapshotPusher {
     return { persisted, total, success }
   }
 
-  private startPush(): Promise<SnapshotPushResult> {
+  private startPush(): Promise<SnapshotPushOutcome> {
     if (!this.tracker.isOperational) {
       return Promise.resolve({ persisted: 0, total: 0, success: true })
     }
@@ -476,7 +465,7 @@ export class SnapshotPusher {
     return this.runPush()
   }
 
-  private async runPush(): Promise<SnapshotPushResult> {
+  private async runPush(): Promise<SnapshotPushOutcome> {
     // Only set when this call ran the push rather than coalescing onto one
     let settledSuccess: boolean | null = null
     const result = await this.pushGuard.run(
@@ -496,7 +485,7 @@ export class SnapshotPusher {
     return result
   }
 
-  async pushSnapshots(): Promise<{ persisted: number; total: number }> {
+  async pushSnapshots(): Promise<SnapshotPushResult> {
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }
     }
@@ -504,7 +493,7 @@ export class SnapshotPusher {
     return { persisted: res.persisted, total: res.total }
   }
 
-  private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushResult> {
+  private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushOutcome> {
     const abortController = new AbortController()
     this.pushAbortController = abortController
     const { signal } = abortController
@@ -529,10 +518,6 @@ export class SnapshotPusher {
       total = result.total
       success = result.success
 
-      if (success) {
-        this.requestedCursor = null
-      }
-
       if (success && this.tracker.dirtyCount === 0) {
         this.retryStrategy.reset()
       }
@@ -544,11 +529,11 @@ export class SnapshotPusher {
         return { persisted, total, success: false }
       }
       if (classified.isAuth) {
-        console.warn('[SnapshotPusher] Cannot push snapshots: auth failure', error)
+        log.warn('Cannot push snapshots: auth failure', error)
         success = false
         return { persisted, total, success }
       }
-      console.error('[SnapshotPusher] Error during pushSnapshots', error)
+      log.error('Error during pushSnapshots', error)
       success = false
       return { persisted, total, success }
     } finally {
@@ -571,7 +556,7 @@ export class SnapshotPusher {
     }
   }
 
-  async flushPendingSnapshots(): Promise<{ persisted: number; total: number }> {
+  async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     this.tracker.clearDebounceTimers()
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }
@@ -613,7 +598,6 @@ export class SnapshotPusher {
     this.consecutiveFailures.clear()
     this.oversizedItems.clear()
     this.pendingPushRequested = false
-    this.requestedCursor = null
     this.pushGuard.clear()
     this.retryStrategy.reset()
   }
