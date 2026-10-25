@@ -1,5 +1,5 @@
 import { RequestTimeoutError, withRequestTimeout } from './requestTimeout'
-import { classifySyncError } from '../sync/worker/utils/errorClassifier'
+import { classifySyncError } from '../sync/utils/errorClassifier'
 
 function hangingFetch() {
   return vi.fn<typeof fetch>((_input, init) => new Promise<Response>((_resolve, reject) => {

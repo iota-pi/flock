@@ -1,7 +1,7 @@
 import { createTRPCProxyClient } from '@trpc/client'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { VaultRouter } from '@vault/server'
-import { createVaultLinks } from './vaultTrpcClient'
+import { createVaultLinks } from '../../api/vaultTrpcClient'
 import type { VaultSnapshotInput, SyncPollBatchSchema } from '@vault/shared'
 import type { z } from 'zod'
 

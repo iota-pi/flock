@@ -1,6 +1,6 @@
 import { ItemId } from '@vault/shared'
 import { buildSnapshot, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
-import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils/errorClassifier'
+import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/Keyring'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { passthroughCodec, type DocCodec } from './domain'

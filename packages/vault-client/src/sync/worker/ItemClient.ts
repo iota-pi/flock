@@ -5,8 +5,8 @@ import {
   type ManifestEntry,
   ItemId,
 } from '@vault/shared'
-import { assertSuccess } from './clientUtils'
-import { getVaultTrpcClient } from './vaultTrpcClient'
+import { assertSuccess } from '../../api/clientUtils'
+import { getVaultTrpcClient } from '../../api/vaultTrpcClient'
 
 export async function fetchManifest(
   { account }: { account: string },

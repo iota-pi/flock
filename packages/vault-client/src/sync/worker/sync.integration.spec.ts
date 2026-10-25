@@ -38,7 +38,7 @@ vi.mock('localforage', () => ({
 }))
 
 const mockPollSyncBatch = vi.fn()
-vi.mock('../../api/SyncWorkerClient', () => ({
+vi.mock('./SyncWorkerClient', () => ({
   pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
   putSnapshots: vi.fn().mockResolvedValue({ success: true }),
 }))

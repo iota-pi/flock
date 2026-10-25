@@ -7,7 +7,7 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { KeyProvider } from '../../api/Keyring'
 import { passthroughCodec, type DocCodec } from './domain'
 import { ItemId } from '@vault/shared'
-import { classifySyncError } from './utils/errorClassifier'
+import { classifySyncError } from '../utils/errorClassifier'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { createLogger } from '../utils/logger'
 

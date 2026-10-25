@@ -9,7 +9,7 @@ import type { KeyProvider } from '../../api/Keyring'
 
 const mockPutSnapshots = vi.fn()
 
-vi.mock('../../api/SyncWorkerClient', () => ({
+vi.mock('./SyncWorkerClient', () => ({
   putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
 }))
 

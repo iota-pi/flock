@@ -1,5 +1,5 @@
 import { createLogger } from '../sync/utils/logger'
-import { SESSION_REJECTED_CODE, SESSION_REJECTED_STATUS } from '../sync/worker/utils/errorClassifier'
+import { SESSION_REJECTED_CODE, SESSION_REJECTED_STATUS } from '../sync/utils/errorClassifier'
 import { clearBiometricData, readBiometricData, writeBiometricData } from './biometricStore'
 import { decryptWithKey, encryptWithKey, exportVaultKey, hashVaultKey, importVaultKey } from './crypto'
 import { clearCachedKeyring, loadCachedKeyring } from './keyringCache'

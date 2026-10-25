@@ -11,7 +11,7 @@ import { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
 
 const mockPollSyncBatch = vi.fn()
-vi.mock('../../api/SyncWorkerClient', () => ({
+vi.mock('./SyncWorkerClient', () => ({
   pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
 }))
 

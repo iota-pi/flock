@@ -3,9 +3,9 @@ import {
   TRANSIENT_VAULT_ERROR_SUBSTRINGS,
   isAuthError,
 } from './errorClassifier'
-import { AbortError } from '../../utils/abort'
-import { MissingKeyError } from './decryptWithKeyResolution'
-import { VaultNotInitializedError } from '../../../api/Keyring'
+import { AbortError } from './abort'
+import { MissingKeyError } from '../worker/utils/decryptWithKeyResolution'
+import { VaultNotInitializedError } from '../../api/Keyring'
 
 const isNetworkError = (error: unknown) => classifySyncError(error).isNetwork
 const isServerError = (error: unknown) => classifySyncError(error).isServerError

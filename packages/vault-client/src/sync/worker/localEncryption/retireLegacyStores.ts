@@ -1,6 +1,6 @@
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { getAccountDatabaseName } from '../../shared/createAccountStore'
-import { clearAutomergeIndexedDb } from '../../client/localDataCleanup'
+import { deleteDatabase } from '../../utils/deleteDatabase'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
 import { runStorageOperation } from '../../utils/storageManager'
@@ -56,8 +56,8 @@ export async function retireLegacyStores(options: RetireLegacyStoresOptions): Pr
 
   const timeoutMs = options.deleteTimeoutMs ?? DEFAULT_DELETE_TIMEOUT_MS
   try {
-    await clearAutomergeIndexedDb(getAutomergeDBName(accountId), timeoutMs)
-    await clearAutomergeIndexedDb(getAccountDatabaseName('wal-entries', accountId), timeoutMs)
+    await deleteDatabase(getAutomergeDBName(accountId), timeoutMs)
+    await deleteDatabase(getAccountDatabaseName('wal-entries', accountId), timeoutMs)
   } catch (error) {
     log.warn('Could not delete the plaintext stores yet; retrying at the next start', error)
     return false

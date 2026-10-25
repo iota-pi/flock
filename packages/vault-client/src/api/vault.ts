@@ -18,7 +18,7 @@ import {
 import { getDefaultKdf, type KdfParams } from './kdf'
 import { broadcastVaultEvent } from './util'
 import { retryTransientFailures } from './requestRetry'
-import { clearWriteAheadLog } from '../sync/client/localDataCleanup'
+import { clearWriteAheadLog } from '../sync/shared/writeAheadLogStorage'
 import { clearBiometricData, hasBiometricData } from './biometricStore'
 import { isRateLimitedError } from '@vault/shared'
 import { Keyring } from './Keyring'

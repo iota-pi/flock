@@ -1,13 +1,13 @@
 import type { z } from 'zod'
 import { getApiAuthToken } from '../../api/runtime'
-import { classifySyncError } from './utils/errorClassifier'
+import { classifySyncError } from '../utils/errorClassifier'
 import {
   putSnapshots,
   pollSyncBatch,
   type PollSyncBatchResponse,
   type PutSnapshotsResponse,
-} from '../../api/SyncWorkerClient'
-import { fetchManifest, fetchSnapshotsByIds } from '../../api/ItemClient'
+} from './SyncWorkerClient'
+import { fetchManifest, fetchSnapshotsByIds } from './ItemClient'
 import { raiseDataVersion } from '../../api/AccountClient'
 import type {
   FetchedItem,

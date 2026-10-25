@@ -1,4 +1,4 @@
-import type { DataVersionStatus, VaultDoc, VaultMetadata } from '../shared/types'
+import type { DataVersionStatus, ReencryptResult, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import { ItemId } from '@vault/shared'
@@ -20,12 +20,6 @@ export interface SnapshotPushResult {
 export interface RetrySaveResult {
   success: boolean
   error?: string
-}
-
-/** The items re-encrypted under the active data key, and those that couldn't be */
-export interface ReencryptResult {
-  succeeded: ItemId[]
-  failed: Array<{ itemId: ItemId; error: string }>
 }
 
 /**

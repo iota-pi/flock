@@ -26,7 +26,7 @@ const mockPollSyncBatch = vi.fn()
 
 const keys = createMockKeyProvider()
 
-vi.mock('../../api/SyncWorkerClient', () => ({
+vi.mock('./SyncWorkerClient', () => ({
   pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
 }))
 

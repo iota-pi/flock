@@ -9,7 +9,7 @@ import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 const mockPutSnapshots = vi.fn()
 const mockListAutomergeItemIds = vi.fn()
 
-vi.mock('../../api/SyncWorkerClient', () => ({
+vi.mock('./SyncWorkerClient', () => ({
   putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
 }))
 
