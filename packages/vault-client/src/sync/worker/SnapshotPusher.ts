@@ -189,7 +189,7 @@ export class SnapshotPusher {
           account: this.accountId,
           snapshots: batch,
         },
-        signal ? { signal } : undefined,
+        { signal },
       )
 
       return {

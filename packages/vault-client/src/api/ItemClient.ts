@@ -13,14 +13,9 @@ export async function fetchManifest(
   options?: { signal?: AbortSignal }
 ): Promise<{ manifest: Array<ManifestEntry>; serverTime: number }> {
   const input = FetchItemsInputSchema.parse({ account })
-  const data = await getVaultTrpcClient().items.fetchManifest.query(input, options?.signal ? { signal: options.signal } : undefined)
+  const data = await getVaultTrpcClient().items.fetchManifest.query(input, options)
   assertSuccess(data, 'fetchManifest')
-
-  const serverTime = typeof data.serverTime === 'number' ? data.serverTime : Date.now()
-  return {
-    manifest: data.manifest as Array<ManifestEntry>,
-    serverTime,
-  }
+  return { manifest: data.manifest, serverTime: data.serverTime }
 }
 
 export async function fetchSnapshotsByIds(
@@ -28,12 +23,9 @@ export async function fetchSnapshotsByIds(
   options?: { signal?: AbortSignal }
 ): Promise<{ items: VaultItem[]; serverTime: number }> {
   const input = FetchSnapshotsByIdsInputSchema.parse({ account, itemIds })
-  const data = await getVaultTrpcClient().items.fetchSnapshotsByIds.query(input, options?.signal ? { signal: options.signal } : undefined)
+  const data = await getVaultTrpcClient().items.fetchSnapshotsByIds.query(input, options)
   assertSuccess(data, 'fetchSnapshotsByIds')
-
-  const serverTime = typeof data.serverTime === 'number' ? data.serverTime : Date.now()
-  return {
-    items: data.items as VaultItem[],
-    serverTime,
-  }
+  // The server returns stored records (a plain string ID and an untyped snapshot cipher). This
+  // narrows them to the envelope union, which nothing checks at runtime.
+  return { items: data.items as VaultItem[], serverTime: data.serverTime }
 }

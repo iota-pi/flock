@@ -221,7 +221,7 @@ export class ItemReencryptor {
         account: accountId,
         snapshots,
       },
-      signal ? { signal } : undefined
+      { signal }
     )
 
     if (

@@ -258,7 +258,7 @@ export class SyncPoller {
       summary = await this.handlePushAcknowledgments(
         chunkEntry,
         sentIdsByItem,
-        response?.pushResults
+        response.pushResults
       )
     }
 
@@ -270,14 +270,13 @@ export class SyncPoller {
   private async handlePushAcknowledgments(
     chunkEntry: ChunkEntry,
     sentIdsByItem: Map<ItemId, string[]>,
-    pushResults?: PushResultItem[]
+    results: PushResultItem[]
   ): Promise<ChunkPushSummary> {
     const acknowledgedIds: string[] = []
     const acknowledgedItemIds = new Set<ItemId>()
     const quarantinedIds: string[] = []
     const quarantinedItemIds = new Set<ItemId>()
 
-    const results = pushResults ?? []
     for (const result of results) {
       if (this.isPushResultSuccessful(result)) {
         acknowledgedItemIds.add(result.itemId)
@@ -286,9 +285,7 @@ export class SyncPoller {
         if (ids && ids.length > 0) {
           acknowledgedIds.push(...ids)
         }
-        if (typeof result.cursor === 'number' && Number.isFinite(result.cursor)) {
-          this.pullQueueManager.recordOwnPushedMessage(result.itemId, result.cursor)
-        }
+        this.pullQueueManager.recordOwnPushedMessage(result.itemId, result.cursor)
         this.acknowledgeSuccessfulPush(chunkEntry, result)
       } else {
         log.warn(`Push failed for item ${result.itemId}`, result)
@@ -298,8 +295,7 @@ export class SyncPoller {
     for (const [sentItemId, messages] of chunkEntry) {
       if (!acknowledgedItemIds.has(sentItemId)) {
         const failures = (this.consecutivePushFailures.get(sentItemId) || 0) + 1
-        const pushResult = results.find(r => r.itemId === sentItemId)
-        const errorMsg = pushResult?.error || 'Push unacknowledged by server'
+        const errorMsg = 'Push unacknowledged by server'
 
         if (failures >= MAX_CONSECUTIVE_PUSH_FAILURES) {
           log.error(
@@ -367,23 +363,14 @@ export class SyncPoller {
     }
   }
 
-  private async handlePollResponse(
-    response: PollSyncBatchResponse | null | undefined
-  ): Promise<void> {
-    if (!response) return
-
+  private async handlePollResponse(response: PollSyncBatchResponse): Promise<void> {
     try {
-      const hasMoreGlobal = response.globalHasMore ?? response.hasMore
-      if (typeof hasMoreGlobal === 'boolean') {
-        await this.pullQueueManager.processPullResults(
-          response.pullResults ?? [],
-          hasMoreGlobal,
-          response.globalNextPageToken,
-          response.globalScannedThroughCursor,
-        )
-      } else if (response.pullResults) {
-        await this.pullQueueManager.processPullResults(response.pullResults)
-      }
+      await this.pullQueueManager.processPullResults(
+        response.pullResults,
+        response.globalHasMore,
+        response.globalNextPageToken,
+        response.globalScannedThroughCursor,
+      )
     } catch (pullErr) {
       log.error('Error processing pull results', pullErr)
       throw pullErr
@@ -398,9 +385,6 @@ export class SyncPoller {
   }
 
   private isPushResultSuccessful(result: PushResultItem): boolean {
-    if (!result || !result.itemId) return false
-    if (result.success === false) return false
-    if (result.success === true) return true
-    return typeof result.cursor === 'number' && Number.isFinite(result.cursor) && result.cursor >= 0
+    return Number.isFinite(result.cursor) && result.cursor >= 0
   }
 }

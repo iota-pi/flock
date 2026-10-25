@@ -878,7 +878,7 @@ describe('ItemReencryptor class', () => {
       ).resolves.toEqual([{ itemId: 'item-1', version: 2 }])
       expect(mockApiClient.putSnapshots).toHaveBeenCalledWith(
         { account: 'acc-1', snapshots },
-        undefined
+        { signal: undefined }
       )
     })
 

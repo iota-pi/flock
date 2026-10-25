@@ -110,7 +110,7 @@ export class ManifestHydrator {
             account: this.deps.accountId,
             itemIds: batch,
           },
-          signal ? { signal } : undefined,
+          { signal },
         )
         if (response?.items && Array.isArray(response.items)) {
           fetchedItems.push(...response.items)

@@ -100,6 +100,8 @@ describe('SyncPoller', () => {
     mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
+      hasMore: false,
+      globalHasMore: false,
       pullResults: [
         {
           itemId: 'item-2',
@@ -131,41 +133,14 @@ describe('SyncPoller', () => {
       expect.arrayContaining([
         expect.objectContaining({ itemId: 'item-2' }),
         expect.objectContaining({ itemId: 'item-1' }),
-      ])
-    )
-  })
-
-  it('forwards response.hasMore to processPullResults when present', async () => {
-    mockPollSyncBatch.mockResolvedValueOnce({
-      success: true,
-      pushResults: [],
-      pullResults: [
-        {
-          success: true,
-          itemId: 'item-1' as ItemId,
-          hasMore: false,
-          messages: [],
-        },
-      ],
-      hasMore: true,
-    })
-
-    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
-
-    const outcome = await poller.executePoll()
-    expect(outcome).toBe('success')
-
-    expect(processPullResultsSpy).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ itemId: 'item-1' }),
       ]),
-      true,
+      false,
       undefined,
       undefined,
     )
   })
 
-  it('forwards response.globalNextPageToken to processPullResults when present', async () => {
+  it('forwards response.globalHasMore and globalNextPageToken to processPullResults', async () => {
     const sampleKey = 'global-page-token'
     mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
@@ -179,6 +154,7 @@ describe('SyncPoller', () => {
         },
       ],
       hasMore: true,
+      globalHasMore: true,
       globalNextPageToken: sampleKey,
     })
 
@@ -249,6 +225,7 @@ describe('SyncPoller', () => {
       success: true,
       itemId: 'item-1' as ItemId,
       hasMore: true,
+      nextCursor: 0,
       nextPageToken: 'item-page-token',
       messages: [],
     }])
@@ -684,8 +661,7 @@ describe('SyncPoller', () => {
       mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', cursor: 10, success: true },
-          { itemId: 'item-2', success: false, error: 'ConditionalCheckFailed' },
+          { itemId: 'item-1', cursor: 10 },
         ],
         pullResults: [],
       })
@@ -793,27 +769,6 @@ describe('SyncPoller', () => {
       expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
-    it('removes WAL entries when pushResult has explicit success: true even without cursor', async () => {
-      const walMap = new Map<ItemId, WalEntry[]>()
-      walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
-      ])
-      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
-
-      mockPollSyncBatch.mockResolvedValueOnce({
-        success: true,
-        pushResults: [
-          { itemId: 'item-1', success: true },
-        ],
-        pullResults: [],
-      })
-
-      const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
-      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
-      expect(poller.consecutivePushFailures.has('item-1' as ItemId)).toBe(false)
-    })
-
     it('records successful push cursors as own messages before processing pull results', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
@@ -830,8 +785,7 @@ describe('SyncPoller', () => {
       mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', cursor: 123, success: true },
-          { itemId: 'item-2', success: false, error: 'DatabaseWriteFailed' },
+          { itemId: 'item-1', cursor: 123 },
         ],
         pullResults: [],
       })
@@ -858,9 +812,10 @@ describe('SyncPoller', () => {
       mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', cursor: 10, success: true },
-          { itemId: 'item-2', success: false, error: 'DatabaseWriteFailed' },
+          { itemId: 'item-1', cursor: 10 },
         ],
+        hasMore: false,
+        globalHasMore: false,
         pullResults: [
           {
             itemId: 'item-pull-1',
@@ -882,7 +837,10 @@ describe('SyncPoller', () => {
       expect(processPullResultsSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({ itemId: 'item-pull-1' }),
-        ])
+        ]),
+        false,
+        undefined,
+        undefined,
       )
 
       // Item 2 failure count incremented
@@ -903,9 +861,7 @@ describe('SyncPoller', () => {
 
       mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
-        pushResults: [
-          { itemId, success: false, error: 'PayloadTooLarge' },
-        ],
+        pushResults: [],
         pullResults: [],
       })
 
@@ -917,7 +873,7 @@ describe('SyncPoller', () => {
       expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
         itemId,
         'pushFailure',
-        expect.stringContaining('Push failed after 5 consecutive attempts: PayloadTooLarge')
+        expect.stringContaining('Push failed after 5 consecutive attempts: Push unacknowledged by server')
       )
 
       // Quarantined item's entries are removed from WAL
@@ -941,7 +897,7 @@ describe('SyncPoller', () => {
       mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId, cursor: 50, success: true },
+          { itemId, cursor: 50 },
         ],
         pullResults: [],
       })
@@ -964,7 +920,7 @@ describe('SyncPoller', () => {
       mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', success: true },
+          { itemId: 'item-1', cursor: 1 },
         ],
         pullResults: [],
       })

@@ -162,12 +162,14 @@ describe('Document Hydration Race Condition (C4)', () => {
     // 2. Concurrently, pull queue receives incremental sync message for itemId
     const pullPromise = pullQueueManager.processPullResults([
       {
+        success: true,
         itemId,
-        cursor: 100,
+        nextCursor: 100,
         hasMore: false,
         messages: [
           {
             cursor: 100,
+            createdAt: 0,
             encryptedMessage: {
               iv: 'iv-100',
               cipher: 'cipher-100',
@@ -247,12 +249,14 @@ describe('Document Hydration Race Condition (C4)', () => {
     // Pull queue applies message from Device A
     await pullQueueManager.processPullResults([
       {
+        success: true,
         itemId,
-        cursor: 200,
+        nextCursor: 200,
         hasMore: false,
         messages: [
           {
             cursor: 200,
+            createdAt: 0,
             encryptedMessage: {
               iv: 'iv-200',
               cipher: 'cipher-200',

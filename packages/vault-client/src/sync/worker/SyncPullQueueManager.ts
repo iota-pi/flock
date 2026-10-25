@@ -410,7 +410,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     if (
       !messageResult.hasParseFailure &&
       !messageResult.hasKeyFailure &&
-      typeof result.nextCursor === 'number' &&
       Number.isFinite(result.nextCursor)
     ) {
       highestCursor = Math.max(highestCursor, result.nextCursor)

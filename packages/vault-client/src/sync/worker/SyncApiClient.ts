@@ -5,6 +5,7 @@ import {
   putSnapshots,
   pollSyncBatch,
   type PollSyncBatchResponse,
+  type PutSnapshotsResponse,
 } from '../../api/SyncWorkerClient'
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/ItemClient'
 import { raiseDataVersion } from '../../api/AccountClient'
@@ -13,7 +14,6 @@ import type {
   ItemId,
   ManifestEntry,
   SyncPollBatchSchema,
-  PutSnapshotResultItem,
 } from '@vault/shared'
 import type { VaultItem } from '../../api/clientTypes'
 import { createLogger } from '../utils/logger'
@@ -131,7 +131,7 @@ export class SyncApiClient {
       snapshots: VaultSnapshotInput[]
     },
     options?: { signal?: AbortSignal }
-  ): Promise<{ success: boolean; persisted: number; total?: number; results?: PutSnapshotResultItem[] }> {
+  ): Promise<PutSnapshotsResponse> {
     return this.executeWithAuth(() => putSnapshots(input, options))
   }
 

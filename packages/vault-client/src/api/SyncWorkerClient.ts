@@ -1,18 +1,11 @@
 import { createTRPCProxyClient } from '@trpc/client'
+import type { inferRouterOutputs } from '@trpc/server'
 import type { VaultRouter } from '@vault/server'
 import { createVaultLinks } from './vaultTrpcClient'
-import type { VaultSnapshotInput, ItemId , DOC_BOUND_FORMAT ,
-  SyncPollBatchSchema,
-  PageToken,
-  PutSnapshotResultItem } from '@vault/shared'
+import type { VaultSnapshotInput, SyncPollBatchSchema } from '@vault/shared'
 import type { z } from 'zod'
-type SyncMessageEnvelope = {
-  iv: string
-  cipher: string
-  version?: string
-  kver?: string
-  format?: typeof DOC_BOUND_FORMAT
-}
+
+type VaultOutputs = inferRouterOutputs<VaultRouter>
 
 let untrackedClient: ReturnType<typeof createTRPCProxyClient<VaultRouter>> | null = null
 
@@ -28,44 +21,16 @@ function getUntrackedClient() {
   return untrackedClient
 }
 
-export type PullSyncMessagesResponse = {
-  success?: boolean
-  itemId: ItemId
-  cursor?: number
-  nextCursor?: number
-  messages: Array<{
-    cursor: number
-    encryptedMessage: SyncMessageEnvelope
-  }>
-  hasMore: boolean
-  nextPageToken?: PageToken
-}
-
-export type PushResultItem = {
-  itemId: ItemId
-  cursor?: number
-  success?: boolean
-  error?: string
-}
-
-export type PollSyncBatchResponse = {
-  success: boolean
-  pushResults: Array<PushResultItem>
-  pullResults: Array<PullSyncMessagesResponse>
-  hasMore?: boolean
-  globalNextPageToken?: PageToken
-  // Whether the account-wide scan has more pages
-  globalHasMore?: boolean
-  // Highest cursor examined by the account-wide scan
-  globalScannedThroughCursor?: number
-}
-
+export type PollSyncBatchResponse = VaultOutputs['sync']['pollSync']
+export type PullSyncMessagesResponse = PollSyncBatchResponse['pullResults'][number]
+export type PushResultItem = PollSyncBatchResponse['pushResults'][number]
+export type PutSnapshotsResponse = VaultOutputs['items']['putSnapshots']
 
 export async function pollSyncBatch(
   input: z.infer<typeof SyncPollBatchSchema>,
   options?: { signal?: AbortSignal }
 ): Promise<PollSyncBatchResponse> {
-  return getUntrackedClient().sync.pollSync.mutate(input, options?.signal ? { signal: options.signal } : undefined)
+  return getUntrackedClient().sync.pollSync.mutate(input, options)
 }
 
 export async function putSnapshots(
@@ -74,13 +39,12 @@ export async function putSnapshots(
     snapshots: VaultSnapshotInput[]
   },
   options?: { signal?: AbortSignal }
-): Promise<{ success: boolean; persisted: number; total: number; results?: PutSnapshotResultItem[] }> {
+): Promise<PutSnapshotsResponse> {
   return getUntrackedClient().items.putSnapshots.mutate(
     {
       account: input.account,
       snapshots: input.snapshots,
     },
-    options?.signal ? { signal: options.signal } : undefined
+    options
   )
 }
-
