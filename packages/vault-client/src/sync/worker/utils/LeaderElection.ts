@@ -1,4 +1,6 @@
+import { isAbortError } from '../../utils/abort'
 import { fireAndForget } from '../../utils/fireAndForget'
+import { RetryStrategy } from '../../utils/RetryStrategy'
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { createLogger } from '../../utils/logger'
 
@@ -36,10 +38,9 @@ export class LeaderElection {
   private isReleased = false
   private isYielded = false
   private createdAt: number = Date.now()
-  private consecutiveFailures = 0
+  private readonly lockRetry: RetryStrategy
 
   private readonly maxLockRetries: number
-  private readonly retryDelayMs: number
   private readonly presenceHeartbeatIntervalMs: number
   private readonly presenceTimeoutMs: number
 
@@ -56,7 +57,13 @@ export class LeaderElection {
     options?: LeaderElectionOptions
   ) {
     this.maxLockRetries = options?.maxLockRetries ?? 3
-    this.retryDelayMs = options?.retryDelayMs ?? 1000
+    const retryDelayMs = options?.retryDelayMs ?? 1000
+    // The last failure falls back to leader mode instead of retrying
+    const retries = Math.max(0, this.maxLockRetries - 1)
+    this.lockRetry = new RetryStrategy({
+      delays: Array.from({ length: retries }, (_, i) => retryDelayMs * 2 ** i),
+      maxAttempts: retries,
+    })
     this.presenceHeartbeatIntervalMs = options?.presenceHeartbeatIntervalMs ?? 2000
     this.presenceTimeoutMs = options?.presenceTimeoutMs ?? 5000
   }
@@ -297,7 +304,7 @@ export class LeaderElection {
   async acquire(): Promise<void> {
     this.release()
     this.isReleased = false
-    this.consecutiveFailures = 0
+    this.lockRetry.reset()
     this.createdAt = Date.now()
 
     if (typeof navigator === 'undefined' || !navigator.locks) {
@@ -321,7 +328,7 @@ export class LeaderElection {
       fireAndForget(
         navigator.locks
           .request(lockName, { signal: abortController.signal }, async () => {
-            this.consecutiveFailures = 0
+            this.lockRetry.reset()
             this.grantLeadership(false)
 
             return new Promise<void>(resolve => {
@@ -342,24 +349,18 @@ export class LeaderElection {
   }
 
   private handleLockError(err: unknown, abortController: AbortController): void {
-    if (
-      this.isReleased ||
-      abortController.signal.aborted ||
-      (err instanceof Error && err.name === 'AbortError') ||
-      (err as { name?: string })?.name === 'AbortError'
-    ) {
+    if (this.isReleased || abortController.signal.aborted || isAbortError(err)) {
       return
     }
 
     this.revokeLeadership()
-    this.consecutiveFailures += 1
 
-    if (this.consecutiveFailures < this.maxLockRetries) {
+    if (this.lockRetry.canRetry) {
+      const delay = this.lockRetry.nextDelay()
       log.error(
-        `Failed to acquire lock (attempt ${this.consecutiveFailures}/${this.maxLockRetries})`,
+        `Failed to acquire lock (attempt ${this.lockRetry.attempt}/${this.maxLockRetries})`,
         err
       )
-      const delay = this.retryDelayMs * Math.pow(2, this.consecutiveFailures - 1)
       this.retryTimeout = setTimeout(() => {
         this.retryTimeout = null
         if (!this.isReleased) {
@@ -368,7 +369,7 @@ export class LeaderElection {
       }, delay)
     } else {
       log.warn(
-        `Web Locks permanently failed after ${this.consecutiveFailures} attempts. Falling back to leader mode so syncing is not blocked.`,
+        `Web Locks permanently failed after ${this.lockRetry.attempt + 1} attempts. Falling back to leader mode so syncing is not blocked.`,
         err
       )
       this.grantLeadership(true)

@@ -161,6 +161,7 @@ describe('SnapshotTracker', () => {
     const newTracker = new SnapshotTracker({
       accountId: 'test-acc',
       lastModifiedStore: mockStore as unknown as LastModifiedStore,
+      recoveryManager: mockRecoveryManager,
     })
 
     await newTracker.importLastModified(exported)

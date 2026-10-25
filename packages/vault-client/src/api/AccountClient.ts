@@ -5,7 +5,7 @@ import type {
   CreateAccountBody,
 } from './clientTypes'
 import type { KdfParams } from '@vault/shared'
-import { LEGACY_CRYPTO_ITERATIONS } from './util'
+import { getLegacyPbkdf2Iterations } from './kdf'
 import { retryTransientFailures } from './requestRetry'
 
 export async function createAccount(
@@ -34,7 +34,7 @@ export async function getSecurityParams(
   return {
     salt: response.salt,
     // Accounts from before iterations were stored used the legacy count. Argon2id accounts have none.
-    iterations: response.kdf ? undefined : response.iterations || LEGACY_CRYPTO_ITERATIONS,
+    iterations: response.kdf ? undefined : response.iterations || getLegacyPbkdf2Iterations(),
     saltVersion: response.saltVersion,
     ...(response.kdf ? { kdf: response.kdf } : {}),
     dataVersion: response.dataVersion,

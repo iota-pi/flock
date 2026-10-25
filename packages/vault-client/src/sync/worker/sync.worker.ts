@@ -9,12 +9,14 @@ import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerIn
 import type { VaultDoc, VaultMetadata } from '../shared/types'
 import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
 import { Keyring } from '../../api/Keyring'
-import { clearActiveSessionToken, setActiveSessionToken } from '../shared/workerAuthStore'
+import { setApiAuthToken } from '../../api/runtime'
+import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
+import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
 import type { WalEntry } from './SyncWriteAheadLog'
 import type { RepoDoc } from './docStore'
@@ -118,9 +120,9 @@ export class SyncWorker implements SyncApi {
     (itemId, handle) => this.handleItemChange(itemId, handle.doc() || null),
   )
 
-  private tokenRefresh: PromiseWithResolvers<string | null> | null = null
-  private tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
-  private latestAuthToken: string | null = null
+  private readonly tokenRefresh = new SingleFlightGuard<string | null>()
+  /** Settles the refresh in flight with the token the main thread sends (or null) */
+  private settleTokenRefresh: ((token: string | null) => void) | null = null
   private readonly keyring = new Keyring()
   private readonly automergeWasmUrl: string
   /** The settings every session's context is built with */
@@ -132,29 +134,27 @@ export class SyncWorker implements SyncApi {
     this.sessionConfig = sessionConfig
   }
 
-  requestAuthTokenRefresh = (): Promise<string | null> => {
-    if (this.tokenRefresh) {
-      return this.tokenRefresh.promise
-    }
-
-    this.tokenRefresh = Promise.withResolvers<string | null>()
-    this.tokenRefreshTimeoutId = setTimeout(() => {
-      log.warn('Token refresh timed out waiting for main thread')
-      this.resolveTokenRefresh(null)
-    }, 10000)
-
-    this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
-    return this.tokenRefresh.promise
-  }
+  /**
+   * Asks the main thread for a new session token, which arrives through `updateAuthToken`.
+   * Concurrent requests share one round trip.
+   */
+  requestAuthTokenRefresh = (): Promise<string | null> =>
+    this.tokenRefresh.run(() => new Promise<string | null>(resolve => {
+      const timeoutId = setTimeout(() => {
+        log.warn('Token refresh timed out waiting for main thread')
+        this.resolveTokenRefresh(null)
+      }, 10000)
+      this.settleTokenRefresh = token => {
+        clearTimeout(timeoutId)
+        resolve(token)
+      }
+      this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
+    }))
 
   private resolveTokenRefresh(token: string | null): void {
-    if (this.tokenRefreshTimeoutId !== null) {
-      clearTimeout(this.tokenRefreshTimeoutId)
-      this.tokenRefreshTimeoutId = null
-    }
-    const tokenRefresh = this.tokenRefresh
-    this.tokenRefresh = null
-    tokenRefresh?.resolve(token)
+    const settle = this.settleTokenRefresh
+    this.settleTokenRefresh = null
+    settle?.(token)
   }
 
   private async ensureReady(): Promise<SyncWorkerContext> {
@@ -336,7 +336,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
-        refreshAuthToken: () => this.requestAuthTokenRefresh(),
+        apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
         onIndexUpdated: itemIds => {
           if (this._context === context) this.subscriptions.update(itemIds)
@@ -346,9 +346,6 @@ export class SyncWorker implements SyncApi {
         keys: this.keyring,
         localKeys: this.keyring,
       })
-      if (this.latestAuthToken) {
-        context.apiClient.setToken(this.latestAuthToken)
-      }
       this._context = context
 
       this.subscribeClientEvents()
@@ -501,16 +498,16 @@ export class SyncWorker implements SyncApi {
 
   updateAuthToken = async (token: string | null): Promise<void> => {
     this.setAuthToken(token)
-    if (this._context) {
-      this._context.apiClient.setToken(token)
-    }
     this.resolveTokenRefresh(token)
   }
 
-  /** Holds the session token in memory only, for contexts created later and the API client's fallback */
+  /**
+   * Makes `token` the worker's session token, which every request sends. It is kept only in memory:
+   * on disk it would outlive the tab, and a copy of the device's storage could make authenticated
+   * writes until the session expired.
+   */
   private setAuthToken(token: string | null): void {
-    this.latestAuthToken = token
-    setActiveSessionToken(token)
+    setApiAuthToken(token || '')
   }
 
   reencryptAllItems = () =>
@@ -521,7 +518,6 @@ export class SyncWorker implements SyncApi {
           accountId: ctx.accountId,
           repo,
           indexManager,
-          refreshAuthToken: () => this.requestAuthTokenRefresh(),
           recoveryManager,
           apiClient: ctx.apiClient,
         },
@@ -566,8 +562,7 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.claimLeader())
 
   async shutdown(options?: { clearLocalData?: boolean }) {
-    this.latestAuthToken = null
-    clearActiveSessionToken()
+    this.setAuthToken(null)
     this.isShutDown = true
     this.isReady = false
     this.ready.reject(new Error(NOT_INITIALIZED_MESSAGE))

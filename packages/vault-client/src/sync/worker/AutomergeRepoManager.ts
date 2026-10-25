@@ -148,7 +148,7 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     }
 
     // Note: Do not clear storage through the adapter on close. Database deletion
-    // during logout is handled by the main thread (clearAutomergeIndexedDb via indexedDB.deleteDatabase)
+    // during logout is handled by the main thread (deleteDatabase in clearAccountLocalData)
     // after the worker has cleanly closed its open connections. Calling indexedDbAdapter.clear()
     // via an open connection creates versionchange conflicts and blocks deleteDatabase.
     if (this.indexedDbAdapter) {

@@ -10,9 +10,9 @@ import { decodeSyncMessage } from '@automerge/automerge/slim'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { parseBatchedMessages } from './utils/messageParser'
 import { BATCHED_MESSAGE_VERSION, packBatchedMessages } from './utils/binaryFraming'
-import { classifySyncError } from './utils/errorClassifier'
-import type { PushResultItem, PollSyncBatchResponse } from '../../api/SyncWorkerClient'
-import { SyncApiClient } from './SyncApiClient'
+import { classifySyncError } from '../utils/errorClassifier'
+import type { PushResultItem, PollSyncBatchResponse } from './SyncWorkerClient'
+import type { SyncApiClient } from './SyncApiClient'
 import { checkAlive } from '../utils/abort'
 import { SYNC_BATCH_SIZES } from '../syncConfig'
 import type { RecoveryManager } from './RecoveryManager'
@@ -51,8 +51,8 @@ export interface SyncPollerDeps {
   keys: KeyProvider
   indexManager?: AutomergeIndexManager
   wal?: SyncWriteAheadLog | null
-  apiClient?: SyncApiClient
-  recoveryManager?: RecoveryManager | null
+  apiClient: SyncApiClient
+  recoveryManager: RecoveryManager
 }
 
 export class SyncPoller {
@@ -62,7 +62,7 @@ export class SyncPoller {
   private abortController: AbortController | null = null
   private readonly apiClient: SyncApiClient
   public readonly consecutivePushFailures = new Map<ItemId, number>()
-  private readonly recoveryManager: RecoveryManager | null
+  private readonly recoveryManager: RecoveryManager
   private readonly pullQueueManager: SyncPullQueueManager
   private readonly clientEventHub: ClientEventHub
   private readonly internalEventHub: WorkerInternalEventHub
@@ -77,8 +77,8 @@ export class SyncPoller {
     this.keys = deps.keys
     this.indexManager = deps.indexManager
     this.wal = deps.wal ?? null
-    this.apiClient = deps.apiClient ?? new SyncApiClient()
-    this.recoveryManager = deps.recoveryManager ?? null
+    this.apiClient = deps.apiClient
+    this.recoveryManager = deps.recoveryManager
   }
 
   setAccount(account: string | null): void {
@@ -258,7 +258,7 @@ export class SyncPoller {
       summary = await this.handlePushAcknowledgments(
         chunkEntry,
         sentIdsByItem,
-        response?.pushResults
+        response.pushResults
       )
     }
 
@@ -270,14 +270,13 @@ export class SyncPoller {
   private async handlePushAcknowledgments(
     chunkEntry: ChunkEntry,
     sentIdsByItem: Map<ItemId, string[]>,
-    pushResults?: PushResultItem[]
+    results: PushResultItem[]
   ): Promise<ChunkPushSummary> {
     const acknowledgedIds: string[] = []
     const acknowledgedItemIds = new Set<ItemId>()
     const quarantinedIds: string[] = []
     const quarantinedItemIds = new Set<ItemId>()
 
-    const results = pushResults ?? []
     for (const result of results) {
       if (this.isPushResultSuccessful(result)) {
         acknowledgedItemIds.add(result.itemId)
@@ -286,9 +285,7 @@ export class SyncPoller {
         if (ids && ids.length > 0) {
           acknowledgedIds.push(...ids)
         }
-        if (typeof result.cursor === 'number' && Number.isFinite(result.cursor)) {
-          this.pullQueueManager.recordOwnPushedMessage(result.itemId, result.cursor)
-        }
+        this.pullQueueManager.recordOwnPushedMessage(result.itemId, result.cursor)
         this.acknowledgeSuccessfulPush(chunkEntry, result)
       } else {
         log.warn(`Push failed for item ${result.itemId}`, result)
@@ -298,8 +295,7 @@ export class SyncPoller {
     for (const [sentItemId, messages] of chunkEntry) {
       if (!acknowledgedItemIds.has(sentItemId)) {
         const failures = (this.consecutivePushFailures.get(sentItemId) || 0) + 1
-        const pushResult = results.find(r => r.itemId === sentItemId)
-        const errorMsg = pushResult?.error || 'Push unacknowledged by server'
+        const errorMsg = 'Push unacknowledged by server'
 
         if (failures >= MAX_CONSECUTIVE_PUSH_FAILURES) {
           log.error(
@@ -310,16 +306,14 @@ export class SyncPoller {
           for (const m of messages) {
             if (m.id) quarantinedIds.push(m.id)
           }
-          if (this.recoveryManager) {
-            try {
-              await this.recoveryManager.quarantine(
-                sentItemId,
-                'pushFailure',
-                `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
-              )
-            } catch (qErr) {
-              log.error(`Failed to quarantine item ${sentItemId}:`, qErr)
-            }
+          try {
+            await this.recoveryManager.quarantine(
+              sentItemId,
+              'pushFailure',
+              `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
+            )
+          } catch (qErr) {
+            log.error(`Failed to quarantine item ${sentItemId}:`, qErr)
           }
         } else {
           this.consecutivePushFailures.set(sentItemId, failures)
@@ -369,23 +363,14 @@ export class SyncPoller {
     }
   }
 
-  private async handlePollResponse(
-    response: PollSyncBatchResponse | null | undefined
-  ): Promise<void> {
-    if (!response) return
-
+  private async handlePollResponse(response: PollSyncBatchResponse): Promise<void> {
     try {
-      const hasMoreGlobal = response.globalHasMore ?? response.hasMore
-      if (typeof hasMoreGlobal === 'boolean') {
-        await this.pullQueueManager.processPullResults(
-          response.pullResults ?? [],
-          hasMoreGlobal,
-          response.globalNextPageToken,
-          response.globalScannedThroughCursor,
-        )
-      } else if (response.pullResults) {
-        await this.pullQueueManager.processPullResults(response.pullResults)
-      }
+      await this.pullQueueManager.processPullResults(
+        response.pullResults,
+        response.globalHasMore,
+        response.globalNextPageToken,
+        response.globalScannedThroughCursor,
+      )
     } catch (pullErr) {
       log.error('Error processing pull results', pullErr)
       throw pullErr
@@ -400,9 +385,6 @@ export class SyncPoller {
   }
 
   private isPushResultSuccessful(result: PushResultItem): boolean {
-    if (!result || !result.itemId) return false
-    if (result.success === false) return false
-    if (result.success === true) return true
-    return typeof result.cursor === 'number' && Number.isFinite(result.cursor) && result.cursor >= 0
+    return Number.isFinite(result.cursor) && result.cursor >= 0
   }
 }

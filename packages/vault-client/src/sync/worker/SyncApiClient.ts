@@ -1,22 +1,21 @@
 import type { z } from 'zod'
-import { getActiveSessionToken } from '../shared/workerAuthStore'
-import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
-import { classifySyncError } from './utils/errorClassifier'
+import { getApiAuthToken } from '../../api/runtime'
+import { classifySyncError } from '../utils/errorClassifier'
 import {
-  putSnapshotsWithToken,
-  pollSyncBatchWithToken,
+  putSnapshots,
+  pollSyncBatch,
   type PollSyncBatchResponse,
-} from '../../api/SyncWorkerClient'
-import { fetchManifest, fetchSnapshotsByIds } from '../../api/ItemClient'
+  type PutSnapshotsResponse,
+} from './SyncWorkerClient'
+import { fetchManifest, fetchSnapshotsByIds } from './ItemClient'
 import { raiseDataVersion } from '../../api/AccountClient'
 import type {
+  FetchedItem,
   VaultSnapshotInput,
   ItemId,
   ManifestEntry,
   SyncPollBatchSchema,
-  PutSnapshotResultItem,
 } from '@vault/shared'
-import type { VaultItem } from '../../api/clientTypes'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncApiClient')
@@ -52,120 +51,43 @@ export function toAuthExpiredError(err: unknown): AuthExpiredError {
 }
 
 export interface SyncApiClientOptions {
-  getAuthToken?: () => Promise<string | null>
+  /**
+   * Gets a new session token and makes it the realm's (`setApiAuthToken`), resolving with it, or
+   * with null if there is none. Concurrent calls must share one refresh.
+   */
   refreshAuthToken?: () => Promise<string | null>
 }
 
+/**
+ * Sends the sync worker's requests with the realm's session token (`getApiAuthToken`), getting a
+ * new one when there is none or the server rejects it.
+ */
 export class SyncApiClient {
-  private currentToken: string | null = null
-  private refreshPromise: Promise<string | null> | null = null
-  private readonly getAuth: () => Promise<string | null>
   private readonly refreshAuth?: () => Promise<string | null>
 
   constructor(options: SyncApiClientOptions = {}) {
-    this.getAuth = options.getAuthToken ?? getActiveSessionToken
     this.refreshAuth = options.refreshAuthToken
   }
 
-  /**
-   * Sets the active authentication token in memory and runtime.
-   */
-  setToken(token: string | null): void {
-    this.currentToken = token
-    setApiAuthToken(token || '')
-  }
-
-  /**
-   * Retrieves a valid authentication token: the cached one, then the realm's in-memory session token
-   * (`getActiveSessionToken`), then refreshAuthToken, then the runtime token.
-   */
+  /** The realm's session token, refreshed if it has none. Null when no token is available. */
   async getValidToken(): Promise<string | null> {
-    if (this.currentToken) {
-      return this.currentToken
-    }
+    return getApiAuthToken() || this.refreshToken()
+  }
 
-    try {
-      const latest = await this.getAuth()
-      if (latest) {
-        this.currentToken = latest
-        setApiAuthToken(latest)
-        return latest
-      } else {
-        this.currentToken = null
-        setApiAuthToken('')
-      }
-    } catch {
-      // Fall through on store read error
-    }
-
+  /**
+   * Gets a new session token. If the refresh fails, returns whichever token the realm holds by
+   * then, since one may have arrived in the meantime.
+   */
+  private async refreshToken(): Promise<string | null> {
+    let refreshed: string | null = null
     if (this.refreshAuth) {
-      const refreshed = await this.refreshToken()
-      if (refreshed) return refreshed
-    }
-
-    const runtimeToken = getApiAuthToken()
-    if (runtimeToken) {
-      this.currentToken = runtimeToken
-      return runtimeToken
-    }
-
-    return null
-  }
-
-  /**
-   * Synchronizes latest token from store without forcing a refresh.
-   */
-  async syncLatestToken(): Promise<string | null> {
-    try {
-      const latest = await this.getAuth()
-      if (latest) {
-        this.currentToken = latest
-        setApiAuthToken(latest)
-        return latest
-      }
-    } catch {
-      // Ignore
-    }
-    return this.currentToken
-  }
-
-  /**
-   * Coalesced (single-flight) token refresh to prevent multiple concurrent refreshes.
-   */
-  async refreshToken(): Promise<string | null> {
-    if (this.refreshPromise) {
-      return this.refreshPromise
-    }
-
-    this.refreshPromise = (async () => {
       try {
-        let refreshed: string | null = null
-        if (this.refreshAuth) {
-          try {
-            refreshed = await this.refreshAuth()
-          } catch (refreshErr) {
-            log.warn('Token refresh callback failed:', refreshErr)
-          }
-        }
-        if (!refreshed) {
-          try {
-            refreshed = await this.getAuth()
-          } catch {
-            // Ignore
-          }
-        }
-        if (refreshed) {
-          this.currentToken = refreshed
-          setApiAuthToken(refreshed)
-          log.info('Acquired fresh auth token')
-        }
-        return refreshed
-      } finally {
-        this.refreshPromise = null
+        refreshed = await this.refreshAuth()
+      } catch (refreshErr) {
+        log.warn('Token refresh callback failed:', refreshErr)
       }
-    })()
-
-    return this.refreshPromise
+    }
+    return refreshed || getApiAuthToken() || null
   }
 
   /**
@@ -173,16 +95,14 @@ export class SyncApiClient {
    * If the operation fails with an auth error (401/403/UNAUTHORIZED),
    * transparently refreshes the token and retries the operation once.
    */
-  async executeWithAuth<T>(operation: (authToken: string) => Promise<T>): Promise<T> {
+  async executeWithAuth<T>(operation: () => Promise<T>): Promise<T> {
     const token = await this.getValidToken()
     if (!token) {
       throw new AuthError('No active session token available')
     }
 
-    setApiAuthToken(token)
-
     try {
-      return await operation(token)
+      return await operation()
     } catch (err) {
       if (!classifySyncError(err).isAuth) {
         throw err
@@ -194,10 +114,8 @@ export class SyncApiClient {
         throw toAuthExpiredError(err)
       }
 
-      setApiAuthToken(refreshedToken)
-
       try {
-        return await operation(refreshedToken)
+        return await operation()
       } catch (retryErr) {
         if (classifySyncError(retryErr).isAuth) {
           throw toAuthExpiredError(retryErr)
@@ -213,17 +131,8 @@ export class SyncApiClient {
       snapshots: VaultSnapshotInput[]
     },
     options?: { signal?: AbortSignal }
-  ): Promise<{ success: boolean; persisted: number; total?: number; results?: PutSnapshotResultItem[] }> {
-    return this.executeWithAuth(async authToken => {
-      return putSnapshotsWithToken(
-        {
-          account: input.account,
-          authToken,
-          snapshots: input.snapshots,
-        },
-        ...(options ? [options] : []),
-      )
-    })
+  ): Promise<PutSnapshotsResponse> {
+    return this.executeWithAuth(() => putSnapshots(input, options))
   }
 
   async raiseDataVersion(input: { account: string }): Promise<{ dataVersion: number, blockers: string[] }> {
@@ -234,12 +143,7 @@ export class SyncApiClient {
     input: { account: string },
     options?: { signal?: AbortSignal },
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
-    return this.executeWithAuth(async () => {
-      return fetchManifest(
-        { account: input.account },
-        ...(options ? [options] : []),
-      )
-    })
+    return this.executeWithAuth(() => fetchManifest({ account: input.account }, options))
   }
 
   async fetchSnapshotsByIds(
@@ -248,21 +152,17 @@ export class SyncApiClient {
       itemIds: ItemId[]
     },
     options?: { signal?: AbortSignal }
-  ): Promise<{ items: VaultItem[]; serverTime: number }> {
-    return this.executeWithAuth(async () => {
-      return fetchSnapshotsByIds(
-        { account: input.account, itemIds: input.itemIds },
-        ...(options ? [options] : []),
-      )
-    })
+  ): Promise<{ items: FetchedItem[]; serverTime: number }> {
+    return this.executeWithAuth(() => fetchSnapshotsByIds(
+      { account: input.account, itemIds: input.itemIds },
+      options,
+    ))
   }
 
   async pollSyncBatch(
     input: z.infer<typeof SyncPollBatchSchema>,
     options?: { signal?: AbortSignal }
   ): Promise<PollSyncBatchResponse> {
-    return this.executeWithAuth(async authToken => {
-      return pollSyncBatchWithToken({ ...input, authToken }, options)
-    })
+    return this.executeWithAuth(() => pollSyncBatch(input, options))
   }
 }

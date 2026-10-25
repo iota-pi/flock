@@ -1,6 +1,6 @@
 import { ItemId } from '@vault/shared'
 import { buildSnapshot, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
-import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from './utils/errorClassifier'
+import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/Keyring'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { passthroughCodec, type DocCodec } from './domain'
@@ -71,7 +71,7 @@ describe('buildSnapshot helper function', () => {
     })
 
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
-    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', undefined)
+    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: undefined })
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'item-1')
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, testCodec)

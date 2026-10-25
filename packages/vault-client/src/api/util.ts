@@ -3,9 +3,6 @@ import { createLogger } from '../sync/utils/logger'
 
 const log = createLogger('util')
 
-const isCypress = typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
-export const DEFAULT_CRYPTO_ITERATIONS = isCypress ? 1 : 600000
-export const LEGACY_CRYPTO_ITERATIONS = isCypress ? 1 : 100000
 /** Waits between attempts at a request that a login or unlock can't do without */
 export const REQUEST_RETRY_DELAYS: readonly number[] = [500, 2000]
 

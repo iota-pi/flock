@@ -1,4 +1,5 @@
 import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/automerge-repo/slim'
+import { setApiAuthToken } from '../../api/runtime'
 import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
@@ -8,6 +9,8 @@ import {
   CIRCUIT_BREAKER_COOLDOWN_MS,
 } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { registerQuotaReporter } from '../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -19,17 +22,15 @@ import type { ItemId } from '@vault/shared'
 
 import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
 
-const mockPollSyncBatchWithToken = vi.fn()
+const mockPollSyncBatch = vi.fn()
 
 const keys = createMockKeyProvider()
 
-vi.mock('../../api/SyncWorkerClient', () => ({
-  pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
+vi.mock('./SyncWorkerClient', () => ({
+  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
 }))
 
-vi.mock('../shared/workerAuthStore', () => ({
-  getActiveSessionToken: vi.fn().mockResolvedValue('mock-auth-token'),
-}))
+setApiAuthToken('mock-auth-token')
 
 describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let adapter: VaultNetworkAdapter
@@ -73,7 +74,17 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const cursorStore = new CursorStore('test-account')
     pullQueueManager = new SyncPullQueueManager(cursorStore, keys, undefined, internalEventHub)
     const wal = new SyncWriteAheadLog('test-account', internalEventHub)
-    broker = new SyncMessageBroker({ adapter, clientEventHub, internalEventHub, indexManager: mockDocStore as any, pullQueueManager, keys, wal })
+    broker = new SyncMessageBroker({
+      adapter,
+      clientEventHub,
+      internalEventHub,
+      indexManager: mockDocStore as any,
+      pullQueueManager,
+      keys,
+      wal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: clientEventHub }),
+    })
     orchestrator = new SyncOrchestrator({
       accountId: 'test-account',
       broker,
@@ -176,7 +187,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
-    mockPollSyncBatchWithToken.mockImplementation(async (input: any) => ({
+    mockPollSyncBatch.mockImplementation(async (input: any) => ({
       success: true,
       pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
         itemId: m.itemId,
@@ -206,10 +217,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setOnlineState(false)
 
     // It should have chunked 7 items into exactly 2 calls (first with 5 items, second with 2 items)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
 
-    const call1 = mockPollSyncBatchWithToken.mock.calls[0][0]
-    const call2 = mockPollSyncBatchWithToken.mock.calls[1][0]
+    const call1 = mockPollSyncBatch.mock.calls[0][0]
+    const call2 = mockPollSyncBatch.mock.calls[1][0]
     expect(call1.pushMessages).toHaveLength(5)
     expect(call2.pushMessages).toHaveLength(2)
 
@@ -225,7 +236,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
-    mockPollSyncBatchWithToken.mockImplementation(async (input: any) => {
+    mockPollSyncBatch.mockImplementation(async (input: any) => {
       // Simulate concurrent local edits added while the poll request is in flight
       // using the real send/append path
       adapter.send({
@@ -287,7 +298,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
-    mockPollSyncBatchWithToken.mockRejectedValue(new Error('Network error'))
+    mockPollSyncBatch.mockRejectedValue(new Error('Network error'))
 
     adapter.send({
       type: 'sync',
@@ -690,7 +701,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
 
     let pollCount = 0
-    mockPollSyncBatchWithToken.mockImplementation(async input => {
+    mockPollSyncBatch.mockImplementation(async input => {
       pollCount += 1
       const itemId = input?.pullCursors?.[0]?.itemId || 'item-1'
       if (pollCount === 1) {
@@ -727,16 +738,16 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
     await vi.advanceTimersByTimeAsync(50)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
 
     // The second poll returned hasMore: false, so the third poll is scheduled for 30 seconds later.
     // Advancing by 1,000ms should not run any new polls.
     await vi.advanceTimersByTimeAsync(1000)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
 
     // Advancing past the 30s backoff delay + jitter triggers poll #3.
     await vi.advanceTimersByTimeAsync(50000)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
+    expect(mockPollSyncBatch).toHaveBeenCalledTimes(3)
   })
 
   it('cleans up seededDocuments on disconnect and account change', async () => {

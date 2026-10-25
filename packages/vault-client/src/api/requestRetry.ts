@@ -1,6 +1,6 @@
 import { isRateLimitedError } from '@vault/shared'
 import { RetryStrategy } from '../sync/utils/RetryStrategy'
-import { classifySyncError } from '../sync/worker/utils/errorClassifier'
+import { classifySyncError } from '../sync/utils/errorClassifier'
 import { createLogger } from '../sync/utils/logger'
 import { REQUEST_RETRY_DELAYS } from './util'
 

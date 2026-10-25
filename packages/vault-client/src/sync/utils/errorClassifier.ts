@@ -1,6 +1,5 @@
-import { getOnlineState } from '../../utils/onlineStatus'
-import { isAbortError } from '../../utils/abort'
-import { MissingKeyError } from './decryptWithKeyResolution'
+import { getOnlineState } from './onlineStatus'
+import { isAbortError } from './abort'
 import { parseError, type ParsedError } from './errorParser'
 
 export interface ClassifiedError {
@@ -120,13 +119,10 @@ export function classifySyncError(error: unknown): ClassifiedError {
   let isNetwork = isOffline
   let isServerError = false
   let isTransientVault = (error as { name?: unknown })?.name === 'VaultNotInitializedError'
-  let isMissingKey = error instanceof MissingKeyError
+  // Matched by name, like VaultNotInitializedError, because the classes live in code that imports this module
+  let isMissingKey = (error as { name?: unknown })?.name === 'MissingKeyError'
   let missingKver: string | undefined =
-    error instanceof MissingKeyError
-      ? error.kver
-      : typeof (error as { kver?: unknown })?.kver === 'string'
-        ? (error as { kver: string }).kver
-        : undefined
+    typeof (error as { kver?: unknown })?.kver === 'string' ? (error as { kver: string }).kver : undefined
 
   let status = parsed.status
   const message =

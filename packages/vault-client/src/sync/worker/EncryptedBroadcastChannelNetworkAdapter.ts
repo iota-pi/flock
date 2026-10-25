@@ -16,7 +16,7 @@ import {
   type BaseSyncNetworkAdapterOptions,
 } from './BaseSyncNetworkAdapter'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
-import { classifySyncError } from './utils/errorClassifier'
+import { classifySyncError } from '../utils/errorClassifier'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import { AsyncQueue } from '../utils/AsyncQueue'

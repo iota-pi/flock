@@ -4,7 +4,7 @@ import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import type { PullSyncMessagesResponse } from '../../api/SyncWorkerClient'
+import type { PullSyncMessagesResponse } from './SyncWorkerClient'
 import { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
@@ -187,6 +187,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 2,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'abc',
@@ -250,6 +251,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 12,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-batch',
                 cipher: 'abc',
@@ -296,6 +298,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 100,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv',
                 cipher: 'cipher',
@@ -333,6 +336,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 200,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv',
                 cipher: 'cipher',
@@ -363,6 +367,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 250,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv2',
                 cipher: 'cipher2',
@@ -486,7 +491,7 @@ describe('SyncPullQueueManager', () => {
         hasMore: true,
         nextPageToken: 'item-pagination-token',
         nextCursor: 200,
-        messages: [{ cursor: 200, encryptedMessage: { iv: 'iv', cipher: 'cipher' } }],
+        messages: [{ cursor: 200, createdAt: 0, encryptedMessage: { iv: 'iv', cipher: 'cipher' } }],
       }])
 
       manager.resetPagination()
@@ -510,6 +515,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-fail',
                 cipher: 'abc',
@@ -544,6 +550,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-fail',
                 cipher: 'abc',
@@ -585,6 +592,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-fail',
                 cipher: 'abc',
@@ -664,6 +672,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-fail',
                 cipher: 'abc',
@@ -691,6 +700,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-success',
                 cipher: 'xyz',
@@ -726,6 +736,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-fail',
                 cipher: 'abc',
@@ -771,6 +782,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'msg1',
@@ -778,6 +790,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 20,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'msg2',
@@ -800,6 +813,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 20, // Already seen!
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'msg2',
@@ -807,6 +821,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 30, // New!
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-3',
                 cipher: 'msg3',
@@ -821,7 +836,7 @@ describe('SyncPullQueueManager', () => {
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
     })
 
-    it('advances cursor when batch consists entirely of seen messages and server omits nextCursor', async () => {
+    it('advances cursor when batch consists entirely of seen messages and nextCursor is stale', async () => {
       const onMessageParsedSpy = vi.fn()
       manager.eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
@@ -834,9 +849,11 @@ describe('SyncPullQueueManager', () => {
           success: true,
           itemId: 'item-stagnate' as ItemId,
           hasMore: false,
+          nextCursor: 20,
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'msg1',
@@ -844,6 +861,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 20,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'msg2',
@@ -859,15 +877,17 @@ describe('SyncPullQueueManager', () => {
       await manager.importCursors([['item-stagnate' as ItemId, 5]])
       expect(manager.exportCursors()).toContainEqual(['item-stagnate', 5])
 
-      // Receive a batch consisting entirely of seen messages with nextCursor omitted
+      // Receive a batch consisting entirely of seen messages with a nextCursor behind them
       await manager.processPullResults([
         {
           success: true,
           itemId: 'item-stagnate' as ItemId,
           hasMore: false,
+          nextCursor: 5,
           messages: [
             {
               cursor: 10, // already seen
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'msg1',
@@ -875,6 +895,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 20, // already seen
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'msg2',
@@ -951,6 +972,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 12,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-batch',
                 cipher: 'abc',
@@ -1036,6 +1058,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 12,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-batch',
                 cipher: 'abc',
@@ -1108,6 +1131,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 12,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-batch',
                 cipher: 'abc',
@@ -1159,6 +1183,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 2,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'abc',
@@ -1192,6 +1217,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'abc',
@@ -1199,6 +1225,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 20,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'def',
@@ -1206,6 +1233,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 30,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-3',
                 cipher: 'ghi',
@@ -1235,6 +1263,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-corrupt',
                 cipher: 'bad-payload',
@@ -1267,6 +1296,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 5,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'abc',
@@ -1282,6 +1312,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 15,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'def',
@@ -1327,6 +1358,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 3,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-3',
                 cipher: 'ok-msg3',
@@ -1334,6 +1366,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 2,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'fail-msg2',
@@ -1372,9 +1405,9 @@ describe('SyncPullQueueManager', () => {
           hasMore: false,
           nextCursor: 35,
           messages: [
-            { cursor: 30, encryptedMessage: { iv: 'iv-3', cipher: 'c3', val: 30 } as any },
-            { cursor: 10, encryptedMessage: { iv: 'iv-1', cipher: 'c1', val: 10 } as any },
-            { cursor: 20, encryptedMessage: { iv: 'iv-2', cipher: 'c2', val: 20 } as any },
+            { cursor: 30, createdAt: 0, encryptedMessage: { iv: 'iv-3', cipher: 'c3', val: 30 } as any },
+            { cursor: 10, createdAt: 0, encryptedMessage: { iv: 'iv-1', cipher: 'c1', val: 10 } as any },
+            { cursor: 20, createdAt: 0, encryptedMessage: { iv: 'iv-2', cipher: 'c2', val: 20 } as any },
           ],
         },
       ]
@@ -1407,6 +1440,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 30,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-30',
                 cipher: 'fail-msg30',
@@ -1414,6 +1448,7 @@ describe('SyncPullQueueManager', () => {
             },
             {
               cursor: 20,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-20',
                 cipher: 'ok-msg20',
@@ -1489,7 +1524,7 @@ describe('SyncPullQueueManager', () => {
       await manager.shutdown()
       activeStore!.setItem.mockClear()
 
-      await manager.processPullResults([{ success: true, itemId: 'item-new' as ItemId, messages: [], hasMore: false }])
+      await manager.processPullResults([{ success: true, itemId: 'item-new' as ItemId, nextCursor: 0, messages: [], hasMore: false }])
 
       expect(activeStore?.setItem).not.toHaveBeenCalled()
       expect(manager.exportCursors()).toEqual([])
@@ -1518,6 +1553,7 @@ describe('SyncPullQueueManager', () => {
       nextCursor: Math.max(...cursors),
       messages: cursors.map(cursor => ({
         cursor,
+        createdAt: 0,
         encryptedMessage: { iv: `iv-${cursor}`, cipher: 'abc' },
       })),
     })
@@ -1696,6 +1732,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 100,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'cipher-100',
@@ -1737,6 +1774,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 100,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-timeout',
                 cipher: 'cipher-timeout',
@@ -1777,6 +1815,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 50,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-50',
                 cipher: 'cipher-50',
@@ -1813,6 +1852,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'c-1',
@@ -1829,6 +1869,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 20,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-2',
                 cipher: 'c-2',
@@ -1876,6 +1917,7 @@ describe('SyncPullQueueManager', () => {
           messages: [
             {
               cursor: 2,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-1',
                 cipher: 'abc',
@@ -1923,9 +1965,11 @@ describe('SyncPullQueueManager', () => {
           success: true,
           itemId,
           hasMore: true,
+          nextCursor: 10,
           messages: [
             {
               cursor: 10,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-batch',
                 cipher: 'cipher',
@@ -1991,9 +2035,11 @@ describe('SyncPullQueueManager', () => {
           success: true,
           itemId,
           hasMore: true,
+          nextCursor: 5,
           messages: [
             {
               cursor: 5,
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-batch',
                 cipher: 'cipher',
@@ -2034,9 +2080,11 @@ describe('SyncPullQueueManager', () => {
           success: true,
           itemId,
           hasMore: false,
+          nextCursor: 5,
           messages: [
             {
               cursor: 5, // <= initialCursor (10)
+              createdAt: 0,
               encryptedMessage: {
                 iv: 'iv-batch',
                 cipher: 'cipher',

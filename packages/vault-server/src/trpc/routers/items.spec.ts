@@ -179,7 +179,7 @@ describe('itemsRouter.fetchSnapshotsByIds', () => {
 
     expect(result).toEqual({
       success: true,
-      items: mockItems,
+      items: [{ item: 'item-1', metadata: { iv: 'iv-1', modified: 123 } }],
       serverTime: expect.any(Number),
     })
     expect((ctx.vault as any).fetchByIds).toHaveBeenCalledWith({

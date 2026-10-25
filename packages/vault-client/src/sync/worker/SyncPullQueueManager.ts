@@ -1,12 +1,12 @@
 import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 import { debounce } from 'lodash-es'
 
-import type { PullSyncMessagesResponse } from '../../api/SyncWorkerClient'
+import type { PullSyncMessagesResponse } from './SyncWorkerClient'
 import type { KeyProvider } from '../../api/Keyring'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
-import { classifySyncError } from './utils/errorClassifier'
+import { classifySyncError } from '../utils/errorClassifier'
 import { ItemId } from '@vault/shared'
 import type { PageToken } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
@@ -410,7 +410,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     if (
       !messageResult.hasParseFailure &&
       !messageResult.hasKeyFailure &&
-      typeof result.nextCursor === 'number' &&
       Number.isFinite(result.nextCursor)
     ) {
       highestCursor = Math.max(highestCursor, result.nextCursor)

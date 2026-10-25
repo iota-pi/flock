@@ -3,6 +3,7 @@ import { WorkerInternalEventHub, type WorkerInternalEvent } from './SyncEventHub
 import type { ItemId } from '@vault/shared'
 import { clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
 import type { LocalCipher } from './localEncryption/LocalCipher'
 import { MockLocalforage, createMockLocalForage, createTestLocalCipher } from './__test__/testUtils'
 
@@ -136,7 +137,7 @@ describe('SyncWriteAheadLog with a cipher', () => {
   it('is cleared without an instance', async () => {
     await wal.append('item-1' as ItemId, MESSAGE)
 
-    await SyncWriteAheadLog.clearSealed(ACCOUNT)
+    await clearWriteAheadLog(ACCOUNT)
 
     expect(storeFor('sealedWalDatabase')!.data.size).toBe(0)
   })

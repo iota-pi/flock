@@ -1,6 +1,8 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
@@ -65,6 +67,8 @@ describe('SyncMessageBroker', () => {
       pullQueueManager,
       keys,
       wal: mockWal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId: 'account-1', eventHub: clientEventHub }),
     })
   })
 
@@ -151,7 +155,7 @@ describe('SyncMessageBroker', () => {
     expect(mockWal.append).not.toHaveBeenCalled()
   })
 
-  it('notifies onItemMessageParsed and delivers message to adapter when messageParsed is emitted', async () => {
+  it('emits itemMessageParsed when message is received', async () => {
     const mockOnItemParsed = vi.fn()
     const receiveSpy = vi.spyOn(adapter, 'receiveServerMessage')
     internalEventHub.subscribe(e => {

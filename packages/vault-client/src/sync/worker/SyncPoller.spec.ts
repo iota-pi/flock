@@ -1,4 +1,5 @@
 import { SyncPoller } from './SyncPoller'
+import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { SyncApiClient, AuthError } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createMockKeyProvider, createMockVault, createTestEventHubs } from './__test__/testUtils'
@@ -9,9 +10,9 @@ import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
 
-const mockPollSyncBatchWithToken = vi.fn()
-vi.mock('../../api/SyncWorkerClient', () => ({
-  pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
+const mockPollSyncBatch = vi.fn()
+vi.mock('./SyncWorkerClient', () => ({
+  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
 }))
 
 const encryptBytes = vi.fn().mockResolvedValue({
@@ -21,9 +22,6 @@ const encryptBytes = vi.fn().mockResolvedValue({
 })
 const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes })
 
-vi.mock('../shared/workerAuthStore', () => ({
-  getActiveSessionToken: vi.fn().mockResolvedValue('mock-token'),
-}))
 
 describe('SyncPoller', () => {
   let poller: SyncPoller
@@ -36,6 +34,7 @@ describe('SyncPoller', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    setApiAuthToken('mock-token')
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
@@ -63,6 +62,7 @@ describe('SyncPoller', () => {
       keys,
       indexManager,
       wal: mockWal,
+      apiClient: new SyncApiClient(),
       recoveryManager: mockRecoveryManager,
     })
     poller.setAccount('test-account')
@@ -79,7 +79,7 @@ describe('SyncPoller', () => {
   })
 
   it('returns success on successful empty poll batch', async () => {
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
       pullResults: [],
@@ -97,9 +97,11 @@ describe('SyncPoller', () => {
     vi.spyOn(pullQueueManager, 'getGlobalScanCursor').mockReturnValue(2000000)
     vi.spyOn(pullQueueManager, 'getGlobalLatestCursor').mockReturnValue(9000000)
 
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
+      hasMore: false,
+      globalHasMore: false,
       pullResults: [
         {
           itemId: 'item-2',
@@ -119,7 +121,7 @@ describe('SyncPoller', () => {
     const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
 
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledWith(
+    expect(mockPollSyncBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         pullCursors: [{ itemId: 'item-2', cursor: 50 }],
         clientLatestCursor: 2000000,
@@ -131,43 +133,16 @@ describe('SyncPoller', () => {
       expect.arrayContaining([
         expect.objectContaining({ itemId: 'item-2' }),
         expect.objectContaining({ itemId: 'item-1' }),
-      ])
-    )
-  })
-
-  it('forwards response.hasMore to processPullResults when present', async () => {
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
-      success: true,
-      pushResults: [],
-      pullResults: [
-        {
-          success: true,
-          itemId: 'item-1' as ItemId,
-          hasMore: false,
-          messages: [],
-        },
-      ],
-      hasMore: true,
-    })
-
-    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
-
-    const outcome = await poller.executePoll()
-    expect(outcome).toBe('success')
-
-    expect(processPullResultsSpy).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ itemId: 'item-1' }),
       ]),
-      true,
+      false,
       undefined,
       undefined,
     )
   })
 
-  it('forwards response.globalNextPageToken to processPullResults when present', async () => {
+  it('forwards response.globalHasMore and globalNextPageToken to processPullResults', async () => {
     const sampleKey = 'global-page-token'
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
       pullResults: [
@@ -179,6 +154,7 @@ describe('SyncPoller', () => {
         },
       ],
       hasMore: true,
+      globalHasMore: true,
       globalNextPageToken: sampleKey,
     })
 
@@ -198,7 +174,7 @@ describe('SyncPoller', () => {
   })
 
   it('prefers globalHasMore over hasMore and forwards the global scan cursor', async () => {
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
       pullResults: [],
@@ -222,20 +198,20 @@ describe('SyncPoller', () => {
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+    mockPollSyncBatch.mockRejectedValueOnce(
       Object.assign(new Error('bad page token'), { data: { httpStatus: 400 } }),
     )
 
     expect(await poller.executePoll()).toBe('failure')
-    expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
+    expect(mockPollSyncBatch).toHaveBeenLastCalledWith(
       expect.objectContaining({ globalPageToken: sampleKey }),
       expect.anything(),
     )
     expect(pullQueueManager.getGlobalPageToken()).toBeUndefined()
 
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({ success: true, pushResults: [], pullResults: [] })
+    mockPollSyncBatch.mockResolvedValueOnce({ success: true, pushResults: [], pullResults: [] })
     expect(await poller.executePoll()).toBe('success')
-    expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
+    expect(mockPollSyncBatch).toHaveBeenLastCalledWith(
       expect.objectContaining({ globalPageToken: undefined, clientLatestCursor: 100 }),
       expect.anything(),
     )
@@ -249,6 +225,7 @@ describe('SyncPoller', () => {
       success: true,
       itemId: 'item-1' as ItemId,
       hasMore: true,
+      nextCursor: 0,
       nextPageToken: 'item-page-token',
       messages: [],
     }])
@@ -256,7 +233,7 @@ describe('SyncPoller', () => {
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+    mockPollSyncBatch.mockRejectedValueOnce(
       Object.assign(new Error('bad page token'), { data: { httpStatus: 400 } }),
     )
 
@@ -271,7 +248,7 @@ describe('SyncPoller', () => {
     await pullQueueManager.processPullResults([], true, 'global-page-token', 100)
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+    mockPollSyncBatch.mockRejectedValueOnce(
       Object.assign(new Error('try again later'), { data: { httpStatus: status } }),
     )
 
@@ -286,7 +263,7 @@ describe('SyncPoller', () => {
     await pullQueueManager.processPullResults([], true, sampleKey, 100)
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockPollSyncBatchWithToken.mockRejectedValueOnce(
+    mockPollSyncBatch.mockRejectedValueOnce(
       Object.assign(new Error('unavailable'), { data: { httpStatus: 503 } }),
     )
 
@@ -308,7 +285,7 @@ describe('SyncPoller', () => {
     // Add a pending item to pullQueueManager to verify cursors are populated
     pullQueueManager.addPendingItem('pending-item-1' as ItemId)
 
-    mockPollSyncBatchWithToken
+    mockPollSyncBatch
       .mockResolvedValueOnce({
         success: true,
         pushResults: [
@@ -330,10 +307,10 @@ describe('SyncPoller', () => {
 
     const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
 
     // First chunk
-    expect(mockPollSyncBatchWithToken).toHaveBeenNthCalledWith(
+    expect(mockPollSyncBatch).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
@@ -345,7 +322,7 @@ describe('SyncPoller', () => {
     )
 
     // Second chunk - should also carry cursors
-    expect(mockPollSyncBatchWithToken).toHaveBeenNthCalledWith(
+    expect(mockPollSyncBatch).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
@@ -367,7 +344,7 @@ describe('SyncPoller', () => {
       ['item-a' as ItemId, [{ id: 'msg-a', itemId: 'item-a' as ItemId, data: new Uint8Array([1]), createdAt: 1 }]],
     ]))
     vi.mocked(encryptBytes).mockResolvedValueOnce({ iv: 'iv-a', cipher: 'cipher-a', kver: '2', format: 2 })
-    mockPollSyncBatchWithToken.mockResolvedValueOnce({
+    mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [{ itemId: 'item-a', cursor: 1 }],
       pullResults: [],
@@ -376,7 +353,7 @@ describe('SyncPoller', () => {
     await poller.executePoll()
 
     expect(encryptBytes).toHaveBeenCalledWith(expect.any(Uint8Array), 'item-a')
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledWith(
+    expect(mockPollSyncBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         pushMessages: [{
           itemId: 'item-a',
@@ -389,36 +366,36 @@ describe('SyncPoller', () => {
 
   describe('isAuthError classification', () => {
     it('identifies 401 and 403 httpStatus on error data as auth failure', async () => {
-      mockPollSyncBatchWithToken.mockRejectedValueOnce({
+      mockPollSyncBatch.mockRejectedValueOnce({
         data: { httpStatus: 401 },
       })
       expect(await poller.executePoll()).toBe('auth-failure')
 
-      mockPollSyncBatchWithToken.mockRejectedValueOnce({
+      mockPollSyncBatch.mockRejectedValueOnce({
         shape: { data: { httpStatus: 403 } },
       })
       expect(await poller.executePoll()).toBe('auth-failure')
     })
 
     it('identifies UNAUTHORIZED and FORBIDDEN error codes as auth failure', async () => {
-      mockPollSyncBatchWithToken.mockRejectedValueOnce({
+      mockPollSyncBatch.mockRejectedValueOnce({
         data: { code: 'UNAUTHORIZED' },
       })
       expect(await poller.executePoll()).toBe('auth-failure')
 
-      mockPollSyncBatchWithToken.mockRejectedValueOnce({
+      mockPollSyncBatch.mockRejectedValueOnce({
         code: 'FORBIDDEN',
       })
       expect(await poller.executePoll()).toBe('auth-failure')
     })
 
     it('identifies status on cause or error as auth failure', async () => {
-      mockPollSyncBatchWithToken.mockRejectedValueOnce({
+      mockPollSyncBatch.mockRejectedValueOnce({
         cause: { status: 401 },
       })
       expect(await poller.executePoll()).toBe('auth-failure')
 
-      mockPollSyncBatchWithToken.mockRejectedValueOnce({
+      mockPollSyncBatch.mockRejectedValueOnce({
         status: 403,
       })
       expect(await poller.executePoll()).toBe('auth-failure')
@@ -427,17 +404,17 @@ describe('SyncPoller', () => {
     it('identifies UnauthorizedError / ForbiddenError names as auth failure', async () => {
       const err = new Error('Auth required')
       err.name = 'UnauthorizedError'
-      mockPollSyncBatchWithToken.mockRejectedValueOnce(err)
+      mockPollSyncBatch.mockRejectedValueOnce(err)
       expect(await poller.executePoll()).toBe('auth-failure')
     })
 
     it('treats generic errors containing unauthorized text as regular failure if no structured auth metadata', async () => {
-      mockPollSyncBatchWithToken.mockRejectedValueOnce(new Error('Network proxy error: unauthorized gateway access'))
+      mockPollSyncBatch.mockRejectedValueOnce(new Error('Network proxy error: unauthorized gateway access'))
       expect(await poller.executePoll()).toBe('failure')
     })
 
     it('treats standard network/generic errors as failure', async () => {
-      mockPollSyncBatchWithToken.mockRejectedValueOnce(new Error('Connection timeout'))
+      mockPollSyncBatch.mockRejectedValueOnce(new Error('Connection timeout'))
       expect(await poller.executePoll()).toBe('failure')
     })
   })
@@ -452,7 +429,7 @@ describe('SyncPoller', () => {
 
       vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [{ itemId: 'item-1', cursor: 1 }],
         pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
@@ -466,7 +443,7 @@ describe('SyncPoller', () => {
     it('returns failure when processPullResults throws during empty poll', async () => {
       vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [],
         pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
@@ -482,13 +459,13 @@ describe('SyncPoller', () => {
       poller.shutdown()
       const outcome = await poller.executePoll()
       expect(outcome).toBe('no-poll')
-      expect(mockPollSyncBatchWithToken).not.toHaveBeenCalled()
+      expect(mockPollSyncBatch).not.toHaveBeenCalled()
     })
 
     it('discards response and skips writes to WAL, cursors, and indexManager if shutdown happens while network request is in-flight', async () => {
       let resolveNetwork: (val: any) => void = () => {}
       let networkStarted = false
-      mockPollSyncBatchWithToken.mockImplementationOnce(
+      mockPollSyncBatch.mockImplementationOnce(
         () =>
           new Promise(resolve => {
             networkStarted = true
@@ -524,9 +501,9 @@ describe('SyncPoller', () => {
       expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
-    it('passes abort signal to pollSyncBatchWithToken and handles abort cleanly', async () => {
+    it('passes abort signal to pollSyncBatch and handles abort cleanly', async () => {
       let signalCaptured: AbortSignal | undefined
-      mockPollSyncBatchWithToken.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
+      mockPollSyncBatch.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
         signalCaptured = options?.signal
         return new Promise((_, reject) => {
           options?.signal?.addEventListener('abort', () => {
@@ -562,7 +539,7 @@ describe('SyncPoller', () => {
       }
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
-      mockPollSyncBatchWithToken.mockImplementation(async () => {
+      mockPollSyncBatch.mockImplementation(async () => {
         // Shut down poller during chunk 1 processing
         poller.shutdown()
         return {
@@ -576,7 +553,7 @@ describe('SyncPoller', () => {
       expect(outcome).toBe('no-poll')
 
       // Only chunk 1 was attempted; chunk 2 was aborted/skipped
-      expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPollSyncBatch).toHaveBeenCalledTimes(1)
       // WAL removal should have been suppressed because of shutdown
       expect(mockWal.remove).not.toHaveBeenCalled()
     })
@@ -586,7 +563,7 @@ describe('SyncPoller', () => {
       expect(await poller.executePoll()).toBe('no-poll')
 
       poller.setAccount('new-account')
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [],
         pullResults: [],
@@ -597,7 +574,7 @@ describe('SyncPoller', () => {
 
     it('abort() cancels in-flight poll cleanly without permanently disabling future polls', async () => {
       let signalCaptured: AbortSignal | undefined
-      mockPollSyncBatchWithToken.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
+      mockPollSyncBatch.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
         signalCaptured = options?.signal
         return new Promise((_, reject) => {
           options?.signal?.addEventListener('abort', () => {
@@ -623,7 +600,7 @@ describe('SyncPoller', () => {
       expect(outcome).toBe('no-poll')
 
       // Subsequent executePoll should succeed without calling setAccount
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [],
         pullResults: [],
@@ -638,7 +615,7 @@ describe('SyncPoller', () => {
 
       let resolveNetwork: (val: any) => void = () => {}
       let networkStarted = false
-      mockPollSyncBatchWithToken.mockImplementationOnce(
+      mockPollSyncBatch.mockImplementationOnce(
         () =>
           new Promise(resolve => {
             networkStarted = true
@@ -666,7 +643,7 @@ describe('SyncPoller', () => {
       poller.setOnlineState(false)
       const outcome = await poller.executePoll()
       expect(outcome).toBe('no-poll')
-      expect(mockPollSyncBatchWithToken).not.toHaveBeenCalled()
+      expect(mockPollSyncBatch).not.toHaveBeenCalled()
     })
   })
 
@@ -681,11 +658,10 @@ describe('SyncPoller', () => {
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', cursor: 10, success: true },
-          { itemId: 'item-2', success: false, error: 'ConditionalCheckFailed' },
+          { itemId: 'item-1', cursor: 10 },
         ],
         pullResults: [],
       })
@@ -710,7 +686,7 @@ describe('SyncPoller', () => {
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
           { itemId: 'item-1', cursor: 10 },
@@ -733,7 +709,7 @@ describe('SyncPoller', () => {
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [],
         pullResults: [],
@@ -756,7 +732,7 @@ describe('SyncPoller', () => {
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
           { itemId: 'item-1', cursor: 25 },
@@ -777,7 +753,7 @@ describe('SyncPoller', () => {
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
           { itemId: 'item-1', cursor: NaN },
@@ -793,27 +769,6 @@ describe('SyncPoller', () => {
       expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
-    it('removes WAL entries when pushResult has explicit success: true even without cursor', async () => {
-      const walMap = new Map<ItemId, WalEntry[]>()
-      walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
-      ])
-      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
-
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
-        success: true,
-        pushResults: [
-          { itemId: 'item-1', success: true },
-        ],
-        pullResults: [],
-      })
-
-      const outcome = await poller.executePoll()
-      expect(outcome).toBe('success')
-      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
-      expect(poller.consecutivePushFailures.has('item-1' as ItemId)).toBe(false)
-    })
-
     it('records successful push cursors as own messages before processing pull results', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
@@ -827,11 +782,10 @@ describe('SyncPoller', () => {
       const recordSpy = vi.spyOn(pullQueueManager, 'recordOwnPushedMessage')
       const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', cursor: 123, success: true },
-          { itemId: 'item-2', success: false, error: 'DatabaseWriteFailed' },
+          { itemId: 'item-1', cursor: 123 },
         ],
         pullResults: [],
       })
@@ -855,12 +809,13 @@ describe('SyncPoller', () => {
 
       const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', cursor: 10, success: true },
-          { itemId: 'item-2', success: false, error: 'DatabaseWriteFailed' },
+          { itemId: 'item-1', cursor: 10 },
         ],
+        hasMore: false,
+        globalHasMore: false,
         pullResults: [
           {
             itemId: 'item-pull-1',
@@ -882,7 +837,10 @@ describe('SyncPoller', () => {
       expect(processPullResultsSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({ itemId: 'item-pull-1' }),
-        ])
+        ]),
+        false,
+        undefined,
+        undefined,
       )
 
       // Item 2 failure count incremented
@@ -901,11 +859,9 @@ describe('SyncPoller', () => {
       // Pre-seed with 4 failures
       poller.consecutivePushFailures.set(itemId, 4)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
-        pushResults: [
-          { itemId, success: false, error: 'PayloadTooLarge' },
-        ],
+        pushResults: [],
         pullResults: [],
       })
 
@@ -917,7 +873,7 @@ describe('SyncPoller', () => {
       expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
         itemId,
         'pushFailure',
-        expect.stringContaining('Push failed after 5 consecutive attempts: PayloadTooLarge')
+        expect.stringContaining('Push failed after 5 consecutive attempts: Push unacknowledged by server')
       )
 
       // Quarantined item's entries are removed from WAL
@@ -938,10 +894,10 @@ describe('SyncPoller', () => {
       // Pre-seed with 3 failures
       poller.consecutivePushFailures.set(itemId, 3)
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId, cursor: 50, success: true },
+          { itemId, cursor: 50 },
         ],
         pullResults: [],
       })
@@ -961,10 +917,10 @@ describe('SyncPoller', () => {
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
       vi.mocked(mockWal.remove).mockRejectedValueOnce(new Error('IndexedDB transaction failed'))
 
-      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+      mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [
-          { itemId: 'item-1', success: true },
+          { itemId: 'item-1', cursor: 1 },
         ],
         pullResults: [],
       })
@@ -989,6 +945,7 @@ describe('SyncPoller', () => {
         indexManager,
         wal: mockWal,
         apiClient: mockApiClient,
+        recoveryManager: mockRecoveryManager,
       })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)
@@ -999,15 +956,25 @@ describe('SyncPoller', () => {
     })
 
     it('recovers transparently and succeeds when initial poll fails with 401 but refresh succeeds', async () => {
-      const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-session-token')
+      const refreshAuthToken = vi.fn().mockImplementation(async () => {
+        setApiAuthToken('refreshed-session-token')
+        return 'refreshed-session-token'
+      })
       const apiClient = new SyncApiClient({ refreshAuthToken })
 
-      mockPollSyncBatchWithToken
-        .mockRejectedValueOnce({ httpStatus: 401, message: 'Session expired' })
-        .mockResolvedValueOnce({
-          success: true,
-          pushResults: [],
-          pullResults: [],
+      const tokensSent: string[] = []
+      mockPollSyncBatch
+        .mockImplementationOnce(async () => {
+          tokensSent.push(getApiAuthToken())
+          throw { httpStatus: 401, message: 'Session expired' }
+        })
+        .mockImplementationOnce(async () => {
+          tokensSent.push(getApiAuthToken())
+          return {
+            success: true,
+            pushResults: [],
+            pullResults: [],
+          }
         })
 
       const authPoller = new SyncPoller({
@@ -1017,7 +984,8 @@ describe('SyncPoller', () => {
         keys,
         indexManager,
         wal: mockWal,
-        apiClient: apiClient,
+        apiClient,
+        recoveryManager: mockRecoveryManager,
       })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)
@@ -1025,21 +993,15 @@ describe('SyncPoller', () => {
       const outcome = await authPoller.executePoll()
       expect(outcome).toBe('success')
       expect(refreshAuthToken).toHaveBeenCalledTimes(1)
-      expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
-      expect(mockPollSyncBatchWithToken).toHaveBeenLastCalledWith(
-        expect.objectContaining({ authToken: 'refreshed-session-token' }),
-        expect.any(Object)
-      )
+      expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
+      expect(tokensSent).toEqual(['mock-token', 'refreshed-session-token'])
     })
 
     it('returns auth-failure when poll fails with 401 and token cannot be refreshed', async () => {
       const refreshAuthToken = vi.fn().mockResolvedValue(null)
-      const apiClient = new SyncApiClient({
-        getAuthToken: vi.fn().mockResolvedValue('expired-token'),
-        refreshAuthToken,
-      })
+      const apiClient = new SyncApiClient({ refreshAuthToken })
 
-      mockPollSyncBatchWithToken.mockRejectedValue({ httpStatus: 401, message: 'Unauthorized' })
+      mockPollSyncBatch.mockRejectedValue({ httpStatus: 401, message: 'Unauthorized' })
 
       const authPoller = new SyncPoller({
         pullQueueManager,
@@ -1048,7 +1010,8 @@ describe('SyncPoller', () => {
         keys,
         indexManager,
         wal: mockWal,
-        apiClient: apiClient,
+        apiClient,
+        recoveryManager: mockRecoveryManager,
       })
       authPoller.setAccount('test-account')
       authPoller.setOnlineState(true)

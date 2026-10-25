@@ -4,7 +4,7 @@ import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifie
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { checkAlive, isAbortError } from '../utils/abort'
-import { RecoveryManager } from './RecoveryManager'
+import type { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -13,7 +13,7 @@ const log = createLogger('SnapshotTracker')
 export interface SnapshotTrackerOptions {
   accountId: string
   lastModifiedStore: LastModifiedStore
-  recoveryManager?: RecoveryManager
+  recoveryManager: RecoveryManager
   debounceDelayMs?: number
   maxWaitMs?: number
   isLeader?: boolean
@@ -42,7 +42,7 @@ export class SnapshotTracker {
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
   private readonly onOversizedFound?: (itemId: ItemId) => void
-  private readonly recoveryManager?: RecoveryManager
+  private readonly recoveryManager: RecoveryManager
   private readonly lastModifiedStore: LastModifiedStore
   private readonly accountId: string
 
@@ -57,7 +57,7 @@ export class SnapshotTracker {
   constructor(options: SnapshotTrackerOptions) {
     this.accountId = options.accountId
     this.lastModifiedStore = options.lastModifiedStore
-    this.recoveryManager = options.recoveryManager ?? (options.accountId ? new RecoveryManager({ accountId: options.accountId }) : undefined)
+    this.recoveryManager = options.recoveryManager
     this.debounceDelayMs = options.debounceDelayMs ?? 30_000
     this.maxWaitMs = options.maxWaitMs ?? 5 * 60 * 1000
     this.isLeader = options.isLeader ?? false
@@ -207,7 +207,7 @@ export class SnapshotTracker {
       }
 
       const quarantinedIds = new Set<ItemId>()
-      if (this.accountId && this.recoveryManager) {
+      if (this.accountId) {
         try {
           const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.accountId)
           checkAlive(null, () => !this.shutDown)

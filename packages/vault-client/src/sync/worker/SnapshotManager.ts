@@ -3,8 +3,8 @@ import { ItemId } from '@vault/shared'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { ClientEventHub } from './SyncEventHub'
-import { RecoveryManager } from './RecoveryManager'
-import { SyncApiClient } from './SyncApiClient'
+import type { RecoveryManager } from './RecoveryManager'
+import type { SyncApiClient } from './SyncApiClient'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import type { DocCodec } from './domain'
@@ -42,8 +42,8 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       broker: SyncMessageBroker
       getLatestCursor?: () => number
       eventHub?: ClientEventHub
-      recoveryManager?: RecoveryManager
-      apiClient?: SyncApiClient
+      recoveryManager: RecoveryManager
+      apiClient: SyncApiClient
       codec?: DocCodec
       keys: KeyProvider
     },
@@ -51,15 +51,10 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     options?: SnapshotManagerOptions,
   ) {
     this.builder = new SnapshotBuilder(deps.repo, deps.keys, deps.codec)
-    const recoveryManager = deps.recoveryManager ?? new RecoveryManager({
-      accountId: deps.accountId,
-      eventHub: deps.eventHub,
-    })
-
     this.tracker = new SnapshotTracker({
       accountId: deps.accountId,
       lastModifiedStore,
-      recoveryManager,
+      recoveryManager: deps.recoveryManager,
       debounceDelayMs: options?.debounceDelayMs,
       maxWaitMs: options?.maxWaitMs,
       isLeader: options?.isLeader,
@@ -73,7 +68,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       tracker: this.tracker,
       builder: this.builder,
       broker: deps.broker,
-      recoveryManager,
+      recoveryManager: deps.recoveryManager,
       apiClient: deps.apiClient,
       eventHub: deps.eventHub,
       getLatestCursor: deps.getLatestCursor,

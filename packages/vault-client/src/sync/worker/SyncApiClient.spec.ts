@@ -1,82 +1,92 @@
 import { SyncApiClient, AuthError, AuthExpiredError } from './SyncApiClient'
 
-const mockPutSnapshotsWithToken = vi.fn()
-const mockPollSyncBatchWithToken = vi.fn()
-vi.mock('../../api/SyncWorkerClient', () => ({
-  putSnapshotsWithToken: (...args: any[]) => mockPutSnapshotsWithToken(...args),
-  pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
+const mockPutSnapshots = vi.fn()
+const mockPollSyncBatch = vi.fn()
+vi.mock('./SyncWorkerClient', () => ({
+  putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
+  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
 }))
 
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
-vi.mock('../../api/ItemClient', () => ({
+vi.mock('./ItemClient', () => ({
   fetchManifest: (...args: any[]) => mockFetchManifest(...args),
   fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
 }))
 
-const mockSetApiAuthToken = vi.fn()
-const mockHasApiAuthToken = vi.fn().mockReturnValue(false)
-const mockGetApiAuthToken = vi.fn().mockReturnValue('')
+let runtimeToken = ''
 vi.mock('../../api/runtime', () => ({
-  setApiAuthToken: (...args: any[]) => mockSetApiAuthToken(...args),
-  hasApiAuthToken: () => mockHasApiAuthToken(),
-  getApiAuthToken: () => mockGetApiAuthToken(),
+  getApiAuthToken: () => runtimeToken,
 }))
 
-const mockGetActiveSessionToken = vi.fn()
-vi.mock('../shared/workerAuthStore', () => ({
-  getActiveSessionToken: () => mockGetActiveSessionToken(),
-}))
+/** A refresh that installs `token` as the realm's token, as the sync worker's does */
+function refreshTo(token: string | null) {
+  return vi.fn().mockImplementation(async () => {
+    runtimeToken = token ?? ''
+    return token
+  })
+}
 
 describe('SyncApiClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHasApiAuthToken.mockReturnValue(false)
-    mockGetApiAuthToken.mockReturnValue('')
-    mockGetActiveSessionToken.mockResolvedValue('default-store-token')
+    runtimeToken = 'default-token'
   })
 
   describe('Token Acquisition', () => {
-    it('acquires token from store and synchronizes with runtime', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('store-token-123')
-      const client = new SyncApiClient()
-
-      const token = await client.getValidToken()
-      expect(token).toBe('store-token-123')
-      expect(mockSetApiAuthToken).toHaveBeenCalledWith('store-token-123')
-    })
-
-    it('falls back to refreshAuthToken if store token is null', async () => {
-      mockGetActiveSessionToken.mockResolvedValue(null)
-      const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-token-abc')
+    it('uses the realm token without refreshing', async () => {
+      runtimeToken = 'runtime-token-123'
+      const refreshAuthToken = refreshTo('unused')
       const client = new SyncApiClient({ refreshAuthToken })
 
-      const token = await client.getValidToken()
-      expect(token).toBe('refreshed-token-abc')
-      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
-      expect(mockSetApiAuthToken).toHaveBeenCalledWith('refreshed-token-abc')
+      expect(await client.getValidToken()).toBe('runtime-token-123')
+      expect(refreshAuthToken).not.toHaveBeenCalled()
     })
 
-    it('returns null if no token in store and no refresh function', async () => {
-      mockGetActiveSessionToken.mockResolvedValue(null)
+    it('refreshes when the realm has no token', async () => {
+      runtimeToken = ''
+      const refreshAuthToken = refreshTo('refreshed-token-abc')
+      const client = new SyncApiClient({ refreshAuthToken })
+
+      expect(await client.getValidToken()).toBe('refreshed-token-abc')
+      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('returns null if there is no token and no refresh function', async () => {
+      runtimeToken = ''
       const client = new SyncApiClient()
 
-      const token = await client.getValidToken()
-      expect(token).toBeNull()
-
+      expect(await client.getValidToken()).toBeNull()
       await expect(client.putSnapshots({ account: 'acc-1', snapshots: [] })).rejects.toThrow(AuthError)
+      expect(mockPutSnapshots).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the realm token when the refresh throws', async () => {
+      runtimeToken = ''
+      const refreshAuthToken = vi.fn().mockImplementation(async () => {
+        runtimeToken = 'arrived-meanwhile'
+        throw new Error('refresh failed')
+      })
+      const client = new SyncApiClient({ refreshAuthToken })
+
+      expect(await client.getValidToken()).toBe('arrived-meanwhile')
     })
   })
 
   describe('Transparent 401 Retry', () => {
     it('retries putSnapshots transparently when receiving a 401 auth error', async () => {
-      mockGetActiveSessionToken.mockResolvedValueOnce('stale-token')
-      const refreshAuthToken = vi.fn().mockResolvedValue('new-token')
+      runtimeToken = 'stale-token'
+      const refreshAuthToken = refreshTo('new-token')
       const client = new SyncApiClient({ refreshAuthToken })
 
-      mockPutSnapshotsWithToken
-        .mockRejectedValueOnce({ data: { httpStatus: 401 }, message: 'UNAUTHORIZED' })
-        .mockResolvedValueOnce({ success: true, persisted: 1 })
+      const tokensSent: string[] = []
+      mockPutSnapshots.mockImplementation(async () => {
+        tokensSent.push(runtimeToken)
+        if (tokensSent.length === 1) {
+          throw { data: { httpStatus: 401 }, message: 'UNAUTHORIZED' }
+        }
+        return { success: true, persisted: 1 }
+      })
 
       const result = await client.putSnapshots({
         account: 'test-account',
@@ -84,19 +94,19 @@ describe('SyncApiClient', () => {
       })
 
       expect(result).toEqual({ success: true, persisted: 1 })
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
-      expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('stale-token')
-      expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('new-token')
+      expect(tokensSent).toEqual(['stale-token', 'new-token'])
       expect(refreshAuthToken).toHaveBeenCalledTimes(1)
     })
 
-    it('retries when newer token is discovered in store on 401', async () => {
-      mockGetActiveSessionToken
-        .mockResolvedValueOnce('stale-token')
-        .mockResolvedValueOnce('newer-store-token')
-      const client = new SyncApiClient()
+    it('retries with a token that arrived while the refresh failed', async () => {
+      runtimeToken = 'stale-token'
+      const refreshAuthToken = vi.fn().mockImplementation(async () => {
+        runtimeToken = 'newer-token'
+        return null
+      })
+      const client = new SyncApiClient({ refreshAuthToken })
 
-      mockPutSnapshotsWithToken
+      mockPutSnapshots
         .mockRejectedValueOnce({ status: 401 })
         .mockResolvedValueOnce({ success: true, persisted: 2 })
 
@@ -106,17 +116,15 @@ describe('SyncApiClient', () => {
       })
 
       expect(result).toEqual({ success: true, persisted: 2 })
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
-      expect(mockPutSnapshotsWithToken.mock.calls[0][0].authToken).toBe('stale-token')
-      expect(mockPutSnapshotsWithToken.mock.calls[1][0].authToken).toBe('newer-store-token')
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
     })
 
     it('throws AuthExpiredError if 401 occurs and token cannot be refreshed', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('stale-token')
+      runtimeToken = 'stale-token'
       const refreshAuthToken = vi.fn().mockResolvedValue(null)
       const client = new SyncApiClient({ refreshAuthToken })
 
-      mockPutSnapshotsWithToken.mockRejectedValue({
+      mockPutSnapshots.mockRejectedValue({
         data: { httpStatus: 401 },
         message: 'UNAUTHORIZED',
       })
@@ -128,49 +136,38 @@ describe('SyncApiClient', () => {
         })
       ).rejects.toThrow(AuthExpiredError)
 
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     })
 
-    it('coalesces concurrent token refreshes into a single call', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('initial-token')
-      let resolveRefresh: (t: string) => void
-      const refreshPromise = new Promise<string>(resolve => {
-        resolveRefresh = resolve
-      })
-      const refreshAuthToken = vi.fn().mockImplementation(() => refreshPromise)
+    it('throws AuthExpiredError if the refresh returns the rejected token', async () => {
+      runtimeToken = 'same-token'
+      const client = new SyncApiClient({ refreshAuthToken: refreshTo('same-token') })
 
-      const client = new SyncApiClient({ refreshAuthToken })
+      mockPutSnapshots.mockRejectedValue({ status: 401 })
 
-      mockFetchManifest
-        .mockRejectedValueOnce({ data: { httpStatus: 401 } })
-        .mockResolvedValueOnce({ manifest: [], serverTime: 1000 })
+      await expect(
+        client.putSnapshots({ account: 'test-account', snapshots: [] })
+      ).rejects.toThrow(AuthExpiredError)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+    })
 
-      mockFetchSnapshotsByIds
-        .mockRejectedValueOnce({ data: { httpStatus: 401 } })
-        .mockResolvedValueOnce({ items: [], serverTime: 1000 })
+    it('throws AuthExpiredError if the retry is rejected too', async () => {
+      runtimeToken = 'stale-token'
+      const client = new SyncApiClient({ refreshAuthToken: refreshTo('new-token') })
 
-      const p1 = client.fetchManifest({ account: 'acc-1' })
-      const p2 = client.fetchSnapshotsByIds({ account: 'acc-1', itemIds: ['i1' as any] })
+      mockPutSnapshots.mockRejectedValue({ status: 401 })
 
-      // Wait a tick for both to hit 401 and trigger refresh
-      await new Promise(r => setTimeout(r, 10))
-
-      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
-
-      resolveRefresh!('shared-new-token')
-
-      const [res1, res2] = await Promise.all([p1, p2])
-      expect(res1).toEqual({ manifest: [], serverTime: 1000 })
-      expect(res2).toEqual({ items: [], serverTime: 1000 })
-      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+      await expect(
+        client.putSnapshots({ account: 'test-account', snapshots: [] })
+      ).rejects.toThrow(AuthExpiredError)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
     })
 
     it('does not catch non-auth errors', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('valid-token')
       const client = new SyncApiClient()
 
       const networkError = new Error('Network timeout')
-      mockPutSnapshotsWithToken.mockRejectedValue(networkError)
+      mockPutSnapshots.mockRejectedValue(networkError)
 
       await expect(
         client.putSnapshots({
@@ -179,7 +176,7 @@ describe('SyncApiClient', () => {
         })
       ).rejects.toThrow('Network timeout')
 
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -190,7 +187,7 @@ describe('SyncApiClient', () => {
 
       const result = await client.fetchManifest({ account: 'acc-1' })
       expect(result).toEqual({ manifest: [{ itemId: 'i1', modifiedAt: 100 }], serverTime: 5000 })
-      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-1' })
+      expect(mockFetchManifest).toHaveBeenCalledWith({ account: 'acc-1' }, undefined)
     })
 
     it('passes through fetchSnapshotsByIds successfully', async () => {
@@ -199,11 +196,11 @@ describe('SyncApiClient', () => {
 
       const result = await client.fetchSnapshotsByIds({ account: 'acc-1', itemIds: ['i1' as any] })
       expect(result).toEqual({ items: [{ item: 'i1' }], serverTime: 5000 })
-      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({ account: 'acc-1', itemIds: ['i1'] })
+      expect(mockFetchSnapshotsByIds).toHaveBeenCalledWith({ account: 'acc-1', itemIds: ['i1'] }, undefined)
     })
 
     it('passes through pollSyncBatch successfully', async () => {
-      mockPollSyncBatchWithToken.mockResolvedValue({
+      mockPollSyncBatch.mockResolvedValue({
         success: true,
         pushResults: [],
         pullResults: [],
@@ -216,55 +213,7 @@ describe('SyncApiClient', () => {
       } as any)
 
       expect(result.success).toBe(true)
-      expect(mockPollSyncBatchWithToken).toHaveBeenCalledWith(
-        expect.objectContaining({ account: 'acc-1', authToken: 'default-store-token' }),
-        undefined
-      )
-    })
-  })
-
-  describe('Global Token Synchronization in executeWithAuth', () => {
-    it('synchronizes the runtime auth token before executing an operation', async () => {
-      mockGetActiveSessionToken.mockResolvedValue('cached-session-token')
-      const client = new SyncApiClient()
-
-      let tokenDuringOperation: string | null = null
-      mockSetApiAuthToken.mockImplementation((t: string) => {
-        tokenDuringOperation = t
-      })
-
-      const executed = await client.executeWithAuth(async token => {
-        expect(mockSetApiAuthToken).toHaveBeenCalledWith('cached-session-token')
-        expect(tokenDuringOperation).toBe('cached-session-token')
-        return `result-with-${token}`
-      })
-
-      expect(executed).toBe('result-with-cached-session-token')
-      expect(mockSetApiAuthToken).toHaveBeenCalledWith('cached-session-token')
-    })
-
-    it('synchronizes the runtime auth token with refreshed token on 401 retry', async () => {
-      mockGetActiveSessionToken.mockResolvedValueOnce('initial-token')
-      const refreshAuthToken = vi.fn().mockResolvedValue('refreshed-token-999')
-      const client = new SyncApiClient({ refreshAuthToken })
-
-      const tokenOrder: string[] = []
-      mockSetApiAuthToken.mockImplementation((t: string) => {
-        tokenOrder.push(t)
-      })
-
-      let attempts = 0
-      await client.executeWithAuth(async token => {
-        attempts += 1
-        if (attempts === 1) {
-          throw { data: { httpStatus: 401 }, message: 'UNAUTHORIZED' }
-        }
-        return token
-      })
-
-      expect(tokenOrder).toContain('initial-token')
-      expect(tokenOrder).toContain('refreshed-token-999')
-      expect(mockSetApiAuthToken).toHaveBeenLastCalledWith('refreshed-token-999')
+      expect(mockPollSyncBatch).toHaveBeenCalledWith({ account: 'acc-1', pullCursors: {} }, undefined)
     })
   })
 })

@@ -111,17 +111,6 @@ export class SyncWriteAheadLog {
     return createAccountStore('wal-entries-sealed', accountId)
   }
 
-  /**
-   * Clears the account's sealed entries without needing an active instance. The plaintext store is
-   * deleted instead (`clearWriteAheadLog`): clearing it would create an empty plaintext database,
-   * which the app's legacy data detection would then find.
-   */
-  public static async clearSealed(accountId: string): Promise<void> {
-    if (!accountId) return
-    const storage = SyncWriteAheadLog.getSealedStorage(accountId)
-    await runStorageOperation(() => storage.clear())
-  }
-
   private readonly cipher?: LocalCipher
 
   constructor(

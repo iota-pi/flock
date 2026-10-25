@@ -30,3 +30,9 @@ export interface DataVersionStatus {
   /** What still holds the account below the app's current level */
   blockers: string[]
 }
+
+/** The items re-encrypted under the active data key, and those that couldn't be */
+export interface ReencryptResult {
+  succeeded: ItemId[]
+  failed: Array<{ itemId: ItemId; error: string }>
+}

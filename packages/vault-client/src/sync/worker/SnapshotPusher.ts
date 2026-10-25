@@ -1,11 +1,11 @@
 import type { VaultSnapshotInput } from '@vault/shared'
 import type { SnapshotPushResult } from './syncProtocol'
-import { SyncApiClient } from './SyncApiClient'
+import type { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
-import { classifySyncError } from './utils/errorClassifier'
+import { classifySyncError } from '../utils/errorClassifier'
 import { ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
-import { RecoveryManager } from './RecoveryManager'
+import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from '../utils/abort'
@@ -23,8 +23,8 @@ export interface SnapshotPusherOptions {
   tracker: SnapshotTracker
   builder: SnapshotBuilder
   broker: SyncMessageBroker
-  recoveryManager?: RecoveryManager
-  apiClient?: SyncApiClient
+  recoveryManager: RecoveryManager
+  apiClient: SyncApiClient
   eventHub?: ClientEventHub
   getLatestCursor?: () => number
   maxPayloadBytes?: number
@@ -71,11 +71,8 @@ export class SnapshotPusher {
     this.eventHub = options.eventHub
     this.getLatestCursor = options.getLatestCursor
     this.maxPayloadBytes = options.maxPayloadBytes ?? MAX_ITEM_SIZE_BYTES
-    this.apiClient = options.apiClient ?? new SyncApiClient()
-    this.recoveryManager = options.recoveryManager ?? new RecoveryManager({
-      accountId: options.accountId,
-      eventHub: options.eventHub,
-    })
+    this.apiClient = options.apiClient
+    this.recoveryManager = options.recoveryManager
   }
 
   get retryAttempt(): number {
@@ -192,7 +189,7 @@ export class SnapshotPusher {
           account: this.accountId,
           snapshots: batch,
         },
-        signal ? { signal } : undefined,
+        { signal },
       )
 
       return {

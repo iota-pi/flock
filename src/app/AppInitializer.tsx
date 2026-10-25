@@ -5,6 +5,7 @@ import { useLoggedIn } from '../state/selectors'
 import useSyncCoordinatorLifecycle from './vault/useSyncCoordinatorLifecycle'
 import useAccountLevelCheck from './vault/useAccountLevelCheck'
 import { prefetchSyncWorker } from './vault/prefetchSyncWorker'
+import { failCypressTestOnRequestError, isCypress } from './vault/cypress'
 import { ensurePersistentStorage, getTrackedFetch, initVaultTrpcClient } from '@vault/client'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { useNavigate } from 'react-router'
@@ -21,6 +22,7 @@ export default function AppInitializer() {
     const trackedFetch = getTrackedFetch(
       useAppStore.getState().startRequest,
       useAppStore.getState().finishRequest,
+      isCypress ? failCypressTestOnRequestError : undefined,
     )
     initTrpcClient(trackedFetch)
     initVaultTrpcClient(trackedFetch)

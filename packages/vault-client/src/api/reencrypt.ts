@@ -1,6 +1,6 @@
 import { rotateVaultKey, exportKeyringData } from './vault'
 import { createLogger } from '../sync/utils/logger'
-import type { ReencryptResult } from '../sync/worker/syncProtocol'
+import type { ReencryptResult } from '../sync/shared/types'
 
 const log = createLogger('reencrypt')
 

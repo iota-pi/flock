@@ -31,6 +31,16 @@ const vaultPackageZones = [
     from: './packages/vault-client',
     message: '@vault/server must not depend on the client.',
   },
+  {
+    target: './packages/vault-client/src/api',
+    from: ['./packages/vault-client/src/sync/client', './packages/vault-client/src/sync/worker'],
+    message: 'The sync engine builds on api/, not the reverse. Move what both need to sync/utils or sync/shared.',
+  },
+  {
+    target: './packages/vault-client/src/sync/worker',
+    from: './packages/vault-client/src/sync/client',
+    message: 'The sync worker must not import main-thread code. Move what both need to sync/utils or sync/shared.',
+  },
 ]
 
 const vaultPackageImportPatterns = [

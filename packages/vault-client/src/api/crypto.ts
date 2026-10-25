@@ -1,11 +1,11 @@
 import { z } from 'zod'
 
 import { CryptoResultSchema, DOC_BOUND_FORMAT } from '@vault/shared'
-import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 import {
   assertKdfAcceptable,
   assertPbkdf2Acceptable,
   deriveArgon2idBytes,
+  getDefaultPbkdf2Iterations,
   UnsupportedKeyDerivationError,
   type KdfParams,
 } from './kdf'
@@ -62,7 +62,7 @@ function decodeSalt({ salt, saltVersion, decodeLegacySalt }: InitialiseKeyParams
 
 /**
  * Derives an account's master key from its password. The parameters come from the server or local
- * metadata, so they're checked against `KDF_LIMITS` first.
+ * metadata, so they're checked against `getKdfLimits()` first.
  */
 export async function deriveVaultKey(params: InitialiseKeyParams): Promise<CryptoKey> {
   const { password, kdf, deriveLegacyKey } = params
@@ -72,7 +72,7 @@ export async function deriveVaultKey(params: InitialiseKeyParams): Promise<Crypt
     assertKdfAcceptable(kdf)
     keyBytes = await deriveArgon2idBytes(password, new Uint8Array(salt), kdf) as Uint8Array<ArrayBuffer>
   } else {
-    const iterations = params.iterations || DEFAULT_CRYPTO_ITERATIONS
+    const iterations = params.iterations || getDefaultPbkdf2Iterations()
     assertPbkdf2Acceptable(iterations)
     if (!deriveLegacyKey) {
       throw new UnsupportedKeyDerivationError('This app no longer derives PBKDF2 keys')

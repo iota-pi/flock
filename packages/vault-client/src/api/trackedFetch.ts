@@ -13,10 +13,6 @@ export class ApiHttpError extends Error {
   }
 }
 
-function isCypressRuntime(): boolean {
-  return typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
-}
-
 function shouldShowServerErrorMessage(error: unknown): boolean {
   if (!getOnlineState()) {
     return false
@@ -56,7 +52,8 @@ function hasJsonErrorBody(response: Response): boolean {
 /**
  * A fetch for the tRPC clients that reports each request's start and end, and whether it failed in
  * a way worth telling the user about. Calls the session-expired handler when the server rejects
- * the session token a request carried (401 or 403).
+ * the session token a request carried (401 or 403), and `onFailedResponse` for every response that
+ * isn't ok.
  *
  * Failed responses with a JSON body are returned for tRPC to turn into an error with the server's
  * code and message. Other failed responses throw `ApiHttpError`.
@@ -64,6 +61,7 @@ function hasJsonErrorBody(response: Response): boolean {
 export function getTrackedFetch(
   start: () => void,
   stop: (message?: string) => void,
+  onFailedResponse?: (error: ApiHttpError) => void,
 ) {
   return async (
     input: RequestInfo | URL,
@@ -108,12 +106,7 @@ export function getTrackedFetch(
       message: `Server request failed (${response.status}) for ${requestUrl}`,
     })
     stopWithError(stop, error)
-
-    if (isCypressRuntime() && response.status !== 401 && response.status !== 403) {
-      setTimeout(() => {
-        throw error
-      }, 0)
-    }
+    onFailedResponse?.(error)
 
     if (hasJsonErrorBody(response)) {
       return response

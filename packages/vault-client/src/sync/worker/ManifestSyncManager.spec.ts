@@ -1,4 +1,6 @@
 import { ManifestSyncManager } from './ManifestSyncManager'
+import { RecoveryManager } from './RecoveryManager'
+import { SyncApiClient } from './SyncApiClient'
 import type { ItemId } from '@vault/shared'
 
 // Mock dependencies
@@ -28,7 +30,7 @@ vi.mock('./docStore', () => ({
 
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
-vi.mock('../../api/ItemClient', () => ({
+vi.mock('./ItemClient', () => ({
   fetchManifest: (...args: any[]) => mockFetchManifest(...args),
   fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
 }))
@@ -106,6 +108,8 @@ describe('ManifestSyncManager', () => {
       keys,
       storeItems: storeItemsSpy,
       migrateLegacySettings: migrateLegacySettingsSpy,
+      recoveryManager: new RecoveryManager({ accountId: 'acc-123' }),
+      apiClient: new SyncApiClient(),
     } as any
 
     manifestSyncManager = new ManifestSyncManager(depsObj as any)

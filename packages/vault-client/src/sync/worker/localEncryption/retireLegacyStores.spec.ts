@@ -2,7 +2,7 @@ import { getVaultStorageNames } from '../../shared/storageNames'
 import { getAccountDatabaseName, clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
-import { clearAutomergeIndexedDb } from '../../client/localDataCleanup'
+import { deleteDatabase } from '../../utils/deleteDatabase'
 import { createMockLocalForagePool } from '../__test__/testUtils'
 import { retireLegacyStores } from './retireLegacyStores'
 
@@ -14,8 +14,8 @@ vi.mock('localforage', () => ({
   },
 }))
 
-vi.mock('../../client/localDataCleanup', () => ({
-  clearAutomergeIndexedDb: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../utils/deleteDatabase', () => ({
+  deleteDatabase: vi.fn().mockResolvedValue(undefined),
 }))
 
 const ACCOUNT = 'account-1'
@@ -26,7 +26,7 @@ describe('retireLegacyStores', () => {
   beforeEach(async () => {
     pool.clear()
     clearAccountStoreInstancesCacheForTesting()
-    vi.mocked(clearAutomergeIndexedDb).mockClear().mockResolvedValue(undefined)
+    vi.mocked(deleteDatabase).mockClear().mockResolvedValue(undefined)
     locks = { held: [], pending: [] }
     vi.stubGlobal('navigator', { locks: { query: vi.fn(async () => locks) } })
     await getSyncMetadataStorage(ACCOUNT).setItem(SYNC_METADATA_KEYS.INDEX_DOC, { itemIds: [] })
@@ -42,8 +42,8 @@ describe('retireLegacyStores', () => {
   }
 
   async function expectRetired(): Promise<void> {
-    expect(clearAutomergeIndexedDb).toHaveBeenCalledWith(getAutomergeDBName(ACCOUNT), expect.any(Number))
-    expect(clearAutomergeIndexedDb).toHaveBeenCalledWith(getAccountDatabaseName('wal-entries', ACCOUNT), expect.any(Number))
+    expect(deleteDatabase).toHaveBeenCalledWith(getAutomergeDBName(ACCOUNT), expect.any(Number))
+    expect(deleteDatabase).toHaveBeenCalledWith(getAccountDatabaseName('wal-entries', ACCOUNT), expect.any(Number))
     expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.INDEX_DOC)).toBeNull()
     expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual([])
   }
@@ -82,7 +82,7 @@ describe('retireLegacyStores', () => {
     expect(await retireLegacyStores({ accountId: ACCOUNT, onRetiring, waitMs: 5, pollMs: 1 })).toBe(false)
 
     expect(onRetiring).toHaveBeenCalledTimes(1)
-    expect(clearAutomergeIndexedDb).not.toHaveBeenCalled()
+    expect(deleteDatabase).not.toHaveBeenCalled()
     expect(await getSyncMetadataStorage(ACCOUNT).getItem(SYNC_METADATA_KEYS.INDEX_DOC)).not.toBeNull()
   })
 
@@ -93,7 +93,7 @@ describe('retireLegacyStores', () => {
   })
 
   it('keeps the plaintext index when a database deletion is blocked', async () => {
-    vi.mocked(clearAutomergeIndexedDb).mockRejectedValueOnce(new Error('blocked'))
+    vi.mocked(deleteDatabase).mockRejectedValueOnce(new Error('blocked'))
 
     expect(await retireLegacyStores({ accountId: ACCOUNT })).toBe(false)
 
@@ -104,6 +104,6 @@ describe('retireLegacyStores', () => {
     vi.stubGlobal('navigator', {})
 
     expect(await retireLegacyStores({ accountId: ACCOUNT })).toBe(false)
-    expect(clearAutomergeIndexedDb).not.toHaveBeenCalled()
+    expect(deleteDatabase).not.toHaveBeenCalled()
   })
 })

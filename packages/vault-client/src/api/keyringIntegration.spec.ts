@@ -340,7 +340,7 @@ describe('Vault Keyring Integration', () => {
     configureVaultHost({ deriveLegacyKey })
   })
 
-  it('handleSessionExpired shares promise across concurrent calls', async () => {
+  it('handleSessionExpired makes one attempt for concurrent calls', async () => {
     await loginVault({
       account: 'test-account',
       password: 'password123',
@@ -357,9 +357,6 @@ describe('Vault Keyring Integration', () => {
     const p1 = handleSessionExpired()
     const p2 = handleSessionExpired()
     const p3 = handleSessionExpired()
-
-    expect(p1).toBe(p2)
-    expect(p2).toBe(p3)
 
     await Promise.all([p1, p2, p3])
     expect(getSession).toHaveBeenCalledTimes(1)
