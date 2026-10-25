@@ -15,7 +15,7 @@ import {
   CURRENT_SALT_VERSION,
   type CryptoResult,
 } from './crypto'
-import { DEFAULT_KDF, type KdfParams } from './kdf'
+import { getDefaultKdf, type KdfParams } from './kdf'
 import { broadcastVaultEvent } from './util'
 import { retryTransientFailures } from './requestRetry'
 import { clearWriteAheadLog } from '../sync/client/localDataCleanup'
@@ -239,10 +239,11 @@ export function needsKeyDerivationUpgrade(
   { saltVersion, kdf }: { saltVersion?: number, kdf?: KdfParams },
 ): boolean {
   if (!kdf) return false
+  const defaultKdf = getDefaultKdf()
   return saltVersion !== CURRENT_SALT_VERSION
-    || kdf.memoryKiB < DEFAULT_KDF.memoryKiB
-    || kdf.passes < DEFAULT_KDF.passes
-    || kdf.parallelism < DEFAULT_KDF.parallelism
+    || kdf.memoryKiB < defaultKdf.memoryKiB
+    || kdf.passes < defaultKdf.passes
+    || kdf.parallelism < defaultKdf.parallelism
 }
 
 /** Exports the keyring as JSON, for the sync worker's `Keyring.load` */
@@ -328,7 +329,7 @@ async function rewrapMasterKey({
   newPassword: string,
 }): Promise<void> {
   const newSalt = generateSalt()
-  const newKdf = DEFAULT_KDF
+  const newKdf = getDefaultKdf()
   const newSaltVersion = CURRENT_SALT_VERSION
 
   const newMasterKey = await deriveMasterKey({
@@ -376,7 +377,7 @@ async function rewrapMasterKey({
  */
 export async function createVaultAccount(password: string): Promise<string> {
   const salt = generateSalt()
-  const kdf = DEFAULT_KDF
+  const kdf = getDefaultKdf()
   const newMasterKey = await deriveMasterKey({ password, salt, kdf, saltVersion: CURRENT_SALT_VERSION })
   const authToken = await hashVaultKey(newMasterKey)
 

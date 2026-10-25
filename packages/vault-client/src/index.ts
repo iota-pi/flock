@@ -40,7 +40,7 @@ export {
   type CryptoResult,
   type DeriveLegacyKey,
 } from './api/crypto'
-export { DEFAULT_KDF, type KdfParams } from './api/kdf'
+export { enableTestKeyDerivation, getDefaultKdf, type KdfParams } from './api/kdf'
 export {
   type AutoLockMode,
   type AutoLockSettings,

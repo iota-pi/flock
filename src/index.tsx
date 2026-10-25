@@ -8,6 +8,7 @@ import { initAppSentry } from './app/sentry'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
 import { registerAppUpdates } from './app/appUpdate'
+import { hasApiAuthToken } from '@vault/client'
 import ThemedApp from './ThemedApp'
 
 initAppSentry({ app: 'main' })
@@ -21,6 +22,7 @@ function initializeApp() {
     registerAppUpdates(registerSW)
 
     if (window.Cypress) {
+      window.hasApiAuthToken = hasApiAuthToken
       window.vault = import('@vault/client')
       window.mutations = import('./features/items/mutations/itemMutations')
       window.syncBridge = import('./app/vault/syncBridge').then(mod => mod.SyncBridge)

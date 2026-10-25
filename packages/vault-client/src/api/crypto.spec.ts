@@ -11,7 +11,7 @@ import {
   assertKdfAcceptable,
   assertPbkdf2Acceptable,
   computeArgon2id,
-  DEFAULT_KDF,
+  getDefaultKdf,
   deriveArgon2idBytes,
   KDF_WORKER_TIMEOUT_MS,
   PRODUCTION_KDF_LIMITS,
@@ -24,7 +24,7 @@ import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 const PRODUCTION_KDF: KdfParams = { algorithm: 'argon2id', memoryKiB: 65536, passes: 3, parallelism: 1 }
 
 function testKey() {
-  return deriveVaultKey({ password: 'password123', salt: 'c29tZXNhbHQ=', kdf: DEFAULT_KDF, saltVersion: 1 })
+  return deriveVaultKey({ password: 'password123', salt: 'c29tZXNhbHQ=', kdf: getDefaultKdf(), saltVersion: 1 })
 }
 
 async function rawKey(key: CryptoKey): Promise<Uint8Array> {
@@ -110,8 +110,8 @@ describe('Vault Cryptography', () => {
     })
 
     it('derives the master key from the Argon2id output', async () => {
-      const key = await deriveVaultKey({ password: 'password123', salt: 'c29tZXNhbHQ=', kdf: DEFAULT_KDF, saltVersion: 1 })
-      const expected = await computeArgon2id('password123', Uint8Array.fromBase64('c29tZXNhbHQ='), DEFAULT_KDF)
+      const key = await deriveVaultKey({ password: 'password123', salt: 'c29tZXNhbHQ=', kdf: getDefaultKdf(), saltVersion: 1 })
+      const expected = await computeArgon2id('password123', Uint8Array.fromBase64('c29tZXNhbHQ='), getDefaultKdf())
 
       expect(key.type).toBe('secret')
       expect(await rawKey(key)).toEqual(expected)
@@ -121,7 +121,7 @@ describe('Vault Cryptography', () => {
       await expect(deriveVaultKey({
         password: 'password123',
         salt: 'c29tZXNhbHQ=',
-        kdf: { ...DEFAULT_KDF, memoryKiB: DEFAULT_KDF.memoryKiB - 1 },
+        kdf: { ...getDefaultKdf(), memoryKiB: getDefaultKdf().memoryKiB - 1 },
         saltVersion: 1,
       })).rejects.toBeInstanceOf(UnsupportedKeyDerivationError)
     })
@@ -137,8 +137,8 @@ describe('Vault Cryptography', () => {
       setKdfWorkerFactory(createWorker)
       try {
         const salt = new TextEncoder().encode('somesaltsomesalt')
-        const fromWorker = await deriveArgon2idBytes('password123', salt, DEFAULT_KDF)
-        expect(fromWorker).toEqual(await computeArgon2id('password123', salt, DEFAULT_KDF))
+        const fromWorker = await deriveArgon2idBytes('password123', salt, getDefaultKdf())
+        expect(fromWorker).toEqual(await computeArgon2id('password123', salt, getDefaultKdf()))
         expect(createWorker).toHaveBeenCalledTimes(1)
         expect(terminate).toHaveBeenCalledTimes(1)
       } finally {
@@ -171,10 +171,10 @@ describe('Vault Cryptography', () => {
         const worker = silentWorker()
         setKdfWorkerFactory(() => worker)
 
-        const derivation = deriveArgon2idBytes('password123', salt, DEFAULT_KDF)
+        const derivation = deriveArgon2idBytes('password123', salt, getDefaultKdf())
         worker.dispatchEvent(new Event('error'))
 
-        await expect(derivation).resolves.toEqual(await computeArgon2id('password123', salt, DEFAULT_KDF))
+        await expect(derivation).resolves.toEqual(await computeArgon2id('password123', salt, getDefaultKdf()))
         expect(terminate).toHaveBeenCalledTimes(1)
       })
 
@@ -182,10 +182,10 @@ describe('Vault Cryptography', () => {
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
         setKdfWorkerFactory(silentWorker)
 
-        const derivation = deriveArgon2idBytes('password123', salt, DEFAULT_KDF)
+        const derivation = deriveArgon2idBytes('password123', salt, getDefaultKdf())
         await vi.advanceTimersByTimeAsync(KDF_WORKER_TIMEOUT_MS)
 
-        await expect(derivation).resolves.toEqual(await computeArgon2id('password123', salt, DEFAULT_KDF))
+        await expect(derivation).resolves.toEqual(await computeArgon2id('password123', salt, getDefaultKdf()))
         expect(terminate).toHaveBeenCalledTimes(1)
       })
 
@@ -194,8 +194,8 @@ describe('Vault Cryptography', () => {
           throw new Error('Module workers are not supported')
         })
 
-        await expect(deriveArgon2idBytes('password123', salt, DEFAULT_KDF))
-          .resolves.toEqual(await computeArgon2id('password123', salt, DEFAULT_KDF))
+        await expect(deriveArgon2idBytes('password123', salt, getDefaultKdf()))
+          .resolves.toEqual(await computeArgon2id('password123', salt, getDefaultKdf()))
       })
     })
   })

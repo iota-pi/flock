@@ -1,5 +1,5 @@
 import env from '../../env'
-import { configureVaultEndpoint, configureVaultHost } from '@vault/client'
+import { configureVaultEndpoint, configureVaultHost, enableTestKeyDerivation } from '@vault/client'
 import { configureVaultStorageNames } from '@vault/client/storageNames'
 import { useAppStore } from '../../state/store'
 import { FLOCK_STORAGE_NAMES } from './storageNames'
@@ -7,9 +7,11 @@ import { handleClientOutdated } from './clientOutdated'
 import { MIGRATION_CHANNEL, type MigrationChannelMessage } from '../../migrate/detection'
 import { handleMigrationMessage } from './migrationTakeover'
 import { forceAppUpdate } from '../appUpdate'
+import { isCypress } from './cypress'
 
 // Configures the vault on the main thread. Imported first by src/index.tsx so it runs before any vault code.
 configureVaultStorageNames(FLOCK_STORAGE_NAMES)
+if (isCypress) enableTestKeyDerivation()
 configureVaultEndpoint(env.VAULT_ENDPOINT)
 configureVaultHost({
   getAccountId: () => useAppStore.getState().account || undefined,

@@ -6,7 +6,7 @@ import {
   updateKeyring,
   changePassword,
 } from './AccountClient'
-import { LEGACY_CRYPTO_ITERATIONS } from './util'
+import { getLegacyPbkdf2Iterations } from './kdf'
 import { getVaultTrpcClient } from './vaultTrpcClient'
 
 const mockTrpcClient = {
@@ -118,7 +118,7 @@ describe('AccountClient', () => {
     })
   })
 
-  it('falls back to LEGACY_CRYPTO_ITERATIONS when iterations is missing in server response', async () => {
+  it('falls back to the legacy PBKDF2 iterations when iterations is missing in server response', async () => {
     vi.mocked(getVaultTrpcClient().accounts.getSecurityParams.query).mockResolvedValue({
       salt: 'salt-3',
       dataVersion: 0,
@@ -127,7 +127,7 @@ describe('AccountClient', () => {
 
     await expect(getSecurityParams('acc-1')).resolves.toEqual({
       salt: 'salt-3',
-      iterations: LEGACY_CRYPTO_ITERATIONS,
+      iterations: getLegacyPbkdf2Iterations(),
       dataVersion: 0,
     })
   })

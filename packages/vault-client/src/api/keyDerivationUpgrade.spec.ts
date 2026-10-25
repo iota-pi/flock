@@ -40,14 +40,14 @@ vi.mock('../sync/shared/workerAuthStore', () => ({
 
 vi.mock('./util', async importOriginal => ({
   ...await importOriginal<typeof import('./util')>(),
-  DEFAULT_CRYPTO_ITERATIONS: 1000,
   REQUEST_RETRY_DELAYS: [0, 0],
 }))
 
 // Current parameters above the test floor, so an account can be created below them
 vi.mock('./kdf', async importOriginal => ({
   ...await importOriginal<typeof import('./kdf')>(),
-  DEFAULT_KDF: { algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 },
+  getDefaultKdf: () => ({ algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }),
+  getDefaultPbkdf2Iterations: () => 1000,
 }))
 
 const PRF_OUTPUT = new Uint8Array(32).fill(7).buffer
