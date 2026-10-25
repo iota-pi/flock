@@ -10,12 +10,12 @@ import {
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/ItemClient'
 import { raiseDataVersion } from '../../api/AccountClient'
 import type {
+  FetchedItem,
   VaultSnapshotInput,
   ItemId,
   ManifestEntry,
   SyncPollBatchSchema,
 } from '@vault/shared'
-import type { VaultItem } from '../../api/clientTypes'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncApiClient')
@@ -152,7 +152,7 @@ export class SyncApiClient {
       itemIds: ItemId[]
     },
     options?: { signal?: AbortSignal }
-  ): Promise<{ items: VaultItem[]; serverTime: number }> {
+  ): Promise<{ items: FetchedItem[]; serverTime: number }> {
     return this.executeWithAuth(() => fetchSnapshotsByIds(
       { account: input.account, itemIds: input.itemIds },
       options,

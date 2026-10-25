@@ -1,4 +1,4 @@
-import { fetchManifest, fetchSnapshotsByIds } from './manifestService'
+import { fetchManifest, fetchSnapshotsByIds, toFetchedItem } from './manifestService'
 import type BaseDriver from '../drivers/base'
 import type { VaultItem } from '../drivers/base'
 import type { ItemId } from '@vault/shared'
@@ -45,14 +45,62 @@ describe('manifestService.fetchSnapshotsByIds', () => {
   it('fetches items by ids from vault', async () => {
     const vault = createMockVault()
     const mockItems: VaultItem[] = [
-      { account: 'test-account', item: 'item-1', metadata: { iv: 'iv', modified: 1000 } },
+      { account: 'test-account', item: 'item-1', metadata: { iv: 'iv', modified: 1000 }, version: 3 },
     ]
     vi.mocked(vault.fetchByIds).mockResolvedValue(mockItems)
 
     const result = await fetchSnapshotsByIds({ vault }, { account: 'test-account', itemIds: ['item-1' as ItemId] })
 
     expect(vault.fetchByIds).toHaveBeenCalledWith({ account: 'test-account', itemIds: ['item-1'] })
-    expect(result.items).toEqual(mockItems)
+    expect(result.items).toEqual([{ item: 'item-1', metadata: { iv: 'iv', modified: 1000 }, version: 3 }])
     expect(typeof result.serverTime).toBe('number')
+  })
+})
+
+describe('manifestService.toFetchedItem', () => {
+  it('sends a snapshot row without its legacy cipher', () => {
+    const record: VaultItem = {
+      account: 'acct',
+      item: 'item-1',
+      metadata: { iv: '', modified: 1 },
+      cipher: 'legacy',
+      snapshot: { iv: 'iv', cipher: 'c2FtcGxl', kver: '2' },
+      version: 4,
+    }
+
+    expect(toFetchedItem(record)).toEqual({
+      item: 'item-1',
+      metadata: { iv: '', modified: 1 },
+      snapshot: { iv: 'iv', cipher: 'c2FtcGxl', kver: '2' },
+      version: 4,
+    })
+  })
+
+  it('sends a snapshot without a ciphertext with an empty one, so it fails to decrypt', () => {
+    const record: VaultItem = {
+      account: 'acct',
+      item: 'item-1',
+      metadata: { iv: '', modified: 1 },
+      snapshot: { iv: 'iv' },
+    }
+
+    expect(toFetchedItem(record)).toMatchObject({ snapshot: { iv: 'iv', cipher: '' } })
+  })
+
+  it('passes legacy metadata through whole', () => {
+    const metadata = { iv: 'iv', modified: 1, kver: '1' }
+    const record = { account: 'acct', item: 'item-1', metadata, cipher: 'legacy' } as VaultItem
+
+    expect(toFetchedItem(record)).toEqual({ item: 'item-1', metadata, cipher: 'legacy', version: undefined })
+  })
+
+  it('sends a tombstone with neither payload', () => {
+    const record: VaultItem = { account: 'acct', item: 'item-1', metadata: { iv: '', modified: 1, deleted: true } }
+
+    expect(toFetchedItem(record)).toEqual({
+      item: 'item-1',
+      metadata: { iv: '', modified: 1, deleted: true },
+      version: undefined,
+    })
   })
 })

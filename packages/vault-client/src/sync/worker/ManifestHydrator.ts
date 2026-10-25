@@ -6,15 +6,14 @@ import type { SnapshotManager } from './SnapshotManager'
 import type { CryptoResult } from '../../api/crypto'
 import type { KeyProvider } from '../../api/Keyring'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
-import type { ItemId, ManifestEntry } from '@vault/shared'
+import type { FetchedItem, ItemId, ManifestEntry } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
-import type { VaultItem } from '../../api/clientTypes'
 import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from './utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
 import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../syncConfig'
-import type { LegacyItemEnvelope, SyncDomain } from './domain'
+import type { SyncDomain } from './domain'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ManifestHydrator')
@@ -99,7 +98,7 @@ export class ManifestHydrator {
     signal?: AbortSignal,
   ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
     const batches = chunk(params.missingIds, BATCH_SIZE)
-    const fetchedItems: VaultItem[] = []
+    const fetchedItems: FetchedItem[] = []
     let hasBatchFailures = false
 
     for (const batch of batches) {
@@ -257,7 +256,7 @@ export class ManifestHydrator {
   }
 
   async hydrateRemoteItem(
-    item: VaultItem,
+    item: FetchedItem,
     manifestById: ReadonlyMap<ItemId, ManifestEntry>,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId> = new Set(),
@@ -269,11 +268,7 @@ export class ManifestHydrator {
       const serverTime = manifestEntry?.modifiedAt ?? serverTimeFallback
       const serverVersion = (manifestEntry?.version && manifestEntry.version > 0)
         ? manifestEntry.version
-        : (
-          typeof (item as unknown as { version?: unknown }).version === 'number'
-            ? (item as unknown as { version: number }).version
-            : 1
-        )
+        : (item.version ?? 1)
 
       if (item.metadata?.deleted === true) {
         return {
@@ -337,7 +332,7 @@ export class ManifestHydrator {
 
   private async hydrateSnapshotBinary(
     itemId: ItemId,
-    item: VaultItem,
+    item: FetchedItem,
     serverTime: number,
     serverVersion: number,
     knownSet: Set<ItemId>,
@@ -380,7 +375,7 @@ export class ManifestHydrator {
 
   private async hydrateLegacyItem(
     itemId: ItemId,
-    item: VaultItem,
+    item: FetchedItem,
     serverTime: number,
     serverVersion: number,
     tombstoneSet: Set<ItemId>,
@@ -388,7 +383,7 @@ export class ManifestHydrator {
     const decodeLegacyItem = this.deps.decodeLegacyItem
     if (!decodeLegacyItem) return null
     const decoded = await decodeLegacyItem(
-      item as unknown as LegacyItemEnvelope,
+      item,
       {
         ensureKey: kver => this.ensureKey(kver),
         decrypt: payload => this.deps.keys.decryptBytes(payload),

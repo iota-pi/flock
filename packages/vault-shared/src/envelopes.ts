@@ -34,3 +34,10 @@ export const LegacyItemEnvelopeSchema = z.object({
     iv: z.string(),
   }),
 })
+
+/** An item row as `fetchSnapshotsByIds` returns it: one of the envelope shapes, with its server-assigned version */
+export type FetchedItem = (
+  | z.infer<typeof StandardItemEnvelopeSchema>
+  | z.infer<typeof TombstoneItemEnvelopeSchema>
+  | z.infer<typeof LegacyItemEnvelopeSchema>
+) & { version?: number }
