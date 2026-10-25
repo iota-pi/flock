@@ -11,9 +11,9 @@ export function safeEqual(attempt: string, real: string) {
 const ACCOUNT_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
 const ACCOUNT_ID_LENGTH = 4
 
-export function generateAccountId() {
+export function generateAccountId(length = ACCOUNT_ID_LENGTH): string {
   return Array.from(
-    { length: ACCOUNT_ID_LENGTH },
+    { length },
     () => ACCOUNT_ID_ALPHABET[randomInt(ACCOUNT_ID_ALPHABET.length)],
   ).join('')
 }
