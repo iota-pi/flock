@@ -8,7 +8,7 @@ import type { RecoveryManager } from './RecoveryManager'
 import { toAuthExpiredError, type SyncApiClient } from './SyncApiClient'
 import { classifySyncError } from '../utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
-import { AbortError, isAbortError } from '../utils/abort'
+import { checkAlive, isAbortError } from '../utils/abort'
 import { errorMessage } from '../utils/errorMessage'
 import {
   SizeAwareBatchAccumulator,
@@ -354,11 +354,7 @@ export class ItemReencryptor {
         }
       )
     } catch (err) {
-      if (signal?.aborted) {
-        throw signal.reason instanceof Error
-          ? signal.reason
-          : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Re-encryption aborted')
-      }
+      checkAlive(signal, true, 'Re-encryption aborted')
       if (isAbortError(err)) {
         throw err
       }
@@ -375,11 +371,7 @@ export class ItemReencryptor {
    */
   async processChunk(chunk: ItemId[], ctx: ProcessChunkContext): Promise<ReencryptResult> {
     const signal = ctx.signal
-    if (signal?.aborted) {
-      throw signal.reason instanceof Error
-        ? signal.reason
-        : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Re-encryption aborted')
-    }
+    checkAlive(signal, true, 'Re-encryption aborted')
 
     if (!getOnlineState()) {
       const errMsg = 'Network is offline'
@@ -497,11 +489,7 @@ export class ItemReencryptor {
       throw new Error('SyncWorker not initialized')
     }
 
-    if (deps.signal?.aborted) {
-      throw deps.signal.reason instanceof Error
-        ? deps.signal.reason
-        : new AbortError(typeof deps.signal.reason === 'string' ? deps.signal.reason : 'Re-encryption aborted')
-    }
+    checkAlive(deps.signal, true, 'Re-encryption aborted')
 
     if (this.scheduledRetryTimeoutId !== null) {
       clearTimeout(this.scheduledRetryTimeoutId)
@@ -573,11 +561,11 @@ export class ItemReencryptor {
       const signal = deps.signal
       return await new Promise<ReencryptResult>((resolve, reject) => {
         const onAbort = () => {
-          reject(
-            signal.reason instanceof Error
-              ? signal.reason
-              : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Re-encryption aborted')
-          )
+          try {
+            checkAlive(signal, true, 'Re-encryption aborted')
+          } catch (err) {
+            reject(err)
+          }
         }
         signal.addEventListener('abort', onAbort, { once: true })
         runPromise
