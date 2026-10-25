@@ -7,6 +7,8 @@ import { generateAccountId } from '../util'
 import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { isSessionFor, SESSION_EXPIRY_MS } from '../sessions'
 
+const generateTestAccountId = () => generateAccountId(10)
+
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
   beforeAll(function () {
@@ -14,7 +16,7 @@ describe('DynamoDriver', function () {
   })
 
   it('set can create and update, bumping the version on each write', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const modified = Date.now()
 
@@ -27,7 +29,7 @@ describe('DynamoDriver', function () {
   })
 
   it('removes the legacy cipher when a snapshot is written', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const modified = Date.now()
 
@@ -45,7 +47,7 @@ describe('DynamoDriver', function () {
   })
 
   it('keeps the legacy cipher for a tombstone without a snapshot', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const modified = Date.now()
 
@@ -59,7 +61,7 @@ describe('DynamoDriver', function () {
 
 
   it('keeps an item deleted when a snapshot without the deletion is written after it', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const modified = Date.now()
     const snapshot = { iv: 'snap-iv', cipher: 'c25hcHNob3Q=', kver: '1', format: 2 as const }
@@ -78,7 +80,7 @@ describe('DynamoDriver', function () {
   })
 
   it('keeps an item deleted by the legacy top-level attribute', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const modified = Date.now()
 
@@ -93,7 +95,7 @@ describe('DynamoDriver', function () {
   })
 
   it('set rejects oversized items', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const modified = new Date().getTime()
     const cipher = 'x'.repeat(360_000)
@@ -104,7 +106,7 @@ describe('DynamoDriver', function () {
   })
 
   it('measures a snapshot as stored, in binary, not as its longer base64 text', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     // About 400 KB of base64, more than the client's limit on base64 text allows, but 300 KB stored
     const cipher = Buffer.alloc(300_000, 7).toString('base64')
@@ -121,7 +123,7 @@ describe('DynamoDriver', function () {
   const session = 'an_example_session_token_for_testing'
 
   it('createAccount works as expected', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const success = await driver.createAccount({
       account,
       authToken,
@@ -132,7 +134,7 @@ describe('DynamoDriver', function () {
   })
 
   it('login works based on authToken', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -152,7 +154,7 @@ describe('DynamoDriver', function () {
   })
 
   it('getAccount session validation works based on session', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -184,7 +186,7 @@ describe('DynamoDriver', function () {
   })
 
   it('getAccount accepts multiple active sessions', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -209,7 +211,7 @@ describe('DynamoDriver', function () {
   })
 
   it('repeated createAccount calls fail', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const params = { account, authToken, salt, iterations }
     const result1 = await driver.createAccount(params)
     expect(result1).toBe(true)
@@ -220,7 +222,7 @@ describe('DynamoDriver', function () {
   })
 
   it('extendSession updates sessionExpiry', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -251,7 +253,7 @@ describe('DynamoDriver', function () {
   })
 
   it('raiseDataVersion raises the version but never lowers it', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({ account, authToken, salt, iterations })
     expect((await driver.getSecurityParams({ account })).dataVersion).toBeUndefined()
 
@@ -263,13 +265,13 @@ describe('DynamoDriver', function () {
   })
 
   it('raiseDataVersion does not create a missing account', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.raiseDataVersion({ account, dataVersion: 1 })
     await expect(driver.getSecurityParams({ account })).rejects.toBeInstanceOf(AuthenticationError)
   })
 
   it('listItemFormats describes how each item is stored', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const [legacy, unbound, bound, rotated, deleted] = [
       generateItemId(), generateItemId(), generateItemId(), generateItemId(), generateItemId(),
     ]
@@ -293,7 +295,7 @@ describe('DynamoDriver', function () {
   })
 
   it('stores and returns the Argon2id parameters of an account', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const kdf = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
     await driver.createAccount({
       account,
@@ -313,7 +315,7 @@ describe('DynamoDriver', function () {
   })
 
   it('normalizes sessions when updating account data', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -345,7 +347,7 @@ describe('DynamoDriver', function () {
   })
 
   it('drops sessions that expire later than the current session lifetime allows', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -368,7 +370,7 @@ describe('DynamoDriver', function () {
   })
 
   it('can save and retrieve keyring', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -393,7 +395,7 @@ describe('DynamoDriver', function () {
   })
 
   it('can push and get sync messages', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const itemId = 'test-item-123' as ItemId
     const entry1 = {
       cursor: 1001,
@@ -417,7 +419,7 @@ describe('DynamoDriver', function () {
   })
 
   it('session eviction on updateAccountData works', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -453,7 +455,7 @@ describe('DynamoDriver', function () {
   })
 
   it('fetchManifest returns item and modifiedAt tuples without payload', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const cipher = 'test-cipher'
     const iv = 'test-iv'
     const modified = 1234567890
@@ -476,7 +478,7 @@ describe('DynamoDriver', function () {
   })
 
   it('fetchByIds retrieves exact items in batches', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const cipher = 'targeted-cipher'
     const iv = 'targeted-iv'
 
@@ -497,7 +499,7 @@ describe('DynamoDriver', function () {
   })
 
   it('stores small snapshot inline as binary and returns as base64', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const payload = Buffer.from('hello-binary-snapshot').toString('base64')
     const modified = Date.now()
@@ -520,7 +522,7 @@ describe('DynamoDriver', function () {
   })
 
   it('keeps the ciphertext format of snapshots and sync messages', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const payload = Buffer.from('doc-bound-snapshot').toString('base64')
 
@@ -552,7 +554,7 @@ describe('DynamoDriver', function () {
   })
 
   it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const payload = Buffer.from('last-real-snapshot').toString('base64')
     const modified = Date.now()
@@ -581,7 +583,7 @@ describe('DynamoDriver', function () {
   })
 
   it(`rejects snapshots exceeding ${MAX_ITEM_SIZE_KB}KB`, async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     const item = generateItemId()
     const largeBuffer = Buffer.alloc(MAX_ITEM_SIZE_BYTES + 10 * 1024, 0x41)
     const payload = largeBuffer.toString('base64')
@@ -602,13 +604,13 @@ describe('DynamoDriver', function () {
   })
 
   it('updateAccountData returns early without throwing when no update fields are provided', async () => {
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await expect(driver.updateAccountData({ account })).resolves.toBeUndefined()
   })
 
   it('updateAccountData updates app-specific fields and clears them with null', async () => {
     type ExtraFields = { displayName?: string, pausedUntil?: string | null }
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driver.createAccount({
       account,
       authToken,
@@ -639,7 +641,7 @@ describe('DynamoDriver', function () {
   it('createAccount writes the configured account defaults', async () => {
     const driverWithDefaults = new DynamoDriver({ accountDefaults: { displayName: 'Default' } })
     driverWithDefaults.connect(getConnectionParams())
-    const account = generateAccountId()
+    const account = generateTestAccountId()
     await driverWithDefaults.createAccount({
       account,
       authToken,
@@ -656,7 +658,7 @@ describe('DynamoDriver', function () {
     const pageToken = (key: Record<string, unknown>) => Buffer.from(JSON.stringify(key)).toString('base64url')
 
     it('getSyncMessages pages through an item with opaque tokens', async () => {
-      const account = generateAccountId()
+      const account = generateTestAccountId()
       const itemId = generateItemId()
       await driver.pushSyncMessagesBatch({
         account,
@@ -680,7 +682,7 @@ describe('DynamoDriver', function () {
     })
 
     it('getSyncMessages rejects a token for another item', async () => {
-      const account = generateAccountId()
+      const account = generateTestAccountId()
       const itemId = generateItemId() as ItemId
 
       await expect(
@@ -689,7 +691,7 @@ describe('DynamoDriver', function () {
     })
 
     it('getSyncMessages rejects a token that starts before fromCursor', async () => {
-      const account = generateAccountId()
+      const account = generateTestAccountId()
       const itemId = generateItemId() as ItemId
 
       await expect(
@@ -698,7 +700,7 @@ describe('DynamoDriver', function () {
     })
 
     it('getSyncMessages rejects malformed tokens', async () => {
-      const account = generateAccountId()
+      const account = generateTestAccountId()
       const itemId = generateItemId() as ItemId
 
       for (const token of ['not-a-token', pageToken({ syncId: `${account}#${itemId}`, cursor: -5 })]) {
@@ -707,7 +709,7 @@ describe('DynamoDriver', function () {
     })
 
     it('getGlobalSyncMessagesAfterCursor reports the highest cursor scanned', async () => {
-      const account = generateAccountId()
+      const account = generateTestAccountId()
       const itemA = generateItemId()
       const itemB = generateItemId()
       await driver.pushSyncMessagesBatch({
@@ -738,7 +740,7 @@ describe('DynamoDriver', function () {
     })
 
     it('getGlobalSyncMessagesAfterCursor rejects a token for another account', async () => {
-      const account = generateAccountId()
+      const account = generateTestAccountId()
 
       for (const key of [
         { account: 'other-account', cursor: 100, syncId: 'other-account#item-1' },
