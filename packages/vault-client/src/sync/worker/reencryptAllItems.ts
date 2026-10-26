@@ -47,7 +47,6 @@ export interface ReencryptDeps {
   repo: Repo
   indexManager: AutomergeIndexManager
   apiClient: SyncApiClient
-  scheduleRetry?: (delayMs?: number) => void
   recoveryManager: RecoveryManager
   signal?: AbortSignal
   batchRetryDelays?: readonly number[]
@@ -77,7 +76,7 @@ export interface ItemReencryptorOptions {
   batchRetryDelays?: readonly number[]
   maxBatchCount?: number
   maxBatchBytes?: number
-  codec?: DocCodec
+  codec: DocCodec
   keys: KeyProvider
   /**
    * Called with each batch the server stored, so the sync engine can record the new versions and
@@ -94,7 +93,7 @@ export class ItemReencryptor {
   public readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
-  private readonly codec?: DocCodec
+  private readonly codec: DocCodec
   private readonly keys: KeyProvider
   private readonly onSnapshotsStored?: ItemReencryptorOptions['onSnapshotsStored']
 
@@ -134,23 +133,19 @@ export class ItemReencryptor {
       `Scheduling re-encryption retry (attempt ${this.retryStrategy.attempt}) in ${delayMs}ms`
     )
 
-    if (deps.scheduleRetry) {
-      deps.scheduleRetry(delayMs)
-    } else {
-      if (this.scheduledRetryTimeoutId !== null) {
-        clearTimeout(this.scheduledRetryTimeoutId)
-      }
-      this.scheduledRetryTimeoutId = setTimeout(() => {
-        this.scheduledRetryTimeoutId = null
-        fireAndForget(
-          this.reencryptAllItems(deps, onProgress),
-          'reencryptAllItems:scheduledRetry',
-          err => {
-            log.warn('Scheduled retry failed:', err)
-          },
-        )
-      }, delayMs)
+    if (this.scheduledRetryTimeoutId !== null) {
+      clearTimeout(this.scheduledRetryTimeoutId)
     }
+    this.scheduledRetryTimeoutId = setTimeout(() => {
+      this.scheduledRetryTimeoutId = null
+      fireAndForget(
+        this.reencryptAllItems(deps, onProgress),
+        'reencryptAllItems:scheduledRetry',
+        err => {
+          log.warn('Scheduled retry failed:', err)
+        },
+      )
+    }, delayMs)
 
     return delayMs
   }
@@ -485,10 +480,6 @@ export class ItemReencryptor {
     deps: ReencryptDeps,
     onProgress?: (done: number, total: number) => void
   ): Promise<ReencryptResult> {
-    if (!deps?.accountId || !deps?.repo || !deps?.indexManager) {
-      throw new Error('SyncWorker not initialized')
-    }
-
     checkAlive(deps.signal, true, 'Re-encryption aborted')
 
     if (this.scheduledRetryTimeoutId !== null) {

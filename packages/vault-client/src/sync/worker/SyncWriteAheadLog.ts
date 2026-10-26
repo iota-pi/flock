@@ -4,7 +4,7 @@ import { runStorageOperation } from '../utils/storageManager'
 import { packBatchedMessages } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { WorkerInternalEventHub } from './SyncEventHub'
+import type { WorkerInternalEventHub } from './SyncEventHub'
 import {
   createAccountStore,
   clearAccountStoreInstancesCacheForTesting,
@@ -115,14 +115,14 @@ export class SyncWriteAheadLog {
 
   constructor(
     public readonly accountId: string,
-    internalEventHub?: WorkerInternalEventHub,
+    internalEventHub: WorkerInternalEventHub,
     options: SyncWriteAheadLogOptions = {},
   ) {
     this.cipher = options.cipher
     this.storage = options.cipher
       ? SyncWriteAheadLog.getSealedStorage(accountId)
       : SyncWriteAheadLog.getStorage(accountId)
-    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
+    this.internalEventHub = internalEventHub
   }
 
   /** Seals the entry's message bytes, outside any storage transaction */

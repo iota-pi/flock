@@ -1,5 +1,7 @@
 import { ItemReencryptor } from './reencryptAllItems'
 import { RecoveryManager } from './RecoveryManager'
+import { ClientEventHub } from './SyncEventHub'
+import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { BuildSnapshotResult } from './snapshotBuilder'
@@ -61,7 +63,7 @@ describe('reencryptAllItems', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setApiAuthToken('')
-    itemReencryptor = new ItemReencryptor({ keys })
+    itemReencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
 
     mockHandle = {
       isReady: vi.fn().mockReturnValue(true),
@@ -81,21 +83,12 @@ describe('reencryptAllItems', () => {
       repo: mockRepo,
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
     }
   })
 
   afterEach(() => {
     itemReencryptor.cancelScheduled()
-  })
-
-  it('throws an error if accountId or repo is missing', async () => {
-    context.accountId = null
-    await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow('SyncWorker not initialized')
-
-    context.accountId = 'test-account'
-    context.repo = null
-    await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow('SyncWorker not initialized')
   })
 
   it('throws an error if there is no session token', async () => {
@@ -133,7 +126,7 @@ describe('reencryptAllItems', () => {
 
   it('reports the versions and heads of the snapshots the server stored', async () => {
     const onSnapshotsStored = vi.fn()
-    const reencryptor = new ItemReencryptor({ keys, onSnapshotsStored })
+    const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys, onSnapshotsStored })
     setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({
@@ -360,7 +353,7 @@ describe('reencryptAllItems', () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     setApiAuthToken('mock-token')
 
-    const reencryptor = new ItemReencryptor({ keys })
+    const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
     vi.spyOn(reencryptor as any, 'buildSnapshotWithRetry').mockResolvedValueOnce({ type: 'not-ready' })
 
     const processContext = {
@@ -599,24 +592,20 @@ describe('reencryptAllItems', () => {
       }
     })
 
-    it('invokes scheduleRetry callback when provided upon encountering a network error', async () => {
+    it('schedules a retry upon encountering a network error', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockPutSnapshots.mockRejectedValue(new Error('The network connection was lost.'))
 
-      const scheduleRetry = vi.fn()
-      const deps = {
-        ...context,
-        scheduleRetry,
-      }
+      const scheduleRetry = vi.spyOn(itemReencryptor, 'scheduleRetry').mockReturnValue(0)
 
-      await expect(itemReencryptor.reencryptAllItems(deps as any)).rejects.toThrow(
+      await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow(
         /Re-encryption aborted: network error/
       )
 
       expect(scheduleRetry).toHaveBeenCalledTimes(1)
-      expect(scheduleRetry).toHaveBeenCalledWith(expect.any(Number))
+      expect(scheduleRetry).toHaveBeenCalledWith(context, undefined)
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
 
       consoleWarnSpy.mockRestore()
@@ -713,7 +702,7 @@ describe('reencryptAllItems', () => {
       consoleWarnSpy.mockRestore()
     })
 
-    it('invokes scheduleRetry callback when provided upon encountering a server error', async () => {
+    it('schedules a retry upon encountering a server error', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       setApiAuthToken('mock-token')
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
@@ -722,18 +711,14 @@ describe('reencryptAllItems', () => {
         message: 'Internal server error',
       })
 
-      const scheduleRetry = vi.fn()
-      const deps = {
-        ...context,
-        scheduleRetry,
-      }
+      const scheduleRetry = vi.spyOn(itemReencryptor, 'scheduleRetry').mockReturnValue(0)
 
-      await expect(itemReencryptor.reencryptAllItems(deps as any)).rejects.toThrow(
+      await expect(itemReencryptor.reencryptAllItems(context as any)).rejects.toThrow(
         /Re-encryption aborted: server error/
       )
 
       expect(scheduleRetry).toHaveBeenCalledTimes(1)
-      expect(scheduleRetry).toHaveBeenCalledWith(expect.any(Number))
+      expect(scheduleRetry).toHaveBeenCalledWith(context, undefined)
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
 
       consoleWarnSpy.mockRestore()
@@ -747,6 +732,7 @@ describe('reencryptAllItems', () => {
       // Each snapshot is ~150 bytes in mock (cipher 11 + iv 7 + id 6 + base 128 = 152 bytes)
       // Setting maxBatchBytes to 200 ensures each batch holds at most 1 item!
       const customReencryptor = new ItemReencryptor({
+        codec: passthroughCodec,
         keys,
         maxBatchBytes: 200,
       })
@@ -780,6 +766,7 @@ describe('reencryptAllItems', () => {
         .mockResolvedValueOnce({ success: true })
 
       const customReencryptor = new ItemReencryptor({
+        codec: passthroughCodec,
         keys,
         maxBatchBytes: 200,
       })
@@ -802,38 +789,34 @@ describe('reencryptAllItems', () => {
 
 describe('ItemReencryptor class', () => {
   it('maintains independent retry state across instances', () => {
-    const r1 = new ItemReencryptor({ keys, retryDelays: [100, 200] })
-    const r2 = new ItemReencryptor({ keys, retryDelays: [500, 1000] })
+    const r1 = new ItemReencryptor({ codec: passthroughCodec, keys, retryDelays: [100, 200] })
+    const r2 = new ItemReencryptor({ codec: passthroughCodec, keys, retryDelays: [500, 1000] })
 
     expect(r1.retryAttempt).toBe(0)
     expect(r2.retryAttempt).toBe(0)
 
-    const scheduleRetry1 = vi.fn()
-    const scheduleRetry2 = vi.fn()
-
-    r1.scheduleRetry({ scheduleRetry: scheduleRetry1 } as any)
+    expect(r1.scheduleRetry({} as any)).toBe(100)
     expect(r1.retryAttempt).toBe(1)
     expect(r2.retryAttempt).toBe(0)
-    expect(scheduleRetry1).toHaveBeenCalledWith(100)
 
-    r2.scheduleRetry({ scheduleRetry: scheduleRetry2 } as any)
+    expect(r2.scheduleRetry({} as any)).toBe(500)
     expect(r1.retryAttempt).toBe(1)
     expect(r2.retryAttempt).toBe(1)
-    expect(scheduleRetry2).toHaveBeenCalledWith(500)
 
     r1.cancelScheduled()
     expect(r1.retryAttempt).toBe(0)
     expect(r2.retryAttempt).toBe(1)
+    r2.cancelScheduled()
   })
 
   it('supports custom batchRetryDelays configuration', () => {
-    const r = new ItemReencryptor({ keys, batchRetryDelays: [50, 100] })
+    const r = new ItemReencryptor({ codec: passthroughCodec, keys, batchRetryDelays: [50, 100] })
     expect(r.batchRetryDelays).toEqual([50, 100])
   })
 
   describe('pipeline stages', () => {
     it('buildReencryptionPlan partitions item IDs into chunks', () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       const itemIds = ['item-1', 'item-2', 'item-3', 'item-4', 'item-5']
       const plan = reencryptor.buildReencryptionPlan(itemIds as any, 2)
       expect(plan).toEqual([
@@ -844,7 +827,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('buildSnapshot is a pure operation building snapshot for an item', async () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       const mockHandle = {
         isReady: vi.fn().mockReturnValue(true),
         doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
@@ -860,7 +843,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('uploadBatch is a pure operation that uploads snapshots and verifies confirmation', async () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       const mockApiClient = {
         putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 1, results: [{ itemId: 'item-1', version: 2 }] }),
       }
@@ -883,7 +866,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('uploadBatch throws when unconfirmed or failed', async () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       const mockApiClient = {
         putSnapshots: vi.fn().mockResolvedValue({ success: false }),
       }
@@ -902,14 +885,14 @@ describe('ItemReencryptor class', () => {
     })
 
     it('reportProgress clamps done to total and calls callback', () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       const onProgress = vi.fn()
       reencryptor.reportProgress(15, 10, onProgress)
       expect(onProgress).toHaveBeenCalledWith(10, 10)
     })
 
     it('processChunk orchestrates building snapshots, uploading batch, and progress reporting', async () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       const mockHandle = {
         isReady: vi.fn().mockReturnValue(true),
         doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
@@ -945,7 +928,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('processChunk throws transient errors without requiring deps', async () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       const mockHandle = {
         isReady: vi.fn().mockReturnValue(true),
         doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
@@ -973,7 +956,7 @@ describe('ItemReencryptor class', () => {
     })
 
     it('handleBatchUploadFailure classifies errors without needing deps', () => {
-      const reencryptor = new ItemReencryptor({ keys })
+      const reencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
       // Network error throws
       expect(() =>
         reencryptor.handleBatchUploadFailure(new Error('network error'))
@@ -994,7 +977,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    itemReencryptor = new ItemReencryptor({ keys })
+    itemReencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
     setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
@@ -1016,7 +999,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
       repo: mockRepo,
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
     }
   })
 
@@ -1090,7 +1073,7 @@ describe('concurrency and retry race safety (H11)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
-    itemReencryptor = new ItemReencryptor({ keys })
+    itemReencryptor = new ItemReencryptor({ codec: passthroughCodec, keys })
     setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
@@ -1112,7 +1095,7 @@ describe('concurrency and retry race safety (H11)', () => {
       repo: mockRepo,
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
     }
   })
 

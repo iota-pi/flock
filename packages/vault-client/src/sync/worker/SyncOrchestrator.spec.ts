@@ -14,9 +14,15 @@ describe('SyncOrchestrator', () => {
   let mockPullQueueManager: any
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
+  let mockManifestSyncManager: any
 
   beforeEach(() => {
     vi.useFakeTimers()
+
+    mockManifestSyncManager = {
+      sync: vi.fn().mockResolvedValue({ added: [] }),
+      abort: vi.fn(),
+    }
 
     mockPoller = {
       executePoll: vi.fn().mockResolvedValue('success'),
@@ -71,6 +77,7 @@ describe('SyncOrchestrator', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager: mockPullQueueManager,
+      manifestSyncManager: mockManifestSyncManager,
     })
   })
 
@@ -492,6 +499,7 @@ describe('SyncOrchestrator', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager: mockPullQueueManager,
+      manifestSyncManager: mockManifestSyncManager,
       createLeaderElection: (_accountId, callbacks) => {
         capturedCallbacks = callbacks
         return {
@@ -526,6 +534,7 @@ describe('SyncOrchestrator', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager: mockPullQueueManager,
+      manifestSyncManager: mockManifestSyncManager,
       createLeaderElection: (_accountId, callbacks) => {
         capturedCallbacks = callbacks
         return {
@@ -560,6 +569,7 @@ describe('SyncOrchestrator', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager: mockPullQueueManager,
+      manifestSyncManager: mockManifestSyncManager,
       createLeaderElection: () => mockLeaderElection,
     })
 
@@ -587,6 +597,7 @@ describe('SyncOrchestrator', () => {
         clientEventHub,
         internalEventHub,
         pullQueueManager: customPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
       })
 
       // Promote to leader
@@ -644,6 +655,7 @@ describe('SyncOrchestrator', () => {
         clientEventHub,
         internalEventHub,
         pullQueueManager: customPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
       })
 
       orchestratorWithPQM.setLeader(true)
@@ -831,16 +843,7 @@ describe('SyncOrchestrator', () => {
   })
 
   describe('manifest sync scheduling & reconnection', () => {
-    let mockManifestSyncManager: any
-
-    beforeEach(() => {
-      mockManifestSyncManager = {
-        sync: vi.fn().mockResolvedValue({ added: [] }),
-      }
-    })
-
     it('triggers manifest sync on reconnection when leader', async () => {
-      orchestrator.setManifestSyncManager(mockManifestSyncManager)
       orchestrator.setLeader(true)
       await vi.advanceTimersByTimeAsync(0)
       // Initial state is online, reset to offline
@@ -855,7 +858,6 @@ describe('SyncOrchestrator', () => {
     })
 
     it('does not trigger manifest sync on reconnection when not leader', async () => {
-      orchestrator.setManifestSyncManager(mockManifestSyncManager)
       orchestrator.setLeader(false)
       orchestrator.setOnlineState(false)
       mockManifestSyncManager.sync.mockClear()
@@ -976,7 +978,6 @@ describe('SyncOrchestrator', () => {
         () => new Promise(resolve => { resolveSync = resolve })
       )
 
-      orchestrator.setManifestSyncManager(mockManifestSyncManager)
       orchestrator.setLeader(true)
       orchestrator.setOnlineState(true)
       await vi.advanceTimersByTimeAsync(0)
@@ -1002,7 +1003,6 @@ describe('SyncOrchestrator', () => {
         () => new Promise(resolve => { resolveSync = resolve })
       )
 
-      orchestrator.setManifestSyncManager(mockManifestSyncManager)
       orchestrator.setLeader(true)
       // First sync is now initiated and in-flight
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
@@ -1037,7 +1037,6 @@ describe('SyncOrchestrator', () => {
         () => new Promise(resolve => { resolveSync = resolve })
       )
 
-      orchestrator.setManifestSyncManager(mockManifestSyncManager)
       orchestrator.setLeader(true)
       orchestrator.setOnlineState(true)
 
@@ -1141,51 +1140,43 @@ describe('SyncOrchestrator', () => {
 
     it('aborts in-flight manifest sync when leadership is revoked', async () => {
       let capturedSignal: AbortSignal | undefined
-      const mockManifest = {
-        sync: vi.fn((_force?: boolean, signal?: AbortSignal) => {
-          capturedSignal = signal
-          return new Promise<{ added: any[] }>(() => {})
-        }),
-        abort: vi.fn(),
-      }
+      mockManifestSyncManager.sync.mockImplementation((_force?: boolean, signal?: AbortSignal) => {
+        capturedSignal = signal
+        return new Promise<{ added: any[] }>(() => {})
+      })
 
-      orchestrator.setManifestSyncManager(mockManifest)
       orchestrator.setLeader(true)
       orchestrator.setOnlineState(true)
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(mockManifest.sync).toHaveBeenCalledTimes(1)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
       expect(capturedSignal).toBeDefined()
       expect(capturedSignal?.aborted).toBe(false)
 
       orchestrator.setLeader(false)
 
       expect(capturedSignal?.aborted).toBe(true)
-      expect(mockManifest.abort).toHaveBeenCalledTimes(1)
+      expect(mockManifestSyncManager.abort).toHaveBeenCalledTimes(1)
     })
 
     it('aborts in-flight manifest sync when going offline', async () => {
       let capturedSignal: AbortSignal | undefined
-      const mockManifest = {
-        sync: vi.fn((_force?: boolean, signal?: AbortSignal) => {
-          capturedSignal = signal
-          return new Promise<{ added: any[] }>(() => {})
-        }),
-        abort: vi.fn(),
-      }
+      mockManifestSyncManager.sync.mockImplementation((_force?: boolean, signal?: AbortSignal) => {
+        capturedSignal = signal
+        return new Promise<{ added: any[] }>(() => {})
+      })
 
-      orchestrator.setManifestSyncManager(mockManifest)
       orchestrator.setLeader(true)
       orchestrator.setOnlineState(true)
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(mockManifest.sync).toHaveBeenCalledTimes(1)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
       expect(capturedSignal?.aborted).toBe(false)
 
       orchestrator.setOnlineState(false)
 
       expect(capturedSignal?.aborted).toBe(true)
-      expect(mockManifest.abort).toHaveBeenCalledTimes(1)
+      expect(mockManifestSyncManager.abort).toHaveBeenCalledTimes(1)
     })
   })
 

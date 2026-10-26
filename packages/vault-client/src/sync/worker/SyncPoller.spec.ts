@@ -2,7 +2,7 @@ import { SyncPoller } from './SyncPoller'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { SyncApiClient, AuthError } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createMockKeyProvider, createMockVault, createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks } from './__test__/testUtils'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
@@ -38,7 +38,7 @@ describe('SyncPoller', () => {
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
-    pullQueueManager = new SyncPullQueueManager(new CursorStore('test-account'), keys)
+    pullQueueManager = new SyncPullQueueManager(new CursorStore('test-account'), keys, noItemLocks, internalEventHub)
     indexManager = {
       updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
     } as unknown as AutomergeIndexManager
