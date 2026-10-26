@@ -68,8 +68,6 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),
       loadCursors: vi.fn().mockResolvedValue(undefined),
-      resetCursors: vi.fn().mockResolvedValue(undefined),
-      hasPendingPulls: vi.fn().mockReturnValue(false),
       hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       shutdown: vi.fn().mockResolvedValue(undefined),
     } as unknown as SyncPullQueueManager

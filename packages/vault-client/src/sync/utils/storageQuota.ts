@@ -1,10 +1,12 @@
+import { errorMessage } from './errorMessage'
+
 /**
  * Checks if a given error is a storage quota exceeded error.
  */
 export function isQuotaError(err: unknown): boolean {
   if (!err) return false
   const name = (err as Error).name || ''
-  const message = (err as Error).message || ''
+  const message = errorMessage(err)
   return (
     name === 'QuotaExceededError' ||
     name === 'NS_ERROR_DOM_QUOTA_REACHED' ||

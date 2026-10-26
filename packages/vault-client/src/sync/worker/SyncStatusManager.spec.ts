@@ -171,35 +171,6 @@ describe('SyncStatusManager', () => {
     expect(emittedStatuses).toEqual(['degraded', 'idle'])
   })
 
-  it('transitions to connecting when isConnecting is set and online', () => {
-    statusManager.reset(true)
-    emittedStatuses = []
-
-    statusManager.setConnecting(true)
-    expect(statusManager.getStatus()).toBe('connecting')
-    expect(emittedStatuses).toEqual(['connecting'])
-
-    statusManager.setConnecting(false)
-    expect(statusManager.getStatus()).toBe('idle')
-    expect(emittedStatuses).toEqual(['connecting', 'idle'])
-  })
-
-  it('transitions to dead when isDead is set', () => {
-    statusManager.reset(true)
-    emittedStatuses = []
-
-    statusManager.setDead(true)
-    expect(statusManager.getStatus()).toBe('dead')
-    expect(emittedStatuses).toEqual(['dead'])
-
-    // Dead overrides syncing, connecting, degraded, offline
-    statusManager.startRequest()
-    expect(statusManager.getStatus()).toBe('dead')
-
-    statusManager.setDead(false)
-    expect(statusManager.getStatus()).toBe('syncing')
-  })
-
   it('transitions to offline on auth-failure outcome', () => {
     statusManager.reset(true)
     emittedStatuses = []

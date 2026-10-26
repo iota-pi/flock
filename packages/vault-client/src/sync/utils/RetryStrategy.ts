@@ -232,24 +232,6 @@ export class RetryStrategy {
   }
 
   /**
-   * Static helper to compute delay for a given schedule and attempt.
-   */
-  static computeDelay(
-    delays: readonly number[],
-    attempt: number,
-    options?: { jitter?: boolean | JitterOptions }
-  ): number {
-    if (delays.length === 0) return 0
-    const index = Math.min(Math.max(0, attempt), delays.length - 1)
-    const base = delays[index]
-    if (options?.jitter) {
-      const jitterOpts = typeof options.jitter === 'object' ? options.jitter : undefined
-      return RetryStrategy.applyJitter(base, jitterOpts)
-    }
-    return base
-  }
-
-  /**
    * Executes an async operation with retries according to the retry strategy options,
    * yielding to the JavaScript event loop via setTimeout between retry attempts and
    * respecting AbortSignal cancellation.

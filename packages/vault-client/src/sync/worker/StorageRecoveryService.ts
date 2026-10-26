@@ -18,6 +18,7 @@ import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
+import { errorMessage } from '../utils/errorMessage'
 
 const log = createLogger('StorageRecoveryService')
 
@@ -246,7 +247,7 @@ export class StorageRecoveryService implements LifecycleAware {
         return { success: false, error: err.message }
       }
       log.error('Unexpected error during retrySave', err)
-      return { success: false, error: (err as Error).message || 'Failed to retry save' }
+      return { success: false, error: errorMessage(err) || 'Failed to retry save' }
     }
   }
 }

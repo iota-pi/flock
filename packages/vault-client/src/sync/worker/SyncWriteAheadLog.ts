@@ -49,7 +49,7 @@ export function toUint8Array(data: unknown): Uint8Array {
       ? Math.max(0, Math.floor(rawObj.length))
       : Object.keys(rawObj).length
     const result = new Uint8Array(length)
-    for (let i = 0; i < length; i++) {
+    for (let i = 0; i < length; i += 1) {
       const val = rawObj[i]
       if (typeof val === 'number') {
         result[i] = val
@@ -58,6 +58,21 @@ export function toUint8Array(data: unknown): Uint8Array {
     return result
   }
   return new Uint8Array()
+}
+
+/** The highest seq and createdAt seen across stored entries */
+interface SeqHighWaterMark {
+  seq: number
+  createdAt: number
+}
+
+function raiseHighWaterMark(mark: SeqHighWaterMark, entry: Pick<StoredWalEntry, 'seq' | 'createdAt'>): void {
+  if (typeof entry.seq === 'number' && entry.seq > mark.seq) {
+    mark.seq = entry.seq
+  }
+  if (typeof entry.createdAt === 'number' && entry.createdAt > mark.createdAt) {
+    mark.createdAt = entry.createdAt
+  }
 }
 
 const MAX_ENTRIES = SYNC_BATCH_SIZES.walMax
@@ -75,26 +90,25 @@ export class SyncWriteAheadLog {
     if (this.isSeqInitialized) return
     await this.initSeqGuard.run(async () => {
       if (this.isSeqInitialized) return
-      let maxSeq = 0
-      let maxCreatedAt = 0
+      const mark: SeqHighWaterMark = { seq: 0, createdAt: 0 }
       await this.storage.iterate<WalEntry, void>(entry => {
         if (entry) {
-          if (typeof entry.seq === 'number' && entry.seq > maxSeq) {
-            maxSeq = entry.seq
-          }
-          if (typeof entry.createdAt === 'number' && entry.createdAt > maxCreatedAt) {
-            maxCreatedAt = entry.createdAt
-          }
+          raiseHighWaterMark(mark, entry)
         }
       })
-      if (maxSeq > this.seqCounter) {
-        this.seqCounter = maxSeq
-      }
-      if (maxCreatedAt > this.lastCreatedAt) {
-        this.lastCreatedAt = maxCreatedAt
-      }
-      this.isSeqInitialized = true
+      this.initializeSeq(mark)
     })
+  }
+
+  /** Continues seq and createdAt after the stored entries' high-water mark */
+  private initializeSeq(mark: SeqHighWaterMark): void {
+    if (mark.seq > this.seqCounter) {
+      this.seqCounter = mark.seq
+    }
+    if (mark.createdAt > this.lastCreatedAt) {
+      this.lastCreatedAt = mark.createdAt
+    }
+    this.isSeqInitialized = true
   }
 
   private storage: LocalForage
@@ -142,10 +156,6 @@ export class SyncWriteAheadLog {
       this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId: entry.itemId })
       return null
     }
-  }
-
-  public get eventHub(): WorkerInternalEventHub {
-    return this.internalEventHub
   }
 
   private readonly inFlightEntryIds = new Set<string>()
@@ -398,18 +408,12 @@ export class SyncWriteAheadLog {
    */
   async readAll(): Promise<Map<ItemId, WalEntry[]>> {
     const storedEntries: StoredWalEntry[] = []
-    let maxSeq = 0
-    let maxCreatedAt = 0
+    const mark: SeqHighWaterMark = { seq: 0, createdAt: 0 }
 
     // localforage's iterate callback can't await, so entries are opened once it has finished
     await this.storage.iterate<StoredWalEntry, void>(entry => {
       if (entry && entry.id && entry.itemId && (this.cipher ? entry.sealed : entry.data)) {
-        if (typeof entry.seq === 'number' && entry.seq > maxSeq) {
-          maxSeq = entry.seq
-        }
-        if (typeof entry.createdAt === 'number' && entry.createdAt > maxCreatedAt) {
-          maxCreatedAt = entry.createdAt
-        }
+        raiseHighWaterMark(mark, entry)
         storedEntries.push(entry)
       }
     })
@@ -441,13 +445,7 @@ export class SyncWriteAheadLog {
     })
 
     if (!this.isSeqInitialized) {
-      if (maxSeq > this.seqCounter) {
-        this.seqCounter = maxSeq
-      }
-      if (maxCreatedAt > this.lastCreatedAt) {
-        this.lastCreatedAt = maxCreatedAt
-      }
-      this.isSeqInitialized = true
+      this.initializeSeq(mark)
     }
 
     // If any superseded entries are still present in storage (e.g. crash during compaction),

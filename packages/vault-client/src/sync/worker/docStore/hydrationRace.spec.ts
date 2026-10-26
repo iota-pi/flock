@@ -40,6 +40,7 @@ describe('Document Hydration Race Condition (C4)', () => {
   let docStore: AutomergeDocStore
   let cursorStore: CursorStore
   let pullQueueManager: SyncPullQueueManager
+  let eventHub: WorkerInternalEventHub
 
   beforeEach(async () => {
     // CursorStore keeps its cursors in localforage
@@ -47,7 +48,8 @@ describe('Document Hydration Race Condition (C4)', () => {
     repo = new Repo()
     docStore = createTestDocStore(repo)
     cursorStore = new CursorStore('test-account')
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, new WorkerInternalEventHub())
+    eventHub = new WorkerInternalEventHub()
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, eventHub)
     await pullQueueManager.setAccount('test-account')
     mockDecryptBytes.mockReset()
     mockDecryptBytes.mockImplementation(async (entry: any) => entry._rawBytes ?? new Uint8Array())
@@ -117,7 +119,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     })
 
     let pullProcessed = false
-    pullQueueManager.eventHub.subscribe(e => {
+    eventHub.subscribe(e => {
       if (e.type === 'messageParsed') {
         const handle = repo.handles[e.documentId]
         if (handle) {
@@ -208,7 +210,7 @@ describe('Document Hydration Race Condition (C4)', () => {
       docId: interpretAsDocumentId(toAutomergeUrlFromItemId(itemId)),
     })
 
-    pullQueueManager.eventHub.subscribe(e => {
+    eventHub.subscribe(e => {
       if (e.type === 'messageParsed') {
         const handle = repo.handles[e.documentId]
         if (handle) {

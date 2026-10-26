@@ -22,6 +22,7 @@ const createLocalForageInstance = (options: { name: string; storeName: string })
 
 describe('SyncWriteAheadLog', () => {
   let wal: SyncWriteAheadLog
+  let eventHub: WorkerInternalEventHub
 
   beforeEach(() => {
     mockLocalForage(createLocalForageInstance)
@@ -29,7 +30,8 @@ describe('SyncWriteAheadLog', () => {
     activeStoreMap.clear()
     clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()
-    wal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
+    eventHub = new WorkerInternalEventHub()
+    wal = new SyncWriteAheadLog('test-account', eventHub)
   })
 
   it('appends entries and reads them grouped by item', async () => {
@@ -681,7 +683,7 @@ describe('SyncWriteAheadLog', () => {
     })
 
     const onPruned = vi.fn()
-    wal.eventHub.subscribe(e => {
+    eventHub.subscribe(e => {
       if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
     })
 
@@ -710,7 +712,7 @@ describe('SyncWriteAheadLog', () => {
     }
 
     const onPruned = vi.fn()
-    wal.eventHub.subscribe(e => {
+    eventHub.subscribe(e => {
       if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
     })
 
@@ -758,7 +760,7 @@ describe('SyncWriteAheadLog', () => {
     })
 
     const onPruned = vi.fn()
-    wal.eventHub.subscribe(e => {
+    eventHub.subscribe(e => {
       if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
     })
 
@@ -872,7 +874,7 @@ describe('SyncWriteAheadLog', () => {
       wal.markInFlight(['a1'])
 
       const onPruned = vi.fn()
-      wal.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
       })
 

@@ -10,6 +10,7 @@ import { publishRealtimeBusSyncPing } from './realtimeBus'
 import type { RecoveryManager } from './RecoveryManager'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
 import { createLogger } from '../utils/logger'
+import { errorMessage } from '../utils/errorMessage'
 
 const log = createLogger('ItemOperations')
 
@@ -86,7 +87,7 @@ export class ItemOperations {
         await this.handleMutationFailure(id, 'edit', `Failed to update document ${id}`)
       }
     } catch (err) {
-      await this.handleMutationFailure(id, 'edit', (err as Error).message)
+      await this.handleMutationFailure(id, 'edit', errorMessage(err))
     }
   }
 
@@ -112,7 +113,7 @@ export class ItemOperations {
       await this.createDocumentOrThrow(item)
     } catch (err) {
       const refused = err instanceof DocumentCreateRefusedError
-      await this.handleMutationFailure(item.id, 'create', (err as Error).message, refused)
+      await this.handleMutationFailure(item.id, 'create', errorMessage(err), refused)
     }
   }
 
@@ -287,7 +288,7 @@ export class ItemOperations {
         }
       }
       throw new Error(
-        `Failed to recreate item ${oldItemId}: ${(cause as Error).message}`,
+        `Failed to recreate item ${oldItemId}: ${errorMessage(cause)}`,
         { cause },
       )
     }

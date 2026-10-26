@@ -314,7 +314,7 @@ describe('Sync System Integration Test Suite', () => {
     for (let attempt = 1; attempt <= 4; attempt++) {
       mockPollSyncBatch.mockResolvedValueOnce(corruptMessageResponse)
       await broker.poller.executePoll()
-      expect(pullQueueManager.hasPendingPulls()).toBe(true)
+      expect(pullQueueManager.getCursors().map(c => c.itemId)).toContain(itemId)
       expect(failureSpy).not.toHaveBeenCalled()
     }
 
@@ -328,7 +328,7 @@ describe('Sync System Integration Test Suite', () => {
         message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
       })
     )
-    expect(pullQueueManager.hasPendingPulls()).toBe(false)
+    expect(pullQueueManager.getCursors().map(c => c.itemId)).not.toContain(itemId)
   })
 
   it('Scenario 6: Incremental message pull (e.g. overlap window) does not resurrect item in indexManager', async () => {

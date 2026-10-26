@@ -18,6 +18,7 @@ import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import type { LifecycleAware } from '../ServiceLifecycleManager'
 import { createLogger } from '../../utils/logger'
+import { errorMessage } from '../../utils/errorMessage'
 
 const log = createLogger('AutomergeDocStore')
 
@@ -126,6 +127,12 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     return { url, documentId: interpretAsDocumentId(url) }
   }
 
+  /** The repo's in-memory handle for the document, when it's ready */
+  private getReadyHandle(documentId: DocumentId): RepoDocHandle {
+    const handle: RepoDocHandle = this.repo.handles[documentId]
+    return handle?.isReady() ? handle : undefined
+  }
+
   async loadDocDataFromStorage(itemId: ItemId): Promise<Uint8Array | undefined> {
     if (!this.repo.storageSubsystem) return undefined
     const { documentId } = this.resolveDocumentId(itemId)
@@ -157,11 +164,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   async saveDocToStorage(itemId: ItemId): Promise<boolean> {
     if (!this.repo.storageSubsystem) return false
     const { documentId } = this.resolveDocumentId(itemId)
-    let handle: RepoDocHandle = this.repo.handles[documentId]
-    if (!handle || !handle.isReady()) {
-      handle = await this.findHandle(itemId, { knownToExist: true })
-    }
-    if (!handle || !handle.isReady()) return false
+    const handle = this.getReadyHandle(documentId) ?? await this.findHandle(itemId, { knownToExist: true })
+    if (!handle?.isReady()) return false
     const doc = handle.doc()
     if (!doc) return false
     await this.repo.storageSubsystem.saveDoc(documentId, doc)
@@ -202,12 +206,12 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     const { url, documentId } = this.resolveDocumentId(itemId)
 
     // 1. Check in-memory handles cache first (only if ready)
-    let handle: RepoDocHandle = this.repo.handles[documentId]
-    if (handle && handle.isReady()) return handle
+    const cachedHandle = this.getReadyHandle(documentId)
+    if (cachedHandle) return cachedHandle
 
     // If handle exists in cache but is still loading, bypass storage check
     // since loading has already been initiated.
-    let existsInStorage = !!handle
+    let existsInStorage = !!this.repo.handles[documentId]
     if (!existsInStorage) {
       // 2. Determine if it's known to exist (or check locally as fallback)
       if (options.knownToExist !== undefined) {
@@ -226,23 +230,23 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     if (this.isLocallyUnreadable(documentId)) return undefined
 
     // 3. Fast-path attempt (2s)
-    handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreFastPath)
-    if (handle && handle.isReady()) return handle
+    const fastHandle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreFastPath)
+    if (fastHandle?.isReady()) return fastHandle
     if (this.isLocallyUnreadable(documentId)) return undefined
 
     // 4. Extended attempt for confirmed-to-exist documents (8s)
     // Check cache in case it became ready after timedFind aborted
-    handle = this.repo.handles[documentId]
-    if (handle && handle.isReady()) return handle
+    const lateHandle = this.getReadyHandle(documentId)
+    if (lateHandle) return lateHandle
 
     log.warn(
       `Document ${itemId} exists in storage but fast-path timed out. Retrying with extended timeout.`
     )
-    handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreExtended)
+    const extendedHandle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreExtended)
 
     // Final cache check — strictly require readiness before returning
-    const finalHandle = handle ?? this.repo.handles[documentId]
-    return (finalHandle && finalHandle.isReady()) ? finalHandle : undefined
+    if (extendedHandle) return extendedHandle.isReady() ? extendedHandle : undefined
+    return this.getReadyHandle(documentId)
   }
 
   async findOrCreateHandle(
@@ -302,7 +306,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
           handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
         } catch (error) {
           throw new Error(
-            `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
+            `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${errorMessage(error)}`,
             { cause: error },
           )
         }
@@ -340,7 +344,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
       ? await this.findOrCreateHandle(normalizedItemId, options)
       : await this.findHandle(normalizedItemId, options)
 
-    if (!handle || !handle.isReady()) {
+    if (!handle?.isReady()) {
       return false
     }
 
@@ -391,9 +395,10 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     }
 
     return this.withItemLock(normalizedItemId, async () => {
+      let incomingDoc: Automerge.Doc<RepoDoc> | undefined
       let incomingHeads: string[] = []
       try {
-        const incomingDoc = Automerge.load<RepoDoc>(binary)
+        incomingDoc = Automerge.load<RepoDoc>(binary)
         incomingHeads = Automerge.getHeads(incomingDoc)
       } catch {
         // Ignore initial parse failure here; it will throw when importing/loading below if corrupt
@@ -402,7 +407,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
       try {
         const existingHandle = await this.findHandleInternal(normalizedItemId, options)
 
-        if (existingHandle && existingHandle.isReady()) {
+        if (existingHandle?.isReady()) {
           this.applyMerge(existingHandle, binary)
           return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
         } else {
@@ -413,8 +418,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
 
           // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
           const { documentId } = this.resolveDocumentId(normalizedItemId)
-          const inMemoryHandle = this.repo.handles[documentId]
-          if (inMemoryHandle && inMemoryHandle.isReady()) {
+          const inMemoryHandle = this.getReadyHandle(documentId)
+          if (inMemoryHandle) {
             this.applyMerge(inMemoryHandle, binary)
             return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
           }
@@ -424,8 +429,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
             if (localBinary && localBinary.byteLength > 0) {
               try {
                 const localDoc = Automerge.load<RepoDoc>(localBinary)
-                const incomingDoc = Automerge.load<RepoDoc>(binary)
-                const mergedDoc = Automerge.merge(localDoc, incomingDoc)
+                const mergedDoc = Automerge.merge(localDoc, incomingDoc ?? Automerge.load<RepoDoc>(binary))
                 const mergedBinary = Automerge.save(mergedDoc)
                 await this.seedImportedDocument(normalizedItemId, mergedBinary)
                 return this.buildHydrateResult(mergedDoc, incomingHeads)
@@ -476,8 +480,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     const { documentId } = this.resolveDocumentId(itemId)
 
     // Concurrency defense: If a ready handle already exists in the repo, merge rather than evicting it!
-    const existing = this.repo.handles[documentId]
-    if (existing && existing.isReady()) {
+    const existing = this.getReadyHandle(documentId)
+    if (existing) {
       this.applyMerge(existing, binary)
       this.notifyDocHandleReplaced(itemId, existing)
       return existing
@@ -505,7 +509,7 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
 
     for (const itemId of await indexManager.listAutomergeItemIds()) {
       const handle = await this.findHandle(itemId, { knownToExist: true })
-      if (!handle || !handle.isReady()) {
+      if (!handle?.isReady()) {
         log.warn(`Skipping item ${itemId}: document could not be loaded in time`)
         skipped.push(itemId)
         continue

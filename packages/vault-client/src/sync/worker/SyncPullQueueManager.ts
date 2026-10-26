@@ -67,10 +67,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     this.retryTracker = new PullRetryTracker(keys)
   }
 
-  public get eventHub(): WorkerInternalEventHub {
-    return this.internalEventHub
-  }
-
   private makeOwnPushKey(itemId: ItemId, cursor: number): string {
     return `${itemId}:${cursor}`
   }
@@ -521,13 +517,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
-  hasPendingPulls(): boolean {
-    if (this.hasMoreGlobal) {
-      return true
-    }
-    return this.retryTracker.hasPendingPulls()
-  }
-
   exportCursors(): [ItemId, number][] {
     return this.retryTracker.exportCursors()
   }
@@ -539,12 +528,5 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       this.clearBatchProgressUpTo(itemId, cursor)
     }
     await this.cursorStore.saveCursors(this.retryTracker.exportState())
-  }
-
-  async resetCursors(): Promise<void> {
-    if (!this.account) return
-    this.clearPullState()
-    await this.cursorStore.clear()
-    this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
   }
 }

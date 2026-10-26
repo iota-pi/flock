@@ -495,6 +495,13 @@ export class SyncWorkerContext {
   }
 
   private subscribeInternalEvents({ snapshotManager, recoveryManager, snapshotFormatUpgrade }: SyncWorkerServices): void {
+    // Marks items for a snapshot without debouncing, so their full state is delivered
+    const snapshotNow = (...itemIds: ItemId[]) => {
+      for (const itemId of itemIds) {
+        snapshotManager.markItemDirty(itemId, 0)
+      }
+    }
+
     const unsub = this.internalEventHub.subscribe(event => {
       switch (event.type) {
         case 'leaderChange':
@@ -519,19 +526,15 @@ export class SyncWorkerContext {
             'SyncWorkerContext:internalEvent:remoteMessagesParsed',
           )
           break
-        case 'renegotiationTriggered': {
-          const itemId = toVaultItemIdFromAutomergeId(event.documentId)
-          snapshotManager.markItemDirty(itemId, 0)
+        case 'renegotiationTriggered':
+          snapshotNow(toVaultItemIdFromAutomergeId(event.documentId))
           break
-        }
         case 'walAppendFailed':
         case 'snapshotFallbackRequested':
-          snapshotManager.markItemDirty(event.itemId, 0)
+          snapshotNow(event.itemId)
           break
         case 'walEntriesPruned':
-          for (const itemId of event.itemIds) {
-            snapshotManager.markItemDirty(itemId, 0)
-          }
+          snapshotNow(...event.itemIds)
           break
       }
     })

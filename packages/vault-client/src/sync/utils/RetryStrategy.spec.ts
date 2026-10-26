@@ -196,18 +196,6 @@ describe('RetryStrategy', () => {
     })
   })
 
-  describe('static helpers', () => {
-    it('computeDelay computes delay with clamping and optional jitter', () => {
-      expect(RetryStrategy.computeDelay([1000, 2000], 0)).toBe(1000)
-      expect(RetryStrategy.computeDelay([1000, 2000], 1)).toBe(2000)
-      expect(RetryStrategy.computeDelay([1000, 2000], 5)).toBe(2000)
-
-      const jittered = RetryStrategy.computeDelay([60000], 0, { jitter: true })
-      expect(jittered).toBeGreaterThanOrEqual(52500)
-      expect(jittered).toBeLessThanOrEqual(67500)
-    })
-  })
-
   describe('executeWithRetry', () => {
     it('executes operation successfully on initial attempt without retrying', async () => {
       const op = vi.fn().mockResolvedValue('success')

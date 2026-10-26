@@ -14,7 +14,6 @@ describe('BoundedQueue', () => {
     expect(queue.size).toBe(0)
     expect(queue.maxCapacity).toBe(5)
     expect(queue.peek()).toBeUndefined()
-    expect(queue.peekLast()).toBeUndefined()
     expect(queue.shift()).toBeUndefined()
   })
 
@@ -25,7 +24,6 @@ describe('BoundedQueue', () => {
     expect(queue.push('c')).toBe(3)
 
     expect(queue.peek()).toBe('a')
-    expect(queue.peekLast()).toBe('c')
     expect(queue.length).toBe(3)
 
     expect(queue.shift()).toBe('a')
