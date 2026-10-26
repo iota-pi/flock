@@ -6,7 +6,7 @@ import {
   createVaultContext,
 } from './trpc'
 import { hashSessionToken, shouldRenewSession, SESSION_EXPIRY_MS, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
-import type { StoredAccount, VaultSessionRecord } from '../drivers/base'
+import type { StoredAccount, VaultDriver, VaultSessionRecord } from '../drivers/vaultDriver'
 
 describe('shouldRenewSession', () => {
   const authToken = 'test-token-123'
@@ -296,12 +296,13 @@ describe('protocol version gate', () => {
     await expect(createCaller(0, 0).write()).resolves.toBe('written')
   })
 
-  it('reads the protocol version header into the context', () => {
-    const createContext = createVaultContext({ minProtocolVersion: 2 })
-    const req = { headers: { 'x-vault-protocol': '3' }, server: { vault: {} } }
-    expect(createContext({ req } as any)).toMatchObject({ protocolVersion: 3, minProtocolVersion: 2 })
+  it('puts the driver and the protocol version header into the context', () => {
+    const vault = {} as VaultDriver
+    const createContext = createVaultContext({ vault, minProtocolVersion: 2 })
+    const req = { headers: { 'x-vault-protocol': '3' } }
+    expect(createContext({ req } as any)).toMatchObject({ vault, protocolVersion: 3, minProtocolVersion: 2 })
 
-    const reqWithoutHeader = { headers: {}, server: { vault: {} } }
+    const reqWithoutHeader = { headers: {} }
     expect(createContext({ req: reqWithoutHeader } as any)).toMatchObject({ protocolVersion: 0 })
   })
 })

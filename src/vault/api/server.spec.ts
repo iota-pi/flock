@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
+import DynamoDriver from '@vault/server/dynamo'
 import createServer from './index'
 
 const CURRENT_PROTOCOL = { [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION) }
@@ -67,8 +68,7 @@ describe('createServer error reporting', () => {
 
   it('captures unexpected internal errors in Sentry with tRPC path tag', async () => {
     const server = await createServer(true)
-    const mockVault = (server as any).vault
-    vi.spyOn(mockVault, 'getNewAccountId').mockRejectedValue(new Error('DynamoDB Connection Failure'))
+    vi.spyOn(DynamoDriver.prototype, 'getNewAccountId').mockRejectedValue(new Error('DynamoDB Connection Failure'))
 
     try {
       const response = await server.inject({

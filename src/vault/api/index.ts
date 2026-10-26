@@ -43,14 +43,12 @@ async function createServer(devMode = false) {
     credentials: true,
   })
 
-  const vault = createFlockDriver(devMode)
-  server.decorate('vault', vault)
-
   await server.register(fastifyTRPCPlugin, {
     prefix: '/trpc',
     trpcOptions: {
       router: appRouter,
       createContext: createVaultContext({
+        vault: createFlockDriver(devMode),
         minProtocolVersion: MIN_PROTOCOL_VERSION,
         dataVersionPolicy: flockDataVersionPolicy,
       }),

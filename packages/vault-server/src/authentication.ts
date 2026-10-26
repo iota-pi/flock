@@ -1,4 +1,4 @@
-import type { StoredAccount, VaultAccountWithAuth } from './drivers/base'
+import type { StoredAccount, VaultAccountWithAuth } from './drivers/vaultDriver'
 import { AuthenticationError, ExpiredSessionError, TooManyLoginAttemptsError } from './errors'
 import { isLoginLocked } from './loginThrottle'
 import { isSessionFor, normalizeSessionRecords } from './sessions'

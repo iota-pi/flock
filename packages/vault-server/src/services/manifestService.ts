@@ -1,9 +1,8 @@
-import type BaseDriver from '../drivers/base'
-import type { VaultItem } from '../drivers/base'
+import type { VaultItem, VaultDriver } from '../drivers/vaultDriver'
 import type { FetchedItem, ItemId, ManifestEntry } from '@vault/shared'
 
 type ManifestServiceContext = {
-  vault: BaseDriver
+  vault: VaultDriver
 }
 
 export async function fetchManifest(

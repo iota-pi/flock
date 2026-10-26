@@ -1,4 +1,4 @@
-import type { VaultAccountWithAuth, VaultSessionRecord } from './drivers/base'
+import type { VaultAccountWithAuth, VaultSessionRecord } from './drivers/vaultDriver'
 import { hashString, safeEqual } from './util'
 
 export const SESSION_EXPIRY_MS = 72 * 60 * 60 * 1000 // 72 hours

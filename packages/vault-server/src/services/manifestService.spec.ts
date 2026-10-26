@@ -1,13 +1,12 @@
 import { fetchManifest, fetchSnapshotsByIds, toFetchedItem } from './manifestService'
-import type BaseDriver from '../drivers/base'
-import type { VaultItem } from '../drivers/base'
+import type { VaultItem, VaultDriver } from '../drivers/vaultDriver'
 import type { ItemId } from '@vault/shared'
 
-function createMockVault(): BaseDriver {
+function createMockVault(): VaultDriver {
   return {
     fetchManifest: vi.fn(),
     fetchByIds: vi.fn(),
-  } as unknown as BaseDriver
+  } as unknown as VaultDriver
 }
 
 describe('manifestService.fetchManifest', () => {

@@ -20,22 +20,29 @@ import {
 import { chunk } from 'lodash-es'
 import { generateAccountId } from '../../util'
 import { addSessionRecord, normalizeSessionRecords, renewSessionRecord } from '../../sessions'
-import BaseDriver, {
+import type {
   AuthData,
   BaseData,
+  GetGlobalSyncMessagesInput,
+  GetSyncMessagesInput,
+  GlobalSyncMessagesPage,
   ItemFormatSummary,
   SecurityParams,
   StoredAccount,
   StoredSyncMessage,
   UpdateAccountDataParams,
   VaultAccount,
+  ValidatePageTokenInput,
+  VaultDriver,
   VaultItem,
   VaultSessionRecord,
-} from '../base'
+  PushSyncMessagesInput,
+  SyncMessagesPage,
+} from '../vaultDriver'
 import { AuthenticationError } from '../../errors'
 import { FAILED_LOGIN_WINDOW_MS } from '../../loginThrottle'
 import { VersionConflictError } from '@vault/shared'
-import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
+import type { ItemId, ManifestEntry } from '@vault/shared'
 import { isConditionalCheckFailure, isResourceInUseError } from './dynamoErrors'
 import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
 import { ACCOUNT_CURSOR_INDEX, getVaultTableDefinitions } from './tables'
@@ -69,13 +76,12 @@ const DATA_ATTRIBUTE_NAMES = {
 
 const MAX_SESSION_UPDATE_ATTEMPTS = 3
 
-export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
+export default class DynamoDriver implements VaultDriver {
   private internalClient: DynamoDBDocumentClient | undefined
   readonly tables: VaultTableNames
   private readonly accountDefaults: Record<string, unknown>
 
   constructor(options: DynamoDriverOptions = {}) {
-    super()
     this.tables = resolveVaultTableNames(options.tables)
     this.accountDefaults = options.accountDefaults ?? {}
   }
@@ -97,7 +103,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return this.internalClient
   }
 
-  async init(_: T | undefined = undefined) {
+  /** Creates any of the vault's tables that don't exist yet */
+  async init(): Promise<this> {
     for (const table of getVaultTableDefinitions(this.tables)) {
       try {
         console.info(`Create table: ${table.TableName}`)
@@ -122,7 +129,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return this
   }
 
-  connect(options?: T, devMode = false): DynamoDriver {
+  connect(options?: DynamoDBClientConfig, devMode = false): this {
     const connectionParams = getConnectionParams(options)
     const ddb = new DynamoDBClient({
       ...connectionParams,
@@ -638,14 +645,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     })
   }
 
-  async pushSyncMessagesBatch(input: {
-    account: string
-    messages: Array<{
-      itemId: ItemId
-      entry: StoredSyncMessage
-      lastModified: number
-    }>
-  }): Promise<void> {
+  async pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void> {
     const batches = chunk(input.messages, PUSH_BATCH_SIZE)
 
     await Promise.all(
@@ -670,13 +670,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     )
   }
 
-  async getSyncMessages(input: {
-    account: string
-    itemId: ItemId
-    fromCursor?: number
-    limit?: number
-    pageToken?: PageToken
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: PageToken }> {
+  async getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage> {
     const expectedSyncId = `${input.account}#${input.itemId}`
     const exclusiveStartKey = input.pageToken
       ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
@@ -708,12 +702,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  validatePageToken(input: {
-    account: string
-    itemId?: ItemId
-    cursor?: number
-    pageToken: PageToken
-  }): void {
+  validatePageToken(input: ValidatePageTokenInput): void {
     if (input.itemId) {
       decodeItemPageToken(input.pageToken, `${input.account}#${input.itemId}`, input.cursor)
     } else {
@@ -721,11 +710,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  async getGlobalSyncMessagesAfterCursor(input: {
-    account: string
-    cursor?: number
-    pageToken?: PageToken
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: PageToken; scannedThroughCursor: number }> {
+  async getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
 
     const exclusiveStartKey = input.pageToken

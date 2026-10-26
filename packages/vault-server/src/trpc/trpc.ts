@@ -1,7 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
-import type BaseDriver from '../drivers/base'
-import type { VaultAccountWithAuth } from '../drivers/base'
+import type { VaultAccountWithAuth, VaultDriver } from '../drivers/vaultDriver'
 import {
   AccountInputSchema,
   CLIENT_OUTDATED_MESSAGE,
@@ -15,6 +14,8 @@ import { authenticateSession } from '../authentication'
 import { shouldRenewSession } from '../sessions'
 
 export interface VaultServerOptions {
+  /** The storage every request runs on */
+  vault: VaultDriver
   /**
    * Writes from builds below this protocol version are rejected with `CLIENT_OUTDATED_MESSAGE`,
    * which makes the client update itself. Raise it to retire server code that only old builds need.
@@ -41,7 +42,7 @@ export interface UnknownAccountParams {
 
 type TrpcContext = {
   authToken: string,
-  vault: BaseDriver,
+  vault: VaultDriver,
   /** The protocol version the client sent (0 for builds that predate the header) */
   protocolVersion?: number,
   minProtocolVersion?: number,
@@ -60,14 +61,13 @@ function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
   return latestHeaderValue.replace(/^[a-z]+\s+/i, '').trim()
 }
 
-export function createVaultContext(options: VaultServerOptions = {}) {
+export function createVaultContext(options: VaultServerOptions) {
   return ({ req }: CreateFastifyContextOptions): TrpcContext => {
     const authToken = getTokenFromAuthorizationHeader(req.headers.authorization)
-    const serverWithVault = req.server as typeof req.server & { vault: BaseDriver }
 
     return {
       authToken,
-      vault: serverWithVault.vault,
+      vault: options.vault,
       protocolVersion: parseProtocolVersion(req.headers[PROTOCOL_VERSION_HEADER]),
       minProtocolVersion: options.minProtocolVersion ?? 0,
       dataVersionPolicy: options.dataVersionPolicy,

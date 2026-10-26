@@ -1,5 +1,5 @@
 import { MAX_ITEM_SIZE } from '@vault/shared'
-import type { VaultItem } from '../base'
+import type { VaultItem } from '../vaultDriver'
 
 /**
  * Validates a VaultItem.

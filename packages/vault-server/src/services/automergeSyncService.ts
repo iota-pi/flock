@@ -1,6 +1,5 @@
 import type { ItemId, DOC_BOUND_FORMAT, PageToken } from '@vault/shared'
-import type BaseDriver from '../drivers/base'
-import type { StoredSyncMessage } from '../drivers/base'
+import type { StoredSyncMessage, VaultDriver } from '../drivers/vaultDriver'
 import { mapWithConcurrency, resolveConcurrency } from '@vault/shared'
 
 type SyncMessagePayload = {
@@ -38,7 +37,7 @@ type PushSyncBatchInput = {
 
 /** The driver methods the sync service uses */
 export type AutomergeSyncRepository = Pick<
-  BaseDriver,
+  VaultDriver,
   'pushSyncMessagesBatch' | 'getSyncMessages' | 'getGlobalSyncMessagesAfterCursor'
 >
 

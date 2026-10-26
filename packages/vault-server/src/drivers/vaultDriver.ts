@@ -65,60 +65,96 @@ export interface ItemFormatSummary {
   hasCipher: boolean
 }
 
-export type VaultDriver = BaseDriver
+export interface PushSyncMessagesInput {
+  account: string
+  messages: Array<{
+    itemId: ItemId
+    entry: StoredSyncMessage
+    lastModified: number
+  }>
+}
 
-export default abstract class BaseDriver<T = unknown> {
-  abstract init(options?: T): Promise<BaseDriver<T>>
-  abstract connect(options?: T): BaseDriver<T>
+export interface GetSyncMessagesInput {
+  account: string
+  itemId: ItemId
+  fromCursor?: number
+  limit?: number
+  pageToken?: PageToken
+}
 
+export interface SyncMessagesPage {
+  messages: StoredSyncMessage[]
+  hasMore: boolean
+  nextPageToken?: PageToken
+}
+
+export interface ValidatePageTokenInput {
+  account: string
+  itemId?: ItemId
+  cursor?: number
+  pageToken: PageToken
+}
+
+export interface GetGlobalSyncMessagesInput {
+  account: string
+  cursor?: number
+  pageToken?: PageToken
+}
+
+export interface GlobalSyncMessagesPage {
+  items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>
+  hasMore: boolean
+  nextPageToken?: PageToken
+  /** The highest cursor the page examined */
+  scannedThroughCursor: number
+}
+
+/**
+ * The storage the vault's routers and services run on. Setting a driver up (connecting, creating
+ * tables) is up to each implementation.
+ */
+export interface VaultDriver {
   // Create a new account record. Includes `authToken` and may include a
   // pre-populated `session` for immediate login.
-  abstract createAccount(data: VaultAccount): Promise<boolean>
+  createAccount(data: VaultAccount): Promise<boolean>
 
   // Read the account record with a strongly consistent read, or undefined when there is none.
   // Callers check credentials against it with `authenticateLogin` or `authenticateSession`.
-  abstract getAccountRecord(data: BaseData): Promise<StoredAccount | undefined>
+  getAccountRecord(data: BaseData): Promise<StoredAccount | undefined>
 
   // Count a failed login towards the account's limit. Does nothing for an account that doesn't exist.
-  abstract recordFailedLogin(data: BaseData): Promise<void>
+  recordFailedLogin(data: BaseData): Promise<void>
 
   // Throws `AuthenticationError` when the account doesn't exist
-  abstract getSecurityParams(data: BaseData): Promise<SecurityParams>
-  abstract getNewAccountId(attempts?: number): Promise<string>
+  getSecurityParams(data: BaseData): Promise<SecurityParams>
+  getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update
   // fields independently. Apps can store their own fields on
   // the account record by passing them via `TExtra`.
-  abstract updateAccountData<TExtra extends object = Record<never, never>>(
+  updateAccountData<TExtra extends object = Record<never, never>>(
     data: UpdateAccountDataParams & Partial<TExtra>,
   ): Promise<void>
 
   // Add a session to an account, keeping its other active sessions (called on login)
-  abstract addSession(data: AuthData & { expiry: number }): Promise<void>
+  addSession(data: AuthData & { expiry: number }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
-  abstract extendSession(data: AuthData): Promise<void>
+  extendSession(data: AuthData): Promise<void>
 
   // Raise the account's data version. Never lowers it.
-  abstract raiseDataVersion(data: BaseData & { dataVersion: number }): Promise<void>
+  raiseDataVersion(data: BaseData & { dataVersion: number }): Promise<void>
 
   // Describe how each of the account's items is stored, without loading their payloads
-  abstract listItemFormats(data: BaseData): Promise<ItemFormatSummary[]>
+  listItemFormats(data: BaseData): Promise<ItemFormatSummary[]>
 
   // Item CRUD operations
-  abstract set(item: VaultItem): Promise<{ version: number }>
-  abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<ManifestEntry>>
-  abstract fetchByIds(opts: { account: string; itemIds: ItemId[] }): Promise<VaultItem[]>
+  set(item: VaultItem): Promise<{ version: number }>
+  fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<ManifestEntry>>
+  fetchByIds(opts: { account: string; itemIds: ItemId[] }): Promise<VaultItem[]>
 
   // Sync message operations
-  abstract pushSyncMessagesBatch(input: {
-    account: string
-    messages: Array<{
-      itemId: ItemId
-      entry: StoredSyncMessage
-      lastModified: number
-    }>
-  }): Promise<void>
+  pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void>
 
   /**
    * Returns an item's messages with a cursor after `fromCursor`, in pages. Pass a page's
@@ -126,34 +162,18 @@ export default abstract class BaseDriver<T = unknown> {
    * `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
    * starts before `fromCursor`.
    */
-  abstract getSyncMessages(input: {
-    account: string
-    itemId: ItemId
-    fromCursor?: number
-    limit?: number
-    pageToken?: PageToken
-  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: PageToken }>
+  getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage>
 
   /**
    * Throws `InvalidPageTokenError` if the matching query would reject `pageToken`: the per-item
    * query when `itemId` is given, otherwise the account-wide one. Lets callers reject a request
    * before acting on any of it.
    */
-  abstract validatePageToken(input: {
-    account: string
-    itemId?: ItemId
-    cursor?: number
-    pageToken: PageToken
-  }): void
+  validatePageToken(input: ValidatePageTokenInput): void
 
   /**
    * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
    * as in `getSyncMessages`, except that a token is not checked against `cursor`.
-   * `scannedThroughCursor` is the highest cursor the page examined.
    */
-  abstract getGlobalSyncMessagesAfterCursor(input: {
-    account: string
-    cursor?: number
-    pageToken?: PageToken
-  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: PageToken; scannedThroughCursor: number }>
+  getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage>
 }
