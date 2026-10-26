@@ -18,14 +18,14 @@ import { hasBiometricData, writeBiometricData } from './biometricStore'
 import { readCachedKeyring } from './keyringCache'
 import { hasRandomDataKeys, readStoredMetadata } from './storedMetadata'
 import { configureVaultHost } from './vaultHost'
-import { changePassword, createAccount, getKeyring, getSession, updateKeyring } from './client'
+import { changePassword, createAccount, getKeyring, getSession, updateKeyring } from './AccountClient'
 import { decryptWithKey, deriveVaultKey, encryptWithKey, exportVaultKey, generateVaultKey } from './crypto'
 import { Keyring } from './Keyring'
 import { ApiHttpError } from './trackedFetch'
 import type { KdfParams } from './kdf'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 
-vi.mock('./client', () => ({
+vi.mock('./AccountClient', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
   createAccount: vi.fn(),
   getSecurityParams: vi.fn(),
@@ -36,11 +36,6 @@ vi.mock('./client', () => ({
 
 vi.mock('../sync/shared/workerAuthStore', () => ({
   deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('./util', async importOriginal => ({
-  ...await importOriginal<typeof import('./util')>(),
-  REQUEST_RETRY_DELAYS: [0, 0],
 }))
 
 // Current parameters above the test floor, so an account can be created below them

@@ -1,6 +1,6 @@
 import { deriveVaultKey, type DeriveLegacyKey } from './crypto'
 import { setKdfWorkerFactory } from './kdf'
-import type { VaultBroadcastEvent } from './util'
+import type { VaultBroadcastEvent } from './vaultEvents'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 export interface VaultHostHooks {

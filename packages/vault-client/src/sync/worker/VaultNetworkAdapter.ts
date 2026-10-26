@@ -15,7 +15,7 @@ import {
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
 import type { WorkerInternalEventHub } from './SyncEventHub'
-import { BoundedSet } from '../utils/boundedCollections'
+import { BoundedSet } from '../utils/BoundedSet'
 import { RetryTimer } from '../utils/RetryTimer'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -36,6 +36,20 @@ type SyncHave = ReturnType<typeof decodeSyncMessage>['have'][number]
 /** A sync message claiming nothing, which makes Automerge renegotiate the document from scratch */
 function encodeEmptySyncMessage(): Uint8Array {
   return encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
+}
+
+/** Whether a message is a sync message carrying no changes (a negotiation or ACK) */
+function isEmptySyncMessage(message: Message): boolean {
+  if (message.type !== 'sync' || !(message.data instanceof Uint8Array)) {
+    return false
+  }
+  try {
+    const decoded = decodeSyncMessage(message.data)
+    return !decoded.changes || decoded.changes.length === 0
+  } catch (err) {
+    log.warn('Failed to decode sync message', err)
+    return false
+  }
 }
 export type HeadsValidator = (documentId: DocumentId, heads: string[]) => boolean
 
@@ -165,19 +179,12 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   }
 
   protected override enqueueOutboundMessage(message: Message): void {
-    if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      try {
-        const decoded = decodeSyncMessage(message.data)
-        if (!decoded.changes || decoded.changes.length === 0) {
-          // Drop empty negotiation/ACK messages during disconnect window.
-          // Since the peer is not connected, reflecting an ACK is invalid.
-          // When the connection is restored, Automerge will initiate a fresh
-          // sync negotiation with the peer.
-          return
-        }
-      } catch (err) {
-        log.warn('Failed to decode sync message while enqueuing', err)
-      }
+    if (isEmptySyncMessage(message)) {
+      // Drop empty negotiation/ACK messages during disconnect window.
+      // Since the peer is not connected, reflecting an ACK is invalid.
+      // When the connection is restored, Automerge will initiate a fresh
+      // sync negotiation with the peer.
+      return
     }
 
     super.enqueueOutboundMessage(message)
@@ -280,37 +287,30 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   }
 
   private processMessage(message: Message): void {
-    if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      try {
-        const decoded = decodeSyncMessage(message.data)
-        if (!decoded.changes || decoded.changes.length === 0) {
-          // Drop empty negotiation/ACK messages to prevent broadcast spam since the vault
-          // peer is a passive relay.
-          // On initial negotiation for a document, reply on behalf of the vault declaring
-          // that it holds everything up to the last confirmed synced heads. Automerge then
-          // emits every change after those heads (including any unpushed offline edits),
-          // and keeps emitting subsequent local changes as they are made.
-          if (message.documentId && !this.seededDocuments.has(message.documentId)) {
-            this.seededDocuments.add(message.documentId)
+    if (isEmptySyncMessage(message)) {
+      // Drop empty negotiation/ACK messages to prevent broadcast spam since the vault
+      // peer is a passive relay.
+      // On initial negotiation for a document, reply on behalf of the vault declaring
+      // that it holds everything up to the last confirmed synced heads. Automerge then
+      // emits every change after those heads (including any unpushed offline edits),
+      // and keeps emitting subsequent local changes as they are made.
+      if (message.documentId && !this.seededDocuments.has(message.documentId)) {
+        this.seededDocuments.add(message.documentId)
 
-            const ackMsg = encodeSyncMessage({
-              ...this.buildVaultState(message.documentId),
-              need: [],
-              changes: [],
-            })
-            queueMicrotask(() => {
-              if (this.canSend() && this.peerId) {
-                this.receiveMessage(message.documentId!, ackMsg)
-              } else if (message.documentId) {
-                this.seededDocuments.delete(message.documentId)
-              }
-            })
+        const ackMsg = encodeSyncMessage({
+          ...this.buildVaultState(message.documentId),
+          need: [],
+          changes: [],
+        })
+        queueMicrotask(() => {
+          if (this.canSend() && this.peerId) {
+            this.receiveMessage(message.documentId!, ackMsg)
+          } else if (message.documentId) {
+            this.seededDocuments.delete(message.documentId)
           }
-          return
-        }
-      } catch (err) {
-        log.warn('Failed to decode sync message', err)
+        })
       }
+      return
     }
 
     this.internalEventHub.emit({ type: 'messageToSend', message })

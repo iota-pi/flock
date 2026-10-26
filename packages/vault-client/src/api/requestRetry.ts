@@ -2,9 +2,11 @@ import { isRateLimitedError } from '@vault/shared'
 import { RetryStrategy } from '../sync/utils/RetryStrategy'
 import { classifySyncError } from '../sync/utils/errorClassifier'
 import { createLogger } from '../sync/utils/logger'
-import { REQUEST_RETRY_DELAYS } from './util'
 
 const log = createLogger('requestRetry')
+
+/** Waits between attempts at a request that a login or unlock can't do without */
+const REQUEST_RETRY_DELAYS: readonly number[] = [500, 2000]
 
 /** Whether a failed request might succeed if sent again. A rate limit won't lift in time to help. */
 export function isTransientRequestError(error: unknown): boolean {

@@ -6,7 +6,7 @@ import {
   getKeyring,
   updateKeyring,
   changePassword as changePasswordClient,
-} from './client'
+} from './AccountClient'
 import {
   encryptWithKey,
   hashVaultKey,
@@ -16,7 +16,7 @@ import {
   type CryptoResult,
 } from './crypto'
 import { getDefaultKdf, type KdfParams } from './kdf'
-import { broadcastVaultEvent } from './util'
+import { broadcastVaultEvent } from './vaultEvents'
 import { retryTransientFailures } from './requestRetry'
 import { clearWriteAheadLog } from '../sync/shared/writeAheadLogStorage'
 import { clearBiometricData, hasBiometricData } from './biometricStore'

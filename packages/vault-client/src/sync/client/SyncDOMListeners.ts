@@ -1,5 +1,5 @@
 import { getOnlineState } from '../utils/onlineStatus'
-import type { VaultBroadcastEvent } from '../../api/util'
+import type { VaultBroadcastEvent } from '../../api/vaultEvents'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'

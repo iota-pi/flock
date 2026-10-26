@@ -1,10 +1,7 @@
 import { getVaultStorageNames } from '../sync/shared/storageNames'
 import { createLogger } from '../sync/utils/logger'
 
-const log = createLogger('util')
-
-/** Waits between attempts at a request that a login or unlock can't do without */
-export const REQUEST_RETRY_DELAYS: readonly number[] = [500, 2000]
+const log = createLogger('vaultEvents')
 
 export type VaultBroadcastEvent =
   | { type: 'KEY_ROTATED'; account: string; keyVersion: string }
