@@ -1,7 +1,6 @@
 import {
   getSyncMetadataDBName,
   getSyncMetadataStorage,
-  clearSyncMetadataInstancesCacheForTesting,
   clearSyncMetadataStorage,
   SYNC_METADATA_STORE_NAME,
   ScopedMetadataStore,
@@ -13,6 +12,7 @@ import {
   MockLocalforage,
   createMockLocalForage,
 } from '../__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 vi.mock('localforage', () => ({
   default: {
@@ -27,7 +27,7 @@ vi.mock('../../utils/storageManager', () => ({
 describe('syncMetadataStorage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
   })
 
   it('generates consistent database name for account', () => {
@@ -56,9 +56,9 @@ describe('syncMetadataStorage', () => {
     expect(localforage.createInstance).toHaveBeenCalledTimes(2)
   })
 
-  it('clearSyncMetadataInstancesCacheForTesting resets cache', () => {
+  it('clearAccountStoreInstancesCacheForTesting resets cache', () => {
     const store1 = getSyncMetadataStorage('acc-1')
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     const store2 = getSyncMetadataStorage('acc-1')
 
     expect(store1).not.toBe(store2)
@@ -98,7 +98,7 @@ describe('ScopedMetadataStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     store = new TestScopedStore(accountId)
   })
 

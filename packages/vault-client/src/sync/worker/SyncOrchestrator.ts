@@ -8,7 +8,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from '@vault/shared'
-import { SYNC_TIMEOUTS } from '../syncConfig'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { createLogger } from '../utils/logger'
 
@@ -22,18 +22,17 @@ export interface LeaderElectionLike {
 
 export interface SyncPollerLike {
   executePoll: () => Promise<PollOutcome>
-  abort?: () => void
+  abort: () => void
 }
 
 export interface SyncPullQueueManagerLike {
   loadCursors: () => Promise<void>
-  hasImmediatePendingPulls?: () => boolean
-  hasPendingPulls?: () => boolean
+  hasImmediatePendingPulls: () => boolean
 }
 
 export interface ManifestSyncManagerLike {
   sync: (force?: boolean, signal?: AbortSignal) => Promise<{ added: ItemId[] }>
-  abort?: () => void
+  abort: () => void
 }
 
 export interface SyncOrchestratorDeps {
@@ -78,18 +77,6 @@ export class SyncOrchestrator implements LifecycleAware {
     delays: DEFAULT_POLL_BACKOFF_DELAYS,
     jitter: { factor: 0.25, maxJitterMs: 15000 },
   })
-
-  private get pollBackoffIndex(): number {
-    return this.pollBackoff.attempt
-  }
-
-  private set pollBackoffIndex(val: number) {
-    this.pollBackoff.attempt = val
-  }
-
-  private get pollBackoffStepsMs(): readonly number[] {
-    return this.pollBackoff.delays
-  }
 
   private manifestSyncIntervalId: number | null = null
   private readonly manifestSyncIntervalMs: number
@@ -149,7 +136,7 @@ export class SyncOrchestrator implements LifecycleAware {
     if (this.pollAbortController) {
       this.pollAbortController.abort()
       this.pollAbortController = null
-      this.poller.abort?.()
+      this.poller.abort()
     }
   }
 
@@ -158,7 +145,7 @@ export class SyncOrchestrator implements LifecycleAware {
       this.manifestSyncAbortController.abort()
       this.manifestSyncAbortController = null
     }
-    this.manifestSyncManager?.abort?.()
+    this.manifestSyncManager?.abort()
   }
 
   setManifestSyncManager(manifestSyncManager: ManifestSyncManagerLike): void {
@@ -245,7 +232,7 @@ export class SyncOrchestrator implements LifecycleAware {
     }
 
     if (this.isLeader) {
-      this.resetPollBackoff()
+      this.pollBackoff.reset()
       this.startPolling(true)
       this.startPeriodicManifestSync()
       fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
@@ -271,9 +258,9 @@ export class SyncOrchestrator implements LifecycleAware {
         return
       }
 
-      if (this.pollBackoffIndex > 0) {
+      if (this.pollBackoff.attempt > 0) {
         if (this.pollIntervalId === null) {
-          this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
+          this.schedulePollTimer(this.pollBackoff.currentBaseDelay)
         }
         return
       }
@@ -301,7 +288,7 @@ export class SyncOrchestrator implements LifecycleAware {
         this.pendingFlush = true
       }
     } else {
-      this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
+      this.schedulePollTimer(this.pollBackoff.currentBaseDelay)
     }
   }
 
@@ -328,7 +315,7 @@ export class SyncOrchestrator implements LifecycleAware {
       self.clearTimeout(this.pollIntervalId)
     }
 
-    const jitteredDelayMs = this.applyBackoffJitter(delayMs)
+    const jitteredDelayMs = this.pollBackoff.applyJitter(delayMs)
     this.pollIntervalId = self.setTimeout(() => {
       this.pollIntervalId = null
       fireAndForget(this.executeWrappedPoll(), 'SyncOrchestrator:executeWrappedPoll')
@@ -340,28 +327,19 @@ export class SyncOrchestrator implements LifecycleAware {
     this.pendingFlush = false
 
     if (outcome === 'failure') {
-      this.increasePollBackoff()
+      this.pollBackoff.increment({ clampToLast: true })
     } else if (outcome === 'success') {
-      this.resetPollBackoff()
+      this.pollBackoff.reset()
       this.pollingPausedForAuth = false
     }
 
     this.internalEventHub.emit({ type: 'pollResult', outcome })
 
-    const hasMorePulls = this.pullQueueManager.hasImmediatePendingPulls
-      ? this.pullQueueManager.hasImmediatePendingPulls()
-      : Boolean(this.pullQueueManager.hasPendingPulls?.())
-
-    if (outcome === 'failure') {
-      this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
-    } else if (
-      wasFlushPending ||
-      (outcome === 'success' && hasMorePulls)
-    ) {
-      this.schedulePollTimer(0)
-    } else {
-      this.schedulePollTimer(this.pollBackoffStepsMs[this.pollBackoffIndex])
-    }
+    const pollNow = outcome !== 'failure' && (
+      wasFlushPending
+      || (outcome === 'success' && this.pullQueueManager.hasImmediatePendingPulls())
+    )
+    this.schedulePollTimer(pollNow ? 0 : this.pollBackoff.currentBaseDelay)
   }
 
   private handlePollError(error: unknown): void {
@@ -382,18 +360,6 @@ export class SyncOrchestrator implements LifecycleAware {
     }
 
     this.scheduleNextPoll('failure')
-  }
-
-  private applyBackoffJitter(delayMs: number): number {
-    return this.pollBackoff.applyJitter(delayMs)
-  }
-
-  private resetPollBackoff(): void {
-    this.pollBackoff.reset()
-  }
-
-  private increasePollBackoff(): void {
-    this.pollBackoff.increment({ clampToLast: true })
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
@@ -477,7 +443,7 @@ export class SyncOrchestrator implements LifecycleAware {
       this.abortManifestSync()
     }
     if (!wasPolling) {
-      this.poller.abort?.()
+      this.poller.abort()
     }
     await this.pollGuard.waitForRunning()
     await this.manifestSyncGuard.waitForRunning()

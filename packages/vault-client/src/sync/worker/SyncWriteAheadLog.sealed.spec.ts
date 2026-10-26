@@ -1,4 +1,4 @@
-import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { WorkerInternalEventHub, type WorkerInternalEvent } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
 import { clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
@@ -6,6 +6,7 @@ import { getVaultStorageNames } from '../shared/storageNames'
 import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
 import type { LocalCipher } from './localEncryption/LocalCipher'
 import { MockLocalforage, createMockLocalForage, createTestLocalCipher } from './__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
 vi.mock('localforage', () => ({
@@ -36,7 +37,7 @@ describe('SyncWriteAheadLog with a cipher', () => {
 
   beforeEach(async () => {
     activeStoreMap.clear()
-    clearWalInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()
     cipher = await createTestLocalCipher(ACCOUNT)
     hub = new WorkerInternalEventHub()

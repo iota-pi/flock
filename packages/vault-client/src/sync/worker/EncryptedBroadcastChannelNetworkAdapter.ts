@@ -24,6 +24,7 @@ import { RetryStrategy } from '../utils/RetryStrategy'
 import { BoundedQueue } from '../utils/boundedCollections'
 import { fireAndForget } from '../utils/fireAndForget'
 import { getVaultStorageNames } from '../shared/storageNames'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('EncryptedBroadcastChannelNetworkAdapter')
@@ -219,7 +220,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
           break
         }
 
-        const timeout = this.options.keyWaitTimeoutMs ?? 5000
+        const timeout = this.options.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait
         const keyAcquired = await this.keys.waitForKey(kver, timeout)
         if (keyAcquired || this.keys.hasKey(kver)) {
           this.requeuePendingMessages(kver)
@@ -268,7 +269,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         let decryptedData: Uint8Array
         try {
           decryptedData = await decryptWithKeyResolution(this.keys, cryptoResult, {
-            timeoutMs: this.options.keyWaitTimeoutMs ?? 5000,
+            timeoutMs: this.options.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait,
             onKeyVersionMissing: this.options.onKeyVersionMissing,
           })
         } catch (err) {

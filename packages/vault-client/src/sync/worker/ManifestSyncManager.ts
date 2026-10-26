@@ -8,7 +8,7 @@ import type { SyncDomain } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
-import { SYNC_TIMEOUTS } from '../syncConfig'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { isAuthError } from '../utils/errorClassifier'
 import { ManifestDeltaCalculator, type SyncDeltas } from './ManifestDeltaCalculator'
 import { ManifestHydrator } from './ManifestHydrator'
@@ -153,7 +153,7 @@ export class ManifestSyncManager implements LifecycleAware {
     const quarantinedMap = new Map<ItemId, number>()
     if (this.deps.accountId) {
       try {
-        const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.deps.accountId)
+        const recoveryEntries = await this.recoveryManager.listRecoveryItems()
         checkAlive(signal, isAlive)
         for (const entry of recoveryEntries) {
           quarantinedMap.set(entry.itemId, entry.createdAt)

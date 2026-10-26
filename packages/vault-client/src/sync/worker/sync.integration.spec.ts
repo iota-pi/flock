@@ -10,7 +10,6 @@ import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
-import { clearSyncMetadataInstancesCacheForTesting } from './stores/syncMetadataStorage'
 import { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
@@ -23,6 +22,7 @@ import {
   createMockVault,
   createTestEventHubs,
 } from './__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const mockStores = new Map<string, MockLocalforage>()
 vi.mock('localforage', () => ({
@@ -71,7 +71,7 @@ describe('Sync System Integration Test Suite', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     mockStores.clear()
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
 
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub

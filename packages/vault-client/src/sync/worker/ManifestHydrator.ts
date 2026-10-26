@@ -12,7 +12,7 @@ import type { StoreItemsOptions } from './ItemOperations'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { mapWithConcurrency } from '@vault/shared'
-import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../syncConfig'
+import { SYNC_BATCH_SIZES, SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { SyncDomain } from './domain'
 import { createLogger } from '../utils/logger'
 
@@ -20,7 +20,7 @@ const log = createLogger('ManifestHydrator')
 
 const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
-const KEY_WAIT_TIMEOUT_MS = 3000
+const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.hydrationKeyWait
 
 export type HydrateItemResult =
   | {

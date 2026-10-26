@@ -95,7 +95,6 @@ vi.mock('./SyncWorkerContext', () => {
         },
         itemOperations: {
           mutateItem: mockItemOperationsMutateItem,
-          recreateOversizedItem: vi.fn().mockResolvedValue('item-new'),
         },
         snapshotManager: {
           onOnlineStateChange: mockSnapshotManagerOnOnlineStateChange,
@@ -103,7 +102,6 @@ vi.mock('./SyncWorkerContext', () => {
           flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
           exportLastModified: vi.fn().mockReturnValue({}),
           importLastModified: vi.fn().mockResolvedValue(undefined),
-          clearOversized: vi.fn(),
         },
         orchestrator: {
           setOnlineState: mockOrchestratorSetOnlineState,
@@ -145,6 +143,8 @@ vi.mock('./SyncWorkerContext', () => {
       shutdown = mockContextShutdown
       claimLeader = mockContextClaimLeader
       retrySave = mockContextRetrySave
+      retryRecoveryItem = vi.fn().mockResolvedValue(undefined)
+      recreateOversizedItem = vi.fn().mockResolvedValue('item-new')
       rewrapDeviceKey = vi.fn().mockResolvedValue(undefined)
     }
   }
@@ -734,7 +734,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
       // Mock itemReencryptor.reencryptAllItems to invoke the onProgress callback it receives
       ;(worker as any)._context.services.itemReencryptor.reencryptAllItems.mockImplementationOnce(
-        async (_deps: any, onProgress: (done: number, total: number) => void) => {
+        async ({ onProgress }: { onProgress: (done: number, total: number) => void }) => {
           onProgress(3, 10)
           onProgress(10, 10)
           return { succeeded: ['item-1'], failed: [] }
@@ -780,28 +780,23 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       expect(mockRecoveryManagerUnquarantine).not.toHaveBeenCalled()
     })
 
-    it('clears the oversized flag, unquarantines and re-marks the item dirty on retryRecoveryItem', async () => {
+    it('delegates retryRecoveryItem to the context', async () => {
       const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
 
       await worker.retryRecoveryItem('item-1' as ItemId)
 
-      const ctx = (worker as any)._context
-      expect(mockRecoveryManagerUnquarantine).toHaveBeenCalledWith('item-1')
-      expect(ctx.services.snapshotManager.clearOversized).toHaveBeenCalledWith('item-1')
-      expect(ctx.services.snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1')
+      expect((worker as any)._context.retryRecoveryItem).toHaveBeenCalledWith('item-1')
     })
 
-    it('delegates recreateOversizedItem to itemOperations and flushes snapshots', async () => {
+    it('delegates recreateOversizedItem to the context', async () => {
       const worker = new SyncWorker(workerConfig)
       await worker.initRepo('account-1', 'vault-key-1')
 
       const newItemId = await worker.recreateOversizedItem('item-old' as ItemId)
 
       expect(newItemId).toBe('item-new')
-      expect((worker as any)._context.services.itemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
-      expect((worker as any)._context.services.snapshotManager.clearOversized).toHaveBeenCalledWith('item-old')
-      expect((worker as any)._context.services.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+      expect((worker as any)._context.recreateOversizedItem).toHaveBeenCalledWith('item-old')
     })
 
     it('delegates flushSync to orchestrator.flush and returns a Promise<void>', async () => {

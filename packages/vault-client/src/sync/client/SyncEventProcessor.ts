@@ -2,7 +2,7 @@ import type { ClientEvent } from '../worker/SyncEventHub'
 import type { VaultDoc, VaultMetadata } from '../shared/types'
 import { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './host'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import { SYNC_BATCH_SIZES } from '../syncConfig'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncEventProcessor')

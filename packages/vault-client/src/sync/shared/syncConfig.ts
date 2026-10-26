@@ -10,6 +10,10 @@ export const SYNC_TIMEOUTS = {
   docStoreExtended: 8000,
   /** Timeout when waiting for a missing encryption key version to arrive */
   keyWait: 5000,
+  /** Shorter key wait during manifest hydration, which hydrates many items in one pass */
+  hydrationKeyWait: 3000,
+  /** Timeout for the main thread to answer a session token refresh request */
+  tokenRefresh: 10_000,
   /** Quarantine cooldown period before allowing manual recovery retries */
   recoveryCooldown: 60_000,
   /** Timeout for deleting IndexedDB databases during account data wipe */

@@ -12,11 +12,12 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
-import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
+import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const { mockStores } = vi.hoisted(() => ({
   mockStores: new Map<string, MockLocalforage>(),
@@ -57,7 +58,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     mockStores.clear()
-    clearWalInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
 
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub

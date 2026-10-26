@@ -15,7 +15,7 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
@@ -36,6 +36,7 @@ import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from 
 import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 import type { RetrySaveResult } from './syncProtocol'
+import type { BackupSyncState } from '../shared/backupSyncState'
 
 const log = createLogger('SyncWorkerContext')
 
@@ -276,6 +277,11 @@ export class SyncWorkerContext {
     })
 
     const itemReencryptor = new ItemReencryptor({
+      accountId,
+      repo,
+      indexManager,
+      apiClient: this.apiClient,
+      recoveryManager,
       codec: this.domain.codec,
       keys,
       onSnapshotsStored: stored => this.recordStoredSnapshots(stored, snapshotManager, broker),
@@ -295,14 +301,7 @@ export class SyncWorkerContext {
           dataVersionTracker.onSnapshotsUpgraded(),
           'SyncWorkerContext:raiseAccountDataVersion',
         ),
-        rewriteSnapshots: signal => itemReencryptor.reencryptAllItems({
-          accountId,
-          signal,
-          repo,
-          indexManager,
-          apiClient: this.apiClient,
-          recoveryManager,
-        }),
+        rewriteSnapshots: signal => itemReencryptor.reencryptAllItems({ signal }),
       })
       : null
 
@@ -690,6 +689,59 @@ export class SyncWorkerContext {
       throw new Error(`The server's copy of ${itemId} could not be downloaded. Try again once sync has finished.`)
     }
     await recoveryManager.unquarantine(itemId)
+  }
+
+  /** Releases a quarantined item and pushes its snapshot again */
+  async retryRecoveryItem(itemId: ItemId): Promise<void> {
+    const { recoveryManager, snapshotManager } = this.services
+    await recoveryManager.unquarantine(itemId)
+    snapshotManager.clearOversized(itemId)
+    snapshotManager.markItemDirty(itemId)
+    fireAndForget(
+      snapshotManager.flushPendingSnapshots(),
+      'SyncWorkerContext:retryRecoveryItem:flushPendingSnapshots',
+    )
+  }
+
+  /** Copies an oversized item to a new ID and deletes the old one. Returns the new item's ID. */
+  async recreateOversizedItem(itemId: ItemId): Promise<ItemId> {
+    const { itemOperations, snapshotManager } = this.services
+    const newItemId = await itemOperations.recreateOversizedItem(itemId)
+    // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
+    snapshotManager.clearOversized(itemId)
+    fireAndForget(
+      snapshotManager.flushPendingSnapshots(),
+      'SyncWorkerContext:recreateOversizedItem:flushPendingSnapshots',
+    )
+    return newItemId
+  }
+
+  /** The sync state a backup carries: pull cursors, unpushed WAL entries and modification times */
+  async exportSyncState(): Promise<BackupSyncState> {
+    const { pullQueueManager, wal, snapshotManager } = this.services
+    const cursors = pullQueueManager.exportCursors()
+    const walMap = await wal.readAll()
+    const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
+      itemId,
+      entries.map((e: WalEntry) => e.data.toBase64()),
+    ])
+    const lastModified = snapshotManager.exportLastModified()
+
+    return { cursors, pendingSync, lastModified }
+  }
+
+  /** Restores the sync state `exportSyncState` exported */
+  async restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
+    const { pullQueueManager, wal, snapshotManager } = this.services
+    if (state.cursors) await pullQueueManager.importCursors(state.cursors)
+    if (state.pendingSync) {
+      for (const [itemId, base64Msgs] of state.pendingSync) {
+        for (const msg of base64Msgs) {
+          await wal.append(itemId, Uint8Array.fromBase64(msg))
+        }
+      }
+    }
+    if (state.lastModified) await snapshotManager.importLastModified(state.lastModified)
   }
 
   async retrySave(): Promise<RetrySaveResult> {

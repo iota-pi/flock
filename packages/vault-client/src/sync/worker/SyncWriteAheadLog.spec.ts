@@ -1,4 +1,4 @@
-import { SyncWriteAheadLog, clearWalInstancesCacheForTesting, toUint8Array } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, toUint8Array } from './SyncWriteAheadLog'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
@@ -7,6 +7,7 @@ import {
   MockLocalforage,
   createMockLocalForage,
 } from './__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
 vi.mock('localforage', () => ({
@@ -27,7 +28,7 @@ describe('SyncWriteAheadLog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     activeStoreMap.clear()
-    clearWalInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()
     wal = new SyncWriteAheadLog('test-account')
   })
