@@ -11,7 +11,6 @@ import {
   assertKdfAcceptable,
   assertPbkdf2Acceptable,
   computeArgon2id,
-  getDefaultKdf,
   deriveArgon2idBytes,
   KDF_WORKER_TIMEOUT_MS,
   PRODUCTION_KDF_LIMITS,
@@ -20,6 +19,7 @@ import {
   type KdfWorkerApi,
 } from './kdf'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
+import { getDefaultKdf } from '@vault/shared'
 
 const PRODUCTION_KDF: KdfParams = { algorithm: 'argon2id', memoryKiB: 65536, passes: 3, parallelism: 1 }
 

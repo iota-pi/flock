@@ -453,7 +453,7 @@ describe('Vault Keyring Integration', () => {
         saltVersion: 1,
         iterations: 1000,
       })
-    ).rejects.toThrow(/Incorrect password/)
+    ).rejects.toThrow(/Incorrect account ID or password/)
 
     expect(hasVaultKey('1')).toBe(false)
   })
@@ -591,7 +591,7 @@ describe('Vault Keyring Integration', () => {
         saltVersion: 1,
         iterations: 1000,
       })
-    ).rejects.toThrow(/Incorrect password/)
+    ).rejects.toThrow(/Incorrect account ID or password/)
 
     expect(hasVaultKey('1')).toBe(false)
   })

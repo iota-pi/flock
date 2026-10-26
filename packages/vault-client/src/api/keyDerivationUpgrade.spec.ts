@@ -44,9 +44,12 @@ vi.mock('./util', async importOriginal => ({
 }))
 
 // Current parameters above the test floor, so an account can be created below them
+vi.mock('@vault/shared', async importOriginal => ({
+  ...await importOriginal<typeof import('@vault/shared')>(),
+  getDefaultKdf: () => ({ algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }),
+}))
 vi.mock('./kdf', async importOriginal => ({
   ...await importOriginal<typeof import('./kdf')>(),
-  getDefaultKdf: () => ({ algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }),
   getDefaultPbkdf2Iterations: () => 1000,
 }))
 
