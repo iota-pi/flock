@@ -21,8 +21,7 @@ export interface LeaderElectionLike {
 }
 
 export interface SyncPollerLike {
-  executePoll: () => Promise<PollOutcome>
-  abort: () => void
+  executePoll: (signal: AbortSignal) => Promise<PollOutcome>
 }
 
 export interface SyncPullQueueManagerLike {
@@ -136,7 +135,6 @@ export class SyncOrchestrator implements LifecycleAware {
     if (this.pollAbortController) {
       this.pollAbortController.abort()
       this.pollAbortController = null
-      this.poller.abort()
     }
   }
 
@@ -194,18 +192,30 @@ export class SyncOrchestrator implements LifecycleAware {
 
     if (isLeader) {
       fireAndForget(this.cursorReloadGuard.run(() => this.reloadCursors()), 'SyncOrchestrator:reloadCursors')
-      this.startPolling(true)
       if (this.isOnline) {
-        this.startPeriodicManifestSync()
-        fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
+        this.startSyncing()
+      } else {
+        this.startPolling(true)
       }
     } else {
       this.cursorReloadGuard.clear()
-      this.stopPolling()
-      this.stopPeriodicManifestSync()
-      this.abortPoll()
-      this.abortManifestSync()
+      this.stopSyncing()
     }
+  }
+
+  /** Polls now and starts the periodic manifest sync with an immediate run. */
+  private startSyncing(): void {
+    this.startPolling(true)
+    this.startPeriodicManifestSync()
+    fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
+  }
+
+  /** Cancels scheduled and in-flight polls and manifest syncs. */
+  private stopSyncing(): void {
+    this.stopPolling()
+    this.stopPeriodicManifestSync()
+    this.abortPoll()
+    this.abortManifestSync()
   }
 
   setOnlineState(isOnline: boolean): void {
@@ -216,18 +226,13 @@ export class SyncOrchestrator implements LifecycleAware {
     this.broker.setOnlineState(isOnline)
 
     if (!isOnline) {
-      this.stopPolling()
-      this.stopPeriodicManifestSync()
-      this.abortPoll()
-      this.abortManifestSync()
+      this.stopSyncing()
       return
     }
 
     if (this.isLeader) {
       this.pollBackoff.reset()
-      this.startPolling(true)
-      this.startPeriodicManifestSync()
-      fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
+      this.startSyncing()
     }
   }
 
@@ -339,19 +344,23 @@ export class SyncOrchestrator implements LifecycleAware {
       return
     }
 
-    const isAuth = error === 'auth-failure' || classifySyncError(error).isAuth
-    if (isAuth) {
-      this.pollingPausedForAuth = true
-      this.stopPolling()
-      this.clientEventHub.emit({
-        type: 'authFailure',
-        message: 'Sync paused: your session has expired. Please sign in again.',
-      })
-      this.internalEventHub.emit({ type: 'pollResult', outcome: 'auth-failure' })
+    if (classifySyncError(error).isAuth) {
+      this.handleAuthFailure()
       return
     }
 
     this.scheduleNextPoll('failure')
+  }
+
+  /** Pauses polling until the next flush or restart, and tells the app the session has expired. */
+  private handleAuthFailure(): void {
+    this.pollingPausedForAuth = true
+    this.stopPolling()
+    this.clientEventHub.emit({
+      type: 'authFailure',
+      message: 'Sync paused: your session has expired. Please sign in again.',
+    })
+    this.internalEventHub.emit({ type: 'pollResult', outcome: 'auth-failure' })
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
@@ -370,7 +379,7 @@ export class SyncOrchestrator implements LifecycleAware {
           }
           checkAlive(signal, () => this.isOperational)
 
-          outcome = await this.poller.executePoll()
+          outcome = await this.poller.executePoll(signal)
           checkAlive(signal, () => this.isOperational)
         } catch (err) {
           if (signal.aborted || isAbortError(err) || !this.isOperational) {
@@ -389,7 +398,7 @@ export class SyncOrchestrator implements LifecycleAware {
         }
 
         if (outcome === 'auth-failure') {
-          this.handlePollError(outcome)
+          this.handleAuthFailure()
           return
         }
 
@@ -420,7 +429,6 @@ export class SyncOrchestrator implements LifecycleAware {
       this.unsubscribeInternalEvents()
       this.unsubscribeInternalEvents = null
     }
-    const wasPolling = this.pollAbortController !== null
     const wasLeader = this.isLeader
     this.setLeader(false)
     if (this.leaderElection) {
@@ -429,13 +437,7 @@ export class SyncOrchestrator implements LifecycleAware {
     }
     if (!wasLeader) {
       this.cursorReloadGuard.clear()
-      this.stopPolling()
-      this.stopPeriodicManifestSync()
-      this.abortPoll()
-      this.abortManifestSync()
-    }
-    if (!wasPolling) {
-      this.poller.abort()
+      this.stopSyncing()
     }
     await this.pollGuard.waitForRunning()
     await this.manifestSyncGuard.waitForRunning()

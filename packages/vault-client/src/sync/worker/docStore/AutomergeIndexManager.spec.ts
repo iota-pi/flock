@@ -89,7 +89,6 @@ describe('AutomergeIndexManager', () => {
       accountId,
       itemIds: [],
       metadata: {},
-      lastSyncTime: 0,
       lastManifestSyncTime: 0,
     })
   })
@@ -171,14 +170,6 @@ describe('AutomergeIndexManager', () => {
     expect(metadata).toEqual({ prayerGoal: 10, name: 'Test' })
   })
 
-  it('should update sync time', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
-    expect(await manager.getLastSyncTime()).toBe(0)
-
-    await manager.updateLastSyncTime(123456)
-    expect(await manager.getLastSyncTime()).toBe(123456)
-  })
-
   it('should correctly serialize concurrent mutations without clobbering', async () => {
     // Make getIndex and saveIndex yield, as an async store would
     mockStore.getIndex = vi.fn(async () => {
@@ -198,7 +189,7 @@ describe('AutomergeIndexManager', () => {
       manager.addAutomergeItemIdsToIndex(['item-2' as ItemId]),
       manager.updateAutomergeMetadata({ prayerGoal: 5 }),
       manager.addAutomergeItemIdsToIndex(['item-3' as ItemId]),
-      manager.updateLastSyncTime(9999),
+      manager.updateLastManifestSyncTime(9999),
     ])
 
     const snapshot = await manager.getIndexSnapshot()
@@ -207,7 +198,7 @@ describe('AutomergeIndexManager', () => {
     expect(snapshot.itemIds).toEqual(expect.arrayContaining(['item-1', 'item-2', 'item-3']))
     expect(snapshot.itemIds).toHaveLength(3)
     expect(snapshot.metadata).toEqual({ prayerGoal: 5 })
-    expect(snapshot.lastSyncTime).toBe(9999)
+    expect(snapshot.lastManifestSyncTime).toBe(9999)
   })
 
   it('should propagate errors to caller and not deadlock the queue for subsequent tasks', async () => {
@@ -251,7 +242,6 @@ describe('AutomergeIndexManager', () => {
       itemIds: ['restored-1' as ItemId, 'deleted-since' as ItemId],
       tombstoneIds: ['deleted-in-backup' as ItemId, 'local-new' as ItemId],
       metadata: { prayerGoal: 100 },
-      lastSyncTime: 7777,
       lastManifestSyncTime: 8888,
     })
 
@@ -363,7 +353,6 @@ describe('AutomergeIndexManager', () => {
         accountId,
         itemIds: ['item-1' as ItemId, 'item-2' as ItemId],
         metadata: {},
-        lastSyncTime: 0,
         lastManifestSyncTime: 0,
       }
 
@@ -399,7 +388,6 @@ describe('AutomergeIndexManager', () => {
         accountId,
         itemIds: ['item-1' as ItemId],
         metadata: { prayerGoal: 5 },
-        lastSyncTime: 0,
         lastManifestSyncTime: 0,
       }
 
@@ -550,10 +538,9 @@ describe('mergeIndexDocuments', () => {
     expect(merged.metadata).toEqual({ sort: 'local', other: true })
   })
 
-  it('keeps the local sync times', () => {
-    const merged = mergeIndexDocuments({ lastSyncTime: 5, lastManifestSyncTime: 6 }, { lastSyncTime: 9 })
+  it('keeps the local manifest sync time', () => {
+    const merged = mergeIndexDocuments({ lastManifestSyncTime: 6 }, { lastManifestSyncTime: 9 })
 
-    expect(merged.lastSyncTime).toBe(5)
     expect(merged.lastManifestSyncTime).toBe(6)
   })
 })

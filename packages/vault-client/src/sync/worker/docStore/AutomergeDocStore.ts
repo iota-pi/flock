@@ -41,7 +41,6 @@ export type AutomergeIndexDocument = {
   itemIds?: ItemId[]
   tombstoneIds?: ItemId[]
   metadata?: VaultMetadata
-  lastSyncTime?: number
   lastManifestSyncTime?: number
 }
 

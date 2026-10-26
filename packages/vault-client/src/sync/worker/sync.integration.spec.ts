@@ -85,7 +85,6 @@ describe('Sync System Integration Test Suite', () => {
     adapter = new VaultNetworkAdapter(internalEventHub)
 
     indexManager = {
-      updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
       removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
       listAutomergeItemIds: vi.fn().mockResolvedValue([]),
@@ -95,7 +94,6 @@ describe('Sync System Integration Test Suite', () => {
       adapter,
       clientEventHub,
       internalEventHub,
-      indexManager,
       pullQueueManager,
       keys,
       wal,
@@ -272,7 +270,6 @@ describe('Sync System Integration Test Suite', () => {
       clientEventHub,
       internalEventHub,
       keys,
-      indexManager,
       wal: newWal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),

@@ -26,7 +26,6 @@ describe('SyncOrchestrator', () => {
 
     mockPoller = {
       executePoll: vi.fn().mockResolvedValue('success'),
-      abort: vi.fn(),
     }
 
     mockBroker = {
@@ -54,11 +53,6 @@ describe('SyncOrchestrator', () => {
     Object.defineProperty(mockBroker, 'hasImmediatePendingPulls', {
       get: () => mockPullQueueManager.hasImmediatePendingPulls,
       set: fn => { mockPullQueueManager.hasImmediatePendingPulls = fn },
-      configurable: true,
-    })
-    Object.defineProperty(mockBroker, 'abortPoll', {
-      get: () => mockPoller.abort,
-      set: fn => { mockPoller.abort = fn },
       configurable: true,
     })
     Object.defineProperty(mockBroker, 'loadCursors', {
@@ -377,10 +371,24 @@ describe('SyncOrchestrator', () => {
     expect(shutdownCompleted).toBe(true)
   })
 
-  it('calls abortPoll on broker during shutdown if available', async () => {
-    mockBroker.abortPoll = vi.fn()
-    await orchestrator.shutdown()
-    expect(mockBroker.abortPoll).toHaveBeenCalledTimes(1)
+  it('aborts the in-flight poll on shutdown', async () => {
+    let capturedSignal: AbortSignal | undefined
+    let resolvePoll: (val: any) => void = () => {}
+    mockBroker.executePoll.mockImplementationOnce((signal: AbortSignal) => {
+      capturedSignal = signal
+      return new Promise(resolve => { resolvePoll = resolve })
+    })
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(capturedSignal?.aborted).toBe(false)
+
+    const shutdownPromise = orchestrator.shutdown()
+    expect(capturedSignal?.aborted).toBe(true)
+
+    resolvePoll('no-poll')
+    await shutdownPromise
   })
 
   it('does not execute pending flush after shutdown when shutdown occurs before batch timeout fires', async () => {
@@ -1088,11 +1096,12 @@ describe('SyncOrchestrator', () => {
     })
 
     it('aborts in-flight poll when leadership is revoked', async () => {
-      mockBroker.abortPoll = vi.fn()
+      let capturedSignal: AbortSignal | undefined
       let resolvePoll: (val: any) => void = () => {}
-      mockBroker.executePoll.mockImplementationOnce(
-        () => new Promise(resolve => { resolvePoll = resolve })
-      )
+      mockBroker.executePoll.mockImplementationOnce((signal: AbortSignal) => {
+        capturedSignal = signal
+        return new Promise(resolve => { resolvePoll = resolve })
+      })
 
       orchestrator.setLeader(true)
       orchestrator.setOnlineState(true)
@@ -1104,7 +1113,7 @@ describe('SyncOrchestrator', () => {
       // Revoke leadership while poll is in-flight
       orchestrator.setLeader(false)
 
-      expect(mockBroker.abortPoll).toHaveBeenCalledTimes(1)
+      expect(capturedSignal?.aborted).toBe(true)
 
       // Resolve after abort
       resolvePoll('success')
@@ -1117,11 +1126,12 @@ describe('SyncOrchestrator', () => {
     })
 
     it('aborts in-flight poll when going offline', async () => {
-      mockBroker.abortPoll = vi.fn()
+      let capturedSignal: AbortSignal | undefined
       let resolvePoll: (val: any) => void = () => {}
-      mockBroker.executePoll.mockImplementationOnce(
-        () => new Promise(resolve => { resolvePoll = resolve })
-      )
+      mockBroker.executePoll.mockImplementationOnce((signal: AbortSignal) => {
+        capturedSignal = signal
+        return new Promise(resolve => { resolvePoll = resolve })
+      })
 
       orchestrator.setLeader(true)
       orchestrator.setOnlineState(true)
@@ -1133,7 +1143,7 @@ describe('SyncOrchestrator', () => {
       // Go offline while poll is in-flight
       orchestrator.setOnlineState(false)
 
-      expect(mockBroker.abortPoll).toHaveBeenCalledTimes(1)
+      expect(capturedSignal?.aborted).toBe(true)
 
       // Resolve after abort
       resolvePoll('success')

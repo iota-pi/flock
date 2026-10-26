@@ -27,7 +27,7 @@ export interface MergeIndexOptions {
 /**
  * Merges another copy of an index into this device's. By default, items this device knows about stay
  * as they are, so a backup can't hide items created since or bring deleted ones back. With
- * `tombstonesWin`, a deletion on either side holds, since deletes are terminal. The sync times stay
+ * `tombstonesWin`, a deletion on either side holds, since deletes are terminal. The manifest sync time stays
  * this device's own.
  */
 export function mergeIndexDocuments(
@@ -206,7 +206,6 @@ export class AutomergeIndexManager implements LifecycleAware {
       itemIds: doc?.itemIds ? [...doc.itemIds] : [],
       ...(doc?.tombstoneIds ? { tombstoneIds: [...doc.tombstoneIds] } : {}),
       metadata: doc?.metadata ? { ...doc.metadata } : {},
-      lastSyncTime: doc?.lastSyncTime || 0,
       lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
     }
   }
@@ -218,7 +217,7 @@ export class AutomergeIndexManager implements LifecycleAware {
   /**
    * Merges an index from a backup into this one. Items this device knows about stay as they are, so a
    * restore can't hide items created since the backup or bring deleted ones back. The backup's
-   * metadata wins, and the sync times stay this device's own.
+   * metadata wins, and the manifest sync time stays this device's own.
    */
   async mergeIndex(backup: AutomergeIndexDocument): Promise<void> {
     return this.withLock(async () => {
@@ -241,7 +240,6 @@ export class AutomergeIndexManager implements LifecycleAware {
           itemIds: doc?.itemIds || [],
           ...(doc?.tombstoneIds ? { tombstoneIds: [...doc.tombstoneIds] } : {}),
           metadata: doc?.metadata || {},
-          lastSyncTime: doc?.lastSyncTime || 0,
           lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
         }
         await this.indexStore.saveIndex(newDoc)
@@ -350,19 +348,6 @@ export class AutomergeIndexManager implements LifecycleAware {
       await this.indexStore.saveIndex(doc)
       this.notifyLocalMetadataUpdated(metadata)
       this.broadcastMetadataUpdated(metadata)
-    })
-  }
-
-  async getLastSyncTime(): Promise<number> {
-    const doc = await this.getIndexSnapshot()
-    return doc.lastSyncTime || 0
-  }
-
-  async updateLastSyncTime(time: number): Promise<void> {
-    return this.withLock(async () => {
-      const doc = await this.getIndexSnapshotInternal()
-      doc.lastSyncTime = time
-      await this.indexStore.saveIndex(doc)
     })
   }
 

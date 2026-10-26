@@ -4,7 +4,6 @@ import type { KeyProvider } from '../../api/Keyring'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from '@vault/shared'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { AutomergeIndexManager } from './docStore'
 import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import { decodeSyncMessage } from '@automerge/automerge/slim'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
@@ -49,8 +48,7 @@ export interface SyncPollerDeps {
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
   keys: KeyProvider
-  indexManager?: AutomergeIndexManager
-  wal?: SyncWriteAheadLog | null
+  wal: SyncWriteAheadLog
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
 }
@@ -59,7 +57,6 @@ export class SyncPoller {
   private account: string | null = null
   private isOnline = true
   private isShutdown = false
-  private abortController: AbortController | null = null
   private readonly apiClient: SyncApiClient
   public readonly consecutivePushFailures = new Map<ItemId, number>()
   private readonly recoveryManager: RecoveryManager
@@ -67,16 +64,14 @@ export class SyncPoller {
   private readonly clientEventHub: ClientEventHub
   private readonly internalEventHub: WorkerInternalEventHub
   private readonly keys: KeyProvider
-  private readonly indexManager?: AutomergeIndexManager
-  private wal: SyncWriteAheadLog | null
+  private readonly wal: SyncWriteAheadLog
 
   constructor(deps: SyncPollerDeps) {
     this.pullQueueManager = deps.pullQueueManager
     this.clientEventHub = deps.clientEventHub
     this.internalEventHub = deps.internalEventHub
     this.keys = deps.keys
-    this.indexManager = deps.indexManager
-    this.wal = deps.wal ?? null
+    this.wal = deps.wal
     this.apiClient = deps.apiClient
     this.recoveryManager = deps.recoveryManager
   }
@@ -89,10 +84,6 @@ export class SyncPoller {
     }
   }
 
-  setWal(wal: SyncWriteAheadLog | null): void {
-    this.wal = wal
-  }
-
   setOnlineState(isOnline: boolean): void {
     this.isOnline = isOnline
   }
@@ -101,28 +92,14 @@ export class SyncPoller {
     return !this.isShutdown && this.isOnline && Boolean(this.account)
   }
 
-  isCurrentlyPolling(): boolean {
-    return this.abortController !== null
-  }
-
-  abort(): void {
-    if (this.abortController) {
-      this.abortController.abort()
-      this.abortController = null
-    }
-  }
-
   shutdown(): void {
     this.isShutdown = true
     this.consecutivePushFailures.clear()
-    this.abort()
   }
 
-  async executePoll(): Promise<PollOutcome> {
+  /** Pushes the WAL and pulls updates. Aborting `signal` cancels the poll, which then reports `'no-poll'`. */
+  async executePoll(signal: AbortSignal = new AbortController().signal): Promise<PollOutcome> {
     if (!this.isOperational) return 'no-poll'
-
-    this.abortController = new AbortController()
-    const signal = this.abortController.signal
 
     this.clientEventHub.emit({ type: 'startRequest' })
     const inFlightWalIds: string[] = []
@@ -154,7 +131,6 @@ export class SyncPoller {
         return 'failure'
       }
 
-      await this.indexManager?.updateLastSyncTime(Date.now())
       return 'success'
     } catch (error) {
       const classified = classifySyncError(error)
@@ -170,8 +146,7 @@ export class SyncPoller {
       log.error('Polling failed', error)
       return 'failure'
     } finally {
-      this.abortController = null
-      if (this.wal && inFlightWalIds.length > 0) {
+      if (inFlightWalIds.length > 0) {
         this.wal.unmarkInFlight(inFlightWalIds)
       }
       this.clientEventHub.emit({ type: 'finishRequest' })
@@ -179,7 +154,6 @@ export class SyncPoller {
   }
 
   private async loadWalEntries(inFlightWalIds: string[]): Promise<ChunkEntry> {
-    if (!this.wal) return []
     const walMap = await this.wal.readAll()
     const batchEntries = Array.from(walMap.entries())
     for (const [, messages] of batchEntries) {
@@ -325,7 +299,7 @@ export class SyncPoller {
     }
 
     const idsToRemove = [...acknowledgedIds, ...quarantinedIds]
-    if (this.wal && idsToRemove.length > 0) {
+    if (idsToRemove.length > 0) {
       try {
         await this.wal.remove(idsToRemove)
       } catch (walErr) {

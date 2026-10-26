@@ -5,7 +5,6 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from '@vault/shared'
@@ -31,7 +30,6 @@ describe('SyncPoller', () => {
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
   let pullQueueManager: SyncPullQueueManager
-  let indexManager: AutomergeIndexManager
   let mockWal: SyncWriteAheadLog
   let mockRecoveryManager: RecoveryManager
 
@@ -42,9 +40,6 @@ describe('SyncPoller', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     pullQueueManager = new SyncPullQueueManager(new CursorStore('test-account'), keys, noItemLocks, internalEventHub)
-    indexManager = {
-      updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
-    } as unknown as AutomergeIndexManager
     mockWal = {
       append: vi.fn().mockResolvedValue('id-1'),
       readAll: vi.fn().mockResolvedValue(new Map()),
@@ -63,7 +58,6 @@ describe('SyncPoller', () => {
       clientEventHub,
       internalEventHub,
       keys,
-      indexManager,
       wal: mockWal,
       apiClient: new SyncApiClient(),
       recoveryManager: mockRecoveryManager,
@@ -90,7 +84,6 @@ describe('SyncPoller', () => {
 
     const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
-    expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
   })
 
   it('sends both lagging pullCursors and global clientLatestCursor in empty poll', async () => {
@@ -465,7 +458,7 @@ describe('SyncPoller', () => {
       expect(mockPollSyncBatch).not.toHaveBeenCalled()
     })
 
-    it('discards response and skips writes to WAL, cursors, and indexManager if shutdown happens while network request is in-flight', async () => {
+    it('discards response and skips writes to WAL and cursors if shutdown happens while network request is in-flight', async () => {
       let resolveNetwork: (val: any) => void = () => {}
       let networkStarted = false
       mockPollSyncBatch.mockImplementationOnce(
@@ -501,10 +494,9 @@ describe('SyncPoller', () => {
       // Must NOT have written to stores
       expect(pullResultsSpy).not.toHaveBeenCalled()
       expect(mockWal.remove).not.toHaveBeenCalled()
-      expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
-    it('passes abort signal to pollSyncBatch and handles abort cleanly', async () => {
+    it('passes the abort signal it is given to pollSyncBatch and handles abort cleanly', async () => {
       let signalCaptured: AbortSignal | undefined
       mockPollSyncBatch.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
         signalCaptured = options?.signal
@@ -517,7 +509,8 @@ describe('SyncPoller', () => {
         })
       })
 
-      const pollPromise = poller.executePoll()
+      const controller = new AbortController()
+      const pollPromise = poller.executePoll(controller.signal)
 
       await vi.waitFor(() => {
         expect(signalCaptured).toBeDefined()
@@ -525,7 +518,7 @@ describe('SyncPoller', () => {
 
       expect(signalCaptured?.aborted).toBe(false)
 
-      poller.shutdown()
+      controller.abort()
       expect(signalCaptured?.aborted).toBe(true)
 
       const outcome = await pollPromise
@@ -575,7 +568,7 @@ describe('SyncPoller', () => {
       expect(await poller.executePoll()).toBe('success')
     })
 
-    it('abort() cancels in-flight poll cleanly without permanently disabling future polls', async () => {
+    it('aborting the signal cancels an in-flight poll without disabling future polls', async () => {
       let signalCaptured: AbortSignal | undefined
       mockPollSyncBatch.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
         signalCaptured = options?.signal
@@ -588,7 +581,8 @@ describe('SyncPoller', () => {
         })
       })
 
-      const pollPromise = poller.executePoll()
+      const controller = new AbortController()
+      const pollPromise = poller.executePoll(controller.signal)
 
       await vi.waitFor(() => {
         expect(signalCaptured).toBeDefined()
@@ -596,7 +590,7 @@ describe('SyncPoller', () => {
 
       expect(signalCaptured?.aborted).toBe(false)
 
-      poller.abort()
+      controller.abort()
       expect(signalCaptured?.aborted).toBe(true)
 
       const outcome = await pollPromise
@@ -611,34 +605,6 @@ describe('SyncPoller', () => {
 
       const nextOutcome = await poller.executePoll()
       expect(nextOutcome).toBe('success')
-    })
-
-    it('correctly tracks isCurrentlyPolling lifecycle during execution and abort', async () => {
-      expect(poller.isCurrentlyPolling()).toBe(false)
-
-      let resolveNetwork: (val: any) => void = () => {}
-      let networkStarted = false
-      mockPollSyncBatch.mockImplementationOnce(
-        () =>
-          new Promise(resolve => {
-            networkStarted = true
-            resolveNetwork = resolve
-          })
-      )
-
-      const pollPromise = poller.executePoll()
-      await vi.waitFor(() => {
-        expect(networkStarted).toBe(true)
-      })
-      expect(poller.isCurrentlyPolling()).toBe(true)
-
-      resolveNetwork({
-        success: true,
-        pushResults: [],
-        pullResults: [],
-      })
-      await pollPromise
-      expect(poller.isCurrentlyPolling()).toBe(false)
     })
 
     it('checkAlive aborts poll before network dispatch if poller goes offline during preparation', async () => {
@@ -676,7 +642,6 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).not.toHaveBeenCalledWith(expect.arrayContaining(['msg-2']))
       expect(poller.consecutivePushFailures.get('item-2' as ItemId)).toBe(1)
       expect(poller.consecutivePushFailures.has('item-1' as ItemId)).toBe(false)
-      expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
     })
 
     it('removes only WAL entries for items present in pushResults when an item is omitted', async () => {
@@ -702,7 +667,6 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).toHaveBeenCalledTimes(1)
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
       expect(poller.consecutivePushFailures.get('item-2' as ItemId)).toBe(1)
-      expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
     })
 
     it('does not remove any WAL entries when pushResults is empty', async () => {
@@ -723,7 +687,6 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).not.toHaveBeenCalled()
       expect(poller.consecutivePushFailures.get('item-1' as ItemId)).toBe(1)
       expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
-      expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
     it('removes all batched WAL entries for an acknowledged item', async () => {
@@ -769,7 +732,6 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).not.toHaveBeenCalled()
       expect(poller.consecutivePushFailures.get('item-1' as ItemId)).toBe(1)
       expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
-      expect(indexManager.updateLastSyncTime).not.toHaveBeenCalled()
     })
 
     it('records successful push cursors as own messages before processing pull results', async () => {
@@ -848,7 +810,6 @@ describe('SyncPoller', () => {
 
       // Item 2 failure count incremented
       expect(poller.consecutivePushFailures.get('item-2' as ItemId)).toBe(1)
-      expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
     })
 
     it('quarantines item and removes from WAL after reaching MAX_CONSECUTIVE_PUSH_FAILURES', async () => {
@@ -945,7 +906,6 @@ describe('SyncPoller', () => {
         clientEventHub,
         internalEventHub,
         keys,
-        indexManager,
         wal: mockWal,
         apiClient: mockApiClient,
         recoveryManager: mockRecoveryManager,
@@ -985,7 +945,6 @@ describe('SyncPoller', () => {
         clientEventHub,
         internalEventHub,
         keys,
-        indexManager,
         wal: mockWal,
         apiClient,
         recoveryManager: mockRecoveryManager,
@@ -1011,7 +970,6 @@ describe('SyncPoller', () => {
         clientEventHub,
         internalEventHub,
         keys,
-        indexManager,
         wal: mockWal,
         apiClient,
         recoveryManager: mockRecoveryManager,

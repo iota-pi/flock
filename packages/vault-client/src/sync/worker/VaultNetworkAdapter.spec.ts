@@ -14,7 +14,6 @@ import { SyncApiClient } from './SyncApiClient'
 import { registerQuotaReporter } from '../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { AutomergeDocStore } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
@@ -28,6 +27,9 @@ import * as syncWorkerClient from './SyncWorkerClient'
 const mockPollSyncBatch = vi.fn()
 
 const keys = createMockKeyProvider()
+
+/** The broker's WAL is built once per test, so tests that switch accounts still read it under this one. */
+const WAL_ACCOUNT = 'test-account'
 
 setApiAuthToken('mock-auth-token')
 
@@ -43,20 +45,12 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let orchestrator: SyncOrchestrator
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
-  let mockDocStore: AutomergeDocStore
   let pullQueueManager: SyncPullQueueManager
 
   beforeEach(async () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
     clearAccountStoreInstancesCacheForTesting()
-
-    mockDocStore = {
-      getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [] }),
-      addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
-      removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
-      updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
-    } as unknown as AutomergeDocStore
 
     // Clear stores for test accounts to avoid state pollution
     const accounts = [
@@ -78,12 +72,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     adapter = new VaultNetworkAdapter(internalEventHub)
     const cursorStore = new CursorStore('test-account')
     pullQueueManager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, internalEventHub)
-    const wal = new SyncWriteAheadLog('test-account', internalEventHub)
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, internalEventHub)
     broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
-      indexManager: mockDocStore as any,
       pullQueueManager,
       keys,
       wal,
@@ -138,7 +131,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('queues sync messages to SyncWriteAheadLog on send()', async () => {
     const accountId = 'account-queues'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     const message1: Message = {
@@ -154,7 +146,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     // Await async append
     await vi.advanceTimersByTimeAsync(50)
 
-    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -165,7 +157,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('stores all incoming sync messages in SyncWriteAheadLog', async () => {
     const accountId = 'account-bounds'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     for (let i = 0; i < 20; i++) {
@@ -180,7 +171,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     await vi.advanceTimersByTimeAsync(100)
 
-    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -190,7 +181,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
     const accountId = 'account-chunking'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     mockPollSyncBatch.mockImplementation(async (input: any) => ({
@@ -231,7 +221,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(call2.pushMessages).toHaveLength(2)
 
     // Verify all items were transactionally cleaned from WAL
-    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     expect(batch.size).toBe(0)
   })
@@ -239,7 +229,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('safely slices successfully sent messages and retains concurrent local edits', async () => {
     const accountId = 'account-concurrent'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     mockPollSyncBatch.mockImplementation(async (input: any) => {
@@ -288,7 +277,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setOnlineState(false)
 
     // The sent message should be sliced out, leaving only the concurrent ones [20, 30]
-    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -301,7 +290,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('retains messages in SyncWriteAheadLog if the poll call fails', async () => {
     const accountId = 'account-fails'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     mockPollSyncBatch.mockRejectedValue(new Error('Network error'))
@@ -323,7 +311,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setOnlineState(false)
 
     // Message must still exist in WAL due to failure
-    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -338,7 +326,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     const accountId = 'account-quota'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
     broker.setSendEnabled(true)
 
@@ -697,7 +684,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   it('immediately triggers next poll if hasMore is true', async () => {
     const accountId = 'account-pagination'
     adapter.setAccount(accountId)
-    broker.setWal(new SyncWriteAheadLog(accountId, internalEventHub))
     await broker.setAccount(accountId)
 
     orchestrator = new SyncOrchestrator({

@@ -3,7 +3,6 @@ import { SyncPoller } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from '@vault/shared'
-import { AutomergeIndexManager } from './docStore'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
@@ -18,26 +17,20 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncMessageBroker')
 
-interface SyncBrokerControl {
-  setOnlineState(isOnline: boolean): void
-  setSendEnabled(sendEnabled: boolean): void
-}
-
 export interface SyncMessageBrokerDeps {
   adapter: VaultNetworkAdapter
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
-  indexManager?: AutomergeIndexManager
   pullQueueManager: SyncPullQueueManager
   keys: KeyProvider
-  wal?: SyncWriteAheadLog | null
+  wal: SyncWriteAheadLog
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
   /** Frees space after a WAL append runs out of storage. Without it, the app is told the quota was exceeded. */
   onQuotaExceeded?: (error: unknown) => Promise<void>
 }
 
-export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
+export class SyncMessageBroker implements LifecycleAware {
   readonly lifecycleName = 'SyncMessageBroker'
   private account: string | null = null
   private isOnline = true
@@ -48,7 +41,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
   }
 
   private syncPoller: SyncPoller
-  private wal: SyncWriteAheadLog | null = null
+  private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
   private unsubscribeClientEvents: (() => void) | null = null
@@ -65,7 +58,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
     this.onQuotaExceeded = deps.onQuotaExceeded
-    this.setWal(deps.wal ?? null)
+    this.wal = deps.wal
 
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
       switch (event.type) {
@@ -79,12 +72,7 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
           this.adapter.receiveServerMessage(event.documentId, event.message)
           break
         case 'pushAcknowledged':
-          this.unblockItem(event.itemId)
-          {
-            const documentId = toDocumentIdFromItemId(event.itemId)
-            this.adapter.setSyncedHeads(documentId, event.heads)
-            this.adapter.resetReNegotiationCircuit(documentId)
-          }
+          this.recordSyncedHeads(event.itemId, event.heads)
           break
         case 'walEntriesPruned':
           this.handleWalEntriesPruned(event.itemIds)
@@ -97,7 +85,6 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
       clientEventHub: this.clientEventHub,
       internalEventHub: this.internalEventHub,
       keys: deps.keys,
-      indexManager: deps.indexManager,
       wal: this.wal,
       apiClient: deps.apiClient,
       recoveryManager: deps.recoveryManager,
@@ -140,14 +127,15 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     return Array.from(this.blockedItemIds)
   }
 
-  setSyncedHeads(id: ItemId | DocumentId, heads: string[]): void {
-    const decodedItemId = toVaultItemIdFromAutomergeId(id as DocumentId)
-    const isDocumentId = toDocumentIdFromItemId(decodedItemId) === id
-    const itemId = isDocumentId ? decodedItemId : (id as ItemId)
-    const documentId = isDocumentId ? (id as DocumentId) : toDocumentIdFromItemId(id as ItemId)
-
-    this.unblockItem(itemId)
+  /** Records heads the server has confirmed from a snapshot, which also ends snapshot-only sync for the item. */
+  setSyncedHeads(itemId: ItemId, heads: string[]): void {
     this.snapshotOnlyItems.delete(itemId)
+    this.recordSyncedHeads(itemId, heads)
+  }
+
+  private recordSyncedHeads(itemId: ItemId, heads: string[]): void {
+    const documentId = toDocumentIdFromItemId(itemId)
+    this.unblockItem(itemId)
     this.adapter.setSyncedHeads(documentId, heads)
     this.adapter.resetReNegotiationCircuit(documentId)
   }
@@ -158,10 +146,6 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
 
   isSnapshotOnly(itemId: ItemId): boolean {
     return this.snapshotOnlyItems.has(itemId)
-  }
-
-  markSnapshotOnly(itemId: ItemId): void {
-    this.snapshotOnlyItems.add(itemId)
   }
 
   /**
@@ -190,21 +174,9 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
     this.unblockAllItems()
     this.snapshotOnlyItems.clear()
     this.account = nextAccount
-    // Never build a WAL here: only the owner knows whether it must be sealed (sync rule 10).
-    // Without a WAL, outgoing messages fall back to snapshot sync.
 
     await this.pullQueueManager.setAccount(this.account)
     this.syncPoller.setAccount(this.account)
-  }
-
-  setWal(wal: SyncWriteAheadLog | null): void {
-    this.wal = wal
-    if (this.wal) {
-      this.unblockAllItems()
-    }
-    if (this.syncPoller) {
-      this.syncPoller.setWal(this.wal)
-    }
   }
 
   private handleWalEntriesPruned(itemIds: ItemId[]): void {
@@ -258,17 +230,12 @@ export class SyncMessageBroker implements SyncBrokerControl, LifecycleAware {
           return
         }
 
-        if (this.wal) {
-          try {
-            await this.wal.append(itemId, message.data)
-            this.flush()
-          } catch (err) {
-            log.error(`Failed to append sync message to WAL for item ${itemId}:`, err)
-            this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
-          }
-        } else {
-          log.warn(`WAL unavailable for item ${itemId}, falling back to snapshot sync`)
-          this.handleWalAppendFailure(itemId, documentId as DocumentId, new Error('WAL not initialized'))
+        try {
+          await this.wal.append(itemId, message.data)
+          this.flush()
+        } catch (err) {
+          log.error(`Failed to append sync message to WAL for item ${itemId}:`, err)
+          this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
         }
       }
     } catch (err) {
