@@ -1,12 +1,12 @@
-import DynamoDriver, { type VaultTableNames } from '@vault/server/dynamo'
+import DynamoDriver, { resolveVaultTableNames } from '@vault/server/dynamo'
 import { FLOCK_DATA_VERSION } from '../shared/flockDataVersion'
 import type { FlockAccountFields } from './types'
 
-export const FLOCK_TABLES: VaultTableNames = {
-  accounts: process.env.ACCOUNTS_TABLE || 'FlockAccounts',
-  items: process.env.ITEMS_TABLE || 'FlockItems',
-  syncMessages: process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages',
-}
+export const FLOCK_TABLES = resolveVaultTableNames({}, {
+  accounts: 'FlockAccounts',
+  items: 'FlockItems',
+  syncMessages: 'FlockSyncMessages',
+})
 
 const FLOCK_ACCOUNT_DEFAULTS: FlockAccountFields & { dataVersion: number } = {
   // New accounts have nothing to migrate: they're created with Argon2id and a random data key

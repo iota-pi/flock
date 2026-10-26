@@ -1,16 +1,11 @@
 import type { VaultItem, VaultDriver } from '../drivers/vaultDriver'
 import type { FetchedItem, ItemId, ManifestEntry } from '@vault/shared'
 
-type ManifestServiceContext = {
-  vault: VaultDriver
-}
-
 export async function fetchManifest(
-  ctx: ManifestServiceContext,
+  vault: VaultDriver,
   input: { account: string },
 ): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
-  const { account } = input
-  const manifest = await ctx.vault.fetchManifest({ account })
+  const manifest = await vault.fetchManifest({ account: input.account })
 
   return {
     manifest,
@@ -19,11 +14,10 @@ export async function fetchManifest(
 }
 
 export async function fetchSnapshotsByIds(
-  ctx: ManifestServiceContext,
+  vault: VaultDriver,
   input: { account: string; itemIds: ItemId[] },
 ): Promise<{ items: FetchedItem[]; serverTime: number }> {
-  const { account, itemIds } = input
-  const items = await ctx.vault.fetchByIds({ account, itemIds })
+  const items = await vault.fetchByIds({ account: input.account, itemIds: input.itemIds })
 
   return {
     items: items.map(toFetchedItem),
@@ -40,8 +34,9 @@ export function toFetchedItem(record: VaultItem): FetchedItem {
   const base = { item: record.item as ItemId, metadata: record.metadata, version: record.version }
   if (record.snapshot) {
     const { cipher } = record.snapshot
-    // The driver returns the ciphertext as base64. A row without one gets an empty string, which
-    // fails to decrypt, so the client quarantines the item as it would any unreadable snapshot.
+    // Drivers return the ciphertext as base64 (the stored row's type also allows the binary form it
+    // has at rest, which this narrows away). A row without one gets an empty string, which fails to
+    // decrypt, so the client quarantines the item as it would any unreadable snapshot.
     return { ...base, snapshot: { ...record.snapshot, cipher: typeof cipher === 'string' ? cipher : '' } }
   }
   if (record.cipher) {
