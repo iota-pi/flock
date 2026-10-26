@@ -112,13 +112,6 @@ export class BoundedQueue<T> implements Iterable<T> {
   }
 
   /**
-   * Returns the last (newest) item from the queue without removing it.
-   */
-  peekLast(): T | undefined {
-    return this.items[this.items.length - 1]
-  }
-
-  /**
    * Clears all items from the queue.
    */
   clear(): void {

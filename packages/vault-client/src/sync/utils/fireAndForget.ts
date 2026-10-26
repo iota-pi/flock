@@ -17,22 +17,7 @@ export function fireAndForget(
   tag: string,
   onError?: (err: unknown) => void,
 ): void {
-  try {
-    const promise = typeof promiseOrFactory === 'function' ? (promiseOrFactory as () => unknown)() : promiseOrFactory
-    if (promise && typeof (promise as Promise<unknown>).catch === 'function') {
-      (promise as Promise<unknown>).catch(err => {
-        if (onError) {
-          try {
-            onError(err)
-          } catch (handlerErr) {
-            createLogger(tag).error('Error in fireAndForget onError handler:', handlerErr)
-          }
-        } else {
-          createLogger(tag).error('Unhandled async error:', err)
-        }
-      })
-    }
-  } catch (err) {
+  const handleError = (err: unknown, unhandledMessage: string) => {
     if (onError) {
       try {
         onError(err)
@@ -40,7 +25,16 @@ export function fireAndForget(
         createLogger(tag).error('Error in fireAndForget onError handler:', handlerErr)
       }
     } else {
-      createLogger(tag).error('Unhandled synchronous error:', err)
+      createLogger(tag).error(unhandledMessage, err)
     }
+  }
+
+  try {
+    const promise = typeof promiseOrFactory === 'function' ? (promiseOrFactory as () => unknown)() : promiseOrFactory
+    if (promise && typeof (promise as Promise<unknown>).catch === 'function') {
+      (promise as Promise<unknown>).catch(err => handleError(err, 'Unhandled async error:'))
+    }
+  } catch (err) {
+    handleError(err, 'Unhandled synchronous error:')
   }
 }

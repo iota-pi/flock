@@ -8,6 +8,7 @@ import { reconcileAutomergeList } from './utils/crdtReconcile'
 import { isPlainObject } from './utils/objectUtils'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { createLogger } from '../utils/logger'
+import { errorMessage } from '../utils/errorMessage'
 
 const log = createLogger('AccountSettings')
 
@@ -136,7 +137,7 @@ export class AccountSettings {
         await this.deps.indexManager.updateAutomergeMetadata(local)
       }
     } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'metadata', error: (err as Error).message })
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'metadata', error: errorMessage(err) })
       this.emit()
     }
   }

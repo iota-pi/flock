@@ -9,8 +9,6 @@ export class SyncStatusManager {
   private lastPollOutcome: PollOutcome | null = null
   private isQuotaExceeded = false
   private isDegradedPull = false
-  private isConnecting = false
-  private isDead = false
 
   constructor(private clientEventHub: ClientEventHub) {}
 
@@ -27,23 +25,11 @@ export class SyncStatusManager {
     this.lastPollOutcome = null
     this.isQuotaExceeded = false
     this.isDegradedPull = false
-    this.isConnecting = false
-    this.isDead = false
     this.updateStatus()
   }
 
   public setOnlineState(isOnline: boolean) {
     this.isOnline = isOnline
-    this.updateStatus()
-  }
-
-  public setConnecting(isConnecting: boolean) {
-    this.isConnecting = isConnecting
-    this.updateStatus()
-  }
-
-  public setDead(isDead: boolean) {
-    this.isDead = isDead
     this.updateStatus()
   }
 
@@ -77,14 +63,10 @@ export class SyncStatusManager {
   private updateStatus() {
     let newStatus: SyncStatus
 
-    if (this.isDead) {
-      newStatus = 'dead'
-    } else if (!this.isOnline || this.lastPollOutcome === 'auth-failure') {
+    if (!this.isOnline || this.lastPollOutcome === 'auth-failure') {
       newStatus = 'offline'
     } else if (this.activeRequests > 0) {
       newStatus = 'syncing'
-    } else if (this.isConnecting) {
-      newStatus = 'connecting'
     } else if (this.lastPollOutcome === 'failure' || this.isQuotaExceeded || this.isDegradedPull) {
       newStatus = 'degraded'
     } else {

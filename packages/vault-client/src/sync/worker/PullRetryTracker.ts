@@ -124,13 +124,6 @@ export class PullRetryTracker {
     return false
   }
 
-  hasPendingPulls(): boolean {
-    for (const state of this.retryQueue.values()) {
-      if (state.pending) return true
-    }
-    return false
-  }
-
   hasImmediatePendingPulls(): boolean {
     for (const state of this.retryQueue.values()) {
       if (state.pending && state.retryCount === 0 && (!state.blockedOnKey || this.keys.hasKey(state.blockedOnKey))) {

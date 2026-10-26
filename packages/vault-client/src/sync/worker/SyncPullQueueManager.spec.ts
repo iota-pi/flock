@@ -8,6 +8,7 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from './SyncWorkerClient'
 import { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
+import type { ItemPullState } from './PullRetryTracker'
 import { SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 
 import {
@@ -84,8 +85,18 @@ beforeEach(() => {
   })
 })
 
+/** Whether the global scan or any item, including retrying and key-blocked ones, still awaits a pull */
+function hasPendingPulls(manager: SyncPullQueueManager): boolean {
+  const internals = manager as unknown as {
+    hasMoreGlobal: boolean
+    retryTracker: { retryQueue: Map<ItemId, ItemPullState> }
+  }
+  return internals.hasMoreGlobal || [...internals.retryTracker.retryQueue.values()].some(state => state.pending)
+}
+
 describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
+  let eventHub: WorkerInternalEventHub
   let cursorStore: CursorStore
 
   beforeEach(() => {
@@ -95,7 +106,8 @@ describe('SyncPullQueueManager', () => {
     clearAccountStoreInstancesCacheForTesting()
     activeStore = null
     cursorStore = new CursorStore('account-1')
-    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, new WorkerInternalEventHub())
+    eventHub = new WorkerInternalEventHub()
+    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub)
 
     // Default mock behavior
     mockVault.reset()
@@ -116,7 +128,7 @@ describe('SyncPullQueueManager', () => {
       activeStore = null
       manager.addPendingItem('item-1' as ItemId)
       await manager.setAccount(null)
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
       expect(activeStore).toBeNull()
     })
 
@@ -129,7 +141,8 @@ describe('SyncPullQueueManager', () => {
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
 
       cursorStore = new CursorStore('account-2')
-      manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, new WorkerInternalEventHub())
+      eventHub = new WorkerInternalEventHub()
+      manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub)
       await manager.setAccount('account-2')
       expect(manager.exportCursors()).toEqual(preLoadedCursors)
     })
@@ -137,15 +150,15 @@ describe('SyncPullQueueManager', () => {
 
   describe('pending items management', () => {
     it('manages pending items correctly', async () => {
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
 
       manager.addPendingItem('item-1' as ItemId)
       manager.addPendingItem('' as ItemId) // should be ignored
 
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
 
       await manager.shutdown()
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
     })
   })
 
@@ -181,7 +194,7 @@ describe('SyncPullQueueManager', () => {
 
     it('parses single unbatched message', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
       mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
@@ -228,7 +241,7 @@ describe('SyncPullQueueManager', () => {
 
     it('parses batched v1.0 messages with DataView length prefixes', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -290,7 +303,7 @@ describe('SyncPullQueueManager', () => {
       )
 
       expect(manager.exportCursors()).toContainEqual(['item-2', 15])
-      expect(manager.hasPendingPulls()).toBe(true) // because hasMore was true
+      expect(hasPendingPulls(manager)).toBe(true) // because hasMore was true
     })
 
     it('sets hasImmediatePendingPulls to true when hasMoreGlobal is true without adding healthy items to getCursors', async () => {
@@ -318,14 +331,14 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults, true)
 
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
       expect(manager.hasImmediatePendingPulls()).toBe(true)
       // Healthy item has pending: false, so it is NOT added to getCursors()
       expect(manager.getCursors()).toHaveLength(0)
 
       // Next poll completes global backlog with hasMoreGlobal: false
       await manager.processPullResults([], false)
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.hasImmediatePendingPulls()).toBe(false)
     })
 
@@ -356,7 +369,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResultsWithKey)
 
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
       const cursors = manager.getCursors()
       expect(cursors).toHaveLength(1)
       expect(cursors[0]).toEqual({
@@ -387,7 +400,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(completionResults)
 
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.getCursors()).toHaveLength(0)
     })
 
@@ -487,7 +500,7 @@ describe('SyncPullQueueManager', () => {
       manager.resetPagination()
 
       expect(manager.getGlobalPageToken()).toBeUndefined()
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.getGlobalScanCursor()).toBe(100)
     })
 
@@ -509,7 +522,7 @@ describe('SyncPullQueueManager', () => {
 
     it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
       })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
@@ -537,14 +550,14 @@ describe('SyncPullQueueManager', () => {
       for (let attempt = 1; attempt <= 4; attempt++) {
         await manager.processPullResults(pullResults)
         expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
-        expect(manager.hasPendingPulls()).toBe(true)
+        expect(hasPendingPulls(manager)).toBe(true)
         expect(manager.getCursors()).toContainEqual({ itemId: 'item-fail', cursor: 0 })
       }
     })
 
     it('removes item from queue and triggers onDecryptionFailure on 5th consecutive failure', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
       })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
@@ -580,13 +593,13 @@ describe('SyncPullQueueManager', () => {
           message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
         })
       )
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.exportCursors()).toContainEqual(['item-fail-5', 10])
     })
 
     it('advances cursor past corrupted message on 5th failure and prevents infinite retry loop on subsequent polls', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
       })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
@@ -614,7 +627,7 @@ describe('SyncPullQueueManager', () => {
       for (let attempt = 1; attempt <= 4; attempt++) {
         await manager.processPullResults(pullResults)
         expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 0])
-        expect(manager.hasPendingPulls()).toBe(true)
+        expect(hasPendingPulls(manager)).toBe(true)
         expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
       }
 
@@ -622,19 +635,19 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults(pullResults)
       expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
 
       // Subsequent poll (attempt 6) receives the same corrupted message (e.g. via overlap window query)
       // The message is recognized as seen/skipped and does NOT re-trigger the 5-retry failure cycle
       await manager.processPullResults(pullResults)
       expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
     })
 
     it('falls back to nextCursor when message cursor is omitted on 5th failure', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
       })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
@@ -662,12 +675,12 @@ describe('SyncPullQueueManager', () => {
 
       expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(manager.exportCursors()).toContainEqual(['item-no-msg-cursor', 25])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
     })
 
     it('resets retry counter on successful message parse', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
       })
 
@@ -695,7 +708,7 @@ describe('SyncPullQueueManager', () => {
       for (let attempt = 1; attempt <= 3; attempt++) {
         await manager.processPullResults(failResults)
       }
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
 
       // 4th time succeeds
       mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
@@ -718,7 +731,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
       await manager.processPullResults(successResults)
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
 
       // Now failing again should start from attempt 1 (requiring 5 more failures to quarantine)
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed again'))
@@ -730,7 +743,7 @@ describe('SyncPullQueueManager', () => {
 
     it('clears retry counter on shutdown and setAccount', async () => {
       const mockOnDecryptionFailure = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
       })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
@@ -761,7 +774,7 @@ describe('SyncPullQueueManager', () => {
 
       // Switch account resets retry counts
       await manager.setAccount('account-new')
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
 
       // 1 failure should not trigger max retry (5)
       await manager.processPullResults(failResults)
@@ -776,7 +789,7 @@ describe('SyncPullQueueManager', () => {
 
     it('skips processing already seen messages (overlap window dedup)', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
@@ -846,7 +859,7 @@ describe('SyncPullQueueManager', () => {
 
     it('advances cursor when batch consists entirely of seen messages and nextCursor is stale', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
@@ -928,7 +941,7 @@ describe('SyncPullQueueManager', () => {
           messages: [],
         },
       ])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
 
       // Second batch hasMore: false
       await manager.processPullResults([
@@ -940,7 +953,7 @@ describe('SyncPullQueueManager', () => {
           messages: [],
         },
       ])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
     })
 
     it('halts on message processing failure in a batch to preserve causal order and preserves item for retry', async () => {
@@ -950,7 +963,7 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Transient processing error for message 1')
         }
       })
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -1006,7 +1019,7 @@ describe('SyncPullQueueManager', () => {
       )
 
       expect(manager.exportCursors()).toEqual([['item-batch-error', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
 
       // Attempt 2 (retry): Transient failure resolved; both messages applied sequentially in batch order
       failMessage1 = false
@@ -1026,7 +1039,7 @@ describe('SyncPullQueueManager', () => {
         msg2,
       )
       expect(manager.exportCursors()).toEqual([['item-batch-error', 15]])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
     })
 
     it('prevents duplicate processing of already succeeded inner messages when retrying a partially failed batch', async () => {
@@ -1036,7 +1049,7 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Transient processing error for message 2')
         }
       })
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -1087,7 +1100,7 @@ describe('SyncPullQueueManager', () => {
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(1, 'item-partial-retry', expectedDocId, msg1)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(2, 'item-partial-retry', expectedDocId, msg2)
       expect(manager.exportCursors()).toEqual([['item-partial-retry', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
 
       // Attempt 2 (retry): msg1 must NOT be re-applied; msg2 succeeds
       failMessage2 = false
@@ -1096,7 +1109,7 @@ describe('SyncPullQueueManager', () => {
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(3, 'item-partial-retry', expectedDocId, msg2)
       expect(manager.exportCursors()).toEqual([['item-partial-retry', 15]])
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
     })
 
     it('does not re-apply succeeded inner messages across 5 failed retries until quarantine', async () => {
@@ -1105,11 +1118,11 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Persistent failure for message 2')
         }
       })
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
       const mockOnDecryptionFailure = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
       })
 
@@ -1169,14 +1182,14 @@ describe('SyncPullQueueManager', () => {
           message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
         })
       )
-      expect(manager.hasPendingPulls()).toBe(false)
+      expect(hasPendingPulls(manager)).toBe(false)
     })
 
     it('handles message processing error for non-batched message and preserves item for retry', async () => {
       const onMessageParsedSpy = vi.fn().mockImplementation(() => {
         throw new Error('Processing failed')
       })
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -1203,12 +1216,12 @@ describe('SyncPullQueueManager', () => {
 
       await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
       expect(manager.exportCursors()).toEqual([['item-1', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
     })
 
     it('stops processing messages and preserves cursor before failed message when a parse failure occurs mid-batch and keeps item for retry', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -1256,7 +1269,7 @@ describe('SyncPullQueueManager', () => {
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(mockDecryptBytes).toHaveBeenCalledTimes(2)
       expect(manager.exportCursors()).toEqual([['item-partial', 10]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
     })
 
     it('keeps pending pull item when parse failure occurs even if hasMore is true', async () => {
@@ -1284,12 +1297,12 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults(pullResults)
 
       expect(manager.exportCursors()).toEqual([['item-corrupt-hasmore', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
     })
 
     it('continues processing subsequent items if one item throws an error', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -1345,7 +1358,7 @@ describe('SyncPullQueueManager', () => {
 
     it('does not advance cursor past failed message when batch contains out-of-order cursors', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -1389,14 +1402,14 @@ describe('SyncPullQueueManager', () => {
       // Cursor 2 must be processed first due to ascending sort; it fails immediately.
       // Cursor must NOT have advanced to 3, preserving cursor 0 for retry so cursor 2 is not skipped.
       expect(manager.exportCursors()).toEqual([['item-out-of-order', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
       expect(manager.getCursors()).toEqual([{ itemId: 'item-out-of-order', cursor: 0 }])
       expect(onMessageParsedSpy).not.toHaveBeenCalled()
     })
 
     it('processes out-of-order messages in ascending cursor order', async () => {
       const processedCursors: number[] = []
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') {
           processedCursors.push(e.message[0])
         }
@@ -1428,7 +1441,7 @@ describe('SyncPullQueueManager', () => {
 
     it('advances cursor to earlier successful message when higher out-of-order message fails', async () => {
       const onMessageParsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
@@ -1472,7 +1485,7 @@ describe('SyncPullQueueManager', () => {
       // Cursor should advance to 20, and item should remain pending to retry cursor 30.
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(manager.exportCursors()).toContainEqual(['item-partial-out-of-order', 20])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
       expect(manager.getCursors()).toEqual([{ itemId: 'item-partial-out-of-order', cursor: 20 }])
     })
   })
@@ -1573,7 +1586,7 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-1')
       remoteSpy = vi.fn()
       parsedSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'remoteMessagesParsed') remoteSpy(e.itemId)
         if (e.type === 'messageParsed') parsedSpy(e.itemId)
       })
@@ -1619,18 +1632,9 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults([makeResult([10])])
       expect(remoteSpy).not.toHaveBeenCalled()
 
-      // A later re-delivery of the same cursor is no longer treated as an echo
-      await manager.resetCursors()
+      // A later re-delivery of the same cursor (after rewinding the item) is no longer treated as an echo
+      await manager.importCursors([['item-1' as ItemId, 0]])
       await manager.processPullResults([makeResult([10])])
-      expect(remoteSpy).toHaveBeenCalledTimes(1)
-    })
-
-    it('clears recorded own pushes on resetCursors', async () => {
-      manager.recordOwnPushedMessage('item-1' as ItemId, 10)
-      await manager.resetCursors()
-
-      await manager.processPullResults([makeResult([10])])
-
       expect(remoteSpy).toHaveBeenCalledTimes(1)
     })
 
@@ -1690,14 +1694,14 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-reload-pending')
 
       manager.addPendingItem('item-pending' as ItemId)
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
 
       // CursorStore has cursor 42 for item-pending
       activeStore?.getItem.mockResolvedValueOnce({ globalCursor: 42, retries: [['item-pending', 42]] })
 
       await manager.loadCursors()
 
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(hasPendingPulls(manager)).toBe(true)
       expect(manager.getCursors()).toEqual([{ itemId: 'item-pending', cursor: 42 }])
     })
 
@@ -1716,7 +1720,7 @@ describe('SyncPullQueueManager', () => {
     it('pauses inline and decrypts when missing key version arrives within timeout', async () => {
       await manager.setAccount('account-key-test')
       const onKeyVersionMissingSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
       })
 
@@ -1764,7 +1768,7 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-key-timeout')
       const onKeyVersionMissingSpy = vi.fn()
       const onDecryptionFailureSpy = vi.fn()
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
         if (e.type === 'decryptionFailure') onDecryptionFailureSpy(e.itemId, e.error)
       })
@@ -1911,7 +1915,7 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('test-account')
       mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
 
-      const emitSpy = vi.spyOn(manager.eventHub, 'emit')
+      const emitSpy = vi.spyOn(eventHub, 'emit')
       ;(manager as any).saveCursorsDebounced = vi.fn().mockImplementation(() => {
         throw new Error('Save cursors failed')
       })
@@ -1946,7 +1950,7 @@ describe('SyncPullQueueManager', () => {
       const itemId = 'item-m5-advance' as ItemId
 
       const failMessage2 = true
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed' && failMessage2 && e.message[0] === 40) {
           throw new Error('Transient failure on sub-message 2')
         }
@@ -2017,7 +2021,7 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-m5-import')
       const itemId = 'item-m5-import' as ItemId
 
-      manager.eventHub.subscribe(e => {
+      eventHub.subscribe(e => {
         if (e.type === 'messageParsed' && e.message[0] === 40) {
           throw new Error('Transient error')
         }

@@ -32,10 +32,10 @@ describe('PullRetryTracker', () => {
 
     it('adds pending items and ignores empty id', () => {
       tracker.addPendingItem('' as ItemId)
-      expect(tracker.hasPendingPulls()).toBe(false)
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
 
       tracker.addPendingItem('item-1' as ItemId)
-      expect(tracker.hasPendingPulls()).toBe(true)
+      expect(tracker.getState('item-1' as ItemId)?.pending).toBe(true)
       expect(tracker.hasImmediatePendingPulls()).toBe(true)
     })
 
@@ -290,7 +290,7 @@ describe('PullRetryTracker', () => {
 
     it('evicts healthy items from retryQueue on success while advancing globalCursor', () => {
       tracker.addPendingItem('item-healthy' as ItemId)
-      expect(tracker.hasPendingPulls()).toBe(true)
+      expect(tracker.getState('item-healthy' as ItemId)?.pending).toBe(true)
       expect(tracker.hasState('item-healthy' as ItemId)).toBe(true)
 
       const outcome = tracker.recordPullOutcome({
@@ -305,7 +305,7 @@ describe('PullRetryTracker', () => {
 
       expect(outcome.cursorUpdated).toBe(true)
       expect(tracker.hasState('item-healthy' as ItemId)).toBe(false)
-      expect(tracker.hasPendingPulls()).toBe(false)
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
       expect(tracker.getGlobalLatestCursor()).toBe(500)
       expect(tracker.getCursors()).toEqual([])
     })
@@ -336,7 +336,7 @@ describe('PullRetryTracker', () => {
       const tracker2 = new PullRetryTracker(keys)
       tracker2.loadState(state)
       expect(tracker2.getGlobalLatestCursor()).toBe(1000)
-      expect(tracker2.hasPendingPulls()).toBe(true)
+      expect(tracker2.getState('item-retrying' as ItemId)?.pending).toBe(true)
       expect(tracker2.getCursors()).toEqual([{ itemId: 'item-retrying', cursor: 400, pageToken: undefined }])
     })
 
@@ -379,7 +379,7 @@ describe('PullRetryTracker', () => {
       ])
 
       expect(tracker.getGlobalLatestCursor()).toBe(200)
-      expect(tracker.hasPendingPulls()).toBe(false)
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
       expect(tracker.getCursors()).toEqual([])
     })
   })
