@@ -41,7 +41,7 @@ import type {
 } from '../vaultDriver'
 import { AuthenticationError } from '../../errors'
 import { FAILED_LOGIN_WINDOW_MS } from '../../loginThrottle'
-import { VersionConflictError } from '@vault/shared'
+import { backOff, VersionConflictError, type BackoffOptions } from '@vault/shared'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import { isConditionalCheckFailure, isResourceInUseError } from './dynamoErrors'
 import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
@@ -75,6 +75,7 @@ const DATA_ATTRIBUTE_NAMES = {
 }
 
 const MAX_SESSION_UPDATE_ATTEMPTS = 3
+const SESSION_UPDATE_BACKOFF: BackoffOptions = { baseMs: 10, maxMs: 100, jitterMs: 10 }
 
 export default class DynamoDriver implements VaultDriver {
   private internalClient: DynamoDBDocumentClient | undefined
@@ -385,8 +386,7 @@ export default class DynamoDriver implements VaultDriver {
       }
 
       if (attempt < MAX_SESSION_UPDATE_ATTEMPTS - 1) {
-        const delay = Math.min(10 * Math.pow(2, attempt) + Math.random() * 10, 100)
-        await new Promise(resolve => setTimeout(resolve, delay))
+        await backOff(attempt, SESSION_UPDATE_BACKOFF)
       }
     }
     return false

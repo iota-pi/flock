@@ -1,4 +1,7 @@
+import { backOff, type BackoffOptions } from '@vault/shared'
 import { isTransientDynamoError } from './dynamoErrors'
+
+const BATCH_BACKOFF: BackoffOptions = { baseMs: 100, maxMs: 5000, jitterMs: 50 }
 
 /**
  * Sends a batch request, then resends whatever DynamoDB leaves unprocessed, and retries transient
@@ -13,7 +16,6 @@ export async function sendBatchWithRetry<T>(
 ): Promise<void> {
   let currentRequest = request
   let attempt = 0
-  let delayMs = 100
 
   while (true) {
     let unprocessed: T | undefined
@@ -27,8 +29,7 @@ export async function sendBatchWithRetry<T>(
       if (attempt > maxRetries) {
         throw error
       }
-      await backOff(delayMs)
-      delayMs = Math.min(delayMs * 2, 5000)
+      await backOff(attempt - 1, BATCH_BACKOFF)
       continue
     }
 
@@ -40,13 +41,7 @@ export async function sendBatchWithRetry<T>(
     if (attempt > maxRetries) {
       throw new Error(`Failed to execute ${commandName} after ${maxRetries} attempts due to DynamoDB unprocessed ${unprocessedName}.`)
     }
-    await backOff(delayMs)
-    delayMs = Math.min(delayMs * 2, 5000)
+    await backOff(attempt - 1, BATCH_BACKOFF)
     currentRequest = unprocessed
   }
-}
-
-function backOff(delayMs: number): Promise<void> {
-  const jitter = Math.random() * 50
-  return new Promise(resolve => setTimeout(resolve, delayMs + jitter))
 }
