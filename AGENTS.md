@@ -24,6 +24,7 @@ CI runs `test run`, `typecheck` and `lint` on every PR, so run all three before 
 - MUI imports must use the full path (`@mui/material/Button`), not a barrel import (lint enforces this).
 - After moving code, update the imports. Don't leave compatibility re-exports behind.
 - Unit tests are co-located `*.spec.ts` files. Sync integration tests are `packages/vault-client/src/sync/worker/*.integration.spec.ts`.
+- Test files share module state (`isolate: false`), so don't use `vi.mock`. Spy on module namespaces in `beforeEach` (`vi.spyOn`, or `spyOnExports` from the test utils), and spy on packages through the mutable copies the setup files mock them with (lint enforces this).
 
 ## Where things live
 

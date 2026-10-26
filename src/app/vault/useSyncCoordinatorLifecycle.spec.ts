@@ -3,11 +3,14 @@ import useSyncCoordinatorLifecycle from './useSyncCoordinatorLifecycle'
 import { SyncBridge } from './syncBridge'
 import { useAppStore } from 'src/state/store'
 import { resumePendingReencryption } from '@vault/client'
+import * as clientModule from '@vault/client'
+import { spyOnExports } from '../../utils/testUtils'
 
-vi.mock('@vault/client', async importOriginal => ({
-  ...await importOriginal<typeof import('@vault/client')>(),
-  resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
-}))
+beforeEach(() => {
+  spyOnExports(clientModule, {
+    resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
+  })
+})
 
 describe('useSyncCoordinatorLifecycle', () => {
   let initializeSpy: any

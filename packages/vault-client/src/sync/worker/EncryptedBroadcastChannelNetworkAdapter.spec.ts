@@ -4,37 +4,38 @@ import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastCha
 import { toDocumentIdFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
+import * as realtimeBusModule from './realtimeBus'
+import * as broadcastChannelAdapter from '@automerge/automerge-repo-network-broadcastchannel'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('./realtimeBus', () => ({
-  publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-}))
+const mockOn = vi.fn()
+const mockSend = vi.fn()
+const mockConnect = vi.fn()
+const mockDisconnect = vi.fn()
+const mockIsReady = vi.fn().mockReturnValue(true)
+const mockWhenReady = vi.fn().mockResolvedValue(undefined)
 
-
-vi.mock('@automerge/automerge-repo-network-broadcastchannel', () => {
-  const mockOn = vi.fn()
-  const mockSend = vi.fn()
-  const mockConnect = vi.fn()
-  const mockDisconnect = vi.fn()
-  const mockIsReady = vi.fn().mockReturnValue(true)
-  const mockWhenReady = vi.fn().mockResolvedValue(undefined)
-
-  class BroadcastChannelNetworkAdapterMock {
-    on = mockOn
-    send = mockSend
-    connect = mockConnect
-    disconnect = mockDisconnect
-    isReady = mockIsReady
-    whenReady = mockWhenReady
-  }
-
-  return {
-    BroadcastChannelNetworkAdapter: BroadcastChannelNetworkAdapterMock,
-  }
-})
+class BroadcastChannelNetworkAdapterMock {
+  on = mockOn
+  send = mockSend
+  connect = mockConnect
+  disconnect = mockDisconnect
+  isReady = mockIsReady
+  whenReady = mockWhenReady
+}
 
 const vault = createMockVault()
 const keys = createMockKeyProvider(vault)
+
+beforeEach(() => {
+  spyOnExports(broadcastChannelAdapter, {
+    BroadcastChannelNetworkAdapter: BroadcastChannelNetworkAdapterMock,
+  })
+  spyOnExports(realtimeBusModule, {
+    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
+  })
+})
 
 describe('EncryptedBroadcastChannelNetworkAdapter', () => {
   let adapter: EncryptedBroadcastChannelNetworkAdapter
@@ -58,7 +59,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
     vi.mocked(hasVaultKey).mockReturnValue(true)
     vi.mocked(waitForKeyVersion).mockResolvedValue(true)
-    adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, accountId: 'account-1' })
+    adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, accountId: 'account-1', cryptoRetryDelayMs: 0 })
     innerAdapterMock = (adapter as any).inner
   })
 
@@ -334,7 +335,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
   it('continues processing receive queue and notifies onKeyVersionMissing without resetting connection when decryption throws permanent errors', async () => {
     const onKeyVersionMissing = vi.fn()
-    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onKeyVersionMissing })
+    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onKeyVersionMissing, cryptoRetryDelayMs: 0 })
     const customInnerMock = (customAdapter as any).inner
     const { decryptBytes } = vault
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -394,7 +395,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
   it('retries decrypting an incoming message on transient decryption error and emits without dropping', async () => {
     const onKeyVersionMissing = vi.fn()
-    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onKeyVersionMissing })
+    const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onKeyVersionMissing, cryptoRetryDelayMs: 0 })
     const customInnerMock = (customAdapter as any).inner
     const { decryptBytes } = vault
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -498,6 +499,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     const onKeyVersionMissing = vi.fn()
     const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       keys,
+      cryptoRetryDelayMs: 0,
       onKeyVersionMissing,
       keyWaitTimeoutMs: 50,
     })
@@ -595,6 +597,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       const onKeyVersionMissing = vi.fn()
       const adapterWithMissingKey = new EncryptedBroadcastChannelNetworkAdapter({
         keys,
+        cryptoRetryDelayMs: 0,
         channelName: 'test-channel',
         onKeyVersionMissing,
         keyWaitTimeoutMs: 1000,
@@ -655,6 +658,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       const onKeyVersionMissing = vi.fn()
       const adapterWithMissingKey = new EncryptedBroadcastChannelNetworkAdapter({
         keys,
+        cryptoRetryDelayMs: 0,
         channelName: 'test-channel',
         onKeyVersionMissing,
         keyWaitTimeoutMs: 50,
@@ -753,6 +757,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       const onKeyVersionMissing = vi.fn()
       const adapter = new EncryptedBroadcastChannelNetworkAdapter({
         keys,
+        cryptoRetryDelayMs: 0,
         channelName: 'test-channel',
         onKeyVersionMissing,
         keyWaitTimeoutMs: 50,
@@ -842,6 +847,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     it('preserves causal FIFO ordering across multiple keys during key rotation without inverting relative order', async () => {
       const adapter = new EncryptedBroadcastChannelNetworkAdapter({
         keys,
+        cryptoRetryDelayMs: 0,
         channelName: 'test-channel-multi-key',
         keyWaitTimeoutMs: 30,
       })
@@ -968,7 +974,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
     it('invokes onDocumentReceived callback when receiving a sync message', async () => {
       const onDocumentReceived = vi.fn()
-      const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onDocumentReceived })
+      const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onDocumentReceived, cryptoRetryDelayMs: 0 })
       const innerCustomAdapterMock = (customAdapter as any).inner
 
       let innerMessageCallback: any

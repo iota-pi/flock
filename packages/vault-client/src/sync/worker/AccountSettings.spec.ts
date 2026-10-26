@@ -3,16 +3,14 @@ import * as Automerge from '@automerge/automerge/slim'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import type { AutomergeDocStore, RepoDoc } from './docStore'
 import { createTestDocStore } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { passthroughCodec, type DocCodec, type LegacySettingsSource } from './domain'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { VaultMetadata } from '../shared/types'
 import { settingsDocId, type ItemId } from '@vault/shared'
+import * as realtimeBusModule from './realtimeBus'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('./realtimeBus', () => ({
-  publishRealtimeBusSyncPing: (...args: unknown[]) => mockPublishRealtimeBusSyncPing(...args),
-}))
-
 const SYNCED_KEYS = ['prayerGoal', 'defaultPrayerFrequency', 'completedMigrations']
 
 /** In-memory index that reports metadata changes like AutomergeIndexManager's onMetadataUpdated callback */
@@ -41,6 +39,12 @@ function createIndexManager(initial: VaultMetadata = {}) {
   }
   return manager
 }
+
+beforeEach(() => {
+  spyOnExports(realtimeBusModule, {
+    publishRealtimeBusSyncPing: (...args: unknown[]) => mockPublishRealtimeBusSyncPing(...args),
+  })
+})
 
 describe('AccountSettings', () => {
   let accountCounter = 0

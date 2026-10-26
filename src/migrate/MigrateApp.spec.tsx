@@ -10,33 +10,13 @@ import {
 } from './migration'
 import { MigrationBridge } from './migrationBridge'
 import { isMigrationDeferred } from './detection'
-
-vi.mock('./migration', async importOriginal => ({
-  ...await importOriginal<typeof import('./migration')>(),
-  startMigration: vi.fn(),
-  changeToArgon2id: vi.fn(),
-  beginSync: vi.fn(),
-  reencryptOutdatedItems: vi.fn(),
-  finishMigration: vi.fn(),
-}))
+import * as migrationModule from './migration'
+import * as usePasswordStrengthModule from '../hooks/usePasswordStrength'
+import * as migrationBridgeModule from './migrationBridge'
+import { spyOnExports } from '../utils/testUtils'
 
 // The real check scores asynchronously with zxcvbn; these tests only need its verdict
-vi.mock('../hooks/usePasswordStrength', () => ({
-  usePasswordStrength: (password: string) => (password === 'weak'
-    ? { score: 1, error: 'Please choose a stronger password' }
-    : { score: password ? 4 : 0, error: '' }),
-}))
-
-const syncState = vi.hoisted(() => ({ status: 'idle', warning: null, fatalError: null }))
-
-vi.mock('./migrationBridge', () => ({
-  MigrationBridge: {
-    checkDataVersion: vi.fn(),
-    fullResync: vi.fn().mockResolvedValue(true),
-  },
-  subscribeSyncState: () => () => {},
-  getSyncState: () => syncState,
-}))
+const syncState = { status: 'idle', warning: null, fatalError: null }
 
 async function logIn() {
   render(<MigrateApp />)
@@ -68,6 +48,29 @@ async function enterNewPassword(password: string, confirmation = password, conse
 function changePasswordButton() {
   return screen.getByRole('button', { name: /Change password and continue/i }) as HTMLButtonElement
 }
+
+beforeEach(() => {
+  spyOnExports(migrationModule, {
+    startMigration: vi.fn(),
+    changeToArgon2id: vi.fn(),
+    beginSync: vi.fn(),
+    reencryptOutdatedItems: vi.fn(),
+    finishMigration: vi.fn(),
+  })
+  spyOnExports(usePasswordStrengthModule, {
+    usePasswordStrength: (password: string) => (password === 'weak'
+      ? { score: 1, error: 'Please choose a stronger password' }
+      : { score: password ? 4 : 0, error: '' }),
+  })
+  spyOnExports(migrationBridgeModule, {
+    MigrationBridge: {
+      checkDataVersion: vi.fn(),
+      fullResync: vi.fn().mockResolvedValue(true),
+    },
+    subscribeSyncState: () => () => {},
+    getSyncState: () => syncState,
+  })
+})
 
 describe('MigrateApp', () => {
   beforeEach(() => {

@@ -10,25 +10,19 @@ import {
 import {
   MockLocalforage,
   createMockLocalForage,
+  mockLocalForage,
 } from '../worker/__test__/testUtils'
 
 const createdConfigs: Record<string, any>[] = []
 
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
-      createdConfigs.push(config)
-      return createMockLocalForage(config)
-    }),
-  },
-}))
-
-vi.mock('../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
-}))
+const createLocalForageInstance = (config: Record<string, any>) => {
+  createdConfigs.push(config)
+  return createMockLocalForage(config)
+}
 
 describe('createAccountStore', () => {
   beforeEach(() => {
+    mockLocalForage(createLocalForageInstance)
     vi.clearAllMocks()
     createdConfigs.length = 0
     clearAccountStoreInstancesCacheForTesting()

@@ -8,6 +8,8 @@ import {
 } from './AccountClient'
 import { getLegacyPbkdf2Iterations } from './kdf'
 import { getVaultTrpcClient } from './vaultTrpcClient'
+import * as vaultTrpcClientModule from './vaultTrpcClient'
+import { spyOnExports } from '../../test/moduleMocks'
 
 const mockTrpcClient = {
   accounts: {
@@ -20,11 +22,13 @@ const mockTrpcClient = {
   },
 }
 
-vi.mock('./vaultTrpcClient', () => ({
-  getVaultTrpcClient: vi.fn(() => mockTrpcClient),
-}))
-
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
+
+beforeEach(() => {
+  spyOnExports(vaultTrpcClientModule, {
+    getVaultTrpcClient: vi.fn(() => mockTrpcClient),
+  })
+})
 
 describe('AccountClient', () => {
   beforeEach(() => {

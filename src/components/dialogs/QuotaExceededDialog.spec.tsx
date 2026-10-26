@@ -2,14 +2,18 @@ import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import QuotaExceededDialog from './QuotaExceededDialog'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from '../../app/vault/syncBridge'
+import * as syncBridgeModule from '../../app/vault/syncBridge'
+import { spyOnExports } from '../../utils/testUtils'
 
-vi.mock('../../app/vault/syncBridge', () => ({
-  SyncBridge: {
-    retrySave: vi.fn(),
-    pushSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
-    flushSync: vi.fn().mockResolvedValue(undefined),
-  },
-}))
+beforeEach(() => {
+  spyOnExports(syncBridgeModule, {
+    SyncBridge: {
+      retrySave: vi.fn(),
+      pushSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
+      flushSync: vi.fn().mockResolvedValue(undefined),
+    },
+  })
+})
 
 describe('QuotaExceededDialog', () => {
   const onClose = vi.fn()

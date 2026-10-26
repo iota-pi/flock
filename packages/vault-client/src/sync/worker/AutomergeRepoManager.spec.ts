@@ -3,9 +3,13 @@ import { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import * as storageManager from '../utils/storageManager'
 import { createMockKeyProvider } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
+import * as automergeRepo from '@automerge/automerge-repo/slim'
+import * as encryptedBroadcastChannelNetworkAdapter from './EncryptedBroadcastChannelNetworkAdapter'
+import * as vaultIndexedDBStorageAdapter from './VaultIndexedDBStorageAdapter'
 
-vi.mock('@automerge/automerge-repo/slim', () => {
-  return {
+beforeEach(() => {
+  spyOnExports(automergeRepo, {
     Repo: class MockRepo {
       public storage: any
       public network: any
@@ -16,22 +20,16 @@ vi.mock('@automerge/automerge-repo/slim', () => {
 
       shutdown = vi.fn().mockResolvedValue(undefined)
     },
-  }
-})
-
-vi.mock('./EncryptedBroadcastChannelNetworkAdapter', () => {
-  return {
+  })
+  spyOnExports(encryptedBroadcastChannelNetworkAdapter, {
     EncryptedBroadcastChannelNetworkAdapter: class MockBroadcastAdapter {
       pause = vi.fn()
       resume = vi.fn()
       isSyncPaused = vi.fn().mockReturnValue(false)
       disconnect = vi.fn()
     },
-  }
-})
-
-vi.mock('./VaultIndexedDBStorageAdapter', () => {
-  return {
+  })
+  spyOnExports(vaultIndexedDBStorageAdapter, {
     VaultIndexedDBStorageAdapter: class MockIndexedDBAdapter {
       save = vi.fn().mockResolvedValue(undefined)
       load = vi.fn().mockResolvedValue(undefined)
@@ -42,7 +40,7 @@ vi.mock('./VaultIndexedDBStorageAdapter', () => {
       close = vi.fn().mockResolvedValue(undefined)
       has = vi.fn().mockResolvedValue(false)
     },
-  }
+  })
 })
 
 describe('AutomergeRepoManager', () => {

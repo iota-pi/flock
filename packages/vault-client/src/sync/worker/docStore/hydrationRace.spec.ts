@@ -7,30 +7,9 @@ import { WorkerInternalEventHub } from '../SyncEventHub'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
 import { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
-import { createMockKeyProvider, createMockVault, createTestDocStore } from '../__test__/testUtils'
+import { createMockKeyProvider, createMockVault, createTestDocStore, mockLocalForage } from '../__test__/testUtils'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string; archived: boolean; time: number }> }
-
-// Mock localforage for CursorStore
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation(() => {
-      const store = new Map<string, any>()
-      return {
-        getItem: vi.fn().mockImplementation(async (k: string) => store.get(k) ?? null),
-        setItem: vi.fn().mockImplementation(async (k: string, v: any) => {
-          store.set(k, v)
-          return v
-        }),
-        removeItem: vi.fn().mockImplementation(async (k: string) => store.delete(k)),
-        clear: vi.fn().mockImplementation(async () => store.clear()),
-        keys: vi.fn().mockImplementation(async () => Array.from(store.keys())),
-        length: vi.fn().mockImplementation(async () => store.size),
-        iterate: vi.fn(),
-      }
-    }),
-  },
-}))
 
 const mockDecryptBytes = vi.fn()
 const keys = createMockKeyProvider({ ...createMockVault(), decryptBytes: mockDecryptBytes })
@@ -63,6 +42,8 @@ describe('Document Hydration Race Condition (C4)', () => {
   let pullQueueManager: SyncPullQueueManager
 
   beforeEach(async () => {
+    // CursorStore keeps its cursors in localforage
+    mockLocalForage()
     repo = new Repo()
     docStore = createTestDocStore(repo)
     cursorStore = new CursorStore('test-account')

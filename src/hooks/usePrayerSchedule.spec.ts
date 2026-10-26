@@ -1,31 +1,34 @@
 import { renderHook, act } from '@testing-library/react'
 import { usePrayerSchedule } from './usePrayerSchedule'
 
-
-vi.mock('../state/selectors', () => ({
-  usePrayerScheduleInputs: vi.fn(),
-}))
-
-vi.mock('../utils/prayer', () => ({
-  getLastPrayedFor: vi.fn(),
-  getNaturalPrayerGoal: vi.fn(),
-  getPrayerSchedule: vi.fn(),
-}))
-
-vi.mock('./useToday', () => ({
-  useToday: vi.fn(),
-}))
-
-vi.mock('src/features/items/mutations/itemMutations', () => ({
-  mutateItem: vi.fn(async () => undefined),
-}))
-
 import { usePrayerScheduleInputs } from '../state/selectors'
 import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
 import { useToday } from './useToday'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import type { Item } from 'src/state/items'
 import type { ItemId } from '@vault/shared'
+import * as selectorsModule from '../state/selectors'
+import * as prayerModule from '../utils/prayer'
+import * as useTodayModule from './useToday'
+import * as itemMutationsModule from 'src/features/items/mutations/itemMutations'
+import { spyOnExports } from '../utils/testUtils'
+
+beforeEach(() => {
+  spyOnExports(selectorsModule, {
+    usePrayerScheduleInputs: vi.fn(),
+  })
+  spyOnExports(prayerModule, {
+    getLastPrayedFor: vi.fn(),
+    getNaturalPrayerGoal: vi.fn(),
+    getPrayerSchedule: vi.fn(),
+  })
+  spyOnExports(useTodayModule, {
+    useToday: vi.fn(),
+  })
+  spyOnExports(itemMutationsModule, {
+    mutateItem: vi.fn(async () => undefined),
+  })
+})
 
 describe('usePrayerSchedule', () => {
   beforeEach(() => {

@@ -7,10 +7,13 @@ import {
   toErrorText,
   NETWORK_ERROR_MATCHERS,
 } from './sentry'
+import { spyOnExports } from '../utils/testUtils'
 
-vi.mock('@sentry/react', () => ({
-  init: vi.fn(),
-}))
+beforeEach(() => {
+  spyOnExports(Sentry, {
+    init: vi.fn(),
+  })
+})
 
 describe('sentry configuration and filtering', () => {
   beforeEach(() => {

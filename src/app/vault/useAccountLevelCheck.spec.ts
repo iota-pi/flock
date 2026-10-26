@@ -3,23 +3,25 @@ import { getOnlineState, getSecurityParams } from '@vault/client'
 import useAccountLevelCheck, { checkAccountLevel } from './useAccountLevelCheck'
 import { lockVault } from './session'
 import { goToMigration } from '../../migrate/detection'
-
-vi.mock('@vault/client', async importOriginal => ({
-  ...await importOriginal<typeof import('@vault/client')>(),
-  getSecurityParams: vi.fn(),
-  getOnlineState: vi.fn(() => true),
-}))
-
-vi.mock('./session', () => ({
-  lockVault: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../../migrate/detection', async importOriginal => ({
-  ...await importOriginal<typeof import('../../migrate/detection')>(),
-  goToMigration: vi.fn(),
-}))
+import * as clientModule from '@vault/client'
+import * as sessionModule from './session'
+import * as detectionModule from '../../migrate/detection'
+import { spyOnExports } from '../../utils/testUtils'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
+
+beforeEach(() => {
+  spyOnExports(clientModule, {
+    getSecurityParams: vi.fn(),
+    getOnlineState: vi.fn(() => true),
+  })
+  spyOnExports(sessionModule, {
+    lockVault: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(detectionModule, {
+    goToMigration: vi.fn(),
+  })
+})
 
 describe('checkAccountLevel', () => {
   beforeEach(() => {

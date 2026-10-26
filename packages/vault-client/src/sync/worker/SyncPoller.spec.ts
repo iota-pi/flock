@@ -3,18 +3,16 @@ import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { SyncApiClient, AuthError } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
+import * as syncWorkerClient from './SyncWorkerClient'
 
 const mockPollSyncBatch = vi.fn()
-vi.mock('./SyncWorkerClient', () => ({
-  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
-}))
-
 const encryptBytes = vi.fn().mockResolvedValue({
   iv: 'iv',
   cipher: 'cipher',
@@ -22,6 +20,11 @@ const encryptBytes = vi.fn().mockResolvedValue({
 })
 const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes })
 
+beforeEach(() => {
+  spyOnExports(syncWorkerClient, {
+    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  })
+})
 
 describe('SyncPoller', () => {
   let poller: SyncPoller

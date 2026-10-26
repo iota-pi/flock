@@ -2,15 +2,18 @@ import { storeSink } from './syncBridge'
 import { lockVault } from './session'
 import { goToMigration } from '../../migrate/detection'
 import { useAppStore } from '../../state/store'
+import * as sessionModule from './session'
+import * as detectionModule from '../../migrate/detection'
+import { spyOnExports } from '../../utils/testUtils'
 
-vi.mock('./session', () => ({
-  lockVault: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../../migrate/detection', async importOriginal => ({
-  ...await importOriginal<typeof import('../../migrate/detection')>(),
-  goToMigration: vi.fn(),
-}))
+beforeEach(() => {
+  spyOnExports(sessionModule, {
+    lockVault: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(detectionModule, {
+    goToMigration: vi.fn(),
+  })
+})
 
 describe('storeSink', () => {
   it('locks the vault and sends the account to the migration app when migration is required', async () => {

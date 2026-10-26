@@ -12,19 +12,13 @@ import { SyncWriteAheadLog } from '../SyncWriteAheadLog'
 import { WorkerInternalEventHub } from '../SyncEventHub'
 import { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
-import { createMockLocalForagePool } from '../__test__/testUtils'
+import { createMockLocalForagePool, mockLocalForage } from '../__test__/testUtils'
 import { LocalKeyUnavailableError } from './LocalCipher'
 import { DSK_KEY, openLocalStorage, type LocalStorage, type OpenLocalStorageOptions } from './openLocalStorage'
 import { UPGRADED_AT_KEY } from './LocalEncryptionUpgrade'
 import type { RetireLegacyStoresOptions } from './retireLegacyStores'
 
 const pool = createMockLocalForagePool()
-
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, unknown>) => pool.createInstance(config)),
-  },
-}))
 
 const ACCOUNT = 'account-1'
 const DOC = 'doc-1'
@@ -45,6 +39,7 @@ describe('openLocalStorage', () => {
   let retire: Mock<(options: RetireLegacyStoresOptions) => Promise<boolean>>
 
   beforeEach(async () => {
+    mockLocalForage(pool.createInstance)
     globalThis.indexedDB = new IDBFactory()
     vi.stubGlobal('IDBKeyRange', FakeIDBKeyRange)
     pool.clear()

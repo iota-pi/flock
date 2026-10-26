@@ -1,24 +1,14 @@
 import { SyncApiClient, AuthError, AuthExpiredError } from './SyncApiClient'
+import * as syncWorkerClient from './SyncWorkerClient'
+import * as itemClient from './ItemClient'
+import * as runtimeModule from '../../api/runtime'
+import { spyOnExports } from '../../../test/moduleMocks'
 
 const mockPutSnapshots = vi.fn()
 const mockPollSyncBatch = vi.fn()
-vi.mock('./SyncWorkerClient', () => ({
-  putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
-  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
-}))
-
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
-vi.mock('./ItemClient', () => ({
-  fetchManifest: (...args: any[]) => mockFetchManifest(...args),
-  fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
-}))
-
 let runtimeToken = ''
-vi.mock('../../api/runtime', () => ({
-  getApiAuthToken: () => runtimeToken,
-}))
-
 /** A refresh that installs `token` as the realm's token, as the sync worker's does */
 function refreshTo(token: string | null) {
   return vi.fn().mockImplementation(async () => {
@@ -26,6 +16,20 @@ function refreshTo(token: string | null) {
     return token
   })
 }
+
+beforeEach(() => {
+  spyOnExports(syncWorkerClient, {
+    putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
+    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  })
+  spyOnExports(itemClient, {
+    fetchManifest: (...args: any[]) => mockFetchManifest(...args),
+    fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
+  })
+  spyOnExports(runtimeModule, {
+    getApiAuthToken: () => runtimeToken,
+  })
+})
 
 describe('SyncApiClient', () => {
   beforeEach(() => {

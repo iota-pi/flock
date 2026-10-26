@@ -4,24 +4,12 @@ import {
 } from './syncMetadataStorage'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
 
-import { createMockLocalForagePool, createTestLocalCipher } from '../__test__/testUtils'
+import { createMockLocalForagePool, createTestLocalCipher, mockLocalForage } from '../__test__/testUtils'
 import { LocalDataUnreadableError } from '../localEncryption/LocalCipher'
 import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
-
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
-      return pool.createInstance(config)
-    }),
-  },
-}))
-
-vi.mock('../../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
-}))
 
 describe('IndexStore', () => {
   let store: IndexStore
@@ -29,6 +17,7 @@ describe('IndexStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLocalForage(pool.createInstance)
     instances.clear()
     clearAccountStoreInstancesCacheForTesting()
     store = new IndexStore(accountId)

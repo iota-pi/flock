@@ -7,27 +7,12 @@ import ItemFormContent from './ItemFormContent'
 import type { Item } from 'src/state/items'
 import { getBlankPerson } from 'src/state/items'
 import { ItemId } from '@vault/shared'
-
-
-vi.mock('src/components/FrequencyControls', () => ({
-  default: () => <div data-testid="frequency-controls" />,
-}))
-
-vi.mock('../../groups/components/GroupDisplay', () => ({
-  default: () => <div data-testid="group-display" />,
-}))
-
-vi.mock('../../groups/components/MemberDisplay', () => ({
-  default: () => <div data-testid="member-display" />,
-}))
-
-vi.mock('src/components/NotesSection', () => ({
-  default: () => <div data-testid="notes-section" />,
-}))
-
-vi.mock('src/components/drawers/utils/CollapsibleSection', () => ({
-  default: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
-}))
+import * as frequencyControls from 'src/components/FrequencyControls'
+import * as groupDisplay from '../../groups/components/GroupDisplay'
+import * as memberDisplay from '../../groups/components/MemberDisplay'
+import * as notesSection from 'src/components/NotesSection'
+import * as collapsibleSection from 'src/components/drawers/utils/CollapsibleSection'
+import { spyOnExports } from '../../../utils/testUtils'
 
 function renderWithContext(ui: React.ReactNode) {
   return render(
@@ -36,6 +21,24 @@ function renderWithContext(ui: React.ReactNode) {
     </ThemeProvider>,
   )
 }
+
+beforeEach(() => {
+  spyOnExports(frequencyControls, {
+    default: () => <div data-testid="frequency-controls" />,
+  })
+  spyOnExports(groupDisplay, {
+    default: () => <div data-testid="group-display" />,
+  })
+  spyOnExports(memberDisplay, {
+    default: () => <div data-testid="member-display" />,
+  })
+  spyOnExports(notesSection, {
+    default: () => <div data-testid="notes-section" />,
+  })
+  spyOnExports(collapsibleSection, {
+    default: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
+  })
+})
 
 describe('ItemFormContent', () => {
   beforeEach(() => {

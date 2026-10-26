@@ -6,23 +6,19 @@ import { SyncApiClient } from './SyncApiClient'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import type { KeyProvider } from '../../api/Keyring'
+import * as syncWorkerClient from './SyncWorkerClient'
+import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
+import * as automergeModule from './utils/automerge'
+import * as Automerge from '@automerge/automerge/slim'
+import * as docStore from './docStore'
 
 const mockPutSnapshots = vi.fn()
-
-vi.mock('./SyncWorkerClient', () => ({
-  putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
-}))
 
 const mockUpsertManualRecoveryEntry = vi.fn().mockResolvedValue(undefined)
 const mockRemoveManualRecoveryEntryByItemId = vi.fn().mockResolvedValue(undefined)
 const mockReadManualRecoveryEntries = vi.fn().mockResolvedValue([])
-vi.mock('../shared/manualRecoveryStore', () => ({
-  upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
-  removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
-  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
-}))
-
 const vault = {
   ...createMockVault(),
   encryptBytes: vi.fn().mockResolvedValue({
@@ -41,25 +37,24 @@ function createMockBroker() {
   } as any
 }
 
-vi.mock('@automerge/automerge/slim', () => ({
-  save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
-  getHeads: vi.fn().mockReturnValue(['mock-head']),
-}))
-
-vi.mock('./docStore', async importOriginal => {
-  const original = await importOriginal<typeof import('./docStore')>()
-  return {
-    ...original,
-    normalizeItemSnapshot: vi.fn().mockReturnValue({
-      type: 'note',
-    }),
-    withAutomergeDocumentChange: vi.fn().mockResolvedValue(true),
-  }
+beforeEach(() => {
+  spyOnExports(syncWorkerClient, {
+    putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
+  })
+  spyOnExports(manualRecoveryStoreModule, {
+    upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
+    removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
+    readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
+  })
+  spyOnExports(automergeModule, {
+    toAutomergeUrlFromItemId: vi.fn((itemId: string) => `automerge:${itemId}`),
+  })
+  spyOnExports(Automerge, {
+    save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+    getHeads: vi.fn().mockReturnValue(['mock-head']),
+  })
+  vi.spyOn(docStore, 'normalizeItemSnapshot').mockReturnValue({ type: 'note' } as any)
 })
-
-vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: vi.fn((itemId: string) => `automerge:${itemId}`),
-}))
 
 describe('SnapshotManager Retry Mechanism', () => {
   let manager: SnapshotManager

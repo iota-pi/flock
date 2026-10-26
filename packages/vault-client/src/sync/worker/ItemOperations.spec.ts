@@ -4,25 +4,29 @@ import type { VaultDoc } from '../shared/types'
 import { passthroughCodec } from './domain'
 import { settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
+import * as realtimeBusModule from './realtimeBus'
+import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
+import { spyOnExports } from '../../../test/moduleMocks'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('./realtimeBus', () => ({
-  publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-}))
-
 const mockReadManualRecoveryEntries = vi.fn()
 const mockReadManualRecoveryCount = vi.fn()
 const mockRemoveManualRecoveryEntryById = vi.fn()
 const mockRemoveManualRecoveryEntryByItemId = vi.fn()
 const mockUpsertManualRecoveryEntry = vi.fn()
 
-vi.mock('../shared/manualRecoveryStore', () => ({
-  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
-  readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
-  removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
-  removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
-  upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
-}))
+beforeEach(() => {
+  spyOnExports(realtimeBusModule, {
+    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
+  })
+  spyOnExports(manualRecoveryStoreModule, {
+    readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
+    readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
+    removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
+    removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
+    upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
+  })
+})
 
 describe('ItemOperations', () => {
   let deps: ItemOperationsDeps

@@ -15,11 +15,8 @@ import {
 import { useAppStore } from './store'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
 import { ItemId } from '@vault/shared'
-
-
-vi.mock('../features/items/mutations/itemMutations', () => ({
-  setMetadata: vi.fn(async () => ({})),
-}))
+import * as itemMutationsModule from '../features/items/mutations/itemMutations'
+import { spyOnExports } from '../utils/testUtils'
 
 const itemsFixture: Item[] = [
   {
@@ -62,6 +59,12 @@ const itemsFixture: Item[] = [
 
 let itemsState: Item[] = itemsFixture
 let metadataState: Record<string, unknown> = {}
+
+beforeEach(() => {
+  spyOnExports(itemMutationsModule, {
+    setMetadata: vi.fn(async () => ({})),
+  })
+})
 
 describe('state selectors', () => {
   function updateStore() {
@@ -128,7 +131,6 @@ describe('state selectors', () => {
     expect(result.current).toBe(firstResult)
     expect(result.current).toEqual(['group-1'])
   })
-
 
   it('useItem returns the selected item by id', () => {
     const { result } = renderHook(() => useItem('topic-1' as ItemId))

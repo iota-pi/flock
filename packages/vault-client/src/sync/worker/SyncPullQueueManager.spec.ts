@@ -3,6 +3,7 @@ import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
+import * as automerge from './utils/automerge'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from './SyncWorkerClient'
 import { ItemId } from '@vault/shared'
@@ -15,20 +16,20 @@ import {
   createMockKeyProvider,
   createMockVault,
   noItemLocks,
+  mockLocalForage,
 } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 import { WorkerInternalEventHub } from './SyncEventHub'
+import * as realtimeBusModule from './realtimeBus'
+import * as storageManagerModule from '../utils/storageManager'
 
 // Mock localforage
 let activeStore: MockLocalforage | null = null
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation(() => {
-      activeStore = createMockLocalForage()
-      return activeStore
-    }),
-  },
-}))
+const createLocalForageInstance = () => {
+  activeStore = createMockLocalForage()
+  return activeStore
+}
 
 // Mock vault crypto
 const mockVault = createMockVault()
@@ -40,45 +41,8 @@ const {
 } = mockVault
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('./realtimeBus', () => ({
-  publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-}))
-
 const mockReportQuotaExceeded = vi.fn()
-vi.mock('../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: any) => {
-    try {
-      return await op()
-    } catch (error: any) {
-      const name = error?.name || ''
-      const message = error?.message || ''
-      if (
-        name === 'QuotaExceededError' ||
-        name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-        message.includes('QuotaExceededError') ||
-        message.includes('quota exceeded')
-      ) {
-        mockReportQuotaExceeded()
-      }
-      throw error
-    }
-  }),
-  reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
-}))
-
-vi.mock('./utils/automerge', async importOriginal => {
-  const actual = await importOriginal<typeof import('./utils/automerge')>()
-  return {
-    ...actual,
-    toAutomergeUrlFromItemId: (itemId: ItemId) => {
-      if (itemId === 'item-throw-error') {
-        throw new Error('Failed to resolve URL')
-      }
-      return actual.toAutomergeUrlFromItemId(itemId)
-    },
-  }
-})
-
+const realToAutomergeUrlFromItemId = automerge.toAutomergeUrlFromItemId
 /** Whether part of the batch at `cursor` has been applied */
 function hasBatchProgress(manager: SyncPullQueueManager, itemId: ItemId, cursor: number): boolean {
   return (manager as any).getBatchProgress(itemId, cursor) > 0
@@ -89,11 +53,43 @@ function batchProgressItemCount(manager: SyncPullQueueManager): number {
   return (manager as any).batchProgress.size
 }
 
+beforeEach(() => {
+  spyOnExports(realtimeBusModule, {
+    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
+  })
+  spyOnExports(storageManagerModule, {
+    runStorageOperation: vi.fn(async (op: any) => {
+      try {
+        return await op()
+      } catch (error: any) {
+        const name = error?.name || ''
+        const message = error?.message || ''
+        if (
+          name === 'QuotaExceededError' ||
+          name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+          message.includes('QuotaExceededError') ||
+          message.includes('quota exceeded')
+        ) {
+          mockReportQuotaExceeded()
+        }
+        throw error
+      }
+    }),
+  })
+  vi.spyOn(automerge, 'toAutomergeUrlFromItemId').mockImplementation((itemId: ItemId) => {
+    if (itemId === 'item-throw-error') {
+      throw new Error('Failed to resolve URL')
+    }
+    return realToAutomergeUrlFromItemId(itemId)
+  })
+})
+
 describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
   let cursorStore: CursorStore
 
   beforeEach(() => {
+    mockLocalForage(createLocalForageInstance)
     vi.useFakeTimers()
     vi.clearAllMocks()
     clearAccountStoreInstancesCacheForTesting()

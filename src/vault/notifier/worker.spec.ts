@@ -1,14 +1,17 @@
 import { handler, processMessage } from './worker'
 import { sendPushNotification } from './webpush'
+import * as webpushModule from './webpush'
+import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
+import { spyOnExports } from '../../utils/testUtils'
 
-vi.mock('./webpush', () => ({
-  sendPushNotification: vi.fn(),
-}))
-
-vi.mock('@aws-sdk/lib-dynamodb', () => {
-  const sendMock = vi.fn().mockImplementation(command => {
-    if (command.constructor.name === 'GetCommand') {
-      return Promise.resolve({
+// The worker creates its client on import, so intercept what it sends
+beforeEach(() => {
+  spyOnExports(webpushModule, {
+    sendPushNotification: vi.fn(),
+  })
+  vi.spyOn(DynamoDBDocumentClient.prototype, 'send').mockImplementation(async (command: unknown) => {
+    if (command instanceof GetCommand) {
+      return {
         Item: {
           account: 'user-1',
           pushSubscriptions: [
@@ -16,17 +19,10 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
             { endpoint: 'https://push.example.com/valid-sub' },
           ],
         },
-      })
+      }
     }
-    return Promise.resolve({})
+    return {}
   })
-  return {
-    DynamoDBDocumentClient: {
-      from: () => ({ send: sendMock }),
-    },
-    GetCommand: class GetCommand { constructor(public input: unknown) {} },
-    UpdateCommand: class UpdateCommand { constructor(public input: unknown) {} },
-  }
 })
 
 describe('notifier worker', () => {

@@ -3,21 +3,24 @@ import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER, VAULT_PRO
 import DynamoDriver from '@vault/server/dynamo'
 import createServer, { getUnknownAccountParams } from './index'
 import { FLOCK_DATA_VERSION } from '../../shared/flockDataVersion'
+import { spyOnExports } from '../../utils/testUtils'
 
 const CURRENT_PROTOCOL = { [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION) }
 
-vi.mock('@sentry/node', () => ({
-  init: vi.fn(),
-  captureException: vi.fn(),
-  captureMessage: vi.fn(),
-  withScope: vi.fn((fn: (scope: any) => void) => {
-    const scope = {
-      setTag: vi.fn(),
-      setUser: vi.fn(),
-    }
-    fn(scope)
-  }),
-}))
+beforeEach(() => {
+  spyOnExports(Sentry, {
+    init: vi.fn(),
+    captureException: vi.fn(),
+    captureMessage: vi.fn(),
+    withScope: vi.fn((fn: (scope: any) => void) => {
+      const scope = {
+        setTag: vi.fn(),
+        setUser: vi.fn(),
+      }
+      fn(scope)
+    }),
+  })
+})
 
 describe('createServer error reporting', () => {
   const originalEnv = process.env.SENTRY_DSN

@@ -4,19 +4,9 @@ import getTheme from 'src/theme'
 import MemberDisplay from './MemberDisplay'
 import type { GroupItem } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
-
-vi.mock('src/components/Search', () => ({
-  default: ({ label, noItemsText }: { label: string, noItemsText: string }) => (
-    <div data-testid="search">
-      <span>{label}</span>
-      <span>{noItemsText}</span>
-    </div>
-  ),
-}))
-
-vi.mock('../../items/components/ItemList', () => ({
-  default: () => <div data-testid="item-list" />,
-}))
+import * as searchModule from 'src/components/Search'
+import * as itemList from '../../items/components/ItemList'
+import { spyOnExports } from '../../../utils/testUtils'
 
 const mockGroup: GroupItem = {
   id: 'g1' as ItemId,
@@ -32,6 +22,20 @@ const mockGroup: GroupItem = {
   memberPrayerFrequency: 'weekly',
   memberPrayerTarget: 'all',
 }
+
+beforeEach(() => {
+  spyOnExports(searchModule, {
+    default: ({ label, noItemsText }: { label: string, noItemsText: string }) => (
+      <div data-testid="search">
+        <span>{label}</span>
+        <span>{noItemsText}</span>
+      </div>
+    ),
+  })
+  spyOnExports(itemList, {
+    default: () => <div data-testid="item-list" />,
+  })
+})
 
 describe('MemberDisplay', () => {
   it('renders search input configured for adding group members', () => {

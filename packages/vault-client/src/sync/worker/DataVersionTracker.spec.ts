@@ -1,23 +1,23 @@
 import { DataVersionTracker, readDeviceDataVersion } from './DataVersionTracker'
+import * as syncMetadataStorage from './stores/syncMetadataStorage'
 import { SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 
 const storage = new Map<string, unknown>()
-vi.mock('./stores/syncMetadataStorage', async importOriginal => ({
-  ...(await importOriginal<typeof import('./stores/syncMetadataStorage')>()),
-  getSyncMetadataStorage: () => ({
-    getItem: async (key: string) => storage.get(key) ?? null,
-    setItem: async (key: string, value: unknown) => {
-      storage.set(key, value)
-      return value
-    },
-  }),
-}))
-
 function createTracker(dataVersion = 2, blockers: string[] = []) {
   const raiseAccountDataVersion = vi.fn(async () => ({ dataVersion: blockers.length > 0 ? 1 : dataVersion, blockers }))
   const tracker = new DataVersionTracker({ accountId: 'acct', dataVersion, raiseAccountDataVersion })
   return { tracker, raiseAccountDataVersion }
 }
+
+beforeEach(() => {
+  vi.spyOn(syncMetadataStorage, 'getSyncMetadataStorage').mockReturnValue({
+    getItem: async (key: string) => storage.get(key) ?? null,
+    setItem: async (key: string, value: unknown) => {
+      storage.set(key, value)
+      return value
+    },
+  } as unknown as LocalForage)
+})
 
 describe('DataVersionTracker', () => {
   beforeEach(() => {

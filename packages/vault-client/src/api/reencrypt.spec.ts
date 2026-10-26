@@ -1,11 +1,7 @@
 import { reencryptAllItems, resumePendingReencryption, REENCRYPT_PENDING_KEY_PREFIX } from './reencrypt'
 import { rotateVaultKey, exportKeyringData } from './vault'
-
-
-vi.mock('./vault', () => ({
-  rotateVaultKey: vi.fn().mockResolvedValue(undefined),
-  exportKeyringData: vi.fn().mockResolvedValue('mock-keyring-data'),
-}))
+import * as vaultModule from './vault'
+import { spyOnExports } from '../../test/moduleMocks'
 
 const SyncBridge = {
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
@@ -17,6 +13,13 @@ const SyncBridge = {
     return { succeeded: [], failed: [] }
   }),
 }
+
+beforeEach(() => {
+  spyOnExports(vaultModule, {
+    rotateVaultKey: vi.fn().mockResolvedValue(undefined),
+    exportKeyringData: vi.fn().mockResolvedValue('mock-keyring-data'),
+  })
+})
 
 describe('reencryptAllItems coordinator', () => {
   beforeEach(() => {

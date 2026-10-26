@@ -6,11 +6,8 @@ import getTheme from '../theme'
 import { useItem, useItemsByIds } from '../state/selectors'
 import { GroupItem } from '../shared/schemas/items'
 import { ItemId } from '@vault/shared'
-
-vi.mock('../state/selectors', () => ({
-  useItem: vi.fn(),
-  useItemsByIds: vi.fn(),
-}))
+import * as selectorsModule from '../state/selectors'
+import { spyOnExports } from '../utils/testUtils'
 
 const lightTheme = getTheme(false)
 
@@ -21,6 +18,13 @@ const renderWithTheme = (ui: React.ReactNode) => {
     </ThemeProvider>
   )
 }
+
+beforeEach(() => {
+  spyOnExports(selectorsModule, {
+    useItem: vi.fn(),
+    useItemsByIds: vi.fn(),
+  })
+})
 
 describe('FrequencyControls', () => {
   const mockOnChange = vi.fn()

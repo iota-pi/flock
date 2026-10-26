@@ -4,23 +4,11 @@ import {
 } from './syncMetadataStorage'
 import type { ItemId } from '@vault/shared'
 
-import { createMockLocalForagePool } from '../__test__/testUtils'
+import { createMockLocalForagePool, mockLocalForage } from '../__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
-
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
-      return pool.createInstance(config)
-    }),
-  },
-}))
-
-vi.mock('../../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
-}))
 
 describe('LastModifiedStore', () => {
   let store: LastModifiedStore
@@ -28,6 +16,7 @@ describe('LastModifiedStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLocalForage(pool.createInstance)
     instances.clear()
     clearAccountStoreInstancesCacheForTesting()
     store = new LastModifiedStore(accountId)
@@ -51,7 +40,6 @@ describe('LastModifiedStore', () => {
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.LAST_MODIFIED)).toEqual(input)
   })
 
-
   it('returns null when storage is empty', async () => {
     const timestamps = await store.loadTimestamps()
     expect(timestamps).toBeNull()
@@ -70,6 +58,5 @@ describe('LastModifiedStore', () => {
     // Cursors should still exist
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.CURSORS)).toEqual([['item-1', 10]])
   })
-
 
 })

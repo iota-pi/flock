@@ -21,21 +21,25 @@ import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 
 import { updateKeyring, getKeyring, getSession } from './AccountClient'
-
-vi.mock('./AccountClient', () => ({
-  getSession: vi.fn().mockResolvedValue('mock-session'),
-  createAccount: vi.fn(),
-  getSecurityParams: vi.fn(),
-  getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
-  updateKeyring: vi.fn().mockResolvedValue(undefined),
-  changePassword: vi.fn().mockResolvedValue(undefined),
-}))
+import * as accountClientModule from './AccountClient'
+import * as workerAuthStoreModule from '../sync/shared/workerAuthStore'
+import { spyOnExports } from '../../test/moduleMocks'
 
 const SALT = 'c2FsdDEyMw=='
 
-vi.mock('../sync/shared/workerAuthStore', () => ({
-  deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
-}))
+beforeEach(() => {
+  spyOnExports(accountClientModule, {
+    getSession: vi.fn().mockResolvedValue('mock-session'),
+    createAccount: vi.fn(),
+    getSecurityParams: vi.fn(),
+    getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
+    updateKeyring: vi.fn().mockResolvedValue(undefined),
+    changePassword: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(workerAuthStoreModule, {
+    deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
+  })
+})
 
 describe('Vault Keyring Integration', () => {
   beforeEach(async () => {

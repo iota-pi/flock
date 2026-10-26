@@ -2,10 +2,13 @@ import { act, render, screen, fireEvent } from '@testing-library/react'
 import AppUpdateSnackbar from './AppUpdateSnackbar'
 import { useAppStore } from '../state/store'
 import * as appUpdate from '../app/appUpdate'
+import { spyOnExports } from '../utils/testUtils'
 
-vi.mock('../app/appUpdate', () => ({
-  requestAppUpdate: vi.fn(),
-}))
+beforeEach(() => {
+  spyOnExports(appUpdate, {
+    requestAppUpdate: vi.fn(),
+  })
+})
 
 describe('AppUpdateSnackbar', () => {
   beforeEach(() => {

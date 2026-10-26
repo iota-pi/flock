@@ -7,7 +7,9 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import getTheme from 'src/theme'
 import FilterDialog from './FilterDialog'
 import type { FilterCriterion } from 'src/utils/customFilter'
-
+import * as storeModule from 'src/state/store'
+import * as filterCriterionDisplay from './FilterCriterionDisplay'
+import { spyOnExports } from '../../../utils/testUtils'
 
 const setUi = vi.fn()
 const initialFilters: FilterCriterion[] = [
@@ -20,35 +22,6 @@ const initialFilters: FilterCriterion[] = [
   },
 ]
 
-vi.mock('src/state/store', () => ({
-  useAppStore: (selector: (state: { setUi: typeof setUi, filters: FilterCriterion[] }) => unknown) => selector({
-    setUi,
-    filters: initialFilters,
-  }),
-}))
-
-vi.mock('./FilterCriterionDisplay', () => ({
-  FilterCriterionDisplay: ({ index, onChange, availableCriteria }: { index: number, onChange: (index: number, criterion: FilterCriterion) => void, availableCriteria?: string[] }) => (
-    <div>
-      <span data-testid={`available-count-${index}`}>{availableCriteria?.length ?? 0}</span>
-      <span data-testid={`has-groups-${index}`}>{availableCriteria?.includes('groups') ? 'yes' : 'no'}</span>
-      <button
-        data-cy={`set-criterion-${index}`}
-        onClick={() => onChange(index, {
-          type: 'prayerFrequency',
-          baseOperator: 'is',
-          inverse: false,
-          operator: 'is',
-          value: 'daily',
-        })}
-        type="button"
-      >
-        set criterion {index}
-      </button>
-    </div>
-  ),
-}))
-
 function renderWithProviders(ui: React.ReactNode) {
   return render(
     <ThemeProvider theme={getTheme(false)}>
@@ -58,6 +31,36 @@ function renderWithProviders(ui: React.ReactNode) {
     </ThemeProvider>,
   )
 }
+
+beforeEach(() => {
+  spyOnExports(storeModule, {
+    useAppStore: (selector: (state: { setUi: typeof setUi, filters: FilterCriterion[] }) => unknown) => selector({
+      setUi,
+      filters: initialFilters,
+    }),
+  })
+  spyOnExports(filterCriterionDisplay, {
+    FilterCriterionDisplay: ({ index, onChange, availableCriteria }: { index: number, onChange: (index: number, criterion: FilterCriterion) => void, availableCriteria?: string[] }) => (
+      <div>
+        <span data-testid={`available-count-${index}`}>{availableCriteria?.length ?? 0}</span>
+        <span data-testid={`has-groups-${index}`}>{availableCriteria?.includes('groups') ? 'yes' : 'no'}</span>
+        <button
+          data-cy={`set-criterion-${index}`}
+          onClick={() => onChange(index, {
+            type: 'prayerFrequency',
+            baseOperator: 'is',
+            inverse: false,
+            operator: 'is',
+            value: 'daily',
+          })}
+          type="button"
+        >
+          set criterion {index}
+        </button>
+      </div>
+    ),
+  })
+})
 
 describe('FilterDialog', () => {
   beforeEach(() => {

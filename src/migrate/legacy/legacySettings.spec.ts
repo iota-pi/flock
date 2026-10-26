@@ -1,17 +1,21 @@
 import { flockLegacySettings, mergeLegacySettings } from './legacySettings'
 import type { AccountMetadata } from '../../state/metadata'
 import type { LegacySettingsContext } from '@vault/client/worker'
+import * as trpcClientModule from '../../api/trpcClient'
+import { spyOnExports } from '../../utils/testUtils'
 
 const mockGetMetadata = vi.fn()
 const mockClearMetadata = vi.fn()
-vi.mock('../../api/trpcClient', () => ({
-  createTrpcClient: () => ({
-    migration: {
-      getLegacySettings: { query: (...args: unknown[]) => mockGetMetadata(...args) },
-      clearLegacySettings: { mutate: (...args: unknown[]) => mockClearMetadata(...args) },
-    },
-  }),
-}))
+beforeEach(() => {
+  spyOnExports(trpcClientModule, {
+    createTrpcClient: () => ({
+      migration: {
+        getLegacySettings: { query: (...args: unknown[]) => mockGetMetadata(...args) },
+        clearLegacySettings: { mutate: (...args: unknown[]) => mockClearMetadata(...args) },
+      },
+    }),
+  })
+})
 
 describe('legacySettings', () => {
   describe('mergeLegacySettings', () => {

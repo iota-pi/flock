@@ -89,8 +89,11 @@ function applyPendingUpdate(): void {
   }).catch(() => undefined)
 }
 
-/** Registers the service worker. Call once at startup with `registerSW` from `virtual:pwa-register`. */
-export function registerAppUpdates(registerSW: RegisterSW): void {
+/**
+ * Registers the service worker. Call once at startup with `registerSW` from `virtual:pwa-register`.
+ * Returns a function that stops watching for updates and forgets any that are pending.
+ */
+export function registerAppUpdates(registerSW: RegisterSW): () => void {
   updateServiceWorker = registerSW({
     onNeedRefresh() {
       updatePending = true
@@ -106,7 +109,7 @@ export function registerAppUpdates(registerSW: RegisterSW): void {
   })
 
   syncSessionLock()
-  useAppStore.subscribe((state, previous) => {
+  const unsubscribe = useAppStore.subscribe((state, previous) => {
     if (state.loggedIn !== previous.loggedIn) {
       syncSessionLock()
     }
@@ -114,6 +117,21 @@ export function registerAppUpdates(registerSW: RegisterSW): void {
       applyPendingUpdate()
     }
   })
+
+  return () => {
+    unsubscribe()
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer)
+      retryTimer = null
+    }
+    sessionLock?.release()
+    sessionLock = null
+    updateServiceWorker = null
+    registration = undefined
+    updatePending = false
+    updateRequested = false
+    forceUpdate = false
+  }
 }
 
 /** Applies a ready update after the user chooses to reload. */

@@ -5,21 +5,17 @@ import { clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
 import type { LocalCipher } from './localEncryption/LocalCipher'
-import { MockLocalforage, createMockLocalForage, createTestLocalCipher } from './__test__/testUtils'
+import { MockLocalforage, createMockLocalForage, createTestLocalCipher, mockLocalForage } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((options: { name: string; storeName: string }) => {
-      const key = `${options.name}:${options.storeName}`
-      if (!activeStoreMap.has(key)) {
-        activeStoreMap.set(key, createMockLocalForage(options))
-      }
-      return activeStoreMap.get(key)
-    }),
-  },
-}))
+const createLocalForageInstance = (options: { name: string; storeName: string }) => {
+  const key = `${options.name}:${options.storeName}`
+  if (!activeStoreMap.has(key)) {
+    activeStoreMap.set(key, createMockLocalForage(options))
+  }
+  return activeStoreMap.get(key)
+}
 
 const ACCOUNT = 'test-account'
 const MESSAGE = new TextEncoder().encode('Alice prayer request')
@@ -36,6 +32,7 @@ describe('SyncWriteAheadLog with a cipher', () => {
   let wal: SyncWriteAheadLog
 
   beforeEach(async () => {
+    mockLocalForage(createLocalForageInstance)
     activeStoreMap.clear()
     clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()

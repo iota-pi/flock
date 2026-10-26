@@ -2,7 +2,9 @@ import { ManifestHydrator } from './ManifestHydrator'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { MissingKeyError } from './utils/decryptWithKeyResolution'
+import * as decryptWithKeyResolutionModule from './utils/decryptWithKeyResolution'
 
 const mockVault = createMockVault()
 const keys = createMockKeyProvider(mockVault)
@@ -11,16 +13,17 @@ const {
   decryptObject: mockDecryptObject,
 } = mockVault
 
-vi.mock('./utils/decryptWithKeyResolution', async importOriginal => ({
-  ...await importOriginal<typeof import('./utils/decryptWithKeyResolution')>(),
-  decryptWithKeyResolution: async (cryptoResult: any) => {
-    return mockDecryptBytes(cryptoResult)
-  },
-}))
-
 function manifestOf(...entries: ManifestEntry[]): Map<ItemId, ManifestEntry> {
   return new Map(entries.map(entry => [entry.itemId, entry]))
 }
+
+beforeEach(() => {
+  spyOnExports(decryptWithKeyResolutionModule, {
+    decryptWithKeyResolution: async (cryptoResult: any) => {
+      return mockDecryptBytes(cryptoResult)
+    },
+  })
+})
 
 describe('ManifestHydrator', () => {
   let hydrator: ManifestHydrator

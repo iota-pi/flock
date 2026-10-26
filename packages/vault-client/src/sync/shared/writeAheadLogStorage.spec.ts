@@ -1,20 +1,16 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { clearWriteAheadLog } from './writeAheadLogStorage'
 import { clearAccountStoreInstancesCacheForTesting, createAccountStore, getAccountDatabaseName } from './createAccountStore'
-import { createMockLocalForage, type MockLocalforage } from '../worker/__test__/testUtils'
+import { createMockLocalForage, type MockLocalforage, mockLocalForage } from '../worker/__test__/testUtils'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((options: { name: string; storeName: string }) => {
-      const key = `${options.name}:${options.storeName}`
-      if (!activeStoreMap.has(key)) {
-        activeStoreMap.set(key, createMockLocalForage(options))
-      }
-      return activeStoreMap.get(key)
-    }),
-  },
-}))
+const createLocalForageInstance = (options: { name: string; storeName: string }) => {
+  const key = `${options.name}:${options.storeName}`
+  if (!activeStoreMap.has(key)) {
+    activeStoreMap.set(key, createMockLocalForage(options))
+  }
+  return activeStoreMap.get(key)
+}
 
 async function createDatabase(factory: IDBFactory, name: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -37,6 +33,7 @@ describe('clearWriteAheadLog', () => {
   let factory: IDBFactory
 
   beforeEach(() => {
+    mockLocalForage(createLocalForageInstance)
     activeStoreMap.clear()
     clearAccountStoreInstancesCacheForTesting()
     factory = new IDBFactory()

@@ -1,23 +1,15 @@
 import { getLocalDateString, handler, isReminderSnoozed, isReminderTimeMatch } from './enqueuer'
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
+import { SQSClient } from '@aws-sdk/client-sqs'
 
-const { scanMock, sqsSendMock } = vi.hoisted(() => ({
-  scanMock: vi.fn(),
-  sqsSendMock: vi.fn(),
-}))
+const scanMock = vi.fn()
+const sqsSendMock = vi.fn()
 
-vi.mock('@aws-sdk/lib-dynamodb', () => ({
-  DynamoDBDocumentClient: {
-    from: () => ({ send: scanMock }),
-  },
-  ScanCommand: class ScanCommand { constructor(public input: unknown) {} },
-}))
-
-vi.mock('@aws-sdk/client-sqs', () => ({
-  SQSClient: class SQSClient { send = sqsSendMock },
-  SendMessageBatchCommand: class SendMessageBatchCommand {
-    constructor(public input: { Entries: Array<{ Id: string, MessageBody: string }> }) {}
-  },
-}))
+// The enqueuer creates its clients on import, so intercept what they send
+beforeEach(() => {
+  vi.spyOn(DynamoDBDocumentClient.prototype, 'send').mockImplementation(scanMock)
+  vi.spyOn(SQSClient.prototype, 'send').mockImplementation(sqsSendMock)
+})
 
 describe('isReminderTimeMatch', () => {
   it('returns true when current local time exactly matches reminder time', () => {

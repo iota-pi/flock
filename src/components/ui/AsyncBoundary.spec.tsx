@@ -1,14 +1,17 @@
 import { render, screen } from '@testing-library/react'
 import * as Sentry from '@sentry/react'
 import AsyncBoundary from './AsyncBoundary'
-
-vi.mock('@sentry/react', () => ({
-  captureException: vi.fn(),
-}))
+import { spyOnExports } from '../../utils/testUtils'
 
 function ThrowingComponent({ error }: { error: Error }): never {
   throw error
 }
+
+beforeEach(() => {
+  spyOnExports(Sentry, {
+    captureException: vi.fn(),
+  })
+})
 
 describe('AsyncBoundary', () => {
   beforeEach(() => {

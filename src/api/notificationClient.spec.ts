@@ -1,5 +1,7 @@
 import { snoozeReminders } from './notificationClient'
 import { getTrpcClient } from './trpcClient'
+import * as trpcClientModule from './trpcClient'
+import { spyOnExports } from '../utils/testUtils'
 
 const mockTrpcClient = {
   accounts: {
@@ -7,9 +9,11 @@ const mockTrpcClient = {
   },
 }
 
-vi.mock('./trpcClient', () => ({
-  getTrpcClient: vi.fn(() => mockTrpcClient),
-}))
+beforeEach(() => {
+  spyOnExports(trpcClientModule, {
+    getTrpcClient: vi.fn(() => mockTrpcClient),
+  })
+})
 
 describe('notificationClient', () => {
   beforeEach(() => {

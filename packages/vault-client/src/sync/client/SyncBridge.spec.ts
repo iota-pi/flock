@@ -8,33 +8,12 @@ import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { attemptSessionRecovery } from '../../api/sessionRecovery'
 import { resumePendingReencryption } from '../../api/reencrypt'
 import { getVaultSession } from '../../api/session'
-
-vi.mock('../../api/vault', () => ({
-  exportKeyringData: vi.fn().mockResolvedValue('test-key'),
-  reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
-  hasVaultKey: vi.fn().mockReturnValue(true),
-  syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../../api/session', () => ({
-  getVaultSession: vi.fn().mockReturnValue(null),
-  handleSessionExpired: vi.fn().mockResolvedValue(undefined),
-  getKeyHash: vi.fn().mockReturnValue(null),
-  onLateSession: vi.fn().mockReturnValue(() => undefined),
-}))
-
-vi.mock('../../api/storedMetadata', () => ({
-  hasRandomDataKeys: vi.fn().mockReturnValue(false),
-}))
-
-vi.mock('../../api/sessionRecovery', () => ({
-  attemptSessionRecovery: vi.fn().mockResolvedValue(true),
-}))
-
-vi.mock('../../api/reencrypt', () => ({
-  resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
-}))
-
+import * as vaultModule from '../../api/vault'
+import * as sessionModule from '../../api/session'
+import * as storedMetadataModule from '../../api/storedMetadata'
+import * as sessionRecoveryModule from '../../api/sessionRecovery'
+import * as reencryptModule from '../../api/reencrypt'
+import { spyOnExports } from '../../../test/moduleMocks'
 
 const mockSyncApi = {
   setOnlineState: vi.fn().mockResolvedValue(undefined),
@@ -66,13 +45,6 @@ const mockSyncApi = {
   retrySave: vi.fn().mockResolvedValue({ success: true }),
   claimLeader: vi.fn().mockResolvedValue(undefined),
 }
-
-vi.mock('comlink', () => {
-  return {
-    wrap: vi.fn(() => mockSyncApi),
-    proxy: vi.fn(cb => cb),
-  }
-})
 
 let lastEventPort: MessagePort | null = null
 
@@ -129,6 +101,9 @@ class MockWorker {
 }
 
 const sink = createFakeSink()
+
+/** Lets every pending promise callback run, for checking that something has not happened */
+const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0))
 const lockVault = vi.fn().mockResolvedValue(undefined)
 // Workers are created through globalThis.Worker at call time, so tests can swap in their own mock
 const SyncBridge = createSyncBridge({
@@ -137,6 +112,34 @@ const SyncBridge = createSyncBridge({
   telemetry: createFakeTelemetry(),
   getAccountId: () => null,
   lockVault,
+})
+
+beforeEach(() => {
+  spyOnExports(vaultModule, {
+    exportKeyringData: vi.fn().mockResolvedValue('test-key'),
+    reloadKeyringFromStorage: vi.fn().mockResolvedValue({ success: true, keyringData: 'reloaded-key' }),
+    hasVaultKey: vi.fn().mockReturnValue(true),
+    syncKeyringFromServer: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(sessionModule, {
+    getVaultSession: vi.fn().mockReturnValue(null),
+    handleSessionExpired: vi.fn().mockResolvedValue(undefined),
+    getKeyHash: vi.fn().mockReturnValue(null),
+    onLateSession: vi.fn().mockReturnValue(() => undefined),
+  })
+  spyOnExports(storedMetadataModule, {
+    hasRandomDataKeys: vi.fn().mockReturnValue(false),
+  })
+  spyOnExports(sessionRecoveryModule, {
+    attemptSessionRecovery: vi.fn().mockResolvedValue(true),
+  })
+  spyOnExports(reencryptModule, {
+    resumePendingReencryption: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(Comlink, {
+    wrap: vi.fn(() => mockSyncApi),
+    proxy: vi.fn(cb => cb),
+  })
 })
 
 describe('SyncBridge', () => {
@@ -472,8 +475,7 @@ describe('SyncBridge', () => {
       // Resolve recovery now that we're offline
       resolveRecovery(true)
 
-      // Microtasks delay
-      await new Promise(r => setTimeout(r, 20))
+      await flushPromises()
 
       expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
       expect(resumePendingReencryption).not.toHaveBeenCalled()
@@ -901,12 +903,11 @@ describe('SyncBridge', () => {
     // Should not have updated synchronously
     expect(updateItemsSpy).not.toHaveBeenCalled()
 
-    // Wait for macro-task / setTimeout 0
-    await new Promise(resolve => setTimeout(resolve, 50))
-
-    expect(updateItemsSpy).toHaveBeenCalledWith([
-      { id: 'item-1', item: expect.objectContaining({ id: 'item-1', name: 'Test Item' }) },
-    ])
+    await vi.waitFor(() => {
+      expect(updateItemsSpy).toHaveBeenCalledWith([
+        { id: 'item-1', item: expect.objectContaining({ id: 'item-1', name: 'Test Item' }) },
+      ])
+    })
   })
 
   it('closes _globalEventChannel.port1 and _pingChannel.port1 on worker crash', async () => {
@@ -999,16 +1000,15 @@ describe('SyncBridge', () => {
       })
 
       const init1Promise = SyncBridge.initialize('account-1')
-      await new Promise(r => setTimeout(r, 10))
 
       // Session 1 channels have been created (globalEventChannel and pingChannel)
-      expect(channelCloseSpies.length).toBe(2)
+      await vi.waitFor(() => expect(channelCloseSpies.length).toBe(2))
       expect(channelCloseSpies[0]).not.toHaveBeenCalled()
       expect(channelCloseSpies[1]).not.toHaveBeenCalled()
 
       // Concurrently start session 2, which supersedes session 1
       const init2Promise = SyncBridge.initialize('account-2')
-      await new Promise(r => setTimeout(r, 10))
+      await vi.waitFor(() => expect(channelCloseSpies.length).toBe(4))
 
       // Now complete initRepo for account-1 so it reaches the abort check
       init1ResolveRepo()
@@ -1067,10 +1067,9 @@ describe('SyncBridge', () => {
       })
 
       const init1Promise = SyncBridge.initialize('account-fail')
-      await new Promise(r => setTimeout(r, 10))
 
       // Session 1 has created 2 channels
-      expect(channelCloseSpies.length).toBe(2)
+      await vi.waitFor(() => expect(channelCloseSpies.length).toBe(2))
 
       // Session 2 starts and initializes successfully with account-success
       const init2Promise = SyncBridge.initialize('account-success')
@@ -1085,11 +1084,12 @@ describe('SyncBridge', () => {
       // even when its initRepo fails later
       await expect(init1Promise).resolves.toBeUndefined()
       init1RejectRepo(new Error('Init 1 failed'))
-      await new Promise(r => setTimeout(r, 10))
 
       // Session 1's own ports should be closed
-      expect(channelCloseSpies[0]).toHaveBeenCalled()
-      expect(channelCloseSpies[1]).toHaveBeenCalled()
+      await vi.waitFor(() => {
+        expect(channelCloseSpies[0]).toHaveBeenCalled()
+        expect(channelCloseSpies[1]).toHaveBeenCalled()
+      })
 
       // Session 2's ports must NOT have been closed by session 1
       expect(channelCloseSpies[2]).not.toHaveBeenCalled()
@@ -1232,7 +1232,7 @@ describe('SyncBridge', () => {
       ready = true
     })
 
-    await new Promise(r => setTimeout(r, 10))
+    await flushPromises()
     expect(ready).toBe(false)
 
     resolveInitRepo()
@@ -1265,7 +1265,7 @@ describe('SyncBridge', () => {
     await initAPromise
 
     // ensureReady should still be pending on B
-    await new Promise(r => setTimeout(r, 10))
+    await flushPromises()
     expect(ready).toBe(false)
 
     // Release B's keyring -> B finishes
@@ -1316,7 +1316,9 @@ describe('SyncBridge', () => {
       await SyncBridge.initialize('test-account')
 
       lastEventPort!.postMessage({ type: 'localDataUnavailable', unpushedChanges: 0 })
-      await new Promise(resolve => setTimeout(resolve, 10))
+      // Events arrive in order, so once a later one is handled this one has been too
+      lastEventPort!.postMessage({ type: 'retiringLegacyStores', accountId: 'test-account' })
+      await vi.waitFor(() => expect(sink.beforeRetiringLegacyStores).toHaveBeenCalled())
 
       expect(syncKeyringFromServer).not.toHaveBeenCalled()
       expect(sink.onLocalDataUnavailable).not.toHaveBeenCalled()

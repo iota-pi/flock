@@ -6,11 +6,8 @@ import getTheme from '../../theme'
 import * as vault from '@vault/client'
 import { useAppStore } from '../../state/store'
 import { goToMigration } from 'src/migrate/detection'
-
-vi.mock('src/migrate/detection', async importOriginal => ({
-  ...await importOriginal<typeof import('src/migrate/detection')>(),
-  goToMigration: vi.fn(),
-}))
+import * as detectionModule from 'src/migrate/detection'
+import { spyOnExports } from '../../utils/testUtils'
 
 const lightTheme = getTheme(false)
 const NOT_UPGRADED = { keyDerivationUpgraded: false, biometricsCleared: false }
@@ -35,10 +32,15 @@ const renderLoginPage = () => {
   )
 }
 
+beforeEach(() => {
+  spyOnExports(detectionModule, {
+    goToMigration: vi.fn(),
+  })
+})
+
 describe('LoginPage', () => {
   beforeEach(() => {
     localStorage.clear()
-    vi.restoreAllMocks()
     useAppStore.setState({ account: '', loggedIn: false, justCreatedAccount: false })
   })
 

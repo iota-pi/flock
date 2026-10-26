@@ -1,6 +1,8 @@
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
+import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
+import { spyOnExports } from '../../../test/moduleMocks'
 
 const mockReadManualRecoveryEntries = vi.fn()
 const mockReadManualRecoveryCount = vi.fn()
@@ -9,14 +11,16 @@ const mockRemoveManualRecoveryEntryByItemId = vi.fn()
 const mockRemoveManualRecoveryEntryIfKind = vi.fn()
 const mockUpsertManualRecoveryEntry = vi.fn()
 
-vi.mock('../shared/manualRecoveryStore', () => ({
-  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
-  readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
-  removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
-  removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
-  removeManualRecoveryEntryIfKind: (...args: any[]) => mockRemoveManualRecoveryEntryIfKind(...args),
-  upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
-}))
+beforeEach(() => {
+  spyOnExports(manualRecoveryStoreModule, {
+    readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
+    readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
+    removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
+    removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
+    removeManualRecoveryEntryIfKind: (...args: any[]) => mockRemoveManualRecoveryEntryIfKind(...args),
+    upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
+  })
+})
 
 describe('RecoveryManager', () => {
   let recoveryManager: RecoveryManager

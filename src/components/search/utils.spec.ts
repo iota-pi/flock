@@ -4,19 +4,22 @@ import {
   getName,
 } from './utils'
 import { AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
-
+import * as itemsModule from '../../state/items'
+import { spyOnExports } from '../../utils/testUtils'
 
 // Mock dependencies
-vi.mock('../../state/items', () => ({
-  compareItems: vi.fn((a, b) => {
-    // Simple mock comparison based on id or name-like property if available
-    if (a.name && b.name) return a.name.localeCompare(b.name)
-    return 0
-  }),
-  getItemName: vi.fn(item => {
-    return item?.name || 'Unknown'
-  }),
-}))
+beforeEach(() => {
+  spyOnExports(itemsModule, {
+    compareItems: vi.fn((a, b) => {
+      // Simple mock comparison based on id or name-like property if available
+      if (a.name && b.name) return a.name.localeCompare(b.name)
+      return 0
+    }),
+    getItemName: vi.fn(item => {
+      return item?.name || 'Unknown'
+    }),
+  })
+})
 
 describe('search/utils.ts', () => {
   describe('isSearchableStandardItem', () => {

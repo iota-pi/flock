@@ -1,12 +1,5 @@
 import { useAppStore } from '../store'
 
-
-vi.mock('../api/db', () => ({
-  syncDB: {
-    removeItem: vi.fn(async () => undefined),
-  },
-}))
-
 describe('authSlice', () => {
   beforeEach(() => {
     vi.clearAllMocks()

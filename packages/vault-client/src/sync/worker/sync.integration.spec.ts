@@ -22,28 +22,22 @@ import {
   createMockVault,
   createTestEventHubs,
   noItemLocks,
+  mockLocalForage,
 } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
+import * as syncWorkerClient from './SyncWorkerClient'
 
 const mockStores = new Map<string, MockLocalforage>()
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((opts: { name: string; storeName: string }) => {
-      const key = `${opts.name}:${opts.storeName}`
-      if (!mockStores.has(key)) {
-        mockStores.set(key, createMockLocalForage(opts))
-      }
-      return mockStores.get(key)
-    }),
-  },
-}))
+const createLocalForageInstance = (opts: { name: string; storeName: string }) => {
+  const key = `${opts.name}:${opts.storeName}`
+  if (!mockStores.has(key)) {
+    mockStores.set(key, createMockLocalForage(opts))
+  }
+  return mockStores.get(key)
+}
 
 const mockPollSyncBatch = vi.fn()
-vi.mock('./SyncWorkerClient', () => ({
-  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
-  putSnapshots: vi.fn().mockResolvedValue({ success: true }),
-}))
-
 setApiAuthToken('mock-session-token')
 
 const vault = createMockVault()
@@ -58,6 +52,13 @@ function createTestSyncMessageData(): Uint8Array {
   })
 }
 
+beforeEach(() => {
+  spyOnExports(syncWorkerClient, {
+    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+    putSnapshots: vi.fn().mockResolvedValue({ success: true }),
+  })
+})
+
 describe('Sync System Integration Test Suite', () => {
   const accountId = 'test-integration-account'
   let clientEventHub: ClientEventHub
@@ -70,6 +71,7 @@ describe('Sync System Integration Test Suite', () => {
   let broker: SyncMessageBroker
 
   beforeEach(async () => {
+    mockLocalForage(createLocalForageInstance)
     vi.clearAllMocks()
     mockStores.clear()
     clearAccountStoreInstancesCacheForTesting()

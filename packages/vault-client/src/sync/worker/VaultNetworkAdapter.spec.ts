@@ -21,17 +21,21 @@ import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { ItemId } from '@vault/shared'
 
 import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
+import * as syncWorkerClient from './SyncWorkerClient'
 
 const mockPollSyncBatch = vi.fn()
 
 const keys = createMockKeyProvider()
 
-vi.mock('./SyncWorkerClient', () => ({
-  pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
-}))
-
 setApiAuthToken('mock-auth-token')
+
+beforeEach(() => {
+  spyOnExports(syncWorkerClient, {
+    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  })
+})
 
 describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let adapter: VaultNetworkAdapter
@@ -1627,7 +1631,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
   })
 })
-
 
 describe('VaultNetworkAdapter synced heads on shutdown', () => {
   const makeAdapter = () => {

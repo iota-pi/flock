@@ -4,23 +4,11 @@ import {
 } from './syncMetadataStorage'
 import type { ItemId } from '@vault/shared'
 
-import { createMockLocalForagePool } from '../__test__/testUtils'
+import { createMockLocalForagePool, mockLocalForage } from '../__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
-
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
-      return pool.createInstance(config)
-    }),
-  },
-}))
-
-vi.mock('../../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
-}))
 
 describe('CursorStore', () => {
   let store: CursorStore
@@ -28,6 +16,7 @@ describe('CursorStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLocalForage(pool.createInstance)
     instances.clear()
     clearAccountStoreInstancesCacheForTesting()
     store = new CursorStore(accountId)
@@ -61,7 +50,6 @@ describe('CursorStore', () => {
     // Index doc should remain intact!
     expect(await consolidatedStore?.getItem(SYNC_METADATA_KEYS.INDEX_DOC)).toEqual({ itemIds: ['other'] })
   })
-
 
 })
 

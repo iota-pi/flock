@@ -8,6 +8,7 @@ import {
 import type { Item } from '../state/items'
 import type { GroupItem } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
+import { subDays } from 'date-fns'
 
 function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayedFor: number[] = []): Item {
   return {
@@ -273,15 +274,17 @@ describe('prayer utilities', () => {
     })
 
     it('returns false when items have no prayers recorded today', () => {
-      const yesterday = Date.now() - (24 * 60 * 60 * 1000)
+      const today = new Date()
+      // A calendar day back, since a day is 25 hours long when daylight saving ends
+      const yesterday = subDays(today, 1).getTime()
       const p1 = makePerson('p1', 'daily', [yesterday])
       const p2 = makePerson('p2', 'daily', [yesterday])
-      expect(isPrayerCompletedForToday([p1, p2])).toBe(false)
+      expect(isPrayerCompletedForToday([p1, p2], undefined, today)).toBe(false)
     })
 
     it('returns false when only partially completed and goal is not met', () => {
       const today = new Date()
-      const yesterday = today.getTime() - (24 * 60 * 60 * 1000)
+      const yesterday = subDays(today, 1).getTime()
       const p1 = makePerson('p1', 'daily', [today.getTime()])
       const p2 = makePerson('p2', 'daily', [yesterday])
       const p3 = makePerson('p3', 'daily', [yesterday])
@@ -299,7 +302,7 @@ describe('prayer utilities', () => {
 
     it('returns true when daily goal is reached even if not in original schedule order', () => {
       const today = new Date()
-      const yesterday = today.getTime() - (24 * 60 * 60 * 1000)
+      const yesterday = subDays(today, 1).getTime()
       const p1 = makePerson('p1', 'daily', [yesterday])
       const p2 = makePerson('p2', 'daily', [today.getTime()])
       const p3 = makePerson('p3', 'daily', [today.getTime()])

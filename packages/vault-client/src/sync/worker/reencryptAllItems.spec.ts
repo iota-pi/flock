@@ -6,18 +6,16 @@ import { SyncApiClient } from './SyncApiClient'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { BuildSnapshotResult } from './snapshotBuilder'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
+import * as syncWorkerClient from './SyncWorkerClient'
+import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
+import * as docStoreModule from './docStore'
+import * as automergeModule from './utils/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 
 const mockPutSnapshots = vi.fn()
 const mockListAutomergeItemIds = vi.fn()
-
-vi.mock('./SyncWorkerClient', () => ({
-  putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
-}))
-
-vi.mock('../shared/manualRecoveryStore', () => ({
-  upsertManualRecoveryEntry: vi.fn().mockResolvedValue({ id: 'mock-entry' }),
-}))
 
 const vault = {
   ...createMockVault(),
@@ -28,25 +26,6 @@ const vault = {
   }),
 }
 const keys = createMockKeyProvider(vault)
-
-vi.mock('@automerge/automerge/slim', () => ({
-  save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
-  getHeads: vi.fn().mockReturnValue(['mock-head']),
-}))
-
-vi.mock('./docStore', () => ({
-  normalizeItemSnapshot: vi.fn().mockReturnValue({
-    type: 'note',
-    deleted: false,
-  }),
-  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
-    listAutomergeItemIds: () => mockListAutomergeItemIds(),
-  })),
-}))
-
-vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: vi.fn().mockImplementation((id: string) => `automerge:${id}`),
-}))
 
 /** Dependencies for a reencryptor whose pipeline stages are called directly */
 function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencryptorOptions {
@@ -61,6 +40,31 @@ function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencry
     ...overrides,
   }
 }
+
+beforeEach(() => {
+  spyOnExports(syncWorkerClient, {
+    putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
+  })
+  spyOnExports(manualRecoveryStoreModule, {
+    upsertManualRecoveryEntry: vi.fn().mockResolvedValue({ id: 'mock-entry' }),
+  })
+  spyOnExports(docStoreModule, {
+    normalizeItemSnapshot: vi.fn().mockReturnValue({
+      type: 'note',
+      deleted: false,
+    }),
+    AutomergeIndexManager: vi.fn().mockImplementation(() => ({
+      listAutomergeItemIds: () => mockListAutomergeItemIds(),
+    })),
+  })
+  spyOnExports(automergeModule, {
+    toAutomergeUrlFromItemId: vi.fn().mockImplementation((id: string) => `automerge:${id}`),
+  })
+  spyOnExports(Automerge, {
+    save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+    getHeads: vi.fn().mockReturnValue(['mock-head']),
+  })
+})
 
 describe('reencryptAllItems', () => {
   let mockRepo: any

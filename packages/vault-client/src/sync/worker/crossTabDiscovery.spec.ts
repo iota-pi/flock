@@ -6,34 +6,26 @@ import { RecoveryManager } from './RecoveryManager'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import type { Message, PeerId } from '@automerge/automerge-repo/slim'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
+import * as realtimeBusModule from './realtimeBus'
+import * as broadcastChannelAdapter from '@automerge/automerge-repo-network-broadcastchannel'
 
 const mockPublishRealtimeBusSyncPing = vi.fn()
-vi.mock('./realtimeBus', () => ({
-  publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-  subscribeRealtimeBusSyncPing: vi.fn(),
-}))
+const mockOn = vi.fn()
+const mockSend = vi.fn()
+const mockConnect = vi.fn()
+const mockDisconnect = vi.fn()
+const mockIsReady = vi.fn().mockReturnValue(true)
+const mockWhenReady = vi.fn().mockResolvedValue(undefined)
 
-vi.mock('@automerge/automerge-repo-network-broadcastchannel', () => {
-  const mockOn = vi.fn()
-  const mockSend = vi.fn()
-  const mockConnect = vi.fn()
-  const mockDisconnect = vi.fn()
-  const mockIsReady = vi.fn().mockReturnValue(true)
-  const mockWhenReady = vi.fn().mockResolvedValue(undefined)
-
-  class BroadcastChannelNetworkAdapterMock {
-    on = mockOn
-    send = mockSend
-    connect = mockConnect
-    disconnect = mockDisconnect
-    isReady = mockIsReady
-    whenReady = mockWhenReady
-  }
-
-  return {
-    BroadcastChannelNetworkAdapter: BroadcastChannelNetworkAdapterMock,
-  }
-})
+class BroadcastChannelNetworkAdapterMock {
+  on = mockOn
+  send = mockSend
+  connect = mockConnect
+  disconnect = mockDisconnect
+  isReady = mockIsReady
+  whenReady = mockWhenReady
+}
 
 const keys = createMockKeyProvider({
   ...createMockVault(),
@@ -48,6 +40,16 @@ const keys = createMockKeyProvider({
     if (suffix === '') return new Uint8Array([])
     return new Uint8Array(suffix.split(',').map((x: string) => parseInt(x, 10)))
   }),
+})
+
+beforeEach(() => {
+  spyOnExports(broadcastChannelAdapter, {
+    BroadcastChannelNetworkAdapter: BroadcastChannelNetworkAdapterMock,
+  })
+  spyOnExports(realtimeBusModule, {
+    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
+    subscribeRealtimeBusSyncPing: vi.fn(),
+  })
 })
 
 describe('Cross-Tab New Item Discovery Offline (C7)', () => {

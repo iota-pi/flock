@@ -16,7 +16,8 @@ import { WorkerInternalEventHub } from './SyncEventHub'
 type LogDoc = { log: string[] }
 type ServerMessage = { documentId: DocumentId; data: Uint8Array }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+// The repo syncs asynchronously, so tests poll the fake server rather than sleeping
+const POLL = { timeout: 5000, interval: 10 }
 
 class FakeServer {
   readonly messages: ServerMessage[] = []
@@ -68,26 +69,14 @@ class Device {
   }
 
   /** Simulates a page reload: the vault peer disconnects and renegotiates every document. */
-  async reconnect(): Promise<void> {
+  reconnect(): void {
     this.adapter.setSendEnabled(false)
-    await sleep(20)
     this.adapter.setSendEnabled(true)
-    await sleep(100)
   }
 
   async shutdown(): Promise<void> {
     await this.repo.shutdown()
   }
-}
-
-async function editAndPoll(device: Device, handle: DocHandle<LogDoc>, entries: string[]): Promise<void> {
-  for (const entry of entries) {
-    handle.change(doc => { doc.log.push(entry) })
-    await sleep(20)
-  }
-  await sleep(50)
-  device.pull()
-  await sleep(50)
 }
 
 /** Compares what a fresh device would rebuild from the server against the local document. */
@@ -97,6 +86,28 @@ function compareWithServer(server: FakeServer, handle: DocHandle<LogDoc>) {
     server: { log: rebuilt.log, missingDeps: Automerge.getMissingDeps(rebuilt, []) },
     local: { log: handle.doc()!.log, missingDeps: [] },
   }
+}
+
+/** Waits until a fresh device could rebuild the local document from the server alone. */
+async function untilPushed(server: FakeServer, handle: DocHandle<LogDoc>): Promise<void> {
+  await vi.waitFor(() => {
+    const { server: fromServer, local } = compareWithServer(server, handle)
+    expect(fromServer).toEqual(local)
+  }, POLL)
+}
+
+/** Pushes each edit on its own, then pulls everything back, echoes included. */
+async function editAndPoll(
+  device: Device,
+  server: FakeServer,
+  handle: DocHandle<LogDoc>,
+  entries: string[],
+): Promise<void> {
+  for (const entry of entries) {
+    handle.change(doc => { doc.log.push(entry) })
+    await untilPushed(server, handle)
+  }
+  device.pull()
 }
 
 describe('vault sync protocol', () => {
@@ -120,12 +131,10 @@ describe('vault sync protocol', () => {
 
   it('pushes every change for a new document edited repeatedly', async () => {
     const device = createDevice()
-    await sleep(50)
     const handle = device.repo.create<LogDoc>({ log: [] })
-    await sleep(100)
 
     for (let round = 0; round < 3; round += 1) {
-      await editAndPoll(device, handle, [`${round}a`, `${round}b`])
+      await editAndPoll(device, server, handle, [`${round}a`, `${round}b`])
     }
 
     const { server: fromServer, local } = compareWithServer(server, handle)
@@ -134,16 +143,15 @@ describe('vault sync protocol', () => {
 
   it('pushes every offline edit after a reload, followed by subsequent edits', async () => {
     const device = createDevice()
-    await sleep(50)
     const handle = device.repo.create<LogDoc>({ log: [] })
-    await editAndPoll(device, handle, ['synced'])
+    await editAndPoll(device, server, handle, ['synced'])
 
     device.adapter.setSendEnabled(false)
     for (const entry of ['offline-1', 'offline-2', 'offline-3']) {
       handle.change(doc => { doc.log.push(entry) })
     }
-    await device.reconnect()
-    await editAndPoll(device, handle, ['online-1', 'online-2'])
+    device.reconnect()
+    await editAndPoll(device, server, handle, ['online-1', 'online-2'])
 
     expect(handle.doc()!.log).toHaveLength(6)
     const { server: fromServer, local } = compareWithServer(server, handle)
@@ -152,16 +160,15 @@ describe('vault sync protocol', () => {
 
   it('pushes the full history when persisted synced heads are unknown to the document', async () => {
     const device = createDevice()
-    await sleep(50)
     const handle = device.repo.create<LogDoc>({ log: [] })
-    await editAndPoll(device, handle, ['a', 'b'])
+    await editAndPoll(device, server, handle, ['a', 'b'])
 
     const staleHeads = Automerge.getHeads(Automerge.from({ unrelated: true }))
     server.messages.length = 0
     device.skipPendingPulls()
     device.adapter.setSyncedHeads(handle.documentId, staleHeads)
-    await device.reconnect()
-    await editAndPoll(device, handle, ['c'])
+    device.reconnect()
+    await editAndPoll(device, server, handle, ['c'])
 
     const { server: fromServer, local } = compareWithServer(server, handle)
     expect(fromServer).toEqual(local)
@@ -169,9 +176,8 @@ describe('vault sync protocol', () => {
 
   it('keeps pushing local edits after receiving a server message with an unknown sync state', async () => {
     const device = createDevice()
-    await sleep(50)
     const handle = device.repo.create<LogDoc>({ log: [] })
-    await editAndPoll(device, handle, ['a'])
+    await editAndPoll(device, server, handle, ['a'])
 
     const foreignHeads = Automerge.getHeads(Automerge.from({ unrelated: true }))
     device.adapter.receiveServerMessage(handle.documentId, encodeSyncMessage({
@@ -180,10 +186,9 @@ describe('vault sync protocol', () => {
       have: [{ lastSync: foreignHeads, bloom: new Uint8Array() }],
       changes: [],
     }))
-    await sleep(50)
 
     const before = server.messages.length
-    await editAndPoll(device, handle, ['b'])
+    await editAndPoll(device, server, handle, ['b'])
 
     expect(server.messages.length).toBeGreaterThan(before)
     const { server: fromServer, local } = compareWithServer(server, handle)
@@ -193,29 +198,30 @@ describe('vault sync protocol', () => {
   it('converges two devices editing concurrently through the server', async () => {
     const deviceA = createDevice()
     const deviceB = createDevice()
-    await sleep(50)
 
     const handleA = deviceA.repo.create<LogDoc>({ log: [] })
-    await editAndPoll(deviceA, handleA, ['a0'])
+    await editAndPoll(deviceA, server, handleA, ['a0'])
     deviceB.pull()
-    await sleep(100)
+    await vi.waitFor(() => {
+      expect(deviceB.repo.handles[handleA.documentId]?.isReady()).toBe(true)
+    }, POLL)
     const handleB = await deviceB.repo.find<LogDoc>(handleA.url)
-    await sleep(50)
 
-    const syncAll = async () => {
-      await sleep(50)
+    // Keeps pulling until both devices and the server hold the same document
+    const syncAll = () => vi.waitFor(() => {
       deviceA.pull()
       deviceB.pull()
-      await sleep(100)
-    }
+      expect(handleB.doc()!.log).toEqual(handleA.doc()!.log)
+      const { server: fromServer, local } = compareWithServer(server, handleA)
+      expect(fromServer).toEqual(local)
+    }, POLL)
 
-    await editAndPoll(deviceA, handleA, ['a1', 'a2', 'a3'])
+    await editAndPoll(deviceA, server, handleA, ['a1', 'a2', 'a3'])
     await syncAll()
-    await editAndPoll(deviceB, handleB, ['b1', 'b2'])
+    await editAndPoll(deviceB, server, handleB, ['b1', 'b2'])
     await syncAll()
     handleA.change(doc => { doc.log.push('a-concurrent') })
     handleB.change(doc => { doc.log.push('b-concurrent') })
-    await syncAll()
     await syncAll()
 
     expect(handleA.doc()!.log).toHaveLength(8)
