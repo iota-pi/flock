@@ -1,7 +1,8 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
-import { AutomergeDocStore, type RepoDoc } from './docStore'
+import type { AutomergeDocStore, RepoDoc } from './docStore'
+import { createTestDocStore } from './__test__/testUtils'
 import { passthroughCodec, type DocCodec, type LegacySettingsSource } from './domain'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { VaultMetadata } from '../shared/types'
@@ -77,7 +78,7 @@ describe('AccountSettings', () => {
   beforeEach(() => {
     accountCounter += 1
     accountId = `account-${accountCounter}`
-    docStore = new AutomergeDocStore(new Repo())
+    docStore = createTestDocStore(new Repo())
     emit = vi.fn()
     mockPublishRealtimeBusSyncPing.mockClear()
     markDocumentDirty = vi.fn<(itemId: ItemId) => void>()

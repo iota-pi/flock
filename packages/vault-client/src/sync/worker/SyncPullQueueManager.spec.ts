@@ -14,7 +14,9 @@ import {
   createMockLocalForage,
   createMockKeyProvider,
   createMockVault,
+  noItemLocks,
 } from './__test__/testUtils'
+import { WorkerInternalEventHub } from './SyncEventHub'
 
 // Mock localforage
 let activeStore: MockLocalforage | null = null
@@ -87,7 +89,7 @@ describe('SyncPullQueueManager', () => {
     clearSyncMetadataInstancesCacheForTesting()
     activeStore = null
     cursorStore = new CursorStore('account-1')
-    manager = new SyncPullQueueManager(cursorStore, keys)
+    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, new WorkerInternalEventHub())
 
     // Default mock behavior
     mockVault.reset()
@@ -121,7 +123,7 @@ describe('SyncPullQueueManager', () => {
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
 
       cursorStore = new CursorStore('account-2')
-      manager = new SyncPullQueueManager(cursorStore, keys)
+      manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, new WorkerInternalEventHub())
       await manager.setAccount('account-2')
       expect(manager.exportCursors()).toEqual(preLoadedCursors)
     })
@@ -446,7 +448,7 @@ describe('SyncPullQueueManager', () => {
       )
       await manager.persistCursors()
 
-      const restarted = new SyncPullQueueManager(cursorStore, keys)
+      const restarted = new SyncPullQueueManager(cursorStore, keys, noItemLocks, new WorkerInternalEventHub())
       await restarted.setAccount('account-1')
 
       expect(restarted.getGlobalPageToken()).toBeUndefined()

@@ -1,5 +1,5 @@
 import type { ItemId } from '@vault/shared'
-import { ClientEventHub } from './SyncEventHub'
+import type { ClientEventHub } from './SyncEventHub'
 import {
   type ManualRecoveryEntry,
   type ManualRecoveryKind,
@@ -22,8 +22,8 @@ const log = createLogger('RecoveryManager')
 export const INBOUND_MESSAGE_RESOLVABLE_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['pullDecryption'])
 
 export interface RecoveryManagerDeps {
-  accountId?: string | null
-  eventHub?: ClientEventHub
+  accountId: string | null
+  eventHub: ClientEventHub
 }
 
 export interface QuarantineOptions {
@@ -35,7 +35,7 @@ export interface QuarantineOptions {
 export class RecoveryManager implements LifecycleAware {
   readonly lifecycleName = 'RecoveryManager'
   private accountId: string | null = null
-  private eventHub?: ClientEventHub
+  private readonly eventHub: ClientEventHub
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
 
@@ -43,9 +43,9 @@ export class RecoveryManager implements LifecycleAware {
     this.resetRecoveryState()
   }
 
-  constructor(deps?: RecoveryManagerDeps) {
-    this.accountId = deps?.accountId ?? null
-    this.eventHub = deps?.eventHub
+  constructor(deps: RecoveryManagerDeps) {
+    this.accountId = deps.accountId
+    this.eventHub = deps.eventHub
   }
 
   isInFlight(itemId: ItemId): boolean {
@@ -91,7 +91,7 @@ export class RecoveryManager implements LifecycleAware {
     if (!targetAccount) return []
     try {
       const entries = await readManualRecoveryEntries(targetAccount, options)
-      this.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
+      this.eventHub.emit({ type: 'recoveryItemsChanged', entries })
       return entries
     } catch (error) {
       log.error('Failed to push recovery entries change', error)

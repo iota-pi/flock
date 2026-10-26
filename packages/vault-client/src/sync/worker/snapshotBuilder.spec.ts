@@ -77,15 +77,9 @@ describe('buildSnapshot helper function', () => {
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, testCodec)
   })
 
-  it('uses the passthrough codec when no codec is given', async () => {
-    await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
-
-    expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, passthroughCodec)
-  })
-
   it('forwards abort signal to repo.find when provided in options', async () => {
     const controller = new AbortController()
-    await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal })
+    await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec })
 
     expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: controller.signal })
   })
@@ -100,7 +94,7 @@ describe('buildSnapshot helper function', () => {
         return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
       })
 
-      const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+      const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
       expect(result.type).toBe('success')
       // Timestamp must be T1 (1000), not T3 (3000)
       expect((result as Extract<typeof result, { type: 'success' }>).snapshot.modified).toBe(1000)
@@ -111,34 +105,34 @@ describe('buildSnapshot helper function', () => {
 
   it('returns error if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
-    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
 
     mockRepo.find.mockResolvedValue(undefined)
-    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
   })
 
   it('returns not-ready if document handle is not ready', async () => {
     mockHandle.isReady.mockReturnValue(false)
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'not-ready' })
   })
 
   it('returns error if doc is missing or saving binary is empty', async () => {
     mockHandle.doc.mockReturnValue(undefined)
-    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'error', reason: 'Document data not available' })
 
     mockHandle.doc.mockReturnValue({ id: 'item-1' })
     mockSave.mockReturnValue(new Uint8Array([]))
-    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'error', reason: 'Failed to serialize document binary' })
   })
 
   it('returns error if normalizeItemSnapshot returns null', async () => {
     mockNormalizeItemSnapshot.mockReturnValue(null)
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'error', reason: 'Failed to normalize item snapshot' })
   })
 
@@ -148,7 +142,7 @@ describe('buildSnapshot helper function', () => {
       deleted: true,
     })
 
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({
       type: 'success',
       snapshot: expect.objectContaining({
@@ -160,11 +154,11 @@ describe('buildSnapshot helper function', () => {
 
   it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
     mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
-    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'not-ready' })
 
     mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
-    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
     expect(result).toEqual({ type: 'not-ready' })
   })
 
@@ -172,7 +166,7 @@ describe('buildSnapshot helper function', () => {
     const error = new Error('Crypto error')
     mockEncryptBytes.mockRejectedValue(error)
 
-    await expect(buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys)).rejects.toThrow('Crypto error')
+    await expect(buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })).rejects.toThrow('Crypto error')
   })
 })
 
@@ -234,7 +228,7 @@ describe('SnapshotBuilder class', () => {
       type: 'topic',
     })
 
-    builder = new SnapshotBuilder(mockRepo, keys)
+    builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec)
   })
 
   it('builds snapshot successfully', async () => {

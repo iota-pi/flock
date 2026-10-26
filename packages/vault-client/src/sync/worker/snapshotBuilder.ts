@@ -5,7 +5,7 @@ import type { VaultSnapshotInput } from '@vault/shared'
 import { normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { KeyProvider } from '../../api/Keyring'
-import { passthroughCodec, type DocCodec } from './domain'
+import type { DocCodec } from './domain'
 import { ItemId } from '@vault/shared'
 import { classifySyncError } from '../utils/errorClassifier'
 import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
@@ -20,7 +20,7 @@ export type BuildSnapshotResult =
 
 export interface BuildSnapshotOptions {
   signal?: AbortSignal
-  codec?: DocCodec
+  codec: DocCodec
 }
 
 export async function buildSnapshot(
@@ -28,10 +28,10 @@ export async function buildSnapshot(
   itemId: ItemId,
   snapshotCursor: number,
   keys: KeyProvider,
-  options?: BuildSnapshotOptions,
+  options: BuildSnapshotOptions,
 ): Promise<BuildSnapshotResult> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
-  const handle = await repo.find(documentUrl, { signal: options?.signal }).catch(() => undefined)
+  const handle = await repo.find(documentUrl, { signal: options.signal }).catch(() => undefined)
   if (!handle) {
     return { type: 'error', reason: 'Document handle not found' }
   }
@@ -62,8 +62,7 @@ export async function buildSnapshot(
     throw error
   }
 
-  const codec = options?.codec ?? passthroughCodec
-  const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, codec)
+  const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, options.codec)
   if (!itemSnapshot) {
     return { type: 'error', reason: 'Failed to normalize item snapshot' }
   }
@@ -102,16 +101,16 @@ export class SnapshotBuilder {
   constructor(
     private readonly repo: Repo,
     private readonly keys: KeyProvider,
-    private readonly codec: DocCodec = passthroughCodec,
+    private readonly codec: DocCodec,
   ) {}
 
   async build(
     itemId: ItemId,
     snapshotCursor: number,
-    options?: BuildSnapshotOptions,
+    options?: Omit<BuildSnapshotOptions, 'codec'>,
   ): Promise<BuildSnapshotResult> {
     try {
-      return await buildSnapshot(this.repo, itemId, snapshotCursor, this.keys, { codec: this.codec, ...options })
+      return await buildSnapshot(this.repo, itemId, snapshotCursor, this.keys, { ...options, codec: this.codec })
     } catch (error: unknown) {
       const classified = classifySyncError(error)
       if (classified.isTransientVault) {

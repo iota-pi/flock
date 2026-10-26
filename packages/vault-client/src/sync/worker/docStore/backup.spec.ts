@@ -1,5 +1,6 @@
 import { Repo } from '@automerge/automerge-repo/slim'
-import { AutomergeDocStore } from './AutomergeDocStore'
+import type { AutomergeDocStore } from './AutomergeDocStore'
+import { createTestDocStore } from '../__test__/testUtils'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID, BackupDocId } from '../utils/automerge'
@@ -16,7 +17,7 @@ describe('backup operations', () => {
 
   beforeEach(async () => {
     indexStore = new IndexStore(accountId)
-    docStore = new AutomergeDocStore(testRepo)
+    docStore = createTestDocStore(testRepo)
     indexManager = new AutomergeIndexManager(accountId, indexStore)
 
     await indexStore.clear()
@@ -58,7 +59,7 @@ describe('backup operations', () => {
     expect(exported.skipped).toEqual([])
 
     // Restore on a device without the item
-    docStore = new AutomergeDocStore(new Repo())
+    docStore = createTestDocStore(new Repo())
     await indexStore.clear()
     await indexManager.ensureIndexDocument()
 
