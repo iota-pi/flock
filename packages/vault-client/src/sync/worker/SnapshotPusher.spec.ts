@@ -82,21 +82,22 @@ describe('SnapshotPusher', () => {
   })
 
   it('pushes snapshots successfully and notifies tracker and broker', async () => {
-    const result = await pusher.pushSnapshots()
+    const result = await pusher.triggerSnapshotPush()
 
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
     expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
     expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-1', ['head-1'])
-    expect(mockBroker.clearSnapshotOnlyItem).toHaveBeenCalledWith('item-1')
-    expect(mockBroker.unblockItem).toHaveBeenCalledWith('item-1')
+    // Setting the heads clears snapshot-only and unblocks the item itself
+    expect(mockBroker.clearSnapshotOnlyItem).not.toHaveBeenCalled()
+    expect(mockBroker.unblockItem).not.toHaveBeenCalled()
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
 
   it('handles oversized item by quarantining and emitting quotaExceeded', async () => {
     mockBuilder.estimateSize.mockReturnValue(5000) // Exceeds maxPayloadBytes = 1000
 
-    const result = await pusher.pushSnapshots()
+    const result = await pusher.triggerSnapshotPush()
 
     expect(result).toEqual({ persisted: 0, total: 0 })
     expect(pusher.oversizedItems.has('item-1' as ItemId)).toBe(true)
@@ -131,7 +132,7 @@ describe('SnapshotPusher', () => {
     })
 
     it('uploads a metadata-only tombstone for a deleted oversized item instead of quarantining', async () => {
-      const result = await pusher.pushSnapshots()
+      const result = await pusher.triggerSnapshotPush()
 
       expect(result).toEqual({ persisted: 1, total: 1 })
       const payload = mockApiClient.putSnapshots.mock.calls[0][0]
@@ -156,7 +157,7 @@ describe('SnapshotPusher', () => {
       pusher.addOversized('item-1' as ItemId)
       pusher.clearOversized('item-1' as ItemId)
 
-      await pusher.pushSnapshots()
+      await pusher.triggerSnapshotPush()
 
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
@@ -187,7 +188,7 @@ describe('SnapshotPusher', () => {
         results: [{ itemId: 'item-1', version: 3 }, { itemId: 'item-2', version: 4 }],
       })
 
-      const result = await pusher.pushSnapshots()
+      const result = await pusher.triggerSnapshotPush()
 
       expect(result).toEqual({ persisted: 2, total: 2 })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
@@ -207,13 +208,13 @@ describe('SnapshotPusher', () => {
 
     // 4 failures
     for (let i = 0; i < 4; i++) {
-      await pusher.pushSnapshots()
+      await pusher.triggerSnapshotPush()
       expect(pusher.consecutiveFailures.get('item-1' as ItemId)).toBe(i + 1)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
     }
 
     // 5th failure triggers quarantine
-    await pusher.pushSnapshots()
+    await pusher.triggerSnapshotPush()
 
     expect(pusher.consecutiveFailures.has('item-1' as ItemId)).toBe(false)
     expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
@@ -230,7 +231,7 @@ describe('SnapshotPusher', () => {
   it('schedules retry on push failure when items remain dirty', async () => {
     mockApiClient.putSnapshots.mockResolvedValue({ success: false, persisted: 0 })
 
-    await pusher.pushSnapshots()
+    await pusher.triggerSnapshotPush()
 
     expect(pusher.retryAttempt).toBe(1)
     expect(pusher.isRetryActive).toBe(true)
@@ -246,7 +247,7 @@ describe('SnapshotPusher', () => {
       releaseFirstPut = () => resolve({ success: true, persisted: 1, results: [{ itemId: 'item-1', version: 2 }] })
     }))
 
-    const firstPush = pusher.pushSnapshots()
+    const firstPush = pusher.triggerSnapshotPush()
     await vi.waitFor(() => expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1))
     const coalesced = pusher.triggerSnapshotPush()
     releaseFirstPut()
@@ -260,7 +261,7 @@ describe('SnapshotPusher', () => {
   it('does not schedule a retry when a push is aborted', async () => {
     mockApiClient.putSnapshots.mockImplementationOnce(() => Promise.reject(new DOMException('Aborted', 'AbortError')))
 
-    await pusher.pushSnapshots()
+    await pusher.triggerSnapshotPush()
 
     expect(pusher.isRetryActive).toBe(false)
   })
@@ -268,7 +269,7 @@ describe('SnapshotPusher', () => {
   it('handles push gracefully if no auth token is present (AuthError)', async () => {
     mockApiClient.putSnapshots.mockRejectedValue(new AuthError('No active session token available'))
 
-    const result = await pusher.pushSnapshots()
+    const result = await pusher.triggerSnapshotPush()
     expect(result).toEqual({ persisted: 0, total: 0 })
     expect(mockApiClient.putSnapshots).toHaveBeenCalled()
   })

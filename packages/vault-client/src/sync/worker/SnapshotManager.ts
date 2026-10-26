@@ -52,7 +52,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   ) {
     this.builder = new SnapshotBuilder(deps.repo, deps.keys, deps.codec)
     this.tracker = new SnapshotTracker({
-      accountId: deps.accountId,
       lastModifiedStore,
       recoveryManager: deps.recoveryManager,
       debounceDelayMs: options?.debounceDelayMs,
@@ -60,7 +59,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       isLeader: options?.isLeader,
       onTriggerPush: () => fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onTriggerPush'),
       isRetryActive: () => this.pusher.isRetryActive,
-      onOversizedFound: itemId => this.pusher.addOversized(itemId),
     })
 
     this.pusher = new SnapshotPusher({
@@ -108,7 +106,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   }
 
   async loadLastModified(): Promise<void> {
-    const { oversizedItemIds } = await this.tracker.loadLastModified()
+    const oversizedItemIds = await this.tracker.loadLastModified()
     for (const id of oversizedItemIds) {
       this.pusher.addOversized(id)
     }

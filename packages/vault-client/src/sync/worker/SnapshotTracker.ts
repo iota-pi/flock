@@ -11,7 +11,6 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('SnapshotTracker')
 
 export interface SnapshotTrackerOptions {
-  accountId: string
   lastModifiedStore: LastModifiedStore
   recoveryManager: RecoveryManager
   debounceDelayMs?: number
@@ -19,8 +18,13 @@ export interface SnapshotTrackerOptions {
   isLeader?: boolean
   onTriggerPush?: () => void
   isRetryActive?: () => boolean
-  onOversizedFound?: (itemId: ItemId) => void
 }
+
+/**
+ * What the tracker knows of an item's {@link ItemSyncTimestamps}. A field is unset until something
+ * records it, which keeps an item known only by its version out of the timestamp export.
+ */
+type TrackedTimestamps = Partial<ItemSyncTimestamps>
 
 export class SnapshotTracker {
   private shutDown = false
@@ -28,9 +32,7 @@ export class SnapshotTracker {
   private isOnline = true
   public readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
-  public readonly lastModifiedByItemId = new Map<ItemId, number>()
-  public readonly lastSnapshotAtByItemId = new Map<ItemId, number>()
-  public readonly baseVersionByItemId = new Map<ItemId, number>()
+  private readonly timestampsByItemId = new Map<ItemId, TrackedTimestamps>()
 
   private debounceTimeout: ReturnType<typeof setTimeout> | null = null
   private maxWaitTimeout: ReturnType<typeof setTimeout> | null = null
@@ -41,10 +43,8 @@ export class SnapshotTracker {
   private readonly persistMutex = new AsyncMutex()
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
-  private readonly onOversizedFound?: (itemId: ItemId) => void
   private readonly recoveryManager: RecoveryManager
   private readonly lastModifiedStore: LastModifiedStore
-  private readonly accountId: string
 
   // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved localModifiedAt
   // to re-queue an edit whose snapshot never went up.
@@ -55,7 +55,6 @@ export class SnapshotTracker {
   )
 
   constructor(options: SnapshotTrackerOptions) {
-    this.accountId = options.accountId
     this.lastModifiedStore = options.lastModifiedStore
     this.recoveryManager = options.recoveryManager
     this.debounceDelayMs = options.debounceDelayMs ?? 30_000
@@ -63,7 +62,6 @@ export class SnapshotTracker {
     this.isLeader = options.isLeader ?? false
     this.onTriggerPush = options.onTriggerPush
     this.isRetryActive = options.isRetryActive
-    this.onOversizedFound = options.onOversizedFound
   }
 
   get isShutdown(): boolean {
@@ -109,17 +107,27 @@ export class SnapshotTracker {
     if (this.shutDown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
-    this.lastModifiedByItemId.set(itemId, Date.now())
+    this.timestamps(itemId).localModifiedAt = Date.now()
     this.saveLastModifiedDebounced()
     this.scheduleDebouncedSnapshotPush(customDebounceDelayMs)
   }
 
+  /** The item's tracked timestamps, created empty if it has none */
+  private timestamps(itemId: ItemId): TrackedTimestamps {
+    let entry = this.timestampsByItemId.get(itemId)
+    if (!entry) {
+      entry = {}
+      this.timestampsByItemId.set(itemId, entry)
+    }
+    return entry
+  }
+
   getLastSnapshotAt(itemId: ItemId): number | undefined {
-    return this.lastSnapshotAtByItemId.get(itemId)
+    return this.timestampsByItemId.get(itemId)?.lastSnapshotAt
   }
 
   getLocalModifiedAt(itemId: ItemId): number | undefined {
-    return this.lastModifiedByItemId.get(itemId)
+    return this.timestampsByItemId.get(itemId)?.localModifiedAt
   }
 
   scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
@@ -163,7 +171,7 @@ export class SnapshotTracker {
 
     const timestamp = Date.now()
     for (const itemId of dirtyItemIds) {
-      this.lastModifiedByItemId.set(itemId, timestamp)
+      this.timestamps(itemId).localModifiedAt = timestamp
     }
   }
 
@@ -172,18 +180,18 @@ export class SnapshotTracker {
     this.saveLastModifiedDebounced.flush()
   }
 
-  async loadLastModified(): Promise<{ auditCount: number; oversizedItemIds: Set<ItemId> }> {
-    if (this.shutDown) return { auditCount: 0, oversizedItemIds: new Set() }
-    let result = { auditCount: 0, oversizedItemIds: new Set<ItemId>() }
+  /** Loads the stored timestamps, returning the items quarantined as oversized */
+  async loadLastModified(): Promise<Set<ItemId>> {
+    let oversizedItemIds = new Set<ItemId>()
+    if (this.shutDown) return oversizedItemIds
     await this.loadGuard.run(async () => {
-      result = await this.executeLoadLastModified()
+      oversizedItemIds = await this.executeLoadLastModified()
     })
-    return result
+    return oversizedItemIds
   }
 
-  private async executeLoadLastModified(): Promise<{ auditCount: number; oversizedItemIds: Set<ItemId> }> {
+  private async executeLoadLastModified(): Promise<Set<ItemId>> {
     const oversizedItemIds = new Set<ItemId>()
-    let auditCount = 0
 
     try {
       checkAlive(null, () => !this.shutDown)
@@ -192,52 +200,44 @@ export class SnapshotTracker {
 
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
-          const existingLocalMod = this.lastModifiedByItemId.get(itemId) ?? 0
-          const lastSnap = typeof ts.lastSnapshotAt === 'number' ? ts.lastSnapshotAt : 0
-          this.lastModifiedByItemId.set(itemId, Math.max(existingLocalMod, ts.localModifiedAt, lastSnap))
+          const entry = this.timestamps(itemId)
+          entry.localModifiedAt = Math.max(entry.localModifiedAt ?? 0, ts.localModifiedAt, ts.lastSnapshotAt ?? 0)
           if (typeof ts.lastSnapshotAt === 'number') {
-            const existingLastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
-            this.lastSnapshotAtByItemId.set(itemId, Math.max(existingLastSnap, ts.lastSnapshotAt))
+            entry.lastSnapshotAt = Math.max(entry.lastSnapshotAt ?? 0, ts.lastSnapshotAt)
           }
           if (typeof ts.baseVersion === 'number') {
-            const existingVersion = this.baseVersionByItemId.get(itemId) ?? 0
-            this.baseVersionByItemId.set(itemId, Math.max(existingVersion, ts.baseVersion))
+            entry.baseVersion = Math.max(entry.baseVersion ?? 0, ts.baseVersion)
           }
         }
       }
 
       const quarantinedIds = new Set<ItemId>()
-      if (this.accountId) {
-        try {
-          const recoveryEntries = await this.recoveryManager.listRecoveryItems()
-          checkAlive(null, () => !this.shutDown)
-          for (const entry of recoveryEntries) {
-            quarantinedIds.add(entry.itemId)
-            if (entry.kind === 'oversized') {
-              oversizedItemIds.add(entry.itemId)
-              this.onOversizedFound?.(entry.itemId)
-            }
+      try {
+        const recoveryEntries = await this.recoveryManager.listRecoveryItems()
+        checkAlive(null, () => !this.shutDown)
+        for (const entry of recoveryEntries) {
+          quarantinedIds.add(entry.itemId)
+          if (entry.kind === 'oversized') {
+            oversizedItemIds.add(entry.itemId)
           }
-        } catch (recoveryErr) {
-          if (isAbortError(recoveryErr)) throw recoveryErr
-          log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
         }
+      } catch (recoveryErr) {
+        if (isAbortError(recoveryErr)) throw recoveryErr
+        log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
       }
 
       checkAlive(null, () => !this.shutDown)
 
       // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
-      for (const [itemId, localMod] of this.lastModifiedByItemId.entries()) {
-        if (quarantinedIds.has(itemId)) {
+      let auditCount = 0
+      for (const [itemId, { localModifiedAt, lastSnapshotAt }] of this.timestampsByItemId) {
+        if (quarantinedIds.has(itemId) || localModifiedAt === undefined) {
           continue
         }
-        const lastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
-        if (localMod > lastSnap) {
-          if (!this.dirtyItems.has(itemId)) {
-            this.dirtyItemsTick += 1
-            this.dirtyItems.set(itemId, this.dirtyItemsTick)
-            auditCount += 1
-          }
+        if (localModifiedAt > (lastSnapshotAt ?? 0) && !this.dirtyItems.has(itemId)) {
+          this.dirtyItemsTick += 1
+          this.dirtyItems.set(itemId, this.dirtyItemsTick)
+          auditCount += 1
         }
       }
       if (auditCount > 0) {
@@ -245,11 +245,11 @@ export class SnapshotTracker {
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
-      if (isAbortError(error) || this.shutDown) return { auditCount: 0, oversizedItemIds }
+      if (isAbortError(error) || this.shutDown) return oversizedItemIds
       log.error('Failed to load lastModified timestamps', error)
     }
 
-    return { auditCount, oversizedItemIds }
+    return oversizedItemIds
   }
 
   /**
@@ -261,20 +261,14 @@ export class SnapshotTracker {
     await this.persistMutex.runExclusive(async () => {
       try {
         const merged = new Map<ItemId, ItemSyncTimestamps>(await this.lastModifiedStore.loadTimestamps() ?? [])
-        const allItemIds = new Set([
-          ...this.lastModifiedByItemId.keys(),
-          ...this.lastSnapshotAtByItemId.keys(),
-          ...this.baseVersionByItemId.keys(),
-        ])
-        for (const itemId of allItemIds) {
+        for (const [itemId, local] of this.timestampsByItemId) {
           const stored = merged.get(itemId)
-          const lastSnapshotAt = this.lastSnapshotAtByItemId.get(itemId)
           merged.set(itemId, {
-            localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, this.lastModifiedByItemId.get(itemId) ?? 0),
-            lastSnapshotAt: lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
+            localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, local.localModifiedAt ?? 0),
+            lastSnapshotAt: local.lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
               ? undefined
-              : Math.max(stored?.lastSnapshotAt ?? 0, lastSnapshotAt ?? 0),
-            baseVersion: Math.max(stored?.baseVersion ?? 0, this.baseVersionByItemId.get(itemId) ?? 0),
+              : Math.max(stored?.lastSnapshotAt ?? 0, local.lastSnapshotAt ?? 0),
+            baseVersion: Math.max(stored?.baseVersion ?? 0, local.baseVersion ?? 0),
           })
         }
         await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
@@ -288,15 +282,11 @@ export class SnapshotTracker {
     if (this.dirtyItems.get(itemId) === tick) {
       this.dirtyItems.delete(itemId)
     }
-    this.lastSnapshotAtByItemId.set(itemId, modified)
-    const currentLocalMod = this.lastModifiedByItemId.get(itemId) ?? 0
-    this.lastModifiedByItemId.set(
-      itemId,
-      Math.max(currentLocalMod, modified),
-    )
+    const entry = this.timestamps(itemId)
+    entry.lastSnapshotAt = modified
+    entry.localModifiedAt = Math.max(entry.localModifiedAt ?? 0, modified)
     if (typeof version === 'number') {
-      const currentVersion = this.baseVersionByItemId.get(itemId) ?? 0
-      this.baseVersionByItemId.set(itemId, Math.max(currentVersion, version))
+      entry.baseVersion = Math.max(entry.baseVersion ?? 0, version)
     }
     this.saveLastModifiedDebounced()
   }
@@ -306,8 +296,8 @@ export class SnapshotTracker {
     this.dirtyItems.delete(itemId)
 
     // Advance lastSnapshotAt to localModifiedAt to prevent startup audit / sync loops while quarantined
-    const localMod = this.lastModifiedByItemId.get(itemId) ?? modified
-    this.lastSnapshotAtByItemId.set(itemId, localMod)
+    const entry = this.timestamps(itemId)
+    entry.lastSnapshotAt = entry.localModifiedAt ?? modified
     this.saveLastModifiedDebounced()
   }
 
@@ -322,10 +312,9 @@ export class SnapshotTracker {
   deleteDirtyItem(itemId: ItemId): boolean {
     if (this.shutDown || !itemId) return false
     const deleted = this.dirtyItems.delete(itemId)
-    const localMod = this.lastModifiedByItemId.get(itemId)
-    const lastSnap = this.lastSnapshotAtByItemId.get(itemId) ?? 0
-    if (localMod !== undefined && localMod > lastSnap) {
-      this.lastSnapshotAtByItemId.set(itemId, localMod)
+    const entry = this.timestampsByItemId.get(itemId)
+    if (entry?.localModifiedAt !== undefined && entry.localModifiedAt > (entry.lastSnapshotAt ?? 0)) {
+      entry.lastSnapshotAt = entry.localModifiedAt
       this.saveLastModifiedDebounced()
     }
     if (this.dirtyItems.size === 0) {
@@ -352,24 +341,23 @@ export class SnapshotTracker {
 
   exportLastModified(): [ItemId, number][] {
     const result: [ItemId, number][] = []
-    const allIds = new Set([...this.lastModifiedByItemId.keys(), ...this.lastSnapshotAtByItemId.keys()])
-    for (const id of allIds) {
-      const localMod = this.lastModifiedByItemId.get(id) ?? 0
-      const lastSnap = this.lastSnapshotAtByItemId.get(id) ?? 0
-      result.push([id, Math.max(localMod, lastSnap)])
+    for (const [id, { localModifiedAt, lastSnapshotAt }] of this.timestampsByItemId) {
+      if (localModifiedAt !== undefined || lastSnapshotAt !== undefined) {
+        result.push([id, Math.max(localModifiedAt ?? 0, lastSnapshotAt ?? 0)])
+      }
     }
     return result
   }
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {
     for (const [itemId, mod] of data) {
+      const entry = this.timestamps(itemId)
       if (this.dirtyItems.has(itemId)) {
         // Unsaved local edit: keep it pending upload
-        const existingLocalMod = this.lastModifiedByItemId.get(itemId) ?? 0
-        this.lastModifiedByItemId.set(itemId, Math.max(existingLocalMod, mod))
+        entry.localModifiedAt = Math.max(entry.localModifiedAt ?? 0, mod)
       } else {
-        this.lastModifiedByItemId.set(itemId, mod)
-        this.lastSnapshotAtByItemId.set(itemId, mod)
+        entry.localModifiedAt = mod
+        entry.lastSnapshotAt = mod
       }
     }
     await this.persistLastModified()
@@ -377,15 +365,9 @@ export class SnapshotTracker {
 
   exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
     const result = new Map<ItemId, { baseVersion: number; isDirty: boolean }>()
-    const allIds = new Set([
-      ...this.lastModifiedByItemId.keys(),
-      ...this.lastSnapshotAtByItemId.keys(),
-      ...this.baseVersionByItemId.keys(),
-      ...this.dirtyItems.keys(),
-    ])
-    for (const id of allIds) {
+    for (const id of new Set([...this.timestampsByItemId.keys(), ...this.dirtyItems.keys()])) {
       result.set(id, {
-        baseVersion: this.baseVersionByItemId.get(id) ?? 0,
+        baseVersion: this.timestampsByItemId.get(id)?.baseVersion ?? 0,
         isDirty: this.dirtyItems.has(id),
       })
     }
@@ -394,8 +376,8 @@ export class SnapshotTracker {
 
   async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
     for (const [itemId, version] of updates) {
-      const currentVersion = this.baseVersionByItemId.get(itemId) ?? 0
-      this.baseVersionByItemId.set(itemId, Math.max(currentVersion, version))
+      const entry = this.timestamps(itemId)
+      entry.baseVersion = Math.max(entry.baseVersion ?? 0, version)
     }
     await this.persistLastModified()
   }
@@ -404,9 +386,7 @@ export class SnapshotTracker {
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()
     this.dirtyItems.clear()
-    this.lastModifiedByItemId.clear()
-    this.lastSnapshotAtByItemId.clear()
-    this.baseVersionByItemId.clear()
+    this.timestampsByItemId.clear()
     this.loadGuard.clear()
   }
 

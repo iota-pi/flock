@@ -105,18 +105,10 @@ export class SnapshotPusher {
     this.cancelRetry()
   }
 
+  /** Starts a push, or asks for another to follow the one already running */
   async triggerSnapshotPush(): Promise<SnapshotPushResult> {
-    if (!this.tracker.isOperational) {
-      return { persisted: 0, total: 0 }
-    }
-    this.cancelRetry()
-    if (this.pushGuard.isRunning) {
-      this.pendingPushRequested = true
-      const res = await this.pushGuard.waitForRunning()
-      return { persisted: res?.persisted ?? 0, total: res?.total ?? 0 }
-    }
-
-    return this.pushSnapshots()
+    const { persisted, total } = await this.startPush()
+    return { persisted, total }
   }
 
   scheduleRetry(): void {
@@ -132,7 +124,7 @@ export class SnapshotPusher {
 
     this.retryTimer.schedule(delayMs, () => {
       if (this.tracker.dirtyCount > 0) {
-        fireAndForget(this.pushSnapshots(), 'SnapshotPusher:scheduleRetry')
+        fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:scheduleRetry')
       }
     })
   }
@@ -170,9 +162,6 @@ export class SnapshotPusher {
     persisted: number
     results?: Array<{ itemId: ItemId; version: number }>
   }> {
-    if (batch.length === 0) {
-      return { success: true, responded: true, persisted: 0 }
-    }
     try {
       const response = await this.apiClient.putSnapshots(
         {
@@ -220,16 +209,14 @@ export class SnapshotPusher {
         message: `Snapshot sync failed for item ${itemId}: ${detailedReason}. Changes are stored locally only.`,
       })
 
-      if (this.accountId) {
-        try {
-          await this.recoveryManager.quarantine(
-            itemId,
-            'snapshotFailure',
-            `Snapshot failure: ${detailedReason}`,
-          )
-        } catch (recoveryError) {
-          log.error('Failed to record manual recovery entry', recoveryError)
-        }
+      try {
+        await this.recoveryManager.quarantine(
+          itemId,
+          'snapshotFailure',
+          `Snapshot failure: ${detailedReason}`,
+        )
+      } catch (recoveryError) {
+        log.error('Failed to record manual recovery entry', recoveryError)
       }
     } else {
       this.consecutiveFailures.set(itemId, failures)
@@ -323,12 +310,14 @@ export class SnapshotPusher {
       this.consecutiveFailures.delete(item.snapshot.itemId)
       const assignedVersion = versionsMap?.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
-      // Tombstones deliberately carry no heads: the server does not hold the document state
+      // Tombstones deliberately carry no heads: the server does not hold the document state.
+      // Setting the heads also clears snapshot-only and unblocks the item.
       if (item.heads && item.heads.length > 0) {
         this.broker.setSyncedHeads(item.snapshot.itemId, item.heads)
+      } else {
+        this.broker.clearSnapshotOnlyItem(item.snapshot.itemId)
+        this.broker.unblockItem(item.snapshot.itemId)
       }
-      this.broker.clearSnapshotOnlyItem(item.snapshot.itemId)
-      this.broker.unblockItem(item.snapshot.itemId)
       fireAndForget(
         this.recoveryManager.unquarantine(item.snapshot.itemId),
         'SnapshotPusher:unquarantine',
@@ -340,9 +329,6 @@ export class SnapshotPusher {
     batch: PreparedSnapshotItem[],
     signal?: AbortSignal,
   ): Promise<{ success: boolean; responded: boolean; persisted: number }> {
-    if (batch.length === 0) {
-      return { success: true, responded: true, persisted: 0 }
-    }
     const result = await this.sendSnapshotBatch(
       batch.map(b => b.snapshot),
       signal,
@@ -391,6 +377,19 @@ export class SnapshotPusher {
       calculateSize: item => this.builder.estimateSize(item.snapshot),
     })
 
+    /** Sends the accumulated batch, returning whether the server answered */
+    const flushAccumulated = async (): Promise<boolean> => {
+      const batch = accumulator.drain()
+      total += batch.length
+      checkAlive(signal, () => this.tracker.isOperational)
+      const result = await this.flushBatch(batch, signal)
+      persisted += result.persisted
+      if (!result.success) {
+        success = false
+      }
+      return result.responded
+    }
+
     for (const itemId of dirtyItemIds) {
       checkAlive(signal, () => this.tracker.isOperational)
       const prepared = await this.prepareItemForPush(itemId, snapshotCursor)
@@ -406,16 +405,8 @@ export class SnapshotPusher {
       }
 
       if (accumulator.wouldExceed(prepared.size) && !accumulator.isEmpty) {
-        const batch = accumulator.drain()
-        total += batch.length
-        checkAlive(signal, () => this.tracker.isOperational)
-        const result = await this.flushBatch(batch, signal)
-        persisted += result.persisted
-        if (!result.success) {
-          success = false
-        }
         // A batch the server answered can fail for its own items only; later batches still go
-        if (!result.responded) {
+        if (!await flushAccumulated()) {
           sendFailed = true
           break
         }
@@ -426,32 +417,19 @@ export class SnapshotPusher {
 
     // Flush any remaining items in the accumulator
     if (!sendFailed && !accumulator.isEmpty) {
-      const batch = accumulator.drain()
-      total += batch.length
-      checkAlive(signal, () => this.tracker.isOperational)
-      const result = await this.flushBatch(batch, signal)
-      persisted += result.persisted
-      if (!result.success) {
-        success = false
-      }
+      await flushAccumulated()
     }
 
     return { persisted, total, success }
   }
 
-  private startPush(): Promise<SnapshotPushOutcome> {
+  /** Runs a push, or coalesces onto the running one and asks for another to follow it */
+  private async startPush(): Promise<SnapshotPushOutcome> {
     if (!this.tracker.isOperational) {
-      return Promise.resolve({ persisted: 0, total: 0, success: true })
+      return { persisted: 0, total: 0, success: true }
     }
+    this.cancelRetry()
 
-    if (!this.pushGuard.isRunning) {
-      this.cancelRetry()
-    }
-
-    return this.runPush()
-  }
-
-  private async runPush(): Promise<SnapshotPushOutcome> {
     // Only set when this call ran the push rather than coalescing onto one
     let settledSuccess: boolean | null = null
     const result = await this.pushGuard.run(
@@ -469,14 +447,6 @@ export class SnapshotPusher {
       this.handlePostPushScheduling(settledSuccess)
     }
     return result
-  }
-
-  async pushSnapshots(): Promise<SnapshotPushResult> {
-    if (!this.tracker.isOperational) {
-      return { persisted: 0, total: 0 }
-    }
-    const res = await this.startPush()
-    return { persisted: res.persisted, total: res.total }
   }
 
   private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushOutcome> {
@@ -555,24 +525,17 @@ export class SnapshotPusher {
     let total = 0
 
     while (this.pushGuard.isRunning || this.tracker.dirtyCount > 0) {
-      if (this.pushGuard.isRunning) {
-        const result = await this.pushGuard.waitForRunning()
-        if (result) {
-          persisted += result.persisted
-          total += result.total
-          if (!result.success || (result.persisted === 0 && this.tracker.dirtyCount > 0)) {
-            break
-          }
-        } else {
-          break
-        }
-      } else {
-        const result = await this.startPush()
-        persisted += result.persisted
-        total += result.total
-        if (!result.success || (result.persisted === 0 && this.tracker.dirtyCount > 0)) {
-          break
-        }
+      // Waits on a running push without asking for a follow-up; flushing loops on its own
+      const result = this.pushGuard.isRunning
+        ? await this.pushGuard.waitForRunning()
+        : await this.startPush()
+      if (!result) {
+        break
+      }
+      persisted += result.persisted
+      total += result.total
+      if (!result.success || (result.persisted === 0 && this.tracker.dirtyCount > 0)) {
+        break
       }
     }
 

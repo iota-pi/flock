@@ -1,9 +1,10 @@
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { SnapshotManager } from './SnapshotManager'
+import type { SnapshotTracker } from './SnapshotTracker'
 import { RecoveryManager } from './RecoveryManager'
 import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
-import { LastModifiedStore } from './stores/LastModifiedStore'
+import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
@@ -28,6 +29,12 @@ const vault = {
   }),
 }
 const keys = createMockKeyProvider(vault)
+
+/** Sets some of an item's tracked timestamps directly */
+function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Partial<ItemSyncTimestamps>): void {
+  const byItemId = tracker['timestampsByItemId']
+  byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
+}
 
 function createMockBroker() {
   return {
@@ -1316,7 +1323,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     describe('importLastModified preserves dirty state (B5 fix)', () => {
-      it('merges new items into lastModifiedByItemId without purging existing items', async () => {
+      it('merges new items into the tracked timestamps without purging existing items', async () => {
         await manager.importLastModified([['item-1' as ItemId, 1000]])
         await manager.importLastModified([['item-2' as ItemId, 2000]])
 
@@ -1328,7 +1335,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       it('preserves lastSnapshotAt for unsaved dirty items', async () => {
         // item-1 has local edits (localMod: 5000 > lastSnap: 2000)
-        manager['tracker'].lastSnapshotAtByItemId.set('item-1' as ItemId, 2000)
+        setTimestamps(manager['tracker'], 'item-1', { lastSnapshotAt: 2000 })
         vi.setSystemTime(5000)
         manager.markItemDirty('item-1' as ItemId)
 
@@ -1350,8 +1357,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
 
       it('advances lastSnapshotAt when mod is strictly newer than localModifiedAt', async () => {
-        manager['tracker'].lastModifiedByItemId.set('item-1' as ItemId, 2000)
-        manager['tracker'].lastSnapshotAtByItemId.set('item-1' as ItemId, 1000)
+        setTimestamps(manager['tracker'], 'item-1', { localModifiedAt: 2000, lastSnapshotAt: 1000 })
 
         await manager.importLastModified([['item-1' as ItemId, 3000]])
 
@@ -1361,8 +1367,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       it('ensures startup dirty audit re-enqueues unsaved offline edits after ManifestSync updates other items', async () => {
         // 1. item-offline has local edits (localMod: 5000, lastSnap: 1000)
-        manager['tracker'].lastModifiedByItemId.set('item-offline' as ItemId, 5000)
-        manager['tracker'].lastSnapshotAtByItemId.set('item-offline' as ItemId, 1000)
+        setTimestamps(manager['tracker'], 'item-offline', { localModifiedAt: 5000, lastSnapshotAt: 1000 })
 
         // 2. ManifestSync imports updates for another item
         await manager.importLastModified([['item-server' as ItemId, 2500]])
