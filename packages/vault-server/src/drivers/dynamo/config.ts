@@ -14,13 +14,16 @@ const TABLE_NAME_ENV_VARS: Record<keyof VaultTableNames, string> = {
 
 /**
  * Resolves table names from explicit options, falling back to the ACCOUNTS_TABLE, ITEMS_TABLE
- * and SYNC_MESSAGES_TABLE environment variables.
+ * and SYNC_MESSAGES_TABLE environment variables, then to `defaults`.
  */
-export function resolveVaultTableNames(tables: Partial<VaultTableNames> = {}): VaultTableNames {
+export function resolveVaultTableNames(
+  tables: Partial<VaultTableNames> = {},
+  defaults: Partial<VaultTableNames> = {},
+): VaultTableNames {
   const resolved = {} as VaultTableNames
   for (const key of Object.keys(TABLE_NAME_ENV_VARS) as Array<keyof VaultTableNames>) {
     const envVar = TABLE_NAME_ENV_VARS[key]
-    const name = tables[key] ?? process.env[envVar]
+    const name = tables[key] ?? (process.env[envVar] || defaults[key])
     if (!name) {
       throw new Error(`Missing DynamoDB table name for "${key}". Pass it to DynamoDriver or set ${envVar}.`)
     }
