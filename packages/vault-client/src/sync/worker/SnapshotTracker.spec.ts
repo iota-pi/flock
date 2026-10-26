@@ -1,6 +1,12 @@
 import { SnapshotTracker } from './SnapshotTracker'
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
-import { LastModifiedStore } from './stores/LastModifiedStore'
+import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
+
+/** Sets some of an item's tracked timestamps directly */
+function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Partial<ItemSyncTimestamps>): void {
+  const byItemId = tracker['timestampsByItemId']
+  byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
+}
 
 describe('SnapshotTracker', () => {
   let tracker: SnapshotTracker
@@ -20,7 +26,6 @@ describe('SnapshotTracker', () => {
     }
 
     tracker = new SnapshotTracker({
-      accountId: 'test-acc',
       lastModifiedStore: mockStore as unknown as LastModifiedStore,
       recoveryManager: mockRecoveryManager,
       debounceDelayMs: 1000,
@@ -103,9 +108,9 @@ describe('SnapshotTracker', () => {
       { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'pushFailure' },
     ])
 
-    const { auditCount, oversizedItemIds } = await tracker.loadLastModified()
+    const oversizedItemIds = await tracker.loadLastModified()
 
-    expect(auditCount).toBe(1) // Only item-clean restored
+    expect(tracker.dirtyCount).toBe(1) // Only item-clean restored
     expect(tracker.hasDirty('item-clean' as ItemId)).toBe(true)
     expect(tracker.hasDirty('item-synced' as ItemId)).toBe(false)
     expect(tracker.hasDirty('item-quarantined' as ItemId)).toBe(false)
@@ -147,7 +152,7 @@ describe('SnapshotTracker', () => {
   })
 
   it('exports and imports last modified timestamps properly', async () => {
-    tracker.lastModifiedByItemId.set('item-1' as ItemId, 1000)
+    setTimestamps(tracker, 'item-1', { localModifiedAt: 1000 })
     tracker.recordSnapshotSuccess('item-2' as ItemId, 2000, 0)
 
     const exported = tracker.exportLastModified()
@@ -159,7 +164,6 @@ describe('SnapshotTracker', () => {
     )
 
     const newTracker = new SnapshotTracker({
-      accountId: 'test-acc',
       lastModifiedStore: mockStore as unknown as LastModifiedStore,
       recoveryManager: mockRecoveryManager,
     })
@@ -172,8 +176,7 @@ describe('SnapshotTracker', () => {
   describe('importLastModified', () => {
     it('marks a non-dirty item as in sync even when its stored localModifiedAt is newer', async () => {
       // e.g. a stale timestamp left behind by a remote change
-      tracker.lastModifiedByItemId.set('item-1' as ItemId, 9000)
-      tracker.lastSnapshotAtByItemId.set('item-1' as ItemId, 1000)
+      setTimestamps(tracker, 'item-1', { localModifiedAt: 9000, lastSnapshotAt: 1000 })
 
       await tracker.importLastModified([['item-1' as ItemId, 5000]])
 
@@ -181,13 +184,13 @@ describe('SnapshotTracker', () => {
       expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(5000)
 
       mockStore.loadTimestamps.mockResolvedValue([])
-      const { auditCount } = await tracker.loadLastModified()
-      expect(auditCount).toBe(0)
+      await tracker.loadLastModified()
+      expect(tracker.dirtyCount).toBe(0)
       expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
     })
 
     it('keeps a dirty item pending upload', async () => {
-      tracker.lastSnapshotAtByItemId.set('item-1' as ItemId, 1000)
+      setTimestamps(tracker, 'item-1', { lastSnapshotAt: 1000 })
       vi.setSystemTime(9000)
       tracker.markItemDirty('item-1' as ItemId)
 
@@ -225,8 +228,8 @@ describe('SnapshotTracker', () => {
       mockStore.loadTimestamps.mockResolvedValue([
         ['item-1' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 5000 }],
       ])
-      const { auditCount } = await tracker.loadLastModified()
-      expect(auditCount).toBe(0)
+      await tracker.loadLastModified()
+      expect(tracker.dirtyCount).toBe(0)
       expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
     })
 
@@ -245,7 +248,6 @@ describe('SnapshotTracker', () => {
         }),
       } as unknown as LastModifiedStore
       const makeTracker = (isLeader: boolean) => new SnapshotTracker({
-        accountId: 'test-acc',
         lastModifiedStore: sharedStore,
         recoveryManager: mockRecoveryManager,
         isLeader,
@@ -257,9 +259,8 @@ describe('SnapshotTracker', () => {
       leader.recordSnapshotSuccess('item-1' as ItemId, 2000, 0, 5)
       leader.recordSnapshotSuccess('item-2' as ItemId, 2000, 0, 3)
       await leader.persistLastModified()
-      follower.lastModifiedByItemId.set('item-1' as ItemId, 1000)
-      follower.lastSnapshotAtByItemId.set('item-1' as ItemId, 500)
-      follower.lastModifiedByItemId.set('item-3' as ItemId, 3000)
+      setTimestamps(follower, 'item-1', { localModifiedAt: 1000, lastSnapshotAt: 500 })
+      setTimestamps(follower, 'item-3', { localModifiedAt: 3000 })
       await follower.persistLastModified()
 
       const byId = new Map(stored)
