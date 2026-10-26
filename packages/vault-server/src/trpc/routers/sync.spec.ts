@@ -362,7 +362,6 @@ describe('pollSync behavior and account isolation', () => {
         account: 'target-account',
         itemId: 'item-1',
         fromCursor: 200,
-        limit: 200,
         pageToken: itemToken,
       })
       expect(result.pullResults).toHaveLength(1)
