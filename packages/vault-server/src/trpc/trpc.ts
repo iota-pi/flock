@@ -1,7 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
-import type BaseDriver from '../drivers/base'
-import type { VaultAccountWithAuth } from '../drivers/base'
+import type { VaultAccountWithAuth, VaultDriver } from '../drivers/vaultDriver'
 import {
   AccountInputSchema,
   CLIENT_OUTDATED_MESSAGE,
@@ -10,24 +9,14 @@ import {
 } from '@vault/shared'
 import type { KdfParams } from '@vault/shared'
 import type { DataVersionPolicy } from '../services/dataVersion'
-import { AuthenticationError } from '../drivers/errors'
-import { isSessionFor, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
-
-export function shouldRenewSession(
-  accountData: Pick<VaultAccountWithAuth, 'sessions'>,
-  authToken: string,
-  now = Date.now(),
-): boolean {
-  const currentSession = accountData.sessions?.find(s => isSessionFor(s, authToken))
-
-  if (!currentSession || !Number.isFinite(currentSession.expiry)) {
-    return true
-  }
-
-  return currentSession.expiry - now < SESSION_RENEWAL_THRESHOLD_MS
-}
+import { AuthenticationError } from '../errors'
+import { authenticateSession } from '../authentication'
+import { shouldRenewSession } from '../sessions'
+import { toTrpcError } from './errors'
 
 export interface VaultServerOptions {
+  /** The storage every request runs on */
+  vault: VaultDriver
   /**
    * Writes from builds below this protocol version are rejected with `CLIENT_OUTDATED_MESSAGE`,
    * which makes the client update itself. Raise it to retire server code that only old builds need.
@@ -54,10 +43,10 @@ export interface UnknownAccountParams {
 
 type TrpcContext = {
   authToken: string,
-  vault: BaseDriver,
+  vault: VaultDriver,
   /** The protocol version the client sent (0 for builds that predate the header) */
-  protocolVersion?: number,
-  minProtocolVersion?: number,
+  protocolVersion: number,
+  minProtocolVersion: number,
   dataVersionPolicy?: DataVersionPolicy,
   unknownAccountParams?: UnknownAccountParams,
 }
@@ -73,14 +62,13 @@ function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
   return latestHeaderValue.replace(/^[a-z]+\s+/i, '').trim()
 }
 
-export function createVaultContext(options: VaultServerOptions = {}) {
+export function createVaultContext(options: VaultServerOptions) {
   return ({ req }: CreateFastifyContextOptions): TrpcContext => {
     const authToken = getTokenFromAuthorizationHeader(req.headers.authorization)
-    const serverWithVault = req.server as typeof req.server & { vault: BaseDriver }
 
     return {
       authToken,
-      vault: serverWithVault.vault,
+      vault: options.vault,
       protocolVersion: parseProtocolVersion(req.headers[PROTOCOL_VERSION_HEADER]),
       minProtocolVersion: options.minProtocolVersion ?? 0,
       dataVersionPolicy: options.dataVersionPolicy,
@@ -96,8 +84,7 @@ export const mergeRouters = t.mergeRouters
 
 /** Rejects writes from builds below the minimum protocol version. Reads stay open to them. */
 export const publicProcedure = t.procedure.use(({ ctx, type, next }) => {
-  const minProtocolVersion = ctx.minProtocolVersion ?? 0
-  if (type === 'mutation' && (ctx.protocolVersion ?? 0) < minProtocolVersion) {
+  if (type === 'mutation' && ctx.protocolVersion < ctx.minProtocolVersion) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: CLIENT_OUTDATED_MESSAGE })
   }
   return next()
@@ -112,23 +99,14 @@ export const protectedProcedure = publicProcedure
 
     const { account } = input
 
+    // A failed read (such as a DynamoDB timeout) is a server error: reporting it as UNAUTHORIZED
+    // would make the client drop its session
+    const record = await ctx.vault.getAccountRecord({ account })
     let accountData: VaultAccountWithAuth
     try {
-      accountData = await ctx.vault.getAccount({
-        account,
-        session: ctx.authToken,
-      })
+      accountData = authenticateSession(record, ctx.authToken)
     } catch (error) {
-      // Anything else (such as a DynamoDB timeout) is a server error: reporting it as UNAUTHORIZED
-      // would make the client drop its session
-      if (error instanceof AuthenticationError) {
-        throw new TRPCError({ code: 'UNAUTHORIZED' })
-      }
-      throw error
-    }
-
-    if (!accountData) {
-      throw new TRPCError({ code: 'UNAUTHORIZED' })
+      throw toTrpcError(error, [{ error: AuthenticationError, code: 'UNAUTHORIZED' }])
     }
 
     let extendSessionPromise: Promise<void> | null = null

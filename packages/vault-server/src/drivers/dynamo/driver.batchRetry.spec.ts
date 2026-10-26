@@ -6,7 +6,7 @@ import {
   ThrottlingException,
   TransactionConflictException,
 } from '@aws-sdk/client-dynamodb'
-import DynamoDriver from './dynamo'
+import DynamoDriver from './driver'
 import { isTransientDynamoError } from './dynamoErrors'
 
 describe('isTransientDynamoError', () => {

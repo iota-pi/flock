@@ -13,9 +13,19 @@ import {
 import { fakeSalt, hashString, safeEqual } from '../../util'
 import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 import { raiseDataVersion } from '../../services/dataVersion'
-import { AuthenticationError, TooManyLoginAttemptsError } from '../../drivers/errors'
+import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
+import { authenticateLogin } from '../../authentication'
+import { toTrpcError } from '../errors'
+import type { VaultAccountWithAuth } from '../../drivers/vaultDriver'
 
 const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
+
+/** Credential changes need the current password as well as the session */
+function assertCurrentAuthToken(accountData: VaultAccountWithAuth, currentAuthToken: string): void {
+  if (!safeEqual(accountData.authToken, hashString(currentAuthToken))) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
+  }
+}
 
 export const accountsRouter = router({
   createAccount: publicProcedure
@@ -44,24 +54,20 @@ export const accountsRouter = router({
   login: publicProcedure
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
+      const record = await ctx.vault.getAccountRecord({ account: input.account })
       try {
-        await ctx.vault.getAccount({
-          account: input.account,
-          session: hashString(input.authToken),
-          isLogin: true,
-        })
+        authenticateLogin(record, hashString(input.authToken))
       } catch (error) {
-        if (error instanceof TooManyLoginAttemptsError) {
-          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE })
-        }
         if (error instanceof AuthenticationError) {
           // Failing to count it mustn't turn a wrong password into a server error
           await ctx.vault.recordFailedLogin({ account: input.account }).catch(countError => {
             console.warn('[accounts.login] Could not count a failed login:', countError)
           })
-          throw new TRPCError({ code: 'UNAUTHORIZED' })
         }
-        throw error
+        throw toTrpcError(error, [
+          { error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE },
+          { error: AuthenticationError, code: 'UNAUTHORIZED' },
+        ])
       }
 
       // The driver adds it with a conditional write, so concurrent logins don't drop each other's sessions
@@ -138,29 +144,19 @@ export const accountsRouter = router({
   updateKeyring: protectedProcedure
     .input(UpdateKeyringBodySchema)
     .mutation(async ({ ctx, input }) => {
-      if (!safeEqual(ctx.accountData.authToken, hashString(input.currentAuthToken))) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
-      }
+      assertCurrentAuthToken(ctx.accountData, input.currentAuthToken)
 
       try {
         await ctx.vault.updateAccountData({
           account: input.account,
           keyring: input.keyring,
-          ...(typeof input.keyringVersion === 'number'
-            ? { keyringVersion: input.keyringVersion }
-            : {}),
-          ...(typeof input.expectedKeyringVersion === 'number'
-            ? { expectedKeyringVersion: input.expectedKeyringVersion }
-            : {}),
+          keyringVersion: input.keyringVersion,
+          expectedKeyringVersion: input.expectedKeyringVersion,
         })
-      } catch (err) {
-        if (err instanceof VersionConflictError) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'Concurrent key rotation detected: keyringVersion conflict',
-          })
-        }
-        throw err
+      } catch (error) {
+        throw toTrpcError(error, [
+          { error: VersionConflictError, code: 'CONFLICT', message: 'Concurrent key rotation detected: keyringVersion conflict' },
+        ])
       }
 
       return { success: true }
@@ -171,10 +167,7 @@ export const accountsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const accountData = ctx.accountData
 
-      const currentAuthTokenHash = hashString(input.currentAuthToken)
-      if (!safeEqual(accountData.authToken, currentAuthTokenHash)) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
-      }
+      assertCurrentAuthToken(accountData, input.currentAuthToken)
 
       const newAuthTokenHash = hashString(input.newAuthToken)
 
@@ -190,22 +183,14 @@ export const accountsRouter = router({
           kdf: input.newKdf,
           keyring: input.newKeyring,
           saltVersion: input.saltVersion,
-          ...(typeof input.keyringVersion === 'number'
-            ? { keyringVersion: input.keyringVersion }
-            : {}),
-          ...(typeof input.expectedKeyringVersion === 'number'
-            ? { expectedKeyringVersion: input.expectedKeyringVersion }
-            : {}),
+          keyringVersion: input.keyringVersion,
+          expectedKeyringVersion: input.expectedKeyringVersion,
           sessions: [{ token: hashSessionToken(ctx.authToken), expiry: currentSessionExpiry }],
         })
-      } catch (err) {
-        if (err instanceof VersionConflictError) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'Concurrent credential update detected: keyringVersion conflict',
-          })
-        }
-        throw err
+      } catch (error) {
+        throw toTrpcError(error, [
+          { error: VersionConflictError, code: 'CONFLICT', message: 'Concurrent credential update detected: keyringVersion conflict' },
+        ])
       }
 
       return { success: true }

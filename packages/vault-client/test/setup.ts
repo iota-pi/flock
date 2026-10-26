@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { configureVaultStorageNames, createVaultStorageNames } from '../src/sync/shared/storageNames'
-import { enableTestKeyDerivation } from '../src/api/kdf'
+import { enableTestKeyDerivation } from '@vault/shared'
 
 globalThis.isSecureContext = true
 

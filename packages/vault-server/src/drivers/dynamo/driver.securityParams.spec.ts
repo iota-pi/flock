@@ -1,4 +1,4 @@
-import DynamoDriver from './dynamo'
+import DynamoDriver from './driver'
 import { GetCommand } from '@aws-sdk/lib-dynamodb'
 
 describe('DynamoDriver.getSecurityParams', () => {

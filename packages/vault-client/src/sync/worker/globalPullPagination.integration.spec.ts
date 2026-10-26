@@ -1,6 +1,6 @@
 import type { ItemId } from '@vault/shared'
 import type { StoredSyncMessage } from '@vault/server'
-import { syncRouter } from '@vault/server'
+import { hashSessionToken, SESSION_EXPIRY_MS, syncRouter } from '@vault/server'
 import { SyncPoller } from './SyncPoller'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
@@ -33,9 +33,9 @@ function createInMemoryVault(rows: StoredRow[]) {
 
   return {
     extendSession: vi.fn(async () => undefined),
-    getAccount: vi.fn(async ({ account, session }: { account: string; session: string }) => ({
+    getAccountRecord: vi.fn(async ({ account }: { account: string }) => ({
       account,
-      sessions: [{ token: session, expires: Date.now() + 60_000 }],
+      sessions: [{ token: hashSessionToken('session-token'), expiry: Date.now() + SESSION_EXPIRY_MS }],
     })),
     pushSyncMessagesBatch: vi.fn(async () => undefined),
     validatePageToken: vi.fn(),

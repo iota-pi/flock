@@ -1,22 +1,20 @@
 import { itemsRouter } from './items'
-import { AuthenticationError } from '../../drivers/errors'
+import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
   const sessionValid = overrides?.sessionValid ?? true
+  const authToken = overrides?.authToken ?? 'session-token'
   const vault = {
-    getAccount: vi.fn(async () => {
-      if (!sessionValid) {
-        throw new AuthenticationError('Unauthorized')
-      }
-      return { account: 'acct-1', metadata: {} } as any
-    }),
+    getAccountRecord: vi.fn(async () => (sessionValid
+      ? { account: 'acct-1', metadata: {}, sessions: [{ token: hashSessionToken(authToken), expiry: Date.now() + SESSION_EXPIRY_MS }] } as any
+      : undefined)),
     extendSession: vi.fn(async () => undefined),
     set: vi.fn(async () => ({ version: 1 })),
     updateAccountData: vi.fn(async () => undefined),
   }
 
   return {
-    authToken: overrides?.authToken ?? 'session-token',
+    authToken,
     vault,
   }
 }

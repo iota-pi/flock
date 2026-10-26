@@ -1,7 +1,8 @@
 import { accountsRouter } from './accounts'
-import { AuthenticationError, TooManyLoginAttemptsError } from '../../drivers/errors'
+import { AuthenticationError } from '../../errors'
 import { fakeSalt, hashString } from '../../util'
-import { hashSessionToken } from '../../sessions'
+import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
+import { MAX_FAILED_LOGINS } from '../../loginThrottle'
 import { VersionConflictError } from '@vault/shared'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
@@ -16,6 +17,17 @@ const NEW_ACCOUNT = {
 
 /** What the client sends as proof of the master key, and the hash the server stores of it */
 const CURRENT_AUTH_TOKEN = 'current-auth-token'
+const SESSION_TOKEN = 'session-token'
+const SESSION_EXPIRY = Date.now() + SESSION_EXPIRY_MS
+
+/** A stored account record with an active session for SESSION_TOKEN */
+function storedAccount(fields: Record<string, unknown> = {}) {
+  return {
+    account: 'acct-1',
+    ...fields,
+    sessions: [{ token: hashSessionToken(SESSION_TOKEN), expiry: SESSION_EXPIRY }],
+  }
+}
 
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
   const sessionValid = overrides?.sessionValid ?? true
@@ -24,19 +36,18 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     createAccount: vi.fn(async () => true),
     updateAccountData: vi.fn(async () => undefined),
     getAccountSalt: vi.fn(async () => 'salt-1'),
-    getAccount: vi.fn(async () => {
-      if (!sessionValid) {
-        throw new AuthenticationError('Unauthorized')
-      }
-      return { metadata: { theme: 'light' }, authToken: hashString(CURRENT_AUTH_TOKEN) }
-    }),
+    getAccountRecord: vi.fn(async () => (
+      sessionValid
+        ? storedAccount({ metadata: { theme: 'light' }, authToken: hashString(CURRENT_AUTH_TOKEN) })
+        : undefined
+    )),
     extendSession: vi.fn(async () => undefined),
     addSession: vi.fn(async () => undefined),
     recordFailedLogin: vi.fn(async () => undefined),
   }
 
   return {
-    authToken: overrides?.authToken ?? 'session-token',
+    authToken: overrides?.authToken ?? SESSION_TOKEN,
     vault,
   }
 }
@@ -50,16 +61,12 @@ describe('accountsRouter security contracts', () => {
     const ctx = createContext()
     const caller = accountsRouter.createCaller(ctx as any)
 
-    const result = await caller.login({ account: 'acct-1', authToken: 'secret-password' })
+    const result = await caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN })
 
     expect(result.success).toBe(true)
     expect(result.session).toBeTypeOf('string')
     expect(result.session.length).toBeGreaterThan(0)
-    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
-      account: 'acct-1',
-      session: hashString('secret-password'),
-      isLogin: true,
-    })
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledWith({ account: 'acct-1' })
     expect(ctx.vault.addSession).toHaveBeenCalledWith({
       account: 'acct-1',
       session: result.session,
@@ -70,7 +77,6 @@ describe('accountsRouter security contracts', () => {
 
   it('rejects a login with the wrong credentials as UNAUTHORIZED', async () => {
     const ctx = createContext()
-    ctx.vault.getAccount.mockRejectedValueOnce(new AuthenticationError('Could not find account acct-1'))
     const caller = accountsRouter.createCaller(ctx as any)
 
     await expect(caller.login({ account: 'acct-1', authToken: 'wrong' })).rejects.toMatchObject({
@@ -80,10 +86,19 @@ describe('accountsRouter security contracts', () => {
     expect(ctx.vault.recordFailedLogin).toHaveBeenCalledWith({ account: 'acct-1' })
   })
 
+  it('rejects a login to an account that does not exist as UNAUTHORIZED', async () => {
+    const ctx = createContext({ sessionValid: false })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+    expect(ctx.vault.addSession).not.toHaveBeenCalled()
+  })
+
   it('still reports a wrong password as UNAUTHORIZED when counting the failure fails', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const ctx = createContext()
-    ctx.vault.getAccount.mockRejectedValueOnce(new AuthenticationError('Could not find account acct-1'))
     ctx.vault.recordFailedLogin.mockRejectedValueOnce(new Error('DynamoDB timeout'))
     const caller = accountsRouter.createCaller(ctx as any)
 
@@ -94,10 +109,15 @@ describe('accountsRouter security contracts', () => {
 
   it('refuses logins to an account with too many failed logins as TOO_MANY_REQUESTS', async () => {
     const ctx = createContext()
-    ctx.vault.getAccount.mockRejectedValueOnce(new TooManyLoginAttemptsError('Too many failed logins'))
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
+      authToken: hashString(CURRENT_AUTH_TOKEN),
+      failedLogins: MAX_FAILED_LOGINS,
+      failedLoginsSince: Date.now(),
+    }) as any)
     const caller = accountsRouter.createCaller(ctx as any)
 
-    await expect(caller.login({ account: 'acct-1', authToken: 'secret-password' })).rejects.toMatchObject({
+    // Even with the right password
+    await expect(caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN })).rejects.toMatchObject({
       code: 'TOO_MANY_REQUESTS',
     })
     expect(ctx.vault.recordFailedLogin).not.toHaveBeenCalled()
@@ -107,10 +127,10 @@ describe('accountsRouter security contracts', () => {
 
   it('does not report a database failure during login as UNAUTHORIZED', async () => {
     const ctx = createContext()
-    ctx.vault.getAccount.mockRejectedValueOnce(new Error('DynamoDB timeout'))
+    ctx.vault.getAccountRecord.mockRejectedValueOnce(new Error('DynamoDB timeout'))
     const caller = accountsRouter.createCaller(ctx as any)
 
-    await expect(caller.login({ account: 'acct-1', authToken: 'secret-password' })).rejects.toMatchObject({
+    await expect(caller.login({ account: 'acct-1', authToken: CURRENT_AUTH_TOKEN })).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',
     })
   })
@@ -160,20 +180,17 @@ describe('accountsRouter security contracts', () => {
   it('allows fetching keyring when authorized', async () => {
     const ctx = createContext()
     const expectedKeyring = 'encrypted-keyring-data'
-    ctx.vault.getAccount.mockResolvedValueOnce({
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
       account: 'acct-1',
       keyring: expectedKeyring,
       salt: 'salt-1',
       iterations: 100000,
-    } as any)
+    }) as any)
     const caller = accountsRouter.createCaller(ctx as any)
 
     const result = await caller.getKeyring({ account: 'acct-1' })
     expect(result).toEqual({ success: true, keyring: expectedKeyring, randomDataKeys: false })
-    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
-      account: 'acct-1',
-      session: 'session-token',
-    })
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledWith({ account: 'acct-1' })
   })
 
   it('blocks unauthorized keyring access when auth token is missing', async () => {
@@ -284,13 +301,12 @@ describe('accountsRouter security contracts', () => {
 
     const serverStoredAuthToken = hashString(clientCurrentAuthToken)
 
-    ctx.vault.getAccount.mockResolvedValueOnce({
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
       account: 'acct-1',
       authToken: serverStoredAuthToken,
-      sessions: [{ token: 'session-token', expiry: 12345 }],
       salt: 'salt-1',
       iterations: 100000,
-    } as any)
+    }) as any)
     const caller = accountsRouter.createCaller(ctx as any)
 
     const result = await caller.changePassword({
@@ -310,7 +326,7 @@ describe('accountsRouter security contracts', () => {
       salt: 'new-salt',
       kdf: ARGON2ID,
       keyring: 'new-keyring',
-      sessions: [{ token: hashSessionToken('session-token'), expiry: 12345 }],
+      sessions: [{ token: hashSessionToken(SESSION_TOKEN), expiry: SESSION_EXPIRY }],
     })
   })
 
@@ -334,11 +350,10 @@ describe('accountsRouter security contracts', () => {
     const clientCurrentAuthToken = hashString('correct-password')
     const serverStoredAuthToken = hashString(clientCurrentAuthToken)
 
-    ctx.vault.getAccount.mockResolvedValueOnce({
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
       account: 'acct-1',
       authToken: serverStoredAuthToken,
-      sessions: [{ token: 'session-token', expiry: 12345 }],
-    } as any)
+    }) as any)
     const caller = accountsRouter.createCaller(ctx as any)
 
     await expect(caller.changePassword({
@@ -359,11 +374,10 @@ describe('accountsRouter security contracts', () => {
     const clientCurrentAuthToken = hashString('correct-password')
     const serverStoredAuthToken = hashString(clientCurrentAuthToken)
 
-    ctx.vault.getAccount.mockResolvedValueOnce({
+    ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
       account: 'acct-1',
       authToken: serverStoredAuthToken,
-      sessions: [{ token: 'session-token', expiry: 12345 }],
-    } as any)
+    }) as any)
 
     ctx.vault.updateAccountData.mockRejectedValueOnce(new VersionConflictError('keyringVersion has changed'))
     const caller = accountsRouter.createCaller(ctx as any)
@@ -382,23 +396,20 @@ describe('accountsRouter security contracts', () => {
     })
   })
 
-  describe('single getAccount round-trip efficiency in protectedProcedure', () => {
-    it('calls getAccount exactly once for getKeyring', async () => {
+  describe('single account read efficiency in protectedProcedure', () => {
+    it('reads the account exactly once for getKeyring', async () => {
       const ctx = createContext()
-      ctx.vault.getAccount.mockResolvedValueOnce({
+      ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
         account: 'acct-1',
         keyring: 'encrypted-keyring',
-      } as any)
+      }) as any)
       const caller = accountsRouter.createCaller(ctx as any)
 
       const result = await caller.getKeyring({ account: 'acct-1' })
 
       expect(result).toEqual({ success: true, keyring: 'encrypted-keyring', randomDataKeys: false })
-      expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
-      expect(ctx.vault.getAccount).toHaveBeenCalledWith({
-        account: 'acct-1',
-        session: 'session-token',
-      })
+      expect(ctx.vault.getAccountRecord).toHaveBeenCalledTimes(1)
+      expect(ctx.vault.getAccountRecord).toHaveBeenCalledWith({ account: 'acct-1' })
     })
   })
 
@@ -532,10 +543,10 @@ describe('accountsRouter security contracts', () => {
     it('does not check accounts already at the current data version', async () => {
       const ctx = createContext()
       const findBlockers = vi.fn(async () => ['unboundSnapshots'])
-      const getAccount = vi.fn(async () => ({ dataVersion: 2 }))
+      const getAccountRecord = vi.fn(async () => storedAccount({ dataVersion: 2 }))
       const caller = accountsRouter.createCaller({
         ...ctx,
-        vault: { ...ctx.vault, getAccount },
+        vault: { ...ctx.vault, getAccountRecord },
         dataVersionPolicy: { current: 2, findBlockers },
       } as any)
 
