@@ -13,6 +13,7 @@ import { resumePendingReencryption } from '../../api/reencrypt'
 import { getOnlineState } from '../utils/onlineStatus'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { noopTelemetry, type SyncStateSink, type SyncTelemetry } from './host'
+import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncBridge')
@@ -49,13 +50,13 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     this.telemetry = options.telemetry ?? noopTelemetry
     this.eventProcessor = new SyncEventProcessor<TDoc, TMeta>(this.sink, {
       onKeyVersionMissing: kver => {
-        void this.handleKeyringUpdate(kver)
+        fireAndForget(this.handleKeyringUpdate(kver), 'SyncBridge:handleKeyringUpdate')
       },
       onLocalDataUnavailable: details => {
-        void this.handleLocalDataUnavailable(details)
+        fireAndForget(this.handleLocalDataUnavailable(details), 'SyncBridge:handleLocalDataUnavailable')
       },
       onTokenRefreshNeeded: () => {
-        void this.handleTokenRefresh()
+        fireAndForget(this.handleTokenRefresh(), 'SyncBridge:handleTokenRefresh')
       },
       onActivity: () => {
         this.lifecycleManager.recordWorkerActivity()
@@ -98,7 +99,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       onReady: () => {
         this.localDataFailures.clear()
         this.stopLateSessionListener ??= onLateSession(() => {
-          void this.handleLateSession()
+          fireAndForget(this.handleLateSession(), 'SyncBridge:handleLateSession')
         })
         this.domListeners.start({
           setOnlineState: async isOnline => {
@@ -116,10 +117,10 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
           },
           onVisibilityHidden: () => {
             const api = this.lifecycleManager.getSyncApi()
-            if (api) void api.pushSnapshots()
+            if (api) fireAndForget(api.pushSnapshots(), 'SyncBridge:pushSnapshots')
           },
           onKeyringChange: () => {
-            void this.handleKeyringUpdate()
+            fireAndForget(this.handleKeyringUpdate(), 'SyncBridge:handleKeyringUpdate')
           },
         })
       },

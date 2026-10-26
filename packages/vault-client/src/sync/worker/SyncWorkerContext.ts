@@ -17,7 +17,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
-import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
+import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
@@ -411,7 +411,7 @@ export class SyncWorkerContext {
       onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       onDocumentReceived: docId => {
         const itemId = toVaultItemIdFromAutomergeId(docId)
-        if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+        if (itemId && !isIndexDocument(itemId)) {
           this.config.onDocumentReceived?.(itemId)
         }
       },

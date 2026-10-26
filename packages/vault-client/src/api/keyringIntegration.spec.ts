@@ -20,9 +20,9 @@ import { getVaultStorageNames } from '../sync/shared/storageNames'
 import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 
-import { updateKeyring, getKeyring, getSession } from './client'
+import { updateKeyring, getKeyring, getSession } from './AccountClient'
 
-vi.mock('./client', () => ({
+vi.mock('./AccountClient', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
   createAccount: vi.fn(),
   getSecurityParams: vi.fn(),

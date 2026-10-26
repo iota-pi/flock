@@ -1,12 +1,13 @@
 import { getVaultTrpcClient } from './vaultTrpcClient'
 import { assertSuccess } from './clientUtils'
-import type {
-  AccountCreationResponse,
-  CreateAccountBody,
-} from './clientTypes'
-import type { KdfParams } from '@vault/shared'
+import type { z } from 'zod'
+import type { AccountCreationResponseSchema, CreateAccountBodySchema, KdfParams } from '@vault/shared'
 import { getLegacyPbkdf2Iterations } from './kdf'
 import { retryTransientFailures } from './requestRetry'
+
+type CreateAccountBody = z.infer<typeof CreateAccountBodySchema>
+
+type AccountCreationResponse = z.infer<typeof AccountCreationResponseSchema>
 
 export async function createAccount(
   { salt, authToken, saltVersion, kdf, keyring, randomDataKeys }: CreateAccountBody,

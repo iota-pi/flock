@@ -1,7 +1,7 @@
 import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
 import { createLogger } from '../sync/utils/logger'
 import { SingleFlightGuard } from '../sync/utils/SingleFlightGuard'
-import { getSession } from './client'
+import { getSession } from './AccountClient'
 import { setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import { readStoredMetadata } from './storedMetadata'
 import { getHostHooks } from './vaultHost'

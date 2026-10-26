@@ -4,7 +4,7 @@ import {
   type PeerId,
   type PeerMetadata,
 } from '@automerge/automerge-repo/slim'
-import { BoundedQueue } from '../utils/boundedCollections'
+import { BoundedQueue } from '../utils/BoundedQueue'
 
 export const DEFAULT_MAX_OUTBOUND_QUEUE_SIZE = 1000
 

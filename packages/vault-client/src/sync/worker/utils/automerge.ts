@@ -14,6 +14,11 @@ export type IndexDocId = string & $brand<'IndexDocId'>
 export const ACCOUNT_INDEX_DOCUMENT_ID = '__account_index__' as IndexDocId
 export type BackupDocId = ItemId | IndexDocId
 
+/** Whether an ID names the account item index rather than an item */
+export function isIndexDocument(id: string): boolean {
+  return id === ACCOUNT_INDEX_DOCUMENT_ID
+}
+
 export function readObjectSnapshot<TDoc extends object>(
   handle: DocHandle<TDoc>,
 ): TDoc | null {
