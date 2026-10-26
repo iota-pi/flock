@@ -14,7 +14,7 @@ import {
 } from './BaseSyncNetworkAdapter'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
-import { WorkerInternalEventHub } from './SyncEventHub'
+import type { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedSet } from '../utils/boundedCollections'
 import { RetryTimer } from '../utils/RetryTimer'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -61,13 +61,10 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
    */
   private hasUnsavedSyncedHeads = false
   private headsValidator: HeadsValidator | null = null
-  private readonly internalEventHub: WorkerInternalEventHub
-
-  constructor(internalEventHub?: WorkerInternalEventHub) {
+  constructor(private readonly internalEventHub: WorkerInternalEventHub) {
     super({
       maxOutboundQueueSize: MAX_OUTBOUND_QUEUE_SIZE,
     })
-    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
   public get eventHub(): WorkerInternalEventHub {

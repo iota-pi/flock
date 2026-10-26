@@ -1,5 +1,7 @@
 import { ItemReencryptor, type ItemReencryptorOptions } from './reencryptAllItems'
 import { RecoveryManager } from './RecoveryManager'
+import { ClientEventHub } from './SyncEventHub'
+import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { BuildSnapshotResult } from './snapshotBuilder'
@@ -53,7 +55,8 @@ function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencry
     repo: {} as any,
     indexManager: {} as any,
     apiClient: new SyncApiClient(),
-    recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
+    recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
+    codec: passthroughCodec,
     keys,
     ...overrides,
   }
@@ -87,7 +90,8 @@ describe('reencryptAllItems', () => {
       repo: mockRepo,
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
+      codec: passthroughCodec,
     }
     itemReencryptor = new ItemReencryptor({ ...context, keys })
   })
@@ -991,7 +995,8 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
       repo: mockRepo,
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
+      codec: passthroughCodec,
     }
     itemReencryptor = new ItemReencryptor({ ...context, keys })
   })
@@ -1078,7 +1083,8 @@ describe('concurrency and retry race safety (H11)', () => {
       repo: mockRepo,
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'test-account' }),
+      recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
+      codec: passthroughCodec,
     }
     itemReencryptor = new ItemReencryptor({ ...context, keys })
   })

@@ -14,7 +14,7 @@ import { parseBatchedMessages } from './utils/messageParser'
 import { BATCHED_MESSAGE_VERSION } from './utils/binaryFraming'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
-import { WorkerInternalEventHub } from './SyncEventHub'
+import type { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap, BoundedSet } from '../utils/boundedCollections'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -57,18 +57,13 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   private readonly saveCursorsDebounced = debounce(() => fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors'), 1000)
 
-  private lockCoordinator?: ItemLockCoordinator
-  private readonly internalEventHub: WorkerInternalEventHub
-
   constructor(
     private readonly cursorStore: CursorStore,
     private readonly keys: KeyProvider,
-    lockCoordinator?: ItemLockCoordinator,
-    internalEventHub?: WorkerInternalEventHub,
+    private readonly lockCoordinator: ItemLockCoordinator,
+    private readonly internalEventHub: WorkerInternalEventHub,
   ) {
     this.retryTracker = new PullRetryTracker(keys)
-    this.lockCoordinator = lockCoordinator
-    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
   public get eventHub(): WorkerInternalEventHub {
@@ -301,10 +296,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   }
 
   private async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
-    if (this.lockCoordinator) {
-      return this.lockCoordinator.withItemLock(itemId, fn)
-    }
-    return fn()
+    return this.lockCoordinator.withItemLock(itemId, fn)
   }
 
   private async processItemMessages(

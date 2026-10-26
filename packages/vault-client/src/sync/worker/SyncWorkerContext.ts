@@ -183,7 +183,6 @@ export class SyncWorkerContext {
     const services = this.createServices(local)
     this._services = services
     services.snapshotManager.setLeader(services.orchestrator.leader)
-    services.orchestrator.setManifestSyncManager(services.manifestSyncManager)
     this.subscribeInternalEvents(services)
     this.subscribeCrossTabDirtyItems(services)
     this.registerLifecycleServices(services)
@@ -200,8 +199,13 @@ export class SyncWorkerContext {
 
     const { adapter, repoManager, repo } = this.createNetworkAndRepo(local.storage, syncedHeadsStore)
 
-    const docStore = new AutomergeDocStore(repo, internalEventHub, repoManager.getStorage(), this.domain.codec)
-    docStore.isLocallyUnreadable = documentId => this.unreadableDocuments.has(documentId)
+    const docStore = new AutomergeDocStore({
+      repo,
+      internalEventHub,
+      storageAdapter: repoManager.getStorage(),
+      codec: this.domain.codec,
+      isLocallyUnreadable: documentId => this.unreadableDocuments.has(documentId),
+    })
 
     // The settings are created later, so these callbacks read them from the finished services
     const indexManager = new AutomergeIndexManager(
@@ -246,8 +250,6 @@ export class SyncWorkerContext {
       },
       lastModifiedStore
     )
-
-    const orchestrator = new SyncOrchestrator({ accountId, broker, clientEventHub, internalEventHub, pullQueueManager })
 
     const markDocumentDirty = (id: ItemId) => {
       snapshotManager.markItemDirty(id)
@@ -330,6 +332,15 @@ export class SyncWorkerContext {
         const docId = toDocumentIdFromItemId(itemId)
         adapter.setSyncedHeads(docId, heads)
       },
+    })
+
+    const orchestrator = new SyncOrchestrator({
+      accountId,
+      broker,
+      clientEventHub,
+      internalEventHub,
+      pullQueueManager,
+      manifestSyncManager,
     })
 
     const storageRecoveryService = new StorageRecoveryService({

@@ -20,7 +20,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { ItemId } from '@vault/shared'
 
-import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const mockPollSyncBatch = vi.fn()
@@ -65,7 +65,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       'account-pagination',
     ]
     for (const acc of accounts) {
-      await new SyncWriteAheadLog(acc).clear()
+      await new SyncWriteAheadLog(acc, new WorkerInternalEventHub()).clear()
     }
 
     const hubs = createTestEventHubs()
@@ -73,7 +73,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     internalEventHub = hubs.internalEventHub
     adapter = new VaultNetworkAdapter(internalEventHub)
     const cursorStore = new CursorStore('test-account')
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, undefined, internalEventHub)
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, internalEventHub)
     const wal = new SyncWriteAheadLog('test-account', internalEventHub)
     broker = new SyncMessageBroker({
       adapter,
@@ -92,6 +92,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager,
+      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn() },
     })
 
     // Keep offline by default to avoid automatic background runs in static tests
@@ -149,7 +150,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     // Await async append
     await vi.advanceTimersByTimeAsync(50)
 
-    const wal = new SyncWriteAheadLog(accountId)
+    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -175,7 +176,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     await vi.advanceTimersByTimeAsync(100)
 
-    const wal = new SyncWriteAheadLog(accountId)
+    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -226,7 +227,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(call2.pushMessages).toHaveLength(2)
 
     // Verify all items were transactionally cleaned from WAL
-    const wal = new SyncWriteAheadLog(accountId)
+    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     expect(batch.size).toBe(0)
   })
@@ -283,7 +284,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setOnlineState(false)
 
     // The sent message should be sliced out, leaving only the concurrent ones [20, 30]
-    const wal = new SyncWriteAheadLog(accountId)
+    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -318,7 +319,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setOnlineState(false)
 
     // Message must still exist in WAL due to failure
-    const wal = new SyncWriteAheadLog(accountId)
+    const wal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -588,14 +589,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
   it('receiveMessage does not dispatch message when peerId is undefined', () => {
     const emitSpy = vi.spyOn(adapter, 'emit')
-    const unattachedAdapter = new VaultNetworkAdapter()
+    const unattachedAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     // unattachedAdapter has no peerId connected
     unattachedAdapter.receiveMessage('doc1' as DocumentId, new Uint8Array([1, 2, 3]))
     expect(emitSpy).not.toHaveBeenCalled()
   })
 
   it('prevents history dumps when syncedHeads matches and allows future changes through Automerge Repo', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -649,7 +650,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('emits offline edits on startup when document heads differ from syncedHeads', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -699,6 +700,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager,
+      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn() },
     })
 
     let pollCount = 0
@@ -752,7 +754,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('cleans up seededDocuments on disconnect and account change', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
     testAdapter.connect('vault' as PeerId)
@@ -817,7 +819,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('cleans up seededDocuments on setSendEnabled(false) and setSendEnabled(true)', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
     testAdapter.connect('vault' as PeerId)
@@ -872,7 +874,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('buffers outbound sync messages with changes when disconnected and flushes on connect()', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -911,7 +913,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('buffers outbound sync messages when sendEnabled is false and flushes on setSendEnabled(true)', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.connect('test-peer' as PeerId)
     testAdapter.setAccount('test-account')
     testAdapter.setSendEnabled(false)
@@ -950,7 +952,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('drops empty negotiation messages during disconnect window without buffering', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
     testAdapter.disconnect() // disconnected
@@ -980,7 +982,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('clears outbound queue when switching accounts or setting account to null', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('account-A')
 
@@ -1021,7 +1023,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -1059,7 +1061,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('preserves Automerge Repo document mutations sent during disconnect window', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -1119,7 +1121,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('triggers re-negotiation for documents evicted from outbound queue', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -1200,7 +1202,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -1325,7 +1327,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('converts offline changes on follower tab to sync messages upon promotion to leader without requiring subsequent mutation', async () => {
-    const testAdapter = new VaultNetworkAdapter()
+    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
@@ -1630,7 +1632,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 describe('VaultNetworkAdapter synced heads on shutdown', () => {
   const makeAdapter = () => {
     const store = { saveSyncedHeads: vi.fn().mockResolvedValue(undefined) }
-    const adapter = new VaultNetworkAdapter()
+    const adapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
     adapter.setSyncedHeadsStore(store as any)
     return { adapter, store }
   }

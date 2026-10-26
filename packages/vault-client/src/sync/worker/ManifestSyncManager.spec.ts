@@ -1,5 +1,6 @@
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { RecoveryManager } from './RecoveryManager'
+import { ClientEventHub } from './SyncEventHub'
 import { SyncApiClient } from './SyncApiClient'
 import type { ItemId } from '@vault/shared'
 
@@ -108,7 +109,7 @@ describe('ManifestSyncManager', () => {
       keys,
       storeItems: storeItemsSpy,
       migrateLegacySettings: migrateLegacySettingsSpy,
-      recoveryManager: new RecoveryManager({ accountId: 'acc-123' }),
+      recoveryManager: new RecoveryManager({ accountId: 'acc-123', eventHub: new ClientEventHub() }),
       apiClient: new SyncApiClient(),
     } as any
 

@@ -26,7 +26,7 @@ export interface SnapshotPusherOptions {
   broker: SyncMessageBroker
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
-  eventHub?: ClientEventHub
+  eventHub: ClientEventHub
   getLatestCursor?: () => number
   maxPayloadBytes?: number
 }
@@ -52,7 +52,7 @@ export class SnapshotPusher {
   private readonly broker: SyncMessageBroker
   private readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
-  private readonly eventHub?: ClientEventHub
+  private readonly eventHub: ClientEventHub
   private readonly getLatestCursor?: () => number
   public readonly maxPayloadBytes: number
 
@@ -214,7 +214,7 @@ export class SnapshotPusher {
       this.consecutiveFailures.delete(itemId)
       this.tracker.removeDirtyItemIfTickMatches(itemId, tick)
 
-      this.eventHub?.emit({
+      this.eventHub.emit({
         type: 'snapshotFailed',
         itemId,
         message: `Snapshot sync failed for item ${itemId}: ${detailedReason}. Changes are stored locally only.`,
@@ -250,7 +250,7 @@ export class SnapshotPusher {
       log.error(
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
-      this.eventHub?.emit({
+      this.eventHub.emit({
         type: 'quotaExceeded',
         message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
       })

@@ -73,7 +73,7 @@ export interface ItemReencryptorOptions {
   batchRetryDelays?: readonly number[]
   maxBatchCount?: number
   maxBatchBytes?: number
-  codec?: DocCodec
+  codec: DocCodec
   keys: KeyProvider
   /**
    * Called with each batch the server stored, so the sync engine can record the new versions and
@@ -95,7 +95,7 @@ export class ItemReencryptor {
   public readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
-  private readonly codec?: DocCodec
+  private readonly codec: DocCodec
   private readonly keys: KeyProvider
   private readonly onSnapshotsStored?: ItemReencryptorOptions['onSnapshotsStored']
 

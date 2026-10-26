@@ -41,7 +41,7 @@ export interface SyncOrchestratorDeps {
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManagerLike
-  manifestSyncManager?: ManifestSyncManagerLike
+  manifestSyncManager: ManifestSyncManagerLike
   manifestSyncIntervalMs?: number
   createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
 }
@@ -81,7 +81,7 @@ export class SyncOrchestrator implements LifecycleAware {
   private manifestSyncIntervalId: number | null = null
   private readonly manifestSyncIntervalMs: number
   private readonly manifestSyncGuard = new SingleFlightGuard<void>()
-  private manifestSyncManager: ManifestSyncManagerLike | null = null
+  private readonly manifestSyncManager: ManifestSyncManagerLike
 
   private unsubscribeInternalEvents: (() => void) | null = null
 
@@ -100,7 +100,7 @@ export class SyncOrchestrator implements LifecycleAware {
     this.pullQueueManager = deps.pullQueueManager
     this.createLeaderElection = deps.createLeaderElection
     this.poller = deps.broker.poller
-    this.manifestSyncManager = deps.manifestSyncManager ?? null
+    this.manifestSyncManager = deps.manifestSyncManager
     this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
       if (event.type === 'flushNeeded') {
@@ -145,15 +145,7 @@ export class SyncOrchestrator implements LifecycleAware {
       this.manifestSyncAbortController.abort()
       this.manifestSyncAbortController = null
     }
-    this.manifestSyncManager?.abort()
-  }
-
-  setManifestSyncManager(manifestSyncManager: ManifestSyncManagerLike): void {
-    this.manifestSyncManager = manifestSyncManager
-    if (this.isOperational) {
-      this.startPeriodicManifestSync()
-      fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
-    }
+    this.manifestSyncManager.abort()
   }
 
   async start(): Promise<void> {
@@ -468,7 +460,7 @@ export class SyncOrchestrator implements LifecycleAware {
 
   async triggerManifestSync(force = false): Promise<void> {
     try {
-      if (!this.isOperational || !this.manifestSyncManager) {
+      if (!this.isOperational) {
         return
       }
       return await this.manifestSyncGuard.run(async () => {
@@ -477,7 +469,7 @@ export class SyncOrchestrator implements LifecycleAware {
         const { signal } = abortController
         try {
           checkAlive(signal, () => this.isOperational)
-          await this.manifestSyncManager!.sync(force, signal)
+          await this.manifestSyncManager.sync(force, signal)
           checkAlive(signal, () => this.isOperational)
         } catch (error) {
           if (signal.aborted || isAbortError(error) || !this.isOperational) {

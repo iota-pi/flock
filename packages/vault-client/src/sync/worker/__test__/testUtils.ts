@@ -3,6 +3,9 @@ import { ClientEventHub, WorkerInternalEventHub } from '../SyncEventHub'
 import { Keyring, type KeyProvider } from '../../../api/Keyring'
 import { generateVaultKey } from '../../../api/crypto'
 import { LocalCipher } from '../localEncryption/LocalCipher'
+import type { Repo } from '@automerge/automerge-repo/slim'
+import { AutomergeDocStore, type AutomergeDocStoreOptions, type ItemLockCoordinator } from '../docStore/AutomergeDocStore'
+import { passthroughCodec } from '../domain'
 
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
@@ -287,4 +290,20 @@ export function createTestEventHubs(): TestEventHubs {
     clientEventHub: new ClientEventHub(),
     internalEventHub: new WorkerInternalEventHub(),
   }
+}
+
+/** A doc store over `repo` with its own event hub, the passthrough codec and every document readable */
+export function createTestDocStore(repo: Repo, overrides?: Partial<AutomergeDocStoreOptions>): AutomergeDocStore {
+  return new AutomergeDocStore({
+    repo,
+    internalEventHub: new WorkerInternalEventHub(),
+    codec: passthroughCodec,
+    isLocallyUnreadable: () => false,
+    ...overrides,
+  })
+}
+
+/** Runs each task straight away, for components tested without a doc store's item locks */
+export const noItemLocks: ItemLockCoordinator = {
+  withItemLock: (_itemId, fn) => fn(),
 }

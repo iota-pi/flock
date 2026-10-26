@@ -1,6 +1,7 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import { AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocStore'
+import { type AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocStore'
+import { createTestDocStore } from '../__test__/testUtils'
 import type { VaultDoc } from '../../shared/types'
 import { passthroughCodec } from '../domain'
 import { WorkerInternalEventHub } from '../SyncEventHub'
@@ -14,7 +15,7 @@ describe('items operations', () => {
   let docStore: AutomergeDocStore
 
   beforeEach(async () => {
-    docStore = new AutomergeDocStore(testRepo)
+    docStore = createTestDocStore(testRepo)
   })
 
   it('should create and retrieve an item successfully', async () => {
@@ -72,7 +73,7 @@ describe('items operations', () => {
     // Mock repo.find to time out / fail
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     const result = await customDocStore.changeDocument(
       'existing-item' as ItemId,
@@ -103,7 +104,7 @@ describe('items operations', () => {
     // Mock repo.find to fail as well
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Storage failure'))
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     const result = await customDocStore.changeDocument(
       'quota-error-item' as ItemId,
@@ -127,7 +128,7 @@ describe('items operations', () => {
     // @ts-expect-error Mocking internal storageSubsystem
     customRepo.storageSubsystem = mockStorage
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     await expect(
       customDocStore.loadDocDataFromStorage('error-item' as ItemId)
@@ -152,7 +153,7 @@ describe('items operations', () => {
 
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     const handle = await customDocStore.findOrCreateHandle('known-item' as ItemId, { knownToExist: true })
 
@@ -172,7 +173,7 @@ describe('items operations', () => {
     // @ts-expect-error Mocking internal storageSubsystem
     customRepo.storageSubsystem = mockStorage
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     const result = await customDocStore.changeDocument(
       'new-item' as ItemId,
@@ -203,7 +204,7 @@ describe('items operations', () => {
     // @ts-expect-error Mocking internal storageSubsystem
     customRepo.storageSubsystem = mockStorage
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     const [handleA, handleB] = await Promise.all([
       customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
@@ -228,7 +229,7 @@ describe('items operations', () => {
     // @ts-expect-error Mocking internal storageSubsystem
     customRepo.storageSubsystem = mockStorageSubsystem
 
-    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+    const customDocStore = createTestDocStore(customRepo, { storageAdapter: mockStorageAdapter })
 
     const exists = await customDocStore.hasDataInStorage('check-item' as ItemId)
 
@@ -247,7 +248,7 @@ describe('items operations', () => {
 
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+    const customDocStore = createTestDocStore(customRepo, { storageAdapter: mockStorageAdapter })
 
     await expect(
       customDocStore.hasDataInStorage('error-item' as ItemId)
@@ -274,7 +275,7 @@ describe('items operations', () => {
 
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo, undefined, mockStorageAdapter)
+    const customDocStore = createTestDocStore(customRepo, { storageAdapter: mockStorageAdapter })
 
     const result = await customDocStore.changeDocument(
       'existing-doc' as ItemId,
@@ -445,7 +446,7 @@ describe('items operations', () => {
     // Mock repo.find to time out
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     // Hydrate should NOT clobber unsynced local edits; it should perform non-destructive CRDT merge
     const fallbackResult = await customDocStore.hydrateAutomergeDocumentBinary('timeout-item', remoteBinary)
@@ -482,7 +483,7 @@ describe('items operations', () => {
 
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     await expect(
       customDocStore.hydrateAutomergeDocumentBinary('timeout-corrupt', remoteBinary)
@@ -511,7 +512,7 @@ describe('items operations', () => {
 
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     await expect(
       customDocStore.hydrateAutomergeDocumentBinary('error-hydrate-item', remoteBinary)
@@ -540,7 +541,7 @@ describe('items operations', () => {
 
     vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-    const customDocStore = new AutomergeDocStore(customRepo)
+    const customDocStore = createTestDocStore(customRepo)
 
     await customDocStore.hydrateAutomergeDocumentBinary('clean-new-item', remoteBinary)
 
@@ -553,7 +554,7 @@ describe('items operations', () => {
     hub.subscribe(event => {
       if (event.type === 'docHandleReplaced') handleReplacedListener(event.itemId, event.handle)
     })
-    docStore = new AutomergeDocStore(testRepo, hub)
+    docStore = createTestDocStore(testRepo, { internalEventHub: hub })
 
     const doc = Automerge.change(Automerge.init<VaultDoc>(), d => {
       d.id = 'seeded-item' as ItemId

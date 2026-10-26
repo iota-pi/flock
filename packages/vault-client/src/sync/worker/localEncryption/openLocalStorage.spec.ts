@@ -9,6 +9,7 @@ import { getSealedAutomergeDBName } from '../../shared/localDatabaseNames'
 import { getAccountDatabaseName, clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 import { databaseExists } from '../../utils/databaseExists'
 import { SyncWriteAheadLog } from '../SyncWriteAheadLog'
+import { WorkerInternalEventHub } from '../SyncEventHub'
 import { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
 import { createMockLocalForagePool } from '../__test__/testUtils'
@@ -183,7 +184,7 @@ describe('openLocalStorage', () => {
   describe('upgrading plaintext data', () => {
     it('copies document chunks, the storage ID, the WAL and the index, then retires the plaintext stores', async () => {
       await seedPlaintextChunks()
-      const entryId = await new SyncWriteAheadLog(ACCOUNT).append('item-1' as ItemId, INCREMENTAL)
+      const entryId = await new SyncWriteAheadLog(ACCOUNT, new WorkerInternalEventHub()).append('item-1' as ItemId, INCREMENTAL)
       const index = { accountId: ACCOUNT, itemIds: ['item-1'], tombstoneIds: [], metadata: { sort: 'name' } }
       await new IndexStore(ACCOUNT).saveIndex(index as unknown as AutomergeIndexDocument)
 
@@ -194,7 +195,7 @@ describe('openLocalStorage', () => {
       expect(await local.storage.load([DOC, 'incremental', 'change-1'])).toEqual(INCREMENTAL)
       expect(await local.storage.load(['storage-adapter-id'])).toEqual(new TextEncoder().encode('storage-1'))
       expect(await local.storage.has([DOC, 'sync-state'])).toBe(false)
-      const wal = await new SyncWriteAheadLog(ACCOUNT, undefined, { cipher: local.cipher }).readAll()
+      const wal = await new SyncWriteAheadLog(ACCOUNT, new WorkerInternalEventHub(), { cipher: local.cipher }).readAll()
       expect(wal.get('item-1' as ItemId)).toEqual([expect.objectContaining({ id: entryId, data: INCREMENTAL })])
       expect(await new IndexStore(ACCOUNT, { cipher: local.cipher }).getIndex()).toEqual(index)
       expect(await readSealedMeta(UPGRADED_AT_KEY)).toEqual(expect.any(Number))

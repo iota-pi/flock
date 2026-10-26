@@ -80,7 +80,7 @@ vi.mock('./docStore', () => ({
     saveDocToStorage = vi.fn().mockResolvedValue(undefined)
     readItemSnapshot = vi.fn().mockResolvedValue(null)
     hasDataInStorage = vi.fn().mockResolvedValue(true)
-    isLocallyUnreadable?: (documentId: string) => boolean
+    constructor(readonly options: { isLocallyUnreadable: (documentId: string) => boolean }) {}
     onLifecycleStop = vi.fn().mockImplementation(async () => {
       await this.shutdown()
     })
@@ -196,7 +196,7 @@ vi.mock('./SyncOrchestrator', () => ({
     start = vi.fn().mockResolvedValue(undefined)
     shutdown = vi.fn().mockResolvedValue(undefined)
     setOnlineState = vi.fn()
-    setManifestSyncManager = vi.fn()
+    constructor(readonly deps: { manifestSyncManager: unknown }) {}
     claimLeader = vi.fn()
     online = true
     flush = vi.fn()
@@ -508,7 +508,7 @@ describe('SyncWorkerContext', () => {
   })
 
   it('wires manifestSyncManager into orchestrator on construction', () => {
-    expect(context.services.orchestrator.setManifestSyncManager).toHaveBeenCalledWith(context.services.manifestSyncManager)
+    expect((context.services.orchestrator as any).deps.manifestSyncManager).toBe(context.services.manifestSyncManager)
   })
 
   it('delegates claimLeader to orchestrator.claimLeader', () => {
@@ -743,6 +743,11 @@ describe('SyncWorkerContext', () => {
       return { ctx, onOpenFailure }
     }
 
+    /** Asks the predicate the context gave its (mocked) doc store */
+    function isLocallyUnreadable(ctx: SyncWorkerContext, documentId: DocumentId): boolean {
+      return (ctx.services.docStore as any).options.isLocallyUnreadable(documentId)
+    }
+
     it('quarantines a document once, however many of its chunks fail', async () => {
       const { ctx, onOpenFailure } = await createContextWithOpenFailures()
       const reportSpy = vi.spyOn(ctx.services.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
@@ -753,8 +758,8 @@ describe('SyncWorkerContext', () => {
 
       expect(reportSpy).toHaveBeenCalledTimes(1)
       expect(reportSpy).toHaveBeenCalledWith('doc-1', 'localDecryption', error)
-      expect(ctx.services.docStore.isLocallyUnreadable?.('doc-1' as DocumentId)).toBe(true)
-      expect(ctx.services.docStore.isLocallyUnreadable?.('doc-2' as DocumentId)).toBe(false)
+      expect(isLocallyUnreadable(ctx, 'doc-1' as DocumentId)).toBe(true)
+      expect(isLocallyUnreadable(ctx, 'doc-2' as DocumentId)).toBe(false)
     })
 
     it('ignores the storage ID record, which is not a document', async () => {
@@ -783,7 +788,7 @@ describe('SyncWorkerContext', () => {
       expect(removeRange).toHaveBeenCalledWith([documentId])
       expect(ctx.services.manifestSyncManager.sync).toHaveBeenCalledWith(true)
       expect(unquarantine).toHaveBeenCalledWith(itemId)
-      expect(ctx.services.docStore.isLocallyUnreadable?.(documentId)).toBe(false)
+      expect(isLocallyUnreadable(ctx, documentId)).toBe(false)
     })
 
     it('keeps the item quarantined when the server has no copy to replace it with', async () => {

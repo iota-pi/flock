@@ -21,6 +21,7 @@ import {
   createMockLocalForage,
   createMockVault,
   createTestEventHubs,
+  noItemLocks,
 } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
@@ -77,7 +78,7 @@ describe('Sync System Integration Test Suite', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     cursorStore = new CursorStore(accountId)
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, undefined, internalEventHub)
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, internalEventHub)
     wal = new SyncWriteAheadLog(accountId, internalEventHub)
     adapter = new VaultNetworkAdapter(internalEventHub)
 
@@ -253,7 +254,7 @@ describe('Sync System Integration Test Suite', () => {
     await wal.append('item-crash-recover' as ItemId, new Uint8Array([99, 100]))
 
     // 2. Simulate worker termination and fresh instance start on same account
-    const newWal = new SyncWriteAheadLog(accountId)
+    const newWal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
     const recoveredEntries = await newWal.readAll()
     expect(recoveredEntries.has('item-crash-recover' as ItemId)).toBe(true)
 
