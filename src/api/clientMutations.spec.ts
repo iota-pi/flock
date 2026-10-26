@@ -5,65 +5,65 @@ import { setApiAuthToken } from '@vault/client'
 import { useAppStore } from '../state/store'
 import type { AccountMetadata } from '../state/metadata'
 import { ItemId } from '@vault/shared'
+import * as syncBridgeModule from '../app/vault/syncBridge'
+import * as utilModule from './util'
+import * as storeModule from '../state/store'
+import { spyOnExports } from '../utils/testUtils'
 
 const metadataState: Partial<AccountMetadata> = {}
 
-const mocks = vi.hoisted(() => ({
+const mocks = {
   pruneItemDrawers: vi.fn(),
-}))
+}
 
-vi.mock('../app/vault/syncBridge', () => ({
-  SyncBridge: {
-    mutateItem: vi.fn(async () => {}),
-    storeItems: vi.fn(async () => {}),
-    createItem: vi.fn(async () => {}),
-    mutateMetadata: vi.fn(async () => {}),
-    clearAutomergeDocStore: vi.fn(async () => {}),
-    shutdown: vi.fn(async () => {}),
-  }
-}))
-
-vi.mock('./util', () => ({
-  getAccountId: vi.fn(() => 'test-account'),
-}))
-
-
-const mockStoreState = vi.hoisted(() => {
-  const state = {
-    pruneItemDrawers: mocks.pruneItemDrawers,
-    closeIfOpen: vi.fn(),
-    optimisticUpdateItem: vi.fn((id: string, partial: Partial<Item>) => {
-      state.items[id] = { ...state.items[id], ...partial } as Item
-    }),
-    updateItemsFromServer: vi.fn((updates: { id: string; item: Item | null }[]) => {
-      for (const update of updates) {
-        if (update.item) {
-          state.items[update.id] = update.item
-        } else {
-          delete state.items[update.id]
-        }
+const mockStoreState = {
+  pruneItemDrawers: mocks.pruneItemDrawers,
+  closeIfOpen: vi.fn(),
+  optimisticUpdateItem: vi.fn((id: string, partial: Partial<Item>) => {
+    mockStoreState.items[id] = { ...mockStoreState.items[id], ...partial } as Item
+  }),
+  updateItemsFromServer: vi.fn((updates: { id: string; item: Item | null }[]) => {
+    for (const update of updates) {
+      if (update.item) {
+        mockStoreState.items[update.id] = update.item
+      } else {
+        delete mockStoreState.items[update.id]
       }
-    }),
-    updateMetadata: vi.fn((metadata: Partial<AccountMetadata>) => {
-      state.metadata = { ...state.metadata, ...metadata } as AccountMetadata
-    }),
-    items: {} as Record<string, Item>,
-    metadata: {} as AccountMetadata,
-  }
-  return state
-})
-
-vi.mock('../state/store', () => ({
-  useAppStore: Object.assign(
-    (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
-    {
-      getState: () => mockStoreState,
-      setState: vi.fn((update: Partial<typeof mockStoreState>) => {
-        Object.assign(mockStoreState, update)
-      }),
     }
-  )
-}))
+  }),
+  updateMetadata: vi.fn((metadata: Partial<AccountMetadata>) => {
+    mockStoreState.metadata = { ...mockStoreState.metadata, ...metadata } as AccountMetadata
+  }),
+  items: {} as Record<string, Item>,
+  metadata: {} as AccountMetadata,
+}
+
+beforeEach(() => {
+  spyOnExports(syncBridgeModule, {
+    SyncBridge: {
+      mutateItem: vi.fn(async () => {}),
+      storeItems: vi.fn(async () => {}),
+      createItem: vi.fn(async () => {}),
+      mutateMetadata: vi.fn(async () => {}),
+      clearAutomergeDocStore: vi.fn(async () => {}),
+      shutdown: vi.fn(async () => {}),
+    }
+  })
+  spyOnExports(utilModule, {
+    getAccountId: vi.fn(() => 'test-account'),
+  })
+  spyOnExports(storeModule, {
+    useAppStore: Object.assign(
+      (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
+      {
+        getState: () => mockStoreState,
+        setState: vi.fn((update: Partial<typeof mockStoreState>) => {
+          Object.assign(mockStoreState, update)
+        }),
+      }
+    )
+  })
+})
 
 describe('local-first mutations', () => {
   beforeEach(() => {

@@ -8,6 +8,9 @@ import {
 } from './AccountClient'
 import { getLegacyPbkdf2Iterations } from './kdf'
 import { getVaultTrpcClient } from './vaultTrpcClient'
+import * as vaultTrpcClientModule from './vaultTrpcClient'
+import { spyOnExports } from '../../test/moduleMocks'
+import * as utilModule from './util'
 
 const mockTrpcClient = {
   accounts: {
@@ -20,16 +23,16 @@ const mockTrpcClient = {
   },
 }
 
-vi.mock('./vaultTrpcClient', () => ({
-  getVaultTrpcClient: vi.fn(() => mockTrpcClient),
-}))
-
-vi.mock('./util', async importOriginal => ({
-  ...await importOriginal<typeof import('./util')>(),
-  REQUEST_RETRY_DELAYS: [0, 0],
-}))
-
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
+
+beforeEach(() => {
+  spyOnExports(vaultTrpcClientModule, {
+    getVaultTrpcClient: vi.fn(() => mockTrpcClient),
+  })
+  spyOnExports(utilModule, {
+    REQUEST_RETRY_DELAYS: [0, 0],
+  })
+})
 
 describe('AccountClient', () => {
   beforeEach(() => {

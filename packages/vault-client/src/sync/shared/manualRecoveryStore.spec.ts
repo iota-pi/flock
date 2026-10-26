@@ -1,27 +1,12 @@
 import localforage from 'localforage'
+import * as storageManagerModule from '../utils/storageManager'
+import { spyOnExports } from '../../../test/moduleMocks'
 
-// Intercept created instances before importing manualRecoveryStore
+// Records the instances that manualRecoveryStore creates
 const createdInstances: any[] = []
-const originalCreateInstance = localforage.createInstance
-localforage.createInstance = function (options: any) {
-  const instance = originalCreateInstance.call(this, options)
-  createdInstances.push(instance)
-  return instance
-}
+const createInstance = localforage.createInstance.bind(localforage)
 
 const mockReportQuotaExceeded = vi.fn()
-vi.mock('../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: any) => {
-    try {
-      return await op()
-    } catch (err) {
-      mockReportQuotaExceeded()
-      throw err
-    }
-  }),
-  reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
-}))
-
 let clearAccountStoreInstancesCacheForTesting: any
 let clearManualRecoveryEntries: any
 let readManualRecoveryCount: any
@@ -30,6 +15,24 @@ let removeManualRecoveryEntryById: any
 let removeManualRecoveryEntryByItemId: any
 let upsertManualRecoveryEntry: any
 let removeManualRecoveryEntryIfKind: any
+
+beforeEach(() => {
+  vi.spyOn(localforage, 'createInstance').mockImplementation(options => {
+    const instance = createInstance(options)
+    createdInstances.push(instance)
+    return instance
+  })
+  spyOnExports(storageManagerModule, {
+    runStorageOperation: vi.fn(async (op: any) => {
+      try {
+        return await op()
+      } catch (err) {
+        mockReportQuotaExceeded()
+        throw err
+      }
+    }),
+  })
+})
 
 describe('manualRecoveryStore', () => {
   const accountId = 'test-account-id'
@@ -189,7 +192,6 @@ describe('manualRecoveryStore', () => {
     expect(await readManualRecoveryCount(accountId)).toBe(0)
   })
 
-
   it('sorts entries by createdAt descending, then by id lexicographically', async () => {
     const now = Date.now()
     const dateSpy = vi.spyOn(Date, 'now')
@@ -225,7 +227,6 @@ describe('manualRecoveryStore', () => {
     expect(mockReportQuotaExceeded).toHaveBeenCalled()
     setItemSpy.mockRestore()
   })
-
 
   it('paginates manual recovery entries with limit and offset', async () => {
     const baseTime = Date.now()

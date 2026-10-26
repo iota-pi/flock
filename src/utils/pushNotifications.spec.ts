@@ -1,12 +1,16 @@
 import { checkSubscription, syncReminderTimezone, clearReminderNotifications } from './pushNotifications'
 import { getReminderSettings, updateReminderSettings } from '../api/notificationClient'
+import * as notificationClientModule from '../api/notificationClient'
+import { spyOnExports } from './testUtils'
 
-vi.mock('../api/notificationClient', () => ({
-  addPushSubscription: vi.fn(),
-  deletePushSubscription: vi.fn(),
-  updateReminderSettings: vi.fn().mockResolvedValue(undefined),
-  getReminderSettings: vi.fn(),
-}))
+beforeEach(() => {
+  spyOnExports(notificationClientModule, {
+    addPushSubscription: vi.fn(),
+    deletePushSubscription: vi.fn(),
+    updateReminderSettings: vi.fn().mockResolvedValue(undefined),
+    getReminderSettings: vi.fn(),
+  })
+})
 
 describe('pushNotifications utility', () => {
   beforeEach(() => {

@@ -5,6 +5,14 @@ export default defineConfig({
     globals: true,
     silent: 'passed-only',
     execArgv: ['--no-webstorage'],
+    pool: 'threads',
+    // Files share module state within a worker, so every test must undo its spies and stubs.
+    // Module mocks go through `vi.spyOn` or the setup files, never `vi.mock` (lint enforces this).
+    isolate: false,
+    restoreMocks: true,
+    unstubGlobals: true,
+    unstubEnvs: true,
+    setupFiles: ['./vitest.setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json'],

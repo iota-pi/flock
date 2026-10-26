@@ -24,39 +24,15 @@ import { Keyring } from './Keyring'
 import { ApiHttpError } from './trackedFetch'
 import type { KdfParams } from './kdf'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
-
-vi.mock('./client', () => ({
-  getSession: vi.fn().mockResolvedValue('mock-session'),
-  createAccount: vi.fn(),
-  getSecurityParams: vi.fn(),
-  getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
-  updateKeyring: vi.fn().mockResolvedValue(undefined),
-  changePassword: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../sync/shared/workerAuthStore', () => ({
-  deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('./util', async importOriginal => ({
-  ...await importOriginal<typeof import('./util')>(),
-  REQUEST_RETRY_DELAYS: [0, 0],
-}))
+import * as clientModule from './client'
+import * as workerAuthStoreModule from '../sync/shared/workerAuthStore'
+import * as webauthnModule from './webauthn'
+import { spyOnExports } from '../../test/moduleMocks'
+import * as utilModule from './util'
+import * as kdfModule from './kdf'
 
 // Current parameters above the test floor, so an account can be created below them
-vi.mock('./kdf', async importOriginal => ({
-  ...await importOriginal<typeof import('./kdf')>(),
-  getDefaultKdf: () => ({ algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }),
-  getDefaultPbkdf2Iterations: () => 1000,
-}))
-
 const PRF_OUTPUT = new Uint8Array(32).fill(7).buffer
-vi.mock('./webauthn', () => ({
-  getPrfOutput: vi.fn(async () => PRF_OUTPUT),
-  registerPrfCredential: vi.fn(),
-  isWebAuthnPrfSupported: vi.fn(),
-}))
-
 const ACCOUNT = 'test-account'
 const PASSWORD = 'password123'
 const SALT = 'Y3VycmVudC1zYWx0'
@@ -90,6 +66,32 @@ async function seedArgon2idServerKeyring(kdf: KdfParams) {
 function loginArgon2id(kdf: KdfParams) {
   return loginVault({ account: ACCOUNT, password: PASSWORD, salt: SALT, kdf, saltVersion: 1 })
 }
+
+beforeEach(() => {
+  spyOnExports(clientModule, {
+    getSession: vi.fn().mockResolvedValue('mock-session'),
+    createAccount: vi.fn(),
+    getSecurityParams: vi.fn(),
+    getKeyring: vi.fn().mockResolvedValue({ randomDataKeys: false }),
+    updateKeyring: vi.fn().mockResolvedValue(undefined),
+    changePassword: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(workerAuthStoreModule, {
+    deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(webauthnModule, {
+    getPrfOutput: vi.fn(async () => PRF_OUTPUT),
+    registerPrfCredential: vi.fn(),
+    isWebAuthnPrfSupported: vi.fn(),
+  })
+  spyOnExports(utilModule, {
+    REQUEST_RETRY_DELAYS: [0, 0],
+  })
+  spyOnExports(kdfModule, {
+    getDefaultKdf: () => ({ algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }),
+    getDefaultPbkdf2Iterations: () => 1000,
+  })
+})
 
 describe('key derivation at login', () => {
   beforeEach(async () => {

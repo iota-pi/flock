@@ -1,29 +1,28 @@
 import type { Mock } from 'vitest'
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
-
-type AppUpdateModule = typeof import('./appUpdate')
-type AppStore = typeof import('../state/store')['useAppStore']
+import * as appUpdate from './appUpdate'
+import { useAppStore } from '../state/store'
 
 describe('app updates', () => {
-  let appUpdate: AppUpdateModule
   let options: RegisterSWOptions
   let updateSW: Mock<(reloadPage?: boolean) => Promise<void>>
-  // Imported after resetting modules, so it is the same store appUpdate sees
-  let useAppStore: AppStore
+  let stopAppUpdates: () => void
   const registration = { update: vi.fn(async () => undefined) }
 
-  beforeEach(async () => {
-    vi.resetModules()
-    useAppStore = (await import('../state/store')).useAppStore
-    useAppStore.setState({ loggedIn: false })
+  beforeEach(() => {
+    useAppStore.setState({ loggedIn: false, appUpdateReady: false })
     registration.update.mockClear()
     updateSW = vi.fn<(reloadPage?: boolean) => Promise<void>>(async () => undefined)
-    appUpdate = await import('./appUpdate')
-    appUpdate.registerAppUpdates(registerOptions => {
+    stopAppUpdates = appUpdate.registerAppUpdates(registerOptions => {
       options = registerOptions ?? {}
       return updateSW
     })
     options.onRegisteredSW?.('/service-worker.js', registration as unknown as ServiceWorkerRegistration)
+  })
+
+  afterEach(() => {
+    stopAppUpdates()
+    useAppStore.setState({ loggedIn: false, appUpdateReady: false })
   })
 
   it('signals a new version is ready and applies it once requested while nobody is logged in', () => {

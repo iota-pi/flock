@@ -2,18 +2,19 @@ import { clearAccountLocalData } from './localDataCleanup'
 import * as syncMetadataStorage from '../worker/stores/syncMetadataStorage'
 import * as writeAheadLogStorage from '../shared/writeAheadLogStorage'
 import * as manualRecoveryStore from '../shared/manualRecoveryStore'
+import { spyOnExports } from '../../../test/moduleMocks'
 
-vi.mock('../worker/stores/syncMetadataStorage', () => ({
-  clearSyncMetadataStorage: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../shared/writeAheadLogStorage', () => ({
-  clearWriteAheadLog: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../shared/manualRecoveryStore', () => ({
-  clearManualRecoveryEntries: vi.fn().mockResolvedValue(undefined),
-}))
+beforeEach(() => {
+  spyOnExports(syncMetadataStorage, {
+    clearSyncMetadataStorage: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(writeAheadLogStorage, {
+    clearWriteAheadLog: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(manualRecoveryStore, {
+    clearManualRecoveryEntries: vi.fn().mockResolvedValue(undefined),
+  })
+})
 
 describe('localDataCleanup', () => {
   beforeEach(() => {

@@ -1,9 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useDataRecovery } from './useDataRecovery'
 import { ItemId } from '@vault/shared'
+import * as syncBridgeModule from '../app/vault/syncBridge'
+import * as storeModule from '../state/store'
+import { spyOnExports } from '../utils/testUtils'
 
-
-const mocks = vi.hoisted(() => ({
+const mocks = {
   setMessage: vi.fn(),
   dismissRecoveryItem: vi.fn(),
   retryRecoveryItem: vi.fn(),
@@ -12,27 +14,28 @@ const mocks = vi.hoisted(() => ({
   listRecoveryItems: vi.fn(),
   subscribeRecoveryItems: vi.fn(),
   shutdown: vi.fn(),
-}))
+}
 
-vi.mock('../app/vault/syncBridge', () => ({
-  SyncBridge: {
-    dismissRecoveryItem: mocks.dismissRecoveryItem,
-    retryRecoveryItem: mocks.retryRecoveryItem,
-    forceOverwriteRecoveryItem: mocks.forceOverwriteRecoveryItem,
-    forceDeleteRecoveryItem: mocks.forceDeleteRecoveryItem,
-    listRecoveryItems: mocks.listRecoveryItems,
-    subscribeRecoveryItems: mocks.subscribeRecoveryItems,
-    shutdown: mocks.shutdown,
-  },
-}))
-
-vi.mock('../state/store', () => ({
-  useAppStore: (selector: (state: { setMessage: typeof mocks.setMessage }) => unknown) => (
-    selector({
-      setMessage: mocks.setMessage,
-    })
-  ),
-}))
+beforeEach(() => {
+  spyOnExports(syncBridgeModule, {
+    SyncBridge: {
+      dismissRecoveryItem: mocks.dismissRecoveryItem,
+      retryRecoveryItem: mocks.retryRecoveryItem,
+      forceOverwriteRecoveryItem: mocks.forceOverwriteRecoveryItem,
+      forceDeleteRecoveryItem: mocks.forceDeleteRecoveryItem,
+      listRecoveryItems: mocks.listRecoveryItems,
+      subscribeRecoveryItems: mocks.subscribeRecoveryItems,
+      shutdown: mocks.shutdown,
+    },
+  })
+  spyOnExports(storeModule, {
+    useAppStore: (selector: (state: { setMessage: typeof mocks.setMessage }) => unknown) => (
+      selector({
+        setMessage: mocks.setMessage,
+      })
+    ),
+  })
+})
 
 describe('useDataRecovery', () => {
   let currentEntries: any[] = []

@@ -2,10 +2,8 @@ import type { DocHandle, Repo } from '@automerge/automerge-repo/slim'
 import type { ItemId } from '@vault/shared'
 import type { RepoDoc } from './docStore'
 import { ItemSubscriptions } from './ItemSubscriptions'
-
-vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: (id: string) => `automerge:${id}`,
-}))
+import * as automergeModule from './utils/automerge'
+import { spyOnExports } from '../../../test/moduleMocks'
 
 function createHandle(documentId: string) {
   const listeners = new Set<() => void>()
@@ -37,6 +35,12 @@ function setup() {
 
 const id = (value: string) => value as ItemId
 const asDocHandle = (handle: MockHandle) => handle as unknown as DocHandle<RepoDoc>
+
+beforeEach(() => {
+  spyOnExports(automergeModule, {
+    toAutomergeUrlFromItemId: (id: string) => `automerge:${id}`,
+  })
+})
 
 describe('ItemSubscriptions', () => {
   it('binds a listener once per item and calls onChange when bound and on every change', async () => {

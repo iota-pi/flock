@@ -1,5 +1,10 @@
 import { WorkerLifecycleManager, WorkerLifecycleCallbacks } from './WorkerLifecycleManager'
 import * as localDataCleanup from './localDataCleanup'
+import * as vaultModule from '../../api/vault'
+import * as sessionModule from '../../api/session'
+import * as storedMetadataModule from '../../api/storedMetadata'
+import { spyOnExports } from '../../../test/moduleMocks'
+import * as comlinkModule from 'comlink'
 
 const mockSyncApi = {
   setOnlineState: vi.fn().mockResolvedValue(undefined),
@@ -8,24 +13,6 @@ const mockSyncApi = {
   bootstrapItems: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
 }
-
-vi.mock('comlink', () => ({
-  wrap: vi.fn(() => mockSyncApi),
-  proxy: vi.fn(cb => cb),
-}))
-
-vi.mock('../../api/vault', () => ({
-  exportKeyringData: vi.fn().mockResolvedValue('test-key'),
-}))
-
-vi.mock('../../api/session', () => ({
-  handleSessionExpired: vi.fn().mockResolvedValue(undefined),
-  getVaultSession: vi.fn().mockReturnValue(null),
-}))
-
-vi.mock('../../api/storedMetadata', () => ({
-  hasRandomDataKeys: vi.fn().mockReturnValue(false),
-}))
 
 class MockWorker {
   url: string
@@ -63,6 +50,23 @@ class MockWorker {
     this.options = options
   }
 }
+
+beforeEach(() => {
+  spyOnExports(comlinkModule, {
+    wrap: vi.fn(() => mockSyncApi),
+    proxy: vi.fn(cb => cb),
+  })
+  spyOnExports(vaultModule, {
+    exportKeyringData: vi.fn().mockResolvedValue('test-key'),
+  })
+  spyOnExports(sessionModule, {
+    handleSessionExpired: vi.fn().mockResolvedValue(undefined),
+    getVaultSession: vi.fn().mockReturnValue(null),
+  })
+  spyOnExports(storedMetadataModule, {
+    hasRandomDataKeys: vi.fn().mockReturnValue(false),
+  })
+})
 
 describe('WorkerLifecycleManager', () => {
   let callbacks: WorkerLifecycleCallbacks

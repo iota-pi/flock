@@ -1,12 +1,5 @@
 import { useAuthStore } from './authStore'
 
-
-vi.mock('../api/db', () => ({
-  syncDB: {
-    removeItem: vi.fn(async () => undefined),
-  },
-}))
-
 describe('authStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()

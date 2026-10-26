@@ -1,32 +1,25 @@
+import type { MockInstance } from 'vitest'
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { getAccountDatabaseName, clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
-import { deleteDatabase } from '../../utils/deleteDatabase'
-import { createMockLocalForagePool } from '../__test__/testUtils'
+import * as deleteDatabaseModule from '../../utils/deleteDatabase'
+import { createMockLocalForagePool, mockLocalForage } from '../__test__/testUtils'
 import { retireLegacyStores } from './retireLegacyStores'
 
 const pool = createMockLocalForagePool()
-
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, unknown>) => pool.createInstance(config)),
-  },
-}))
-
-vi.mock('../../utils/deleteDatabase', () => ({
-  deleteDatabase: vi.fn().mockResolvedValue(undefined),
-}))
 
 const ACCOUNT = 'account-1'
 
 describe('retireLegacyStores', () => {
   let locks: { held: { name: string }[], pending: { name: string }[] }
+  let deleteDatabase: MockInstance<typeof deleteDatabaseModule.deleteDatabase>
 
   beforeEach(async () => {
+    mockLocalForage(pool.createInstance)
     pool.clear()
     clearAccountStoreInstancesCacheForTesting()
-    vi.mocked(deleteDatabase).mockClear().mockResolvedValue(undefined)
+    deleteDatabase = vi.spyOn(deleteDatabaseModule, 'deleteDatabase').mockResolvedValue(undefined)
     locks = { held: [], pending: [] }
     vi.stubGlobal('navigator', { locks: { query: vi.fn(async () => locks) } })
     await getSyncMetadataStorage(ACCOUNT).setItem(SYNC_METADATA_KEYS.INDEX_DOC, { itemIds: [] })
@@ -93,7 +86,7 @@ describe('retireLegacyStores', () => {
   })
 
   it('keeps the plaintext index when a database deletion is blocked', async () => {
-    vi.mocked(deleteDatabase).mockRejectedValueOnce(new Error('blocked'))
+    deleteDatabase.mockRejectedValueOnce(new Error('blocked'))
 
     expect(await retireLegacyStores({ accountId: ACCOUNT })).toBe(false)
 

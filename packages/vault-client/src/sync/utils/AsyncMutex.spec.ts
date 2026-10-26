@@ -1,12 +1,20 @@
 import { AsyncMutex, KeyedAsyncMutex } from './AsyncMutex'
 
+/** A promise the test resolves itself, to hold a task inside the lock */
+function gate() {
+  let open!: () => void
+  const promise = new Promise<void>(resolve => { open = resolve })
+  return { promise, open }
+}
+
 describe('AsyncMutex', () => {
   it('executes tasks sequentially in FIFO order', async () => {
     const mutex = new AsyncMutex()
     const order: number[] = []
+    const first = gate()
 
     const p1 = mutex.runExclusive(async () => {
-      await new Promise(resolve => setTimeout(resolve, 20))
+      await first.promise
       order.push(1)
       return 'one'
     })
@@ -16,6 +24,9 @@ describe('AsyncMutex', () => {
       return 'two'
     })
 
+    await Promise.resolve()
+    expect(order).toEqual([])
+    first.open()
     const [r1, r2] = await Promise.all([p1, p2])
     expect(order).toEqual([1, 2])
     expect(r1).toBe('one')
@@ -39,14 +50,19 @@ describe('AsyncMutex', () => {
   it('waitForIdle awaits all active tasks', async () => {
     const mutex = new AsyncMutex()
     let completed = false
+    const task = gate()
 
     void mutex.runExclusive(async () => {
-      await new Promise(resolve => setTimeout(resolve, 20))
+      await task.promise
       completed = true
     })
 
-    expect(completed).toBe(false)
-    await mutex.waitForIdle()
+    let idleResolved = false
+    const idle = mutex.waitForIdle().then(() => { idleResolved = true })
+    await Promise.resolve()
+    expect(idleResolved).toBe(false)
+    task.open()
+    await idle
     expect(completed).toBe(true)
   })
 })
@@ -55,9 +71,10 @@ describe('KeyedAsyncMutex', () => {
   it('executes tasks for the same key sequentially', async () => {
     const mutex = new KeyedAsyncMutex<string>()
     const order: number[] = []
+    const first = gate()
 
     const p1 = mutex.runExclusive('keyA', async () => {
-      await new Promise(resolve => setTimeout(resolve, 20))
+      await first.promise
       order.push(1)
       return 'a1'
     })
@@ -67,6 +84,9 @@ describe('KeyedAsyncMutex', () => {
       return 'a2'
     })
 
+    await Promise.resolve()
+    expect(order).toEqual([])
+    first.open()
     const [r1, r2] = await Promise.all([p1, p2])
     expect(order).toEqual([1, 2])
     expect(r1).toBe('a1')
@@ -76,18 +96,22 @@ describe('KeyedAsyncMutex', () => {
   it('executes tasks for different keys concurrently', async () => {
     const mutex = new KeyedAsyncMutex<string>()
     const order: string[] = []
+    const holdA = gate()
 
     const p1 = mutex.runExclusive('keyA', async () => {
-      await new Promise(resolve => setTimeout(resolve, 30))
+      await holdA.promise
       order.push('A')
     })
 
     const p2 = mutex.runExclusive('keyB', async () => {
-      await new Promise(resolve => setTimeout(resolve, 5))
       order.push('B')
     })
 
-    await Promise.all([p1, p2])
+    // keyB finishes while keyA still holds its lock
+    await p2
+    expect(order).toEqual(['B'])
+    holdA.open()
+    await p1
     expect(order).toEqual(['B', 'A'])
   })
 
@@ -123,14 +147,19 @@ describe('KeyedAsyncMutex', () => {
   it('supports waitForIdle(key)', async () => {
     const mutex = new KeyedAsyncMutex<string>()
     let done = false
+    const task = gate()
 
     void mutex.runExclusive('doc1', async () => {
-      await new Promise(resolve => setTimeout(resolve, 20))
+      await task.promise
       done = true
     })
 
-    expect(done).toBe(false)
-    await mutex.waitForIdle('doc1')
+    let idleResolved = false
+    const idle = mutex.waitForIdle('doc1').then(() => { idleResolved = true })
+    await Promise.resolve()
+    expect(idleResolved).toBe(false)
+    task.open()
+    await idle
     expect(done).toBe(true)
   })
 

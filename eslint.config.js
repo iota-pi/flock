@@ -206,6 +206,8 @@ export default defineConfig([
       '**/__test__/**/*.tsx',
       '**/__tests__/**/*.ts',
       '**/__tests__/**/*.tsx',
+      '**/test/**/*.ts',
+      '**/testUtils.ts',
     ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
@@ -216,6 +218,23 @@ export default defineConfig([
           assertFunctionNames: ['expect', 'checkA11y'],
         },
       ],
+      // Test files share module state (`isolate: false`), so a module mock would leak into
+      // whichever files run after it in the same worker
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.object.name='vi'][callee.property.name=/^(mock|doMock)$/]",
+          message: 'Test files share module state, so vi.mock leaks between them. Use vi.spyOn on the module namespace '
+            + '(or spyOnExports) in beforeEach, or for a package, its mutable copy in the setup file.',
+        },
+      ],
+    },
+  },
+  {
+    // Setup files mock each package that specs spy on once, with a mutable copy that every file shares
+    files: ['packages/*/test/setup.ts'],
+    rules: {
+      'no-restricted-syntax': 'off',
     },
   },
 ])

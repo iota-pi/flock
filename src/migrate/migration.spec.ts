@@ -19,31 +19,34 @@ import {
 } from './migration'
 import { MigrationBridge } from './migrationBridge'
 import { clearLegacyLocalData } from './legacy/localData'
-
-vi.mock('@vault/client', async importOriginal => ({
-  ...await importOriginal<typeof import('@vault/client')>(),
-  getSecurityParams: vi.fn(),
-  loginVault: vi.fn(),
-  lockVaultKeys: vi.fn(),
-  upgradeKeyDerivation: vi.fn(),
-  getActiveKeyVersion: vi.fn(),
-  reencryptAllItems: vi.fn(),
-}))
-
-vi.mock('./migrationBridge', () => ({
-  MigrationBridge: {
-    initialize: vi.fn().mockResolvedValue(undefined),
-    shutdown: vi.fn().mockResolvedValue(undefined),
-    reencryptAllItems: vi.fn(),
-  },
-  setMigrationAccount: vi.fn(),
-}))
-
-vi.mock('./legacy/localData', () => ({
-  clearLegacyLocalData: vi.fn().mockResolvedValue(undefined),
-}))
+import * as clientModule from '@vault/client'
+import * as migrationBridgeModule from './migrationBridge'
+import * as localDataModule from './legacy/localData'
+import { spyOnExports } from '../utils/testUtils'
 
 const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, parallelism: 1 }
+
+beforeEach(() => {
+  spyOnExports(clientModule, {
+    getSecurityParams: vi.fn(),
+    loginVault: vi.fn(),
+    lockVaultKeys: vi.fn(),
+    upgradeKeyDerivation: vi.fn(),
+    getActiveKeyVersion: vi.fn(),
+    reencryptAllItems: vi.fn(),
+  })
+  spyOnExports(migrationBridgeModule, {
+    MigrationBridge: {
+      initialize: vi.fn().mockResolvedValue(undefined),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+      reencryptAllItems: vi.fn(),
+    },
+    setMigrationAccount: vi.fn(),
+  })
+  spyOnExports(localDataModule, {
+    clearLegacyLocalData: vi.fn().mockResolvedValue(undefined),
+  })
+})
 
 describe('migration', () => {
   const assign = vi.fn()

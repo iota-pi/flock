@@ -4,23 +4,11 @@ import {
 } from './syncMetadataStorage'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
-import { createMockLocalForagePool } from '../__test__/testUtils'
+import { createMockLocalForagePool, mockLocalForage } from '../__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
-
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => {
-      return pool.createInstance(config)
-    }),
-  },
-}))
-
-vi.mock('../../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
-}))
 
 describe('SyncedHeadsStore', () => {
   let store: SyncedHeadsStore
@@ -28,6 +16,7 @@ describe('SyncedHeadsStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLocalForage(pool.createInstance)
     instances.clear()
     clearAccountStoreInstancesCacheForTesting()
     store = new SyncedHeadsStore(accountId)
@@ -76,6 +65,5 @@ describe('SyncedHeadsStore', () => {
     const loaded = await store.loadSyncedHeads()
     expect(loaded).toBeNull()
   })
-
 
 })

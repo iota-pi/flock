@@ -1,34 +1,15 @@
 import { renderHook, waitFor } from '@testing-library/react'
-import { usePasswordStrength } from './usePasswordStrength'
-
-
-// Mock zxcvbn-ts modules
-vi.mock('@zxcvbn-ts/core', () => ({
-  zxcvbn: vi.fn(),
-  zxcvbnOptions: {
-    setOptions: vi.fn(),
-  },
-}))
-
-vi.mock('@zxcvbn-ts/language-common', () => ({
-  dictionary: { common: 'mock' },
-  adjacencyGraphs: { graph: 'mock' },
-}))
-
-vi.mock('@zxcvbn-ts/language-en', () => ({
-  dictionary: { en: 'mock' },
-  translations: { t: 'mock' },
-}))
-
+import * as zxcvbnCore from '@zxcvbn-ts/core'
 import { zxcvbn, zxcvbnOptions } from '@zxcvbn-ts/core'
+import { usePasswordStrength } from './usePasswordStrength'
 
 describe('usePasswordStrength', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    (zxcvbn as any).mockReturnValue({
+    vi.spyOn(zxcvbnOptions, 'setOptions').mockImplementation(() => {})
+    vi.spyOn(zxcvbnCore, 'zxcvbn').mockReturnValue({
       score: 4,
       feedback: { warning: '', suggestions: [] },
-    })
+    } as unknown as ReturnType<typeof zxcvbn>)
   })
 
   it('returns default state initially', () => {

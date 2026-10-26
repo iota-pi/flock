@@ -14,29 +14,14 @@ const mockAddAutomergeItemIdsToIndex = vi.fn()
 const mockGetLastManifestSyncTime = vi.fn()
 const mockUpdateLastManifestSyncTime = vi.fn()
 
-vi.mock('./docStore', () => ({
-  AutomergeDocStore: vi.fn().mockImplementation(() => ({
-    hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,
-  })),
-  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
-    listAutomergeItemIds: mockListAutomergeItemIds,
-    listAutomergeTombstoneIds: mockListAutomergeTombstoneIds,
-    removeAutomergeItemIdsFromIndex: mockRemoveAutomergeItemIdsFromIndex,
-    getAutomergeMetadata: mockGetAutomergeMetadata,
-    addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
-    getLastManifestSyncTime: mockGetLastManifestSyncTime,
-    updateLastManifestSyncTime: mockUpdateLastManifestSyncTime,
-  })),
-}))
-
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
-vi.mock('./ItemClient', () => ({
-  fetchManifest: (...args: any[]) => mockFetchManifest(...args),
-  fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
-}))
-
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
+import * as docStoreModule from './docStore'
+import * as itemClient from './ItemClient'
+import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
+import * as runtimeModule from '../../api/runtime'
 
 const mockVault = createMockVault()
 const keys = createMockKeyProvider(mockVault)
@@ -46,16 +31,35 @@ const {
   waitForKeyVersion: mockWaitForKeyVersion,
 } = mockVault
 const mockReadManualRecoveryEntries = vi.fn().mockResolvedValue([])
-vi.mock('../shared/manualRecoveryStore', () => ({
-  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
-}))
-
 const mockHasApiAuthToken = vi.fn()
-vi.mock('../../api/runtime', () => ({
-  setApiAuthToken: vi.fn(),
-  hasApiAuthToken: () => mockHasApiAuthToken(),
-  getApiAuthToken: () => (mockHasApiAuthToken() ? 'session-token' : ''),
-}))
+beforeEach(() => {
+  spyOnExports(docStoreModule, {
+    AutomergeDocStore: vi.fn().mockImplementation(() => ({
+      hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,
+    })),
+    AutomergeIndexManager: vi.fn().mockImplementation(() => ({
+      listAutomergeItemIds: mockListAutomergeItemIds,
+      listAutomergeTombstoneIds: mockListAutomergeTombstoneIds,
+      removeAutomergeItemIdsFromIndex: mockRemoveAutomergeItemIdsFromIndex,
+      getAutomergeMetadata: mockGetAutomergeMetadata,
+      addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
+      getLastManifestSyncTime: mockGetLastManifestSyncTime,
+      updateLastManifestSyncTime: mockUpdateLastManifestSyncTime,
+    })),
+  })
+  spyOnExports(itemClient, {
+    fetchManifest: (...args: any[]) => mockFetchManifest(...args),
+    fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
+  })
+  spyOnExports(manualRecoveryStoreModule, {
+    readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
+  })
+  spyOnExports(runtimeModule, {
+    setApiAuthToken: vi.fn(),
+    hasApiAuthToken: () => mockHasApiAuthToken(),
+    getApiAuthToken: () => (mockHasApiAuthToken() ? 'session-token' : ''),
+  })
+})
 
 describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager

@@ -2,12 +2,16 @@ import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import LeaderConflictDialog from './LeaderConflictDialog'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from '../../app/vault/syncBridge'
+import * as syncBridgeModule from '../../app/vault/syncBridge'
+import { spyOnExports } from '../../utils/testUtils'
 
-vi.mock('../../app/vault/syncBridge', () => ({
-  SyncBridge: {
-    claimLeader: vi.fn().mockResolvedValue(undefined),
-  },
-}))
+beforeEach(() => {
+  spyOnExports(syncBridgeModule, {
+    SyncBridge: {
+      claimLeader: vi.fn().mockResolvedValue(undefined),
+    },
+  })
+})
 
 describe('LeaderConflictDialog', () => {
   beforeEach(() => {

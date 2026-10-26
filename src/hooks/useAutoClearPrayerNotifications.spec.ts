@@ -2,33 +2,37 @@ import { renderHook } from '@testing-library/react'
 import { useAutoClearPrayerNotifications } from './useAutoClearPrayerNotifications'
 import { useAppStore } from '../state/store'
 
-vi.mock('../state/selectors', () => ({
-  useLoggedIn: vi.fn(),
-  usePrayerScheduleInputs: vi.fn(),
-  useMetadata: vi.fn(),
-}))
-
-vi.mock('./useToday', () => ({
-  useToday: vi.fn(),
-}))
-
-vi.mock('../utils/prayer', () => ({
-  isPrayerCompletedForToday: vi.fn(),
-}))
-
-vi.mock('../utils/pushNotifications', () => ({
-  clearReminderNotifications: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../api/notificationClient', () => ({
-  snoozeReminders: vi.fn().mockResolvedValue(undefined),
-}))
-
 import { useLoggedIn, usePrayerScheduleInputs, useMetadata } from '../state/selectors'
 import { useToday } from './useToday'
 import { isPrayerCompletedForToday } from '../utils/prayer'
 import { clearReminderNotifications } from '../utils/pushNotifications'
 import { snoozeReminders } from '../api/notificationClient'
+import * as selectorsModule from '../state/selectors'
+import * as useTodayModule from './useToday'
+import * as prayerModule from '../utils/prayer'
+import * as pushNotificationsModule from '../utils/pushNotifications'
+import * as notificationClientModule from '../api/notificationClient'
+import { spyOnExports } from '../utils/testUtils'
+
+beforeEach(() => {
+  spyOnExports(selectorsModule, {
+    useLoggedIn: vi.fn(),
+    usePrayerScheduleInputs: vi.fn(),
+    useMetadata: vi.fn(),
+  })
+  spyOnExports(useTodayModule, {
+    useToday: vi.fn(),
+  })
+  spyOnExports(prayerModule, {
+    isPrayerCompletedForToday: vi.fn(),
+  })
+  spyOnExports(pushNotificationsModule, {
+    clearReminderNotifications: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(notificationClientModule, {
+    snoozeReminders: vi.fn().mockResolvedValue(undefined),
+  })
+})
 
 describe('useAutoClearPrayerNotifications', () => {
   beforeEach(() => {

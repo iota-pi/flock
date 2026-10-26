@@ -1,21 +1,24 @@
 import * as Sentry from '@sentry/node'
 import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import createServer from './index'
+import { spyOnExports } from '../../utils/testUtils'
 
 const CURRENT_PROTOCOL = { [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION) }
 
-vi.mock('@sentry/node', () => ({
-  init: vi.fn(),
-  captureException: vi.fn(),
-  captureMessage: vi.fn(),
-  withScope: vi.fn((fn: (scope: any) => void) => {
-    const scope = {
-      setTag: vi.fn(),
-      setUser: vi.fn(),
-    }
-    fn(scope)
-  }),
-}))
+beforeEach(() => {
+  spyOnExports(Sentry, {
+    init: vi.fn(),
+    captureException: vi.fn(),
+    captureMessage: vi.fn(),
+    withScope: vi.fn((fn: (scope: any) => void) => {
+      const scope = {
+        setTag: vi.fn(),
+        setUser: vi.fn(),
+      }
+      fn(scope)
+    }),
+  })
+})
 
 describe('createServer error reporting', () => {
   const originalEnv = process.env.SENTRY_DSN

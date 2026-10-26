@@ -4,6 +4,7 @@ import {
   createMockKeyProvider,
   createMockLocalForage,
   createTestEventHubs,
+  mockLocalForage,
 } from './__test__/testUtils'
 
 const keys = createMockKeyProvider()
@@ -19,21 +20,15 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
-const { mockStores } = vi.hoisted(() => ({
-  mockStores: new Map<string, MockLocalforage>(),
-}))
+const mockStores = new Map<string, MockLocalforage>()
 
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((opts: { name: string; storeName: string }) => {
-      const key = `${opts.name}:${opts.storeName}`
-      if (!mockStores.has(key)) {
-        mockStores.set(key, createMockLocalForage(opts))
-      }
-      return mockStores.get(key)
-    }),
-  },
-}))
+const createLocalForageInstance = (opts: { name: string; storeName: string }) => {
+  const key = `${opts.name}:${opts.storeName}`
+  if (!mockStores.has(key)) {
+    mockStores.set(key, createMockLocalForage(opts))
+  }
+  return mockStores.get(key)
+}
 
 function createTestSyncMessage(itemId: string, data: Uint8Array = new Uint8Array([1, 2, 3])): Message {
   const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))
@@ -56,6 +51,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
   let broker: SyncMessageBroker
 
   beforeEach(async () => {
+    mockLocalForage(createLocalForageInstance)
     vi.clearAllMocks()
     mockStores.clear()
     clearAccountStoreInstancesCacheForTesting()

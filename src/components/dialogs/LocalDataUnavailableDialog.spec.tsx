@@ -2,13 +2,17 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import LocalDataUnavailableDialog from './LocalDataUnavailableDialog'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from '../../app/vault/syncBridge'
+import * as syncBridgeModule from '../../app/vault/syncBridge'
+import { spyOnExports } from '../../utils/testUtils'
 
-vi.mock('../../app/vault/syncBridge', () => ({
-  SyncBridge: {
-    initialize: vi.fn().mockResolvedValue(undefined),
-    discardLocalDataAndRestart: vi.fn().mockResolvedValue(undefined),
-  },
-}))
+beforeEach(() => {
+  spyOnExports(syncBridgeModule, {
+    SyncBridge: {
+      initialize: vi.fn().mockResolvedValue(undefined),
+      discardLocalDataAndRestart: vi.fn().mockResolvedValue(undefined),
+    },
+  })
+})
 
 describe('LocalDataUnavailableDialog', () => {
   beforeEach(() => {

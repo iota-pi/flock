@@ -2,35 +2,38 @@ import { loadAccount, lockVault, removeVaultFromDevice } from './session'
 import { SyncBridge } from './syncBridge'
 import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/client'
 import { unsubscribe } from '../../utils/pushNotifications'
+import * as syncBridgeModule from './syncBridge'
+import * as clientModule from '@vault/client'
+import * as pushNotificationsModule from '../../utils/pushNotifications'
+import * as storeModule from '../../state/store'
+import { spyOnExports } from '../../utils/testUtils'
 
-const mocks = vi.hoisted(() => ({
+const mocks = {
   updateAuth: vi.fn(),
   state: { account: 'acct-1' },
-}))
+}
 
-vi.mock('./syncBridge', () => ({
-  SyncBridge: {
-    shutdown: vi.fn().mockResolvedValue(undefined),
-    requestClearOnShutdown: vi.fn(),
-  },
-}))
-
-vi.mock('@vault/client', async importOriginal => ({
-  ...await importOriginal<typeof import('@vault/client')>(),
-  clearVaultDeviceData: vi.fn().mockResolvedValue(undefined),
-  lockVaultKeys: vi.fn().mockResolvedValue(undefined),
-  readStoredMetadata: vi.fn(),
-}))
-
-vi.mock('../../utils/pushNotifications', () => ({
-  unsubscribe: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('../../state/store', () => ({
-  useAppStore: {
-    getState: () => ({ ...mocks.state, updateAuth: mocks.updateAuth }),
-  },
-}))
+beforeEach(() => {
+  spyOnExports(syncBridgeModule, {
+    SyncBridge: {
+      shutdown: vi.fn().mockResolvedValue(undefined),
+      requestClearOnShutdown: vi.fn(),
+    },
+  })
+  spyOnExports(clientModule, {
+    clearVaultDeviceData: vi.fn().mockResolvedValue(undefined),
+    lockVaultKeys: vi.fn().mockResolvedValue(undefined),
+    readStoredMetadata: vi.fn(),
+  })
+  spyOnExports(pushNotificationsModule, {
+    unsubscribe: vi.fn().mockResolvedValue(undefined),
+  })
+  spyOnExports(storeModule, {
+    useAppStore: {
+      getState: () => ({ ...mocks.state, updateAuth: mocks.updateAuth }),
+    },
+  })
+})
 
 describe('vault session', () => {
   beforeEach(() => {

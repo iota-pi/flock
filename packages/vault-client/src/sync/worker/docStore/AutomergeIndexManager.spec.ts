@@ -3,6 +3,9 @@ import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import type { ItemId } from '@vault/shared'
 
+/** Yields to other tasks, so concurrent operations interleave as they would against IndexedDB */
+const storeLatency = () => new Promise(resolve => setTimeout(resolve, 0))
+
 class MockBroadcastChannel {
   name: string
   onmessage: ((ev: MessageEvent) => any) | null = null
@@ -177,13 +180,13 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should correctly serialize concurrent mutations without clobbering', async () => {
-    // Add artificial delay to getIndex and saveIndex to simulate async store delay
+    // Make getIndex and saveIndex yield, as an async store would
     mockStore.getIndex = vi.fn(async () => {
-      await new Promise(res => setTimeout(res, 10))
+      await storeLatency()
       return mockStore.data ? JSON.parse(JSON.stringify(mockStore.data)) : null
     })
     mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
-      await new Promise(res => setTimeout(res, 10))
+      await storeLatency()
       mockStore.data = JSON.parse(JSON.stringify(doc))
     })
 
@@ -263,7 +266,7 @@ describe('AutomergeIndexManager', () => {
     let isWriteInProgress = false
     mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
       isWriteInProgress = true
-      await new Promise(res => setTimeout(res, 30))
+      await storeLatency()
       mockStore.data = JSON.parse(JSON.stringify(doc))
       isWriteInProgress = false
     })
@@ -324,13 +327,13 @@ describe('AutomergeIndexManager', () => {
     })
 
     it('prevents cross-tab item ID loss when two managers write concurrently (H11)', async () => {
-      // Introduce artificial delay in getIndex and saveIndex to simulate async IndexedDB latency
+      // Make getIndex and saveIndex yield, as IndexedDB would
       mockStore.getIndex = vi.fn(async () => {
-        await new Promise(res => setTimeout(res, 15))
+        await storeLatency()
         return mockStore.data ? JSON.parse(JSON.stringify(mockStore.data)) : null
       })
       mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
-        await new Promise(res => setTimeout(res, 15))
+        await storeLatency()
         mockStore.data = JSON.parse(JSON.stringify(doc))
       })
 
@@ -365,11 +368,11 @@ describe('AutomergeIndexManager', () => {
       }
 
       mockStore.getIndex = vi.fn(async () => {
-        await new Promise(res => setTimeout(res, 10))
+        await storeLatency()
         return mockStore.data ? JSON.parse(JSON.stringify(mockStore.data)) : null
       })
       mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
-        await new Promise(res => setTimeout(res, 10))
+        await storeLatency()
         mockStore.data = JSON.parse(JSON.stringify(doc))
       })
 
@@ -401,11 +404,11 @@ describe('AutomergeIndexManager', () => {
       }
 
       mockStore.getIndex = vi.fn(async () => {
-        await new Promise(res => setTimeout(res, 10))
+        await storeLatency()
         return mockStore.data ? JSON.parse(JSON.stringify(mockStore.data)) : null
       })
       mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
-        await new Promise(res => setTimeout(res, 10))
+        await storeLatency()
         mockStore.data = JSON.parse(JSON.stringify(doc))
       })
 

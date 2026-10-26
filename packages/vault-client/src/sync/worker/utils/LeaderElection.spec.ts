@@ -23,6 +23,9 @@ class MockBroadcastChannel {
   }
 }
 
+/** Lets every pending promise callback run, for checking that something has not happened */
+const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0))
+
 describe('LeaderElection', () => {
   let originalNavigator: any
 
@@ -142,7 +145,7 @@ describe('LeaderElection', () => {
     expect(onLeaderRevoked).not.toHaveBeenCalled()
 
     // Ensure onLeaderGranted is never called even after catch handles AbortError
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await flushPromises()
     expect(onLeaderGranted).not.toHaveBeenCalled()
   })
 
@@ -169,7 +172,7 @@ describe('LeaderElection', () => {
     )
 
     await election.acquire()
-    await new Promise(resolve => setTimeout(resolve, 20))
+    await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled())
 
     // Initial failure should not grant leadership
     expect(onLeaderGranted).not.toHaveBeenCalled()
@@ -328,6 +331,7 @@ describe('LeaderElection', () => {
   })
 
   it('cancels scheduled retry when release is called', async () => {
+    vi.useFakeTimers()
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     let attempts = 0
     const requestMock = vi.fn().mockImplementation(() => {
@@ -354,18 +358,20 @@ describe('LeaderElection', () => {
     )
 
     await election.acquire()
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await vi.advanceTimersByTimeAsync(0)
     expect(attempts).toBe(1)
+    expect(vi.getTimerCount()).toBe(1)
 
     // Release before retry fires
     election.release()
 
-    // Wait past retry delay
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // Run past the retry delay
+    await vi.advanceTimersByTimeAsync(100)
     expect(attempts).toBe(1)
     expect(onLeaderGranted).not.toHaveBeenCalled()
 
     consoleErrorSpy.mockRestore()
+    vi.useRealTimers()
   })
 
   it('detects multiple leaders via presence channel and restores sole leader when other releases', async () => {
@@ -493,10 +499,8 @@ describe('LeaderElection', () => {
       createdAt: 100,
     })
 
-    await new Promise(resolve => setTimeout(resolve, 50))
-
     // Follower knows about sole leader, but should NOT fire multipleLeadersDetected
-    expect(followerElection.activeOtherLeaderCount).toBe(1)
+    await vi.waitFor(() => expect(followerElection.activeOtherLeaderCount).toBe(1))
     expect(onMultipleLeadersDetected).not.toHaveBeenCalled()
 
     // When a second leader sends a heartbeat, multipleLeadersDetected MUST fire
@@ -569,8 +573,7 @@ describe('LeaderElection', () => {
 
     // election1 sends another heartbeat as the sole active leader
     ;(election1 as any).sendHeartbeat()
-
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await flushPromises()
 
     // Yielded tab receives heartbeat from sole leader without firing onMultipleLeadersDetected
     expect(onMultipleLeadersDetected2).not.toHaveBeenCalled()

@@ -11,29 +11,20 @@ import localforage from 'localforage'
 import {
   MockLocalforage,
   createMockLocalForage,
+  mockLocalForage,
 } from '../__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
-
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => createMockLocalForage(config)),
-  },
-}))
-
-vi.mock('../../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: () => Promise<any>) => op()),
-}))
 
 describe('syncMetadataStorage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLocalForage(config => createMockLocalForage(config))
     clearAccountStoreInstancesCacheForTesting()
   })
 
   it('generates consistent database name for account', () => {
     expect(getSyncMetadataDBName('acc-123')).toBe('test-vault-sync-metadata-acc-123')
   })
-
 
   it('reuses same LocalForage instance for the same accountId', () => {
     const store1 = getSyncMetadataStorage('acc-1')
@@ -98,6 +89,7 @@ describe('ScopedMetadataStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLocalForage(config => createMockLocalForage(config))
     clearAccountStoreInstancesCacheForTesting()
     store = new TestScopedStore(accountId)
   })
@@ -121,7 +113,6 @@ describe('ScopedMetadataStore', () => {
     const data = await store.getScopedData()
     expect(data).toEqual({ value: 'existing' })
   })
-
 
   it('returns null when the key is missing', async () => {
     expect(await store.getScopedData()).toBeNull()

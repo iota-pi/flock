@@ -119,7 +119,10 @@ describe('SyncOrchestrator', () => {
     orchestrator.setLeader(true)
     orchestrator.setOnlineState(true)
 
-    const setTimeoutSpy = vi.spyOn(self, 'setTimeout')
+    // Spy on the real setTimeout, not the fake one: restoring a spy on a fake timer would bring
+    // the fake back after `useRealTimers`, and stall every later file in the worker
+    vi.useRealTimers()
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((() => 0) as unknown as typeof setTimeout)
     const samples: number[] = []
 
     for (let i = 0; i < 1000; i++) {
@@ -778,6 +781,8 @@ describe('SyncOrchestrator', () => {
     })
 
     it('resets backoff and allows immediate flush once a poll succeeds after earlier failures', async () => {
+      // Without jitter, so the next regular poll can't fall inside the 80s window
+      vi.spyOn(Math, 'random').mockReturnValue(0.5)
       mockBroker.executePoll.mockResolvedValueOnce('failure')
       mockBroker.executePoll.mockResolvedValueOnce('success')
       mockBroker.executePoll.mockResolvedValueOnce('success')

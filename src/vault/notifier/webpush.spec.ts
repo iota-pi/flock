@@ -1,10 +1,13 @@
 import { sendPushNotification } from './webpush'
 import * as webPush from 'web-push'
+import { spyOnExports } from '../../utils/testUtils'
 
-vi.mock('web-push', () => ({
-  sendNotification: vi.fn().mockResolvedValue({ statusCode: 201 }),
-  setVapidDetails: vi.fn(),
-}))
+beforeEach(() => {
+  spyOnExports(webPush, {
+    sendNotification: vi.fn().mockResolvedValue({ statusCode: 201 }),
+    setVapidDetails: vi.fn(),
+  })
+})
 
 describe('webpush service', () => {
   const originalEnv = process.env

@@ -11,6 +11,13 @@ vi.mock('./env', () => ({
   },
 }))
 
+// Packages that specs spy on (see `mutableCopy`). Test files share module state, so these and
+// `./env` are the only module mocks: specs use `vi.spyOn` instead of `vi.mock`.
+vi.mock('@sentry/react', async () => (await import('./utils/testUtils')).mutableCopy('@sentry/react'))
+vi.mock('@sentry/node', async () => (await import('./utils/testUtils')).mutableCopy('@sentry/node'))
+vi.mock('web-push', async () => (await import('./utils/testUtils')).mutableCopy('web-push'))
+vi.mock('@zxcvbn-ts/core', async () => (await import('./utils/testUtils')).mutableCopy('@zxcvbn-ts/core'))
+
 globalThis.isSecureContext = true
 
 configureVaultStorageNames(FLOCK_STORAGE_NAMES)
@@ -61,3 +68,19 @@ process.env.ITEMS_TABLE ??= 'FlockItems'
 process.env.SYNC_MESSAGES_TABLE ??= 'FlockSyncMessages'
 
 import '@automerge/automerge'
+
+// Test files share each worker (`isolate: false`) and this file runs before each one, so reset
+// what one file could leave behind for the next.
+if (typeof window !== 'undefined') {
+  const { cleanup } = await import('@testing-library/react')
+  const { useAppStore } = await import('./state/store')
+
+  // RTL registers its own cleanup only in the first file that loads it in a worker
+  afterEach(() => {
+    cleanup()
+  })
+
+  localStorage.clear()
+  sessionStorage.clear()
+  useAppStore.setState(useAppStore.getInitialState(), true)
+}

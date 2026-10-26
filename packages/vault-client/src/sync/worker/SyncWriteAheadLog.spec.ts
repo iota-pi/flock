@@ -7,26 +7,24 @@ import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } fro
 import {
   MockLocalforage,
   createMockLocalForage,
+  mockLocalForage,
 } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((options: { name: string; storeName: string }) => {
-      const key = `${options.name}:${options.storeName}`
-      if (!activeStoreMap.has(key)) {
-        activeStoreMap.set(key, createMockLocalForage(options))
-      }
-      return activeStoreMap.get(key)
-    }),
-  },
-}))
+const createLocalForageInstance = (options: { name: string; storeName: string }) => {
+  const key = `${options.name}:${options.storeName}`
+  if (!activeStoreMap.has(key)) {
+    activeStoreMap.set(key, createMockLocalForage(options))
+  }
+  return activeStoreMap.get(key)
+}
 
 describe('SyncWriteAheadLog', () => {
   let wal: SyncWriteAheadLog
 
   beforeEach(() => {
+    mockLocalForage(createLocalForageInstance)
     vi.clearAllMocks()
     activeStoreMap.clear()
     clearAccountStoreInstancesCacheForTesting()

@@ -4,17 +4,10 @@ import * as storageManager from '../../utils/storageManager'
 import {
   MockLocalforage,
   createMockLocalForage,
+  mockLocalForage,
 } from '../__test__/testUtils'
 
 let activeStore: MockLocalforage
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation(() => {
-      activeStore = createMockLocalForage()
-      return activeStore
-    }),
-  },
-}))
 
 class TestStore extends BaseLocalForageStore {
   constructor(optionsOrInstance: any) {
@@ -44,6 +37,10 @@ describe('BaseLocalForageStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLocalForage(() => {
+      activeStore = createMockLocalForage()
+      return activeStore
+    })
     runStorageOperationSpy = vi.spyOn(storageManager, 'runStorageOperation')
     store = new TestStore({ name: 'test-db', storeName: 'test-store' })
   })

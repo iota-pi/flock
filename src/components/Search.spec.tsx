@@ -5,28 +5,15 @@ import { ThemeProvider } from '@mui/material/styles'
 
 import getTheme from '../theme'
 
-
 // Mocks
-vi.mock('../state/selectors', async importOriginal => {
-  const actual = await importOriginal<typeof import('../state/selectors')>()
-  return {
-    ...actual,
-    useItemsByIds: vi.fn(),
-    useMetadata: vi.fn(),
-    useSearchItems: vi.fn(),
-  }
-})
-vi.mock('../state/store', () => ({
-  useAppStore: vi.fn(),
-}))
-vi.mock('../utils/customSort', () => ({
-  sortItems: vi.fn(items => items),
-}))
-
+import * as selectors from '../state/selectors'
 import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
 import { useAppStore } from '../state/store'
 import { Item } from '../state/items'
 import { ItemId } from '@vault/shared'
+import * as storeModule from '../state/store'
+import * as customSortModule from '../utils/customSort'
+import { spyOnExports } from '../utils/testUtils'
 
 const lightTheme = getTheme(false)
 
@@ -37,6 +24,20 @@ const renderWithTheme = (ui: React.ReactNode) => {
     </ThemeProvider>
   )
 }
+
+beforeEach(() => {
+  spyOnExports(selectors, {
+    useItemsByIds: vi.fn(),
+    useMetadata: vi.fn(),
+    useSearchItems: vi.fn(),
+  })
+  spyOnExports(storeModule, {
+    useAppStore: vi.fn(),
+  })
+  spyOnExports(customSortModule, {
+    sortItems: vi.fn(items => items),
+  })
+})
 
 describe('Search Component', () => {
   const mockOnSelect = vi.fn()
@@ -160,7 +161,6 @@ describe('Search Component', () => {
     expect(within(listbox).getAllByText(/NewUser/)[0]).toBeTruthy()
 
     const options = within(listbox).getAllByRole('option')
-
 
     await user.click(options[0])
     expect(mockOnCreate).toHaveBeenCalled()

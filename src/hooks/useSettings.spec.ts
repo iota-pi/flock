@@ -4,9 +4,16 @@ import useSettings from './useSettings'
 import type { Item } from 'src/state/items'
 import type { BackupSyncState } from '@vault/client'
 import { ItemId } from '@vault/shared'
+import * as sessionModule from '../app/vault/session'
+import * as clientModule from '@vault/client'
+import * as itemMutationsModule from '../features/items/mutations/itemMutations'
+import * as selectorsModule from '../state/selectors'
+import * as useAuthModule from './useAuth'
+import * as storeModule from '../state/store'
+import * as syncBridgeModule from '../app/vault/syncBridge'
+import { spyOnExports } from '../utils/testUtils'
 
-
-const mocks = vi.hoisted(() => ({
+const mocks = {
   exportData: vi.fn(),
   lockVault: vi.fn(),
   removeVaultFromDevice: vi.fn(),
@@ -31,35 +38,7 @@ const mocks = vi.hoisted(() => ({
   subscribeBiometrics: vi.fn((_: () => void) => () => {}),
   enableBiometrics: vi.fn(async () => undefined),
   clearBiometricData: vi.fn(),
-}))
-
-vi.mock('../app/vault/session', () => ({
-  lockVault: mocks.lockVault,
-  removeVaultFromDevice: mocks.removeVaultFromDevice,
-}))
-
-vi.mock('@vault/client', async importOriginal => ({
-  ...await importOriginal<typeof import('@vault/client')>(),
-  exportData: mocks.exportData,
-  hasBiometricData: mocks.hasBiometricData,
-  subscribeBiometrics: mocks.subscribeBiometrics,
-  isWebAuthnPrfSupported: vi.fn(async () => true),
-  enableBiometrics: mocks.enableBiometrics,
-  clearBiometricData: mocks.clearBiometricData,
-}))
-
-vi.mock('../features/items/mutations/itemMutations', () => ({
-  storeItems: mocks.storeItems,
-  setMetadata: mocks.setMetadata,
-}))
-
-vi.mock('../state/selectors', () => ({
-  useMetadata: (_key: string, defaultValue?: unknown) => [defaultValue, vi.fn()],
-}))
-
-vi.mock('./useAuth', () => ({
-  useAuth: () => ({ account: 'acct-1', loggedIn: true, initializing: false }),
-}))
+}
 
 const mockStore = {
   account: 'acct-1',
@@ -68,31 +47,53 @@ const mockStore = {
   setUi: mocks.setUi,
 }
 
-vi.mock('../state/store', () => ({
-  useAppStore: Object.assign(
-    (selector: any) => selector(mockStore),
-    {
-      getState: () => mockStore,
-      setState: vi.fn(),
+beforeEach(() => {
+  spyOnExports(sessionModule, {
+    lockVault: mocks.lockVault,
+    removeVaultFromDevice: mocks.removeVaultFromDevice,
+  })
+  spyOnExports(clientModule, {
+    exportData: mocks.exportData,
+    hasBiometricData: mocks.hasBiometricData,
+    subscribeBiometrics: mocks.subscribeBiometrics,
+    isWebAuthnPrfSupported: vi.fn(async () => true),
+    enableBiometrics: mocks.enableBiometrics,
+    clearBiometricData: mocks.clearBiometricData,
+  })
+  spyOnExports(itemMutationsModule, {
+    storeItems: mocks.storeItems,
+    setMetadata: mocks.setMetadata,
+  })
+  spyOnExports(selectorsModule, {
+    useMetadata: (_key: string, defaultValue?: unknown) => [defaultValue, vi.fn()],
+  })
+  spyOnExports(useAuthModule, {
+    useAuth: () => ({ account: 'acct-1', loggedIn: true, initializing: false }),
+  })
+  spyOnExports(storeModule, {
+    useAppStore: Object.assign(
+      (selector: any) => selector(mockStore),
+      {
+        getState: () => mockStore,
+        setState: vi.fn(),
+      }
+    )
+  })
+  spyOnExports(syncBridgeModule, {
+    SyncBridge: {
+      clearAutomergeDocStore: mocks.clearAutomergeDocStore,
+      exportAllBinaries: mocks.exportAllBinaries,
+      restoreFromBinaries: mocks.restoreFromBinaries,
+      exportSyncState: mocks.exportSyncState,
+      restoreSyncState: mocks.restoreSyncState,
+      flushSync: mocks.flushSync,
+      fullResync: mocks.fullResync,
+      listRecoveryItems: vi.fn(async () => []),
+      subscribeRecoveryItems: vi.fn(() => () => {}),
+      shutdown: vi.fn(async () => {}),
     }
-  )
-}))
-
-
-vi.mock('../app/vault/syncBridge', () => ({
-  SyncBridge: {
-    clearAutomergeDocStore: mocks.clearAutomergeDocStore,
-    exportAllBinaries: mocks.exportAllBinaries,
-    restoreFromBinaries: mocks.restoreFromBinaries,
-    exportSyncState: mocks.exportSyncState,
-    restoreSyncState: mocks.restoreSyncState,
-    flushSync: mocks.flushSync,
-    fullResync: mocks.fullResync,
-    listRecoveryItems: vi.fn(async () => []),
-    subscribeRecoveryItems: vi.fn(() => () => {}),
-    shutdown: vi.fn(async () => {}),
-  }
-}))
+  })
+})
 
 describe('useSettings backup portability', () => {
   const mockItems = [{ id: 'i1', type: 'person', name: 'N', archived: false } as Item]

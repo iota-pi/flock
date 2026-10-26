@@ -71,8 +71,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
     this.accountId = options.accountId ?? accountIdFromChannelName(options.channelName)
     this.maxPendingMessagesPerKey = options.maxPendingMessagesPerKey ?? 1000
     this.maxCryptoRetries = options.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
-    const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'
-    this.cryptoRetryDelayMs = options.cryptoRetryDelayMs ?? (isTestEnv ? 0 : DEFAULT_CRYPTO_RETRY_DELAY_MS)
+    this.cryptoRetryDelayMs = options.cryptoRetryDelayMs ?? DEFAULT_CRYPTO_RETRY_DELAY_MS
 
     this.sendQueue = new AsyncQueue<Message>(message => this.processSendItem(message))
     this.receiveQueue = new AsyncQueue<Message>(message => this.processReceiveItem(message))

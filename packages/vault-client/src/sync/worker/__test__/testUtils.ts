@@ -1,4 +1,5 @@
 import type { Mock } from 'vitest'
+import localforage from 'localforage'
 import { ClientEventHub, WorkerInternalEventHub } from '../SyncEventHub'
 import { Keyring, type KeyProvider } from '../../../api/Keyring'
 import { generateVaultKey } from '../../../api/crypto'
@@ -179,6 +180,17 @@ export function createMockLocalForagePool(): MockLocalForagePool {
       instances.clear()
     },
   }
+}
+
+/**
+ * Serves `localforage.createInstance` from `createInstance` (by default, a fresh pool) for the
+ * current test. Call it in `beforeEach`: test files share module state, and spies are restored
+ * after every test.
+ */
+export function mockLocalForage(
+  createInstance: (config: any) => unknown = createMockLocalForagePool().createInstance,
+) {
+  return vi.spyOn(localforage, 'createInstance').mockImplementation(createInstance as typeof localforage.createInstance)
 }
 
 export interface MockVault {

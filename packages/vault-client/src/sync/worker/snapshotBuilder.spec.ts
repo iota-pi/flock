@@ -3,7 +3,11 @@ import { buildSnapshot, SnapshotBuilder, toTombstoneSnapshot } from './snapshotB
 import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/Keyring'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
 import { passthroughCodec, type DocCodec } from './domain'
+import * as docStoreModule from './docStore'
+import * as automergeModule from './utils/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 
 const testCodec: DocCodec = { ...passthroughCodec }
 
@@ -14,18 +18,18 @@ const mockToAutomergeUrlFromItemId = vi.fn()
 
 const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes: mockEncryptBytes })
 
-vi.mock('@automerge/automerge/slim', () => ({
-  save: (...args: any[]) => mockSave(...args),
-  getHeads: vi.fn().mockReturnValue(['mock-head']),
-}))
-
-vi.mock('./docStore', () => ({
-  normalizeItemSnapshot: (...args: any[]) => mockNormalizeItemSnapshot(...args),
-}))
-
-vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: (...args: any[]) => mockToAutomergeUrlFromItemId(...args),
-}))
+beforeEach(() => {
+  spyOnExports(Automerge, {
+    save: (...args: any[]) => mockSave(...args),
+    getHeads: vi.fn().mockReturnValue(['mock-head']),
+  })
+  spyOnExports(docStoreModule, {
+    normalizeItemSnapshot: (...args: any[]) => mockNormalizeItemSnapshot(...args),
+  })
+  spyOnExports(automergeModule, {
+    toAutomergeUrlFromItemId: (...args: any[]) => mockToAutomergeUrlFromItemId(...args),
+  })
+})
 
 describe('buildSnapshot helper function', () => {
   let mockRepo: any

@@ -54,12 +54,6 @@ function resetStores() {
   }
 }
 
-vi.mock('localforage', () => ({
-  default: {
-    createInstance: vi.fn().mockImplementation((config: Record<string, any>) => getStore(config)),
-  },
-}))
-
 const accountId = 'acc-1'
 const LEGACY_DATABASES = {
   cursors: { name: 'flock-sync-cursors', storeName: `cursors-${accountId}`, key: 'cursorByItemId' },
@@ -106,6 +100,10 @@ function restoreIndexedDb() {
     ;(globalThis as any).indexedDB = originalIndexedDb
   }
 }
+
+beforeEach(() => {
+  vi.spyOn(localforage, 'createInstance').mockImplementation(config => getStore(config ?? {}) as unknown as LocalForage)
+})
 
 describe('migrateLegacyLocalData', () => {
   beforeEach(() => {

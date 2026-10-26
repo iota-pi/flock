@@ -2,42 +2,16 @@ import { SyncWorker, exposeSyncWorker, type SyncWorkerConfig } from './sync.work
 import { getVaultStorageNames } from '../shared/storageNames'
 import { getApiAuthToken } from '../../api/runtime'
 import type { ItemId } from '@vault/shared'
+import * as realtimeBusModule from './realtimeBus'
+import * as keyring from '../../api/Keyring'
+import * as docStoreModule from './docStore'
+import * as automergeModule from './utils/automerge'
+import { spyOnExports } from '../../../test/moduleMocks'
+import * as comlinkModule from 'comlink'
+import * as Automerge from '@automerge/automerge/slim'
+import * as syncWorkerContext from './SyncWorkerContext'
 
-const { realtimeListeners } = vi.hoisted(() => ({
-  realtimeListeners: [] as Array<(itemIds: string[]) => void>,
-}))
-
-vi.mock('./realtimeBus', () => ({
-  subscribeRealtimeBusSyncPing: vi.fn((_accountId: string, listener: (itemIds: string[]) => void) => {
-    realtimeListeners.push(listener)
-    return () => {}
-  }),
-  publishRealtimeBusSyncPing: vi.fn(),
-  teardownRealtimeBus: vi.fn(),
-}))
-
-vi.mock('comlink', async importOriginal => ({
-  ...await importOriginal<typeof import('comlink')>(),
-  expose: vi.fn(),
-}))
-
-// Mock Automerge WASM
-vi.mock('@automerge/automerge/slim', () => ({
-  initializeWasm: vi.fn().mockResolvedValue(undefined),
-  save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
-  from: vi.fn(),
-}))
-
-vi.mock('../../api/Keyring', () => ({
-  Keyring: class {
-    load = vi.fn().mockResolvedValue(undefined)
-  },
-}))
-
-vi.mock('./docStore', () => ({
-  RepoDoc: undefined,
-  AutomergeDocStore: class {},
-}))
+const realtimeListeners: Array<(itemIds: string[]) => void> = []
 
 // Mock SyncWorkerContext — the worker delegates all service management here
 const mockContextInitialize = vi.fn().mockResolvedValue(undefined)
@@ -59,17 +33,49 @@ const mockOrchestratorFlush = vi.fn()
 const mockSnapshotManagerOnOnlineStateChange = vi.fn()
 const mockAccountSettingsHandleSettingsDoc = vi.fn()
 
-const { mockRepoFind } = vi.hoisted(() => ({
-  mockRepoFind: vi.fn().mockImplementation(() => Promise.resolve({
-    on: vi.fn(),
-    off: vi.fn(),
-    doc: vi.fn().mockReturnValue({ id: 'item-1', name: 'Original Item' }),
-    documentId: 'mock-doc-id',
-  }))
+const mockRepoFind = vi.fn().mockImplementation(() => Promise.resolve({
+  on: vi.fn(),
+  off: vi.fn(),
+  doc: vi.fn().mockReturnValue({ id: 'item-1', name: 'Original Item' }),
+  documentId: 'mock-doc-id',
 }))
 
-vi.mock('./SyncWorkerContext', () => {
-  return {
+const workerConfig: SyncWorkerConfig = {
+  automergeWasmUrl: 'mock-wasm-url',
+  endpoint: '',
+  storageNames: getVaultStorageNames(),
+}
+
+beforeEach(() => {
+  spyOnExports(realtimeBusModule, {
+    subscribeRealtimeBusSyncPing: vi.fn((_accountId: string, listener: (itemIds: string[]) => void) => {
+      realtimeListeners.push(listener)
+      return () => {}
+    }),
+    publishRealtimeBusSyncPing: vi.fn(),
+    teardownRealtimeBus: vi.fn(),
+  })
+  spyOnExports(keyring, {
+    Keyring: class {
+      load = vi.fn().mockResolvedValue(undefined)
+    },
+  })
+  spyOnExports(docStoreModule, {
+    AutomergeDocStore: class {},
+  })
+  spyOnExports(automergeModule, {
+    toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
+    ACCOUNT_INDEX_DOCUMENT_ID: '__account_index__',
+  })
+  spyOnExports(comlinkModule, {
+    expose: vi.fn(),
+  })
+  spyOnExports(Automerge, {
+    initializeWasm: vi.fn().mockResolvedValue(undefined),
+    save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+    from: vi.fn(),
+  })
+  spyOnExports(syncWorkerContext, {
     SyncWorkerContext: class MockSyncWorkerContext {
       // Public properties accessed by SyncWorker
       accountId = 'test-account'
@@ -147,19 +153,8 @@ vi.mock('./SyncWorkerContext', () => {
       recreateOversizedItem = vi.fn().mockResolvedValue('item-new')
       rewrapDeviceKey = vi.fn().mockResolvedValue(undefined)
     }
-  }
+  })
 })
-
-vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
-  ACCOUNT_INDEX_DOCUMENT_ID: '__account_index__',
-}))
-
-const workerConfig: SyncWorkerConfig = {
-  automergeWasmUrl: 'mock-wasm-url',
-  endpoint: '',
-  storageNames: getVaultStorageNames(),
-}
 
 describe('SyncWorker initRepo cleanup on re-init', () => {
   beforeEach(() => {
