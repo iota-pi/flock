@@ -1,8 +1,6 @@
 import {
   initialiseVault,
   loginVault,
-  encrypt,
-  decrypt,
   storeVault,
   rotateVaultKey,
   exportKeyringData,
@@ -15,6 +13,7 @@ import { readCachedKeyring } from './keyringCache'
 import { readStoredMetadata } from './storedMetadata'
 import { configureVaultHost } from './vaultHost'
 import { Keyring } from './Keyring'
+import { vaultKeys } from './VaultKeyState'
 import { getSessionExpiredHandler } from './runtime'
 import { getVaultStorageNames } from '../sync/shared/storageNames'
 import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
@@ -26,6 +25,8 @@ import * as workerAuthStoreModule from '../sync/shared/workerAuthStore'
 import { spyOnExports } from '../../test/moduleMocks'
 
 const SALT = 'c2FsdDEyMw=='
+
+const { keyring } = vaultKeys
 
 beforeEach(() => {
   spyOnExports(accountClientModule, {
@@ -112,7 +113,7 @@ describe('Vault Keyring Integration', () => {
 
     expect(workerKeyring.getKey('1')).toBeDefined()
     expect(workerKeyring.getKey()).toBeDefined()
-    const encrypted = await encrypt('hello worker')
+    const encrypted = await keyring.encrypt('hello worker')
     await expect(workerKeyring.decrypt(encrypted)).resolves.toBe('hello worker')
   })
 
@@ -124,10 +125,10 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
 
-    const enc = await encrypt('hello keyring')
+    const enc = await keyring.encrypt('hello keyring')
     expect(enc.kver).toBe('1')
 
-    const dec = await decrypt(enc)
+    const dec = await keyring.decrypt(enc)
     expect(dec).toBe('hello keyring')
   })
 
@@ -139,11 +140,11 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
 
-    const enc = await encrypt('legacy data')
+    const enc = await keyring.encrypt('legacy data')
     // Strip kver to simulate legacy unversioned data
     delete enc.kver
 
-    const dec = await decrypt(enc)
+    const dec = await keyring.decrypt(enc)
     expect(dec).toBe('legacy data')
   })
 
@@ -156,17 +157,17 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
 
-    const enc1 = await encrypt('data 1')
+    const enc1 = await keyring.encrypt('data 1')
     expect(enc1.kver).toBe('1')
 
     await rotateVaultKey('test-account')
 
-    const enc2 = await encrypt('data 2')
+    const enc2 = await keyring.encrypt('data 2')
     expect(enc2.kver).toBe('2')
 
     // Both should decrypt correctly
-    expect(await decrypt(enc1)).toBe('data 1')
-    expect(await decrypt(enc2)).toBe('data 2')
+    expect(await keyring.decrypt(enc1)).toBe('data 1')
+    expect(await keyring.decrypt(enc2)).toBe('data 2')
   })
 
   it('refuses to rotate without a session, so the new key cannot stay on this device only', async () => {
@@ -182,7 +183,7 @@ describe('Vault Keyring Integration', () => {
     await expect(rotateVaultKey('test-account')).rejects.toThrow('Key rotation needs a connection to the server')
 
     expect(hasVaultKey('2')).toBe(false)
-    expect((await encrypt('still on version 1')).kver).toBe('1')
+    expect((await keyring.encrypt('still on version 1')).kver).toBe('1')
     expect(readCachedKeyring()).toBe(cachedBefore)
     expect(updateKeyring).not.toHaveBeenCalled()
   })
@@ -219,7 +220,7 @@ describe('Vault Keyring Integration', () => {
     expect(parsed['2']).toBeUndefined()
 
     // Subsequent encryption should still use key version 1
-    const enc = await encrypt('still on version 1')
+    const enc = await keyring.encrypt('still on version 1')
     expect(enc.kver).toBe('1')
 
     // LocalStorage cached keyring must NOT have been updated with the uncommitted key
@@ -243,7 +244,7 @@ describe('Vault Keyring Integration', () => {
 
     vi.mocked(updateKeyring).mockImplementationOnce(async () => {
       // Simulate concurrent encryption while the keyring is being uploaded to the server
-      const midFlightEnc = await encrypt('encrypted during upload')
+      const midFlightEnc = await keyring.encrypt('encrypted during upload')
       concurrentEncryptionKver = midFlightEnc.kver
       hasKey2DuringUpload = hasVaultKey('2')
     })
@@ -255,7 +256,7 @@ describe('Vault Keyring Integration', () => {
     expect(concurrentEncryptionKver).toBe('1')
 
     // After rotation completes: activeKeyVersion is 2
-    const postRotationEnc = await encrypt('encrypted after rotation')
+    const postRotationEnc = await keyring.encrypt('encrypted after rotation')
     expect(postRotationEnc.kver).toBe('2')
   })
 

@@ -39,10 +39,6 @@ const log = createLogger('vault')
 
 const { keyring } = vaultKeys
 
-export interface VaultImportExportData {
-  key: string,
-}
-
 export function hasVaultKey(kver?: string): boolean {
   return keyring.hasKey(kver)
 }
@@ -246,12 +242,26 @@ export async function exportKeyringData(): Promise<string> {
   return JSON.stringify(await keyring.export())
 }
 
+/** Exports a keyring and encrypts it with the master key, as the JSON string the server and cache store */
+async function wrapKeyring(source: Keyring, masterKey: CryptoKey, activeVersion?: string): Promise<string> {
+  const plaintext = JSON.stringify(await source.export(activeVersion))
+  return JSON.stringify(await encryptWithKey(masterKey, plaintext, 'master'))
+}
+
+/** A fresh salt and the current Argon2id parameters, with the master key and auth token they derive */
+async function deriveNewCredentials(password: string) {
+  const salt = generateSalt()
+  const kdf = getDefaultKdf()
+  const saltVersion = CURRENT_SALT_VERSION
+  const masterKey = await deriveMasterKey({ password, salt, kdf, saltVersion })
+  const authToken = await hashVaultKey(masterKey)
+  return { salt, kdf, saltVersion, masterKey, authToken }
+}
+
 export async function storeVault(account: string, activeVersionOverride?: string) {
   const effectiveVersion = activeVersionOverride ?? keyring.activeVersion
   writeStoredMetadata(account)
-  const plaintext = JSON.stringify(await keyring.export(effectiveVersion))
-  const encrypted = await encryptWithKey(vaultKeys.requireMasterKey(), plaintext, 'master')
-  const encryptedStr = JSON.stringify(encrypted)
+  const encryptedStr = await wrapKeyring(keyring, vaultKeys.requireMasterKey(), effectiveVersion)
 
   if (vaultKeys.session) {
     const currentVer = parseInt(effectiveVersion, 10)
@@ -285,20 +295,12 @@ export async function clearVaultDeviceData(account?: string) {
   clearStoredMetadata()
 }
 
-export async function encrypt(plaintext: string): Promise<CryptoResult> {
-  return keyring.encrypt(plaintext)
-}
-
-export async function decrypt(data: CryptoResult): Promise<string> {
-  return keyring.decrypt(data)
-}
-
 export function exportData<T>(payload: T): Promise<CryptoResult> {
-  return encrypt(JSON.stringify(payload))
+  return keyring.encrypt(JSON.stringify(payload))
 }
 
 export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
-  const plainData = await decrypt(data)
+  const plainData = await keyring.decrypt(data)
   return JSON.parse(plainData) as T
 }
 
@@ -323,45 +325,29 @@ async function rewrapMasterKey({
   currentAuthToken: string,
   newPassword: string,
 }): Promise<void> {
-  const newSalt = generateSalt()
-  const newKdf = getDefaultKdf()
-  const newSaltVersion = CURRENT_SALT_VERSION
-
-  const newMasterKey = await deriveMasterKey({
-    password: newPassword,
-    salt: newSalt,
-    kdf: newKdf,
-    saltVersion: newSaltVersion,
-  })
-  const newAuthToken = await hashVaultKey(newMasterKey)
-
-  const plaintext = JSON.stringify(await keyring.export())
-  const encryptedKeyring = await encryptWithKey(newMasterKey, plaintext, 'master')
+  const { salt, kdf, saltVersion, masterKey, authToken } = await deriveNewCredentials(newPassword)
+  const encryptedKeyring = await wrapKeyring(keyring, masterKey)
 
   const currentKeyringVer = parseInt(keyring.activeVersion, 10)
 
   await changePasswordClient({
     account,
     currentAuthToken,
-    newAuthToken,
-    newSalt,
-    newKdf,
-    newKeyring: JSON.stringify(encryptedKeyring),
-    saltVersion: newSaltVersion,
+    newAuthToken: authToken,
+    newSalt: salt,
+    newKdf: kdf,
+    newKeyring: encryptedKeyring,
+    saltVersion,
     expectedKeyringVersion: currentKeyringVer,
     keyringVersion: currentKeyringVer,
   })
 
   // The keyring keeps every data key, including a PBKDF2 account's v1, so only the master key changes
-  vaultKeys.rewrapMasterKey(newMasterKey)
+  vaultKeys.rewrapMasterKey(masterKey)
   clearBiometricData()
-  writeCachedKeyring(JSON.stringify(encryptedKeyring))
-  writeStoredMetadata(account, {
-    salt: newSalt,
-    kdf: newKdf,
-    saltVersion: newSaltVersion,
-  })
-  await establishSessionFromKeyHash(account, newAuthToken)
+  writeCachedKeyring(encryptedKeyring)
+  writeStoredMetadata(account, { salt, kdf, saltVersion })
+  await establishSessionFromKeyHash(account, authToken)
   broadcastVaultEvent({ type: 'PASSWORD_CHANGED', account })
 }
 
@@ -371,21 +357,18 @@ async function rewrapMasterKey({
  * vault isn't unlocked: log in afterwards.
  */
 export async function createVaultAccount(password: string): Promise<string> {
-  const salt = generateSalt()
-  const kdf = getDefaultKdf()
-  const newMasterKey = await deriveMasterKey({ password, salt, kdf, saltVersion: CURRENT_SALT_VERSION })
-  const authToken = await hashVaultKey(newMasterKey)
+  const { salt, kdf, saltVersion, masterKey, authToken } = await deriveNewCredentials(password)
 
   const newKeyring = new Keyring()
   newKeyring.replace(new Map([['1', await generateVaultKey()]]), '1')
-  const encryptedKeyring = await encryptWithKey(newMasterKey, JSON.stringify(await newKeyring.export()), 'master')
+  const encryptedKeyring = await wrapKeyring(newKeyring, masterKey)
 
   const { account } = await createAccount({
     salt,
     authToken,
-    saltVersion: CURRENT_SALT_VERSION,
+    saltVersion,
     kdf,
-    keyring: JSON.stringify(encryptedKeyring),
+    keyring: encryptedKeyring,
     randomDataKeys: true,
   })
   return account
