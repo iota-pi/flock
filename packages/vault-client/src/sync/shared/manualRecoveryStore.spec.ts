@@ -22,7 +22,7 @@ vi.mock('../utils/storageManager', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 
-let clearInstancesCacheForTesting: any
+let clearAccountStoreInstancesCacheForTesting: any
 let clearManualRecoveryEntries: any
 let readManualRecoveryCount: any
 let readManualRecoveryEntries: any
@@ -35,8 +35,8 @@ describe('manualRecoveryStore', () => {
   const accountId = 'test-account-id'
 
   beforeAll(async () => {
+    clearAccountStoreInstancesCacheForTesting = (await import('./createAccountStore')).clearAccountStoreInstancesCacheForTesting
     const mod = await import('./manualRecoveryStore')
-    clearInstancesCacheForTesting = mod.clearInstancesCacheForTesting
     clearManualRecoveryEntries = mod.clearManualRecoveryEntries
     readManualRecoveryCount = mod.readManualRecoveryCount
     readManualRecoveryEntries = mod.readManualRecoveryEntries
@@ -47,9 +47,7 @@ describe('manualRecoveryStore', () => {
   })
   beforeEach(async () => {
     createdInstances.length = 0
-    if (clearInstancesCacheForTesting) {
-      clearInstancesCacheForTesting()
-    }
+    clearAccountStoreInstancesCacheForTesting()
     await clearManualRecoveryEntries(accountId)
   })
 

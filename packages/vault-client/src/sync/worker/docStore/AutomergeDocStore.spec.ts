@@ -9,7 +9,7 @@ import { createTestDocStore } from '../__test__/testUtils'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
 import { WorkerInternalEventHub } from '../SyncEventHub'
-import { SYNC_TIMEOUTS } from '../../syncConfig'
+import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import {
   toAutomergeUrlFromItemId,
   toDocumentIdFromItemId,

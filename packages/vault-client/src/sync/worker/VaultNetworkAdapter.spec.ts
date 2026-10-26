@@ -17,10 +17,11 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { ItemId } from '@vault/shared'
 
 import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const mockPollSyncBatch = vi.fn()
 
@@ -44,7 +45,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   beforeEach(async () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
-    clearWalInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
 
     mockDocStore = {
       getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [] }),
@@ -91,7 +92,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }) },
+      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn() },
     })
 
     // Keep offline by default to avoid automatic background runs in static tests
@@ -699,7 +700,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }) },
+      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn() },
     })
 
     let pollCount = 0

@@ -12,7 +12,7 @@ import {
 import { getOnlineState } from '../utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
-import { SYNC_TIMEOUTS } from '../syncConfig'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 import { AbortError } from '../utils/abort'
 import { noopTelemetry, type SyncTelemetry } from './host'

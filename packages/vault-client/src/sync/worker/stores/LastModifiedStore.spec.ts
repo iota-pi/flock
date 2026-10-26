@@ -1,11 +1,11 @@
 import { LastModifiedStore, type ItemSyncTimestamps } from './LastModifiedStore'
 import {
-  clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
 } from './syncMetadataStorage'
 import type { ItemId } from '@vault/shared'
 
 import { createMockLocalForagePool } from '../__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -29,7 +29,7 @@ describe('LastModifiedStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     instances.clear()
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     store = new LastModifiedStore(accountId)
   })
 

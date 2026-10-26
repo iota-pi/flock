@@ -589,6 +589,7 @@ describe('SyncOrchestrator', () => {
       })
       const customPullQueueManager: SyncPullQueueManagerLike = {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
+        hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       }
 
       const orchestratorWithPQM = new SyncOrchestrator({
@@ -647,6 +648,7 @@ describe('SyncOrchestrator', () => {
       })
       const customPullQueueManager: SyncPullQueueManagerLike = {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
+        hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       }
 
       const orchestratorWithPQM = new SyncOrchestrator({

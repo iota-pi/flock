@@ -197,7 +197,7 @@ export class ItemOperations {
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
     this.deps.markDocumentDirty(itemId)
     publishRealtimeBusSyncPing(this.deps.accountId, [itemId])
-    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
+    await this.recoveryManager.pushRecoveryItems()
   }
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
@@ -219,7 +219,7 @@ export class ItemOperations {
 
     await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
     this.deps.markDocumentDirty(itemId)
-    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
+    await this.recoveryManager.pushRecoveryItems()
   }
 
   /**
@@ -246,7 +246,7 @@ export class ItemOperations {
       await this.deps.indexManager.removeAutomergeItemIdsFromIndex([oldItemId])
       this.deps.markDocumentDirty(oldItemId)
       await this.recoveryManager.unquarantine(oldItemId)
-      await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
+      await this.recoveryManager.pushRecoveryItems()
       this.deps.eventHub.emit({ type: 'itemUpdated', id: oldItemId, item: null })
       return oldItemId
     }
@@ -330,7 +330,7 @@ export class ItemOperations {
 
     // 4. Remove old item from quarantine
     await this.recoveryManager.unquarantine(oldItemId)
-    await this.recoveryManager.pushRecoveryItems(this.deps.accountId)
+    await this.recoveryManager.pushRecoveryItems()
 
     // 5. Notify subscribers & ping bus
     publishRealtimeBusSyncPing(this.deps.accountId, [oldItemId, newItemId])

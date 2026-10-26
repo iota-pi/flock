@@ -7,7 +7,7 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from './SyncWorkerClient'
 import { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
-import { clearSyncMetadataInstancesCacheForTesting, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
+import { SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 
 import {
   MockLocalforage,
@@ -16,6 +16,7 @@ import {
   createMockVault,
   noItemLocks,
 } from './__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 import { WorkerInternalEventHub } from './SyncEventHub'
 
 // Mock localforage
@@ -78,6 +79,15 @@ vi.mock('./utils/automerge', async importOriginal => {
   }
 })
 
+/** Whether part of the batch at `cursor` has been applied */
+function hasBatchProgress(manager: SyncPullQueueManager, itemId: ItemId, cursor: number): boolean {
+  return (manager as any).getBatchProgress(itemId, cursor) > 0
+}
+
+/** How many items have partly applied batches */
+function batchProgressItemCount(manager: SyncPullQueueManager): number {
+  return (manager as any).batchProgress.size
+}
 
 describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
@@ -86,7 +96,7 @@ describe('SyncPullQueueManager', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     activeStore = null
     cursorStore = new CursorStore('account-1')
     manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, new WorkerInternalEventHub())
@@ -1985,8 +1995,8 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults(attempt1Results)
 
       // batchProgress should now contain an entry for itemId:10
-      expect(manager.hasBatchProgressForTesting(itemId, 10)).toBe(true)
-      expect(manager.getBatchProgressCountForTesting()).toBe(1)
+      expect(hasBatchProgress(manager, itemId, 10)).toBe(true)
+      expect(batchProgressItemCount(manager)).toBe(1)
 
       // Attempt 2 (retry 1 of 5 - NOT permanently failed):
       // The server advances cursor to 20 (e.g. via nextCursor or skipping corrupt entry)
@@ -2003,8 +2013,8 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults(attempt2Results)
 
       // batchProgress must be cleared for cursor <= 20!
-      expect(manager.hasBatchProgressForTesting(itemId, 10)).toBe(false)
-      expect(manager.getBatchProgressCountForTesting()).toBe(0)
+      expect(hasBatchProgress(manager, itemId, 10)).toBe(false)
+      expect(batchProgressItemCount(manager)).toBe(0)
     })
 
     it('cleans up batchProgress when importCursors advances cursor past pending batch progress', async () => {
@@ -2052,13 +2062,13 @@ describe('SyncPullQueueManager', () => {
         },
       ])
 
-      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(true)
+      expect(hasBatchProgress(manager, itemId, 5)).toBe(true)
 
       // Now import cursors advancing past cursor 5
       await manager.importCursors([[itemId, 10]])
 
-      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(false)
-      expect(manager.getBatchProgressCountForTesting()).toBe(0)
+      expect(hasBatchProgress(manager, itemId, 5)).toBe(false)
+      expect(batchProgressItemCount(manager)).toBe(0)
     })
 
     it('cleans up batchProgress when a message cursor <= initialCursor is skipped', async () => {
@@ -2067,13 +2077,13 @@ describe('SyncPullQueueManager', () => {
 
       // Inject partial batch progress directly for cursor 5
       ;(manager as any).setBatchProgress(itemId, 5, 1)
-      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(true)
+      expect(hasBatchProgress(manager, itemId, 5)).toBe(true)
 
       // Initial cursor is already 10 (higher than entry cursor 5)
       await manager.importCursors([[itemId, 10]])
       // Ensure batch progress is re-injected to test processItemMessages skip path
       ;(manager as any).setBatchProgress(itemId, 5, 1)
-      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(true)
+      expect(hasBatchProgress(manager, itemId, 5)).toBe(true)
 
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
 
@@ -2097,7 +2107,7 @@ describe('SyncPullQueueManager', () => {
         },
       ])
 
-      expect(manager.hasBatchProgressForTesting(itemId, 5)).toBe(false)
+      expect(hasBatchProgress(manager, itemId, 5)).toBe(false)
     })
   })
 })

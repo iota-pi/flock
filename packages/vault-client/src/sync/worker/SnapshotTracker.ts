@@ -209,7 +209,7 @@ export class SnapshotTracker {
       const quarantinedIds = new Set<ItemId>()
       if (this.accountId) {
         try {
-          const recoveryEntries = await this.recoveryManager.listRecoveryItems(this.accountId)
+          const recoveryEntries = await this.recoveryManager.listRecoveryItems()
           checkAlive(null, () => !this.shutDown)
           for (const entry of recoveryEntries) {
             quarantinedIds.add(entry.itemId)

@@ -217,8 +217,9 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'err', kind: 'pullDecryption', createdAt: 1 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      const result = await recoveryManager.listRecoveryItems('account-123')
+      const result = await recoveryManager.listRecoveryItems()
       expect(result).toBe(mockEntries)
+      expect(mockReadManualRecoveryEntries).toHaveBeenCalledWith('account-123', undefined)
     })
 
     it('returns empty array if accountId is missing', async () => {
@@ -249,7 +250,7 @@ describe('RecoveryManager', () => {
       recoveryManager.setInFlight('item-1' as ItemId, true)
       recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 5000)
 
-      recoveryManager.reset()
+      recoveryManager.resetRecoveryState()
 
       expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
       expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)

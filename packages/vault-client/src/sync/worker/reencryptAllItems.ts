@@ -8,6 +8,7 @@ import type { RecoveryManager } from './RecoveryManager'
 import { toAuthExpiredError, type SyncApiClient } from './SyncApiClient'
 import { classifySyncError } from '../utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
+import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { errorMessage } from '../utils/errorMessage'
 import {
@@ -20,7 +21,7 @@ import { fireAndForget } from '../utils/fireAndForget'
 import { getOnlineState } from '../utils/onlineStatus'
 import type { ItemId, PutSnapshotResultItem, VaultSnapshotInput } from '@vault/shared'
 import type { ReencryptResult } from '../shared/types'
-import { SYNC_BATCH_SIZES } from '../syncConfig'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 
@@ -42,23 +43,14 @@ async function quarantineItem(
   }
 }
 
-export interface ReencryptDeps {
-  accountId: string
-  repo: Repo
-  indexManager: AutomergeIndexManager
-  apiClient: SyncApiClient
-  recoveryManager: RecoveryManager
+/** One call's options for `reencryptAllItems`. A scheduled retry runs with the same ones. */
+export interface ReencryptRunOptions {
+  onProgress?: (done: number, total: number) => void
   signal?: AbortSignal
-  batchRetryDelays?: readonly number[]
 }
 
 export interface ProcessChunkContext {
-  accountId: string
-  repo: Repo
-  apiClient: SyncApiClient
-  recoveryManager: RecoveryManager
   signal?: AbortSignal
-  batchRetryDelays?: readonly number[]
   onProgress?: (done: number, total: number) => void
   total?: number
   processedCount?: number
@@ -72,6 +64,11 @@ export interface StoredSnapshot {
 }
 
 export interface ItemReencryptorOptions {
+  accountId: string
+  repo: Repo
+  indexManager: AutomergeIndexManager
+  apiClient: SyncApiClient
+  recoveryManager: RecoveryManager
   retryDelays?: number[]
   batchRetryDelays?: readonly number[]
   maxBatchCount?: number
@@ -86,8 +83,13 @@ export interface ItemReencryptorOptions {
 }
 
 export class ItemReencryptor {
+  private readonly accountId: string
+  private readonly repo: Repo
+  private readonly indexManager: AutomergeIndexManager
+  private readonly apiClient: SyncApiClient
+  private readonly recoveryManager: RecoveryManager
   private readonly retryStrategy: RetryStrategy
-  private scheduledRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private readonly retryTimer = new RetryTimer()
   public readonly maxBatchCount: number
   public readonly maxBatchBytes: number
   public readonly batchRetryDelays: readonly number[]
@@ -98,6 +100,11 @@ export class ItemReencryptor {
   private readonly onSnapshotsStored?: ItemReencryptorOptions['onSnapshotsStored']
 
   constructor(options: ItemReencryptorOptions) {
+    this.accountId = options.accountId
+    this.repo = options.repo
+    this.indexManager = options.indexManager
+    this.apiClient = options.apiClient
+    this.recoveryManager = options.recoveryManager
     this.codec = options.codec
     this.keys = options.keys
     this.onSnapshotsStored = options.onSnapshotsStored
@@ -115,37 +122,32 @@ export class ItemReencryptor {
     return this.reencryptGuard.isRunning
   }
 
+  get isRetryScheduled(): boolean {
+    return this.retryTimer.isPending
+  }
+
   cancelScheduled(): void {
-    if (this.scheduledRetryTimeoutId !== null) {
-      clearTimeout(this.scheduledRetryTimeoutId)
-      this.scheduledRetryTimeoutId = null
-    }
+    this.retryTimer.cancel()
     this.retryStrategy.reset()
   }
 
-  scheduleRetry(
-    deps: ReencryptDeps,
-    onProgress?: (done: number, total: number) => void
-  ): number {
+  /** Schedules another run with the same options after the next backoff delay, which it returns */
+  scheduleRetry(options: ReencryptRunOptions = {}): number {
     const delayMs = this.retryStrategy.nextDelay()
 
     log.warn(
       `Scheduling re-encryption retry (attempt ${this.retryStrategy.attempt}) in ${delayMs}ms`
     )
 
-    if (this.scheduledRetryTimeoutId !== null) {
-      clearTimeout(this.scheduledRetryTimeoutId)
-    }
-    this.scheduledRetryTimeoutId = setTimeout(() => {
-      this.scheduledRetryTimeoutId = null
+    this.retryTimer.schedule(delayMs, () => {
       fireAndForget(
-        this.reencryptAllItems(deps, onProgress),
+        this.reencryptAllItems(options),
         'reencryptAllItems:scheduledRetry',
         err => {
           log.warn('Scheduled retry failed:', err)
         },
       )
-    }, delayMs)
+    })
 
     return delayMs
   }
@@ -374,10 +376,10 @@ export class ItemReencryptor {
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
     }
 
-    const batchRetryDelays = ctx.batchRetryDelays ?? this.batchRetryDelays
+    const batchRetryDelays = this.batchRetryDelays
     const settled = await Promise.allSettled(
       chunk.map(itemId =>
-        this.buildSnapshotWithRetry(ctx.repo, itemId, signal, batchRetryDelays)
+        this.buildSnapshotWithRetry(this.repo, itemId, signal, batchRetryDelays)
       )
     )
 
@@ -425,7 +427,7 @@ export class ItemReencryptor {
       await this.quarantineItem(
         failure.itemId,
         `Re-encryption snapshot build failed: ${failure.errorMsg}`,
-        ctx.recoveryManager
+        this.recoveryManager
       )
     }
 
@@ -438,8 +440,8 @@ export class ItemReencryptor {
 
       for (const batch of snapshotBatches) {
         const { uploadSuccess, lastError, results } = await this.uploadBatchWithRetry(
-          ctx.apiClient,
-          ctx.accountId,
+          this.apiClient,
+          this.accountId,
           batch,
           signal,
           batchRetryDelays
@@ -458,7 +460,7 @@ export class ItemReencryptor {
             await this.quarantineItem(
               item.itemId,
               `Re-encryption upload failed: ${errMsg}`,
-              ctx.recoveryManager
+              this.recoveryManager
             )
           }
         }
@@ -476,29 +478,23 @@ export class ItemReencryptor {
   /**
    * Main entry point to reencrypt all items across all chunks.
    */
-  async reencryptAllItems(
-    deps: ReencryptDeps,
-    onProgress?: (done: number, total: number) => void
-  ): Promise<ReencryptResult> {
-    checkAlive(deps.signal, true, 'Re-encryption aborted')
+  async reencryptAllItems(options: ReencryptRunOptions = {}): Promise<ReencryptResult> {
+    const { onProgress, signal } = options
+    checkAlive(signal, true, 'Re-encryption aborted')
 
-    if (this.scheduledRetryTimeoutId !== null) {
-      clearTimeout(this.scheduledRetryTimeoutId)
-      this.scheduledRetryTimeoutId = null
-    }
+    this.retryTimer.cancel()
 
     if (onProgress) {
       this.progressCallbacks.add(onProgress)
     }
 
     const runPromise = this.reencryptGuard.run(async () => {
-      const { accountId, repo, indexManager, recoveryManager, apiClient } = deps
-      const initialToken = await apiClient.getValidToken()
+      const initialToken = await this.apiClient.getValidToken()
       if (!initialToken) {
         throw new Error('No active session token available')
       }
 
-      const allItemIds = await indexManager.listAutomergeItemIds()
+      const allItemIds = await this.indexManager.listAutomergeItemIds()
       const total = allItemIds.length
       if (total === 0) {
         this.reportProgress(0, 0, onProgress)
@@ -510,15 +506,9 @@ export class ItemReencryptor {
       const failed: Array<{ itemId: ItemId; error: string }> = []
 
       const itemChunks = this.buildReencryptionPlan(allItemIds, REENCRYPT_CHUNK_SIZE)
-      const batchRetryDelays = deps.batchRetryDelays ?? this.batchRetryDelays
 
       const context: ProcessChunkContext = {
-        accountId,
-        repo,
-        apiClient,
-        recoveryManager,
-        signal: deps.signal,
-        batchRetryDelays,
+        signal,
         onProgress,
         total,
         processedCount: 0,
@@ -537,7 +527,7 @@ export class ItemReencryptor {
         if (!isAbortError(err)) {
           const classified = classifySyncError(err)
           if (classified.isNetwork || classified.isServerError) {
-            this.scheduleRetry(deps, onProgress)
+            this.scheduleRetry(options)
           }
         }
         throw err
@@ -545,11 +535,10 @@ export class ItemReencryptor {
     })
 
     try {
-      if (!deps.signal) {
+      if (!signal) {
         return await runPromise
       }
 
-      const signal = deps.signal
       return await new Promise<ReencryptResult>((resolve, reject) => {
         const onAbort = () => {
           try {

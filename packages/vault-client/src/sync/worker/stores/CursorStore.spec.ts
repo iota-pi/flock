@@ -1,11 +1,11 @@
 import { CursorStore } from './CursorStore'
 import {
-  clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
 } from './syncMetadataStorage'
 import type { ItemId } from '@vault/shared'
 
 import { createMockLocalForagePool } from '../__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -29,7 +29,7 @@ describe('CursorStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     instances.clear()
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     store = new CursorStore(accountId)
   })
 

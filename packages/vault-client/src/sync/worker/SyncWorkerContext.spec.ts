@@ -390,7 +390,7 @@ describe('SyncWorkerContext', () => {
       ctxInternalHub.emit({ type: 'itemMessageParsed', itemId: 'item-1' as ItemId })
       await new Promise(resolve => setTimeout(resolve, 50))
 
-      const entries = await ctx.services.recoveryManager.listRecoveryItems('test-account')
+      const entries = await ctx.services.recoveryManager.listRecoveryItems()
       expect(entries).toHaveLength(1)
       expect(entries[0].kind).toBe('oversized')
     })
@@ -441,6 +441,69 @@ describe('SyncWorkerContext', () => {
       expect(context.services.adapter.triggerReNegotiation).toHaveBeenCalled()
       expect(persistTimestampsSpy).toHaveBeenCalled()
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
+    })
+  })
+
+  describe('recovery items', () => {
+    it('releases a quarantined item and pushes its snapshot again', async () => {
+      const unquarantine = vi.spyOn(context.services.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
+      const snapshotManager = context.services.snapshotManager as any
+      snapshotManager.clearOversized = vi.fn()
+
+      await context.retryRecoveryItem('item-1' as ItemId)
+
+      expect(unquarantine).toHaveBeenCalledWith('item-1')
+      expect(snapshotManager.clearOversized).toHaveBeenCalledWith('item-1')
+      expect(snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1')
+      expect(snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    })
+
+    it('recreates an oversized item and pushes the old one as a tombstone', async () => {
+      const snapshotManager = context.services.snapshotManager as any
+      snapshotManager.clearOversized = vi.fn()
+      const itemOperations = context.services.itemOperations as any
+      itemOperations.recreateOversizedItem = vi.fn().mockResolvedValue('item-new')
+
+      const newItemId = await context.recreateOversizedItem('item-old' as ItemId)
+
+      expect(newItemId).toBe('item-new')
+      expect(itemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
+      expect(snapshotManager.clearOversized).toHaveBeenCalledWith('item-old')
+      expect(snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    })
+  })
+
+  describe('sync state backup', () => {
+    it('exports cursors, unpushed WAL entries and modification times', async () => {
+      const { pullQueueManager, wal, snapshotManager } = context.services as any
+      pullQueueManager.exportCursors = vi.fn().mockReturnValue([['item-1', 5]])
+      wal.readAll.mockResolvedValue(new Map([['item-1', [{ data: new Uint8Array([1, 2, 3]) }]]]))
+      snapshotManager.exportLastModified = vi.fn().mockReturnValue([['item-1', 1000]])
+
+      const state = await context.exportSyncState()
+
+      expect(state).toEqual({
+        cursors: [['item-1', 5]],
+        pendingSync: [['item-1', [new Uint8Array([1, 2, 3]).toBase64()]]],
+        lastModified: [['item-1', 1000]],
+      })
+    })
+
+    it('restores the state it exported', async () => {
+      const { pullQueueManager, wal, snapshotManager } = context.services as any
+      pullQueueManager.importCursors = vi.fn().mockResolvedValue(undefined)
+      snapshotManager.importLastModified = vi.fn().mockResolvedValue(undefined)
+      const message = new Uint8Array([4, 5, 6])
+
+      await context.restoreSyncState({
+        cursors: [['item-1' as ItemId, 5]],
+        pendingSync: [['item-1' as ItemId, [message.toBase64()]]],
+        lastModified: [['item-1' as ItemId, 1000]],
+      })
+
+      expect(pullQueueManager.importCursors).toHaveBeenCalledWith([['item-1', 5]])
+      expect(wal.append).toHaveBeenCalledWith('item-1', message)
+      expect(snapshotManager.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
     })
   })
 

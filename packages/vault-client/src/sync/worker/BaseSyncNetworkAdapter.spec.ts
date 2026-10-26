@@ -368,19 +368,5 @@ describe('BaseSyncNetworkAdapter', () => {
       expect(adapter.evictedMessages[0].data).toEqual(new Uint8Array([0]))
       expect(adapter.evictedMessages[1].data).toEqual(new Uint8Array([1]))
     })
-
-    it('supports onOutboundQueueEvict option in constructor', () => {
-      const optionsEvictSpy = vi.fn()
-      const customAdapter = new ConcreteSyncNetworkAdapter({
-        maxOutboundQueueSize: 2,
-        onOutboundQueueEvict: optionsEvictSpy,
-      })
-
-      customAdapter.testEnqueueOutboundMessage({ type: 'sync', senderId: 'p1' as PeerId, targetId: 'p2' as PeerId })
-      customAdapter.testEnqueueOutboundMessage({ type: 'sync', senderId: 'p1' as PeerId, targetId: 'p2' as PeerId })
-      customAdapter.testEnqueueOutboundMessage({ type: 'sync', senderId: 'p1' as PeerId, targetId: 'p2' as PeerId })
-
-      expect(optionsEvictSpy).toHaveBeenCalledTimes(1)
-    })
   })
 })

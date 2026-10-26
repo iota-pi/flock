@@ -15,7 +15,7 @@ import type { AutomergeIndexManager } from './AutomergeIndexManager'
 import type { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
-import { SYNC_TIMEOUTS } from '../../syncConfig'
+import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import type { LifecycleAware } from '../ServiceLifecycleManager'
 import { createLogger } from '../../utils/logger'
 

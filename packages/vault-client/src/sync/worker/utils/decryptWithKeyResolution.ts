@@ -1,5 +1,6 @@
 import type { CryptoResult } from '../../../api/crypto'
 import type { KeyProvider } from '../../../api/Keyring'
+import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 
 export class MissingKeyError extends Error {
   readonly kver: string
@@ -26,7 +27,7 @@ export async function decryptWithKeyResolution(
   options?: DecryptKeyResolutionOptions,
 ): Promise<Uint8Array> {
   const resolvedKver = payload.kver || '1'
-  const timeoutMs = options?.timeoutMs ?? 5000
+  const timeoutMs = options?.timeoutMs ?? SYNC_TIMEOUTS.keyWait
 
   if (!keys.hasKey(resolvedKver)) {
     const shouldSkip =

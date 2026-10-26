@@ -17,7 +17,7 @@ export function configureVaultEndpoint(endpoint: string) {
   vaultEndpoint = endpoint.replace(/\/$/, '')
 }
 
-export function getVaultTrpcUrl() {
+function getVaultTrpcUrl() {
   return `${vaultEndpoint}/trpc`
 }
 

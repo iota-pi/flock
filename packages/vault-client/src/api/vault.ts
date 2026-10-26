@@ -59,7 +59,7 @@ export async function reloadKeyringFromStorage(): Promise<{
   }
 
   try {
-    await loadKeyringFromEncrypted(cachedKeyring)
+    await vaultKeys.loadEncryptedKeyring(cachedKeyring)
     const keyringData = await exportKeyringData()
     return { success: true, keyringData }
   } catch (err) {
@@ -91,10 +91,6 @@ export async function initialiseVault({
   return vaultKeys.keyHash
 }
 
-export function loadKeyringFromEncrypted(encryptedKeyringStr: string): Promise<void> {
-  return vaultKeys.loadEncryptedKeyring(encryptedKeyringStr)
-}
-
 /**
  * Fetches the keyring, retrying transient failures. For unlocks with no other keys, which fail if
  * this one request is lost.
@@ -123,7 +119,7 @@ export async function syncKeyringFromServer(account: string, { retry = false } =
 
   if (encryptedKeyringStr) {
     try {
-      await loadKeyringFromEncrypted(encryptedKeyringStr)
+      await vaultKeys.loadEncryptedKeyring(encryptedKeyringStr)
       writeCachedKeyring(encryptedKeyringStr)
       return true
     } catch (err) {

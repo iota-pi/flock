@@ -2,7 +2,6 @@ import type { RunStorageOperationOptions } from '../../utils/storageManager'
 import {
   createAccountStore,
   clearAccountStore,
-  clearAccountStoreInstancesCacheForTesting,
   getAccountDatabaseName,
 } from '../../shared/createAccountStore'
 import { BaseLocalForageStore } from './BaseLocalForageStore'
@@ -33,11 +32,6 @@ export function getSyncMetadataDBName(accountId: string): string {
 export function getSyncMetadataStorage(accountId: string): LocalForage {
   return createAccountStore(SYNC_METADATA_STORE_NAME, accountId)
 }
-
-/**
- * Clears the in-memory cache of LocalForage instances. Useful for testing.
- */
-export const clearSyncMetadataInstancesCacheForTesting = clearAccountStoreInstancesCacheForTesting
 
 /**
  * Clears the consolidated sync metadata database for an account.

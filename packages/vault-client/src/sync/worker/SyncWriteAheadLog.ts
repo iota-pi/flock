@@ -5,11 +5,8 @@ import { packBatchedMessages } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import type { WorkerInternalEventHub } from './SyncEventHub'
-import {
-  createAccountStore,
-  clearAccountStoreInstancesCacheForTesting,
-} from '../shared/createAccountStore'
-import { SYNC_BATCH_SIZES } from '../syncConfig'
+import { createAccountStore } from '../shared/createAccountStore'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { LocalCipher, SealedRecord } from './localEncryption/LocalCipher'
 import { createLogger } from '../utils/logger'
 
@@ -523,8 +520,4 @@ export class SyncWriteAheadLog {
     this.isSeqInitialized = true
     await runStorageOperation(() => this.storage.clear())
   }
-}
-
-export function clearWalInstancesCacheForTesting(): void {
-  clearAccountStoreInstancesCacheForTesting()
 }

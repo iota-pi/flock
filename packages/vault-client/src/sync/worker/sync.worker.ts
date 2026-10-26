@@ -18,7 +18,6 @@ import { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
-import type { WalEntry } from './SyncWriteAheadLog'
 import type { RepoDoc } from './docStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { PollOutcome } from './SyncPoller'
@@ -28,6 +27,7 @@ import { getTrackedFetch } from '../../api/trackedFetch'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 import { AbortError } from '../utils/abort'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 const log = createLogger('SyncWorker')
 
@@ -143,7 +143,7 @@ export class SyncWorker implements SyncApi {
       const timeoutId = setTimeout(() => {
         log.warn('Token refresh timed out waiting for main thread')
         this.resolveTokenRefresh(null)
-      }, 10000)
+      }, SYNC_TIMEOUTS.tokenRefresh)
       this.settleTokenRefresh = token => {
         clearTimeout(timeoutId)
         resolve(token)
@@ -455,15 +455,7 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.replaceFromServer(itemId))
 
   retryRecoveryItem = (itemId: ItemId) =>
-    this.withContext(async ctx => {
-      await ctx.services.recoveryManager.unquarantine(itemId)
-      ctx.services.snapshotManager.clearOversized(itemId)
-      ctx.services.snapshotManager.markItemDirty(itemId)
-      fireAndForget(
-        ctx.services.snapshotManager.flushPendingSnapshots(),
-        'SyncWorker:retryRecoveryItem:flushPendingSnapshots',
-      )
-    })
+    this.withContext(ctx => ctx.retryRecoveryItem(itemId))
 
   forceOverwriteRecoveryItem = (itemId: ItemId) =>
     this.withContext(ctx => ctx.services.itemOperations.forceOverwriteRecoveryItem(itemId))
@@ -472,22 +464,13 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.services.itemOperations.forceDeleteRecoveryItem(itemId))
 
   recreateOversizedItem = (itemId: ItemId): Promise<ItemId> =>
-    this.withContext(async ctx => {
-      const newItemId = await ctx.services.itemOperations.recreateOversizedItem(itemId)
-      // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
-      ctx.services.snapshotManager.clearOversized(itemId)
-      fireAndForget(
-        ctx.services.snapshotManager.flushPendingSnapshots(),
-        'SyncWorker:recreateOversizedItem:flushPendingSnapshots',
-      )
-      return newItemId
-    })
+    this.withContext(ctx => ctx.recreateOversizedItem(itemId))
 
   dismissRecoveryItem = (entryId: string) =>
     this.withContext(ctx => ctx.services.recoveryManager.dismissEntry(entryId))
 
   listRecoveryItems = (options?: ReadManualRecoveryOptions) =>
-    this.withContext(ctx => ctx.services.recoveryManager.listRecoveryItems(undefined, options))
+    this.withContext(ctx => ctx.services.recoveryManager.listRecoveryItems(options))
 
   updateVaultKey = async (vaultKey: string) => {
     await this.loadKeyring(vaultKey)
@@ -512,51 +495,21 @@ export class SyncWorker implements SyncApi {
 
   reencryptAllItems = () =>
     this.withContext(async ctx => {
-      const { itemReencryptor, repo, indexManager, recoveryManager } = ctx.services
-      const result = await itemReencryptor.reencryptAllItems(
-        {
-          accountId: ctx.accountId,
-          repo,
-          indexManager,
-          recoveryManager,
-          apiClient: ctx.apiClient,
-        },
-        (done, total) => {
+      const result = await ctx.services.itemReencryptor.reencryptAllItems({
+        onProgress: (done, total) => {
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
-        }
-      )
+        },
+      })
       // After a rotation, the device storage key moves to the new active data key too
       await ctx.rewrapDeviceKey()
       return result
     })
 
   exportSyncState = (): Promise<BackupSyncState> =>
-    this.withContext(async ctx => {
-      const { pullQueueManager, wal, snapshotManager } = ctx.services
-      const cursors = pullQueueManager.exportCursors()
-      const walMap = await wal.readAll()
-      const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
-        itemId,
-        entries.map((e: WalEntry) => e.data.toBase64()),
-      ])
-      const lastModified = snapshotManager.exportLastModified()
-
-      return { cursors, pendingSync, lastModified }
-    })
+    this.withContext(ctx => ctx.exportSyncState())
 
   restoreSyncState = (state: Partial<BackupSyncState>) =>
-    this.withContext(async ctx => {
-      const { pullQueueManager, wal, snapshotManager } = ctx.services
-      if (state.cursors) await pullQueueManager.importCursors(state.cursors)
-      if (state.pendingSync) {
-        for (const [itemId, base64Msgs] of state.pendingSync) {
-          for (const msg of base64Msgs) {
-            await wal.append(itemId, Uint8Array.fromBase64(msg))
-          }
-        }
-      }
-      if (state.lastModified) await snapshotManager.importLastModified(state.lastModified)
-    })
+    this.withContext(ctx => ctx.restoreSyncState(state))
 
   claimLeader = () =>
     this.withContext(ctx => ctx.claimLeader())
