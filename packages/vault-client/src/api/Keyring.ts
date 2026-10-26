@@ -9,6 +9,7 @@ import {
   importVaultKey,
   type CryptoResult,
 } from './crypto'
+import { SYNC_TIMEOUTS } from '../sync/shared/syncConfig'
 
 /** The data keys the sync engine encrypts and decrypts with */
 export interface KeyProvider {
@@ -103,7 +104,7 @@ export class Keyring implements KeyProvider, LocalKeyWrapper {
     return key
   }
 
-  waitForKey(kver: string, timeoutMs = 5000): Promise<boolean> {
+  waitForKey(kver: string, timeoutMs: number = SYNC_TIMEOUTS.keyWait): Promise<boolean> {
     if (this.hasKey(kver)) {
       return Promise.resolve(true)
     }

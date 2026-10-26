@@ -1,5 +1,5 @@
 import type { ItemId } from '@vault/shared'
-import { ClientEventHub } from './SyncEventHub'
+import type { ClientEventHub } from './SyncEventHub'
 import {
   type ManualRecoveryEntry,
   type ManualRecoveryKind,
@@ -12,7 +12,7 @@ import {
   upsertManualRecoveryEntry,
 } from '../shared/manualRecoveryStore'
 import { normalizeSyncError } from '@vault/shared'
-import { SYNC_TIMEOUTS } from '../syncConfig'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { createLogger } from '../utils/logger'
 
@@ -22,8 +22,8 @@ const log = createLogger('RecoveryManager')
 export const INBOUND_MESSAGE_RESOLVABLE_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['pullDecryption'])
 
 export interface RecoveryManagerDeps {
-  accountId?: string | null
-  eventHub?: ClientEventHub
+  accountId: string | null
+  eventHub: ClientEventHub
 }
 
 export interface QuarantineOptions {
@@ -35,7 +35,7 @@ export interface QuarantineOptions {
 export class RecoveryManager implements LifecycleAware {
   readonly lifecycleName = 'RecoveryManager'
   private accountId: string | null = null
-  private eventHub?: ClientEventHub
+  private readonly eventHub: ClientEventHub
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
 
@@ -43,9 +43,9 @@ export class RecoveryManager implements LifecycleAware {
     this.resetRecoveryState()
   }
 
-  constructor(deps?: RecoveryManagerDeps) {
-    this.accountId = deps?.accountId ?? null
-    this.eventHub = deps?.eventHub
+  constructor(deps: RecoveryManagerDeps) {
+    this.accountId = deps.accountId
+    this.eventHub = deps.eventHub
   }
 
   isInFlight(itemId: ItemId): boolean {
@@ -82,16 +82,11 @@ export class RecoveryManager implements LifecycleAware {
     this.cooldownUntilByItemId.clear()
   }
 
-  reset(): void {
-    this.resetRecoveryState()
-  }
-
-  async pushRecoveryItems(accountId?: string | null, options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
-    const targetAccount = accountId !== undefined ? accountId : this.accountId
-    if (!targetAccount) return []
+  async pushRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
+    if (!this.accountId) return []
     try {
-      const entries = await readManualRecoveryEntries(targetAccount, options)
-      this.eventHub?.emit({ type: 'recoveryItemsChanged', entries })
+      const entries = await readManualRecoveryEntries(this.accountId, options)
+      this.eventHub.emit({ type: 'recoveryItemsChanged', entries })
       return entries
     } catch (error) {
       log.error('Failed to push recovery entries change', error)
@@ -99,10 +94,9 @@ export class RecoveryManager implements LifecycleAware {
     }
   }
 
-  async listRecoveryItems(accountId?: string | null, options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
-    const targetAccount = accountId !== undefined ? accountId : this.accountId
-    if (!targetAccount) return []
-    return await readManualRecoveryEntries(targetAccount, options)
+  async listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
+    if (!this.accountId) return []
+    return await readManualRecoveryEntries(this.accountId, options)
   }
 
   async quarantine(
@@ -138,7 +132,7 @@ export class RecoveryManager implements LifecycleAware {
       }
 
       await upsertManualRecoveryEntry(accountId, { itemId, reason, kind })
-      await this.pushRecoveryItems(accountId)
+      await this.pushRecoveryItems()
 
       const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
       this.setRecoveryCooldown(itemId, Date.now() + cooldownMs)
@@ -164,7 +158,7 @@ export class RecoveryManager implements LifecycleAware {
     this.clearRecoveryCooldown(itemId)
     this.setInFlight(itemId, false)
 
-    await this.pushRecoveryItems(accountId)
+    await this.pushRecoveryItems()
   }
 
   async resolveQuarantines(itemIds: ItemId[], kinds: ReadonlySet<ManualRecoveryKind>): Promise<void> {
@@ -186,7 +180,7 @@ export class RecoveryManager implements LifecycleAware {
     }
 
     if (removedAny) {
-      await this.pushRecoveryItems(accountId)
+      await this.pushRecoveryItems()
     }
   }
 
@@ -195,7 +189,7 @@ export class RecoveryManager implements LifecycleAware {
     if (!accountId || !entryId) return
 
     await removeManualRecoveryEntryById(accountId, entryId)
-    await this.pushRecoveryItems(accountId)
+    await this.pushRecoveryItems()
   }
 
   async reportDecryptionFailure(

@@ -6,6 +6,8 @@ describe('syncConfig', () => {
       expect(SYNC_TIMEOUTS.docStoreFastPath).toBe(2000)
       expect(SYNC_TIMEOUTS.docStoreExtended).toBe(8000)
       expect(SYNC_TIMEOUTS.keyWait).toBe(5000)
+      expect(SYNC_TIMEOUTS.hydrationKeyWait).toBe(3000)
+      expect(SYNC_TIMEOUTS.tokenRefresh).toBe(10_000)
       expect(SYNC_TIMEOUTS.recoveryCooldown).toBe(60_000)
       expect(SYNC_TIMEOUTS.localDataCleanup).toBe(5000)
       expect(SYNC_TIMEOUTS.manifestSyncInterval).toBe(3600000)

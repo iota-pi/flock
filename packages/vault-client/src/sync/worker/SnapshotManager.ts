@@ -41,10 +41,10 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
       repo: Repo
       broker: SyncMessageBroker
       getLatestCursor?: () => number
-      eventHub?: ClientEventHub
+      eventHub: ClientEventHub
       recoveryManager: RecoveryManager
       apiClient: SyncApiClient
-      codec?: DocCodec
+      codec: DocCodec
       keys: KeyProvider
     },
     lastModifiedStore: LastModifiedStore,

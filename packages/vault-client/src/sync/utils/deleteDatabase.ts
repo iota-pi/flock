@@ -1,4 +1,4 @@
-import { SYNC_TIMEOUTS } from '../syncConfig'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from './logger'
 
 const log = createLogger('deleteDatabase')

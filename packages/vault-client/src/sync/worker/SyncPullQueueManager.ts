@@ -14,10 +14,10 @@ import { parseBatchedMessages } from './utils/messageParser'
 import { BATCHED_MESSAGE_VERSION } from './utils/binaryFraming'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
-import { WorkerInternalEventHub } from './SyncEventHub'
+import type { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap } from '../utils/BoundedMap'
 import { BoundedSet } from '../utils/BoundedSet'
-import { SYNC_TIMEOUTS } from '../syncConfig'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
@@ -51,77 +51,73 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   private hasMoreGlobal = false
   private globalPageToken?: PageToken
 
-  private readonly batchProgress = new BoundedMap<string, number>(BATCH_PROGRESS_CACHE_MAX) // "itemId:cursor" -> succeeded prefix count
+  /** For each item, how many messages of each partly applied batch (by cursor) have been applied */
+  private readonly batchProgress = new BoundedMap<ItemId, Map<number, number>>(BATCH_PROGRESS_CACHE_MAX)
   // "itemId:cursor" of messages this device pushed, so their server echoes aren't mistaken for remote edits
   private readonly ownPushedMessageKeys = new BoundedSet<string>(OWN_PUSH_CACHE_MAX)
 
   private readonly saveCursorsDebounced = debounce(() => fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors'), 1000)
 
-  private lockCoordinator?: ItemLockCoordinator
-  private readonly internalEventHub: WorkerInternalEventHub
-
   constructor(
     private readonly cursorStore: CursorStore,
     private readonly keys: KeyProvider,
-    lockCoordinator?: ItemLockCoordinator,
-    internalEventHub?: WorkerInternalEventHub,
+    private readonly lockCoordinator: ItemLockCoordinator,
+    private readonly internalEventHub: WorkerInternalEventHub,
   ) {
     this.retryTracker = new PullRetryTracker(keys)
-    this.lockCoordinator = lockCoordinator
-    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
   public get eventHub(): WorkerInternalEventHub {
     return this.internalEventHub
   }
 
-  private makeBatchProgressKey(itemId: ItemId, cursor: number): string {
+  private makeOwnPushKey(itemId: ItemId, cursor: number): string {
     return `${itemId}:${cursor}`
   }
 
   recordOwnPushedMessage(itemId: ItemId, cursor: number): void {
-    this.ownPushedMessageKeys.add(this.makeBatchProgressKey(itemId, cursor))
+    this.ownPushedMessageKeys.add(this.makeOwnPushKey(itemId, cursor))
   }
 
   private getBatchProgress(itemId: ItemId, cursor: number): number {
-    return this.batchProgress.get(this.makeBatchProgressKey(itemId, cursor)) ?? 0
+    return this.batchProgress.get(itemId)?.get(cursor) ?? 0
   }
 
   private setBatchProgress(itemId: ItemId, cursor: number, count: number): void {
-    this.batchProgress.set(this.makeBatchProgressKey(itemId, cursor), count)
+    const progress = this.batchProgress.get(itemId)
+    if (progress) {
+      progress.set(cursor, count)
+    } else {
+      this.batchProgress.set(itemId, new Map([[cursor, count]]))
+    }
   }
 
   private clearBatchProgress(itemId: ItemId, cursor: number): void {
-    this.batchProgress.delete(this.makeBatchProgressKey(itemId, cursor))
-  }
-
-  private clearBatchProgressForItem(itemId: ItemId): void {
-    const prefix = `${itemId}:`
-    for (const key of this.batchProgress.keys()) {
-      if (key.startsWith(prefix)) {
-        this.batchProgress.delete(key)
-      }
+    const progress = this.batchProgress.get(itemId)
+    progress?.delete(cursor)
+    if (progress?.size === 0) {
+      this.batchProgress.delete(itemId)
     }
   }
 
   private clearBatchProgressUpTo(itemId: ItemId, cursor: number): void {
-    const prefix = `${itemId}:`
-    for (const key of this.batchProgress.keys()) {
-      if (key.startsWith(prefix)) {
-        const entryCursor = Number(key.slice(prefix.length))
-        if (!Number.isFinite(entryCursor) || entryCursor <= cursor) {
-          this.batchProgress.delete(key)
-        }
+    const progress = this.batchProgress.get(itemId)
+    if (!progress) return
+    for (const entryCursor of progress.keys()) {
+      if (entryCursor <= cursor) {
+        progress.delete(entryCursor)
       }
+    }
+    if (progress.size === 0) {
+      this.batchProgress.delete(itemId)
     }
   }
 
-  getBatchProgressCountForTesting(): number {
-    return this.batchProgress.size
-  }
-
-  hasBatchProgressForTesting(itemId: ItemId, cursor: number): boolean {
-    return this.batchProgress.has(this.makeBatchProgressKey(itemId, cursor))
+  /** Drops the per-item pull state held in memory. The persisted cursors are left alone. */
+  private clearPullState(): void {
+    this.retryTracker.clear()
+    this.batchProgress.clear()
+    this.ownPushedMessageKeys.clear()
   }
 
   setAccount(account: string | null): Promise<void> {
@@ -129,9 +125,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     this.account = account
     this.isShutdown = false
 
-    this.retryTracker.clear()
-    this.batchProgress.clear()
-    this.ownPushedMessageKeys.clear()
+    this.clearPullState()
     this.hasMoreGlobal = false
     this.globalPageToken = undefined
     this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
@@ -172,9 +166,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     if (!options?.clearLocalData) {
       await this.persistCursors()
     }
-    this.retryTracker.clear()
-    this.batchProgress.clear()
-    this.ownPushedMessageKeys.clear()
+    this.clearPullState()
     this.hasMoreGlobal = false
     this.account = null
   }
@@ -305,10 +297,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   }
 
   private async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
-    if (this.lockCoordinator) {
-      return this.lockCoordinator.withItemLock(itemId, fn)
-    }
-    return fn()
+    return this.lockCoordinator.withItemLock(itemId, fn)
   }
 
   private async processItemMessages(
@@ -359,7 +348,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         if (handled.parsed) {
           hasParsedMessages = true
           if (Number.isFinite(handled.cursor)) {
-            const ownKey = this.makeBatchProgressKey(itemId, handled.cursor!)
+            const ownKey = this.makeOwnPushKey(itemId, handled.cursor!)
             if (!this.ownPushedMessageKeys.has(ownKey)) {
               hasParsedRemoteMessages = true
             }
@@ -439,7 +428,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       outcome.permanentlyFailed ||
       (!messageResult.hasParseFailure && !messageResult.hasKeyFailure && !hasMore)
     ) {
-      this.clearBatchProgressForItem(itemId)
+      this.batchProgress.delete(itemId)
     }
 
     if (
@@ -554,9 +543,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
   async resetCursors(): Promise<void> {
     if (!this.account) return
-    this.retryTracker.clear()
-    this.batchProgress.clear()
-    this.ownPushedMessageKeys.clear()
+    this.clearPullState()
     await this.cursorStore.clear()
     this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
   }

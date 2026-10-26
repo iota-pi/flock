@@ -116,7 +116,7 @@ describe('RecoveryManager', () => {
     })
 
     it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ eventHub })
+      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
       await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'fail')
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
@@ -140,7 +140,7 @@ describe('RecoveryManager', () => {
     })
 
     it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ eventHub })
+      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
       await recoveryManager.unquarantine('item-2' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
@@ -196,7 +196,7 @@ describe('RecoveryManager', () => {
     })
 
     it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ eventHub })
+      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
       await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
 
       expect(mockRemoveManualRecoveryEntryIfKind).not.toHaveBeenCalled()
@@ -217,12 +217,13 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'item-1', itemId: 'item-1', reason: 'err', kind: 'pullDecryption', createdAt: 1 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      const result = await recoveryManager.listRecoveryItems('account-123')
+      const result = await recoveryManager.listRecoveryItems()
       expect(result).toBe(mockEntries)
+      expect(mockReadManualRecoveryEntries).toHaveBeenCalledWith('account-123', undefined)
     })
 
     it('returns empty array if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ eventHub })
+      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
       const result = await recoveryManager.listRecoveryItems()
       expect(result).toEqual([])
     })
@@ -249,7 +250,7 @@ describe('RecoveryManager', () => {
       recoveryManager.setInFlight('item-1' as ItemId, true)
       recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 5000)
 
-      recoveryManager.reset()
+      recoveryManager.resetRecoveryState()
 
       expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
       expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
@@ -327,7 +328,7 @@ describe('RecoveryManager', () => {
       await recoveryManager.reportDecryptionFailure('' as ItemId, 'pullDecryption', new Error('fail'))
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
 
-      recoveryManager = new RecoveryManager({ eventHub })
+      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
       await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('fail'))
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
       consoleSpy.mockRestore()

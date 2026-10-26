@@ -1,12 +1,13 @@
 import { Repo, interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import { AutomergeDocStore } from './AutomergeDocStore'
+import type { AutomergeDocStore } from './AutomergeDocStore'
 import { SyncPullQueueManager } from '../SyncPullQueueManager'
 import { CursorStore } from '../stores/CursorStore'
+import { WorkerInternalEventHub } from '../SyncEventHub'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
 import { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
-import { createMockKeyProvider, createMockVault } from '../__test__/testUtils'
+import { createMockKeyProvider, createMockVault, createTestDocStore } from '../__test__/testUtils'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string; archived: boolean; time: number }> }
 
@@ -63,9 +64,9 @@ describe('Document Hydration Race Condition (C4)', () => {
 
   beforeEach(async () => {
     repo = new Repo()
-    docStore = new AutomergeDocStore(repo)
+    docStore = createTestDocStore(repo)
     cursorStore = new CursorStore('test-account')
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore)
+    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, new WorkerInternalEventHub())
     await pullQueueManager.setAccount('test-account')
     mockDecryptBytes.mockReset()
     mockDecryptBytes.mockImplementation(async (entry: any) => entry._rawBytes ?? new Uint8Array())

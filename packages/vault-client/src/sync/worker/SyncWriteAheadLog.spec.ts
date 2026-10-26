@@ -1,4 +1,5 @@
-import { SyncWriteAheadLog, clearWalInstancesCacheForTesting, toUint8Array } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, toUint8Array } from './SyncWriteAheadLog'
+import { WorkerInternalEventHub } from './SyncEventHub'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
@@ -7,6 +8,7 @@ import {
   MockLocalforage,
   createMockLocalForage,
 } from './__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
 vi.mock('localforage', () => ({
@@ -27,9 +29,9 @@ describe('SyncWriteAheadLog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     activeStoreMap.clear()
-    clearWalInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()
-    wal = new SyncWriteAheadLog('test-account')
+    wal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
   })
 
   it('appends entries and reads them grouped by item', async () => {
@@ -115,7 +117,7 @@ describe('SyncWriteAheadLog', () => {
     const id1 = await wal.append('item-crash' as ItemId, new Uint8Array([99, 100]))
 
     // Simulate crash and fresh start on same account
-    const newWalInstance = new SyncWriteAheadLog('test-account')
+    const newWalInstance = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
     const recovered = await newWalInstance.readAll()
 
     expect(recovered.has('item-crash' as ItemId)).toBe(true)
@@ -264,7 +266,7 @@ describe('SyncWriteAheadLog', () => {
     expect(store.store.has(id2)).toBe(true)
 
     // A new instance is created on recovery
-    const recoveredWal = new SyncWriteAheadLog('test-account')
+    const recoveredWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
     const recoveredMap = await recoveredWal.readAll()
 
     // It should have only 1 entry for the item (the compacted one), not 3!
@@ -318,7 +320,7 @@ describe('SyncWriteAheadLog', () => {
       replaces: [idB1, idB2],
     })
 
-    const recoveredWal = new SyncWriteAheadLog('test-account')
+    const recoveredWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
     const result = await recoveredWal.readAll()
 
     expect(result.size).toBe(2)
@@ -342,7 +344,7 @@ describe('SyncWriteAheadLog', () => {
     store.store.set('e3', { id: 'e3', itemId: 'item-transitive' as ItemId, data: new Uint8Array([3]), createdAt: 3 })
     store.store.set('c2', { id: 'c2', itemId: 'item-transitive' as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: 3, isBatched: true, replaces: ['c1', 'e3', 'e1', 'e2'] })
 
-    const recoveredWal = new SyncWriteAheadLog('test-account')
+    const recoveredWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
     const result = await recoveredWal.readAll()
 
     const entries = result.get('item-transitive' as ItemId)!
@@ -969,7 +971,7 @@ describe('SyncWriteAheadLog', () => {
       const id3 = await wal.append('item-restart' as ItemId, new Uint8Array([3]))
 
       // Simulate worker restart by instantiating a fresh SyncWriteAheadLog for the same account
-      const restartedWal = new SyncWriteAheadLog('test-account')
+      const restartedWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
 
       // Append 4th entry at identical millisecond timestamp
       const id4 = await restartedWal.append('item-restart' as ItemId, new Uint8Array([4]))
@@ -995,7 +997,7 @@ describe('SyncWriteAheadLog', () => {
 
       // Worker restart with clock skewed backwards
       vi.spyOn(Date, 'now').mockReturnValue(1900)
-      const restartedWal = new SyncWriteAheadLog('test-account')
+      const restartedWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
       const id2 = await restartedWal.append('item-skew' as ItemId, new Uint8Array([2]))
 
       const entriesMap = await restartedWal.readAll()

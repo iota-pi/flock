@@ -3,6 +3,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
+import { WorkerInternalEventHub } from './SyncEventHub'
 
 /**
  * End-to-end protocol tests for the simulated `vault` peer, using a real Automerge Repo.
@@ -33,7 +34,7 @@ class FakeServer {
 }
 
 class Device {
-  readonly adapter = new VaultNetworkAdapter()
+  readonly adapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
   readonly repo: Repo
   private pulled = 0
 

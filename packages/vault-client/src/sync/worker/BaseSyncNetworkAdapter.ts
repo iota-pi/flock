@@ -11,8 +11,6 @@ export const DEFAULT_MAX_OUTBOUND_QUEUE_SIZE = 1000
 export interface BaseSyncNetworkAdapterOptions {
   /** Maximum number of outbound messages to buffer when disconnected or not ready. Default: 1000 */
   maxOutboundQueueSize?: number
-  /** Callback when the outbound queue exceeds capacity and drops/evicts a message */
-  onOutboundQueueEvict?: (evicted: Message) => void
 }
 
 /**
@@ -34,13 +32,7 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
     super()
     const maxQueue = options?.maxOutboundQueueSize ?? DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
     this.outboundQueue = new BoundedQueue<Message>(maxQueue, {
-      onEvict: evicted => {
-        if (options?.onOutboundQueueEvict) {
-          options.onOutboundQueueEvict(evicted)
-        } else {
-          this.onOutboundQueueEvict(evicted)
-        }
-      },
+      onEvict: evicted => this.onOutboundQueueEvict(evicted),
     })
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve

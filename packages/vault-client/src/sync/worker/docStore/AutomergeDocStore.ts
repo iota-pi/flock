@@ -2,7 +2,7 @@ import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl, type Documen
 import * as Automerge from '@automerge/automerge/slim'
 import { ItemId, ItemIdSchema } from '@vault/shared'
 import type { VaultDoc, VaultMetadata } from '../../shared/types'
-import { passthroughCodec, type DocCodec } from '../domain'
+import type { DocCodec } from '../domain'
 import {
   readObjectSnapshot,
   toAutomergeUrlFromItemId,
@@ -12,10 +12,10 @@ import {
 } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
-import { WorkerInternalEventHub } from '../SyncEventHub'
+import type { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
-import { SYNC_TIMEOUTS } from '../../syncConfig'
+import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import type { LifecycleAware } from '../ServiceLifecycleManager'
 import { createLogger } from '../../utils/logger'
 
@@ -56,7 +56,7 @@ function normalizeItemId(raw: unknown): ItemId | null {
 export function normalizeItemSnapshot(
   itemId: ItemId,
   snapshot: RepoDoc | null,
-  codec: DocCodec = passthroughCodec,
+  codec: DocCodec,
 ): VaultDoc | null {
   if (!snapshot || Object.keys(snapshot).length === 0) {
     return null
@@ -74,31 +74,39 @@ export interface DocStorageChecker {
   has(key: string[]): Promise<boolean>
 }
 
-export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
-  readonly lifecycleName = 'DocStore'
-  private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
-  private itemMutex = new KeyedAsyncMutex<ItemId>()
-  private readonly internalEventHub: WorkerInternalEventHub
-  private storageAdapter?: DocStorageChecker | null
+export interface AutomergeDocStoreOptions {
+  repo: Repo
+  internalEventHub: WorkerInternalEventHub
+  storageAdapter?: DocStorageChecker | null
+  codec: DocCodec
   /**
    * Whether a document's sealed local records failed to decrypt. Its handle never finishes loading
    * (automerge-repo leaves it pending when storage throws), so finds give up at once instead of
    * waiting out their timeouts.
    */
-  public isLocallyUnreadable?: (documentId: DocumentId) => boolean
+  isLocallyUnreadable: (documentId: DocumentId) => boolean
+}
+
+export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
+  readonly lifecycleName = 'DocStore'
+  private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
+  private itemMutex = new KeyedAsyncMutex<ItemId>()
+  private readonly repo: Repo
+  private readonly internalEventHub: WorkerInternalEventHub
+  private storageAdapter?: DocStorageChecker | null
+  public readonly codec: DocCodec
+  private readonly isLocallyUnreadable: (documentId: DocumentId) => boolean
 
   async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
     await this.shutdown()
   }
 
-  constructor(
-    private readonly repo: Repo,
-    internalEventHub?: WorkerInternalEventHub,
-    storageAdapter?: DocStorageChecker | null,
-    public readonly codec: DocCodec = passthroughCodec,
-  ) {
-    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
-    this.storageAdapter = storageAdapter
+  constructor(options: AutomergeDocStoreOptions) {
+    this.repo = options.repo
+    this.internalEventHub = options.internalEventHub
+    this.storageAdapter = options.storageAdapter
+    this.codec = options.codec
+    this.isLocallyUnreadable = options.isLocallyUnreadable
   }
 
   private notifyDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
@@ -215,12 +223,12 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     }
 
     if (!existsInStorage) return undefined
-    if (this.isLocallyUnreadable?.(documentId)) return undefined
+    if (this.isLocallyUnreadable(documentId)) return undefined
 
     // 3. Fast-path attempt (2s)
     handle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreFastPath)
     if (handle && handle.isReady()) return handle
-    if (this.isLocallyUnreadable?.(documentId)) return undefined
+    if (this.isLocallyUnreadable(documentId)) return undefined
 
     // 4. Extended attempt for confirmed-to-exist documents (8s)
     // Check cache in case it became ready after timedFind aborted

@@ -14,8 +14,9 @@ import {
 } from './BaseSyncNetworkAdapter'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
-import { WorkerInternalEventHub } from './SyncEventHub'
+import type { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedSet } from '../utils/BoundedSet'
+import { RetryTimer } from '../utils/RetryTimer'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
@@ -55,7 +56,7 @@ export type HeadsValidator = (documentId: DocumentId, heads: string[]) => boolea
 interface RenegotiationCircuitState {
   timestamps: number[]
   circuitOpenUntil?: number
-  retryTimer?: ReturnType<typeof setTimeout>
+  retryTimer: RetryTimer
 }
 
 export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements LifecycleAware {
@@ -74,13 +75,10 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
    */
   private hasUnsavedSyncedHeads = false
   private headsValidator: HeadsValidator | null = null
-  private readonly internalEventHub: WorkerInternalEventHub
-
-  constructor(internalEventHub?: WorkerInternalEventHub) {
+  constructor(private readonly internalEventHub: WorkerInternalEventHub) {
     super({
       maxOutboundQueueSize: MAX_OUTBOUND_QUEUE_SIZE,
     })
-    this.internalEventHub = internalEventHub ?? new WorkerInternalEventHub()
   }
 
   public get eventHub(): WorkerInternalEventHub {
@@ -215,28 +213,23 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     circuit: RenegotiationCircuitState,
     delayMs: number,
   ): void {
-    if (circuit.retryTimer) {
+    if (circuit.retryTimer.isPending) {
       return
     }
 
-    const timer = setTimeout(() => {
-      if (circuit.retryTimer === timer) {
-        circuit.retryTimer = undefined
-      }
+    circuit.retryTimer.schedule(delayMs, () => {
       if (this.isDisconnected) {
         return
       }
       this.triggerReNegotiation(documentId)
-    }, Math.max(0, delayMs))
-
-    circuit.retryTimer = timer
+    })
   }
 
   triggerReNegotiation(documentId: DocumentId): boolean {
     const now = Date.now()
     let circuit = this.renegotiationCircuits.get(documentId)
     if (!circuit) {
-      circuit = { timestamps: [] }
+      circuit = { timestamps: [], retryTimer: new RetryTimer() }
       this.renegotiationCircuits.set(documentId, circuit)
     }
 
@@ -262,10 +255,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       return false
     }
 
-    if (circuit.retryTimer) {
-      clearTimeout(circuit.retryTimer)
-      circuit.retryTimer = undefined
-    }
+    circuit.retryTimer.cancel()
 
     circuit.timestamps.push(now)
 
@@ -398,23 +388,16 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   }
 
   hasReNegotiationRetryScheduled(documentId: DocumentId): boolean {
-    return Boolean(this.renegotiationCircuits.get(documentId)?.retryTimer)
+    return Boolean(this.renegotiationCircuits.get(documentId)?.retryTimer.isPending)
   }
 
   resetReNegotiationCircuit(documentId?: DocumentId): void {
     if (documentId) {
-      const circuit = this.renegotiationCircuits.get(documentId)
-      if (circuit?.retryTimer) {
-        clearTimeout(circuit.retryTimer)
-        circuit.retryTimer = undefined
-      }
+      this.renegotiationCircuits.get(documentId)?.retryTimer.cancel()
       this.renegotiationCircuits.delete(documentId)
     } else {
       for (const circuit of this.renegotiationCircuits.values()) {
-        if (circuit.retryTimer) {
-          clearTimeout(circuit.retryTimer)
-          circuit.retryTimer = undefined
-        }
+        circuit.retryTimer.cancel()
       }
       this.renegotiationCircuits.clear()
     }

@@ -1,14 +1,15 @@
 import { Repo, DocHandle } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import {
+import type {
   AutomergeDocStore,
-  type DocStorageChecker,
-  type RepoDoc,
+  DocStorageChecker,
+  RepoDoc,
 } from './AutomergeDocStore'
+import { createTestDocStore } from '../__test__/testUtils'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
 import { WorkerInternalEventHub } from '../SyncEventHub'
-import { SYNC_TIMEOUTS } from '../../syncConfig'
+import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import {
   toAutomergeUrlFromItemId,
   toDocumentIdFromItemId,
@@ -49,7 +50,7 @@ describe('AutomergeDocStore Unit Tests', () => {
 
   beforeEach(() => {
     repo = new Repo()
-    docStore = new AutomergeDocStore(repo)
+    docStore = createTestDocStore(repo)
   })
 
   afterEach(async () => {
@@ -174,7 +175,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = { loadDocData: loadDocDataMock }
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const seedSpy = vi.spyOn(customStore, 'seedImportedDocument')
 
       const result = await customStore.hydrateAutomergeDocumentBinary(itemId, remoteBinary)
@@ -213,7 +214,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         loadDocData: vi.fn().mockResolvedValue(localBinary),
       }
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const seedSpy = vi.spyOn(customStore, 'seedImportedDocument')
 
       const result = await customStore.hydrateAutomergeDocumentBinary(itemId, remoteBinary)
@@ -239,7 +240,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         loadDocData: vi.fn().mockResolvedValue(undefined),
       }
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
 
       await expect(
         customStore.hydrateAutomergeDocumentBinary(itemId, remoteBinary, { knownToExist: true })
@@ -259,7 +260,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         loadDocData: vi.fn().mockResolvedValue(corruptBinary),
       }
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
 
       await expect(
         customStore.hydrateAutomergeDocumentBinary(itemId, remoteBinary)
@@ -278,7 +279,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         loadDocData: vi.fn().mockResolvedValue(undefined),
       }
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const seedSpy = vi.spyOn(customStore, 'seedImportedDocument')
 
       const result = await customStore.hydrateAutomergeDocumentBinary(itemId, remoteBinary)
@@ -330,7 +331,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const expectedHandle = otherRepo.import(binary)
 
       const findSpy = vi.spyOn(customRepo, 'find').mockResolvedValue(expectedHandle as any)
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
 
       const handle = await customStore.findHandle(itemId, { knownToExist: true })
 
@@ -360,7 +361,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         throw new Error('Fast path timed out')
       })
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const handle = await customStore.findHandle(itemId, { knownToExist: true })
 
       expect(handle).toBe(readyHandle)
@@ -372,8 +373,9 @@ describe('AutomergeDocStore Unit Tests', () => {
       const customRepo = new Repo()
       const itemId = 'locally-unreadable' as ItemId
       const findSpy = vi.spyOn(customRepo, 'find')
-      const customStore = new AutomergeDocStore(customRepo)
-      customStore.isLocallyUnreadable = documentId => documentId === toDocumentIdFromItemId(itemId)
+      const customStore = createTestDocStore(customRepo, {
+        isLocallyUnreadable: documentId => documentId === toDocumentIdFromItemId(itemId),
+      })
 
       const handle = await customStore.findHandle(itemId, { knownToExist: true })
 
@@ -389,8 +391,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         unreadable = true
         throw new Error('Fast path timed out')
       })
-      const customStore = new AutomergeDocStore(customRepo)
-      customStore.isLocallyUnreadable = () => unreadable
+      const customStore = createTestDocStore(customRepo, { isLocallyUnreadable: () => unreadable })
 
       const handle = await customStore.findHandle(itemId, { knownToExist: true })
 
@@ -410,7 +411,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         .mockRejectedValueOnce(new Error('Fast path timed out'))
         .mockResolvedValueOnce(readyHandle as any)
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const handle = await customStore.findHandle(itemId, { knownToExist: true })
 
       expect(handle).toBe(readyHandle)
@@ -425,7 +426,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         .mockRejectedValueOnce(new Error('Fast path timed out'))
         .mockRejectedValueOnce(new Error('Extended path timed out'))
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const handle = await customStore.findHandle(itemId, { knownToExist: true })
 
       expect(handle).toBeUndefined()
@@ -451,7 +452,7 @@ describe('AutomergeDocStore Unit Tests', () => {
           throw new Error('Extended timed out')
         })
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const handle = await customStore.findHandle(itemId, { knownToExist: true })
 
       expect(handle).toBe(readyHandle)
@@ -461,7 +462,7 @@ describe('AutomergeDocStore Unit Tests', () => {
     it('gracefully handles storage check throwing error in findHandleInternal: treats as not existing and returns undefined', async () => {
       const customRepo = new Repo()
       const itemId = 'storage-error-lookup' as ItemId
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockRejectedValue(new Error('IDB read failure'))
       const findSpy = vi.spyOn(customRepo, 'find')
 
@@ -488,7 +489,7 @@ describe('AutomergeDocStore Unit Tests', () => {
           })
         })
 
-        const customStore = new AutomergeDocStore(customRepo)
+        const customStore = createTestDocStore(customRepo)
         const promise = customStore.findHandle('timer-test-item' as ItemId, { knownToExist: true })
 
         // Fast-path timeout (docStoreFastPath = 2000ms)
@@ -517,7 +518,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const mockAdapter: DocStorageChecker = {
         has: vi.fn().mockResolvedValue(true),
       }
-      const store = new AutomergeDocStore(repo, undefined, mockAdapter)
+      const store = createTestDocStore(repo, { storageAdapter: mockAdapter })
       const result = await store.hasDataInStorage('test-storage-item' as ItemId)
 
       expect(result).toBe(true)
@@ -528,7 +529,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const mockAdapter: DocStorageChecker = {
         has: vi.fn().mockResolvedValue(false),
       }
-      const store = new AutomergeDocStore(repo, undefined, mockAdapter)
+      const store = createTestDocStore(repo, { storageAdapter: mockAdapter })
       const result = await store.hasDataInStorage('test-storage-item' as ItemId)
 
       expect(result).toBe(false)
@@ -538,7 +539,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const mockAdapter: DocStorageChecker = {
         has: vi.fn().mockRejectedValue(new Error('Storage disk corruption')),
       }
-      const store = new AutomergeDocStore(repo, undefined, mockAdapter)
+      const store = createTestDocStore(repo, { storageAdapter: mockAdapter })
 
       await expect(
         store.hasDataInStorage('test-storage-item' as ItemId)
@@ -546,7 +547,7 @@ describe('AutomergeDocStore Unit Tests', () => {
     })
 
     it('fallback: returns false when no storageAdapter is configured and repo has no storageSubsystem', async () => {
-      const store = new AutomergeDocStore(repo, undefined, null)
+      const store = createTestDocStore(repo, { storageAdapter: null })
       const result = await store.hasDataInStorage('test-item' as ItemId)
       expect(result).toBe(false)
 
@@ -561,7 +562,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockResolvedValue(rawBytes),
       }
-      const store = new AutomergeDocStore(customRepo, undefined, null)
+      const store = createTestDocStore(customRepo, { storageAdapter: null })
 
       const exists = await store.hasDataInStorage('test-item' as ItemId)
       expect(exists).toBe(true)
@@ -576,7 +577,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockResolvedValue(new Uint8Array(0)),
       }
-      const store = new AutomergeDocStore(customRepo, undefined, null)
+      const store = createTestDocStore(customRepo, { storageAdapter: null })
       expect(await store.hasDataInStorage('test-item' as ItemId)).toBe(false)
       expect(await store.loadDocDataFromStorage('test-item' as ItemId)).toBeUndefined()
 
@@ -591,7 +592,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockRejectedValue(new Error('IndexedDB transaction aborted')),
       }
-      const store = new AutomergeDocStore(customRepo, undefined, null)
+      const store = createTestDocStore(customRepo, { storageAdapter: null })
 
       await expect(
         store.hasDataInStorage('test-item' as ItemId)
@@ -628,7 +629,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       const handle = await customStore.findOrCreateHandle(itemId, { knownToExist: true })
 
       expect(handle).toBeUndefined()
@@ -641,7 +642,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const itemId = 'storage-exists-timeout' as ItemId
       vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockResolvedValue(true)
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
@@ -658,7 +659,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const itemId = 'storage-check-error' as ItemId
       vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockRejectedValue(new Error('QuotaExceededError'))
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
@@ -677,7 +678,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockResolvedValue(false)
 
       const handle = await customStore.findOrCreateHandle(itemId)
@@ -695,7 +696,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         if (event.type === 'docHandleReplaced') replacedEvents.push(event)
       })
 
-      const store = new AutomergeDocStore(repo, hub)
+      const store = createTestDocStore(repo, { internalEventHub: hub })
       vi.spyOn(store, 'hasDataInStorage').mockResolvedValue(false)
 
       const itemId = 'event-notify-item' as ItemId
@@ -711,7 +712,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         throw new Error('WASM out of memory')
       })
 
-      const customStore = new AutomergeDocStore(customRepo)
+      const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockResolvedValue(false)
 
       await expect(customStore.findOrCreateHandle(itemId)).rejects.toThrow(
@@ -936,7 +937,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = { saveDoc: saveDocMock }
 
-      const store = new AutomergeDocStore(customRepo)
+      const store = createTestDocStore(customRepo)
       const saved = await store.saveDocToStorage(itemId)
 
       expect(saved).toBe(true)
@@ -956,7 +957,7 @@ describe('AutomergeDocStore Unit Tests', () => {
 
       vi.spyOn(customRepo, 'find').mockResolvedValue(handle as any)
 
-      const store = new AutomergeDocStore(customRepo)
+      const store = createTestDocStore(customRepo)
       const saved = await store.saveDocToStorage(itemId)
 
       expect(saved).toBe(true)
@@ -969,7 +970,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       customRepo.storageSubsystem = { saveDoc: vi.fn() }
       vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Not found'))
 
-      const store = new AutomergeDocStore(customRepo)
+      const store = createTestDocStore(customRepo)
       const saved = await store.saveDocToStorage('save-fail-item' as ItemId)
       expect(saved).toBe(false)
     })
@@ -1010,7 +1011,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(docStore.lifecycleName).toBe('DocStore')
 
       const customRepo = new Repo()
-      const store = new AutomergeDocStore(customRepo)
+      const store = createTestDocStore(customRepo)
       const shutdownSpy = vi.spyOn(store, 'shutdown')
 
       await store.onLifecycleStop()
@@ -1021,7 +1022,7 @@ describe('AutomergeDocStore Unit Tests', () => {
     it('shutdown does not shut down repo since repo lifecycle is owned by AutomergeRepoManager (L-8)', async () => {
       const customRepo = new Repo()
       const shutdownSpy = vi.spyOn(customRepo, 'shutdown')
-      const store = new AutomergeDocStore(customRepo)
+      const store = createTestDocStore(customRepo)
 
       await store.shutdown()
       expect(shutdownSpy).not.toHaveBeenCalled()
@@ -1052,7 +1053,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(exported.documents[ACCOUNT_INDEX_DOCUMENT_ID]).toBeDefined()
 
       // Restore on a device without the documents
-      const restoringStore = new AutomergeDocStore(new Repo())
+      const restoringStore = createTestDocStore(new Repo())
       await indexStore.clear()
       await indexManager.ensureIndexDocument()
 

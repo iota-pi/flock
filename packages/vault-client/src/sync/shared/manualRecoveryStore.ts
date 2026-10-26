@@ -1,11 +1,7 @@
 import { runStorageOperation } from '../utils/storageManager'
 import { KeyedAsyncMutex } from '../utils/AsyncMutex'
 import { ItemId } from '@vault/shared'
-import {
-  createAccountStore,
-  clearAccountStoreInstancesCacheForTesting,
-} from './createAccountStore'
-import { clearSyncMetadataInstancesCacheForTesting } from '../worker/stores/syncMetadataStorage'
+import { createAccountStore } from './createAccountStore'
 
 const STORE_NAME = 'manual-recovery-items'
 
@@ -82,11 +78,6 @@ function kindRank(kind: ManualRecoveryKind): number {
 
 function getManualRecoveryStorage(accountId: string) {
   return createAccountStore(STORE_NAME, accountId)
-}
-
-export function clearInstancesCacheForTesting(): void {
-  clearAccountStoreInstancesCacheForTesting()
-  clearSyncMetadataInstancesCacheForTesting()
 }
 
 export const DEFAULT_MANUAL_RECOVERY_LIMIT = 100

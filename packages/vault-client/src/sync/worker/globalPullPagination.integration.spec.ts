@@ -4,7 +4,7 @@ import { syncRouter } from '@vault/server'
 import { SyncPoller } from './SyncPoller'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
-import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
+import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
 import type { SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
 import type { AutomergeIndexManager } from './docStore'
@@ -95,7 +95,7 @@ describe('global pull pagination (client ↔ router)', () => {
     const caller = syncRouter.createCaller({ authToken: 'session-token', vault } as never)
 
     const { clientEventHub, internalEventHub } = createTestEventHubs()
-    const pullQueueManager = new SyncPullQueueManager(new CursorStore(ACCOUNT), keys, undefined, internalEventHub)
+    const pullQueueManager = new SyncPullQueueManager(new CursorStore(ACCOUNT), keys, noItemLocks, internalEventHub)
     await pullQueueManager.setAccount(ACCOUNT)
     pullQueueManager.addPendingItem('item-z' as ItemId)
 

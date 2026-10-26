@@ -8,6 +8,7 @@ import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
+import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import type { PreparedSnapshotItem } from './SnapshotBatchAccumulator'
@@ -25,7 +26,7 @@ export interface SnapshotPusherOptions {
   broker: SyncMessageBroker
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
-  eventHub?: ClientEventHub
+  eventHub: ClientEventHub
   getLatestCursor?: () => number
   maxPayloadBytes?: number
 }
@@ -51,7 +52,7 @@ export class SnapshotPusher {
   private readonly broker: SyncMessageBroker
   private readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
-  private readonly eventHub?: ClientEventHub
+  private readonly eventHub: ClientEventHub
   private readonly getLatestCursor?: () => number
   public readonly maxPayloadBytes: number
 
@@ -60,7 +61,7 @@ export class SnapshotPusher {
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
   private pushAbortController: AbortController | null = null
   private pendingPushRequested = false
-  private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly retryTimer = new RetryTimer()
   public readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
   constructor(options: SnapshotPusherOptions) {
@@ -80,16 +81,12 @@ export class SnapshotPusher {
   }
 
   get isRetryActive(): boolean {
-    return this.retryTimer !== null
+    return this.retryTimer.isPending
   }
 
   /** Whether a push was asked for while one was running, so another follows it */
   get snapshotPushPending(): boolean {
     return this.pendingPushRequested
-  }
-
-  get retryTimeoutId(): ReturnType<typeof setTimeout> | null {
-    return this.retryTimer
   }
 
   abortPush(): void {
@@ -100,10 +97,7 @@ export class SnapshotPusher {
   }
 
   cancelRetry(): void {
-    if (this.retryTimer !== null) {
-      clearTimeout(this.retryTimer)
-      this.retryTimer = null
-    }
+    this.retryTimer.cancel()
   }
 
   resetRetry(): void {
@@ -115,10 +109,7 @@ export class SnapshotPusher {
     if (!this.tracker.isOperational) {
       return { persisted: 0, total: 0 }
     }
-    if (this.retryTimer !== null) {
-      clearTimeout(this.retryTimer)
-      this.retryTimer = null
-    }
+    this.cancelRetry()
     if (this.pushGuard.isRunning) {
       this.pendingPushRequested = true
       const res = await this.pushGuard.waitForRunning()
@@ -129,7 +120,7 @@ export class SnapshotPusher {
   }
 
   scheduleRetry(): void {
-    if (!this.tracker.isOperational || this.retryTimer !== null) {
+    if (!this.tracker.isOperational || this.retryTimer.isPending) {
       return
     }
 
@@ -139,12 +130,11 @@ export class SnapshotPusher {
 
     log.warn(`Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
 
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null
+    this.retryTimer.schedule(delayMs, () => {
       if (this.tracker.dirtyCount > 0) {
         fireAndForget(this.pushSnapshots(), 'SnapshotPusher:scheduleRetry')
       }
-    }, delayMs)
+    })
   }
 
   private preparePushContext(): {
@@ -224,7 +214,7 @@ export class SnapshotPusher {
       this.consecutiveFailures.delete(itemId)
       this.tracker.removeDirtyItemIfTickMatches(itemId, tick)
 
-      this.eventHub?.emit({
+      this.eventHub.emit({
         type: 'snapshotFailed',
         itemId,
         message: `Snapshot sync failed for item ${itemId}: ${detailedReason}. Changes are stored locally only.`,
@@ -260,7 +250,7 @@ export class SnapshotPusher {
       log.error(
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
-      this.eventHub?.emit({
+      this.eventHub.emit({
         type: 'quotaExceeded',
         message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
       })
@@ -454,9 +444,8 @@ export class SnapshotPusher {
       return Promise.resolve({ persisted: 0, total: 0, success: true })
     }
 
-    if (this.retryTimer !== null && !this.pushGuard.isRunning) {
-      clearTimeout(this.retryTimer)
-      this.retryTimer = null
+    if (!this.pushGuard.isRunning) {
+      this.cancelRetry()
     }
 
     return this.runPush()

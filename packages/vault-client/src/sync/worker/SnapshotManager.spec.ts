@@ -1,6 +1,7 @@
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { SnapshotManager } from './SnapshotManager'
 import { RecoveryManager } from './RecoveryManager'
+import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
@@ -1026,6 +1027,7 @@ describe('SnapshotManager Retry Mechanism', () => {
           eventHub: mockEventHub as any,
           recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),
           apiClient: new SyncApiClient(),
+          codec: passthroughCodec,
           keys,
         },
         lastModifiedStore,
@@ -1066,6 +1068,7 @@ describe('SnapshotManager Retry Mechanism', () => {
           eventHub: mockEventHub as any,
           recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: mockEventHub as any }),
           apiClient: new SyncApiClient(),
+          codec: passthroughCodec,
           keys,
         },
         lastModifiedStore,

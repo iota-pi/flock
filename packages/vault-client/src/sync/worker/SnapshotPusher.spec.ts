@@ -233,11 +233,11 @@ describe('SnapshotPusher', () => {
     await pusher.pushSnapshots()
 
     expect(pusher.retryAttempt).toBe(1)
-    expect(pusher.retryTimeoutId).not.toBeNull()
+    expect(pusher.isRetryActive).toBe(true)
 
     // Cancel retry
     pusher.cancelRetry()
-    expect(pusher.retryTimeoutId).toBeNull()
+    expect(pusher.isRetryActive).toBe(false)
   })
 
   it('runs a follow-up push requested while a push was in flight', async () => {
@@ -262,7 +262,7 @@ describe('SnapshotPusher', () => {
 
     await pusher.pushSnapshots()
 
-    expect(pusher.retryTimeoutId).toBeNull()
+    expect(pusher.isRetryActive).toBe(false)
   })
 
   it('handles push gracefully if no auth token is present (AuthError)', async () => {

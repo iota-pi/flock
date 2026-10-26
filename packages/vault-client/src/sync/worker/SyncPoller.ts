@@ -14,7 +14,7 @@ import { classifySyncError } from '../utils/errorClassifier'
 import type { PushResultItem, PollSyncBatchResponse } from './SyncWorkerClient'
 import type { SyncApiClient } from './SyncApiClient'
 import { checkAlive } from '../utils/abort'
-import { SYNC_BATCH_SIZES } from '../syncConfig'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { RecoveryManager } from './RecoveryManager'
 import { createLogger } from '../utils/logger'
 

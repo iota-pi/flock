@@ -80,7 +80,7 @@ vi.mock('./docStore', () => ({
     saveDocToStorage = vi.fn().mockResolvedValue(undefined)
     readItemSnapshot = vi.fn().mockResolvedValue(null)
     hasDataInStorage = vi.fn().mockResolvedValue(true)
-    isLocallyUnreadable?: (documentId: string) => boolean
+    constructor(readonly options: { isLocallyUnreadable: (documentId: string) => boolean }) {}
     onLifecycleStop = vi.fn().mockImplementation(async () => {
       await this.shutdown()
     })
@@ -196,7 +196,7 @@ vi.mock('./SyncOrchestrator', () => ({
     start = vi.fn().mockResolvedValue(undefined)
     shutdown = vi.fn().mockResolvedValue(undefined)
     setOnlineState = vi.fn()
-    setManifestSyncManager = vi.fn()
+    constructor(readonly deps: { manifestSyncManager: unknown }) {}
     claimLeader = vi.fn()
     online = true
     flush = vi.fn()
@@ -390,7 +390,7 @@ describe('SyncWorkerContext', () => {
       ctxInternalHub.emit({ type: 'itemMessageParsed', itemId: 'item-1' as ItemId })
       await new Promise(resolve => setTimeout(resolve, 50))
 
-      const entries = await ctx.services.recoveryManager.listRecoveryItems('test-account')
+      const entries = await ctx.services.recoveryManager.listRecoveryItems()
       expect(entries).toHaveLength(1)
       expect(entries[0].kind).toBe('oversized')
     })
@@ -444,8 +444,71 @@ describe('SyncWorkerContext', () => {
     })
   })
 
+  describe('recovery items', () => {
+    it('releases a quarantined item and pushes its snapshot again', async () => {
+      const unquarantine = vi.spyOn(context.services.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
+      const snapshotManager = context.services.snapshotManager as any
+      snapshotManager.clearOversized = vi.fn()
+
+      await context.retryRecoveryItem('item-1' as ItemId)
+
+      expect(unquarantine).toHaveBeenCalledWith('item-1')
+      expect(snapshotManager.clearOversized).toHaveBeenCalledWith('item-1')
+      expect(snapshotManager.markItemDirty).toHaveBeenCalledWith('item-1')
+      expect(snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    })
+
+    it('recreates an oversized item and pushes the old one as a tombstone', async () => {
+      const snapshotManager = context.services.snapshotManager as any
+      snapshotManager.clearOversized = vi.fn()
+      const itemOperations = context.services.itemOperations as any
+      itemOperations.recreateOversizedItem = vi.fn().mockResolvedValue('item-new')
+
+      const newItemId = await context.recreateOversizedItem('item-old' as ItemId)
+
+      expect(newItemId).toBe('item-new')
+      expect(itemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
+      expect(snapshotManager.clearOversized).toHaveBeenCalledWith('item-old')
+      expect(snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    })
+  })
+
+  describe('sync state backup', () => {
+    it('exports cursors, unpushed WAL entries and modification times', async () => {
+      const { pullQueueManager, wal, snapshotManager } = context.services as any
+      pullQueueManager.exportCursors = vi.fn().mockReturnValue([['item-1', 5]])
+      wal.readAll.mockResolvedValue(new Map([['item-1', [{ data: new Uint8Array([1, 2, 3]) }]]]))
+      snapshotManager.exportLastModified = vi.fn().mockReturnValue([['item-1', 1000]])
+
+      const state = await context.exportSyncState()
+
+      expect(state).toEqual({
+        cursors: [['item-1', 5]],
+        pendingSync: [['item-1', [new Uint8Array([1, 2, 3]).toBase64()]]],
+        lastModified: [['item-1', 1000]],
+      })
+    })
+
+    it('restores the state it exported', async () => {
+      const { pullQueueManager, wal, snapshotManager } = context.services as any
+      pullQueueManager.importCursors = vi.fn().mockResolvedValue(undefined)
+      snapshotManager.importLastModified = vi.fn().mockResolvedValue(undefined)
+      const message = new Uint8Array([4, 5, 6])
+
+      await context.restoreSyncState({
+        cursors: [['item-1' as ItemId, 5]],
+        pendingSync: [['item-1' as ItemId, [message.toBase64()]]],
+        lastModified: [['item-1' as ItemId, 1000]],
+      })
+
+      expect(pullQueueManager.importCursors).toHaveBeenCalledWith([['item-1', 5]])
+      expect(wal.append).toHaveBeenCalledWith('item-1', message)
+      expect(snapshotManager.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
+    })
+  })
+
   it('wires manifestSyncManager into orchestrator on construction', () => {
-    expect(context.services.orchestrator.setManifestSyncManager).toHaveBeenCalledWith(context.services.manifestSyncManager)
+    expect((context.services.orchestrator as any).deps.manifestSyncManager).toBe(context.services.manifestSyncManager)
   })
 
   it('delegates claimLeader to orchestrator.claimLeader', () => {
@@ -680,6 +743,11 @@ describe('SyncWorkerContext', () => {
       return { ctx, onOpenFailure }
     }
 
+    /** Asks the predicate the context gave its (mocked) doc store */
+    function isLocallyUnreadable(ctx: SyncWorkerContext, documentId: DocumentId): boolean {
+      return (ctx.services.docStore as any).options.isLocallyUnreadable(documentId)
+    }
+
     it('quarantines a document once, however many of its chunks fail', async () => {
       const { ctx, onOpenFailure } = await createContextWithOpenFailures()
       const reportSpy = vi.spyOn(ctx.services.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
@@ -690,8 +758,8 @@ describe('SyncWorkerContext', () => {
 
       expect(reportSpy).toHaveBeenCalledTimes(1)
       expect(reportSpy).toHaveBeenCalledWith('doc-1', 'localDecryption', error)
-      expect(ctx.services.docStore.isLocallyUnreadable?.('doc-1' as DocumentId)).toBe(true)
-      expect(ctx.services.docStore.isLocallyUnreadable?.('doc-2' as DocumentId)).toBe(false)
+      expect(isLocallyUnreadable(ctx, 'doc-1' as DocumentId)).toBe(true)
+      expect(isLocallyUnreadable(ctx, 'doc-2' as DocumentId)).toBe(false)
     })
 
     it('ignores the storage ID record, which is not a document', async () => {
@@ -720,7 +788,7 @@ describe('SyncWorkerContext', () => {
       expect(removeRange).toHaveBeenCalledWith([documentId])
       expect(ctx.services.manifestSyncManager.sync).toHaveBeenCalledWith(true)
       expect(unquarantine).toHaveBeenCalledWith(itemId)
-      expect(ctx.services.docStore.isLocallyUnreadable?.(documentId)).toBe(false)
+      expect(isLocallyUnreadable(ctx, documentId)).toBe(false)
     })
 
     it('keeps the item quarantined when the server has no copy to replace it with', async () => {

@@ -1,11 +1,11 @@
 import { SyncedHeadsStore } from './SyncedHeadsStore'
 import {
-  clearSyncMetadataInstancesCacheForTesting,
   SYNC_METADATA_KEYS,
 } from './syncMetadataStorage'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
 import { createMockLocalForagePool } from '../__test__/testUtils'
+import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 
 const pool = createMockLocalForagePool()
 const instances = pool.instances
@@ -29,7 +29,7 @@ describe('SyncedHeadsStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     instances.clear()
-    clearSyncMetadataInstancesCacheForTesting()
+    clearAccountStoreInstancesCacheForTesting()
     store = new SyncedHeadsStore(accountId)
   })
 
