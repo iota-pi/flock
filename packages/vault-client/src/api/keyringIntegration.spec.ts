@@ -20,15 +20,15 @@ import { getVaultStorageNames } from '../sync/shared/storageNames'
 import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
 
-import { updateKeyring, getKeyring, getSession } from './client'
-import * as clientModule from './client'
+import { updateKeyring, getKeyring, getSession } from './AccountClient'
+import * as accountClientModule from './AccountClient'
 import * as workerAuthStoreModule from '../sync/shared/workerAuthStore'
 import { spyOnExports } from '../../test/moduleMocks'
 
 const SALT = 'c2FsdDEyMw=='
 
 beforeEach(() => {
-  spyOnExports(clientModule, {
+  spyOnExports(accountClientModule, {
     getSession: vi.fn().mockResolvedValue('mock-session'),
     createAccount: vi.fn(),
     getSecurityParams: vi.fn(),
@@ -457,7 +457,7 @@ describe('Vault Keyring Integration', () => {
         saltVersion: 1,
         iterations: 1000,
       })
-    ).rejects.toThrow(/Incorrect password/)
+    ).rejects.toThrow(/Incorrect account ID or password/)
 
     expect(hasVaultKey('1')).toBe(false)
   })
@@ -595,7 +595,7 @@ describe('Vault Keyring Integration', () => {
         saltVersion: 1,
         iterations: 1000,
       })
-    ).rejects.toThrow(/Incorrect password/)
+    ).rejects.toThrow(/Incorrect account ID or password/)
 
     expect(hasVaultKey('1')).toBe(false)
   })

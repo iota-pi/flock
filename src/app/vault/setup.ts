@@ -1,5 +1,6 @@
 import env from '../../env'
-import { configureVaultEndpoint, configureVaultHost, enableTestKeyDerivation } from '@vault/client'
+import { configureVaultEndpoint, configureVaultHost } from '@vault/client'
+import { enableTestKeyDerivation } from '@vault/shared'
 import { configureVaultStorageNames } from '@vault/client/storageNames'
 import { useAppStore } from '../../state/store'
 import { FLOCK_STORAGE_NAMES } from './storageNames'

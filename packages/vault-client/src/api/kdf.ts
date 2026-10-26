@@ -1,37 +1,19 @@
 import * as Comlink from 'comlink'
-import type { KdfParams } from '@vault/shared'
+import { isTestKeyDerivation, TEST_KDF, type KdfParams } from '@vault/shared'
 import { createLogger } from '../sync/utils/logger'
 
 const log = createLogger('kdf')
 
 export type { KdfParams }
 
-let testKeyDerivation = false
-
-/**
- * Makes this realm run the real derivation with parameters cheap enough for tests, and accept
- * them when they're read back. Call it before any key is derived, and never in production.
- */
-export function enableTestKeyDerivation(): void {
-  testKeyDerivation = true
-}
-
-const PRODUCTION_KDF: KdfParams = { algorithm: 'argon2id', memoryKiB: 64 * 1024, passes: 3, parallelism: 1 }
-const TEST_KDF: KdfParams = { algorithm: 'argon2id', memoryKiB: 8, passes: 1, parallelism: 1 }
-
-/** The Argon2id parameters new passwords are derived with */
-export function getDefaultKdf(): KdfParams {
-  return testKeyDerivation ? TEST_KDF : PRODUCTION_KDF
-}
-
 /** The PBKDF2 iterations for a key derivation that doesn't say how many it used */
 export function getDefaultPbkdf2Iterations(): number {
-  return testKeyDerivation ? 1 : 600_000
+  return isTestKeyDerivation() ? 1 : 600_000
 }
 
 /** The PBKDF2 iterations of accounts from before the count was stored */
 export function getLegacyPbkdf2Iterations(): number {
-  return testKeyDerivation ? 1 : 100_000
+  return isTestKeyDerivation() ? 1 : 100_000
 }
 
 export interface KdfLimits {
@@ -57,7 +39,7 @@ const TEST_KDF_LIMITS: KdfLimits = {
 
 /** The limits key derivation parameters are checked against when they're read back */
 export function getKdfLimits(): KdfLimits {
-  return testKeyDerivation ? TEST_KDF_LIMITS : PRODUCTION_KDF_LIMITS
+  return isTestKeyDerivation() ? TEST_KDF_LIMITS : PRODUCTION_KDF_LIMITS
 }
 
 export class UnsupportedKeyDerivationError extends Error {

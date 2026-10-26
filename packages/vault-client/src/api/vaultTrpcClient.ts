@@ -3,7 +3,7 @@ import { observable } from '@trpc/server/observable'
 import type { VaultRouter } from '@vault/server'
 import { isClientOutdatedError, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
 import { getApiAuthToken } from './runtime'
-import { broadcastVaultEvent } from './util'
+import { broadcastVaultEvent } from './vaultEvents'
 import { withRequestTimeout } from './requestTimeout'
 
 let vaultEndpoint = ''

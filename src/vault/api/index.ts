@@ -7,8 +7,8 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { createFlockDriver } from '../flockDriver'
 import { flockDataVersionPolicy } from '../flockDataVersion'
 import { appRouter } from '../trpc/root'
-import { createVaultContext } from '@vault/server'
-import { PROTOCOL_VERSION_HEADER } from '@vault/shared'
+import { createVaultContext, type UnknownAccountParams } from '@vault/server'
+import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER } from '@vault/shared'
 
 /**
  * Writes from builds below this protocol version are rejected, which makes them update. Raising it
@@ -23,6 +23,23 @@ import { PROTOCOL_VERSION_HEADER } from '@vault/shared'
  */
 const MIN_PROTOCOL_VERSION = 4
 
+/** Lets a local server answer unknown accounts like real ones without any setup */
+const DEV_UNKNOWN_ACCOUNT_SECRET = 'flock-local-unknown-account-secret'
+
+/**
+ * Made-up security parameters for accounts that don't exist, shaped like a new account's, so that
+ * `getSecurityParams` doesn't reveal which accounts do. The salts are derived from
+ * UNKNOWN_ACCOUNT_SECRET (an SST secret), which must stay the same, or an unknown account's salt
+ * would change between requests.
+ */
+export function getUnknownAccountParams(devMode: boolean): UnknownAccountParams | undefined {
+  const secret = process.env.UNKNOWN_ACCOUNT_SECRET || (devMode ? DEV_UNKNOWN_ACCOUNT_SECRET : undefined)
+  if (!secret) {
+    console.error('UNKNOWN_ACCOUNT_SECRET is not set, so getSecurityParams reports unknown accounts as NOT_FOUND')
+    return undefined
+  }
+  return { secret, saltVersion: CURRENT_SALT_VERSION, kdf: getDefaultKdf() }
+}
 
 async function createServer(devMode = false) {
   const server = Fastify({
@@ -43,16 +60,15 @@ async function createServer(devMode = false) {
     credentials: true,
   })
 
-  const vault = createFlockDriver(devMode)
-  server.decorate('vault', vault)
-
   await server.register(fastifyTRPCPlugin, {
     prefix: '/trpc',
     trpcOptions: {
       router: appRouter,
       createContext: createVaultContext({
+        vault: createFlockDriver(devMode),
         minProtocolVersion: MIN_PROTOCOL_VERSION,
         dataVersionPolicy: flockDataVersionPolicy,
+        unknownAccountParams: getUnknownAccountParams(devMode),
       }),
       onError: ({ path, error }: { path: string | undefined, error: unknown }) => {
         console.error(`[TRPC Error] path=${path}:`, error)

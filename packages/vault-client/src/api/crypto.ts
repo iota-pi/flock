@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CryptoResultSchema, DOC_BOUND_FORMAT } from '@vault/shared'
+import { CryptoResultSchema, CURRENT_SALT_VERSION, DOC_BOUND_FORMAT } from '@vault/shared'
 import {
   assertKdfAcceptable,
   assertPbkdf2Acceptable,
@@ -47,8 +47,6 @@ type InitialiseKeyParams = {
   /** Derives PBKDF2 keys. Without it, accounts without `kdf` are rejected. */
   deriveLegacyKey?: DeriveLegacyKey,
 }
-
-export const CURRENT_SALT_VERSION = 1
 
 function decodeSalt({ salt, saltVersion, decodeLegacySalt }: InitialiseKeyParams): ArrayBuffer {
   if (saltVersion === CURRENT_SALT_VERSION) {

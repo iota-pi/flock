@@ -18,10 +18,10 @@ import {
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from '../utils/errorClassifier'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { toVaultItemIdFromAutomergeId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
+import { toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import { AsyncQueue } from '../utils/AsyncQueue'
 import { RetryStrategy } from '../utils/RetryStrategy'
-import { BoundedQueue } from '../utils/boundedCollections'
+import { BoundedQueue } from '../utils/BoundedQueue'
 import { fireAndForget } from '../utils/fireAndForget'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -166,7 +166,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         this.inner.send({ ...message, data: encodedData })
         if (message.documentId && this.accountId) {
           const itemId = toVaultItemIdFromAutomergeId(message.documentId)
-          if (itemId && (itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+          if (itemId && !isIndexDocument(itemId)) {
             publishRealtimeBusSyncPing(this.accountId, [itemId])
           }
         }

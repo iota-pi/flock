@@ -1,15 +1,14 @@
 import type { z } from 'zod'
-import type { VaultItem, VaultDriver } from '../drivers/base'
+import type { VaultItem, VaultDriver } from '../drivers/vaultDriver'
 import type { PutSnapshotBatchSchema, ItemId } from '@vault/shared'
 
-export type { VaultDriver }
 export type PutSnapshotInput = z.infer<typeof PutSnapshotBatchSchema>
 
 export interface PersistSnapshotsResult {
   success: boolean
   persisted: number
   total: number
-  results?: Array<{ itemId: ItemId; version: number }>
+  results: Array<{ itemId: ItemId; version: number }>
 }
 
 /**

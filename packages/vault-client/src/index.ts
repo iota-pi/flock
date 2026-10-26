@@ -31,8 +31,8 @@ export { isWebAuthnPrfSupported } from './api/webauthn'
 export { readStoredMetadata, hasRandomDataKeys } from './api/storedMetadata'
 export { configureVaultHost, type VaultHostHooks } from './api/vaultHost'
 export { VaultNotInitializedError, type KeyProvider } from './api/Keyring'
-export { createAccount, getSecurityParams } from './api/client'
-export type { VaultBroadcastEvent } from './api/util'
+export { createAccount, getSecurityParams } from './api/AccountClient'
+export type { VaultBroadcastEvent } from './api/vaultEvents'
 export {
   generateSalt,
   generateVaultKey,
@@ -40,7 +40,7 @@ export {
   type CryptoResult,
   type DeriveLegacyKey,
 } from './api/crypto'
-export { enableTestKeyDerivation, getDefaultKdf, type KdfParams } from './api/kdf'
+export type { KdfParams } from './api/kdf'
 export {
   type AutoLockMode,
   type AutoLockSettings,

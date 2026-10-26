@@ -18,7 +18,7 @@ if (!SOURCE_ACCOUNT) {
   process.exit(1)
 }
 
-const client = new DynamoDBClient(getConnectionParams())
+const client = new DynamoDBClient(getConnectionParams({ region: process.env.AWS_REGION || 'ap-southeast-2' }))
 
 const docClient = DynamoDBDocumentClient.from(client, {
   marshallOptions: {

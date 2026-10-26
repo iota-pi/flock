@@ -87,6 +87,8 @@ export default $config({
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
+    // Derives the salts getSecurityParams makes up for unknown accounts. Never change it.
+    const unknownAccountSecret = new sst.Secret("UNKNOWN_ACCOUNT_SECRET");
     const vaultApi = new sst.aws.Function("VaultApi", {
       handler: "src/vault/index.handler",
       runtime: "nodejs24.x",
@@ -102,8 +104,9 @@ export default $config({
         ITEMS_TABLE: itemsTable.name,
         SYNC_MESSAGES_TABLE: syncMessagesTable.name,
         SENTRY_DSN: process.env.SENTRY_DSN || process.env.VITE_SENTRY_DSN || "",
+        UNKNOWN_ACCOUNT_SECRET: unknownAccountSecret.value,
       },
-      link: [accountsTable, itemsTable, syncMessagesTable],
+      link: [accountsTable, itemsTable, syncMessagesTable, unknownAccountSecret],
     });
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)

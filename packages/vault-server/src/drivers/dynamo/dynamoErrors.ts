@@ -33,6 +33,22 @@ export const TRANSIENT_DYNAMO_ERROR_NAMES = new Set([
 
 export const TRANSIENT_HTTP_STATUS_CODES = new Set([429, 500, 502, 503, 504])
 
+/** The string fields that identify an error, from the SDK or from a plain object, as '' when missing */
+function readErrorFields(error: object): { name: string, code: string, typeStr: string, message: string } {
+  const typed = error as {
+    name?: unknown
+    code?: unknown
+    __type?: unknown
+    message?: unknown
+  }
+  return {
+    name: typeof typed.name === 'string' ? typed.name : '',
+    code: typeof typed.code === 'string' ? typed.code : '',
+    typeStr: typeof typed.__type === 'string' ? typed.__type : '',
+    message: typeof typed.message === 'string' ? typed.message : '',
+  }
+}
+
 export function isConditionalCheckFailure(error: unknown): boolean {
   if (error instanceof ConditionalCheckFailedException) {
     return true
@@ -42,17 +58,7 @@ export function isConditionalCheckFailure(error: unknown): boolean {
     return false
   }
 
-  const typed = error as {
-    name?: unknown
-    code?: unknown
-    __type?: unknown
-    message?: unknown
-  }
-
-  const name = typeof typed.name === 'string' ? typed.name : ''
-  const code = typeof typed.code === 'string' ? typed.code : ''
-  const typeStr = typeof typed.__type === 'string' ? typed.__type : ''
-  const message = typeof typed.message === 'string' ? typed.message : ''
+  const { name, code, typeStr, message } = readErrorFields(error)
 
   return (
     name === 'ConditionalCheckFailedException'
@@ -72,17 +78,7 @@ export function isResourceInUseError(error: unknown): boolean {
     return false
   }
 
-  const typed = error as {
-    name?: unknown
-    code?: unknown
-    __type?: unknown
-    message?: unknown
-  }
-
-  const name = typeof typed.name === 'string' ? typed.name : ''
-  const code = typeof typed.code === 'string' ? typed.code : ''
-  const typeStr = typeof typed.__type === 'string' ? typed.__type : ''
-  const message = typeof typed.message === 'string' ? typed.message : ''
+  const { name, code, typeStr, message } = readErrorFields(error)
 
   return (
     name === 'ResourceInUseException'
@@ -109,12 +105,8 @@ export function isTransientDynamoError(error: unknown): boolean {
   }
 
   const typed = error as {
-    name?: unknown
-    code?: unknown
-    __type?: unknown
     $retryable?: unknown
     $metadata?: { httpStatusCode?: unknown }
-    message?: unknown
     cause?: unknown
   }
 
@@ -129,9 +121,7 @@ export function isTransientDynamoError(error: unknown): boolean {
     return true
   }
 
-  const name = typeof typed.name === 'string' ? typed.name : ''
-  const code = typeof typed.code === 'string' ? typed.code : ''
-  const typeStr = typeof typed.__type === 'string' ? typed.__type : ''
+  const { name, code, typeStr, message } = readErrorFields(error)
   const typeName = typeStr.includes('#') ? typeStr.split('#')[1] : typeStr
 
   if (
@@ -142,7 +132,6 @@ export function isTransientDynamoError(error: unknown): boolean {
     return true
   }
 
-  const message = typeof typed.message === 'string' ? typed.message : ''
   if (
     message.includes('ProvisionedThroughputExceededException') ||
     message.includes('Throughput exceeds') ||

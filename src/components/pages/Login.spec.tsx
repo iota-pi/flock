@@ -189,7 +189,7 @@ describe('LoginPage', () => {
       kdf: ARGON2ID,
       dataVersion: 2,
     })
-    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect account ID or password. Please try again.'))
 
     renderLoginPage()
 
@@ -205,7 +205,7 @@ describe('LoginPage', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeDefined()
-      expect(screen.getByText(/Incorrect password\. Please try again\./i)).toBeDefined()
+      expect(screen.getByText(/Incorrect account ID or password\. Please try again\./i)).toBeDefined()
       expect(useAppStore.getState().message).toBeNull()
     })
   })
@@ -217,7 +217,7 @@ describe('LoginPage', () => {
       kdf: ARGON2ID,
       dataVersion: 2,
     })
-    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect account ID or password. Please try again.'))
 
     renderLoginPage()
 
@@ -250,7 +250,7 @@ describe('LoginPage', () => {
       kdf: ARGON2ID,
       dataVersion: 2,
     })
-    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect account ID or password. Please try again.'))
 
     renderLoginPage()
 

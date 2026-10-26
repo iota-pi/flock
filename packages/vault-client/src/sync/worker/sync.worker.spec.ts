@@ -65,7 +65,7 @@ beforeEach(() => {
   })
   spyOnExports(automergeModule, {
     toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
-    ACCOUNT_INDEX_DOCUMENT_ID: '__account_index__',
+    isIndexDocument: (id: string) => id === '__account_index__',
   })
   spyOnExports(comlinkModule, {
     expose: vi.fn(),

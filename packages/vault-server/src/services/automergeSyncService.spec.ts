@@ -1,12 +1,20 @@
 import type { Mocked } from 'vitest'
 import {
-  createAutomergeSyncService,
   DEFAULT_PULL_BATCH_CONCURRENCY,
+  pullAutomergeSyncBatch,
+  pullAutomergeSyncGlobal,
+  pollSync,
+  pushAutomergeSyncBatch,
 } from './automergeSyncService'
+import { InvalidPageTokenError } from '../errors'
 import { mapWithConcurrency, ItemId } from '@vault/shared'
-import type { AutomergeSyncRepository } from './automergeSyncService'
+import type { AutomergeSyncRepository, PollSyncInput } from './automergeSyncService'
 
 describe('AutomergeSyncService', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   const CUSTOM_EPOCH = 1760000000000 // 2025-10-09T08:53:20.000Z
   const TIMESTAMP_MULTIPLIER = 10_000_000
 
@@ -20,10 +28,7 @@ describe('AutomergeSyncService', () => {
   it('generates monotonically increasing cursors within a batch and preserves absolute timestamps', async () => {
     const repository = createMockRepository()
     const mockedTime = 1772473432000 // A date in June 2026
-    const service = createAutomergeSyncService({
-      now: () => mockedTime,
-      repository,
-    })
+    vi.setSystemTime(mockedTime)
 
     const messages = [
       { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } },
@@ -31,7 +36,7 @@ describe('AutomergeSyncService', () => {
       { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv3', cipher: 'c3' } },
     ]
 
-    const result = await service.pushAutomergeSyncBatch({
+    const result = await pushAutomergeSyncBatch(repository, {
       account: 'test-account',
       messages,
     })
@@ -65,12 +70,8 @@ describe('AutomergeSyncService', () => {
 
   it('remains safe from precision loss (base + 1 === base is false)', async () => {
     const repository = createMockRepository()
-    const service = createAutomergeSyncService({
-      now: () => Date.now(),
-      repository,
-    })
-
-    const result = await service.pushAutomergeSyncBatch({
+    
+    const result = await pushAutomergeSyncBatch(repository, {
       account: 'test-account',
       messages: [
         { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } },
@@ -87,12 +88,9 @@ describe('AutomergeSyncService', () => {
   it('safely handles system clocks set before the custom epoch', async () => {
     const repository = createMockRepository()
     // 0 is way before custom epoch
-    const service = createAutomergeSyncService({
-      now: () => 0,
-      repository,
-    })
+    vi.setSystemTime(0)
 
-    const result = await service.pushAutomergeSyncBatch({
+    const result = await pushAutomergeSyncBatch(repository, {
       account: 'test-account',
       messages: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } }],
     })
@@ -107,10 +105,7 @@ describe('AutomergeSyncService', () => {
   it('gives pushes in the same millisecond different cursors within that second', async () => {
     const repository = createMockRepository()
     const mockedTime = 1772473432000
-    const service = createAutomergeSyncService({
-      now: () => mockedTime,
-      repository,
-    })
+    vi.setSystemTime(mockedTime)
 
     // Offsets are random, so stub them to keep the test deterministic (collisions are possible but rare by design)
     const randomValues = [0, 0.25, 0.5, 0.9999999]
@@ -122,7 +117,7 @@ describe('AutomergeSyncService', () => {
     const cursors: number[] = []
     try {
       for (const [i] of randomValues.entries()) {
-        const result = await service.pushAutomergeSyncBatch({
+        const result = await pushAutomergeSyncBatch(repository, {
           account: 'test-account',
           messages: [{
             itemId: 'item-1' as ItemId,
@@ -148,10 +143,7 @@ describe('AutomergeSyncService', () => {
   it('ensures batch index does not spill over into the next second namespace', async () => {
     const repository = createMockRepository()
     const mockedTime = 1772473432000
-    const service = createAutomergeSyncService({
-      now: () => mockedTime,
-      repository,
-    })
+    vi.setSystemTime(mockedTime)
 
     // Large batch of 200 items (maximum page limit)
     const messages = Array.from({ length: 200 }, (_, i) => ({
@@ -159,7 +151,7 @@ describe('AutomergeSyncService', () => {
       encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
     }))
 
-    const result = await service.pushAutomergeSyncBatch({
+    const result = await pushAutomergeSyncBatch(repository, {
       account: 'test-account',
       messages,
     })
@@ -179,10 +171,9 @@ describe('AutomergeSyncService', () => {
   it('passes the raw input cursor when pulling sync messages for an item', async () => {
     const repository = createMockRepository()
     repository.getSyncMessages.mockResolvedValueOnce({ messages: [], hasMore: false })
-    const service = createAutomergeSyncService({ repository })
 
     const inputCursor = 150_000_000 // 15 seconds into epoch
-    await service.pullAutomergeSyncBatch({
+    await pullAutomergeSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: inputCursor }],
     })
@@ -191,7 +182,6 @@ describe('AutomergeSyncService', () => {
       account: 'test-account',
       itemId: 'item-1',
       fromCursor: 150_000_000,
-      limit: 200,
     })
   })
 
@@ -200,10 +190,9 @@ describe('AutomergeSyncService', () => {
       ...createMockRepository(),
       getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({ items: [], hasMore: false }),
     } as unknown as Mocked<AutomergeSyncRepository>
-    const service = createAutomergeSyncService({ repository })
 
     const inputCursor = 200_000_000 // 20 seconds into epoch
-    await service.pullAutomergeSyncGlobal({
+    await pullAutomergeSyncGlobal(repository, {
       account: 'test-account',
       cursor: inputCursor,
     })
@@ -231,9 +220,8 @@ describe('AutomergeSyncService', () => {
         hasMore: true,
       }),
     } as unknown as Mocked<AutomergeSyncRepository>
-    const service = createAutomergeSyncService({ repository })
 
-    const result = await service.pullAutomergeSyncGlobal({
+    const result = await pullAutomergeSyncGlobal(repository, {
       account: 'test-account',
       cursor: 5,
     })
@@ -252,9 +240,8 @@ describe('AutomergeSyncService', () => {
       messages: [],
       hasMore: false,
     })
-    const service = createAutomergeSyncService({ repository })
 
-    await service.pullAutomergeSyncBatch({
+    await pullAutomergeSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 150_000_199, pageToken: 'item-1-token' }],
     })
@@ -264,7 +251,6 @@ describe('AutomergeSyncService', () => {
       itemId: 'item-1',
       fromCursor: 150_000_199, // Must NOT subtract OVERLAP_CURSOR_DELTA
       pageToken: 'item-1-token',
-      limit: 200,
     })
   })
 
@@ -277,9 +263,8 @@ describe('AutomergeSyncService', () => {
         scannedThroughCursor: 200_000_999,
       }),
     } as unknown as Mocked<AutomergeSyncRepository>
-    const service = createAutomergeSyncService({ repository })
 
-    await service.pullAutomergeSyncGlobal({
+    await pullAutomergeSyncGlobal(repository, {
       account: 'test-account',
       cursor: 200_000_999,
       pageToken: 'global-token',
@@ -313,9 +298,8 @@ describe('AutomergeSyncService', () => {
       nextPageToken: page1Token,
     })
 
-    const service = createAutomergeSyncService({ repository })
 
-    const page1Result = await service.pullAutomergeSyncBatch({
+    const page1Result = await pullAutomergeSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 100_000_000 }],
     })
@@ -327,7 +311,6 @@ describe('AutomergeSyncService', () => {
       account: 'test-account',
       itemId: 'item-1',
       fromCursor: 100_000_000,
-      limit: 200,
       pageToken: undefined,
     })
 
@@ -337,7 +320,7 @@ describe('AutomergeSyncService', () => {
       hasMore: false,
     })
 
-    const page2Result = await service.pullAutomergeSyncBatch({
+    const page2Result = await pullAutomergeSyncBatch(repository, {
       account: 'test-account',
       cursors: [{
         itemId: 'item-1' as ItemId,
@@ -353,7 +336,6 @@ describe('AutomergeSyncService', () => {
       account: 'test-account',
       itemId: 'item-1',
       fromCursor: page1Result.results[0].nextCursor,
-      limit: 200,
       pageToken: page1Token,
     })
   })
@@ -364,9 +346,8 @@ describe('AutomergeSyncService', () => {
       messages: [],
       hasMore: false,
     })
-    const service = createAutomergeSyncService({ repository })
 
-    const result = await service.pullAutomergeSyncBatch({
+    const result = await pullAutomergeSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 500_000 }],
     })
@@ -377,7 +358,6 @@ describe('AutomergeSyncService', () => {
       account: 'test-account',
       itemId: 'item-1',
       fromCursor: 500_000,
-      limit: 200,
       pageToken: undefined,
     })
   })
@@ -389,9 +369,8 @@ describe('AutomergeSyncService', () => {
       hasMore: false,
       scannedThroughCursor: 999,
     })
-    const service = createAutomergeSyncService({ repository })
 
-    const result = await service.pullAutomergeSyncGlobal({
+    const result = await pullAutomergeSyncGlobal(repository, {
       account: 'test-account',
       cursor: 1000,
       pageToken: 'global-token',
@@ -414,13 +393,12 @@ describe('AutomergeSyncService', () => {
         return { messages: [], hasMore: false }
       })
 
-      const service = createAutomergeSyncService({ repository })
       const cursors = Array.from({ length: 30 }, (_, i) => ({
         itemId: `item-${i}` as ItemId,
         cursor: 100,
       }))
 
-      const result = await service.pullAutomergeSyncBatch({
+      const result = await pullAutomergeSyncBatch(repository, {
         account: 'test-account',
         cursors,
       })
@@ -431,7 +409,7 @@ describe('AutomergeSyncService', () => {
       expect(peakConcurrency).toBe(DEFAULT_PULL_BATCH_CONCURRENCY)
     })
 
-    it('respects service-level pullConcurrency override', async () => {
+    it('limits peak concurrency to the requested concurrency', async () => {
       const repository = createMockRepository()
       let activeCount = 0
       let peakConcurrency = 0
@@ -444,51 +422,21 @@ describe('AutomergeSyncService', () => {
         return { messages: [], hasMore: false }
       })
 
-      const service = createAutomergeSyncService({ repository, pullConcurrency: 4 })
       const cursors = Array.from({ length: 15 }, (_, i) => ({
         itemId: `item-${i}` as ItemId,
         cursor: 100,
       }))
 
-      const result = await service.pullAutomergeSyncBatch({
+      const result = await pullAutomergeSyncBatch(repository, {
         account: 'test-account',
         cursors,
+        concurrency: 4,
       })
 
       expect(result.success).toBe(true)
       expect(result.results).toHaveLength(15)
       expect(repository.getSyncMessages).toHaveBeenCalledTimes(15)
       expect(peakConcurrency).toBe(4)
-    })
-
-    it('respects input-level concurrency override over service default', async () => {
-      const repository = createMockRepository()
-      let activeCount = 0
-      let peakConcurrency = 0
-
-      repository.getSyncMessages.mockImplementation(async () => {
-        activeCount += 1
-        peakConcurrency = Math.max(peakConcurrency, activeCount)
-        await new Promise(resolve => setTimeout(resolve, 15))
-        activeCount -= 1
-        return { messages: [], hasMore: false }
-      })
-
-      const service = createAutomergeSyncService({ repository, pullConcurrency: 8 })
-      const cursors = Array.from({ length: 10 }, (_, i) => ({
-        itemId: `item-${i}` as ItemId,
-        cursor: 100,
-      }))
-
-      const result = await service.pullAutomergeSyncBatch({
-        account: 'test-account',
-        cursors,
-        concurrency: 2,
-      })
-
-      expect(result.success).toBe(true)
-      expect(result.results).toHaveLength(10)
-      expect(peakConcurrency).toBe(2)
     })
 
     it('preserves result order even when requests resolve out of order', async () => {
@@ -508,15 +456,15 @@ describe('AutomergeSyncService', () => {
         }
       })
 
-      const service = createAutomergeSyncService({ repository, pullConcurrency: 5 })
       const cursors = Array.from({ length: 10 }, (_, i) => ({
         itemId: `item-${i}` as ItemId,
         cursor: i * 10,
       }))
 
-      const result = await service.pullAutomergeSyncBatch({
+      const result = await pullAutomergeSyncBatch(repository, {
         account: 'test-account',
         cursors,
+        concurrency: 5,
       })
 
       expect(result.results).toHaveLength(10)
@@ -539,16 +487,16 @@ describe('AutomergeSyncService', () => {
         return { messages: [], hasMore: false }
       })
 
-      const service = createAutomergeSyncService({ repository, pullConcurrency: 2 })
       const cursors = Array.from({ length: 10 }, (_, i) => ({
         itemId: `item-${i}` as ItemId,
         cursor: 100,
       }))
 
       await expect(
-        service.pullAutomergeSyncBatch({
+        pullAutomergeSyncBatch(repository, {
           account: 'test-account',
           cursors,
+          concurrency: 2,
         })
       ).rejects.toThrow('DynamoDB query failed for item-2')
 
@@ -581,3 +529,109 @@ describe('AutomergeSyncService', () => {
   })
 })
 
+
+describe('pollSync', () => {
+  const message = (cursor: number) => ({ cursor, encryptedMessage: { iv: 'iv', cipher: 'c' }, createdAt: 1 })
+
+  const createMockVault = () => {
+    const calls: string[] = []
+    const vault = {
+      pushSyncMessagesBatch: vi.fn(async () => { calls.push('push') }),
+      getSyncMessages: vi.fn(async ({ itemId }: { itemId: ItemId }) => {
+        calls.push(`pull:${itemId}`)
+        return { messages: [message(5)], hasMore: false }
+      }),
+      getGlobalSyncMessagesAfterCursor: vi.fn(async () => {
+        calls.push('global')
+        return {
+          items: [
+            { itemId: 'lagging' as ItemId, messages: [message(50)] },
+            { itemId: 'other' as ItemId, messages: [message(60)] },
+          ],
+          hasMore: false,
+          scannedThroughCursor: 60,
+        }
+      }),
+      validatePageToken: vi.fn(() => { calls.push('validate') }),
+    }
+    return { vault: vault as unknown as Mocked<AutomergeSyncRepository>, calls }
+  }
+
+  const input = (overrides: Partial<PollSyncInput> = {}): PollSyncInput => ({
+    account: 'acct',
+    pushMessages: [],
+    pullCursors: [],
+    ...overrides,
+  })
+
+  it('leaves items with their own pull cursor out of the global results', async () => {
+    const { vault } = createMockVault()
+
+    const result = await pollSync(vault, input({
+      clientLatestCursor: 10,
+      pullCursors: [{ itemId: 'lagging' as ItemId, cursor: 1 }],
+    }))
+
+    expect(result.pullResults.map(r => [r.itemId, r.nextCursor])).toEqual([
+      ['lagging', 5],
+      ['other', 60],
+    ])
+    expect(result.globalScannedThroughCursor).toBe(60)
+  })
+
+  it('checks page tokens, then pushes, then pulls', async () => {
+    const { vault, calls } = createMockVault()
+
+    await pollSync(vault, input({
+      clientLatestCursor: 10,
+      pushMessages: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv', cipher: 'c' } }],
+      pullCursors: [{ itemId: 'lagging' as ItemId, cursor: 1, pageToken: 'token' }],
+    }))
+
+    expect(calls.slice(0, 2)).toEqual(['validate', 'push'])
+    expect(calls.slice(2).sort()).toEqual(['global', 'pull:lagging'])
+  })
+
+  it('stores nothing when a page token is bad', async () => {
+    const { vault } = createMockVault()
+    vault.validatePageToken.mockImplementation(() => {
+      throw new InvalidPageTokenError('bad token')
+    })
+
+    await expect(pollSync(vault, input({
+      globalPageToken: 'bad',
+      pushMessages: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv', cipher: 'c' } }],
+    }))).rejects.toBeInstanceOf(InvalidPageTokenError)
+    expect(vault.pushSyncMessagesBatch).not.toHaveBeenCalled()
+  })
+
+  it('reports more to pull when any item or the global pull has more', async () => {
+    const { vault } = createMockVault()
+    vault.getSyncMessages.mockResolvedValueOnce({ messages: [], hasMore: true, nextPageToken: 'next' })
+
+    const itemHasMore = await pollSync(vault, input({ pullCursors: [{ itemId: 'lagging' as ItemId }] }))
+    expect(itemHasMore).toMatchObject({ hasMore: true, globalHasMore: false })
+
+    vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({ items: [], hasMore: true, nextPageToken: 'g', scannedThroughCursor: 0 })
+    const globalHasMore = await pollSync(vault, input({ clientLatestCursor: 0 }))
+    expect(globalHasMore).toMatchObject({ hasMore: true, globalHasMore: true, globalNextPageToken: 'g' })
+  })
+
+  it('pulls nothing without cursors', async () => {
+    const { vault } = createMockVault()
+
+    const result = await pollSync(vault, input())
+
+    expect(vault.getSyncMessages).not.toHaveBeenCalled()
+    expect(vault.getGlobalSyncMessagesAfterCursor).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      success: true,
+      pushResults: [],
+      pullResults: [],
+      hasMore: false,
+      globalNextPageToken: undefined,
+      globalHasMore: false,
+      globalScannedThroughCursor: undefined,
+    })
+  })
+})

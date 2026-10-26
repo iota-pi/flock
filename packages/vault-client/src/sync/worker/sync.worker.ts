@@ -19,7 +19,7 @@ import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
 import type { RepoDoc } from './docStore'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
+import { isIndexDocument } from './utils/automerge'
 import type { PollOutcome } from './SyncPoller'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../../api/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
@@ -113,7 +113,8 @@ export class SyncWorker implements SyncApi {
   private clientEventHub = new ClientEventHub()
   private internalEventHub = new WorkerInternalEventHub()
   private isOnline = true
-  private syncStatusManager = new SyncStatusManager(this.clientEventHub)
+  /** Bound to each session's client event hub, so it's created by initWorkerState */
+  private syncStatusManager!: SyncStatusManager
   private unsubscribeRealtimeBus: (() => void) | null = null
   private readonly subscriptions = new ItemSubscriptions(
     () => this.context.services.repo,
@@ -208,16 +209,6 @@ export class SyncWorker implements SyncApi {
     initVaultTrpcClient(trackedFetch)
   }
 
-  private async initGlobalPrerequisites(vaultKey: string): Promise<void> {
-    await this.loadKeyring(vaultKey)
-    await Automerge.initializeWasm(this.automergeWasmUrl)
-  }
-
-  /** Loads the keyring exported by the main thread */
-  private async loadKeyring(vaultKey: string): Promise<void> {
-    await this.keyring.load(vaultKey)
-  }
-
   private subscribeClientEvents(): void {
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
@@ -261,7 +252,7 @@ export class SyncWorker implements SyncApi {
           this.subscriptions.rebind(event.itemId, event.handle)
           break
         case 'itemMessageParsed':
-          if ((event.itemId as string) !== ACCOUNT_INDEX_DOCUMENT_ID) {
+          if (!isIndexDocument(event.itemId)) {
             this.subscriptions.subscribe([event.itemId])
           }
           break
@@ -328,9 +319,11 @@ export class SyncWorker implements SyncApi {
     try {
       this.initWorkerState()
       if (options?.authToken !== undefined) {
-        this.setAuthToken(options.authToken)
+        setApiAuthToken(options.authToken || '')
       }
-      await this.initGlobalPrerequisites(vaultKey)
+      // The keyring is the one the main thread exported
+      await this.keyring.load(vaultKey)
+      await Automerge.initializeWasm(this.automergeWasmUrl)
 
       const context = new SyncWorkerContext({
         accountId,
@@ -473,15 +466,10 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.services.recoveryManager.listRecoveryItems(options))
 
   updateVaultKey = async (vaultKey: string) => {
-    await this.loadKeyring(vaultKey)
+    await this.keyring.load(vaultKey)
     return this.withContext(ctx => {
       ctx.services.pullQueueManager.onKeyringUpdated()
     })
-  }
-
-  updateAuthToken = async (token: string | null): Promise<void> => {
-    this.setAuthToken(token)
-    this.resolveTokenRefresh(token)
   }
 
   /**
@@ -489,8 +477,9 @@ export class SyncWorker implements SyncApi {
    * on disk it would outlive the tab, and a copy of the device's storage could make authenticated
    * writes until the session expired.
    */
-  private setAuthToken(token: string | null): void {
+  updateAuthToken = async (token: string | null): Promise<void> => {
     setApiAuthToken(token || '')
+    this.resolveTokenRefresh(token)
   }
 
   reencryptAllItems = () =>
@@ -515,7 +504,7 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.claimLeader())
 
   async shutdown(options?: { clearLocalData?: boolean }) {
-    this.setAuthToken(null)
+    setApiAuthToken('')
     this.isShutDown = true
     this.isReady = false
     this.ready.reject(new Error(NOT_INITIALIZED_MESSAGE))

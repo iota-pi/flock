@@ -1,6 +1,8 @@
 import * as Sentry from '@sentry/node'
-import { PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
-import createServer from './index'
+import { CURRENT_SALT_VERSION, getDefaultKdf, PROTOCOL_VERSION_HEADER, VAULT_PROTOCOL_VERSION } from '@vault/shared'
+import DynamoDriver from '@vault/server/dynamo'
+import createServer, { getUnknownAccountParams } from './index'
+import { FLOCK_DATA_VERSION } from '../../shared/flockDataVersion'
 import { spyOnExports } from '../../utils/testUtils'
 
 const CURRENT_PROTOCOL = { [PROTOCOL_VERSION_HEADER]: String(VAULT_PROTOCOL_VERSION) }
@@ -70,8 +72,7 @@ describe('createServer error reporting', () => {
 
   it('captures unexpected internal errors in Sentry with tRPC path tag', async () => {
     const server = await createServer(true)
-    const mockVault = (server as any).vault
-    vi.spyOn(mockVault, 'getNewAccountId').mockRejectedValue(new Error('DynamoDB Connection Failure'))
+    vi.spyOn(DynamoDriver.prototype, 'getNewAccountId').mockRejectedValue(new Error('DynamoDB Connection Failure'))
 
     try {
       const response = await server.inject({
@@ -98,5 +99,47 @@ describe('createServer error reporting', () => {
     } finally {
       await server.close()
     }
+  })
+})
+
+describe('createServer unknown accounts', () => {
+  it('answers an unknown account with stable parameters shaped like a new account\'s', async () => {
+    const server = await createServer(true)
+    try {
+      const input = encodeURIComponent(JSON.stringify({ account: `unknown-${crypto.randomUUID()}` }))
+      const request = () => server.inject({ method: 'GET', url: `/trpc/accounts.getSecurityParams?input=${input}` })
+
+      const first = await request()
+      expect(first.statusCode).toBe(200)
+      const params = first.json().result.data
+      expect(params).toMatchObject({ saltVersion: CURRENT_SALT_VERSION, kdf: getDefaultKdf(), dataVersion: FLOCK_DATA_VERSION })
+      expect(Buffer.from(params.salt, 'base64')).toHaveLength(16)
+      expect((await request()).json().result.data).toEqual(params)
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('getUnknownAccountParams', () => {
+  const originalSecret = process.env.UNKNOWN_ACCOUNT_SECRET
+
+  afterEach(() => {
+    if (originalSecret === undefined) {
+      delete process.env.UNKNOWN_ACCOUNT_SECRET
+    } else {
+      process.env.UNKNOWN_ACCOUNT_SECRET = originalSecret
+    }
+    vi.restoreAllMocks()
+  })
+
+  it('uses the configured secret, and a fixed one only for a local server', () => {
+    process.env.UNKNOWN_ACCOUNT_SECRET = 'configured'
+    expect(getUnknownAccountParams(false)).toMatchObject({ secret: 'configured' })
+
+    delete process.env.UNKNOWN_ACCOUNT_SECRET
+    expect(getUnknownAccountParams(true)?.secret).toBeTypeOf('string')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(getUnknownAccountParams(false)).toBeUndefined()
   })
 })

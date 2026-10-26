@@ -18,20 +18,19 @@ import { hasBiometricData, writeBiometricData } from './biometricStore'
 import { readCachedKeyring } from './keyringCache'
 import { hasRandomDataKeys, readStoredMetadata } from './storedMetadata'
 import { configureVaultHost } from './vaultHost'
-import { changePassword, createAccount, getKeyring, getSession, updateKeyring } from './client'
+import { changePassword, createAccount, getKeyring, getSession, updateKeyring } from './AccountClient'
 import { decryptWithKey, deriveVaultKey, encryptWithKey, exportVaultKey, generateVaultKey } from './crypto'
 import { Keyring } from './Keyring'
 import { ApiHttpError } from './trackedFetch'
 import type { KdfParams } from './kdf'
 import { deriveLegacyKey } from '../../test/deriveLegacyKey'
-import * as clientModule from './client'
+import * as accountClientModule from './AccountClient'
 import * as workerAuthStoreModule from '../sync/shared/workerAuthStore'
 import * as webauthnModule from './webauthn'
 import { spyOnExports } from '../../test/moduleMocks'
-import * as utilModule from './util'
+import * as vaultShared from '@vault/shared'
 import * as kdfModule from './kdf'
 
-// Current parameters above the test floor, so an account can be created below them
 const PRF_OUTPUT = new Uint8Array(32).fill(7).buffer
 const ACCOUNT = 'test-account'
 const PASSWORD = 'password123'
@@ -68,7 +67,7 @@ function loginArgon2id(kdf: KdfParams) {
 }
 
 beforeEach(() => {
-  spyOnExports(clientModule, {
+  spyOnExports(accountClientModule, {
     getSession: vi.fn().mockResolvedValue('mock-session'),
     createAccount: vi.fn(),
     getSecurityParams: vi.fn(),
@@ -84,11 +83,11 @@ beforeEach(() => {
     registerPrfCredential: vi.fn(),
     isWebAuthnPrfSupported: vi.fn(),
   })
-  spyOnExports(utilModule, {
-    REQUEST_RETRY_DELAYS: [0, 0],
+  // Current parameters above the test floor, so an account can be created below them
+  spyOnExports(vaultShared, {
+    getDefaultKdf: () => ({ algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }),
   })
   spyOnExports(kdfModule, {
-    getDefaultKdf: () => ({ algorithm: 'argon2id', memoryKiB: 16, passes: 1, parallelism: 1 }),
     getDefaultPbkdf2Iterations: () => 1000,
   })
 })

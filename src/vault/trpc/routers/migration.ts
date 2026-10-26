@@ -1,5 +1,5 @@
 import { router, protectedProcedure } from '@vault/server'
-import type { BaseDriver, VaultAccountWithAuth } from '@vault/server'
+import type { VaultDriver, VaultAccountWithAuth } from '@vault/server'
 import { AccountInputSchema } from '@vault/shared'
 import type { FlockAccountFields } from '../../types'
 
@@ -8,7 +8,7 @@ function readLegacySettings(accountData: VaultAccountWithAuth): Record<string, u
   return (accountData as VaultAccountWithAuth & FlockAccountFields).metadata ?? {}
 }
 
-async function clearLegacySettings(vault: BaseDriver, account: string): Promise<void> {
+async function clearLegacySettings(vault: VaultDriver, account: string): Promise<void> {
   await vault.updateAccountData<FlockAccountFields>({ account, metadata: {} })
 }
 

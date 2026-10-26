@@ -1,13 +1,12 @@
 import { fetchManifest, fetchSnapshotsByIds, toFetchedItem } from './manifestService'
-import type BaseDriver from '../drivers/base'
-import type { VaultItem } from '../drivers/base'
+import type { VaultItem, VaultDriver } from '../drivers/vaultDriver'
 import type { ItemId } from '@vault/shared'
 
-function createMockVault(): BaseDriver {
+function createMockVault(): VaultDriver {
   return {
     fetchManifest: vi.fn(),
     fetchByIds: vi.fn(),
-  } as unknown as BaseDriver
+  } as unknown as VaultDriver
 }
 
 describe('manifestService.fetchManifest', () => {
@@ -19,7 +18,7 @@ describe('manifestService.fetchManifest', () => {
       { itemId: 'item-3' as ItemId, modifiedAt: 3000 },
     ])
 
-    const result = await fetchManifest({ vault }, { account: 'test-account' })
+    const result = await fetchManifest(vault, { account: 'test-account' })
 
     expect(vault.fetchManifest).toHaveBeenCalledWith({ account: 'test-account' })
     expect(result.manifest).toEqual([
@@ -34,7 +33,7 @@ describe('manifestService.fetchManifest', () => {
     const vault = createMockVault()
     vi.mocked(vault.fetchManifest).mockResolvedValue([])
 
-    const result = await fetchManifest({ vault }, { account: 'test-account' })
+    const result = await fetchManifest(vault, { account: 'test-account' })
 
     expect(result.manifest).toEqual([])
     expect(typeof result.serverTime).toBe('number')
@@ -49,7 +48,7 @@ describe('manifestService.fetchSnapshotsByIds', () => {
     ]
     vi.mocked(vault.fetchByIds).mockResolvedValue(mockItems)
 
-    const result = await fetchSnapshotsByIds({ vault }, { account: 'test-account', itemIds: ['item-1' as ItemId] })
+    const result = await fetchSnapshotsByIds(vault, { account: 'test-account', itemIds: ['item-1' as ItemId] })
 
     expect(vault.fetchByIds).toHaveBeenCalledWith({ account: 'test-account', itemIds: ['item-1'] })
     expect(result.items).toEqual([{ item: 'item-1', metadata: { iv: 'iv', modified: 1000 }, version: 3 }])

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { configureVaultStorageNames, createVaultStorageNames } from '../src/sync/shared/storageNames'
-import { enableTestKeyDerivation } from '../src/api/kdf'
+import { enableTestKeyDerivation } from '@vault/shared'
 import { clearAccountStoreInstancesCacheForTesting } from '../src/sync/shared/createAccountStore'
 import { clearQuotaRecoveryHandlerForTesting, resetQuotaExceededStatus } from '../src/sync/utils/storageManager'
 

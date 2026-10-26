@@ -10,7 +10,6 @@ import { getLegacyPbkdf2Iterations } from './kdf'
 import { getVaultTrpcClient } from './vaultTrpcClient'
 import * as vaultTrpcClientModule from './vaultTrpcClient'
 import { spyOnExports } from '../../test/moduleMocks'
-import * as utilModule from './util'
 
 const mockTrpcClient = {
   accounts: {
@@ -28,9 +27,6 @@ const ARGON2ID = { algorithm: 'argon2id' as const, memoryKiB: 65536, passes: 3, 
 beforeEach(() => {
   spyOnExports(vaultTrpcClientModule, {
     getVaultTrpcClient: vi.fn(() => mockTrpcClient),
-  })
-  spyOnExports(utilModule, {
-    REQUEST_RETRY_DELAYS: [0, 0],
   })
 })
 
@@ -58,17 +54,31 @@ describe('AccountClient', () => {
     const PARAMS = { salt: 'salt-5', saltVersion: 1, kdf: ARGON2ID, dataVersion: 2, success: true }
     const query = () => vi.mocked(getVaultTrpcClient().accounts.getSecurityParams.query)
 
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     it('retries a lost request', async () => {
       query().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue(PARAMS)
 
-      await expect(getSecurityParams('acc-1', { retry: true })).resolves.toMatchObject({ salt: 'salt-5' })
+      await Promise.all([
+        expect(getSecurityParams('acc-1', { retry: true })).resolves.toMatchObject({ salt: 'salt-5' }),
+        vi.runAllTimersAsync(),
+      ])
       expect(query()).toHaveBeenCalledTimes(2)
     })
 
     it('gives up after the last retry', async () => {
       query().mockRejectedValue(new TypeError('Failed to fetch'))
 
-      await expect(getSecurityParams('acc-1', { retry: true })).rejects.toThrow('Failed to fetch')
+      await Promise.all([
+        expect(getSecurityParams('acc-1', { retry: true })).rejects.toThrow('Failed to fetch'),
+        vi.runAllTimersAsync(),
+      ])
       expect(query()).toHaveBeenCalledTimes(3)
     })
 
