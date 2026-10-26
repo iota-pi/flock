@@ -162,8 +162,6 @@ beforeEach(() => {
     VaultNetworkAdapter: class MockVaultNetworkAdapter {
       readonly lifecycleName = 'VaultNetworkAdapter'
       triggerReNegotiation = vi.fn()
-      setSyncedHeadsStore = vi.fn()
-      setHeadsValidator = vi.fn()
       setSyncedHeads = vi.fn()
       loadSyncedHeads = vi.fn()
       resetReNegotiationCircuit = vi.fn()

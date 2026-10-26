@@ -35,14 +35,22 @@ class FakeServer {
 }
 
 class Device {
-  readonly adapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+  readonly adapter: VaultNetworkAdapter
   readonly repo: Repo
   private pulled = 0
 
   constructor(private readonly server: FakeServer) {
+    const eventHub = new WorkerInternalEventHub()
+    this.adapter = new VaultNetworkAdapter(eventHub, {
+      headsValidator: (documentId, heads) => {
+        const handle = this.repo.handles[documentId]
+        const doc = handle?.isReady() ? handle.doc() : undefined
+        return doc ? Automerge.hasHeads(doc, heads) : false
+      },
+    })
     this.adapter.setSendEnabled(true)
     this.adapter.setAccount('test-account')
-    this.adapter.eventHub.subscribe(event => {
+    eventHub.subscribe(event => {
       if (event.type !== 'messageToSend') return
       const { documentId, data } = event.message
       if (!documentId || !(data instanceof Uint8Array)) return
@@ -50,11 +58,6 @@ class Device {
       this.adapter.setSyncedHeads(documentId, decodeSyncMessage(data).heads)
     })
     this.repo = new Repo({ network: [this.adapter] })
-    this.adapter.setHeadsValidator((documentId, heads) => {
-      const handle = this.repo.handles[documentId]
-      const doc = handle?.isReady() ? handle.doc() : undefined
-      return doc ? Automerge.hasHeads(doc, heads) : false
-    })
   }
 
   pull(): void {

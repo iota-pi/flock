@@ -415,9 +415,20 @@ export class SyncWorkerContext {
   }
 
   private createNetworkAndRepo(storage: LocalStorage['storage'], syncedHeadsStore: SyncedHeadsStore) {
-    const adapter = new VaultNetworkAdapter(this.internalEventHub)
+    // The adapter is created before the repo it validates heads against, so the validator reads
+    // it lazily. No handles (or synced heads) exist before the repo does.
+    let repo: Repo | null = null
+    const adapter = new VaultNetworkAdapter(this.internalEventHub, {
+      syncedHeadsStore,
+      headsValidator: (documentId, heads) => {
+        const handle = repo?.handles[documentId] as DocHandle<unknown> | undefined
+        if (!handle?.isReady()) return false
+        const doc = handle.doc()
+        return doc ? Automerge.hasHeads(doc, heads) : false
+      },
+    })
     const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys)
-    const repo = repoManager.init(adapter, storage, {
+    repo = repoManager.init(adapter, storage, {
       onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
       onDocumentReceived: docId => {
         const itemId = toVaultItemIdFromAutomergeId(docId)
@@ -431,13 +442,6 @@ export class SyncWorkerContext {
           fireAndForget(storageRecoveryService.handleQuotaExceeded(error), 'SyncWorkerContext:onQuotaError')
         }
       },
-    })
-    adapter.setSyncedHeadsStore(syncedHeadsStore)
-    adapter.setHeadsValidator((documentId, heads) => {
-      const handle = repo.handles[documentId] as DocHandle<unknown> | undefined
-      if (!handle?.isReady()) return false
-      const doc = handle.doc()
-      return doc ? Automerge.hasHeads(doc, heads) : false
     })
     return { adapter, repoManager, repo }
   }
