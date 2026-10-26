@@ -123,7 +123,7 @@ export default class DynamoDriver implements VaultDriver {
         if (!isResourceInUseError(err)) {
           throw err
         }
-        console.info('Already exists, skipping.')
+        console.info(`Table already exists, skipping: ${table.TableName}`)
       }
     }
 
@@ -152,32 +152,33 @@ export default class DynamoDriver implements VaultDriver {
       randomDataKeys,
     }: VaultAccount,
   ): Promise<boolean> {
-    let success = true
-    await this.client.send(new PutCommand({
-      TableName: this.tables.accounts,
-      Item: {
-        ...this.accountDefaults,
-        account,
-        authToken,
-        created: Date.now(),
-        lastAccess: Date.now(),
-        salt,
-        ...(iterations !== undefined ? { iterations } : {}),
-        saltVersion,
-        ...(kdf ? { kdf } : {}),
-        ...(keyring ? { keyring } : {}),
-        ...(randomDataKeys ? { randomDataKeys } : {}),
-        sessions: [],
-        keyringVersion: 1,
-      },
-      ConditionExpression: 'attribute_not_exists(account)',
-    })).catch(error => {
-      success = false
+    try {
+      await this.client.send(new PutCommand({
+        TableName: this.tables.accounts,
+        Item: {
+          ...this.accountDefaults,
+          account,
+          authToken,
+          created: Date.now(),
+          lastAccess: Date.now(),
+          salt,
+          ...(iterations !== undefined ? { iterations } : {}),
+          saltVersion,
+          ...(kdf ? { kdf } : {}),
+          ...(keyring ? { keyring } : {}),
+          ...(randomDataKeys ? { randomDataKeys } : {}),
+          sessions: [],
+          keyringVersion: 1,
+        },
+        ConditionExpression: 'attribute_not_exists(account)',
+      }))
+      return true
+    } catch (error) {
       if (!isConditionalCheckFailure(error)) {
         throw error
       }
-    })
-    return success
+      return false
+    }
   }
 
   async getAccountRecord({ account }: BaseData): Promise<StoredAccount | undefined> {
@@ -236,23 +237,17 @@ export default class DynamoDriver implements VaultDriver {
         ConsistentRead: true,
       },
     ))
-    if (response?.Item) {
-      const dbAccount = response.Item as StoredAccount
-      const salt = dbAccount.salt
-      const iterations = dbAccount.iterations
-      const saltVersion = dbAccount.saltVersion
-      const dataVersion = dbAccount.dataVersion
-
-      const returnedSalt = typeof salt === 'string' ? salt : account
-      return {
-        salt: returnedSalt,
-        iterations,
-        saltVersion,
-        ...(dbAccount.kdf ? { kdf: dbAccount.kdf } : {}),
-        dataVersion,
-      }
+    const dbAccount = response?.Item as StoredAccount | undefined
+    if (!dbAccount) {
+      throw new AuthenticationError(`Could not find account ${account}`)
     }
-    throw new AuthenticationError(`Could not find account ${account}`)
+    return {
+      salt: typeof dbAccount.salt === 'string' ? dbAccount.salt : account,
+      iterations: dbAccount.iterations,
+      saltVersion: dbAccount.saltVersion,
+      ...(dbAccount.kdf ? { kdf: dbAccount.kdf } : {}),
+      dataVersion: dbAccount.dataVersion,
+    }
   }
 
   async getNewAccountId(maxAttempts = 10): Promise<string> {

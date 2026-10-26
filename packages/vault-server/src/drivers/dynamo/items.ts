@@ -9,19 +9,6 @@ import type { VaultItem } from '../vaultDriver'
  * - Tombstone: needs no payload
  */
 export function validateItem(item: VaultItem) {
-  const isTombstone = item.metadata.deleted === true
-  const isLegacy = !!item.cipher
-  const isSnapshot = !!item.snapshot
-
-  const hasValidPayload = isTombstone
-    || (isLegacy ? !!item.metadata.iv : isSnapshot)
-
-  if (!hasValidPayload) {
-    throw new Error(
-      `Invalid item format: must be either legacy (cipher+iv) or snapshot. Item: ${JSON.stringify(item)}`,
-    )
-  }
-
   // Calculate item length without expanding binary Buffers into huge JSON arrays
   let itemLength: number
   const cipher = item.snapshot?.cipher
@@ -37,6 +24,21 @@ export function validateItem(item: VaultItem) {
     itemLength = JSON.stringify(itemWithoutCipher).length + cipherLength
   } else {
     itemLength = JSON.stringify(item).length
+  }
+
+  const isTombstone = item.metadata.deleted === true
+  const isLegacy = !!item.cipher
+  const isSnapshot = !!item.snapshot
+
+  const hasValidPayload = isTombstone
+    || (isLegacy ? !!item.metadata.iv : isSnapshot)
+
+  if (!hasValidPayload) {
+    // Not the item itself: its ciphertext would end up in logs
+    throw new Error(
+      'Invalid item format: must be either legacy (cipher+iv) or snapshot.'
+        + ` Item ${item.item} of account ${item.account}, length ${itemLength}`,
+    )
   }
 
   if (itemLength > MAX_ITEM_SIZE) {

@@ -45,9 +45,9 @@ export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBCli
       requestTimeout: 3_000,
     },
   }
+  // Without a local endpoint, the region resolves as the AWS SDK's always does: Lambda sets AWS_REGION
   return {
     apiVersion: '2012-08-10',
-    region: 'ap-southeast-2',
     ...endpointArgs,
     ...options,
   }

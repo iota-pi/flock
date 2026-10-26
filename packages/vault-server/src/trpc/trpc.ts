@@ -45,8 +45,8 @@ type TrpcContext = {
   authToken: string,
   vault: VaultDriver,
   /** The protocol version the client sent (0 for builds that predate the header) */
-  protocolVersion?: number,
-  minProtocolVersion?: number,
+  protocolVersion: number,
+  minProtocolVersion: number,
   dataVersionPolicy?: DataVersionPolicy,
   unknownAccountParams?: UnknownAccountParams,
 }
@@ -84,8 +84,7 @@ export const mergeRouters = t.mergeRouters
 
 /** Rejects writes from builds below the minimum protocol version. Reads stay open to them. */
 export const publicProcedure = t.procedure.use(({ ctx, type, next }) => {
-  const minProtocolVersion = ctx.minProtocolVersion ?? 0
-  if (type === 'mutation' && (ctx.protocolVersion ?? 0) < minProtocolVersion) {
+  if (type === 'mutation' && ctx.protocolVersion < ctx.minProtocolVersion) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: CLIENT_OUTDATED_MESSAGE })
   }
   return next()
