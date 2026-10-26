@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { protectedProcedure, router } from '../trpc'
 import { SyncPollBatchSchema, type ItemId, type PageToken } from '@vault/shared'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
-import { InvalidPageTokenError } from '../../drivers/errors'
+import { InvalidPageTokenError } from '../../errors'
 
 
 export const syncRouter = router({

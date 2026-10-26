@@ -1,6 +1,6 @@
 /**
  * The account doesn't exist, or the credentials (the auth token hash or a session token) don't
- * match it. Routers report it as UNAUTHORIZED. Other driver errors, such as a DynamoDB timeout, say
+ * match it (see authentication.ts). Routers report it as UNAUTHORIZED. Driver errors, such as a DynamoDB timeout, say
  * nothing about the credentials and must not be reported that way, or the client drops its session.
  */
 export class AuthenticationError extends Error {

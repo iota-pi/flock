@@ -1,12 +1,22 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
-import DynamoDriver, { getConnectionParams } from './dynamo'
-import { generateAccountId } from '../util'
-import { AuthenticationError, TooManyLoginAttemptsError } from './errors'
-import { FAILED_LOGIN_WINDOW_MS, MAX_FAILED_LOGINS } from '../loginThrottle'
-import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../sessions'
+import DynamoDriver from './driver'
+import { getConnectionParams } from './config'
+import { authenticateLogin, authenticateSession } from '../../authentication'
+import { generateAccountId } from '../../util'
+import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
+import { FAILED_LOGIN_WINDOW_MS, MAX_FAILED_LOGINS } from '../../loginThrottle'
+import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 import { VersionConflictError } from '@vault/shared'
 
 const driver = new DynamoDriver()
+
+async function login(account: string, authTokenHash: string) {
+  return authenticateLogin(await driver.getAccountRecord({ account }), authTokenHash)
+}
+
+async function getWithSession(account: string, session: string) {
+  return authenticateSession(await driver.getAccountRecord({ account }), session)
+}
 
 function uniqueAccountId() {
   return `${generateAccountId()}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
@@ -35,7 +45,7 @@ describe('DynamoDriver conditional account writes', () => {
         expectedKeyringVersion: 1,
       })
 
-      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      const acct = await login(account, 'token')
       expect(acct.keyringVersion).toBe(2)
       expect(acct.keyring).toBe('keyring-v2')
     })
@@ -59,7 +69,7 @@ describe('DynamoDriver conditional account writes', () => {
         })
       ).rejects.toBeInstanceOf(VersionConflictError)
 
-      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      const acct = await login(account, 'token')
       expect(acct.keyringVersion).toBe(1)
       expect(acct.keyring).toBeUndefined()
     })
@@ -94,7 +104,7 @@ describe('DynamoDriver conditional account writes', () => {
       ).rejects.toBeInstanceOf(VersionConflictError)
 
       // Verify Device 1's keyring remains intact and was not overwritten by Device 2
-      const acct = await driver.getAccount({ account, session: 'token', isLogin: true })
+      const acct = await login(account, 'token')
       expect(acct.keyringVersion).toBe(2)
       expect(acct.keyring).toBe('device-1-keyring')
     })
@@ -119,7 +129,7 @@ describe('DynamoDriver conditional account writes', () => {
         expectedKeyringVersion: 1,
       })
 
-      const updated = await driver.getAccount({ account, session: 'token', isLogin: true })
+      const updated = await login(account, 'token')
       expect(updated.keyringVersion).toBe(2)
       expect(updated.keyring).toBe('first-rotation-keyring')
     })
@@ -170,10 +180,10 @@ describe('DynamoDriver conditional account writes', () => {
         await driver.extendSession({ account, session: sessionA })
 
         // Both sessionA and sessionB must remain valid
-        const acctViaB = await driver.getAccount({ account, session: sessionB })
+        const acctViaB = await getWithSession(account, sessionB)
         expect(acctViaB.account).toBe(account)
 
-        const acctViaA = await driver.getAccount({ account, session: sessionA })
+        const acctViaA = await getWithSession(account, sessionA)
         expect(acctViaA.account).toBe(account)
 
         const recordA = acctViaA.sessions?.find(s => isSessionFor(s, sessionA))
@@ -230,10 +240,10 @@ describe('DynamoDriver conditional account writes', () => {
 
         // sessionA must remain revoked and invalid
         await expect(
-          driver.getAccount({ account, session: sessionA })
+          getWithSession(account, sessionA)
         ).rejects.toThrow()
 
-        const acctViaB = await driver.getAccount({ account, session: sessionB })
+        const acctViaB = await getWithSession(account, sessionB)
         expect(acctViaB.account).toBe(account)
         expect(acctViaB.sessions?.find(s => isSessionFor(s, sessionA))).toBeUndefined()
       } finally {
@@ -289,7 +299,7 @@ describe('DynamoDriver conditional account writes', () => {
         // First attempt tried to Update (failed OCC), second attempt saw expiry already fresh and skipped Update
         expect(updateCalls).toBe(1)
 
-        const acct = await driver.getAccount({ account, session: sessionA })
+        const acct = await getWithSession(account, sessionA)
         const recordA = acct.sessions?.find(s => isSessionFor(s, sessionA))
         expect(recordA?.expiry).toBeGreaterThan(Date.now() + 10_000)
       } finally {
@@ -325,21 +335,21 @@ describe('DynamoDriver conditional account writes', () => {
         sendSpy.mockRestore()
       }
 
-      await expect(driver.getAccount({ account, session: 'session-A' })).resolves.toMatchObject({ account })
-      await expect(driver.getAccount({ account, session: 'session-B' })).resolves.toMatchObject({ account })
+      await expect(getWithSession(account, 'session-A')).resolves.toMatchObject({ account })
+      await expect(getWithSession(account, 'session-B')).resolves.toMatchObject({ account })
     })
   })
 
   describe('Authentication errors', () => {
     it('throws AuthenticationError for an unknown account, a wrong auth token or an invalid session', async () => {
       const account = uniqueAccountId()
-      await expect(driver.getAccount({ account, session: 'token', isLogin: true }))
+      await expect(login(account, 'token'))
         .rejects.toBeInstanceOf(AuthenticationError)
 
       await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
-      await expect(driver.getAccount({ account, session: 'wrong', isLogin: true }))
+      await expect(login(account, 'wrong'))
         .rejects.toBeInstanceOf(AuthenticationError)
-      await expect(driver.getAccount({ account, session: 'no-such-session' }))
+      await expect(getWithSession(account, 'no-such-session'))
         .rejects.toBeInstanceOf(AuthenticationError)
     })
   })
@@ -354,7 +364,7 @@ describe('DynamoDriver conditional account writes', () => {
       }
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item?.failedLogins).toBe(MAX_FAILED_LOGINS)
-      await expect(driver.getAccount({ account, session: 'token', isLogin: true }))
+      await expect(login(account, 'token'))
         .rejects.toBeInstanceOf(TooManyLoginAttemptsError)
     })
 
@@ -372,7 +382,7 @@ describe('DynamoDriver conditional account writes', () => {
 
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item?.failedLogins).toBe(1)
-      await expect(driver.getAccount({ account, session: 'token', isLogin: true }))
+      await expect(login(account, 'token'))
         .resolves.toMatchObject({ account })
     })
 
@@ -394,7 +404,7 @@ describe('DynamoDriver conditional account writes', () => {
 
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item?.sessions).toEqual([{ token: hashSessionToken('session-A'), expiry: expect.any(Number) }])
-      await expect(driver.getAccount({ account, session: 'session-A' })).resolves.toMatchObject({ account })
+      await expect(getWithSession(account, 'session-A')).resolves.toMatchObject({ account })
     })
 
     it('accepts a session stored before hashing and rewrites it hashed when renewing it', async () => {
@@ -402,12 +412,12 @@ describe('DynamoDriver conditional account writes', () => {
       await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
       await driver.updateAccountData({ account, sessions: [{ token: 'legacy-session', expiry: Date.now() + 60_000 }] })
 
-      await expect(driver.getAccount({ account, session: 'legacy-session' })).resolves.toMatchObject({ account })
+      await expect(getWithSession(account, 'legacy-session')).resolves.toMatchObject({ account })
       await driver.extendSession({ account, session: 'legacy-session' })
 
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item?.sessions).toEqual([{ token: hashSessionToken('legacy-session'), expiry: expect.any(Number) }])
-      await expect(driver.getAccount({ account, session: 'legacy-session' })).resolves.toMatchObject({ account })
+      await expect(getWithSession(account, 'legacy-session')).resolves.toMatchObject({ account })
     })
   })
 

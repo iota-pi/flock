@@ -2,11 +2,11 @@ import env from '../env'
 import {
   configureVaultEndpoint,
   configureVaultHost,
-  enableTestKeyDerivation,
   getTrackedFetch,
   initVaultTrpcClient,
 } from '@vault/client'
 import { configureVaultStorageNames } from '@vault/client/storageNames'
+import { enableTestKeyDerivation } from '@vault/shared'
 import { FLOCK_STORAGE_NAMES } from '../app/vault/storageNames'
 import { failCypressTestOnRequestError, isCypress } from '../app/vault/cypress'
 import { decodeLegacySalt, deriveLegacyKey } from './legacy/keyDerivation'

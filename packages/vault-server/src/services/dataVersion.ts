@@ -1,5 +1,4 @@
-import type BaseDriver from '../drivers/base'
-import type { VaultAccount } from '../drivers/base'
+import type { VaultAccount, VaultDriver } from '../drivers/vaultDriver'
 
 /**
  * Decides when an account's stored data has been fully migrated to the app's current data
@@ -11,7 +10,7 @@ export interface DataVersionPolicy {
   /** The version new accounts start at and migrated accounts are raised to */
   current: number
   /** Why the account's data can't be at `current` yet, as short codes. Empty when it can. */
-  findBlockers(input: { account: string, accountData: VaultAccount, vault: BaseDriver }): Promise<string[]>
+  findBlockers(input: { account: string, accountData: VaultAccount, vault: VaultDriver }): Promise<string[]>
 }
 
 export interface RaiseDataVersionResult {
@@ -27,7 +26,7 @@ export async function raiseDataVersion({
 }: {
   account: string
   accountData: VaultAccount
-  vault: BaseDriver
+  vault: VaultDriver
   policy?: DataVersionPolicy
 }): Promise<RaiseDataVersionResult> {
   const dataVersion = accountData.dataVersion ?? 0

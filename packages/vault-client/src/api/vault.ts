@@ -12,15 +12,14 @@ import {
   hashVaultKey,
   generateSalt,
   generateVaultKey,
-  CURRENT_SALT_VERSION,
   type CryptoResult,
 } from './crypto'
-import { getDefaultKdf, type KdfParams } from './kdf'
+import type { KdfParams } from './kdf'
 import { broadcastVaultEvent } from './vaultEvents'
 import { retryTransientFailures } from './requestRetry'
 import { clearWriteAheadLog } from '../sync/shared/writeAheadLogStorage'
 import { clearBiometricData, hasBiometricData } from './biometricStore'
-import { isRateLimitedError } from '@vault/shared'
+import { CURRENT_SALT_VERSION, getDefaultKdf, isRateLimitedError } from '@vault/shared'
 import { Keyring } from './Keyring'
 import { createLogger } from '../sync/utils/logger'
 import { errorMessage } from '../sync/utils/errorMessage'
@@ -200,7 +199,7 @@ export async function loginVault({
     if (isRateLimitedError(sessionError)) {
       throw sessionError
     }
-    throw new Error('Incorrect password. Please try again.')
+    throw new Error('Incorrect account ID or password. Please try again.')
   }
 
   // If session was established, sync latest keyring from server. Without the cache's keys (as on a

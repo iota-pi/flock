@@ -1,9 +1,13 @@
+import { hashSessionToken, SESSION_EXPIRY_MS } from '@vault/server'
 import { migrationRouter } from './migration'
 
 function createContext() {
   const vault = {
     updateAccountData: vi.fn(async () => undefined),
-    getAccount: vi.fn(async () => ({ metadata: { prayerGoal: 5 } })),
+    getAccountRecord: vi.fn(async () => ({
+      metadata: { prayerGoal: 5 },
+      sessions: [{ token: hashSessionToken('session-token'), expiry: Date.now() + SESSION_EXPIRY_MS }],
+    })),
     extendSession: vi.fn(async () => undefined),
   }
   return { authToken: 'session-token', vault }
