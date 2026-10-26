@@ -23,7 +23,6 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('VaultNetworkAdapter')
 
-export const MAX_OUTBOUND_QUEUE_SIZE = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
 const MAX_SEEDED_DOCUMENTS = 5000
 export const MAX_RENEGOTIATION_ATTEMPTS = 3
 export const RENEGOTIATION_WINDOW_MS = 5000
@@ -53,6 +52,16 @@ function isEmptySyncMessage(message: Message): boolean {
 }
 export type HeadsValidator = (documentId: DocumentId, heads: string[]) => boolean
 
+export interface VaultNetworkAdapterOptions {
+  /** Persists the last confirmed synced heads so they survive a restart */
+  syncedHeadsStore?: SyncedHeadsStore
+  /**
+   * Whether the local document knows the given heads. Synced heads that fail it aren't claimed
+   * on the vault's behalf. Without a validator, all synced heads are trusted.
+   */
+  headsValidator?: HeadsValidator
+}
+
 interface RenegotiationCircuitState {
   timestamps: number[]
   circuitOpenUntil?: number
@@ -68,21 +77,23 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   private pendingReNegotiations = new Set<DocumentId>()
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
   private syncedHeads = new Map<DocumentId, string[]>()
-  private syncedHeadsStore: SyncedHeadsStore | null = null
+  private readonly syncedHeadsStore: SyncedHeadsStore | null
   /**
    * Whether heads changed since the last save. Only this tab's own changes count: heads loaded at
    * startup may be older than the store, and saving them would undo another tab's progress.
    */
   private hasUnsavedSyncedHeads = false
-  private headsValidator: HeadsValidator | null = null
-  constructor(private readonly internalEventHub: WorkerInternalEventHub) {
-    super({
-      maxOutboundQueueSize: MAX_OUTBOUND_QUEUE_SIZE,
-    })
-  }
+  private readonly headsValidator: HeadsValidator | null
 
-  public get eventHub(): WorkerInternalEventHub {
-    return this.internalEventHub
+  constructor(
+    private readonly internalEventHub: WorkerInternalEventHub,
+    options: VaultNetworkAdapterOptions = {},
+  ) {
+    super({
+      maxOutboundQueueSize: DEFAULT_MAX_OUTBOUND_QUEUE_SIZE,
+    })
+    this.syncedHeadsStore = options.syncedHeadsStore ?? null
+    this.headsValidator = options.headsValidator ?? null
   }
 
   async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
@@ -106,15 +117,8 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
 
     if (sendEnabled) {
       this.clearSeededDocuments()
-      if (this.canSend()) {
-        this.flushOutboundQueue()
-      }
-      this.connectPeer()
-      if (this.canSend()) {
-        this.flushPendingReNegotiations()
-      }
+      this.resumeSending()
     } else {
-      this.clearSeededDocuments()
       this.disconnectPeer()
     }
   }
@@ -139,13 +143,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.account = nextAccount
 
     if (this.account) {
-      if (this.canSend()) {
-        this.flushOutboundQueue()
-      }
-      this.connectPeer()
-      if (this.canSend()) {
-        this.flushPendingReNegotiations()
-      }
+      this.resumeSending()
     } else {
       this.clearOutboundQueue()
     }
@@ -154,7 +152,11 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   override connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
     super.connect(peerId, peerMetadata)
     this.clearSeededDocuments()
+    this.resumeSending()
+  }
 
+  /** Flushes queued messages, announces the vault peer, then replays deferred renegotiations */
+  private resumeSending(): void {
     if (this.canSend()) {
       this.flushOutboundQueue()
     }
@@ -192,7 +194,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
 
   protected override onOutboundQueueEvict(evicted: Message): void {
     log.warn(
-      `Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
+      `Outbound queue exceeded max capacity (${DEFAULT_MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
     )
     if (evicted?.documentId) {
       const renegotiated = this.triggerReNegotiation(evicted.documentId)
@@ -401,14 +403,6 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       }
       this.renegotiationCircuits.clear()
     }
-  }
-
-  setHeadsValidator(validator: HeadsValidator | null): void {
-    this.headsValidator = validator
-  }
-
-  setSyncedHeadsStore(store: SyncedHeadsStore | null): void {
-    this.syncedHeadsStore = store
   }
 
   loadSyncedHeads(entries: [DocumentId, string[]][]): void {

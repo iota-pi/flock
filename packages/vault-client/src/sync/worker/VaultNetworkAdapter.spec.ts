@@ -5,9 +5,9 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import {
   VaultNetworkAdapter,
-  MAX_OUTBOUND_QUEUE_SIZE,
   CIRCUIT_BREAKER_COOLDOWN_MS,
 } from './VaultNetworkAdapter'
+import { DEFAULT_MAX_OUTBOUND_QUEUE_SIZE } from './BaseSyncNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
@@ -446,14 +446,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('ignores synced heads that are unknown to the local document', async () => {
-    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
     const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
     const staleHeads = ['1111111111111111111111111111111111111111111111111111111111111111']
     const validator = vi.fn(() => false)
+    const adapter = new VaultNetworkAdapter(new WorkerInternalEventHub(), { headsValidator: validator })
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
 
     adapter.setSendEnabled(true)
     adapter.setAccount('test')
-    adapter.setHeadsValidator(validator)
     adapter.loadSyncedHeads([['automerge:item-stale' as DocumentId, staleHeads]])
     adapter.connect('vault' as PeerId)
 
@@ -600,12 +600,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('prevents history dumps when syncedHeads matches and allows future changes through Automerge Repo', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') outgoingMessages.push(e.message)
     })
 
@@ -654,12 +655,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('emits offline edits on startup when document heads differ from syncedHeads', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') outgoingMessages.push(e.message)
     })
 
@@ -878,12 +880,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('buffers outbound sync messages with changes when disconnected and flushes on connect()', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
     const sentMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') sentMessages.push(e.message)
     })
 
@@ -917,13 +920,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('buffers outbound sync messages when sendEnabled is false and flushes on setSendEnabled(true)', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.connect('test-peer' as PeerId)
     testAdapter.setAccount('test-account')
     testAdapter.setSendEnabled(false)
 
     const sentMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') sentMessages.push(e.message)
     })
 
@@ -956,13 +960,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('drops empty negotiation messages during disconnect window without buffering', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
     testAdapter.disconnect() // disconnected
 
     const sentMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') sentMessages.push(e.message)
     })
 
@@ -1026,12 +1031,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(testAdapter.getPendingOutboundCount()).toBe(0)
   })
 
-  it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+  it('caps outbound queue at DEFAULT_MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
-    const totalToSend = MAX_OUTBOUND_QUEUE_SIZE + 5
+    const totalToSend = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE + 5
     for (let i = 0; i < totalToSend; i++) {
       const syncMsg = encodeSyncMessage({
         heads: [],
@@ -1048,16 +1054,16 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       })
     }
 
-    expect(testAdapter.getPendingOutboundCount()).toBe(MAX_OUTBOUND_QUEUE_SIZE)
+    expect(testAdapter.getPendingOutboundCount()).toBe(DEFAULT_MAX_OUTBOUND_QUEUE_SIZE)
 
     const sentMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') sentMessages.push(e.message)
     })
 
     testAdapter.connect('test-peer' as PeerId)
 
-    expect(sentMessages).toHaveLength(MAX_OUTBOUND_QUEUE_SIZE)
+    expect(sentMessages).toHaveLength(DEFAULT_MAX_OUTBOUND_QUEUE_SIZE)
     // Oldest 5 (doc-0 .. doc-4) should have been evicted; first flushed message is doc-5
     expect(sentMessages[0].documentId).toBe('doc-5')
     expect(sentMessages[sentMessages.length - 1].documentId).toBe(`doc-${totalToSend - 1}`)
@@ -1065,12 +1071,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('preserves Automerge Repo document mutations sent during disconnect window', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') outgoingMessages.push(e.message)
     })
 
@@ -1175,8 +1182,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       data: syncMsgWithChange,
     })
 
-    // Now send MAX_OUTBOUND_QUEUE_SIZE other messages to evict doc-0's oldest message
-    for (let i = 1; i <= MAX_OUTBOUND_QUEUE_SIZE; i++) {
+    // Now send DEFAULT_MAX_OUTBOUND_QUEUE_SIZE other messages to evict doc-0's oldest message
+    for (let i = 1; i <= DEFAULT_MAX_OUTBOUND_QUEUE_SIZE; i++) {
       testAdapter.send({
         type: 'sync',
         senderId: 'client-peer' as PeerId,
@@ -1206,13 +1213,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
     let targetDocId: DocumentId | null = null
     const outgoingMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') {
         const msg = e.message
         outgoingMessages.push(msg)
@@ -1280,7 +1288,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
 
     // 4. Flood queue to force eviction of handle's message
-    for (let i = 0; i < MAX_OUTBOUND_QUEUE_SIZE; i++) {
+    for (let i = 0; i < DEFAULT_MAX_OUTBOUND_QUEUE_SIZE; i++) {
       testAdapter.send({
         type: 'sync',
         senderId: repo.peerId,
@@ -1331,12 +1339,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('converts offline changes on follower tab to sync messages upon promotion to leader without requiring subsequent mutation', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
     const outgoingMessages: Message[] = []
-    testAdapter.eventHub.subscribe(e => {
+    testHub.subscribe(e => {
       if (e.type === 'messageToSend') {
         outgoingMessages.push(e.message)
       }
@@ -1402,7 +1411,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
   it('calls renegotiationTriggered event when triggerReNegotiation is invoked', () => {
     const callback = vi.fn()
-    adapter.eventHub.subscribe(e => {
+    internalEventHub.subscribe(e => {
       if (e.type === 'renegotiationTriggered') callback(e.documentId)
     })
     adapter.triggerReNegotiation('test-doc' as DocumentId)
@@ -1413,7 +1422,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     it('allows renegotiations within rate limit and trips circuit breaker when exceeded', () => {
       const docId = 'doc-burst' as DocumentId
       const callback = vi.fn()
-      adapter.eventHub.subscribe(e => {
+      internalEventHub.subscribe(e => {
         if (e.type === 'renegotiationTriggered') callback(e.documentId)
       })
 
@@ -1469,7 +1478,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     it('automatically retries renegotiation when circuit breaker cooldown expires without manual invocation', () => {
       const docId = 'doc-auto-retry' as DocumentId
       const callback = vi.fn()
-      adapter.eventHub.subscribe(e => {
+      internalEventHub.subscribe(e => {
         if (e.type === 'renegotiationTriggered') callback(e.documentId)
       })
 
@@ -1501,7 +1510,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     it('de-duplicates retry timers and does not push out cooldown deadline on repeated calls while open', () => {
       const docId = 'doc-dedup-retry' as DocumentId
       const callback = vi.fn()
-      adapter.eventHub.subscribe(e => {
+      internalEventHub.subscribe(e => {
         if (e.type === 'renegotiationTriggered') callback(e.documentId)
       })
 
@@ -1529,7 +1538,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       const doc2 = 'doc-cancel-2' as DocumentId
       const doc3 = 'doc-cancel-3' as DocumentId
       const callback = vi.fn()
-      adapter.eventHub.subscribe(e => {
+      internalEventHub.subscribe(e => {
         if (e.type === 'renegotiationTriggered') callback(e.documentId)
       })
 
@@ -1570,7 +1579,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     it('recovers evicted outbound queue document after circuit breaker cooldown expires', () => {
       const evictedDocId = 'doc-evicted-circuit' as DocumentId
       const callback = vi.fn()
-      adapter.eventHub.subscribe(e => {
+      internalEventHub.subscribe(e => {
         if (e.type === 'renegotiationTriggered') callback(e.documentId)
       })
 
@@ -1602,8 +1611,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
         data: syncMsgWithChange,
       })
 
-      // Flood outboundQueue with MAX_OUTBOUND_QUEUE_SIZE messages to evict evictedDocId
-      for (let i = 0; i < MAX_OUTBOUND_QUEUE_SIZE; i++) {
+      // Flood outboundQueue with DEFAULT_MAX_OUTBOUND_QUEUE_SIZE messages to evict evictedDocId
+      for (let i = 0; i < DEFAULT_MAX_OUTBOUND_QUEUE_SIZE; i++) {
         adapter.send({
           type: 'sync',
           senderId: 'test-peer' as PeerId,
@@ -1635,8 +1644,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 describe('VaultNetworkAdapter synced heads on shutdown', () => {
   const makeAdapter = () => {
     const store = { saveSyncedHeads: vi.fn().mockResolvedValue(undefined) }
-    const adapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
-    adapter.setSyncedHeadsStore(store as any)
+    const adapter = new VaultNetworkAdapter(new WorkerInternalEventHub(), { syncedHeadsStore: store as any })
     return { adapter, store }
   }
 
