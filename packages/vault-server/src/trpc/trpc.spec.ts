@@ -4,11 +4,9 @@ import {
   publicProcedure,
   protectedProcedure,
   createVaultContext,
-  shouldRenewSession,
 } from './trpc'
-import { hashSessionToken, SESSION_EXPIRY_MS, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
-import type { VaultAccountWithAuth, VaultSessionRecord } from '../drivers/base'
-import { AuthenticationError, ExpiredSessionError } from '../drivers/errors'
+import { hashSessionToken, shouldRenewSession, SESSION_EXPIRY_MS, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
+import type { StoredAccount, VaultSessionRecord } from '../drivers/base'
 
 describe('shouldRenewSession', () => {
   const authToken = 'test-token-123'
@@ -140,7 +138,7 @@ describe('protectedProcedure session renewal behavior', () => {
       }
     })
 
-    const getAccount = vi.fn(async () => {
+    const getAccountRecord = vi.fn(async () => {
       executionOrder.push('get-account')
       return {
         account: 'acc-1',
@@ -148,11 +146,11 @@ describe('protectedProcedure session renewal behavior', () => {
         sessions: [
           { token: authToken, expiry },
         ],
-      } as VaultAccountWithAuth
+      } as StoredAccount
     })
 
     const vault = {
-      getAccount,
+      getAccountRecord,
       extendSession,
     }
 
@@ -171,7 +169,7 @@ describe('protectedProcedure session renewal behavior', () => {
     const result = await caller.testAction({ account: 'acc-1' })
 
     expect(result).toEqual({ success: true })
-    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledTimes(1)
     expect(ctx.vault.extendSession).not.toHaveBeenCalled()
     expect(executionOrder).toEqual(['get-account', 'procedure-body'])
   })
@@ -190,7 +188,7 @@ describe('protectedProcedure session renewal behavior', () => {
     const result = await caller.testAction({ account: 'acc-1' })
 
     expect(result).toEqual({ success: true })
-    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledTimes(1)
     expect(ctx.vault.extendSession).toHaveBeenCalledWith({
       account: 'acc-1',
       session: 'valid-session-token',
@@ -252,18 +250,17 @@ describe('protectedProcedure authentication errors', () => {
     testAction: protectedProcedure.query(() => 'ok'),
   })
 
-  function createCaller(getAccount: () => Promise<unknown>) {
-    return testRouter.createCaller({ authToken: 'token', vault: { getAccount, extendSession: vi.fn() } } as any)
+  function createCaller(getAccountRecord: () => Promise<unknown>) {
+    return testRouter.createCaller({ authToken: 'token', vault: { getAccountRecord, extendSession: vi.fn() } } as any)
   }
 
   it('rejects unknown accounts and invalid sessions as UNAUTHORIZED', async () => {
-    await expect(createCaller(async () => {
-      throw new AuthenticationError('Could not find account acc-1')
-    }).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(createCaller(async () => undefined).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
 
-    await expect(createCaller(async () => {
-      throw new ExpiredSessionError('Invalid session token')
-    }).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(createCaller(async () => ({
+      account: 'acc-1',
+      sessions: [{ token: hashSessionToken('other-token'), expiry: Date.now() + SESSION_EXPIRY_MS }],
+    })).testAction({ account: 'acc-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
   })
 
   it('does not report a database failure as UNAUTHORIZED, which would end the session', async () => {

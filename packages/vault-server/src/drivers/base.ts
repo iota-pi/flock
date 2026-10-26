@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { ItemId, KdfParams, ManifestEntry, PageToken } from '@vault/shared'
+import type { FailedLoginRecord } from '../loginThrottle'
 import {
   VaultKeySchema,
   VaultSessionRecordSchema,
@@ -16,6 +17,8 @@ export type VaultAccount = z.infer<typeof VaultAccountSchema>
 export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>
 export type VaultItem = z.infer<typeof VaultItemSchema>
 export type StoredSyncMessage = z.infer<typeof StoredSyncMessageSchema>
+/** An account record as stored, before its credentials are checked (see authentication.ts) */
+export type StoredAccount = VaultAccount & FailedLoginRecord
 
 export interface BaseData {
   account: string,
@@ -72,11 +75,9 @@ export default abstract class BaseDriver<T = unknown> {
   // pre-populated `session` for immediate login.
   abstract createAccount(data: VaultAccount): Promise<boolean>
 
-  // Retrieve account data and validate session; `isLogin` instructs implementation
-  // to validate against `authToken` instead of session hash. Throws `AuthenticationError` when the
-  // account doesn't exist or the credentials don't match.
-  // Throws `TooManyLoginAttemptsError` for a login while the account is locked (see `loginThrottle.ts`).
-  abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
+  // Read the account record with a strongly consistent read, or undefined when there is none.
+  // Callers check credentials against it with `authenticateLogin` or `authenticateSession`.
+  abstract getAccountRecord(data: BaseData): Promise<StoredAccount | undefined>
 
   // Count a failed login towards the account's limit. Does nothing for an account that doesn't exist.
   abstract recordFailedLogin(data: BaseData): Promise<void>
@@ -134,11 +135,6 @@ export default abstract class BaseDriver<T = unknown> {
   }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: PageToken }>
 
   /**
-   * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
-   * as in `getSyncMessages`, except that a token is not checked against `cursor`.
-   * `scannedThroughCursor` is the highest cursor the page examined.
-   */
-  /**
    * Throws `InvalidPageTokenError` if the matching query would reject `pageToken`: the per-item
    * query when `itemId` is given, otherwise the account-wide one. Lets callers reject a request
    * before acting on any of it.
@@ -150,6 +146,11 @@ export default abstract class BaseDriver<T = unknown> {
     pageToken: PageToken
   }): void
 
+  /**
+   * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
+   * as in `getSyncMessages`, except that a token is not checked against `cursor`.
+   * `scannedThroughCursor` is the highest cursor the page examined.
+   */
   abstract getGlobalSyncMessagesAfterCursor(input: {
     account: string
     cursor?: number

@@ -1,15 +1,25 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
-import DynamoDriver, { buildDynamoUpdate, getConnectionParams } from './dynamo'
-import { AuthenticationError, InvalidPageTokenError } from './errors'
-import type { VaultAccountWithAuth } from './base'
+import DynamoDriver from './driver'
+import { getConnectionParams } from './config'
+import { authenticateLogin, authenticateSession } from '../../authentication'
+import { AuthenticationError, InvalidPageTokenError } from '../../errors'
+import type { VaultAccountWithAuth } from '../base'
 import { generateItemId, type ItemId } from '@vault/shared'
-import { generateAccountId } from '../util'
+import { generateAccountId } from '../../util'
 import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
-import { isSessionFor, SESSION_EXPIRY_MS } from '../sessions'
+import { isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 
 const generateTestAccountId = () => generateAccountId(10)
 
 const driver = new DynamoDriver()
+
+async function login(account: string, authTokenHash: string) {
+  return authenticateLogin(await driver.getAccountRecord({ account }), authTokenHash)
+}
+
+async function getWithSession(account: string, session: string) {
+  return authenticateSession(await driver.getAccountRecord({ account }), session)
+}
 describe('DynamoDriver', function () {
   beforeAll(function () {
     driver.connect(getConnectionParams())
@@ -143,17 +153,17 @@ describe('DynamoDriver', function () {
     })
 
     expect(
-      (await driver.getAccount({ account, session: authToken, isLogin: true })).account
+      (await login(account, authToken)).account
     ).toBe(account)
     await expect(
-      driver.getAccount({ account, session: authToken, isLogin: false })
+      getWithSession(account, authToken)
     ).rejects.toThrow()
     await expect(
-      driver.getAccount({ account, session: authToken })
+      getWithSession(account, authToken)
     ).rejects.toThrow()
   })
 
-  it('getAccount session validation works based on session', async () => {
+  it('sessions authenticate against the stored record', async () => {
     const account = generateTestAccountId()
     await driver.createAccount({
       account,
@@ -169,23 +179,23 @@ describe('DynamoDriver', function () {
       sessions: [{ token: newSession, expiry }],
     })
     await expect(
-      driver.getAccount({ account, session })
+      getWithSession(account, session)
     ).rejects.toThrow()
     await expect(
-      driver.getAccount({ account, session: authToken })
+      getWithSession(account, authToken)
     ).rejects.toThrow()
     expect(
-      (await driver.getAccount({ account, session: newSession })).account
+      (await getWithSession(account, newSession)).account
     ).toBe(account)
     await expect(
-      driver.getAccount({ account, session: 'wrong' })
+      getWithSession(account, 'wrong')
     ).rejects.toThrow()
     await expect(
-      driver.getAccount({ account, session: '' })
+      getWithSession(account, '')
     ).rejects.toThrow()
   })
 
-  it('getAccount accepts multiple active sessions', async () => {
+  it('accepts multiple active sessions', async () => {
     const account = generateTestAccountId()
     await driver.createAccount({
       account,
@@ -206,8 +216,8 @@ describe('DynamoDriver', function () {
       ],
     })
 
-    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
-    expect((await driver.getAccount({ account, session: sessionB })).account).toBe(account)
+    expect((await getWithSession(account, sessionA)).account).toBe(account)
+    expect((await getWithSession(account, sessionB)).account).toBe(account)
   })
 
   it('repeated createAccount calls fail', async () => {
@@ -239,14 +249,14 @@ describe('DynamoDriver', function () {
 
     // Session should be valid after creation
     expect(
-      (await driver.getAccount({ account, session: sessionA })).account
+      (await getWithSession(account, sessionA)).account
     ).toBe(account)
 
     // Extend the session
     await driver.extendSession({ account, session: sessionA })
 
-    // Check the updated expiry in getAccount
-    const acc = await driver.getAccount({ account, session: sessionA })
+    // Check the updated expiry in the stored record
+    const acc = await getWithSession(account, sessionA)
     const updatedSession = acc.sessions?.find(s => isSessionFor(s, sessionA))
     expect(updatedSession?.expiry).toBeGreaterThan(Date.now() + 10000)
     expect(acc.lastAccess).toBeGreaterThan(Date.now() - 60_000)
@@ -309,7 +319,7 @@ describe('DynamoDriver', function () {
 
     const params = await driver.getSecurityParams({ account })
     expect(params).toEqual({ salt, iterations: undefined, saltVersion: 1, kdf, dataVersion: undefined })
-    const stored = await driver.getAccount({ account, session: authToken, isLogin: true })
+    const stored = await login(account, authToken)
     expect(stored).toMatchObject({ keyring: 'encrypted-keyring', randomDataKeys: true, keyringVersion: 1 })
     expect(stored).not.toHaveProperty('iterations')
   })
@@ -338,7 +348,7 @@ describe('DynamoDriver', function () {
       ],
     })
 
-    const result = await driver.getAccount({ account, session: 'session-9' })
+    const result = await getWithSession(account, 'session-9')
     const tokens = result.sessions?.map(entry => entry.token) ?? []
 
     expect(tokens.length).toBe(8)
@@ -364,8 +374,8 @@ describe('DynamoDriver', function () {
       ],
     })
 
-    await expect(driver.getAccount({ account, session: 'old-lifetime' })).rejects.toThrow(AuthenticationError)
-    const result = await driver.getAccount({ account, session: 'current-lifetime' })
+    await expect(getWithSession(account, 'old-lifetime')).rejects.toThrow(AuthenticationError)
+    const result = await getWithSession(account, 'current-lifetime')
     expect(result.sessions?.map(entry => entry.token)).toEqual(['current-lifetime'])
   })
 
@@ -390,7 +400,7 @@ describe('DynamoDriver', function () {
       keyring: keyringValue,
     })
 
-    const result = await driver.getAccount({ account, session: testSession })
+    const result = await getWithSession(account, testSession)
     expect(result.keyring).toBe(keyringValue)
   })
 
@@ -440,8 +450,8 @@ describe('DynamoDriver', function () {
     })
 
     // Both sessions are valid
-    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
-    expect((await driver.getAccount({ account, session: sessionB })).account).toBe(account)
+    expect((await getWithSession(account, sessionA)).account).toBe(account)
+    expect((await getWithSession(account, sessionB)).account).toBe(account)
 
     // Simulate changePassword by updating sessions array to only contain sessionA
     await driver.updateAccountData({
@@ -450,8 +460,8 @@ describe('DynamoDriver', function () {
     })
 
     // Now sessionA is valid, sessionB is revoked
-    expect((await driver.getAccount({ account, session: sessionA })).account).toBe(account)
-    await expect(driver.getAccount({ account, session: sessionB })).rejects.toThrow()
+    expect((await getWithSession(account, sessionA)).account).toBe(account)
+    await expect(getWithSession(account, sessionB)).rejects.toThrow()
   })
 
   it('fetchManifest returns item and modifiedAt tuples without payload', async () => {
@@ -624,7 +634,7 @@ describe('DynamoDriver', function () {
       pausedUntil: '2026-10-01T00:00:00Z',
     })
 
-    let stored = await driver.getAccount({ account, session: authToken, isLogin: true }) as VaultAccountWithAuth & ExtraFields
+    let stored = await login(account, authToken) as VaultAccountWithAuth & ExtraFields
     expect(stored.displayName).toBe('Test')
     expect(stored.pausedUntil).toBe('2026-10-01T00:00:00Z')
 
@@ -634,7 +644,7 @@ describe('DynamoDriver', function () {
       pausedUntil: null,
     })
 
-    stored = await driver.getAccount({ account, session: authToken, isLogin: true }) as VaultAccountWithAuth & ExtraFields
+    stored = await login(account, authToken) as VaultAccountWithAuth & ExtraFields
     expect(stored.pausedUntil).toBeNull()
   })
 
@@ -649,7 +659,7 @@ describe('DynamoDriver', function () {
       iterations,
     })
 
-    const stored = await driverWithDefaults.getAccount({ account, session: authToken, isLogin: true })
+    const stored = authenticateLogin(await driverWithDefaults.getAccountRecord({ account }), authToken)
     expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
   })
 
@@ -763,60 +773,3 @@ describe('DynamoDriver', function () {
     })
   })
 })
-
-describe('buildDynamoUpdate', () => {
-  it('builds SET expression and mapped values for provided fields', () => {
-    const result = buildDynamoUpdate({
-      reminderEnabled: true,
-      reminderTime: '08:00',
-      iterations: 5000,
-    })
-
-    expect(result.expression).toBe('SET #reminderEnabled = :reminderEnabled, #reminderTime = :reminderTime, #iterations = :iterations')
-    expect(result.names).toEqual({
-      '#reminderEnabled': 'reminderEnabled',
-      '#reminderTime': 'reminderTime',
-      '#iterations': 'iterations',
-    })
-    expect(result.values).toEqual({
-      ':reminderEnabled': true,
-      ':reminderTime': '08:00',
-      ':iterations': 5000,
-    })
-  })
-
-  it('filters out undefined values while preserving null, false, 0, and empty string', () => {
-    const result = buildDynamoUpdate({
-      definedString: 'flock',
-      emptyString: '',
-      nullValue: null,
-      falseValue: false,
-      zeroValue: 0,
-      undefinedValue: undefined,
-    })
-
-    expect(result.expression).toBe('SET #definedString = :definedString, #emptyString = :emptyString, #nullValue = :nullValue, #falseValue = :falseValue, #zeroValue = :zeroValue')
-    expect(result.values).toEqual({
-      ':definedString': 'flock',
-      ':emptyString': '',
-      ':nullValue': null,
-      ':falseValue': false,
-      ':zeroValue': 0,
-    })
-  })
-
-  it('returns empty expression and empty values when given an empty object or all-undefined fields', () => {
-    expect(buildDynamoUpdate({})).toEqual({
-      expression: '',
-      names: {},
-      values: {},
-    })
-
-    expect(buildDynamoUpdate({ a: undefined, b: undefined })).toEqual({
-      expression: '',
-      names: {},
-      values: {},
-    })
-  })
-})
-

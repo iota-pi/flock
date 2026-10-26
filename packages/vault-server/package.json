@@ -8,7 +8,7 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./dynamo": "./src/drivers/dynamo.ts"
+    "./dynamo": "./src/drivers/dynamo/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

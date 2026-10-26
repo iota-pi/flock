@@ -13,7 +13,8 @@ import {
 import { fakeSalt, hashString, safeEqual } from '../../util'
 import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 import { raiseDataVersion } from '../../services/dataVersion'
-import { AuthenticationError, TooManyLoginAttemptsError } from '../../drivers/errors'
+import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
+import { authenticateLogin } from '../../authentication'
 
 const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
 
@@ -44,12 +45,9 @@ export const accountsRouter = router({
   login: publicProcedure
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
+      const record = await ctx.vault.getAccountRecord({ account: input.account })
       try {
-        await ctx.vault.getAccount({
-          account: input.account,
-          session: hashString(input.authToken),
-          isLogin: true,
-        })
+        authenticateLogin(record, hashString(input.authToken))
       } catch (error) {
         if (error instanceof TooManyLoginAttemptsError) {
           throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE })

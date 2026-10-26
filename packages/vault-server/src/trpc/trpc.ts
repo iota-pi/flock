@@ -10,22 +10,9 @@ import {
 } from '@vault/shared'
 import type { KdfParams } from '@vault/shared'
 import type { DataVersionPolicy } from '../services/dataVersion'
-import { AuthenticationError } from '../drivers/errors'
-import { isSessionFor, SESSION_RENEWAL_THRESHOLD_MS } from '../sessions'
-
-export function shouldRenewSession(
-  accountData: Pick<VaultAccountWithAuth, 'sessions'>,
-  authToken: string,
-  now = Date.now(),
-): boolean {
-  const currentSession = accountData.sessions?.find(s => isSessionFor(s, authToken))
-
-  if (!currentSession || !Number.isFinite(currentSession.expiry)) {
-    return true
-  }
-
-  return currentSession.expiry - now < SESSION_RENEWAL_THRESHOLD_MS
-}
+import { AuthenticationError } from '../errors'
+import { authenticateSession } from '../authentication'
+import { shouldRenewSession } from '../sessions'
 
 export interface VaultServerOptions {
   /**
@@ -112,23 +99,17 @@ export const protectedProcedure = publicProcedure
 
     const { account } = input
 
+    // A failed read (such as a DynamoDB timeout) is a server error: reporting it as UNAUTHORIZED
+    // would make the client drop its session
+    const record = await ctx.vault.getAccountRecord({ account })
     let accountData: VaultAccountWithAuth
     try {
-      accountData = await ctx.vault.getAccount({
-        account,
-        session: ctx.authToken,
-      })
+      accountData = authenticateSession(record, ctx.authToken)
     } catch (error) {
-      // Anything else (such as a DynamoDB timeout) is a server error: reporting it as UNAUTHORIZED
-      // would make the client drop its session
       if (error instanceof AuthenticationError) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
       throw error
-    }
-
-    if (!accountData) {
-      throw new TRPCError({ code: 'UNAUTHORIZED' })
     }
 
     let extendSessionPromise: Promise<void> | null = null

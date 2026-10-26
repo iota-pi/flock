@@ -1,6 +1,5 @@
 import {
   CreateTableCommand,
-  CreateTableCommandInput,
   DynamoDBClient,
   DynamoDBClientConfig,
 } from '@aws-sdk/client-dynamodb'
@@ -19,62 +18,31 @@ import {
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
-import { z } from 'zod'
-import {
-  safeEqual,
-  generateAccountId,
-} from '../util'
-import { hashSessionToken, isSessionFor, MAX_ACTIVE_SESSIONS, SESSION_EXPIRY_MS } from '../sessions'
+import { generateAccountId } from '../../util'
+import { addSessionRecord, normalizeSessionRecords, renewSessionRecord } from '../../sessions'
 import BaseDriver, {
   AuthData,
   BaseData,
   ItemFormatSummary,
   SecurityParams,
+  StoredAccount,
   StoredSyncMessage,
   UpdateAccountDataParams,
   VaultAccount,
-  VaultAccountWithAuth,
   VaultItem,
   VaultSessionRecord,
-} from './base'
-import { AuthenticationError, ExpiredSessionError, InvalidPageTokenError, TooManyLoginAttemptsError } from './errors'
-import { FAILED_LOGIN_WINDOW_MS, isLoginLocked, type FailedLoginRecord } from '../loginThrottle'
-import { MAX_ITEM_SIZE, VersionConflictError } from '@vault/shared'
+} from '../base'
+import { AuthenticationError } from '../../errors'
+import { FAILED_LOGIN_WINDOW_MS } from '../../loginThrottle'
+import { VersionConflictError } from '@vault/shared'
 import type { ItemId, ManifestEntry, PageToken } from '@vault/shared'
-import {
-  isConditionalCheckFailure,
-  isResourceInUseError,
-  isTransientDynamoError,
-} from './dynamoErrors'
-
-export interface VaultTableNames {
-  accounts: string
-  items: string
-  syncMessages: string
-}
-
-const TABLE_NAME_ENV_VARS: Record<keyof VaultTableNames, string> = {
-  accounts: 'ACCOUNTS_TABLE',
-  items: 'ITEMS_TABLE',
-  syncMessages: 'SYNC_MESSAGES_TABLE',
-}
-
-/**
- * Resolves table names from explicit options, falling back to the ACCOUNTS_TABLE, ITEMS_TABLE
- * and SYNC_MESSAGES_TABLE environment variables.
- */
-export function resolveVaultTableNames(tables: Partial<VaultTableNames> = {}): VaultTableNames {
-  const resolved = {} as VaultTableNames
-  for (const key of Object.keys(TABLE_NAME_ENV_VARS) as Array<keyof VaultTableNames>) {
-    const envVar = TABLE_NAME_ENV_VARS[key]
-    const name = tables[key] ?? process.env[envVar]
-    if (!name) {
-      throw new Error(`Missing DynamoDB table name for "${key}". Pass it to DynamoDriver or set ${envVar}.`)
-    }
-    resolved[key] = name
-  }
-  return resolved
-}
+import { isConditionalCheckFailure, isResourceInUseError } from './dynamoErrors'
+import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
+import { ACCOUNT_CURSOR_INDEX, getVaultTableDefinitions } from './tables'
+import { buildDynamoUpdate } from './expressions'
+import { sendBatchWithRetry } from './batchRetry'
+import { decodeGlobalPageToken, decodeItemPageToken, encodePageToken } from './pageTokens'
+import { decodeStoredSnapshotCipher, toStoredItem, validateItem } from './items'
 
 export interface DynamoDriverOptions {
   tables?: Partial<VaultTableNames>
@@ -99,107 +67,7 @@ const DATA_ATTRIBUTE_NAMES = {
   '#version': 'version',
 }
 
-export { MAX_ITEM_SIZE }
 const MAX_SESSION_UPDATE_ATTEMPTS = 3
-/** Allows for clock differences between server instances when checking a session expiry against its lifetime */
-const SESSION_CLOCK_SKEW_MS = 60_000
-
-/**
- * Validates a VaultItem.
- * Supports both legacy cipher and snapshot format
- * - Legacy: must have cipher and iv
- * - Snapshot: must have snapshot payload or external storage pointer
- * - Tombstone: needs no payload
- */
-function validateItem(item: VaultItem) {
-  const isTombstone = item.metadata.deleted === true
-  const isLegacy = !!item.cipher
-  const isSnapshot = !!item.snapshot
-
-  const hasValidPayload = isTombstone
-    || (isLegacy ? !!item.metadata.iv : isSnapshot)
-
-  if (!hasValidPayload) {
-    throw new Error(
-      `Invalid item format: must be either legacy (cipher+iv) or snapshot. Item: ${JSON.stringify(item)}`,
-    )
-  }
-
-  // Calculate item length without expanding binary Buffers into huge JSON arrays
-  let itemLength: number
-  const cipher = item.snapshot?.cipher
-  if (cipher && (Buffer.isBuffer(cipher) || cipher instanceof Uint8Array)) {
-    const cipherLength = cipher.byteLength
-    const itemWithoutCipher = {
-      ...item,
-      snapshot: {
-        ...item.snapshot,
-        cipher: undefined,
-      },
-    }
-    itemLength = JSON.stringify(itemWithoutCipher).length + cipherLength
-  } else {
-    itemLength = JSON.stringify(item).length
-  }
-
-  if (itemLength > MAX_ITEM_SIZE) {
-    throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
-  }
-}
-
-function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSessionRecord[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  const deduped = new Map<string, VaultSessionRecord>()
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') {
-      continue
-    }
-
-    const token = (entry as { token?: unknown }).token
-    const expiry = (entry as { expiry?: unknown }).expiry
-    if (typeof token !== 'string' || token.length === 0) {
-      continue
-    }
-
-    if (typeof expiry !== 'number' || !Number.isFinite(expiry) || expiry <= now) {
-      continue
-    }
-    // Ends sessions issued under a longer lifetime, rather than letting them run it out
-    if (expiry > now + SESSION_EXPIRY_MS + SESSION_CLOCK_SKEW_MS) {
-      continue
-    }
-
-    deduped.set(token, { token, expiry })
-  }
-
-  return Array.from(deduped.values())
-    .sort((left, right) => left.expiry - right.expiry)
-    .slice(-MAX_ACTIVE_SESSIONS)
-}
-
-/** Builds a SET expression for the defined fields. Names go through placeholders, so app fields may be reserved words. */
-export function buildDynamoUpdate(fields: Record<string, unknown>): {
-  expression: string
-  names: Record<string, string>
-  values: Record<string, unknown>
-} {
-  const entries = Object.entries(fields).filter(([, v]) => v !== undefined)
-  if (entries.length === 0) {
-    return {
-      expression: '',
-      names: {},
-      values: {},
-    }
-  }
-  return {
-    expression: `SET ${entries.map(([k]) => `#${k} = :${k}`).join(', ')}`,
-    names: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
-    values: Object.fromEntries(entries.map(([k, v]) => [`:${k}`, v])),
-  }
-}
 
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
@@ -230,52 +98,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async init(_: T | undefined = undefined) {
-    const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions' | 'GlobalSecondaryIndexes'>[] = [
-      {
-        TableName: this.tables.items,
-        KeySchema: [
-          { AttributeName: 'account', KeyType: 'HASH' },
-          { AttributeName: 'item', KeyType: 'RANGE' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'account', AttributeType: 'S' },
-          { AttributeName: 'item', AttributeType: 'S' },
-        ],
-      },
-      {
-        TableName: this.tables.accounts,
-        KeySchema: [
-          { AttributeName: 'account', KeyType: 'HASH' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'account', AttributeType: 'S' },
-        ],
-      },
-      {
-        TableName: this.tables.syncMessages,
-        KeySchema: [
-          { AttributeName: 'syncId', KeyType: 'HASH' },
-          { AttributeName: 'cursor', KeyType: 'RANGE' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'syncId', AttributeType: 'S' },
-          { AttributeName: 'cursor', AttributeType: 'N' },
-          { AttributeName: 'account', AttributeType: 'S' },
-        ],
-        GlobalSecondaryIndexes: [
-          {
-            IndexName: 'AccountCursorIndex',
-            KeySchema: [
-              { AttributeName: 'account', KeyType: 'HASH' },
-              { AttributeName: 'cursor', KeyType: 'RANGE' },
-            ],
-            Projection: { ProjectionType: 'ALL' },
-          },
-        ],
-      },
-    ]
-
-    for (const table of tablesToEnsure) {
+    for (const table of getVaultTableDefinitions(this.tables)) {
       try {
         console.info(`Create table: ${table.TableName}`)
         await this.client.send(new CreateTableCommand(
@@ -349,12 +172,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return success
   }
 
-  async getAccount(
-    { account, isLogin, session }: AuthData & { isLogin?: boolean },
-  ): Promise<VaultAccountWithAuth> {
-    if (!session) {
-      throw new AuthenticationError('Session is required to get account')
-    }
+  async getAccountRecord({ account }: BaseData): Promise<StoredAccount | undefined> {
     const response = await this.client.send(new GetCommand(
       {
         TableName: this.tables.accounts,
@@ -362,35 +180,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ConsistentRead: true,
       },
     ))
-    if (response?.Item) {
-      if (isLogin) {
-        // Checked first, so that a locked account gives guessers no answer
-        if (isLoginLocked(response.Item as FailedLoginRecord, Date.now())) {
-          throw new TooManyLoginAttemptsError(`Too many failed logins for account ${account}`)
-        }
-        // For logins, check authToken instead
-        if (safeEqual(session, response.Item.authToken as string)) {
-          return {
-            ...(response.Item as VaultAccountWithAuth),
-            session,
-          }
-        }
-        // Give same error as if account not found to avoid leaking account ids
-        throw new AuthenticationError(`Could not find account ${account}`)
-      }
-
-      const now = Date.now()
-      const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
-      if (activeSessions.some(active => isSessionFor(active, session))) {
-        return {
-          ...(response.Item as VaultAccountWithAuth),
-          sessions: activeSessions,
-          session,
-        }
-      }
-      throw new ExpiredSessionError('Invalid session token')
-    }
-    throw new AuthenticationError(`Could not find account ${account}`)
+    return response?.Item as StoredAccount | undefined
   }
 
   async recordFailedLogin({ account }: BaseData): Promise<void> {
@@ -439,7 +229,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       },
     ))
     if (response?.Item) {
-      const dbAccount = response.Item as VaultAccountWithAuth
+      const dbAccount = response.Item as StoredAccount
       const salt = dbAccount.salt
       const iterations = dbAccount.iterations
       const saltVersion = dbAccount.saltVersion
@@ -521,32 +311,16 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async addSession({ account, session, expiry }: AuthData & { expiry: number }): Promise<void> {
-    const added = await this.updateSessions(account, activeSessions => [
-      ...activeSessions,
-      { token: hashSessionToken(session), expiry },
-    ])
+    const added = await this.updateSessions(account, activeSessions => addSessionRecord(activeSessions, session, expiry))
     if (!added) {
       throw new Error(`Could not add a session to account ${account}`)
     }
   }
 
   async extendSession({ account, session }: AuthData): Promise<void> {
-    await this.updateSessions(account, (activeSessions, now, attempt) => {
-      const sessionRecord = activeSessions.find(active => isSessionFor(active, session))
-      if (!sessionRecord) {
-        return undefined
-      }
-
-      // If already extended recently (e.g. by another concurrent request), avoid redundant write
-      if (attempt > 0 && sessionRecord.expiry >= now + SESSION_EXPIRY_MS - 60_000) {
-        return undefined
-      }
-
-      sessionRecord.expiry = now + SESSION_EXPIRY_MS
-      // Also rewrites a record from before tokens were hashed
-      sessionRecord.token = hashSessionToken(session)
-      return activeSessions
-    })
+    await this.updateSessions(account, (activeSessions, now, attempt) => (
+      renewSessionRecord(activeSessions, session, now, attempt > 0)
+    ))
   }
 
   /**
@@ -612,23 +386,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async set(item: VaultItem): Promise<{ version: number }> {
-    let itemToPersist = item
-
-    if (item.snapshot?.cipher) {
-      // Store inline in DynamoDB as binary Buffer (DynamoDB type 'B'). Clients send base64.
-      const cipherBytes = typeof item.snapshot.cipher === 'string'
-        ? Buffer.from(item.snapshot.cipher, 'base64')
-        : Buffer.from(item.snapshot.cipher)
-      itemToPersist = {
-        ...item,
-        snapshot: {
-          iv: item.snapshot.iv,
-          kver: item.snapshot.kver,
-          ...(item.snapshot.format === undefined ? {} : { format: item.snapshot.format }),
-          cipher: cipherBytes,
-        },
-      }
-    }
+    const itemToPersist = toStoredItem(item)
 
     // Measured as stored, with the snapshot in binary. Clients limit its base64 text, which is
     // longer, so the server never rejects a snapshot that a client's own size check let through.
@@ -866,19 +624,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
-    for (const record of results) {
-      if (record.snapshot?.cipher) {
-        if (
-          Buffer.isBuffer(record.snapshot.cipher) ||
-          record.snapshot.cipher instanceof Uint8Array
-        ) {
-          record.snapshot.cipher = Buffer.from(record.snapshot.cipher).toString(
-            'base64',
-          )
-        }
-      }
-    }
-
+    results.forEach(decodeStoredSnapshotCipher)
     return results
   }
 
@@ -991,7 +737,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
     const response = await this.client.send(new QueryCommand({
       TableName: this.tables.syncMessages,
-      IndexName: 'AccountCursorIndex',
+      IndexName: ACCOUNT_CURSOR_INDEX,
       KeyConditionExpression: hasCursor
         ? 'account = :account AND #c > :cursor'
         : 'account = :account',
@@ -1038,132 +784,5 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
       scannedThroughCursor,
     }
-  }
-}
-
-/**
- * Sends a batch request, then resends whatever DynamoDB leaves unprocessed, and retries transient
- * errors, with jittered exponential backoff. `send` returns the unprocessed part of the request.
- */
-async function sendBatchWithRetry<T>(
-  request: T,
-  commandName: string,
-  unprocessedName: string,
-  maxRetries: number,
-  send: (request: T) => Promise<T | undefined>,
-): Promise<void> {
-  let currentRequest = request
-  let attempt = 0
-  let delayMs = 100
-
-  while (true) {
-    let unprocessed: T | undefined
-    try {
-      unprocessed = await send(currentRequest)
-    } catch (error) {
-      if (!isTransientDynamoError(error)) {
-        throw error
-      }
-      attempt += 1
-      if (attempt > maxRetries) {
-        throw error
-      }
-      await backOff(delayMs)
-      delayMs = Math.min(delayMs * 2, 5000)
-      continue
-    }
-
-    if (!unprocessed || Object.keys(unprocessed).length === 0) {
-      return
-    }
-
-    attempt += 1
-    if (attempt > maxRetries) {
-      throw new Error(`Failed to execute ${commandName} after ${maxRetries} attempts due to DynamoDB unprocessed ${unprocessedName}.`)
-    }
-    await backOff(delayMs)
-    delayMs = Math.min(delayMs * 2, 5000)
-    currentRequest = unprocessed
-  }
-}
-
-function backOff(delayMs: number): Promise<void> {
-  const jitter = Math.random() * 50
-  return new Promise(resolve => setTimeout(resolve, delayMs + jitter))
-}
-
-// Page tokens wrap DynamoDB's LastEvaluatedKey. Clients can read and forge them, which only lets
-// them page through their own account's messages, so the keys are validated but not signed.
-const SyncMessageKeySchema = z.object({
-  syncId: z.string().min(1),
-  cursor: z.number().int().min(0),
-}).strict()
-type SyncMessageKey = z.infer<typeof SyncMessageKeySchema>
-
-const GlobalSyncMessageKeySchema = z.object({
-  account: z.string().min(1),
-  cursor: z.number().int().min(0),
-  syncId: z.string().min(1),
-}).strict()
-type GlobalSyncMessageKey = z.infer<typeof GlobalSyncMessageKeySchema>
-
-function encodePageToken(key: Record<string, unknown>): PageToken {
-  return Buffer.from(JSON.stringify(key), 'utf8').toString('base64url')
-}
-
-function decodeItemPageToken(token: PageToken, expectedSyncId: string, fromCursor?: number): SyncMessageKey {
-  const key = decodePageToken(token, SyncMessageKeySchema)
-  if (key.syncId !== expectedSyncId) {
-    throw new InvalidPageTokenError(`Page token is for another item: expected ${expectedSyncId}`)
-  }
-  if (typeof fromCursor === 'number' && key.cursor < fromCursor) {
-    throw new InvalidPageTokenError(`Page token cannot start before cursor ${fromCursor}`)
-  }
-  return key
-}
-
-function decodeGlobalPageToken(token: PageToken, account: string): GlobalSyncMessageKey {
-  const key = decodePageToken(token, GlobalSyncMessageKeySchema)
-  if (key.account !== account || !key.syncId.startsWith(`${account}#`)) {
-    throw new InvalidPageTokenError(`Page token is for another account: expected ${account}`)
-  }
-  return key
-}
-
-function decodePageToken<T>(token: PageToken, schema: z.ZodType<T>): T {
-  let key: unknown
-  try {
-    key = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'))
-  } catch {
-    throw new InvalidPageTokenError('Page token is malformed')
-  }
-  const parsed = schema.safeParse(key)
-  if (!parsed.success) {
-    throw new InvalidPageTokenError('Page token is malformed')
-  }
-  return parsed.data
-}
-
-export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBClientConfig {
-  const customEndpoint = !!process.env.DYNAMODB_ENDPOINT
-  // Against AWS, fail a stalled connection or socket quickly so the SDK retries it within the
-  // Lambda's time limit. `requestTimeout` is how long the socket may go idle, not the whole request's
-  // duration. A local DynamoDB can be slow under test load, and a retry after a write that did land
-  // fails its condition, so it gets no timeouts.
-  const endpointArgs: DynamoDBClientConfig = customEndpoint ? {
-    credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
-    endpoint: process.env.DYNAMODB_ENDPOINT,
-    region: 'local',
-  } : {
-    requestHandler: {
-      connectionTimeout: 1_000,
-      requestTimeout: 3_000,
-    },
-  }
-  return {
-    apiVersion: '2012-08-10',
-    region: 'ap-southeast-2',
-    ...endpointArgs,
-    ...options,
   }
 }

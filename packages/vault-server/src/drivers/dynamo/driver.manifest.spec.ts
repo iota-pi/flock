@@ -1,4 +1,4 @@
-import DynamoDriver from './dynamo'
+import DynamoDriver from './driver'
 import { QueryCommand } from '@aws-sdk/lib-dynamodb'
 
 describe('DynamoDriver.fetchManifest', () => {

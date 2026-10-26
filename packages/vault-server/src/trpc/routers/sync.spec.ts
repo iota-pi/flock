@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server'
-import { AuthenticationError } from '../../drivers/errors'
+import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { syncRouter } from './sync'
 import { StoredSyncMessage } from '../../drivers/base'
 import { ItemId } from '@vault/shared'
@@ -15,17 +15,14 @@ function createContext(overrides?: {
   sessionValid?: boolean
 }) {
   const sessionValid = overrides?.sessionValid ?? true
+  const authToken = overrides?.authToken ?? 'valid-session-token'
   const vault = {
     extendSession: vi.fn(async () => undefined),
-    getAccount: vi.fn(async ({ account, session }: { account: string; session: string }) => {
-      if (!sessionValid) {
-        throw new AuthenticationError('Unauthorized')
-      }
-      return {
-        account,
-        sessions: [{ token: session, expires: Date.now() + 10000 }],
-      }
-    }),
+    getAccountRecord: vi.fn(async ({ account }: { account: string }) => ({
+      account,
+      // A session for another device when it isn't valid
+      sessions: [{ token: hashSessionToken(sessionValid ? authToken : 'other-session-token'), expiry: Date.now() + SESSION_EXPIRY_MS }],
+    })),
     updateAccountData: vi.fn(async () => undefined),
     getGlobalSyncMessagesAfterCursor: vi.fn(async (): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean; nextPageToken?: string }> => ({ items: [], hasMore: false })),
     getSyncMessages: vi.fn(async (): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean; nextPageToken?: string }> => ({ messages: [], hasMore: false })),
@@ -35,7 +32,7 @@ function createContext(overrides?: {
   }
 
   return {
-    authToken: overrides?.authToken ?? 'valid-session-token',
+    authToken,
     vault,
   }
 }
@@ -74,10 +71,7 @@ describe('syncRouter authorization & IDOR protection', () => {
 
     const result = await caller.pollSync(samplePollInput)
     expect(result.pushResults).toEqual([{ itemId: 'item-1', cursor: expect.any(Number) }])
-    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
-      account: 'target-account',
-      session: 'valid-session-token',
-    })
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledWith({ account: 'target-account' })
     expect(ctx.vault.pushSyncMessagesBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         account: 'target-account',
@@ -92,10 +86,7 @@ describe('syncRouter authorization & IDOR protection', () => {
     await expect(caller.pollSync(samplePollInput)).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     } satisfies Partial<TRPCError>)
-    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
-      account: 'target-account',
-      session: 'valid-session-token',
-    })
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledWith({ account: 'target-account' })
     expect(ctx.vault.pushSyncMessagesBatch).not.toHaveBeenCalled()
   })
 })
@@ -137,8 +128,8 @@ describe('pollSync behavior and account isolation', () => {
     expect(result.pullResults[0].itemId).toBe('item-1')
     expect(result.pullResults[0].nextCursor).toBe(120)
 
-    // Critical assertion: getAccount is called once in protectedProcedure for session auth, not in pollSync
-    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+    // Critical assertion: the account is read once in protectedProcedure for session auth, not in pollSync
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledTimes(1)
     // Critical assertion: global GSI query is executed
     expect(ctx.vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledTimes(1)
   })
@@ -164,8 +155,8 @@ describe('pollSync behavior and account isolation', () => {
     const pushedCursor = result.pushResults[0].cursor
     expect(pushedCursor).toBeGreaterThan(0)
 
-    // Critical assertion: getAccount is called once in protectedProcedure for auth, and updateAccountData is NOT called on push (no OCC contention)
-    expect(ctx.vault.getAccount).toHaveBeenCalledTimes(1)
+    // Critical assertion: the account is read once in protectedProcedure for auth, and updateAccountData is NOT called on push (no OCC contention)
+    expect(ctx.vault.getAccountRecord).toHaveBeenCalledTimes(1)
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })
 
