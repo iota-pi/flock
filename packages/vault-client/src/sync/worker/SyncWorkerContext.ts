@@ -226,7 +226,6 @@ export class SyncWorkerContext {
       adapter,
       clientEventHub,
       internalEventHub,
-      indexManager,
       pullQueueManager,
       keys,
       wal,

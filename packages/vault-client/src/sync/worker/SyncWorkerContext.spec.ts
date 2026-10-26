@@ -151,7 +151,7 @@ beforeEach(() => {
       readonly lifecycleName = 'SyncMessageBroker'
       unblockAllItems = vi.fn()
       getBlockedItemIds = vi.fn().mockReturnValue([])
-      poller = { executePoll: vi.fn().mockResolvedValue('success'), abort: vi.fn() }
+      poller = { executePoll: vi.fn().mockResolvedValue('success') }
       shutdown = vi.fn().mockResolvedValue(undefined)
       onLifecycleStop = vi.fn().mockImplementation(async () => {
         await this.shutdown()

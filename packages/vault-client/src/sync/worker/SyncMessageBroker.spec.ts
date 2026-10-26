@@ -8,7 +8,6 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
 
 const keys = createMockKeyProvider()
-import { AutomergeIndexManager } from './docStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
@@ -31,7 +30,6 @@ describe('SyncMessageBroker', () => {
   let adapter: VaultNetworkAdapter
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
-  let indexManager: AutomergeIndexManager
   let pullQueueManager: SyncPullQueueManager
   let mockWal: SyncWriteAheadLog
 
@@ -41,9 +39,6 @@ describe('SyncMessageBroker', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     adapter = new VaultNetworkAdapter(internalEventHub)
-    indexManager = {
-      addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
-    } as unknown as AutomergeIndexManager
     pullQueueManager = {
       setAccount: vi.fn().mockResolvedValue(undefined),
       addPendingItem: vi.fn(),
@@ -63,7 +58,6 @@ describe('SyncMessageBroker', () => {
       adapter,
       clientEventHub,
       internalEventHub,
-      indexManager,
       pullQueueManager,
       keys,
       wal: mockWal,
@@ -92,7 +86,6 @@ describe('SyncMessageBroker', () => {
     })
     broker.setSendEnabled(true)
     await broker.setAccount('account-1')
-    broker.setWal(mockWal)
 
     const msg = createSyncMessage('item123', [1, 2, 3])
     internalEventHub.emit({ type: 'messageToSend', message: msg })
@@ -110,7 +103,6 @@ describe('SyncMessageBroker', () => {
     })
     broker.setSendEnabled(true)
     await broker.setAccount('account-1')
-    broker.setWal(mockWal)
 
     const msg = createSyncMessage('item-big', [])
     msg.data = new Uint8Array(MAX_INCREMENTAL_MESSAGE_BYTES + 1)
@@ -173,19 +165,6 @@ describe('SyncMessageBroker', () => {
     expect(receiveSpy).toHaveBeenCalledWith(docId, msgData)
   })
 
-  it('does NOT add itemId to indexManager when messageParsed is emitted (prevents index resurrection on overlap pulls)', async () => {
-    await broker.setAccount('account-1')
-
-    const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('deleted-item-1' as ItemId))
-    const msgData = new Uint8Array([4, 5, 6])
-
-    // Simulate parsing an incremental message (e.g. overlap window pull for a deleted item)
-    internalEventHub.emit({ type: 'messageParsed', itemId: 'deleted-item-1' as ItemId, documentId: docId, message: msgData })
-    internalEventHub.emit({ type: 'messageParsed', itemId: 'deleted-item-1' as ItemId, documentId: docId, message: msgData })
-
-    expect(indexManager.addAutomergeItemIdsToIndex).not.toHaveBeenCalled()
-  })
-
   it('shuts down syncPoller and pullQueueManager cleanly', async () => {
     const shutdownSpy = vi.spyOn(broker.poller, 'shutdown')
     await broker.shutdown()
@@ -206,7 +185,6 @@ describe('SyncMessageBroker', () => {
 
     const appendError = new Error('Disk full')
     vi.mocked(mockWal.append).mockRejectedValueOnce(appendError)
-    broker.setWal(mockWal)
 
     const msg = createSyncMessage('item123', [1, 2, 3])
     internalEventHub.emit({ type: 'messageToSend', message: msg })
@@ -230,7 +208,6 @@ describe('SyncMessageBroker', () => {
 
     const quotaError = new DOMException('Storage quota exceeded', 'QuotaExceededError')
     vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
-    broker.setWal(mockWal)
 
     const msg = createSyncMessage('item-quota', [4, 5, 6])
     internalEventHub.emit({ type: 'messageToSend', message: msg })
@@ -246,27 +223,6 @@ describe('SyncMessageBroker', () => {
     )
   })
 
-  it('triggers renegotiation and notifies onWalAppendFailed when WAL is null', async () => {
-    const flushSpy = vi.fn()
-    const failureSpy = vi.fn()
-    const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
-    internalEventHub.subscribe(e => {
-      if (e.type === 'flushNeeded') flushSpy()
-      if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
-    })
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
-    broker.setWal(null)
-
-    const msg = createSyncMessage('item-no-wal', [7, 8, 9])
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
-    await Promise.resolve()
-
-    expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
-    expect(failureSpy).toHaveBeenCalledWith('item-no-wal', expect.any(Error))
-    expect(flushSpy).not.toHaveBeenCalled()
-  })
-
   it('keeps using the WAL it was given after setAccount', async () => {
     broker.setSendEnabled(true)
     await broker.setAccount('account-1')
@@ -277,21 +233,6 @@ describe('SyncMessageBroker', () => {
     expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
   })
 
-  it('never creates its own WAL on setAccount, falling back to snapshot sync instead', async () => {
-    const failureSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
-    })
-    broker.setWal(null)
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
-
-    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage('item-no-wal', [7, 8, 9]) })
-    await Promise.resolve()
-
-    expect(failureSpy).toHaveBeenCalledWith('item-no-wal', expect.any(Error))
-  })
-
   it('flags items for snapshot-only sync without triggering renegotiation when WAL prunes entries', async () => {
     const prunedSpy = vi.fn()
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
@@ -299,7 +240,6 @@ describe('SyncMessageBroker', () => {
       if (e.type === 'walEntriesPruned') prunedSpy(e.itemIds)
     })
 
-    broker.setWal(mockWal)
 
     // Simulate WAL notifying of pruned items
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId, 'item-2' as ItemId] })
@@ -318,7 +258,6 @@ describe('SyncMessageBroker', () => {
     })
     broker.setSendEnabled(true)
     await broker.setAccount('account-1')
-    broker.setWal(mockWal)
 
     // Mark item-1 as snapshot-only (via pruned callback)
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId] })
@@ -337,7 +276,6 @@ describe('SyncMessageBroker', () => {
   })
 
   it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeads or clearSnapshotOnlyItem', async () => {
-    broker.setWal(mockWal)
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId, 'item-2' as ItemId] })
     expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
     expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
@@ -351,40 +289,43 @@ describe('SyncMessageBroker', () => {
     expect(broker.getSnapshotOnlyItemCount()).toBe(0)
   })
 
-  it('handles setSyncedHeads accepting either ItemId or DocumentId correctly', async () => {
+  it('setSyncedHeads unblocks the item, ends snapshot-only sync and records heads with the adapter', () => {
     const setSyncedHeadsSpy = vi.spyOn(adapter, 'setSyncedHeads')
     const resetRenegSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
 
-    const itemId = 'item-polymorphic' as ItemId
+    const itemId = 'item-snapshot' as ItemId
     const docId = toDocumentIdFromItemId(itemId)
 
-    // Test with ItemId: should unblock, clear snapshot-only, and call adapter with DocumentId
     broker.blockItem(itemId)
-    broker.markSnapshotOnly(itemId)
+    broker.fallbackToSnapshot(itemId)
     expect(broker.isItemBlocked(itemId)).toBe(true)
     expect(broker.isSnapshotOnly(itemId)).toBe(true)
 
-    broker.setSyncedHeads(itemId, ['head-from-item'])
+    broker.setSyncedHeads(itemId, ['head-from-snapshot'])
     expect(broker.isItemBlocked(itemId)).toBe(false)
     expect(broker.isSnapshotOnly(itemId)).toBe(false)
-    expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-item'])
+    expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-snapshot'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
+  })
 
-    // Test with DocumentId: should unblock, clear snapshot-only, and call adapter with DocumentId
+  it('records heads on pushAcknowledged without ending snapshot-only sync', () => {
+    const setSyncedHeadsSpy = vi.spyOn(adapter, 'setSyncedHeads')
+    const resetRenegSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
+
+    const itemId = 'item-pushed' as ItemId
+    const docId = toDocumentIdFromItemId(itemId)
+
     broker.blockItem(itemId)
-    broker.markSnapshotOnly(itemId)
-    expect(broker.isItemBlocked(itemId)).toBe(true)
-    expect(broker.isSnapshotOnly(itemId)).toBe(true)
+    broker.fallbackToSnapshot(itemId)
 
-    broker.setSyncedHeads(docId, ['head-from-doc'])
+    internalEventHub.emit({ type: 'pushAcknowledged', itemId, heads: ['head-from-push'] })
     expect(broker.isItemBlocked(itemId)).toBe(false)
-    expect(broker.isSnapshotOnly(itemId)).toBe(false)
-    expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-doc'])
+    expect(broker.isSnapshotOnly(itemId)).toBe(true)
+    expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-push'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
   })
 
   it('clears snapshot-only items on account change and shutdown', async () => {
-    broker.setWal(mockWal)
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId] })
     expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
 
@@ -402,7 +343,6 @@ describe('SyncMessageBroker', () => {
     it('marks item as blocked when WAL append fails, preventing infinite loops on renegotiation', async () => {
       broker.setSendEnabled(true)
       await broker.setAccount('account-1')
-      broker.setWal(mockWal)
 
       const quotaError = new DOMException('Storage quota exceeded', 'QuotaExceededError')
       vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
@@ -435,7 +375,6 @@ describe('SyncMessageBroker', () => {
     it('unblocks item when setSyncedHeads is called after successful snapshot upload', async () => {
       broker.setSendEnabled(true)
       await broker.setAccount('account-1')
-      broker.setWal(mockWal)
 
       // Block the item
       broker.blockItem('item-snap' as ItemId)
@@ -458,7 +397,6 @@ describe('SyncMessageBroker', () => {
     it('unblocks all items and triggers renegotiation for previously blocked items when quotaResolved is emitted', async () => {
       broker.setSendEnabled(true)
       await broker.setAccount('account-1')
-      broker.setWal(mockWal)
 
       const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
       const resetCircuitSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
@@ -488,7 +426,6 @@ describe('SyncMessageBroker', () => {
       })
       broker.setSendEnabled(true)
       await broker.setAccount('account-1')
-      broker.setWal(mockWal)
 
       // Block item
       broker.blockItem('item-blocked' as ItemId)

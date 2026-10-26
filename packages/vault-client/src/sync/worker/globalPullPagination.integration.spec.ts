@@ -7,7 +7,7 @@ import { CursorStore } from './stores/CursorStore'
 import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
 import type { SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
-import type { AutomergeIndexManager } from './docStore'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 
 const keys = createMockKeyProvider()
 
@@ -109,9 +109,9 @@ describe('global pull pagination (client ↔ router)', () => {
     const apiClient = {
       pollSyncBatch: (input: Parameters<typeof caller.pollSync>[0]) => caller.pollSync(input),
     } as unknown as SyncApiClient
-    const indexManager = { updateLastSyncTime: vi.fn() } as unknown as AutomergeIndexManager
+    const wal = new SyncWriteAheadLog(ACCOUNT, internalEventHub)
     const recoveryManager = new RecoveryManager({ accountId: ACCOUNT, eventHub: clientEventHub })
-    const poller = new SyncPoller({ pullQueueManager, clientEventHub, internalEventHub, keys, indexManager, apiClient, recoveryManager })
+    const poller = new SyncPoller({ pullQueueManager, clientEventHub, internalEventHub, keys, wal, apiClient, recoveryManager })
     poller.setAccount(ACCOUNT)
 
     const outcomes: string[] = []
