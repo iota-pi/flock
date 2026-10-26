@@ -749,6 +749,20 @@ describe('DynamoDriver', function () {
       expect(continuation.scannedThroughCursor).toBe(130)
     })
 
+    it('getGlobalSyncMessagesAfterCursor keeps an item ID that contains #', async () => {
+      const account = generateTestAccountId()
+      const itemId = 'item#with#hashes' as ItemId
+      await driver.pushSyncMessagesBatch({
+        account,
+        messages: [{ itemId, entry: { cursor: 110, encryptedMessage, createdAt: 1 }, lastModified: 1 }],
+      })
+
+      const page = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 100 })
+      expect(page.items.map(i => i.itemId)).toEqual([itemId])
+      const itemPage = await driver.getSyncMessages({ account, itemId })
+      expect(itemPage.messages.map(m => m.cursor)).toEqual([110])
+    })
+
     it('getGlobalSyncMessagesAfterCursor rejects a token for another account', async () => {
       const account = generateTestAccountId()
 

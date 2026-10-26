@@ -41,15 +41,15 @@ import type {
 } from '../vaultDriver'
 import { AuthenticationError } from '../../errors'
 import { FAILED_LOGIN_WINDOW_MS } from '../../loginThrottle'
-import { backOff, VersionConflictError, type BackoffOptions } from '@vault/shared'
-import type { ItemId, ManifestEntry } from '@vault/shared'
+import { backOff, VersionConflictError, type BackoffOptions, type ItemId, type ManifestEntry } from '@vault/shared'
 import { isConditionalCheckFailure, isResourceInUseError } from './dynamoErrors'
 import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
 import { ACCOUNT_CURSOR_INDEX, getVaultTableDefinitions } from './tables'
-import { buildDynamoUpdate } from './expressions'
+import { buildUpdateParams, cursorKeyCondition, RawUpdateValue } from './expressions'
 import { sendBatchWithRetry } from './batchRetry'
 import { decodeGlobalPageToken, decodeItemPageToken, encodePageToken } from './pageTokens'
 import { decodeStoredSnapshotCipher, toStoredItem, validateItem } from './items'
+import { parseSyncId, toSyncId } from './syncIds'
 
 export interface DynamoDriverOptions {
   tables?: Partial<VaultTableNames>
@@ -280,30 +280,28 @@ export default class DynamoDriver implements VaultDriver {
     sessions,
     ...rest
   }: UpdateAccountDataParams & Partial<TExtra>): Promise<void> {
-    const updateFields: Record<string, unknown> = {
-      ...rest,
-      ...(sessions !== undefined ? { sessions: normalizeSessionRecords(sessions) } : {}),
-    }
-
-    const { expression, names, values } = buildDynamoUpdate(updateFields)
-    if (!expression) {
+    const update = buildUpdateParams({
+      set: {
+        ...rest,
+        sessions: sessions !== undefined ? normalizeSessionRecords(sessions) : undefined,
+      },
+      condition: typeof expectedKeyringVersion === 'number'
+        ? {
+          expression: 'attribute_exists(account)'
+            + ' AND (keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))',
+          values: { ':expectedKeyringVersion': expectedKeyringVersion },
+        }
+        : { expression: 'attribute_exists(account)' },
+    })
+    if (!update.UpdateExpression) {
       return
-    }
-
-    let condition = 'attribute_exists(account)'
-    if (typeof expectedKeyringVersion === 'number') {
-      values[':expectedKeyringVersion'] = expectedKeyringVersion
-      condition += ' AND (keyringVersion = :expectedKeyringVersion OR attribute_not_exists(keyringVersion))'
     }
 
     try {
       await this.client.send(new UpdateCommand({
         TableName: this.tables.accounts,
         Key: { account },
-        UpdateExpression: expression,
-        ConditionExpression: condition,
-        ExpressionAttributeNames: names,
-        ExpressionAttributeValues: values,
+        ...update,
         ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
       }))
     } catch (error) {
@@ -423,45 +421,33 @@ export default class DynamoDriver implements VaultDriver {
     // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists
     const removeLegacyCipher = !!item.snapshot && !item.cipher
 
-    const updateParams: UpdateCommandInput = {
+    const res = await this.client.send(new UpdateCommand({
       TableName: this.tables.items,
       Key: {
         account: item.account,
         item: item.item,
       },
-      UpdateExpression: [
-        'SET #metadata = :metadata',
-        item.snapshot ? '#snapshot = :snapshot' : undefined,
-        item.cipher ? '#cipher = :cipher' : undefined,
-        '#modifiedAt = :modifiedAt',
-        '#version = if_not_exists(#version, :zero) + :one',
-      ].filter(Boolean).join(', ') + (removeLegacyCipher ? ' REMOVE #cipher' : ''),
-      // Older rows may mark deletion with a top-level attribute, which the manifest also reads
-      ConditionExpression: unlessDeleted
-        ? '(attribute_not_exists(#metadata.#deleted) OR #metadata.#deleted <> :true)'
-          + ' AND (attribute_not_exists(#deleted) OR #deleted <> :true)'
-        : undefined,
-      ExpressionAttributeNames: {
-        '#metadata': 'metadata',
-        ...(item.snapshot ? { '#snapshot': 'snapshot' } : {}),
-        ...(item.cipher || removeLegacyCipher ? { '#cipher': 'cipher' } : {}),
-        '#modifiedAt': 'modifiedAt',
-        '#version': 'version',
-        ...(unlessDeleted ? { '#deleted': 'deleted' } : {}),
-      },
-      ExpressionAttributeValues: {
-        ':metadata': item.metadata,
-        ...(item.snapshot ? { ':snapshot': item.snapshot } : {}),
-        ...(item.cipher ? { ':cipher': item.cipher } : {}),
-        ':modifiedAt': modifiedAt,
-        ':zero': 0,
-        ':one': 1,
-        ...(unlessDeleted ? { ':true': true } : {}),
-      },
+      ...buildUpdateParams({
+        set: {
+          metadata: item.metadata,
+          snapshot: item.snapshot || undefined,
+          cipher: item.cipher || undefined,
+          modifiedAt,
+          version: new RawUpdateValue('if_not_exists(#version, :zero) + :one', { ':zero': 0, ':one': 1 }),
+        },
+        remove: removeLegacyCipher ? ['cipher'] : [],
+        // Older rows may mark deletion with a top-level attribute, which the manifest also reads
+        condition: unlessDeleted
+          ? {
+            expression: '(attribute_not_exists(#metadata.#deleted) OR #metadata.#deleted <> :true)'
+              + ' AND (attribute_not_exists(#deleted) OR #deleted <> :true)',
+            names: { '#deleted': 'deleted' },
+            values: { ':true': true },
+          }
+          : undefined,
+      }),
       ReturnValues: 'UPDATED_NEW',
-    }
-
-    const res = await this.client.send(new UpdateCommand(updateParams))
+    }))
     return { version: (res.Attributes?.version as number) ?? 1 }
   }
 
@@ -469,49 +455,36 @@ export default class DynamoDriver implements VaultDriver {
     { account }: { account: string },
   ): Promise<Array<ManifestEntry>> {
     const manifest: Array<ManifestEntry> = []
-    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
+    const records = this.queryAll({
+      TableName: this.tables.items,
+      KeyConditionExpression: 'account = :accountid',
+      ExpressionAttributeNames: {
+        '#itemKey': 'item',
+        '#modifiedAt': 'modifiedAt',
+        '#metadata': 'metadata',
+        '#deleted': 'deleted',
+        '#version': 'version',
+      },
+      ExpressionAttributeValues: {
+        ':accountid': account,
+      },
+      ProjectionExpression: '#itemKey, #version, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
+    })
 
-    while (true) {
-      const queryInput: QueryCommandInput = {
-        TableName: this.tables.items,
-        KeyConditionExpression: 'account = :accountid',
-        ExpressionAttributeNames: {
-          '#itemKey': 'item',
-          '#modifiedAt': 'modifiedAt',
-          '#metadata': 'metadata',
-          '#deleted': 'deleted',
-          '#version': 'version',
-        },
-        ExpressionAttributeValues: {
-          ':accountid': account,
-        },
-        ProjectionExpression: '#itemKey, #version, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
-        ExclusiveStartKey: lastEvaluatedKey,
-      }
-
-      const response = await this.client.send(new QueryCommand(queryInput))
-
-      if (response?.Items) {
-        for (const record of response.Items) {
-          const itemId = record.item as ItemId
-          if (!itemId) continue
-          const isDeleted = record.metadata?.deleted === true || (record as Record<string, unknown>).deleted === true
-          const modifiedAt = typeof record.modifiedAt === 'number'
-            ? record.modifiedAt
-            : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
-          const version = typeof record.version === 'number' ? record.version : 1
-          manifest.push({
-            itemId,
-            version,
-            modifiedAt,
-            ...(isDeleted ? { isDeleted: true } : {}),
-          })
-        }
-      }
-      lastEvaluatedKey = response?.LastEvaluatedKey
-      if (!lastEvaluatedKey) {
-        break
-      }
+    for await (const record of records) {
+      const itemId = readItemId(record)
+      if (!itemId) continue
+      const isDeleted = record.metadata?.deleted === true || record.deleted === true
+      const modifiedAt = typeof record.modifiedAt === 'number'
+        ? record.modifiedAt
+        : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
+      const version = typeof record.version === 'number' ? record.version : 1
+      manifest.push({
+        itemId,
+        version,
+        modifiedAt,
+        ...(isDeleted ? { isDeleted: true } : {}),
+      })
     }
 
     return manifest
@@ -538,46 +511,51 @@ export default class DynamoDriver implements VaultDriver {
 
   async listItemFormats({ account }: BaseData): Promise<ItemFormatSummary[]> {
     const formats: ItemFormatSummary[] = []
-    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
+    const records = this.queryAll({
+      TableName: this.tables.items,
+      KeyConditionExpression: 'account = :accountid',
+      ExpressionAttributeNames: {
+        '#itemKey': 'item',
+        '#metadata': 'metadata',
+        '#deleted': 'deleted',
+        '#snapshot': 'snapshot',
+        '#iv': 'iv',
+        '#format': 'format',
+        '#kver': 'kver',
+        '#cipher': 'cipher',
+      },
+      ExpressionAttributeValues: {
+        ':accountid': account,
+      },
+      ProjectionExpression: '#itemKey, #metadata.#deleted, #snapshot.#iv, #snapshot.#format, #snapshot.#kver, #cipher',
+    })
 
-    do {
-      const response: QueryCommandOutput = await this.client.send(new QueryCommand({
-        TableName: this.tables.items,
-        KeyConditionExpression: 'account = :accountid',
-        ExpressionAttributeNames: {
-          '#itemKey': 'item',
-          '#metadata': 'metadata',
-          '#deleted': 'deleted',
-          '#snapshot': 'snapshot',
-          '#iv': 'iv',
-          '#format': 'format',
-          '#kver': 'kver',
-          '#cipher': 'cipher',
-        },
-        ExpressionAttributeValues: {
-          ':accountid': account,
-        },
-        ProjectionExpression: '#itemKey, #metadata.#deleted, #snapshot.#iv, #snapshot.#format, #snapshot.#kver, #cipher',
-        ExclusiveStartKey: lastEvaluatedKey,
-      }))
-
-      for (const record of response.Items ?? []) {
-        if (typeof record.item !== 'string') continue
-        const snapshotFormat = record.snapshot?.format
-        const snapshotKver = record.snapshot?.kver
-        formats.push({
-          itemId: record.item as ItemId,
-          deleted: record.metadata?.deleted === true,
-          hasSnapshot: record.snapshot !== undefined,
-          ...(typeof snapshotFormat === 'number' ? { snapshotFormat } : {}),
-          ...(typeof snapshotKver === 'string' ? { snapshotKver } : {}),
-          hasCipher: typeof record.cipher === 'string' && record.cipher.length > 0,
-        })
-      }
-      lastEvaluatedKey = response.LastEvaluatedKey
-    } while (lastEvaluatedKey)
+    for await (const record of records) {
+      const itemId = readItemId(record)
+      if (!itemId) continue
+      const snapshotFormat = record.snapshot?.format
+      const snapshotKver = record.snapshot?.kver
+      formats.push({
+        itemId,
+        deleted: record.metadata?.deleted === true,
+        hasSnapshot: record.snapshot !== undefined,
+        ...(typeof snapshotFormat === 'number' ? { snapshotFormat } : {}),
+        ...(typeof snapshotKver === 'string' ? { snapshotKver } : {}),
+        hasCipher: typeof record.cipher === 'string' && record.cipher.length > 0,
+      })
+    }
 
     return formats
+  }
+
+  /** Runs a query to the end, yielding the records of each page as it arrives */
+  private async* queryAll(input: Omit<QueryCommandInput, 'ExclusiveStartKey'>): AsyncGenerator<NonNullable<QueryCommandOutput['Items']>[number]> {
+    let exclusiveStartKey: QueryCommandOutput['LastEvaluatedKey']
+    do {
+      const response = await this.client.send(new QueryCommand({ ...input, ExclusiveStartKey: exclusiveStartKey }))
+      yield* response.Items ?? []
+      exclusiveStartKey = response.LastEvaluatedKey
+    } while (exclusiveStartKey)
   }
 
   private async executeBatchGetWithRetry(
@@ -654,7 +632,7 @@ export default class DynamoDriver implements VaultDriver {
           [this.tables.syncMessages]: batch.map(message => ({
             PutRequest: {
               Item: {
-                syncId: `${input.account}#${message.itemId}`,
+                syncId: toSyncId(input.account, message.itemId),
                 cursor: message.entry.cursor,
                 account: input.account,
                 encryptedMessage: message.entry.encryptedMessage,
@@ -671,26 +649,16 @@ export default class DynamoDriver implements VaultDriver {
   }
 
   async getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage> {
-    const expectedSyncId = `${input.account}#${input.itemId}`
+    const expectedSyncId = toSyncId(input.account, input.itemId)
     const exclusiveStartKey = input.pageToken
       ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
       : undefined
     // A continuation starts from the token, which already lies after fromCursor
     const fromCursor = exclusiveStartKey ? undefined : input.fromCursor
-    const hasCursor = typeof fromCursor === 'number'
 
     const response = await this.client.send(new QueryCommand({
       TableName: this.tables.syncMessages,
-      KeyConditionExpression: hasCursor
-        ? 'syncId = :syncId AND #c > :fromCursor'
-        : 'syncId = :syncId',
-      ExpressionAttributeNames: hasCursor
-        ? { '#c': 'cursor' }
-        : undefined,
-      ExpressionAttributeValues: {
-        ':syncId': expectedSyncId,
-        ...(hasCursor ? { ':fromCursor': fromCursor } : undefined),
-      },
+      ...cursorKeyCondition('syncId', expectedSyncId, fromCursor),
       Limit: input.limit ?? DEFAULT_SYNC_MESSAGE_LIMIT,
       ExclusiveStartKey: exclusiveStartKey,
     }))
@@ -704,7 +672,7 @@ export default class DynamoDriver implements VaultDriver {
 
   validatePageToken(input: ValidatePageTokenInput): void {
     if (input.itemId) {
-      decodeItemPageToken(input.pageToken, `${input.account}#${input.itemId}`, input.cursor)
+      decodeItemPageToken(input.pageToken, toSyncId(input.account, input.itemId), input.cursor)
     } else {
       decodeGlobalPageToken(input.pageToken, input.account)
     }
@@ -718,21 +686,11 @@ export default class DynamoDriver implements VaultDriver {
       : undefined
     // A continuation starts from the token, which already lies after the cursor
     const cursor = exclusiveStartKey ? undefined : input.cursor
-    const hasCursor = typeof cursor === 'number'
 
     const response = await this.client.send(new QueryCommand({
       TableName: this.tables.syncMessages,
       IndexName: ACCOUNT_CURSOR_INDEX,
-      KeyConditionExpression: hasCursor
-        ? 'account = :account AND #c > :cursor'
-        : 'account = :account',
-      ExpressionAttributeNames: hasCursor
-        ? { '#c': 'cursor' }
-        : undefined,
-      ExpressionAttributeValues: {
-        ':account': input.account,
-        ...(hasCursor ? { ':cursor': cursor } : undefined),
-      },
+      ...cursorKeyCondition('account', input.account, cursor),
       Limit: DEFAULT_SYNC_MESSAGE_LIMIT,
       ExclusiveStartKey: exclusiveStartKey,
     }))
@@ -745,7 +703,7 @@ export default class DynamoDriver implements VaultDriver {
       if (typeof item.cursor === 'number' && item.cursor > scannedThroughCursor) {
         scannedThroughCursor = item.cursor
       }
-      const itemId = item.syncId.split('#')[1] as ItemId
+      const itemId = parseSyncId(item.syncId)?.itemId
       if (!itemId) continue
 
       let messages = messagesByItem.get(itemId)
@@ -770,4 +728,9 @@ export default class DynamoDriver implements VaultDriver {
       scannedThroughCursor,
     }
   }
+}
+
+/** The item ID of an items-table record, or undefined for a record without one */
+function readItemId(record: Record<string, unknown>): ItemId | undefined {
+  return typeof record.item === 'string' && record.item !== '' ? record.item as ItemId : undefined
 }

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { PageToken } from '@vault/shared'
 import { InvalidPageTokenError } from '../../errors'
+import { parseSyncId } from './syncIds'
 
 // Page tokens wrap DynamoDB's LastEvaluatedKey. Clients can read and forge them, which only lets
 // them page through their own account's messages, so the keys are validated but not signed.
@@ -34,7 +35,7 @@ export function decodeItemPageToken(token: PageToken, expectedSyncId: string, fr
 
 export function decodeGlobalPageToken(token: PageToken, account: string): GlobalSyncMessageKey {
   const key = decodePageToken(token, GlobalSyncMessageKeySchema)
-  if (key.account !== account || !key.syncId.startsWith(`${account}#`)) {
+  if (key.account !== account || parseSyncId(key.syncId)?.account !== account) {
     throw new InvalidPageTokenError(`Page token is for another account: expected ${account}`)
   }
   return key
