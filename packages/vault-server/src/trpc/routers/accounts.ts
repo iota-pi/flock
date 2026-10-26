@@ -123,10 +123,9 @@ export const accountsRouter = router({
   // Clients call this once their migrations have run. Returns why it couldn't be raised, if it couldn't.
   raiseDataVersion: protectedProcedure
     .mutation(async ({ ctx, input }) => {
-      const result = await raiseDataVersion({
+      const result = await raiseDataVersion(ctx.vault, {
         account: input.account,
         accountData: ctx.accountData,
-        vault: ctx.vault,
         policy: ctx.dataVersionPolicy,
       })
       return { success: true, ...result }

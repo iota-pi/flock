@@ -10,7 +10,7 @@ export const itemsRouter = router({
   fetchManifest: protectedProcedure
     .input(FetchItemsInputSchema)
     .query(async ({ ctx, input }) => {
-      const result = await fetchManifest(ctx, input)
+      const result = await fetchManifest(ctx.vault, input)
 
       return {
         success: true,
@@ -22,7 +22,7 @@ export const itemsRouter = router({
   fetchSnapshotsByIds: protectedProcedure
     .input(FetchSnapshotsByIdsInputSchema)
     .query(async ({ ctx, input }) => {
-      const result = await fetchSnapshotsByIds(ctx, input)
+      const result = await fetchSnapshotsByIds(ctx.vault, input)
 
       return {
         success: true,
@@ -30,7 +30,6 @@ export const itemsRouter = router({
         serverTime: result.serverTime,
       }
     }),
-
 
   putSnapshots: protectedProcedure
     .input(PutSnapshotBatchSchema)

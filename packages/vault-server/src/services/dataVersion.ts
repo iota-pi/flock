@@ -18,17 +18,14 @@ export interface RaiseDataVersionResult {
   blockers: string[]
 }
 
-export async function raiseDataVersion({
-  account,
-  accountData,
-  vault,
-  policy,
-}: {
-  account: string
-  accountData: VaultAccount
-  vault: VaultDriver
-  policy?: DataVersionPolicy
-}): Promise<RaiseDataVersionResult> {
+export async function raiseDataVersion(
+  vault: VaultDriver,
+  { account, accountData, policy }: {
+    account: string
+    accountData: VaultAccount
+    policy?: DataVersionPolicy
+  },
+): Promise<RaiseDataVersionResult> {
   const dataVersion = accountData.dataVersion ?? 0
   if (!policy || dataVersion >= policy.current) {
     return { dataVersion, blockers: [] }

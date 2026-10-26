@@ -8,7 +8,7 @@ export interface PersistSnapshotsResult {
   success: boolean
   persisted: number
   total: number
-  results?: Array<{ itemId: ItemId; version: number }>
+  results: Array<{ itemId: ItemId; version: number }>
 }
 
 /**
