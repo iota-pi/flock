@@ -152,34 +152,20 @@ export class ManifestHydrator {
     const results = await mapWithConcurrency(
       validFetchedItems,
       hydrationConcurrency,
-      async item => {
+      // hydrateRemoteItem catches its own errors, so only an abort from checkAlive rejects here
+      item => {
         checkAlive(signal, () => this.isAlive())
-        try {
-          const value = await this.hydrateRemoteItem(
-            item,
-            manifestById,
-            params.knownSet,
-            params.tombstoneSet,
-            params.serverTime,
-          )
-          return { status: 'fulfilled' as const, value }
-        } catch (reason) {
-          if (signal?.aborted || isAbortError(reason)) {
-            throw reason
-          }
-          return { status: 'rejected' as const, reason }
-        }
+        return this.hydrateRemoteItem(
+          item,
+          manifestById,
+          params.knownSet,
+          params.tombstoneSet,
+          params.serverTime,
+        )
       },
     )
 
-    for (const settled of results) {
-      if (settled.status === 'rejected') {
-        hasHydrationFailures = true
-        log.error('Unexpected error hydrating item', settled.reason)
-        continue
-      }
-
-      const result = settled.value
+    for (const result of results) {
       switch (result.status) {
         case 'success':
           if (result.hydratedId) {
@@ -283,7 +269,7 @@ export class ManifestHydrator {
       if (item.snapshot) {
         const binaryResult = await this.hydrateSnapshotBinary(
           itemId,
-          item,
+          item.snapshot,
           serverTime,
           serverVersion,
           knownSet,
@@ -332,27 +318,26 @@ export class ManifestHydrator {
 
   private async hydrateSnapshotBinary(
     itemId: ItemId,
-    item: FetchedItem,
+    snapshot: CryptoResult,
     serverTime: number,
     serverVersion: number,
     knownSet: Set<ItemId>,
     tombstoneSet: Set<ItemId>,
   ): Promise<HydrateItemResult | null> {
-    if (!item.snapshot) return null
-    const binary = await this.decryptSnapshotBinary(itemId, item.snapshot)
+    const binary = await this.decryptSnapshotBinary(itemId, snapshot)
     if (binary === 'key_unavailable') return { status: 'key_unavailable', itemId }
     if (!binary) return null
 
-    const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary, {
+    const hydrationResult = await this.deps.docStore.hydrateAutomergeDocumentBinary(itemId, binary, {
       knownToExist: knownSet.has(itemId),
     })
-    try {
-      const heads = hydrationResult?.incomingHeads
-      if (heads) {
+    const heads = hydrationResult?.incomingHeads
+    if (heads) {
+      try {
         this.deps.onItemSnapshotHydrated?.(itemId, heads)
+      } catch {
+        // Best-effort: the doc is already hydrated, so a failed notification mustn't fail the item
       }
-    } catch {
-      // Best-effort heads notification; ignore failure if notification throws
     }
 
     const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))

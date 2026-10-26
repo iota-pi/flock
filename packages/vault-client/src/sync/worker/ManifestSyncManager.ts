@@ -10,6 +10,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { isAuthError } from '../utils/errorClassifier'
+import { errorMessage } from '../utils/errorMessage'
 import { ManifestDeltaCalculator, type SyncDeltas } from './ManifestDeltaCalculator'
 import { ManifestHydrator } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -140,7 +141,7 @@ export class ManifestSyncManager implements LifecycleAware {
         return null
       }
       // Logged by handleSyncError
-      throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
+      throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${errorMessage(e)}`, { cause: e })
     }
   }
 
@@ -151,17 +152,15 @@ export class ManifestSyncManager implements LifecycleAware {
     checkAlive(signal, isAlive)
 
     const quarantinedMap = new Map<ItemId, number>()
-    if (this.deps.accountId) {
-      try {
-        const recoveryEntries = await this.recoveryManager.listRecoveryItems()
-        checkAlive(signal, isAlive)
-        for (const entry of recoveryEntries) {
-          quarantinedMap.set(entry.itemId, entry.createdAt)
-        }
-      } catch (err) {
-        if (signal.aborted || isAbortError(err)) throw err
-        log.warn('Failed to read manual recovery entries', err)
+    try {
+      const recoveryEntries = await this.recoveryManager.listRecoveryItems()
+      checkAlive(signal, isAlive)
+      for (const entry of recoveryEntries) {
+        quarantinedMap.set(entry.itemId, entry.createdAt)
       }
+    } catch (err) {
+      if (signal.aborted || isAbortError(err)) throw err
+      log.warn('Failed to read manual recovery entries', err)
     }
 
     return { tombstoneItemIds, localLastModifiedMap, quarantinedMap, localVersionsMap }
@@ -169,15 +168,9 @@ export class ManifestSyncManager implements LifecycleAware {
 
   private createSyncAbortContext(outerSignal?: AbortSignal) {
     const abortController = new AbortController()
-    const isAlive = () => !this.isShutdown && (!outerSignal || !outerSignal.aborted)
-
-    if (outerSignal?.aborted) {
-      abortController.abort(outerSignal.reason)
-    } else if (outerSignal) {
-      outerSignal.addEventListener('abort', () => abortController.abort(outerSignal.reason), { once: true })
-    }
-
-    return { abortController, signal: abortController.signal, isAlive }
+    const signal = outerSignal ? AbortSignal.any([abortController.signal, outerSignal]) : abortController.signal
+    const isAlive = () => !this.isShutdown && !outerSignal?.aborted
+    return { abortController, signal, isAlive }
   }
 
   private async checkGating(
@@ -229,7 +222,7 @@ export class ManifestSyncManager implements LifecycleAware {
       return { added: [], success: false }
     }
     log.error('Manifest sync failed', e)
-    throw new Error(`[ManifestSyncManager] Manifest sync failed: ${(e as Error).message || String(e)}`, { cause: e })
+    throw new Error(`[ManifestSyncManager] Manifest sync failed: ${errorMessage(e)}`, { cause: e })
   }
 
   private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {

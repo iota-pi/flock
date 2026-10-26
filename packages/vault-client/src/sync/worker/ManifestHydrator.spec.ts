@@ -513,43 +513,6 @@ describe('ManifestHydrator', () => {
       expect(storeItemsSpy).toHaveBeenCalled()
     })
 
-    it('settles unexpected hydration rejection without halting processing of remaining items', async () => {
-      const items = [
-        { item: 'item-1', metadata: { deleted: true } },
-        { item: 'item-crash', metadata: { deleted: true } },
-        { item: 'item-2', metadata: { deleted: true } },
-      ]
-      mockApiClient.fetchSnapshotsByIds.mockResolvedValue({ items })
-
-      const originalHydrate = hydrator.hydrateRemoteItem.bind(hydrator)
-      vi.spyOn(hydrator, 'hydrateRemoteItem').mockImplementation(async (item, ...rest) => {
-        if (item.item === 'item-crash') {
-          throw new Error('Catastrophic failure in item-crash')
-        }
-        return originalHydrate(item, ...rest)
-      })
-
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-      const result = await hydrator.fetchAndHydrateRemoteItems({
-        missingIds: items.map(e => e.item as ItemId),
-        manifest: items.map(e => ({ itemId: e.item as ItemId, modifiedAt: 1000 })),
-        serverTime: 1000,
-        knownSet: new Set(),
-        tombstoneSet: new Set(),
-      })
-
-      expect(result.hasFailures).toBe(true)
-      expect(storeItemsSpy).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ id: 'item-1' }),
-          expect.objectContaining({ id: 'item-2' }),
-        ]),
-        { markDirty: false },
-      )
-      consoleErrorSpy.mockRestore()
-    })
-
     it('aborts immediately and throws when AbortSignal is aborted during concurrent hydration', async () => {
       const items = Array.from({ length: 8 }, (_, i) => ({
         item: `item-${i}`,
