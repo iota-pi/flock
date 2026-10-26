@@ -15,6 +15,7 @@ import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../session
 import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
 import { authenticateLogin } from '../../authentication'
+import { toTrpcError } from '../errors'
 
 const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
 
@@ -49,17 +50,16 @@ export const accountsRouter = router({
       try {
         authenticateLogin(record, hashString(input.authToken))
       } catch (error) {
-        if (error instanceof TooManyLoginAttemptsError) {
-          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE })
-        }
         if (error instanceof AuthenticationError) {
           // Failing to count it mustn't turn a wrong password into a server error
           await ctx.vault.recordFailedLogin({ account: input.account }).catch(countError => {
             console.warn('[accounts.login] Could not count a failed login:', countError)
           })
-          throw new TRPCError({ code: 'UNAUTHORIZED' })
         }
-        throw error
+        throw toTrpcError(error, [
+          { error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: TOO_MANY_REQUESTS_MESSAGE },
+          { error: AuthenticationError, code: 'UNAUTHORIZED' },
+        ])
       }
 
       // The driver adds it with a conditional write, so concurrent logins don't drop each other's sessions
@@ -151,14 +151,10 @@ export const accountsRouter = router({
             ? { expectedKeyringVersion: input.expectedKeyringVersion }
             : {}),
         })
-      } catch (err) {
-        if (err instanceof VersionConflictError) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'Concurrent key rotation detected: keyringVersion conflict',
-          })
-        }
-        throw err
+      } catch (error) {
+        throw toTrpcError(error, [
+          { error: VersionConflictError, code: 'CONFLICT', message: 'Concurrent key rotation detected: keyringVersion conflict' },
+        ])
       }
 
       return { success: true }
@@ -196,14 +192,10 @@ export const accountsRouter = router({
             : {}),
           sessions: [{ token: hashSessionToken(ctx.authToken), expiry: currentSessionExpiry }],
         })
-      } catch (err) {
-        if (err instanceof VersionConflictError) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'Concurrent credential update detected: keyringVersion conflict',
-          })
-        }
-        throw err
+      } catch (error) {
+        throw toTrpcError(error, [
+          { error: VersionConflictError, code: 'CONFLICT', message: 'Concurrent credential update detected: keyringVersion conflict' },
+        ])
       }
 
       return { success: true }

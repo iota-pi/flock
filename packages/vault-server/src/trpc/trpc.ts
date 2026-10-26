@@ -12,6 +12,7 @@ import type { DataVersionPolicy } from '../services/dataVersion'
 import { AuthenticationError } from '../errors'
 import { authenticateSession } from '../authentication'
 import { shouldRenewSession } from '../sessions'
+import { toTrpcError } from './errors'
 
 export interface VaultServerOptions {
   /** The storage every request runs on */
@@ -106,10 +107,7 @@ export const protectedProcedure = publicProcedure
     try {
       accountData = authenticateSession(record, ctx.authToken)
     } catch (error) {
-      if (error instanceof AuthenticationError) {
-        throw new TRPCError({ code: 'UNAUTHORIZED' })
-      }
-      throw error
+      throw toTrpcError(error, [{ error: AuthenticationError, code: 'UNAUTHORIZED' }])
     }
 
     let extendSessionPromise: Promise<void> | null = null
