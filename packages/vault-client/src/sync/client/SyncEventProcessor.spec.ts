@@ -19,7 +19,7 @@ describe('SyncEventProcessor', () => {
   })
 
   afterEach(() => {
-    processor.reset(true)
+    processor.reset()
     vi.useRealTimers()
   })
 
@@ -92,6 +92,22 @@ describe('SyncEventProcessor', () => {
     expect(sink.state.syncWarning).toBeNull()
   })
 
+  it('on quotaResolved, leaves a warning that replaced the quota warning', () => {
+    processor.handleSyncEvent({ type: 'quotaExceeded', message: 'Storage quota exceeded' })
+    sink.setSyncWarning('Sync connection lost. Reconnecting...')
+
+    processor.handleSyncEvent({ type: 'quotaResolved' })
+    expect(sink.state.syncWarning).toBe('Sync connection lost. Reconnecting...')
+  })
+
+  it('on quotaResolved, leaves a warning from another event even if it mentions storage', () => {
+    processor.handleSyncEvent({ type: 'quotaExceeded', message: 'Storage quota exceeded' })
+    processor.handleSyncEvent({ type: 'snapshotFailed', itemId: 'item-1' as ItemId, message: 'Storage write failed' })
+
+    processor.handleSyncEvent({ type: 'quotaResolved' })
+    expect(sink.state.syncWarning).toBe('Storage write failed')
+  })
+
   it('handles leaderConflict events', () => {
     processor.handleSyncEvent({ type: 'leaderConflict', hasConflict: true })
     expect(sink.state.isLeaderConflict).toBe(true)
@@ -112,7 +128,6 @@ describe('SyncEventProcessor', () => {
     ]
     processor.handleSyncEvent({ type: 'recoveryItemsChanged', entries: mockEntries })
 
-    expect(processor.getRecoveryEntries()).toEqual(mockEntries)
     expect(listener).toHaveBeenCalledWith(mockEntries)
 
     unsubscribe()
@@ -122,6 +137,12 @@ describe('SyncEventProcessor', () => {
 
   it('resets state on reset()', async () => {
     vi.useFakeTimers()
+    processor.handleSyncEvent({
+      type: 'recoveryItemsChanged',
+      entries: [{ id: 'r1', itemId: 'item-1' as ItemId, reason: 'error', kind: 'pullDecryption', createdAt: 123 }],
+    })
+    const listener = vi.fn()
+    processor.subscribeRecoveryItems(listener)
 
     processor.handleSyncEvent({
       type: 'itemUpdated',
@@ -129,16 +150,19 @@ describe('SyncEventProcessor', () => {
       item: { id: 'item-cancelled' } as any,
     })
 
-    processor.reset(true)
+    processor.reset()
 
     await vi.advanceTimersByTimeAsync(50)
     expect(updateItemsSpy).not.toHaveBeenCalled()
-    expect(processor.getRecoveryEntries()).toEqual([])
+    expect(listener).toHaveBeenLastCalledWith([])
+    const lateListener = vi.fn()
+    processor.subscribeRecoveryItems(lateListener)
+    expect(lateListener).toHaveBeenCalledWith([])
   })
 
   it('delegates tokenRefreshNeeded event to callback', () => {
     const onTokenRefreshNeeded = vi.fn()
-    processor.setCallbacks({ onTokenRefreshNeeded })
+    processor = new SyncEventProcessor(sink, { onTokenRefreshNeeded }, telemetry)
 
     processor.handleSyncEvent({ type: 'tokenRefreshNeeded' })
     expect(onTokenRefreshNeeded).toHaveBeenCalledTimes(1)

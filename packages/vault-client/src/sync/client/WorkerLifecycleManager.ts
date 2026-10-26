@@ -32,6 +32,41 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   })
 }
 
+/** A running sync worker with its Comlink API and the event and ping channels to it */
+class WorkerSession {
+  readonly api: Comlink.Remote<SyncApi>
+  private readonly eventChannel = new MessageChannel()
+  private readonly pingChannel = new MessageChannel()
+
+  constructor(readonly worker: Worker, onEvent: (event: ClientEvent) => void) {
+    this.api = Comlink.wrap<SyncApi>(worker)
+    try {
+      this.eventChannel.port1.onmessage = ev => {
+        onEvent(ev.data as ClientEvent)
+      }
+      this.eventChannel.port1.start()
+      worker.postMessage({ type: 'EVENT_PORT', port: this.eventChannel.port2 }, [this.eventChannel.port2])
+
+      this.pingChannel.port1.start()
+      worker.postMessage({ type: 'INIT_PING_PORT', port: this.pingChannel.port2 }, [this.pingChannel.port2])
+    } catch (error) {
+      this.close()
+      throw error
+    }
+  }
+
+  get pingPort(): MessagePort {
+    return this.pingChannel.port1
+  }
+
+  close(): void {
+    this.worker.terminate()
+    this.eventChannel.port1.onmessage = null
+    this.eventChannel.port1.close()
+    this.pingChannel.port1.close()
+  }
+}
+
 export interface WorkerLifecycleCallbacks {
   /** Creates the app's sync worker (whose entry file calls exposeSyncWorker) */
   createWorker: () => Worker
@@ -51,17 +86,14 @@ export interface WorkerInitOptions {
 }
 
 export class WorkerLifecycleManager {
+  /** The current worker, set as soon as it starts so a shutdown during initialization can shut it down */
+  private session: WorkerSession | null = null
+  /** The current session's API, once it has initialized */
   private syncApi: Comlink.Remote<SyncApi> | null = null
-  /** The worker's API while it initializes, so a shutdown in the meantime can still shut it down */
-  private initializingApi: Comlink.Remote<SyncApi> | null = null
-  private workerInstance: Worker | null = null
   private currentAccountId: string | null = null
   private lastKnownAccountId: string | null = null
   private readonly pendingShutdownClearAccounts = new Set<string>()
   private activeShutdownPromise: Promise<void> | null = null
-
-  private globalEventChannel: MessageChannel | null = null
-  private pingChannel: MessageChannel | null = null
 
   private initializationPromise: Promise<void> | null = null
   private initAbortController: AbortController | null = null
@@ -70,14 +102,6 @@ export class WorkerLifecycleManager {
     delays: DEFAULT_RETRY_DELAYS,
     maxAttempts: WorkerLifecycleManager.MAX_INIT_RETRIES,
   })
-
-  private get initRetryCount(): number {
-    return this.initRetryStrategy.attempt
-  }
-
-  private set initRetryCount(val: number) {
-    this.initRetryStrategy.attempt = val
-  }
 
   /** Settles the pending `initializationPromise` that mutations wait on while a crashed worker restarts */
   private pendingRestart: PromiseWithResolvers<void> | null = null
@@ -111,8 +135,13 @@ export class WorkerLifecycleManager {
     return this.currentAccountId
   }
 
+  /** The account a shutdown or local data clear applies to when none is given */
+  private resolveTargetAccountId(accountId?: string): string | null {
+    return accountId || this.currentAccountId || this.lastKnownAccountId || this.callbacks.getAccountId?.() || null
+  }
+
   requestClearOnShutdown(accountId?: string): void {
-    const target = accountId || this.currentAccountId || this.lastKnownAccountId || this.callbacks.getAccountId?.()
+    const target = this.resolveTargetAccountId(accountId)
     if (target) {
       this.pendingShutdownClearAccounts.add(target)
       this.lastKnownAccountId = target
@@ -160,7 +189,7 @@ export class WorkerLifecycleManager {
         return
       }
 
-      if (this.syncApi || this.workerInstance) {
+      if (this.session) {
         await this.shutdown({ internalRestart: true, clearLocalData: options?.clearLocalData, accountId })
       } else if (options?.clearLocalData) {
         await clearAccountLocalData(accountId)
@@ -170,56 +199,24 @@ export class WorkerLifecycleManager {
         return
       }
 
-      this.callbacks.onStatusChange?.('connecting')
+      this.callbacks.onStatusChange('connecting')
       const initialOnlineState = getOnlineState()
 
-      let worker: Worker | null = null
-      let wrappedApi: Comlink.Remote<SyncApi> | null = null
-      let globalEventChannel: MessageChannel | null = null
-      let pingChannel: MessageChannel | null = null
-      let didAssignSyncApi = false
+      let session: WorkerSession | null = null
 
-      const cleanupSessionResources = () => {
-        if (worker) {
-          worker.terminate()
-        }
-        if (globalEventChannel) {
-          globalEventChannel.port1.onmessage = null
-          globalEventChannel.port1.close()
-        }
-        if (pingChannel) {
-          pingChannel.port1.close()
-        }
-        if (this.workerInstance === worker) {
-          this.workerInstance = null
-        }
-        if (this.globalEventChannel === globalEventChannel) {
-          this.globalEventChannel = null
-        }
-        if (this.pingChannel === pingChannel) {
-          this.pingChannel = null
-        }
-        if (didAssignSyncApi && this.syncApi === wrappedApi) {
-          this.syncApi = null
-        }
-        if (this.initializingApi === wrappedApi) {
-          this.initializingApi = null
-        }
-      }
       // Whatever aborted this run (a shutdown, or a newer initialize, which shuts the old worker down)
       // takes over the worker and shuts it down cleanly, so an aborted run leaves it alone
       const isAborted = () => signal.aborted || this.currentAccountId !== accountId
+      const throwIfAborted = () => {
+        if (isAborted()) throw new AbortError('Initialization aborted')
+      }
 
       try {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
+        throwIfAborted()
 
-        if (isAborted()) {
-          log.warn('Initialization aborted due to account change or concurrent shutdown')
-          return
-        }
-
-        worker = this.callbacks.createWorker()
+        const worker = this.callbacks.createWorker()
         worker.addEventListener('error', (event: ErrorEvent) => {
           const error = event.error || new Error(event.message || 'Sync Worker Error')
           log.error('Worker error:', error)
@@ -229,81 +226,45 @@ export class WorkerLifecycleManager {
           }
         })
 
-        this.workerInstance = worker
-        wrappedApi = Comlink.wrap<SyncApi>(worker)
-        this.initializingApi = wrappedApi
-
-        globalEventChannel = new MessageChannel()
-        this.globalEventChannel = globalEventChannel
-        globalEventChannel.port1.onmessage = ev => {
-          this.callbacks.onEvent(ev.data as ClientEvent)
-        }
-        globalEventChannel.port1.start()
-        worker.postMessage({ type: 'EVENT_PORT', port: globalEventChannel.port2 }, [globalEventChannel.port2])
-
-        pingChannel = new MessageChannel()
-        this.pingChannel = pingChannel
-        pingChannel.port1.start()
-        worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
+        const currentSession = new WorkerSession(worker, event => this.callbacks.onEvent(event))
+        session = currentSession
+        this.session = currentSession
+        const api = currentSession.api
 
         await untilAborted(
-          wrappedApi.initRepo(accountId, vaultKey, {
+          api.initRepo(accountId, vaultKey, {
             randomDataKeys: hasRandomDataKeys(accountId),
             authToken: getVaultSession() || null,
           }),
           signal,
         )
-        const currentSession = getVaultSession()
-        if (currentSession) {
-          await untilAborted(wrappedApi.updateAuthToken(currentSession), signal)
+        const authToken = getVaultSession()
+        if (authToken) {
+          await untilAborted(api.updateAuthToken(authToken), signal)
         }
-        if (isAborted()) {
-          log.warn('Initialization aborted due to account change or concurrent shutdown')
-          return
-        }
+        throwIfAborted()
 
-        await untilAborted(wrappedApi.setOnlineState(initialOnlineState), signal)
-        if (isAborted()) {
-          log.warn('Initialization aborted due to account change or concurrent shutdown')
-          return
-        }
+        await untilAborted(api.setOnlineState(initialOnlineState), signal)
+        throwIfAborted()
 
-        await untilAborted(wrappedApi.bootstrapItems(), signal)
+        await untilAborted(api.bootstrapItems(), signal)
         this.healthMonitor.recordActivity()
+        throwIfAborted()
 
-        if (isAborted()) {
-          log.warn('Initialization aborted due to account change or concurrent shutdown')
-          return
-        }
-
-        this.syncApi = wrappedApi
-        this.initializingApi = null
-        didAssignSyncApi = true
+        this.syncApi = api
 
         this.callbacks.onReady?.()
 
-        this.initRetryCount = 0
+        this.initRetryStrategy.reset()
         this.callbacks.onSyncWarning?.(null)
         this.healthMonitor.setupWorkerHealthCheck({
           worker,
-          pingPort: pingChannel.port1,
-          isCurrentWorker: () => this.workerInstance === worker && !!this.syncApi,
+          pingPort: currentSession.pingPort,
+          isCurrentWorker: () => this.session === currentSession && !!this.syncApi,
           onCrash: (willRestart = true) => {
-            if (this.workerInstance === worker) {
-              if (globalEventChannel) {
-                globalEventChannel.port1.onmessage = null
-                globalEventChannel.port1.close()
-              }
-              if (this.globalEventChannel === globalEventChannel) {
-                this.globalEventChannel = null
-              }
-              if (pingChannel) {
-                pingChannel.port1.close()
-              }
-              if (this.pingChannel === pingChannel) {
-                this.pingChannel = null
-              }
-              this.workerInstance = null
+            if (this.session === currentSession) {
+              currentSession.close()
+              this.session = null
               this.syncApi = null
               if (willRestart) {
                 // Keep initializationPromise as a pending promise so mutations queue up
@@ -337,7 +298,15 @@ export class WorkerLifecycleManager {
           return
         }
         log.error('Failed to initialize SyncBridge:', error)
-        cleanupSessionResources()
+        if (session) {
+          session.close()
+          if (this.session === session) {
+            this.session = null
+          }
+          if (this.syncApi === session.api) {
+            this.syncApi = null
+          }
+        }
 
         if (!signal.aborted && this.initRetryStrategy.canRetry) {
           const delay = this.initRetryStrategy.nextDelay()
@@ -370,7 +339,7 @@ export class WorkerLifecycleManager {
           // Exhausted retries — surface to user
           if (!signal.aborted) {
             this.callbacks.onFatalError?.('Unable to start sync. Please refresh the page.')
-            this.callbacks.onStatusChange?.('offline')
+            this.callbacks.onStatusChange('offline')
             this.currentAccountId = null
             this.initializationPromise = null
           }
@@ -383,12 +352,7 @@ export class WorkerLifecycleManager {
   }
 
   async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
-    const targetAccountId =
-      options?.accountId ||
-      this.currentAccountId ||
-      this.lastKnownAccountId ||
-      this.callbacks.getAccountId?.() ||
-      null
+    const targetAccountId = this.resolveTargetAccountId(options?.accountId)
 
     if (options?.clearLocalData && targetAccountId) {
       this.pendingShutdownClearAccounts.add(targetAccountId)
@@ -420,12 +384,7 @@ export class WorkerLifecycleManager {
   }
 
   private async _performShutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
-    const targetAccountId =
-      options?.accountId ||
-      this.currentAccountId ||
-      this.lastKnownAccountId ||
-      this.callbacks.getAccountId?.() ||
-      null
+    const targetAccountId = this.resolveTargetAccountId(options?.accountId)
 
     const shouldClearLocalData = Boolean(
       options?.clearLocalData || (targetAccountId && this.pendingShutdownClearAccounts.has(targetAccountId))
@@ -437,27 +396,21 @@ export class WorkerLifecycleManager {
       this.initializationPromise = null
       this.currentAccountId = null
     }
-    this.initRetryCount = 0
+    this.initRetryStrategy.reset()
     this.resolvePendingRestart()
     this.healthMonitor.stopWorkerHeartbeat()
     this.healthMonitor.resetCrashMetrics()
 
-    const oldWorker = this.workerInstance
-    const oldSyncApi = this.syncApi ?? this.initializingApi
-    this.initializingApi = null
-    const oldGlobalEventChannel = this.globalEventChannel
-    const oldPingChannel = this.pingChannel
-    this.workerInstance = null
+    const oldSession = this.session
+    this.session = null
     this.syncApi = null
-    this.globalEventChannel = null
-    this.pingChannel = null
 
     this.callbacks.onShutdownCleanup?.(options)
 
-    if (oldSyncApi) {
+    if (oldSession) {
       try {
         await Promise.race([
-          oldSyncApi.shutdown({
+          oldSession.api.shutdown({
             ...options,
             clearLocalData: shouldClearLocalData,
           }),
@@ -468,19 +421,11 @@ export class WorkerLifecycleManager {
       } catch (err) {
         log.error('Failed to shut down worker cleanly:', err)
       }
+      oldSession.close()
     }
 
-    if (oldWorker) {
-      oldWorker.terminate()
-    }
-    if (oldGlobalEventChannel) {
-      oldGlobalEventChannel.port1.close()
-    }
-    if (oldPingChannel) {
-      oldPingChannel.port1.close()
-    }
     if (!this.initializationPromise) {
-      this.callbacks.onStatusChange?.('offline')
+      this.callbacks.onStatusChange('offline')
     }
 
     if (shouldClearLocalData && targetAccountId) {
