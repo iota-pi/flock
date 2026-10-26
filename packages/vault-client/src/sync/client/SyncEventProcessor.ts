@@ -23,18 +23,22 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
   private recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
   private reencryptProgressListeners = new Set<(done: number, total: number) => void>()
 
+  /**
+   * The warning a quotaExceeded event set, so quotaResolved clears only that warning. Anything else
+   * may replace the warning since (the host, the lifecycle manager or the user dismissing it), so
+   * it's compared with the current warning rather than trusted as a flag.
+   */
+  private quotaWarning: string | null = null
+
   constructor(
     private readonly sink: SyncStateSink<TDoc, TMeta>,
-    private callbacks: SyncEventProcessorCallbacks = {},
+    private readonly callbacks: SyncEventProcessorCallbacks = {},
     private readonly telemetry: SyncTelemetry = noopTelemetry,
   ) {}
 
-  setCallbacks(callbacks: SyncEventProcessorCallbacks): void {
-    this.callbacks = callbacks
-  }
-
-  getRecoveryEntries(): ManualRecoveryEntry[] {
-    return this.recoveryEntries
+  private setSyncWarning(message: string, fromQuota = false): void {
+    this.sink.setSyncWarning(message)
+    this.quotaWarning = fromQuota ? message : null
   }
 
   setRecoveryEntries(entries: ManualRecoveryEntry[]): void {
@@ -116,7 +120,7 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
         break
       case 'authFailure': {
         this.sink.setSyncStatus('offline')
-        this.sink.setSyncWarning(event.message)
+        this.setSyncWarning(event.message)
         this.telemetry.addBreadcrumb({
           category: 'auth',
           message: `Sync auth failure: ${event.message}`,
@@ -129,7 +133,7 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
         break
       case 'quotaExceeded': {
         this.sink.setSyncStatus('degraded')
-        this.sink.setSyncWarning(event.message)
+        this.setSyncWarning(event.message, true)
         this.sink.setQuotaExceeded(true)
         this.telemetry.addBreadcrumb({
           category: 'storage',
@@ -143,15 +147,15 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
         if (this.sink.getSyncStatus() === 'degraded') {
           this.sink.setSyncStatus('idle')
         }
-        const syncWarning = this.sink.getSyncWarning()
-        if (syncWarning?.toLowerCase().includes('quota') || syncWarning?.includes('Storage')) {
+        if (this.quotaWarning !== null && this.sink.getSyncWarning() === this.quotaWarning) {
           this.sink.clearSyncWarning()
         }
+        this.quotaWarning = null
         break
       }
       case 'snapshotFailed': {
         this.sink.setSyncStatus('degraded')
-        this.sink.setSyncWarning(event.message)
+        this.setSyncWarning(event.message)
         break
       }
       case 'keyVersionMissing':
@@ -208,20 +212,19 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
     }
   }
 
-  reset(clearRecovery = true): void {
+  reset(): void {
     if (this.itemUpdateFlushHandle !== null) {
       clearTimeout(this.itemUpdateFlushHandle)
       this.itemUpdateFlushHandle = null
     }
     this.pendingItemUpdates.clear()
     this.reencryptProgressListeners.clear()
+    this.quotaWarning = null
 
-    if (clearRecovery) {
-      this.recoveryEntries = []
-      for (const listener of this.recoveryEntriesListeners) {
-        listener([])
-      }
-      this.recoveryEntriesListeners.clear()
+    this.recoveryEntries = []
+    for (const listener of this.recoveryEntriesListeners) {
+      listener([])
     }
+    this.recoveryEntriesListeners.clear()
   }
 }

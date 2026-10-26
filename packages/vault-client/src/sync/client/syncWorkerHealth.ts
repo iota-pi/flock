@@ -146,10 +146,6 @@ export class SyncWorkerHealthMonitor {
     }
   }
 
-  getLastWorkerActivityTime = (): number => {
-    return this.lastWorkerActivityTime
-  }
-
   stopWorkerHeartbeat = (): void => {
     if (this.heartbeatTimer !== null) {
       clearInterval(this.heartbeatTimer)
@@ -244,15 +240,12 @@ export class SyncWorkerHealthMonitor {
       this.handleWorkerCrash({ worker, onCrash, onRestart, isTimeout })
     }
 
-    const handleError = (event: Event) => {
-      log.error('Web worker error:', event)
+    const errorHandler = (description: string) => (event: Event) => {
+      log.error(`Web worker ${description}:`, event)
       handleCrash(false)
     }
-
-    const handleMsgError = (event: Event) => {
-      log.error('Web worker message error:', event)
-      handleCrash(false)
-    }
+    const handleError = errorHandler('error')
+    const handleMsgError = errorHandler('message error')
 
     const handleVisibilityChange = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {

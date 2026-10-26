@@ -648,15 +648,18 @@ describe('SyncWorkerHealthMonitor class', () => {
     const monitor1 = new SyncWorkerHealthMonitor()
     const monitor2 = new SyncWorkerHealthMonitor()
 
-    expect(monitor1.getLastWorkerActivityTime()).toBe(0)
-    expect(monitor2.getLastWorkerActivityTime()).toBe(0)
+    const worker = { terminate: vi.fn() } as any
+    const onCrash1 = vi.fn()
+    const onCrash2 = vi.fn()
 
-    monitor1.recordActivity()
-    expect(monitor1.getLastWorkerActivityTime()).toBeGreaterThan(0)
-    expect(monitor2.getLastWorkerActivityTime()).toBe(0)
+    for (let i = 0; i < MAX_CONSECUTIVE_CRASHES; i += 1) {
+      monitor1.handleWorkerCrash({ worker, onCrash: onCrash1, onRestart: vi.fn() })
+    }
+    monitor2.handleWorkerCrash({ worker, onCrash: onCrash2, onRestart: vi.fn() })
 
-    monitor2.resetCrashMetrics()
-    expect(monitor2.getLastWorkerActivityTime()).toBeGreaterThan(0)
+    // monitor1 reached its crash limit; monitor2's count is separate
+    expect(onCrash1).toHaveBeenLastCalledWith(false)
+    expect(onCrash2).toHaveBeenLastCalledWith(true)
   })
 
   it('stops and cleans up instance heartbeat without affecting other instances', () => {

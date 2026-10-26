@@ -130,7 +130,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
       onShutdownCleanup: shutdownOptions => {
         if (!shutdownOptions?.internalRestart) {
           this.telemetry.setUser(null)
-          this.eventProcessor.reset(true)
+          this.eventProcessor.reset()
           this.sink.reset()
           this.domListeners.stop()
           this.stopLateSessionListener?.()
