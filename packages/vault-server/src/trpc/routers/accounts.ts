@@ -16,8 +16,16 @@ import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
 import { authenticateLogin } from '../../authentication'
 import { toTrpcError } from '../errors'
+import type { VaultAccountWithAuth } from '../../drivers/vaultDriver'
 
 const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
+
+/** Credential changes need the current password as well as the session */
+function assertCurrentAuthToken(accountData: VaultAccountWithAuth, currentAuthToken: string): void {
+  if (!safeEqual(accountData.authToken, hashString(currentAuthToken))) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
+  }
+}
 
 export const accountsRouter = router({
   createAccount: publicProcedure
@@ -136,20 +144,14 @@ export const accountsRouter = router({
   updateKeyring: protectedProcedure
     .input(UpdateKeyringBodySchema)
     .mutation(async ({ ctx, input }) => {
-      if (!safeEqual(ctx.accountData.authToken, hashString(input.currentAuthToken))) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
-      }
+      assertCurrentAuthToken(ctx.accountData, input.currentAuthToken)
 
       try {
         await ctx.vault.updateAccountData({
           account: input.account,
           keyring: input.keyring,
-          ...(typeof input.keyringVersion === 'number'
-            ? { keyringVersion: input.keyringVersion }
-            : {}),
-          ...(typeof input.expectedKeyringVersion === 'number'
-            ? { expectedKeyringVersion: input.expectedKeyringVersion }
-            : {}),
+          keyringVersion: input.keyringVersion,
+          expectedKeyringVersion: input.expectedKeyringVersion,
         })
       } catch (error) {
         throw toTrpcError(error, [
@@ -165,10 +167,7 @@ export const accountsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const accountData = ctx.accountData
 
-      const currentAuthTokenHash = hashString(input.currentAuthToken)
-      if (!safeEqual(accountData.authToken, currentAuthTokenHash)) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
-      }
+      assertCurrentAuthToken(accountData, input.currentAuthToken)
 
       const newAuthTokenHash = hashString(input.newAuthToken)
 
@@ -184,12 +183,8 @@ export const accountsRouter = router({
           kdf: input.newKdf,
           keyring: input.newKeyring,
           saltVersion: input.saltVersion,
-          ...(typeof input.keyringVersion === 'number'
-            ? { keyringVersion: input.keyringVersion }
-            : {}),
-          ...(typeof input.expectedKeyringVersion === 'number'
-            ? { expectedKeyringVersion: input.expectedKeyringVersion }
-            : {}),
+          keyringVersion: input.keyringVersion,
+          expectedKeyringVersion: input.expectedKeyringVersion,
           sessions: [{ token: hashSessionToken(ctx.authToken), expiry: currentSessionExpiry }],
         })
       } catch (error) {
