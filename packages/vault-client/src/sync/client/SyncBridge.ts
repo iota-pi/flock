@@ -109,15 +109,13 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
               message: isOnline ? 'Network online' : 'Network offline',
               level: isOnline ? 'info' : 'warning',
             })
-            const api = this.lifecycleManager.getSyncApi()
-            if (api) await api.setOnlineState(isOnline)
+            await this.withSyncApi(api => api.setOnlineState(isOnline))
           },
           onReconnect: async () => {
             await this.handleReconnect()
           },
           onVisibilityHidden: () => {
-            const api = this.lifecycleManager.getSyncApi()
-            if (api) fireAndForget(api.pushSnapshots(), 'SyncBridge:pushSnapshots')
+            this.withSyncApi(api => fireAndForget(api.pushSnapshots(), 'SyncBridge:pushSnapshots'))
           },
           onKeyringChange: () => {
             fireAndForget(this.handleKeyringUpdate(), 'SyncBridge:handleKeyringUpdate')
@@ -167,13 +165,10 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
 
     if (recovered) {
       this.sink.clearSyncWarning()
-      const api = this.lifecycleManager.getSyncApi()
-      if (api) {
-        try {
-          await api.flushSync()
-        } catch (error) {
-          log.error('flushSync failed on reconnect:', error)
-        }
+      try {
+        await this.withSyncApi(api => api.flushSync())
+      } catch (error) {
+        log.error('flushSync failed on reconnect:', error)
       }
     }
 
@@ -186,13 +181,10 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
 
   /** Catches up once a login that went ahead without the server gets a session (see loginVault) */
   private handleLateSession = async (): Promise<void> => {
-    const syncApi = this.lifecycleManager.getSyncApi()
-    if (syncApi) {
-      try {
-        await syncApi.updateAuthToken(getVaultSession() || null)
-      } catch (err) {
-        log.warn('Failed to pass the late session to the worker:', err)
-      }
+    try {
+      await this.sendAuthToken(getVaultSession() || null)
+    } catch (err) {
+      log.warn('Failed to pass the late session to the worker:', err)
     }
     await this.handleKeyringUpdate()
     await this.handleReconnect()
@@ -253,9 +245,9 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
             log.warn('Failed to sync keyring from server:', err)
           }
         }
-        const syncApi = this.lifecycleManager.getSyncApi()
-        if (result.success && result.keyringData && syncApi) {
-          await syncApi.updateVaultKey(result.keyringData)
+        const { keyringData } = result
+        if (result.success && keyringData) {
+          await this.withSyncApi(api => api.updateVaultKey(keyringData))
         }
         // Versions still missing stay pending, for the next keyring update (such as on reconnect) to retry
         for (const k of this.pendingMissingKeyVersions) {
@@ -270,22 +262,26 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   private handleTokenRefresh = async () => {
     try {
       await handleSessionExpired()
-      const token = getVaultSession() || null
-      const syncApi = this.lifecycleManager.getSyncApi()
-      if (syncApi) {
-        await syncApi.updateAuthToken(token)
-      }
+      await this.sendAuthToken(getVaultSession() || null)
     } catch (err) {
       log.error('Failed to handle token refresh:', err)
-      const syncApi = this.lifecycleManager.getSyncApi()
-      if (syncApi) {
-        try {
-          await syncApi.updateAuthToken(null)
-        } catch {
-          // Ignore
-        }
+      try {
+        // Settles the worker's refresh, which would otherwise wait until it timed out
+        await this.sendAuthToken(null)
+      } catch {
+        // Ignore
       }
     }
+  }
+
+  /** Calls the worker if it's running, and does nothing otherwise */
+  private withSyncApi<T>(fn: (api: Comlink.Remote<SyncApi>) => T): T | undefined {
+    const api = this.lifecycleManager.getSyncApi()
+    return api ? fn(api) : undefined
+  }
+
+  private sendAuthToken(token: string | null): Promise<void> | undefined {
+    return this.withSyncApi(api => api.updateAuthToken(token))
   }
 
   requestClearOnShutdown(accountId?: string): void {
