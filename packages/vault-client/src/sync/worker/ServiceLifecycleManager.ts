@@ -169,10 +169,6 @@ export class ServiceLifecycleManager<TOptions = unknown> {
     return this.status === 'running'
   }
 
-  public getRegisteredServiceNames(): string[] {
-    return this.services.map(s => s.name)
-  }
-
   public clear(): void {
     if (this.status === 'running' || this.status === 'starting' || this.status === 'stopping') {
       this.log.warn(`Clearing services while lifecycle is active (${this.status}).`)

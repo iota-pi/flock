@@ -43,7 +43,6 @@ export interface StorageRecoveryServiceDeps {
 
 export class StorageRecoveryService implements LifecycleAware {
   readonly lifecycleName = 'StorageRecoveryService'
-  private isQuotaExceeded = false
   private unregisterQuotaRecovery: (() => void) | null = null
   private unregisterQuotaReporter: (() => void) | null = null
 
@@ -88,10 +87,6 @@ export class StorageRecoveryService implements LifecycleAware {
     }
   }
 
-  getQuotaExceeded(): boolean {
-    return this.isQuotaExceeded
-  }
-
   /**
    * Performs emergency WAL compaction and pruning to free storage space.
    */
@@ -105,12 +100,10 @@ export class StorageRecoveryService implements LifecycleAware {
   }
 
   /**
-   * Handles storage quota exceeded detection: runs WAL compaction,
-   * updates status manager, and emits quotaExceeded event.
+   * Handles storage quota exceeded detection: runs WAL compaction and emits a quotaExceeded event.
    */
   async handleQuotaExceeded(errorOrMessage?: unknown): Promise<void> {
     log.warn('Storage quota exceeded. Running emergency WAL compaction...', errorOrMessage)
-    this.isQuotaExceeded = true
 
     try {
       await this.handleEmergencyCompaction()
@@ -211,7 +204,6 @@ export class StorageRecoveryService implements LifecycleAware {
    */
   resolveQuotaStatus(): void {
     resetQuotaExceededStatus()
-    this.isQuotaExceeded = false
     this.deps.clientEventHub.emit({ type: 'quotaResolved' })
   }
 

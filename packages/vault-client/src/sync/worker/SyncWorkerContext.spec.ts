@@ -10,6 +10,7 @@ import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { publishRealtimeBusItemDirty } from './realtimeBus'
 import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
+import type { ServiceRegistration } from './ServiceLifecycleManager'
 import { AbortError } from '../utils/abort'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
@@ -1018,8 +1019,18 @@ describe('SyncWorkerContext', () => {
     })
   })
 
-  it('registers expected services in lifecycle manager in correct order', () => {
-    const serviceNames = context.lifecycle.getRegisteredServiceNames()
+  it('registers expected services in lifecycle manager in correct order', async () => {
+    const ctx = new SyncWorkerContext({
+      accountId: 'test-account-lifecycle',
+      keys: createMockKeyProvider(),
+      clientEventHub,
+      internalEventHub,
+      apiClient: new SyncApiClient(),
+    })
+    const registerSpy = vi.spyOn(ctx.lifecycle, 'register')
+    await ctx.initialize()
+
+    const serviceNames = registerSpy.mock.calls.map(([registration]) => (registration as unknown as ServiceRegistration).name)
     expect(serviceNames).toEqual([
       'RepoManager',
       'VaultNetworkAdapter',

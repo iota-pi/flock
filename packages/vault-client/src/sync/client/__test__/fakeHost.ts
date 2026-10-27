@@ -1,7 +1,7 @@
 import type { SyncStatus } from '../../shared/types'
 import type { SyncStateSink, SyncTelemetry } from '../host'
 
-export interface FakeSyncState {
+interface FakeSyncState {
   syncStatus: SyncStatus
   syncWarning: string | null
   fatalError: string | null

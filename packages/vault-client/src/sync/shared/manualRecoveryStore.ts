@@ -5,7 +5,7 @@ import { createAccountStore } from './createAccountStore'
 
 const STORE_NAME = 'manual-recovery-items'
 
-export const MANUAL_RECOVERY_KINDS = [
+const MANUAL_RECOVERY_KINDS = [
   'pullDecryption',
   'snapshotDecryption',
   'oversized',
@@ -37,7 +37,13 @@ function isManualRecoveryKind(value: unknown): value is ManualRecoveryKind {
   return typeof value === 'string' && (MANUAL_RECOVERY_KINDS as readonly string[]).includes(value)
 }
 
-export function inferLegacyManualRecoveryKind(reason: string): ManualRecoveryKind {
+/**
+ * Infers the kind of an entry stored before `kind` existed, from its reason text. Such entries can sit in
+ * IndexedDB indefinitely (they're only removed once the item recovers or the user dismisses them), so this
+ * stays in the library rather than the migration app: without it they'd all read as 'unknown', and `kindRank`
+ * and `removeManualRecoveryEntryIfKind` would treat a real quarantine (oversized, say) as replaceable.
+ */
+function inferLegacyManualRecoveryKind(reason: string): ManualRecoveryKind {
   const text = reason.toLowerCase()
   if (text.includes('exceeds') && text.includes('kb limit')) return 'oversized'
   if (text.includes('push failed after')) return 'pushFailure'
@@ -53,7 +59,7 @@ export function inferLegacyManualRecoveryKind(reason: string): ManualRecoveryKin
   return 'unknown'
 }
 
-export function normalizeManualRecoveryEntry(value: unknown): ManualRecoveryEntry | null {
+function normalizeManualRecoveryEntry(value: unknown): ManualRecoveryEntry | null {
   if (!value || typeof value !== 'object') return null
   const stored = value as StoredManualRecoveryEntry
   if (

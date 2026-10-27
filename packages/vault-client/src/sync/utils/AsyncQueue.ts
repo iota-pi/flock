@@ -29,7 +29,6 @@ export class AsyncQueue<T> {
   private isCurrentItemRunning = false
   private worker: AsyncQueueWorker<T>
   private options?: AsyncQueueOptions<T>
-  private idleResolvers: Array<() => void> = []
 
   constructor(worker: AsyncQueueWorker<T>, options?: AsyncQueueOptions<T>) {
     this.worker = worker
@@ -87,28 +86,6 @@ export class AsyncQueue<T> {
 
   clear(): void {
     this.items = []
-    if (!this.isProcessing) {
-      this.resolveIdleWaiters()
-    }
-  }
-
-  async whenIdle(): Promise<void> {
-    if (!this.isProcessing && this.items.length === 0) {
-      return
-    }
-    return new Promise<void>(resolve => {
-      this.idleResolvers.push(resolve)
-    })
-  }
-
-  private resolveIdleWaiters(): void {
-    if (this.idleResolvers.length > 0) {
-      const resolvers = [...this.idleResolvers]
-      this.idleResolvers = []
-      for (const resolve of resolvers) {
-        resolve()
-      }
-    }
   }
 
   private async drain(): Promise<void> {
@@ -143,12 +120,6 @@ export class AsyncQueue<T> {
       this.isProcessing = false
       if (this.items.length > 0) {
         fireAndForget(this.drain(), 'AsyncQueue:drain')
-      } else {
-        try {
-          this.resolveIdleWaiters()
-        } catch (err) {
-          log.error('Error resolving idle waiters:', err)
-        }
       }
     }
   }

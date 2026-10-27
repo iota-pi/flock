@@ -16,10 +16,6 @@ export class SyncStatusManager {
     return this.status
   }
 
-  public getActiveRequests(): number {
-    return this.activeRequests
-  }
-
   public reset(isOnline: boolean) {
     this.isOnline = isOnline
     this.lastPollOutcome = null

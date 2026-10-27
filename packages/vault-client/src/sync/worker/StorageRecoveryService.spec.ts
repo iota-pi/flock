@@ -92,7 +92,6 @@ describe('StorageRecoveryService', () => {
 
       await service.handleQuotaExceeded('Storage limit reached')
 
-      expect(service.getQuotaExceeded()).toBe(true)
       expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({
         type: 'quotaExceeded',
@@ -106,7 +105,6 @@ describe('StorageRecoveryService', () => {
 
       await service.handleQuotaExceeded(quotaError)
 
-      expect(service.getQuotaExceeded()).toBe(true)
       expect(emitSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'quotaExceeded',
@@ -115,13 +113,12 @@ describe('StorageRecoveryService', () => {
       )
     })
 
-    it('still sets quotaExceeded and emits event if emergency compaction fails', async () => {
+    it('still emits quotaExceeded if emergency compaction fails', async () => {
       mockWal.handleQuotaExceeded.mockRejectedValueOnce(new Error('Compaction failed'))
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
 
       await service.handleQuotaExceeded('Quota error')
 
-      expect(service.getQuotaExceeded()).toBe(true)
       expect(emitSpy).toHaveBeenCalledWith({
         type: 'quotaExceeded',
         message: 'Quota error',
@@ -157,9 +154,10 @@ describe('StorageRecoveryService', () => {
 
     it('resolveQuotaStatus resets status and emits quotaResolved', () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
+      const resetSpy = vi.spyOn(storageManager, 'resetQuotaExceededStatus')
       service.resolveQuotaStatus()
 
-      expect(service.getQuotaExceeded()).toBe(false)
+      expect(resetSpy).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
   })
@@ -188,7 +186,6 @@ describe('StorageRecoveryService', () => {
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
-      expect(service.getQuotaExceeded()).toBe(false)
     })
 
     it('includes blocked items from broker in dirtyIds during retrySave', async () => {
