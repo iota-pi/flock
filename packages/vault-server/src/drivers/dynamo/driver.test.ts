@@ -404,7 +404,7 @@ describe('DynamoDriver', function () {
     expect(result.keyring).toBe(keyringValue)
   })
 
-  it('can push and get sync messages', async () => {
+  it('can push and get sync messages, in cursor order', async () => {
     const account = generateTestAccountId()
     const itemId = 'test-item-123' as ItemId
     const entry1 = {
@@ -418,14 +418,13 @@ describe('DynamoDriver', function () {
       createdAt: Date.now(),
     }
 
-    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry1, lastModified: Date.now() }] })
+    // Pushed out of order, to check the query returns them in cursor order
     await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry2, lastModified: Date.now() }] })
+    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry1, lastModified: Date.now() }] })
 
     const result = await driver.getSyncMessages({ account, itemId })
     expect(result.messages.length).toBe(2)
-    const sorted = result.messages.sort((a, b) => a.cursor - b.cursor)
-    expect(sorted[0].cursor).toBe(1001)
-    expect(sorted[1].cursor).toBe(1002)
+    expect(result.messages.map(m => m.cursor)).toEqual([1001, 1002])
   })
 
   it('session eviction on updateAccountData works', async () => {

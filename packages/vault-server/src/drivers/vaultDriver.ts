@@ -157,9 +157,9 @@ export interface VaultDriver {
   pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void>
 
   /**
-   * Returns an item's messages with a cursor after `fromCursor`, in pages. Pass a page's
-   * `nextPageToken` back as `pageToken` (with the same `fromCursor`) to get the next page. Throws
-   * `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
+   * Returns an item's messages with a cursor after `fromCursor`, in cursor order, in pages. Pass a
+   * page's `nextPageToken` back as `pageToken` (with the same `fromCursor`) to get the next page.
+   * Throws `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
    * starts before `fromCursor`.
    */
   getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage>
@@ -172,8 +172,9 @@ export interface VaultDriver {
   validatePageToken(input: ValidatePageTokenInput): void
 
   /**
-   * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
-   * as in `getSyncMessages`, except that a token is not checked against `cursor`.
+   * Returns the account's messages with a cursor after `cursor`, across items, in pages, with each
+   * item's messages in cursor order. Paging works as in `getSyncMessages`, except that a token is not
+   * checked against `cursor`.
    */
   getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage>
 }

@@ -41,12 +41,11 @@ describe('AutomergeSyncService', () => {
       messages,
     })
 
-    expect(result.success).toBe(true)
-    expect(result.results.length).toBe(3)
+    expect(result.length).toBe(3)
 
-    const cursor0 = result.results[0].cursor
-    const cursor1 = result.results[1].cursor
-    const cursor2 = result.results[2].cursor
+    const cursor0 = result[0].cursor
+    const cursor1 = result[1].cursor
+    const cursor2 = result[2].cursor
 
     // Cursors should increment by exactly 1
     expect(cursor1).toBe(cursor0 + 1)
@@ -79,8 +78,8 @@ describe('AutomergeSyncService', () => {
       ],
     })
 
-    const cursor0 = result.results[0].cursor
-    const cursor1 = result.results[1].cursor
+    const cursor0 = result[0].cursor
+    const cursor1 = result[1].cursor
     expect(cursor1 === cursor0).toBe(false)
     expect(cursor1).toBe(cursor0 + 1)
   })
@@ -95,7 +94,7 @@ describe('AutomergeSyncService', () => {
       messages: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } }],
     })
 
-    const cursor = result.results[0].cursor
+    const cursor = result[0].cursor
     expect(cursor).toBeGreaterThanOrEqual(0)
     // When time is 0, relative timestamp is 0, so the cursor is just the invocationOffset
     expect(cursor).toBeLessThan(TIMESTAMP_MULTIPLIER)
@@ -124,7 +123,7 @@ describe('AutomergeSyncService', () => {
             encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
           }],
         })
-        cursors.push(result.results[0].cursor)
+        cursors.push(result[0].cursor)
       }
     } finally {
       randomSpy.mockRestore()
@@ -156,8 +155,8 @@ describe('AutomergeSyncService', () => {
       messages,
     })
 
-    const firstCursor = result.results[0].cursor
-    const lastCursor = result.results[result.results.length - 1].cursor
+    const firstCursor = result[0].cursor
+    const lastCursor = result[result.length - 1].cursor
 
     const relativeTimestampMs = mockedTime - CUSTOM_EPOCH
     const relativeTimestampSeconds = Math.floor(relativeTimestampMs / 1000)
@@ -226,7 +225,6 @@ describe('AutomergeSyncService', () => {
       cursor: 5,
     })
 
-    expect(result.success).toBe(true)
     expect(result.hasMore).toBe(true)
     expect(result.results).toHaveLength(2)
     // Both items must have hasMore: false so they are not hijacked into pullCursors
@@ -304,9 +302,9 @@ describe('AutomergeSyncService', () => {
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 100_000_000 }],
     })
 
-    expect(page1Result.results[0].hasMore).toBe(true)
-    expect(page1Result.results[0].nextPageToken).toEqual(page1Token)
-    expect(page1Result.results[0].messages).toHaveLength(200)
+    expect(page1Result[0].hasMore).toBe(true)
+    expect(page1Result[0].nextPageToken).toEqual(page1Token)
+    expect(page1Result[0].messages).toHaveLength(200)
     expect(repository.getSyncMessages).toHaveBeenLastCalledWith({
       account: 'test-account',
       itemId: 'item-1',
@@ -324,18 +322,18 @@ describe('AutomergeSyncService', () => {
       account: 'test-account',
       cursors: [{
         itemId: 'item-1' as ItemId,
-        cursor: page1Result.results[0].nextCursor,
-        pageToken: page1Result.results[0].nextPageToken,
+        cursor: page1Result[0].nextCursor,
+        pageToken: page1Result[0].nextPageToken,
       }],
     })
 
-    expect(page2Result.results[0].hasMore).toBe(false)
-    expect(page2Result.results[0].nextPageToken).toBeUndefined()
-    expect(page2Result.results[0].messages).toHaveLength(50)
+    expect(page2Result[0].hasMore).toBe(false)
+    expect(page2Result[0].nextPageToken).toBeUndefined()
+    expect(page2Result[0].messages).toHaveLength(50)
     expect(repository.getSyncMessages).toHaveBeenLastCalledWith({
       account: 'test-account',
       itemId: 'item-1',
-      fromCursor: page1Result.results[0].nextCursor,
+      fromCursor: page1Result[0].nextCursor,
       pageToken: page1Token,
     })
   })
@@ -352,8 +350,8 @@ describe('AutomergeSyncService', () => {
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 500_000 }],
     })
 
-    expect(result.results[0].nextCursor).toBe(500_000)
-    expect(result.results[0].messages).toHaveLength(0)
+    expect(result[0].nextCursor).toBe(500_000)
+    expect(result[0].messages).toHaveLength(0)
     expect(repository.getSyncMessages).toHaveBeenCalledWith({
       account: 'test-account',
       itemId: 'item-1',
@@ -403,40 +401,9 @@ describe('AutomergeSyncService', () => {
         cursors,
       })
 
-      expect(result.success).toBe(true)
-      expect(result.results).toHaveLength(30)
+      expect(result).toHaveLength(30)
       expect(repository.getSyncMessages).toHaveBeenCalledTimes(30)
       expect(peakConcurrency).toBe(DEFAULT_PULL_BATCH_CONCURRENCY)
-    })
-
-    it('limits peak concurrency to the requested concurrency', async () => {
-      const repository = createMockRepository()
-      let activeCount = 0
-      let peakConcurrency = 0
-
-      repository.getSyncMessages.mockImplementation(async () => {
-        activeCount += 1
-        peakConcurrency = Math.max(peakConcurrency, activeCount)
-        await new Promise(resolve => setTimeout(resolve, 15))
-        activeCount -= 1
-        return { messages: [], hasMore: false }
-      })
-
-      const cursors = Array.from({ length: 15 }, (_, i) => ({
-        itemId: `item-${i}` as ItemId,
-        cursor: 100,
-      }))
-
-      const result = await pullAutomergeSyncBatch(repository, {
-        account: 'test-account',
-        cursors,
-        concurrency: 4,
-      })
-
-      expect(result.success).toBe(true)
-      expect(result.results).toHaveLength(15)
-      expect(repository.getSyncMessages).toHaveBeenCalledTimes(15)
-      expect(peakConcurrency).toBe(4)
     })
 
     it('preserves result order even when requests resolve out of order', async () => {
@@ -464,11 +431,10 @@ describe('AutomergeSyncService', () => {
       const result = await pullAutomergeSyncBatch(repository, {
         account: 'test-account',
         cursors,
-        concurrency: 5,
       })
 
-      expect(result.results).toHaveLength(10)
-      result.results.forEach((itemResult, i) => {
+      expect(result).toHaveLength(10)
+      result.forEach((itemResult, i) => {
         expect(itemResult.itemId).toBe(`item-${i}`)
         expect(itemResult.messages[0].cursor).toBe(i * 10)
       })
@@ -487,7 +453,7 @@ describe('AutomergeSyncService', () => {
         return { messages: [], hasMore: false }
       })
 
-      const cursors = Array.from({ length: 10 }, (_, i) => ({
+      const cursors = Array.from({ length: 30 }, (_, i) => ({
         itemId: `item-${i}` as ItemId,
         cursor: 100,
       }))
@@ -496,11 +462,10 @@ describe('AutomergeSyncService', () => {
         pullAutomergeSyncBatch(repository, {
           account: 'test-account',
           cursors,
-          concurrency: 2,
         })
       ).rejects.toThrow('DynamoDB query failed for item-2')
 
-      expect(queryCount).toBeLessThan(10)
+      expect(queryCount).toBeLessThan(30)
     })
   })
 
