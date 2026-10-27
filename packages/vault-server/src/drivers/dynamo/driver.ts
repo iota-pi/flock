@@ -477,76 +477,44 @@ export default class DynamoDriver implements VaultDriver {
     } while (exclusiveStartKey)
   }
 
-  private async executeBatchGetWithRetry(
-    requestItems: BatchGetCommandInput['RequestItems'],
-  ): Promise<Record<string, Record<string, unknown>[]>> {
-    const accumulatedResponses: Record<string, Record<string, unknown>[]> = {}
-    await sendBatchWithRetry({
-      request: requestItems,
-      commandName: 'BatchGetCommand',
-      unprocessedName: 'keys',
-      send: async request => {
-        const response = await this.client.send(new BatchGetCommand({ RequestItems: request }))
-        for (const [tableName, items] of Object.entries(response.Responses ?? {})) {
-          accumulatedResponses[tableName] ??= []
-          accumulatedResponses[tableName].push(...items)
-        }
-        return response.UnprocessedKeys
-      },
-    })
-    return accumulatedResponses
-  }
-
   async fetchByIds({ account, itemIds }: BaseData & { itemIds: ItemId[] }): Promise<VaultItem[]> {
-    if (itemIds.length === 0) {
-      return []
-    }
-
+    // BatchGet rejects duplicate keys
     const uniqueItemIds = Array.from(new Set(itemIds))
     const batches = chunk(uniqueItemIds, FETCH_BATCH_SIZE)
-    const results: VaultItem[] = []
 
-    for (const batch of batches) {
-      const requestItems: BatchGetCommandInput['RequestItems'] = {
-        [this.tables.items]: {
-          Keys: batch.map(itemId => ({
-            account,
-            item: itemId,
-          })),
-          ...ITEM_DATA_PROJECTION,
-        },
-      }
-      const responses = await this.executeBatchGetWithRetry(requestItems)
-      const items = responses[this.tables.items] as VaultItem[] | undefined
-      if (items) {
-        results.push(...items)
-      }
-    }
+    const batchResults = await Promise.all(
+      batches.map(async batch => {
+        const items: VaultItem[] = []
+        await sendBatchWithRetry<BatchGetCommandInput['RequestItems']>({
+          request: {
+            [this.tables.items]: {
+              Keys: batch.map(itemId => ({ account, item: itemId })),
+              ...ITEM_DATA_PROJECTION,
+            },
+          },
+          commandName: 'BatchGetCommand',
+          unprocessedName: 'keys',
+          send: async request => {
+            const response = await this.client.send(new BatchGetCommand({ RequestItems: request }))
+            items.push(...(response.Responses?.[this.tables.items] ?? []) as VaultItem[])
+            return response.UnprocessedKeys
+          },
+        })
+        return items
+      }),
+    )
 
+    const results = batchResults.flat()
     results.forEach(decodeStoredSnapshotCipher)
     return results
-  }
-
-  private async executeBatchWriteWithRetry(
-    requestItems: BatchWriteCommandInput['RequestItems'],
-  ): Promise<void> {
-    await sendBatchWithRetry({
-      request: requestItems,
-      commandName: 'BatchWriteCommand',
-      unprocessedName: 'items',
-      send: async request => {
-        const response = await this.client.send(new BatchWriteCommand({ RequestItems: request }))
-        return response.UnprocessedItems
-      },
-    })
   }
 
   async pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void> {
     const batches = chunk(input.messages, PUSH_BATCH_SIZE)
 
     await Promise.all(
-      batches.map(async batch => {
-        const requestItems: BatchWriteCommandInput['RequestItems'] = {
+      batches.map(batch => sendBatchWithRetry<BatchWriteCommandInput['RequestItems']>({
+        request: {
           [this.tables.syncMessages]: batch.map(message => ({
             PutRequest: {
               Item: {
@@ -559,10 +527,14 @@ export default class DynamoDriver implements VaultDriver {
               },
             },
           })),
-        }
-
-        await this.executeBatchWriteWithRetry(requestItems)
-      }),
+        },
+        commandName: 'BatchWriteCommand',
+        unprocessedName: 'items',
+        send: async request => {
+          const response = await this.client.send(new BatchWriteCommand({ RequestItems: request }))
+          return response.UnprocessedItems
+        },
+      })),
     )
   }
 

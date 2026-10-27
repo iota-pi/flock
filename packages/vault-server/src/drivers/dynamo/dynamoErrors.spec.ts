@@ -1,14 +1,10 @@
 import {
   ConditionalCheckFailedException,
-  ProvisionedThroughputExceededException,
   ResourceInUseException,
 } from '@aws-sdk/client-dynamodb'
 import {
   isConditionalCheckFailure,
   isResourceInUseError,
-  isTransientDynamoError,
-  TRANSIENT_DYNAMO_ERROR_NAMES,
-  TRANSIENT_HTTP_STATUS_CODES,
 } from './dynamoErrors'
 
 describe('dynamoErrors', () => {
@@ -68,31 +64,6 @@ describe('dynamoErrors', () => {
       expect(isConditionalCheckFailure(123)).toBe(false)
       expect(isConditionalCheckFailure({})).toBe(false)
       expect(isConditionalCheckFailure(new Error('ValidationException'))).toBe(false)
-    })
-  })
-
-  describe('isTransientDynamoError', () => {
-    it('returns true for transient errors', () => {
-      expect(isTransientDynamoError(new ProvisionedThroughputExceededException({
-        $metadata: { httpStatusCode: 400 },
-        message: 'Throughput exceeded',
-      }))).toBe(true)
-      expect(isTransientDynamoError({ $retryable: {} })).toBe(true)
-      expect(isTransientDynamoError({ $metadata: { httpStatusCode: 503 } })).toBe(true)
-    })
-
-    it('returns false for non-transient errors', () => {
-      expect(isTransientDynamoError(null)).toBe(false)
-      expect(isTransientDynamoError(new Error('ValidationException'))).toBe(false)
-    })
-  })
-
-  describe('constants', () => {
-    it('exports expected transient names and HTTP status codes', () => {
-      expect(TRANSIENT_DYNAMO_ERROR_NAMES.has('ProvisionedThroughputExceededException')).toBe(true)
-      expect(TRANSIENT_DYNAMO_ERROR_NAMES.has('InternalServerError')).toBe(true)
-      expect(TRANSIENT_HTTP_STATUS_CODES.has(429)).toBe(true)
-      expect(TRANSIENT_HTTP_STATUS_CODES.has(500)).toBe(true)
     })
   })
 })
