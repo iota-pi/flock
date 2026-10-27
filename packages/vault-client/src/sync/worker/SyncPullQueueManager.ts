@@ -34,6 +34,10 @@ interface ProcessItemMessagesResult {
   hasParsedRemoteMessages: boolean
 }
 
+type HandledMessageEntry =
+  | { parsed: true; cursor: number }
+  | { parsed: false; missingKey?: boolean; kver?: string }
+
 const BATCH_PROGRESS_CACHE_MAX = 500
 const OWN_PUSH_CACHE_MAX = 1000
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
@@ -182,8 +186,8 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     documentId: DocumentId,
     entry: PullSyncMessagesResponse['messages'][number],
     timedOutKeys?: Set<string>,
-  ): Promise<{ parsed: boolean; cursor?: number; missingKey?: boolean; kver?: string }> {
-    if (!entry?.encryptedMessage?.iv || !entry?.encryptedMessage?.cipher) {
+  ): Promise<HandledMessageEntry> {
+    if (!entry.encryptedMessage?.iv || !entry.encryptedMessage?.cipher) {
       return { parsed: false }
     }
 
@@ -205,48 +209,35 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       return { parsed: false }
     }
 
+    const isBatched = entry.encryptedMessage.version === BATCHED_MESSAGE_VERSION
     try {
-      const isBatched = entry.encryptedMessage.version === BATCHED_MESSAGE_VERSION
-      let hasError = false
       if (isBatched) {
-        const startIndex = Number.isFinite(entry.cursor)
-          ? this.getBatchProgress(itemId, entry.cursor)
-          : 0
-
         const success = parseBatchedMessages(
           itemId,
           documentId,
           decrypted,
           (id, docId, msg) => this.notifyMessageParsed(id, docId, msg),
           {
-            startIndex,
+            startIndex: this.getBatchProgress(itemId, entry.cursor),
             onMessageSuccess: index => {
-              if (Number.isFinite(entry.cursor)) {
-                this.setBatchProgress(itemId, entry.cursor, index + 1)
-              }
+              this.setBatchProgress(itemId, entry.cursor, index + 1)
             },
           }
         )
         if (!success) {
-          hasError = true
+          return { parsed: false }
         }
       } else {
-        try {
-          this.notifyMessageParsed(itemId, documentId, decrypted)
-        } catch (error) {
-          log.error('Error processing message', error)
-          hasError = true
-        }
+        this.notifyMessageParsed(itemId, documentId, decrypted)
       }
-
-      if (hasError) {
-        return { parsed: false }
+    } catch (error) {
+      if (!isBatched) {
+        log.error('Error processing message', error)
       }
-
-      return { parsed: true, cursor: entry.cursor }
-    } catch {
       return { parsed: false }
     }
+
+    return { parsed: true, cursor: entry.cursor }
   }
 
   getCursors(): Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> {
@@ -306,13 +297,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
     // Sort messages ascending by cursor to ensure causal processing order and prevent
     // out-of-order cursors from prematurely advancing state.cursor if an earlier cursor fails.
-    const sortedMessages = [...(messages || [])].sort((a, b) => {
-      const cursorA = Number.isFinite(a?.cursor) ? (a.cursor as number) : 0
-      const cursorB = Number.isFinite(b?.cursor) ? (b.cursor as number) : 0
-      if (cursorA < cursorB) return -1
-      if (cursorA > cursorB) return 1
-      return 0
-    })
+    const sortedMessages = [...(messages || [])].sort((a, b) => a.cursor - b.cursor)
 
     if (sortedMessages.length === 0) {
       return {
@@ -334,31 +319,29 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       let hasParsedRemoteMessages = false
 
       for (const entry of sortedMessages) {
-        if (Number.isFinite(entry.cursor) && (entry.cursor as number) <= initialCursor) {
-          this.clearBatchProgress(itemId, entry.cursor as number)
-          highestCursor = Math.max(highestCursor, entry.cursor as number)
+        if (entry.cursor <= initialCursor) {
+          this.clearBatchProgress(itemId, entry.cursor)
+          highestCursor = Math.max(highestCursor, entry.cursor)
           continue
         }
 
         const handled = await this.handleMessageEntry(itemId, documentId, entry, timedOutKeys)
         if (handled.parsed) {
           hasParsedMessages = true
-          if (Number.isFinite(handled.cursor)) {
-            const ownKey = this.makeOwnPushKey(itemId, handled.cursor!)
-            if (!this.ownPushedMessageKeys.has(ownKey)) {
-              hasParsedRemoteMessages = true
-            }
-            this.ownPushedMessageKeys.delete(ownKey)
-            this.clearBatchProgress(itemId, handled.cursor!)
-            highestCursor = Math.max(highestCursor, handled.cursor!)
+          const ownKey = this.makeOwnPushKey(itemId, handled.cursor)
+          if (!this.ownPushedMessageKeys.has(ownKey)) {
+            hasParsedRemoteMessages = true
           }
+          this.ownPushedMessageKeys.delete(ownKey)
+          this.clearBatchProgress(itemId, handled.cursor)
+          highestCursor = Math.max(highestCursor, handled.cursor)
         } else if (handled.missingKey) {
           hasKeyFailure = true
           blockedOnKey = handled.kver
           break
         } else {
           hasParseFailure = true
-          failingCursor = entry?.cursor
+          failingCursor = entry.cursor
           break
         }
       }

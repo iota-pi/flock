@@ -30,6 +30,24 @@ describe('PullRetryTracker', () => {
       expect(tracker.getState('item-1' as ItemId)).toBe(state)
     })
 
+    it('reports a default state for known cursors without queueing the item', () => {
+      expect(tracker.getState('item-1' as ItemId)).toBeUndefined()
+
+      tracker.importCursors([['item-1' as ItemId, 40]])
+      tracker.recordPullOutcome({
+        itemId: 'item-1' as ItemId,
+        initialCursor: 40,
+        highestCursor: 60,
+        isNewItem: false,
+        hasKeyFailure: false,
+        hasParseFailure: false,
+        hasMore: false,
+      })
+
+      expect(tracker.getState('item-1' as ItemId)).toEqual({ cursor: 60, pending: false, retryCount: 0 })
+      expect(tracker.hasState('item-1' as ItemId)).toBe(false)
+    })
+
     it('adds pending items and ignores empty id', () => {
       tracker.addPendingItem('' as ItemId)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
@@ -153,15 +171,22 @@ describe('PullRetryTracker', () => {
       expect(tracker2.exportCursors()).toEqual(exported)
     })
 
-    it('loads stored cursors monotonically without regressing', () => {
+    it('loads stored retries monotonically without regressing', () => {
+      tracker.setGlobalCursor(500)
       tracker.getOrCreateState('item-1' as ItemId).cursor = 50
-      tracker.loadStoredCursors([
-        ['item-1' as ItemId, 20], // lower, should not regress
-        ['item-2' as ItemId, 30], // new, should be accepted
-      ])
+      tracker.loadState({
+        globalCursor: 100, // lower, should not regress
+        retries: [
+          ['item-1' as ItemId, 20], // lower, should not regress
+          ['item-2' as ItemId, 30], // new, should be accepted
+          ['item-3' as ItemId, -1], // invalid, should be ignored
+        ],
+      })
 
+      expect(tracker.getGlobalScanCursor()).toBe(500)
       expect(tracker.getCursor('item-1' as ItemId)).toBe(50)
       expect(tracker.getCursor('item-2' as ItemId)).toBe(30)
+      expect(tracker.hasState('item-3' as ItemId)).toBe(false)
     })
   })
 
@@ -226,7 +251,7 @@ describe('PullRetryTracker', () => {
     })
 
     it('increments retryCount and remains pending on transient parse failures (attempts 1 to 4)', () => {
-      for (let attempt = 1; attempt <= 4; attempt++) {
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
         const outcome = tracker.recordPullOutcome({
           itemId: 'item-retry' as ItemId,
           initialCursor: 0,
@@ -370,18 +395,6 @@ describe('PullRetryTracker', () => {
       restored.loadState(state)
       expect(restored.getGlobalScanCursor()).toBe(100)
     })
-
-    it('loads legacy [ItemId, number][] format cleanly into globalCursor without populating retryQueue', () => {
-      tracker.loadState([
-        ['item-1' as ItemId, 50],
-        ['item-2' as ItemId, 200],
-        ['item-3' as ItemId, 120],
-      ])
-
-      expect(tracker.getGlobalLatestCursor()).toBe(200)
-      expect(tracker.hasImmediatePendingPulls()).toBe(false)
-      expect(tracker.getCursors()).toEqual([])
-    })
   })
 
   describe('computeTransition', () => {
@@ -407,7 +420,6 @@ describe('PullRetryTracker', () => {
 
       expect(state).toEqual(originalCopy)
       expect(transition).toEqual({
-        kind: 'key-failure',
         targetCursor: 10,
         effectiveHighestCursor: 10,
         pending: true,
@@ -443,7 +455,6 @@ describe('PullRetryTracker', () => {
       })
 
       expect(transition).toEqual({
-        kind: 'partial-success',
         targetCursor: 120,
         effectiveHighestCursor: 120,
         pending: true,
@@ -475,7 +486,6 @@ describe('PullRetryTracker', () => {
         hasMore: false,
       })
 
-      expect(transition.kind).toBe('parse-failure-retry')
       expect(transition.pending).toBe(true)
       expect(transition.retryCount).toBe(2)
       expect(transition.permanentlyFailed).toBe(false)
@@ -505,7 +515,6 @@ describe('PullRetryTracker', () => {
         5
       )
 
-      expect(transition.kind).toBe('parse-failure-exhausted')
       expect(transition.pending).toBe(false)
       expect(transition.retryCount).toBe(0)
       expect(transition.permanentlyFailed).toBe(true)
@@ -533,7 +542,6 @@ describe('PullRetryTracker', () => {
         hasMore: false,
       })
 
-      expect(transition.kind).toBe('terminal-success')
       expect(transition.pending).toBe(false)
       expect(transition.retryCount).toBe(0)
       expect(transition.targetCursor).toBe(80)
@@ -554,7 +562,6 @@ describe('PullRetryTracker', () => {
       }
 
       const transition: PullStateTransition = {
-        kind: 'terminal-success',
         targetCursor: 200,
         effectiveHighestCursor: 200,
         pending: false,
@@ -586,7 +593,6 @@ describe('PullRetryTracker', () => {
       expect(tracker.hasState('item-adv' as ItemId)).toBe(true)
 
       const transition: PullStateTransition = {
-        kind: 'terminal-success',
         targetCursor: 350,
         effectiveHighestCursor: 350,
         pending: false,
@@ -609,7 +615,6 @@ describe('PullRetryTracker', () => {
       expect(tracker.hasState('item-keep' as ItemId)).toBe(true)
 
       const transition: PullStateTransition = {
-        kind: 'parse-failure-retry',
         targetCursor: 50,
         effectiveHighestCursor: 50,
         pending: true,
