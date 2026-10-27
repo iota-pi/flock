@@ -1,6 +1,5 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver from './driver'
-import { getConnectionParams } from './config'
 import { authenticateLogin, authenticateSession } from '../../authentication'
 import { generateAccountId } from '../../util'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
@@ -24,7 +23,7 @@ function uniqueAccountId() {
 
 describe('DynamoDriver conditional account writes', () => {
   beforeAll(() => {
-    driver.connect(getConnectionParams())
+    driver.connect()
   })
 
   describe('Concurrent Key Rotation & keyringVersion OCC', () => {

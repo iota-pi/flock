@@ -12,7 +12,7 @@ export function validateItem(item: VaultItem) {
   // Calculate item length without expanding binary Buffers into huge JSON arrays
   let itemLength: number
   const cipher = item.snapshot?.cipher
-  if (cipher && (Buffer.isBuffer(cipher) || cipher instanceof Uint8Array)) {
+  if (cipher instanceof Uint8Array) {
     const cipherLength = cipher.byteLength
     const itemWithoutCipher = {
       ...item,
@@ -71,7 +71,7 @@ export function toStoredItem(item: VaultItem): VaultItem {
 /** Turns a stored item's binary snapshot ciphertext back into the base64 clients read, in place */
 export function decodeStoredSnapshotCipher(record: VaultItem): void {
   const cipher = record.snapshot?.cipher
-  if (cipher && (Buffer.isBuffer(cipher) || cipher instanceof Uint8Array)) {
+  if (cipher instanceof Uint8Array) {
     record.snapshot!.cipher = Buffer.from(cipher).toString('base64')
   }
 }
