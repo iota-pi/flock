@@ -198,7 +198,7 @@ describe('Batch operations retry on transient errors', () => {
       })
     })
 
-    it('throws when transient errors exceed maxRetries', async () => {
+    it('throws when transient errors exceed the retry limit', async () => {
       const throughputError = new ProvisionedThroughputExceededException({
         $metadata: { httpStatusCode: 400 },
         message: 'Provisioned throughput exceeded',
@@ -208,14 +208,14 @@ describe('Batch operations retry on transient errors', () => {
 
       const promise = (driver as any).executeBatchGetWithRetry({
         FlockItems: { Keys: [{ account: 'acc1', item: 'item1' }] },
-      }, 2)
+      })
 
       promise.catch(() => {})
       await vi.runAllTimersAsync()
       await expect(promise).rejects.toThrow('Provisioned throughput exceeded')
 
-      // Initial attempt (1) + 2 retries = 3 calls
-      expect(mockSend).toHaveBeenCalledTimes(3)
+      // Initial attempt (1) + 5 retries = 6 calls
+      expect(mockSend).toHaveBeenCalledTimes(6)
     })
 
     it('throws immediately on non-transient error without retry', async () => {
@@ -259,7 +259,7 @@ describe('Batch operations retry on transient errors', () => {
       expect(mockSend).toHaveBeenCalledTimes(2)
     })
 
-    it('throws when transient errors exceed maxRetries in executeBatchWriteWithRetry', async () => {
+    it('throws when transient errors exceed the retry limit in executeBatchWriteWithRetry', async () => {
       const throughputError = new ProvisionedThroughputExceededException({
         $metadata: { httpStatusCode: 400 },
         message: 'Throughput exceeded',
@@ -269,14 +269,14 @@ describe('Batch operations retry on transient errors', () => {
 
       const promise = (driver as any).executeBatchWriteWithRetry({
         FlockSyncMessages: [{ PutRequest: { Item: { syncId: 's1' } } }],
-      }, 2)
+      })
 
       promise.catch(() => {})
       await vi.runAllTimersAsync()
       await expect(promise).rejects.toThrow('Throughput exceeded')
 
-      // 1 initial + 2 retries = 3 calls
-      expect(mockSend).toHaveBeenCalledTimes(3)
+      // 1 initial + 5 retries = 6 calls
+      expect(mockSend).toHaveBeenCalledTimes(6)
     })
 
     it('throws immediately on non-transient error in executeBatchWriteWithRetry without retry', async () => {

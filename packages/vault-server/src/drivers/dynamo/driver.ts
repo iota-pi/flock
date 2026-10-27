@@ -11,11 +11,12 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  PutCommandOutput,
   QueryCommand,
   QueryCommandInput,
   QueryCommandOutput,
   UpdateCommand,
-  UpdateCommandInput,
+  UpdateCommandOutput,
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
 import { generateAccountId } from '../../util'
@@ -41,11 +42,18 @@ import type {
 } from '../vaultDriver'
 import { AuthenticationError } from '../../errors'
 import { FAILED_LOGIN_WINDOW_MS } from '../../loginThrottle'
-import { backOff, VersionConflictError, type BackoffOptions, type ItemId, type ManifestEntry } from '@vault/shared'
+import {
+  backOff,
+  VersionConflictError,
+  type BackoffOptions,
+  type ItemId,
+  type ManifestEntry,
+  type PageToken,
+} from '@vault/shared'
 import { isConditionalCheckFailure, isResourceInUseError } from './dynamoErrors'
 import { getConnectionParams, resolveVaultTableNames, type VaultTableNames } from './config'
 import { ACCOUNT_CURSOR_INDEX, getVaultTableDefinitions } from './tables'
-import { buildUpdateParams, cursorKeyCondition, RawUpdateValue } from './expressions'
+import { buildUpdateParams, cursorKeyCondition, projection, RawUpdateValue } from './expressions'
 import { sendBatchWithRetry } from './batchRetry'
 import { decodeGlobalPageToken, decodeItemPageToken, encodePageToken } from './pageTokens'
 import { decodeStoredSnapshotCipher, toStoredItem, validateItem } from './items'
@@ -59,20 +67,11 @@ export interface DynamoDriverOptions {
 
 const SYNC_MESSAGE_TTL = 90 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
+const FETCH_BATCH_SIZE = 100
 const DEFAULT_SYNC_MESSAGE_LIMIT = 200
+const MAX_ACCOUNT_ID_ATTEMPTS = 10
 
-const DATA_ATTRIBUTES = [
-  '#metadata',
-  '#cipher',
-  '#snapshot',
-  '#version',
-]
-const DATA_ATTRIBUTE_NAMES = {
-  '#metadata': 'metadata',
-  '#cipher': 'cipher',
-  '#snapshot': 'snapshot',
-  '#version': 'version',
-}
+const ITEM_DATA_PROJECTION = projection(['item', 'metadata', 'cipher', 'snapshot', 'version'])
 
 const MAX_SESSION_UPDATE_ATTEMPTS = 3
 const SESSION_UPDATE_BACKOFF: BackoffOptions = { baseMs: 10, maxMs: 100, jitterMs: 10 }
@@ -87,16 +86,6 @@ export default class DynamoDriver implements VaultDriver {
     this.accountDefaults = options.accountDefaults ?? {}
   }
 
-  private getDocumentClient(ddb: DynamoDBClient) {
-    return DynamoDBDocumentClient.from(ddb, {
-      marshallOptions: {
-        // Some item fields are optional and can be undefined (for example metadata.deleted).
-        // Strip them before marshalling to avoid runtime 500s from util-dynamodb.
-        removeUndefinedValues: true,
-      },
-    })
-  }
-
   get client() {
     if (!this.internalClient) {
       throw new Error('Cannot use client before initialisation')
@@ -109,15 +98,7 @@ export default class DynamoDriver implements VaultDriver {
     for (const table of getVaultTableDefinitions(this.tables)) {
       try {
         console.info(`Create table: ${table.TableName}`)
-        await this.client.send(new CreateTableCommand(
-          {
-            TableName: table.TableName,
-            KeySchema: table.KeySchema,
-            AttributeDefinitions: table.AttributeDefinitions,
-            GlobalSecondaryIndexes: table.GlobalSecondaryIndexes,
-            BillingMode: 'PAY_PER_REQUEST',
-          },
-        ))
+        await this.client.send(new CreateTableCommand({ ...table, BillingMode: 'PAY_PER_REQUEST' }))
         console.info(`Table created: ${table.TableName}`)
       } catch (err: unknown) {
         if (!isResourceInUseError(err)) {
@@ -136,7 +117,13 @@ export default class DynamoDriver implements VaultDriver {
       ...connectionParams,
       logger: devMode ? console : undefined,
     })
-    this.internalClient = this.getDocumentClient(ddb)
+    this.internalClient = DynamoDBDocumentClient.from(ddb, {
+      marshallOptions: {
+        // Some item fields are optional and can be undefined (for example metadata.deleted).
+        // Strip them before marshalling to avoid runtime 500s from util-dynamodb.
+        removeUndefinedValues: true,
+      },
+    })
     return this
   }
 
@@ -152,43 +139,36 @@ export default class DynamoDriver implements VaultDriver {
       randomDataKeys,
     }: VaultAccount,
   ): Promise<boolean> {
-    try {
-      await this.client.send(new PutCommand({
-        TableName: this.tables.accounts,
-        Item: {
-          ...this.accountDefaults,
-          account,
-          authToken,
-          created: Date.now(),
-          lastAccess: Date.now(),
-          salt,
-          ...(iterations !== undefined ? { iterations } : {}),
-          saltVersion,
-          ...(kdf ? { kdf } : {}),
-          ...(keyring ? { keyring } : {}),
-          ...(randomDataKeys ? { randomDataKeys } : {}),
-          sessions: [],
-          keyringVersion: 1,
-        },
-        ConditionExpression: 'attribute_not_exists(account)',
-      }))
-      return true
-    } catch (error) {
-      if (!isConditionalCheckFailure(error)) {
-        throw error
-      }
-      return false
-    }
+    const now = Date.now()
+    const created = await this.sendConditional(new PutCommand({
+      TableName: this.tables.accounts,
+      Item: {
+        ...this.accountDefaults,
+        account,
+        authToken,
+        created: now,
+        lastAccess: now,
+        salt,
+        ...(iterations !== undefined ? { iterations } : {}),
+        saltVersion,
+        ...(kdf ? { kdf } : {}),
+        ...(keyring ? { keyring } : {}),
+        ...(randomDataKeys ? { randomDataKeys } : {}),
+        sessions: [],
+        keyringVersion: 1,
+      },
+      ConditionExpression: 'attribute_not_exists(account)',
+    }))
+    return created !== undefined
   }
 
   async getAccountRecord({ account }: BaseData): Promise<StoredAccount | undefined> {
-    const response = await this.client.send(new GetCommand(
-      {
-        TableName: this.tables.accounts,
-        Key: { account },
-        ConsistentRead: true,
-      },
-    ))
+    const response = await this.client.send(new GetCommand({
+      TableName: this.tables.accounts,
+      Key: { account },
+      // Logging in straight after creating an account reads it first
+      ConsistentRead: true,
+    }))
     return response?.Item as StoredAccount | undefined
   }
 
@@ -197,47 +177,29 @@ export default class DynamoDriver implements VaultDriver {
     const values = { ':one': 1, ':windowStart': now - FAILED_LOGIN_WINDOW_MS }
     // Count within the current window. The conditions keep both writes from creating an item for an
     // account that doesn't exist.
-    try {
-      await this.client.send(new UpdateCommand({
-        TableName: this.tables.accounts,
-        Key: { account },
-        UpdateExpression: 'ADD failedLogins :one',
-        ConditionExpression: 'attribute_exists(account) AND failedLoginsSince > :windowStart',
-        ExpressionAttributeValues: values,
-      }))
+    const counted = await this.sendConditional(new UpdateCommand({
+      TableName: this.tables.accounts,
+      Key: { account },
+      UpdateExpression: 'ADD failedLogins :one',
+      ConditionExpression: 'attribute_exists(account) AND failedLoginsSince > :windowStart',
+      ExpressionAttributeValues: values,
+    }))
+    if (counted) {
       return
-    } catch (error) {
-      if (!isConditionalCheckFailure(error)) {
-        throw error
-      }
     }
     // Or start a new window. If a concurrent failure started it first, this one goes uncounted.
-    try {
-      await this.client.send(new UpdateCommand({
-        TableName: this.tables.accounts,
-        Key: { account },
-        UpdateExpression: 'SET failedLogins = :one, failedLoginsSince = :now',
-        ConditionExpression:
-          'attribute_exists(account) AND (attribute_not_exists(failedLoginsSince) OR failedLoginsSince <= :windowStart)',
-        ExpressionAttributeValues: { ...values, ':now': now },
-      }))
-    } catch (error) {
-      if (!isConditionalCheckFailure(error)) {
-        throw error
-      }
-    }
+    await this.sendConditional(new UpdateCommand({
+      TableName: this.tables.accounts,
+      Key: { account },
+      UpdateExpression: 'SET failedLogins = :one, failedLoginsSince = :now',
+      ConditionExpression:
+        'attribute_exists(account) AND (attribute_not_exists(failedLoginsSince) OR failedLoginsSince <= :windowStart)',
+      ExpressionAttributeValues: { ...values, ':now': now },
+    }))
   }
 
   async getSecurityParams({ account }: BaseData): Promise<SecurityParams> {
-    const response = await this.client.send(new GetCommand(
-      {
-        TableName: this.tables.accounts,
-        Key: { account },
-        // Logging in straight after creating an account reads it here first
-        ConsistentRead: true,
-      },
-    ))
-    const dbAccount = response?.Item as StoredAccount | undefined
+    const dbAccount = await this.getAccountRecord({ account })
     if (!dbAccount) {
       throw new AuthenticationError(`Could not find account ${account}`)
     }
@@ -250,18 +212,10 @@ export default class DynamoDriver implements VaultDriver {
     }
   }
 
-  async getNewAccountId(maxAttempts = 10): Promise<string> {
-    let attempts = 0
-
-    while (attempts < maxAttempts) {
-      attempts += 1
+  async getNewAccountId(): Promise<string> {
+    for (let attempt = 0; attempt < MAX_ACCOUNT_ID_ATTEMPTS; attempt += 1) {
       const account = generateAccountId()
-
-      const response = await this.client.send(new GetCommand({
-        TableName: this.tables.accounts,
-        Key: { account },
-      }))
-      if (!response?.Item) {
+      if (!await this.getAccountRecord({ account })) {
         return account
       }
     }
@@ -335,47 +289,38 @@ export default class DynamoDriver implements VaultDriver {
     update: (activeSessions: VaultSessionRecord[], now: number, attempt: number) => VaultSessionRecord[] | undefined,
   ): Promise<boolean> {
     for (let attempt = 0; attempt < MAX_SESSION_UPDATE_ATTEMPTS; attempt += 1) {
-      const response = await this.client.send(new GetCommand({
-        TableName: this.tables.accounts,
-        Key: { account },
-        ConsistentRead: true,
-      }))
-
-      if (!response?.Item) {
+      const record = await this.getAccountRecord({ account })
+      if (!record) {
         return false
       }
 
-      const rawSessions = response.Item.sessions
+      const rawSessions: unknown = record.sessions
       const now = Date.now()
       const nextSessions = update(normalizeSessionRecords(rawSessions, now), now, attempt)
       if (!nextSessions) {
         return false
       }
 
-      const params: UpdateCommandInput = {
+      const values = {
+        ':sessions': normalizeSessionRecords(nextSessions, now),
+        ':now': now,
+      }
+      const written = await this.sendConditional(new UpdateCommand({
         TableName: this.tables.accounts,
         Key: { account },
         UpdateExpression: 'SET sessions = :sessions, lastAccess = :now',
-        ExpressionAttributeValues: {
-          ':sessions': normalizeSessionRecords(nextSessions, now),
-          ':now': now,
-        },
-      }
-
-      if (Array.isArray(rawSessions)) {
-        params.ConditionExpression = 'sessions = :expectedSessions'
-        params.ExpressionAttributeValues![':expectedSessions'] = rawSessions
-      } else {
-        params.ConditionExpression = 'attribute_not_exists(sessions)'
-      }
-
-      try {
-        await this.client.send(new UpdateCommand(params))
+        ...(Array.isArray(rawSessions)
+          ? {
+            ConditionExpression: 'sessions = :expectedSessions',
+            ExpressionAttributeValues: { ...values, ':expectedSessions': rawSessions },
+          }
+          : {
+            ConditionExpression: 'attribute_not_exists(sessions)',
+            ExpressionAttributeValues: values,
+          }),
+      }))
+      if (written) {
         return true
-      } catch (error) {
-        if (!isConditionalCheckFailure(error)) {
-          throw error
-        }
       }
 
       if (attempt < MAX_SESSION_UPDATE_ATTEMPTS - 1) {
@@ -392,31 +337,27 @@ export default class DynamoDriver implements VaultDriver {
     // longer, so the server never rejects a snapshot that a client's own size check let through.
     validateItem(itemToPersist)
 
-    if (itemToPersist.metadata.deleted === true) {
-      return this.updateItem(itemToPersist)
-    }
-
     // Deletion is terminal. A snapshot from a device that hasn't seen the delete yet still replaces
     // the stored one (hydration merges, so that is harmless), but must keep the item deleted.
-    try {
-      return await this.updateItem(itemToPersist, { unlessDeleted: true })
-    } catch (error) {
-      if (!isConditionalCheckFailure(error)) {
-        throw error
+    if (itemToPersist.metadata.deleted !== true) {
+      const written = await this.sendConditional(this.updateItemCommand(itemToPersist, { unlessDeleted: true }))
+      if (written) {
+        return readVersion(written)
       }
     }
-    return this.updateItem({ ...itemToPersist, metadata: { ...itemToPersist.metadata, deleted: true } })
+    const tombstone = { ...itemToPersist, metadata: { ...itemToPersist.metadata, deleted: true } }
+    return readVersion(await this.client.send(this.updateItemCommand(tombstone)))
   }
 
   /** Writes an item and bumps its version. With `unlessDeleted`, the write fails its condition on a tombstone. */
-  private async updateItem(item: VaultItem, { unlessDeleted = false } = {}): Promise<{ version: number }> {
+  private updateItemCommand(item: VaultItem, { unlessDeleted = false } = {}): UpdateCommand {
     const modifiedAt = typeof item.metadata?.modified === 'number'
       ? item.metadata.modified
       : Date.now()
     // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists
     const removeLegacyCipher = !!item.snapshot && !item.cipher
 
-    const res = await this.client.send(new UpdateCommand({
+    return new UpdateCommand({
       TableName: this.tables.items,
       Key: {
         account: item.account,
@@ -442,8 +383,7 @@ export default class DynamoDriver implements VaultDriver {
           : undefined,
       }),
       ReturnValues: 'UPDATED_NEW',
-    }))
-    return { version: (res.Attributes?.version as number) ?? 1 }
+    })
   }
 
   async fetchManifest(
@@ -452,18 +392,8 @@ export default class DynamoDriver implements VaultDriver {
     const manifest: Array<ManifestEntry> = []
     const records = this.queryAll({
       TableName: this.tables.items,
-      KeyConditionExpression: 'account = :accountid',
-      ExpressionAttributeNames: {
-        '#itemKey': 'item',
-        '#modifiedAt': 'modifiedAt',
-        '#metadata': 'metadata',
-        '#deleted': 'deleted',
-        '#version': 'version',
-      },
-      ExpressionAttributeValues: {
-        ':accountid': account,
-      },
-      ProjectionExpression: '#itemKey, #version, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
+      ...cursorKeyCondition('account', account, undefined),
+      ...projection(['item', 'version', 'modifiedAt', 'metadata.modified', 'metadata.deleted', 'deleted']),
     })
 
     for await (const record of records) {
@@ -486,43 +416,24 @@ export default class DynamoDriver implements VaultDriver {
   }
 
   async raiseDataVersion({ account, dataVersion }: BaseData & { dataVersion: number }): Promise<void> {
-    try {
-      await this.client.send(new UpdateCommand({
-        TableName: this.tables.accounts,
-        Key: { account },
-        UpdateExpression: 'SET dataVersion = :dataVersion',
-        ConditionExpression: 'attribute_exists(account) AND (attribute_not_exists(dataVersion) OR dataVersion < :dataVersion)',
-        ExpressionAttributeValues: {
-          ':dataVersion': dataVersion,
-        },
-      }))
-    } catch (error) {
-      // Already at this version or higher
-      if (!isConditionalCheckFailure(error)) {
-        throw error
-      }
-    }
+    // The condition fails when the account is already at this version or higher
+    await this.sendConditional(new UpdateCommand({
+      TableName: this.tables.accounts,
+      Key: { account },
+      UpdateExpression: 'SET dataVersion = :dataVersion',
+      ConditionExpression: 'attribute_exists(account) AND (attribute_not_exists(dataVersion) OR dataVersion < :dataVersion)',
+      ExpressionAttributeValues: {
+        ':dataVersion': dataVersion,
+      },
+    }))
   }
 
   async listItemFormats({ account }: BaseData): Promise<ItemFormatSummary[]> {
     const formats: ItemFormatSummary[] = []
     const records = this.queryAll({
       TableName: this.tables.items,
-      KeyConditionExpression: 'account = :accountid',
-      ExpressionAttributeNames: {
-        '#itemKey': 'item',
-        '#metadata': 'metadata',
-        '#deleted': 'deleted',
-        '#snapshot': 'snapshot',
-        '#iv': 'iv',
-        '#format': 'format',
-        '#kver': 'kver',
-        '#cipher': 'cipher',
-      },
-      ExpressionAttributeValues: {
-        ':accountid': account,
-      },
-      ProjectionExpression: '#itemKey, #metadata.#deleted, #snapshot.#iv, #snapshot.#format, #snapshot.#kver, #cipher',
+      ...cursorKeyCondition('account', account, undefined),
+      ...projection(['item', 'metadata.deleted', 'snapshot.iv', 'snapshot.format', 'snapshot.kver', 'cipher']),
     })
 
     for await (const record of records) {
@@ -543,6 +454,21 @@ export default class DynamoDriver implements VaultDriver {
     return formats
   }
 
+  /** Sends a conditional write. Resolves to undefined, instead of throwing, when the condition fails. */
+  private async sendConditional(command: PutCommand): Promise<PutCommandOutput | undefined>
+  private async sendConditional(command: UpdateCommand): Promise<UpdateCommandOutput | undefined>
+  private async sendConditional(command: PutCommand | UpdateCommand) {
+    try {
+      // `send` takes one command type at a time; the overloads above give each caller its output type
+      return await this.client.send(command as UpdateCommand)
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        throw error
+      }
+      return undefined
+    }
+  }
+
   /** Runs a query to the end, yielding the records of each page as it arrives */
   private async* queryAll(input: Omit<QueryCommandInput, 'ExclusiveStartKey'>): AsyncGenerator<NonNullable<QueryCommandOutput['Items']>[number]> {
     let exclusiveStartKey: QueryCommandOutput['LastEvaluatedKey']
@@ -555,16 +481,20 @@ export default class DynamoDriver implements VaultDriver {
 
   private async executeBatchGetWithRetry(
     requestItems: BatchGetCommandInput['RequestItems'],
-    maxRetries = 5,
   ): Promise<Record<string, Record<string, unknown>[]>> {
     const accumulatedResponses: Record<string, Record<string, unknown>[]> = {}
-    await sendBatchWithRetry(requestItems, 'BatchGetCommand', 'keys', maxRetries, async request => {
-      const response = await this.client.send(new BatchGetCommand({ RequestItems: request }))
-      for (const [tableName, items] of Object.entries(response.Responses ?? {})) {
-        accumulatedResponses[tableName] ??= []
-        accumulatedResponses[tableName].push(...items)
-      }
-      return response.UnprocessedKeys
+    await sendBatchWithRetry({
+      request: requestItems,
+      commandName: 'BatchGetCommand',
+      unprocessedName: 'keys',
+      send: async request => {
+        const response = await this.client.send(new BatchGetCommand({ RequestItems: request }))
+        for (const [tableName, items] of Object.entries(response.Responses ?? {})) {
+          accumulatedResponses[tableName] ??= []
+          accumulatedResponses[tableName].push(...items)
+        }
+        return response.UnprocessedKeys
+      },
     })
     return accumulatedResponses
   }
@@ -572,19 +502,13 @@ export default class DynamoDriver implements VaultDriver {
   async fetchByIds(
     { account, itemIds }: { account: string; itemIds: string[] },
   ): Promise<VaultItem[]> {
-    if (!itemIds || itemIds.length === 0) {
+    if (itemIds.length === 0) {
       return []
     }
 
     const uniqueItemIds = Array.from(new Set(itemIds))
-    const batches = chunk(uniqueItemIds, 100)
+    const batches = chunk(uniqueItemIds, FETCH_BATCH_SIZE)
     const results: VaultItem[] = []
-
-    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES].join(',')
-    const expressionAttributeNames = {
-      '#itemKey': 'item',
-      ...DATA_ATTRIBUTE_NAMES,
-    }
 
     for (const batch of batches) {
       const requestItems: BatchGetCommandInput['RequestItems'] = {
@@ -593,8 +517,7 @@ export default class DynamoDriver implements VaultDriver {
             account,
             item: itemId,
           })),
-          ProjectionExpression: projectionExpression,
-          ExpressionAttributeNames: expressionAttributeNames,
+          ...ITEM_DATA_PROJECTION,
         },
       }
       const responses = await this.executeBatchGetWithRetry(requestItems)
@@ -610,11 +533,15 @@ export default class DynamoDriver implements VaultDriver {
 
   private async executeBatchWriteWithRetry(
     requestItems: BatchWriteCommandInput['RequestItems'],
-    maxRetries = 5,
   ): Promise<void> {
-    await sendBatchWithRetry(requestItems, 'BatchWriteCommand', 'items', maxRetries, async request => {
-      const response = await this.client.send(new BatchWriteCommand({ RequestItems: request }))
-      return response.UnprocessedItems
+    await sendBatchWithRetry({
+      request: requestItems,
+      commandName: 'BatchWriteCommand',
+      unprocessedName: 'items',
+      send: async request => {
+        const response = await this.client.send(new BatchWriteCommand({ RequestItems: request }))
+        return response.UnprocessedItems
+      },
     })
   }
 
@@ -645,24 +572,16 @@ export default class DynamoDriver implements VaultDriver {
 
   async getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage> {
     const expectedSyncId = toSyncId(input.account, input.itemId)
-    const exclusiveStartKey = input.pageToken
-      ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
-      : undefined
-    // A continuation starts from the token, which already lies after fromCursor
-    const fromCursor = exclusiveStartKey ? undefined : input.fromCursor
-
-    const response = await this.client.send(new QueryCommand({
-      TableName: this.tables.syncMessages,
-      ...cursorKeyCondition('syncId', expectedSyncId, fromCursor),
-      Limit: input.limit ?? DEFAULT_SYNC_MESSAGE_LIMIT,
-      ExclusiveStartKey: exclusiveStartKey,
-    }))
-
-    return {
-      messages: (response.Items as StoredSyncMessage[]) || [],
-      hasMore: !!response.LastEvaluatedKey,
-      nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
-    }
+    const { items, hasMore, nextPageToken } = await this.querySyncMessagePage({
+      partitionKey: 'syncId',
+      partitionValue: expectedSyncId,
+      afterCursor: input.fromCursor,
+      startKey: input.pageToken
+        ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
+        : undefined,
+      limit: input.limit,
+    })
+    return { messages: items as StoredSyncMessage[], hasMore, nextPageToken }
   }
 
   validatePageToken(input: ValidatePageTokenInput): void {
@@ -676,25 +595,22 @@ export default class DynamoDriver implements VaultDriver {
   async getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage> {
     const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
 
-    const exclusiveStartKey = input.pageToken
+    const startKey = input.pageToken
       ? decodeGlobalPageToken(input.pageToken, input.account)
       : undefined
-    // A continuation starts from the token, which already lies after the cursor
-    const cursor = exclusiveStartKey ? undefined : input.cursor
-
-    const response = await this.client.send(new QueryCommand({
-      TableName: this.tables.syncMessages,
-      IndexName: ACCOUNT_CURSOR_INDEX,
-      ...cursorKeyCondition('account', input.account, cursor),
-      Limit: DEFAULT_SYNC_MESSAGE_LIMIT,
-      ExclusiveStartKey: exclusiveStartKey,
-    }))
+    const { items, hasMore, nextPageToken } = await this.querySyncMessagePage({
+      indexName: ACCOUNT_CURSOR_INDEX,
+      partitionKey: 'account',
+      partitionValue: input.account,
+      afterCursor: input.cursor,
+      startKey,
+    })
 
     // Highest cursor examined by this page (before any caller-side filtering), so clients can
     // track the global scan position independently of per-item cursors.
-    let scannedThroughCursor = exclusiveStartKey?.cursor ?? input.cursor ?? 0
+    let scannedThroughCursor = startKey?.cursor ?? input.cursor ?? 0
 
-    for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
+    for (const item of items as (StoredSyncMessage & { syncId: string })[]) {
       if (typeof item.cursor === 'number' && item.cursor > scannedThroughCursor) {
         scannedThroughCursor = item.cursor
       }
@@ -718,11 +634,50 @@ export default class DynamoDriver implements VaultDriver {
         itemId,
         messages: messages.sort((a, b) => a.cursor - b.cursor),
       })),
-      hasMore: !!response.LastEvaluatedKey,
-      nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
+      hasMore,
+      nextPageToken,
       scannedThroughCursor,
     }
   }
+
+  /**
+   * Queries one page of a partition's sync messages: from the decoded page token when there is one,
+   * otherwise after `afterCursor`
+   */
+  private async querySyncMessagePage({
+    indexName,
+    partitionKey,
+    partitionValue,
+    afterCursor,
+    startKey,
+    limit = DEFAULT_SYNC_MESSAGE_LIMIT,
+  }: {
+    indexName?: string
+    partitionKey: string
+    partitionValue: string
+    afterCursor: number | undefined
+    startKey: Record<string, unknown> | undefined
+    limit?: number
+  }): Promise<{ items: Record<string, unknown>[], hasMore: boolean, nextPageToken?: PageToken }> {
+    const response = await this.client.send(new QueryCommand({
+      TableName: this.tables.syncMessages,
+      IndexName: indexName,
+      // A continuation starts from the token, which already lies after the cursor
+      ...cursorKeyCondition(partitionKey, partitionValue, startKey ? undefined : afterCursor),
+      Limit: limit,
+      ExclusiveStartKey: startKey,
+    }))
+    return {
+      items: response.Items ?? [],
+      hasMore: !!response.LastEvaluatedKey,
+      nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
+    }
+  }
+}
+
+/** The version that a write to the items table returned */
+function readVersion(response: UpdateCommandOutput): { version: number } {
+  return { version: (response.Attributes?.version as number) ?? 1 }
 }
 
 /** The item ID of an items-table record, or undefined for a record without one */

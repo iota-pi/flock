@@ -1,4 +1,4 @@
-import { buildUpdateParams, cursorKeyCondition, RawUpdateValue } from './expressions'
+import { buildUpdateParams, cursorKeyCondition, projection, RawUpdateValue } from './expressions'
 
 describe('buildUpdateParams', () => {
   it('builds a SET expression and mapped values for the given fields', () => {
@@ -106,6 +106,20 @@ describe('cursorKeyCondition', () => {
       KeyConditionExpression: 'account = :account AND #c > :cursor',
       ExpressionAttributeNames: { '#c': 'cursor' },
       ExpressionAttributeValues: { ':account': 'acct', ':cursor': 0 },
+    })
+  })
+})
+
+describe('projection', () => {
+  it('names every segment of each path once', () => {
+    expect(projection(['item', 'metadata.modified', 'metadata.deleted', 'deleted'])).toEqual({
+      ProjectionExpression: '#item, #metadata.#modified, #metadata.#deleted, #deleted',
+      ExpressionAttributeNames: {
+        '#item': 'item',
+        '#metadata': 'metadata',
+        '#modified': 'modified',
+        '#deleted': 'deleted',
+      },
     })
   })
 })

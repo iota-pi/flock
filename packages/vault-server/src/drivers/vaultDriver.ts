@@ -127,7 +127,7 @@ export interface VaultDriver {
 
   // Throws `AuthenticationError` when the account doesn't exist
   getSecurityParams(data: BaseData): Promise<SecurityParams>
-  getNewAccountId(attempts?: number): Promise<string>
+  getNewAccountId(): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update
   // fields independently. Apps can store their own fields on

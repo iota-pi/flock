@@ -49,18 +49,19 @@ describe('DynamoDriver.fetchManifest', () => {
     expect(command).toBeInstanceOf(QueryCommand)
     expect(command.input).toMatchObject({
       TableName: driver.tables.items,
-      KeyConditionExpression: 'account = :accountid',
+      KeyConditionExpression: 'account = :account',
       ExpressionAttributeNames: {
-        '#itemKey': 'item',
+        '#item': 'item',
         '#version': 'version',
         '#modifiedAt': 'modifiedAt',
         '#metadata': 'metadata',
+        '#modified': 'modified',
         '#deleted': 'deleted',
       },
       ExpressionAttributeValues: {
-        ':accountid': 'acc-123',
+        ':account': 'acc-123',
       },
-      ProjectionExpression: '#itemKey, #version, #modifiedAt, #metadata.modified, #metadata.#deleted, #deleted',
+      ProjectionExpression: '#item, #version, #modifiedAt, #metadata.#modified, #metadata.#deleted, #deleted',
     })
 
     expect(result).toEqual([

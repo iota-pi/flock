@@ -2,17 +2,23 @@ import { backOff, type BackoffOptions } from '@vault/shared'
 import { isTransientDynamoError } from './dynamoErrors'
 
 const BATCH_BACKOFF: BackoffOptions = { baseMs: 100, maxMs: 5000, jitterMs: 50 }
+const BATCH_MAX_RETRIES = 5
+
+export interface BatchRetryOptions<T> {
+  request: T
+  /** Names the command and the unprocessed part of its response in the error once retries run out */
+  commandName: string
+  unprocessedName: string
+  /** Sends a request and returns its unprocessed part */
+  send: (request: T) => Promise<T | undefined>
+}
 
 /**
  * Sends a batch request, then resends whatever DynamoDB leaves unprocessed, and retries transient
- * errors, with jittered exponential backoff. `send` returns the unprocessed part of the request.
+ * errors, with jittered exponential backoff.
  */
 export async function sendBatchWithRetry<T>(
-  request: T,
-  commandName: string,
-  unprocessedName: string,
-  maxRetries: number,
-  send: (request: T) => Promise<T | undefined>,
+  { request, commandName, unprocessedName, send }: BatchRetryOptions<T>,
 ): Promise<void> {
   let currentRequest = request
   let attempt = 0
@@ -26,7 +32,7 @@ export async function sendBatchWithRetry<T>(
         throw error
       }
       attempt += 1
-      if (attempt > maxRetries) {
+      if (attempt > BATCH_MAX_RETRIES) {
         throw error
       }
       await backOff(attempt - 1, BATCH_BACKOFF)
@@ -38,8 +44,8 @@ export async function sendBatchWithRetry<T>(
     }
 
     attempt += 1
-    if (attempt > maxRetries) {
-      throw new Error(`Failed to execute ${commandName} after ${maxRetries} attempts due to DynamoDB unprocessed ${unprocessedName}.`)
+    if (attempt > BATCH_MAX_RETRIES) {
+      throw new Error(`Failed to execute ${commandName} after ${BATCH_MAX_RETRIES} attempts due to DynamoDB unprocessed ${unprocessedName}.`)
     }
     await backOff(attempt - 1, BATCH_BACKOFF)
     currentRequest = unprocessed
