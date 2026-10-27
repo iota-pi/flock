@@ -9,7 +9,7 @@ const log = createLogger('requestRetry')
 const REQUEST_RETRY_DELAYS: readonly number[] = [500, 2000]
 
 /** Whether a failed request might succeed if sent again. A rate limit won't lift in time to help. */
-export function isTransientRequestError(error: unknown): boolean {
+function isTransientRequestError(error: unknown): boolean {
   const { isNetwork, isServerError, isAuth } = classifySyncError(error)
   return (isNetwork || isServerError) && !isAuth && !isRateLimitedError(error)
 }

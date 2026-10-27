@@ -88,6 +88,12 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     await broker.setAccount(accountId)
   })
 
+  async function sendIncrementalEdits(itemIds: ItemId[]): Promise<void> {
+    for (const itemId of itemIds) {
+      await (broker as any).handleOutgoingMessage(createTestSyncMessage(itemId))
+    }
+  }
+
   it('prevents infinite thrashing loop by flagging pruned items for snapshot-only sync without renegotiation', async () => {
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
     const walAppendSpy = vi.spyOn(wal, 'append')
@@ -130,16 +136,16 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     // Calling triggerReNegotiation causes Automerge to regenerate messages into WAL in an infinite loop.
     expect(renegSpy).not.toHaveBeenCalled()
 
-    // Step 5: All 100 pruned items are now flagged as snapshot-only in the broker
-    for (let i = 0; i < 100; i++) {
-      expect(broker.isSnapshotOnly(`offline-item-${i}` as ItemId)).toBe(true)
-    }
-    expect(broker.getSnapshotOnlyItemCount()).toBe(100)
-
-    // Step 6: WAL length is bounded at 2000 - 100 + 1 = 1901 entries
+    // Step 5: WAL length is bounded at 2000 - 100 + 1 = 1901 entries
     expect(await store.length()).toBe(1901)
     // The newly appended item is present
     expect(Array.from(store.store.values()).some(e => e.itemId === 'offline-item-2000')).toBe(true)
+
+    // Step 6: All 100 pruned items are now flagged as snapshot-only, so their incremental messages are dropped
+    walAppendSpy.mockClear()
+    await sendIncrementalEdits(prunedItems)
+    expect(walAppendSpy).not.toHaveBeenCalled()
+    expect(await store.length()).toBe(1901)
 
     // Step 7: If the user edits one of the pruned items again while still offline:
     // The broker should DROP the incremental sync message (NOT append to WAL),
@@ -160,8 +166,6 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     // Step 8: When the snapshot is uploaded to server upon reconnecting:
     // broker.setSyncedHeads is called, removing the item from snapshot-only mode.
     broker.setSyncedHeads('offline-item-5' as ItemId, ['server-head-1'])
-    expect(broker.isSnapshotOnly('offline-item-5' as ItemId)).toBe(false)
-    expect(broker.getSnapshotOnlyItemCount()).toBe(99)
 
     // Now future edits to offline-item-5 can append to WAL normally
     const postSnapshotEditMsg = createTestSyncMessage('offline-item-5')
@@ -169,9 +173,19 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
 
     expect(walAppendSpy).toHaveBeenCalledWith('offline-item-5', expect.any(Uint8Array))
     expect(await store.length()).toBe(1902)
+
+    // The other 99 pruned items are still snapshot-only
+    walAppendSpy.mockClear()
+    await sendIncrementalEdits(prunedItems.filter(itemId => itemId !== 'offline-item-5'))
+    expect(walAppendSpy).not.toHaveBeenCalled()
+    expect(await store.length()).toBe(1902)
   })
 
   it('handles extensive offline edits (>2050 items) without infinite recursion or stack overflow', async () => {
+    const prunedItems: ItemId[] = []
+    internalEventHub.subscribe(e => {
+      if (e.type === 'walEntriesPruned') prunedItems.push(...e.itemIds)
+    })
     const store = mockStores.get(`test-vault-wal-${accountId}:wal-entries`)!
     for (let i = 0; i < 1950; i++) {
       const id = `entry-${i}`
@@ -194,6 +208,9 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     const finalLength = await store.length()
     expect(finalLength).toBeLessThanOrEqual(SyncWriteAheadLog.MAX_ENTRIES)
     // Items that crossed threshold were safely quarantined into snapshot-only mode
-    expect(broker.getSnapshotOnlyItemCount()).toBeGreaterThanOrEqual(100)
+    expect(new Set(prunedItems).size).toBeGreaterThanOrEqual(100)
+    const walAppendSpy = vi.spyOn(wal, 'append')
+    await sendIncrementalEdits(prunedItems)
+    expect(walAppendSpy).not.toHaveBeenCalled()
   })
 })

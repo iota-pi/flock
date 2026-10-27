@@ -128,13 +128,6 @@ export class BoundedQueue<T> implements Iterable<T> {
   }
 
   /**
-   * Returns a shallow copy of the queue items as an array.
-   */
-  toArray(): T[] {
-    return this.items.slice()
-  }
-
-  /**
    * Returns a new BoundedQueue containing items that satisfy the predicate,
    * retaining the same maxCapacity and eviction callbacks.
    */

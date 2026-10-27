@@ -20,7 +20,7 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('SyncPoller')
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
-export const MAX_CONSECUTIVE_PUSH_FAILURES = 5
+const MAX_CONSECUTIVE_PUSH_FAILURES = 5
 
 export interface ChunkPushSummary {
   acknowledgedCount: number

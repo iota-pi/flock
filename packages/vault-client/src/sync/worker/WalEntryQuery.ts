@@ -94,14 +94,6 @@ export class WalEntryQuery<T extends WalEntryDescriptor> {
   }
 
   /**
-   * Returns available (not in-flight) entries sorted chronologically
-   * by `createdAt` ascending, with `seq` ascending as tiebreaker.
-   */
-  availableSorted(): T[] {
-    return WalEntryQuery.sortByAge(this.available())
-  }
-
-  /**
    * Sorts entries chronologically by `createdAt` ascending, with `seq` ascending as tiebreaker.
    * Returns a new array without mutating the input.
    */

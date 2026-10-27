@@ -207,26 +207,37 @@ describe('ServiceLifecycleManager', () => {
     expect(lifecycle.getStatus()).toBe('stopped')
   })
 
-  it('replaces registration when registering a service with an existing name', () => {
+  it('replaces registration when registering a service with an existing name', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const firstStart = vi.fn()
+    const secondStart = vi.fn()
 
-    lifecycle.register('SameName', {})
-    lifecycle.register('SameName', {})
-
-    expect(lifecycle.getRegisteredServiceNames()).toEqual(['SameName'])
+    lifecycle.register('SameName', { onStart: firstStart })
+    lifecycle.register('SameName', { onStart: secondStart })
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already registered'))
+
+    await lifecycle.start()
+    expect(firstStart).not.toHaveBeenCalled()
+    expect(secondStart).toHaveBeenCalledTimes(1)
 
     warnSpy.mockRestore()
   })
 
   it('clears registered services and resets status', async () => {
-    lifecycle.register('ServiceA', {})
+    const startFn = vi.fn()
+    const stopFn = vi.fn()
+    lifecycle.register('ServiceA', { onStart: startFn, onStop: stopFn })
     await lifecycle.start()
     await lifecycle.stop()
 
     lifecycle.clear()
-    expect(lifecycle.getRegisteredServiceNames()).toEqual([])
     expect(lifecycle.getStatus()).toBe('uninitialized')
+
+    // Cleared services are no longer started or stopped
+    await lifecycle.start()
+    await lifecycle.stop()
+    expect(startFn).toHaveBeenCalledTimes(1)
+    expect(stopFn).toHaveBeenCalledTimes(1)
   })
 
   it('supports registering LifecycleAware objects directly', async () => {
@@ -243,7 +254,12 @@ describe('ServiceLifecycleManager', () => {
 
     lifecycle.register(awareService)
 
-    expect(lifecycle.getRegisteredServiceNames()).toEqual(['AwareService'])
+    // Registered under its lifecycleName, so a same-named registration replaces it
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    lifecycle.register('AwareService', {})
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"AwareService" already registered'))
+    lifecycle.register(awareService)
+    warnSpy.mockRestore()
 
     await lifecycle.start()
     expect(events).toEqual(['start:aware'])

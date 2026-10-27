@@ -46,14 +46,14 @@ describe('BoundedQueue', () => {
     // Push 4th item: should evict 1
     queue.push(4)
     expect(queue.length).toBe(3)
-    expect(queue.toArray()).toEqual([2, 3, 4])
+    expect([...queue]).toEqual([2, 3, 4])
     expect(onEvict).toHaveBeenCalledWith(1)
     expect(onEvictBatch).toHaveBeenCalledWith([1])
 
     // Push 5th item: should evict 2
     queue.push(5)
     expect(queue.length).toBe(3)
-    expect(queue.toArray()).toEqual([3, 4, 5])
+    expect([...queue]).toEqual([3, 4, 5])
     expect(onEvict).toHaveBeenCalledWith(2)
     expect(onEvictBatch).toHaveBeenCalledWith([2])
   })
@@ -66,7 +66,7 @@ describe('BoundedQueue', () => {
     queue.push('y')
     queue.push('z')
 
-    expect(queue.toArray()).toEqual(['y', 'z'])
+    expect([...queue]).toEqual(['y', 'z'])
     expect(onEvict).toHaveBeenCalledWith('x')
   })
 
@@ -81,7 +81,7 @@ describe('BoundedQueue', () => {
     // Push [3, 4, 5]: total would be 5, overflow is 2. Evicts 1 and 2
     queue.push(3, 4, 5)
     expect(queue.length).toBe(3)
-    expect(queue.toArray()).toEqual([3, 4, 5])
+    expect([...queue]).toEqual([3, 4, 5])
     expect(onEvict).toHaveBeenCalledWith(1)
     expect(onEvict).toHaveBeenCalledWith(2)
     expect(onEvictBatch).toHaveBeenCalledWith([1, 2])
@@ -98,7 +98,7 @@ describe('BoundedQueue', () => {
     // Evicts [1, 2] from existing, and [10, 20] from new items!
     queue.push(10, 20, 30, 40, 50)
     expect(queue.length).toBe(3)
-    expect(queue.toArray()).toEqual([30, 40, 50])
+    expect([...queue]).toEqual([30, 40, 50])
     expect(onEvictBatch).toHaveBeenCalledWith([1, 2, 10, 20])
     expect(onEvict).toHaveBeenCalledTimes(4)
   })
@@ -108,7 +108,7 @@ describe('BoundedQueue', () => {
       initialItems: [1, 2, 3, 4, 5],
     })
     expect(queue.length).toBe(3)
-    expect(queue.toArray()).toEqual([3, 4, 5])
+    expect([...queue]).toEqual([3, 4, 5])
   })
 
   it('clears and drains properly', () => {
@@ -120,7 +120,7 @@ describe('BoundedQueue', () => {
     queue.push('x', 'y')
     queue.clear()
     expect(queue.length).toBe(0)
-    expect(queue.toArray()).toEqual([])
+    expect([...queue]).toEqual([])
   })
 
   it('implements filter, returning a new BoundedQueue with same configuration', () => {
@@ -133,7 +133,7 @@ describe('BoundedQueue', () => {
     const filtered = queue.filter(x => x % 2 === 0)
     expect(filtered).toBeInstanceOf(BoundedQueue)
     expect(filtered.maxCapacity).toBe(5)
-    expect(filtered.toArray()).toEqual([2, 4])
+    expect([...filtered]).toEqual([2, 4])
 
     // Filtered queue should inherit onEvict and capacity
     filtered.push(6, 8, 10, 12)
@@ -167,7 +167,7 @@ describe('BoundedQueue', () => {
     const result = queue.filterInPlace(x => x % 2 === 1)
     expect(result).toBe(queue)
     expect(queue.length).toBe(3)
-    expect(queue.toArray()).toEqual([1, 3, 5])
+    expect([...queue]).toEqual([1, 3, 5])
   })
 })
 

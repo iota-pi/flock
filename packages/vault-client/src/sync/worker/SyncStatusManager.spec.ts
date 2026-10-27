@@ -68,32 +68,27 @@ describe('SyncStatusManager', () => {
 
     statusManager.startRequest()
     expect(statusManager.getStatus()).toBe('syncing')
-    expect(statusManager.getActiveRequests()).toBe(1)
     expect(emittedStatuses).toEqual(['syncing'])
 
     // When reset() is called with in-flight requests outstanding:
     statusManager.reset(true)
     // activeRequests is preserved and status remains syncing
-    expect(statusManager.getActiveRequests()).toBe(1)
     expect(statusManager.getStatus()).toBe('syncing')
     // No spurious status change emitted
     expect(emittedStatuses).toEqual(['syncing'])
 
     // A second request starts (e.g. after reconnect)
     statusManager.startRequest()
-    expect(statusManager.getActiveRequests()).toBe(2)
     expect(statusManager.getStatus()).toBe('syncing')
 
     // The first in-flight request completes
     statusManager.finishRequest()
-    expect(statusManager.getActiveRequests()).toBe(1)
     // Should NOT transition to idle because second request is still in flight
     expect(statusManager.getStatus()).toBe('syncing')
     expect(emittedStatuses).toEqual(['syncing'])
 
     // The second request completes
     statusManager.finishRequest()
-    expect(statusManager.getActiveRequests()).toBe(0)
     expect(statusManager.getStatus()).toBe('idle')
     expect(emittedStatuses).toEqual(['syncing', 'idle'])
   })
@@ -104,12 +99,10 @@ describe('SyncStatusManager', () => {
 
     statusManager.startRequest()
     expect(statusManager.getStatus()).toBe('syncing')
-    expect(statusManager.getActiveRequests()).toBe(1)
 
     // Reset with offline state
     statusManager.reset(false)
     expect(statusManager.getStatus()).toBe('offline')
-    expect(statusManager.getActiveRequests()).toBe(1)
 
     // Reconnecting while request is still pending restores syncing status
     statusManager.setOnlineState(true)
@@ -117,7 +110,6 @@ describe('SyncStatusManager', () => {
 
     // Request completes
     statusManager.finishRequest()
-    expect(statusManager.getActiveRequests()).toBe(0)
     expect(statusManager.getStatus()).toBe('idle')
   })
 

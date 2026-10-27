@@ -66,6 +66,19 @@ describe('SyncMessageBroker', () => {
     })
   })
 
+  /** Sends an incremental sync message for the item and reports whether the broker kept it out of the WAL. */
+  async function dropsIncrementalSync(itemId: string): Promise<boolean> {
+    const appendsBefore = vi.mocked(mockWal.append).mock.calls.length
+    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage(itemId, [7]) })
+    await Promise.resolve()
+    return vi.mocked(mockWal.append).mock.calls.length === appendsBefore
+  }
+
+  async function startSending(): Promise<void> {
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+  }
+
   it('does not write to WAL if send is not enabled or account is not set', () => {
     const msg = createSyncMessage('item123', [1, 2, 3])
 
@@ -111,15 +124,13 @@ describe('SyncMessageBroker', () => {
 
     expect(mockWal.append).not.toHaveBeenCalled()
     expect(fallbackSpy).toHaveBeenCalledWith('item-big')
-    expect(broker.isSnapshotOnly('item-big' as ItemId)).toBe(true)
 
     // Subsequent incremental messages are dropped until a snapshot succeeds
-    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage('item-big', [1]) })
-    await Promise.resolve()
+    expect(await dropsIncrementalSync('item-big')).toBe(true)
     expect(mockWal.append).not.toHaveBeenCalled()
 
     broker.setSyncedHeads('item-big' as ItemId, ['heads'])
-    expect(broker.isSnapshotOnly('item-big' as ItemId)).toBe(false)
+    expect(await dropsIncrementalSync('item-big')).toBe(false)
     warnSpy.mockRestore()
   })
 
@@ -239,16 +250,16 @@ describe('SyncMessageBroker', () => {
     internalEventHub.subscribe(e => {
       if (e.type === 'walEntriesPruned') prunedSpy(e.itemIds)
     })
-
+    await startSending()
 
     // Simulate WAL notifying of pruned items
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId, 'item-2' as ItemId] })
 
     expect(renegSpy).not.toHaveBeenCalled()
-    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
-    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
-    expect(broker.getSnapshotOnlyItemCount()).toBe(2)
     expect(prunedSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
+    expect(await dropsIncrementalSync('item-1')).toBe(true)
+    expect(await dropsIncrementalSync('item-2')).toBe(true)
+    expect(await dropsIncrementalSync('item-3')).toBe(false)
   })
 
   it('drops outgoing sync messages for snapshot-only items without re-emitting walEntriesPruned', async () => {
@@ -262,7 +273,6 @@ describe('SyncMessageBroker', () => {
     // Mark item-1 as snapshot-only (via pruned callback)
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId] })
     prunedSpy.mockClear()
-    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
 
     // Outgoing sync message for item-1
     const msg = createSyncMessage('item-1', [1, 2, 3])
@@ -276,20 +286,21 @@ describe('SyncMessageBroker', () => {
   })
 
   it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeads or clearSnapshotOnlyItem', async () => {
+    await startSending()
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId, 'item-2' as ItemId] })
-    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
-    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
+    expect(await dropsIncrementalSync('item-1')).toBe(true)
+    expect(await dropsIncrementalSync('item-2')).toBe(true)
 
     broker.setSyncedHeads('item-1' as ItemId, ['head-1'])
-    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(false)
-    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
+    expect(await dropsIncrementalSync('item-1')).toBe(false)
+    expect(await dropsIncrementalSync('item-2')).toBe(true)
 
     broker.clearSnapshotOnlyItem('item-2' as ItemId)
-    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(false)
-    expect(broker.getSnapshotOnlyItemCount()).toBe(0)
+    expect(await dropsIncrementalSync('item-2')).toBe(false)
   })
 
-  it('setSyncedHeads unblocks the item, ends snapshot-only sync and records heads with the adapter', () => {
+  it('setSyncedHeads unblocks the item, ends snapshot-only sync and records heads with the adapter', async () => {
+    await startSending()
     const setSyncedHeadsSpy = vi.spyOn(adapter, 'setSyncedHeads')
     const resetRenegSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
 
@@ -299,16 +310,18 @@ describe('SyncMessageBroker', () => {
     broker.blockItem(itemId)
     broker.fallbackToSnapshot(itemId)
     expect(broker.isItemBlocked(itemId)).toBe(true)
-    expect(broker.isSnapshotOnly(itemId)).toBe(true)
+    expect(await dropsIncrementalSync(itemId)).toBe(true)
 
     broker.setSyncedHeads(itemId, ['head-from-snapshot'])
     expect(broker.isItemBlocked(itemId)).toBe(false)
-    expect(broker.isSnapshotOnly(itemId)).toBe(false)
     expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-snapshot'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
+    // Neither blocked nor snapshot-only any more, so incremental sync resumes
+    expect(await dropsIncrementalSync(itemId)).toBe(false)
   })
 
-  it('records heads on pushAcknowledged without ending snapshot-only sync', () => {
+  it('records heads on pushAcknowledged without ending snapshot-only sync', async () => {
+    await startSending()
     const setSyncedHeadsSpy = vi.spyOn(adapter, 'setSyncedHeads')
     const resetRenegSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
 
@@ -320,23 +333,19 @@ describe('SyncMessageBroker', () => {
 
     internalEventHub.emit({ type: 'pushAcknowledged', itemId, heads: ['head-from-push'] })
     expect(broker.isItemBlocked(itemId)).toBe(false)
-    expect(broker.isSnapshotOnly(itemId)).toBe(true)
     expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-push'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
+    // Unblocked but still snapshot-only, so incremental messages stay out of the WAL
+    expect(await dropsIncrementalSync(itemId)).toBe(true)
   })
 
-  it('clears snapshot-only items on account change and shutdown', async () => {
+  it('clears snapshot-only items on account change', async () => {
+    await startSending()
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId] })
-    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(true)
+    expect(await dropsIncrementalSync('item-1')).toBe(true)
 
     await broker.setAccount('account-2')
-    expect(broker.isSnapshotOnly('item-1' as ItemId)).toBe(false)
-
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-2' as ItemId] })
-    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(true)
-
-    await broker.shutdown()
-    expect(broker.isSnapshotOnly('item-2' as ItemId)).toBe(false)
+    expect(await dropsIncrementalSync('item-1')).toBe(false)
   })
 
   describe('blocked items and infinite loop prevention on storage quota exceeded', () => {
@@ -360,7 +369,7 @@ describe('SyncMessageBroker', () => {
 
       // The item should now be blocked
       expect(broker.isItemBlocked('item-loop' as ItemId)).toBe(true)
-      expect(broker.getBlockedItemCount()).toBe(1)
+      expect(broker.getBlockedItemIds()).toEqual(['item-loop'])
 
       // Only the first append was attempted; the renegotiation message was dropped because the item was blocked!
       expect(mockWal.append).toHaveBeenCalledTimes(1)
@@ -384,7 +393,7 @@ describe('SyncMessageBroker', () => {
       broker.setSyncedHeads('item-snap' as ItemId, ['head-123'])
 
       expect(broker.isItemBlocked('item-snap' as ItemId)).toBe(false)
-      expect(broker.getBlockedItemCount()).toBe(0)
+      expect(broker.getBlockedItemIds()).toEqual([])
 
       // Now outgoing messages can append to WAL again
       const msg = createSyncMessage('item-snap', [10, 11])
@@ -403,7 +412,6 @@ describe('SyncMessageBroker', () => {
 
       broker.blockItem('item-1' as ItemId)
       broker.blockItem('item-2' as ItemId)
-      expect(broker.getBlockedItemCount()).toBe(2)
       expect(broker.getBlockedItemIds()).toEqual(['item-1', 'item-2'])
 
       // Storage is freed and quotaResolved event is emitted
@@ -411,7 +419,6 @@ describe('SyncMessageBroker', () => {
 
       expect(broker.isItemBlocked('item-1' as ItemId)).toBe(false)
       expect(broker.isItemBlocked('item-2' as ItemId)).toBe(false)
-      expect(broker.getBlockedItemCount()).toBe(0)
       expect(broker.getBlockedItemIds()).toEqual([])
 
       expect(resetCircuitSpy).toHaveBeenCalled()

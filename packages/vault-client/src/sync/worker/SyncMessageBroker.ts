@@ -119,10 +119,6 @@ export class SyncMessageBroker implements LifecycleAware {
     return this.blockedItemIds.has(itemId)
   }
 
-  getBlockedItemCount(): number {
-    return this.blockedItemIds.size
-  }
-
   getBlockedItemIds(): ItemId[] {
     return Array.from(this.blockedItemIds)
   }
@@ -144,20 +140,12 @@ export class SyncMessageBroker implements LifecycleAware {
     this.snapshotOnlyItems.delete(itemId)
   }
 
-  isSnapshotOnly(itemId: ItemId): boolean {
-    return this.snapshotOnlyItems.has(itemId)
-  }
-
   /**
    * Routes an item to snapshot-only sync until its next successful snapshot push.
    */
   fallbackToSnapshot(itemId: ItemId): void {
     this.snapshotOnlyItems.add(itemId)
     this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId })
-  }
-
-  getSnapshotOnlyItemCount(): number {
-    return this.snapshotOnlyItems.size
   }
 
   setSendEnabled(sendEnabled: boolean): void {

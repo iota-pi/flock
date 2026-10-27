@@ -1,5 +1,12 @@
 import { AsyncQueue } from './AsyncQueue'
 
+async function waitUntilIdle<T>(queue: AsyncQueue<T>): Promise<void> {
+  await vi.waitFor(() => {
+    expect(queue.isBusy).toBe(false)
+    expect(queue.isEmpty).toBe(true)
+  })
+}
+
 describe('AsyncQueue', () => {
   it('processes items sequentially in FIFO order', async () => {
     const executed: number[] = []
@@ -9,7 +16,7 @@ describe('AsyncQueue', () => {
     })
 
     queue.push(1, 2, 3)
-    await queue.whenIdle()
+    await waitUntilIdle(queue)
 
     expect(executed).toEqual([1, 2, 3])
   })
@@ -49,7 +56,7 @@ describe('AsyncQueue', () => {
     })
 
     releaseWorker()
-    await queue.whenIdle()
+    await waitUntilIdle(queue)
 
     expect(queue.length).toBe(0)
     expect(queue.isBusy).toBe(false)
@@ -92,7 +99,7 @@ describe('AsyncQueue', () => {
 
     // Release the first item
     releaseFirstItem()
-    await queue.whenIdle()
+    await waitUntilIdle(queue)
 
     // 'first' should complete, then 'p1', then 'p2', then 'normal'
     expect(executionOrder).toEqual([
@@ -126,7 +133,7 @@ describe('AsyncQueue', () => {
     expect(queue.at(1)).toBe('b')
 
     releaseDrain()
-    await queue.whenIdle()
+    await waitUntilIdle(queue)
 
     expect(executed).toEqual(['a', 'b'])
   })
@@ -146,7 +153,7 @@ describe('AsyncQueue', () => {
     )
 
     queue.push('bad', 'good1')
-    await queue.whenIdle()
+    await waitUntilIdle(queue)
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error), 'bad')
     expect(executed).toEqual(['good1'])
@@ -155,7 +162,7 @@ describe('AsyncQueue', () => {
 
     // Should be able to process new items after an error
     queue.push('good2')
-    await queue.whenIdle()
+    await waitUntilIdle(queue)
     expect(executed).toEqual(['good1', 'good2'])
   })
 
@@ -185,7 +192,7 @@ describe('AsyncQueue', () => {
     expect(queue.isEmpty).toBe(true)
 
     releaseFirst()
-    await queue.whenIdle()
+    await waitUntilIdle(queue)
 
     expect(executed).toEqual(['start:first', 'end:first'])
     expect(queue.length).toBe(0)
@@ -202,11 +209,6 @@ describe('AsyncQueue', () => {
       values.push(val)
     }
     expect(values).toEqual([10, 20, 30])
-  })
-
-  it('resolves whenIdle immediately if queue is already empty and not processing', async () => {
-    const queue = new AsyncQueue<number>(() => {})
-    await expect(queue.whenIdle()).resolves.toBeUndefined()
   })
 })
 

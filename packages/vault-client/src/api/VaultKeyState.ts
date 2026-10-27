@@ -2,7 +2,7 @@ import { decryptWithKey, type CryptoResult } from './crypto'
 import { importKeyring, Keyring, VaultNotInitializedError } from './Keyring'
 
 /** This realm's keys and session. The sync worker keeps its own `Keyring`, loaded from `exportKeyringData`. */
-export class VaultKeyState {
+class VaultKeyState {
   readonly keyring = new Keyring()
   /** The password-derived key that wraps the keyring, which is set whenever the keyring has keys */
   private masterKey: CryptoKey | null = null

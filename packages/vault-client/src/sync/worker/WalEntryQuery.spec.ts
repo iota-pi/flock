@@ -19,7 +19,7 @@ describe('WalEntryQuery', () => {
     expect(query.superseded(new Set(['e1']))).toEqual([])
     expect(query.valid(new Set(['e1']))).toEqual([])
     expect(query.validSorted(new Set())).toEqual([])
-    expect(query.availableSorted()).toEqual([])
+    expect(query.prunableSorted(new Set())).toEqual([])
   })
 
   it('returns all entries as available when no entries are in-flight', () => {
@@ -76,19 +76,6 @@ describe('WalEntryQuery', () => {
     const sorted = query.validSorted(new Set())
 
     expect(sorted.map(e => e.id)).toEqual(['a1', 'b1', 'b2'])
-  })
-
-  it('sorts available entries chronologically in availableSorted', () => {
-    const scrambledEntries: TestEntry[] = [
-      { id: 'e3', createdAt: 300, seq: 1, label: '3' },
-      { id: 'e1', createdAt: 100, seq: 1, label: '1' },
-      { id: 'e2', createdAt: 200, seq: 1, label: '2' },
-    ]
-
-    const query = new WalEntryQuery(scrambledEntries, new Set(['e2']))
-    const sorted = query.availableSorted()
-
-    expect(sorted.map(e => e.id)).toEqual(['e1', 'e3'])
   })
 
   it('handles missing or undefined createdAt and seq gracefully during sorting', () => {
