@@ -68,7 +68,7 @@ export interface DynamoDriverOptions {
 const SYNC_MESSAGE_TTL = 90 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
 const FETCH_BATCH_SIZE = 100
-const DEFAULT_SYNC_MESSAGE_LIMIT = 200
+export const SYNC_MESSAGE_PAGE_SIZE = 200
 const MAX_ACCOUNT_ID_ATTEMPTS = 10
 
 const ITEM_DATA_PROJECTION = projection(['item', 'metadata', 'cipher', 'snapshot', 'version'])
@@ -386,10 +386,8 @@ export default class DynamoDriver implements VaultDriver {
     })
   }
 
-  async fetchManifest(
-    { account }: { account: string },
-  ): Promise<Array<ManifestEntry>> {
-    const manifest: Array<ManifestEntry> = []
+  async fetchManifest({ account }: BaseData): Promise<ManifestEntry[]> {
+    const manifest: ManifestEntry[] = []
     const records = this.queryAll({
       TableName: this.tables.items,
       ...cursorKeyCondition('account', account, undefined),
@@ -499,9 +497,7 @@ export default class DynamoDriver implements VaultDriver {
     return accumulatedResponses
   }
 
-  async fetchByIds(
-    { account, itemIds }: { account: string; itemIds: string[] },
-  ): Promise<VaultItem[]> {
+  async fetchByIds({ account, itemIds }: BaseData & { itemIds: ItemId[] }): Promise<VaultItem[]> {
     if (itemIds.length === 0) {
       return []
     }
@@ -579,7 +575,6 @@ export default class DynamoDriver implements VaultDriver {
       startKey: input.pageToken
         ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
         : undefined,
-      limit: input.limit,
     })
     return { messages: items as StoredSyncMessage[], hasMore, nextPageToken }
   }
@@ -650,21 +645,19 @@ export default class DynamoDriver implements VaultDriver {
     partitionValue,
     afterCursor,
     startKey,
-    limit = DEFAULT_SYNC_MESSAGE_LIMIT,
   }: {
     indexName?: string
     partitionKey: string
     partitionValue: string
     afterCursor: number | undefined
     startKey: Record<string, unknown> | undefined
-    limit?: number
   }): Promise<{ items: Record<string, unknown>[], hasMore: boolean, nextPageToken?: PageToken }> {
     const response = await this.client.send(new QueryCommand({
       TableName: this.tables.syncMessages,
       IndexName: indexName,
       // A continuation starts from the token, which already lies after the cursor
       ...cursorKeyCondition(partitionKey, partitionValue, startKey ? undefined : afterCursor),
-      Limit: limit,
+      Limit: SYNC_MESSAGE_PAGE_SIZE,
       ExclusiveStartKey: startKey,
     }))
     return {

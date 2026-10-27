@@ -3,7 +3,6 @@ import { z } from 'zod'
 import type { ItemId, KdfParams, ManifestEntry, PageToken } from '@vault/shared'
 import type { FailedLoginRecord } from '../loginThrottle'
 import {
-  VaultKeySchema,
   VaultSessionRecordSchema,
   VaultAccountSchema,
   VaultAccountWithAuthSchema,
@@ -11,7 +10,6 @@ import {
   StoredSyncMessageSchema,
 } from '@vault/shared'
 
-export type VaultKey = z.infer<typeof VaultKeySchema>
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
 export type VaultAccount = z.infer<typeof VaultAccountSchema>
 export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>
@@ -37,20 +35,16 @@ export interface AuthData extends BaseData {
   session: string,
 }
 
-
 export type UpdateAccountDataParams = BaseData & {
   sessions?: VaultSessionRecord[],
   keyring?: string,
   authToken?: string,
   salt?: string,
-  iterations?: number,
   saltVersion?: number,
   kdf?: KdfParams,
   keyringVersion?: number,
   expectedKeyringVersion?: number,
-  lastAccess?: number,
 }
-
 
 /** How one stored item is encoded, for checking whether an account's data needs migrating */
 export interface ItemFormatSummary {
@@ -78,7 +72,6 @@ export interface GetSyncMessagesInput {
   account: string
   itemId: ItemId
   fromCursor?: number
-  limit?: number
   pageToken?: PageToken
 }
 
@@ -114,52 +107,64 @@ export interface GlobalSyncMessagesPage {
  * tables) is up to each implementation.
  */
 export interface VaultDriver {
-  // Create a new account record. Includes `authToken` and may include a
-  // pre-populated `session` for immediate login.
+  /**
+   * Creates an account record with no sessions. Returns false when the account already exists.
+   */
   createAccount(data: VaultAccount): Promise<boolean>
 
-  // Read the account record with a strongly consistent read, or undefined when there is none.
-  // Callers check credentials against it with `authenticateLogin` or `authenticateSession`.
+  /**
+   * Reads the account record with a strongly consistent read, or undefined when there is none.
+   * Callers check credentials against it with `authenticateLogin` or `authenticateSession`.
+   */
   getAccountRecord(data: BaseData): Promise<StoredAccount | undefined>
 
-  // Count a failed login towards the account's limit. Does nothing for an account that doesn't exist.
+  /** Counts a failed login towards the account's limit. Does nothing for an account that doesn't exist. */
   recordFailedLogin(data: BaseData): Promise<void>
 
-  // Throws `AuthenticationError` when the account doesn't exist
+  /** Throws `AuthenticationError` when the account doesn't exist */
   getSecurityParams(data: BaseData): Promise<SecurityParams>
+
+  /** Returns an account ID that no account has yet */
   getNewAccountId(): Promise<string>
 
-  // Update account-level data. Accepts partial auth data so callers can update
-  // fields independently. Apps can store their own fields on
-  // the account record by passing them via `TExtra`.
+  /**
+   * Updates the given account fields, leaving the others as they are. Apps can store their own
+   * fields on the account record by passing them via `TExtra`. Throws `AuthenticationError` when
+   * the account doesn't exist, and `VersionConflictError` when `expectedKeyringVersion` is given
+   * and doesn't match.
+   */
   updateAccountData<TExtra extends object = Record<never, never>>(
     data: UpdateAccountDataParams & Partial<TExtra>,
   ): Promise<void>
 
-  // Add a session to an account, keeping its other active sessions (called on login)
+  /** Adds a session to an account, keeping its other active sessions (called on login) */
   addSession(data: AuthData & { expiry: number }): Promise<void>
 
-  // Extend session expiry for an account (called on authenticated requests)
+  /** Extends a session's expiry (called on authenticated requests) */
   extendSession(data: AuthData): Promise<void>
 
-  // Raise the account's data version. Never lowers it.
+  /** Raises the account's data version. Never lowers it. */
   raiseDataVersion(data: BaseData & { dataVersion: number }): Promise<void>
 
-  // Describe how each of the account's items is stored, without loading their payloads
+  /** Describes how each of the account's items is stored, without loading their payloads */
   listItemFormats(data: BaseData): Promise<ItemFormatSummary[]>
 
-  // Item CRUD operations
+  /** Writes an item and returns the version the write gave it */
   set(item: VaultItem): Promise<{ version: number }>
-  fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<ManifestEntry>>
-  fetchByIds(opts: { account: string; itemIds: ItemId[] }): Promise<VaultItem[]>
 
-  // Sync message operations
+  /** Lists every item the account has, deleted ones included, without their payloads */
+  fetchManifest(data: BaseData): Promise<ManifestEntry[]>
+
+  /** Loads the given items. Items that don't exist are left out. */
+  fetchByIds(data: BaseData & { itemIds: ItemId[] }): Promise<VaultItem[]>
+
+  /** Stores sync messages, each under its own item */
   pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void>
 
   /**
-   * Returns an item's messages with a cursor after `fromCursor`, in cursor order, in pages. Pass a
-   * page's `nextPageToken` back as `pageToken` (with the same `fromCursor`) to get the next page.
-   * Throws `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
+   * Returns an item's messages with a cursor after `fromCursor`, in pages. Pass a page's
+   * `nextPageToken` back as `pageToken` (with the same `fromCursor`) to get the next page. Throws
+   * `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
    * starts before `fromCursor`.
    */
   getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage>
@@ -172,9 +177,8 @@ export interface VaultDriver {
   validatePageToken(input: ValidatePageTokenInput): void
 
   /**
-   * Returns the account's messages with a cursor after `cursor`, across items, in pages, with each
-   * item's messages in cursor order. Paging works as in `getSyncMessages`, except that a token is not
-   * checked against `cursor`.
+   * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
+   * as in `getSyncMessages`, except that a token is not checked against `cursor`.
    */
   getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage>
 }
