@@ -453,6 +453,9 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     const successfullyPulledItemIds = new Set<ItemId>()
     let cursorsUpdated = false
     const timedOutKeys = new Set<string>()
+    // One bad item must not block the others, but the poll must still report failure
+    // (sync rule 4), so the first per-item error is re-thrown after the loop.
+    let firstItemError: { error: unknown } | undefined
 
     try {
       for (const result of results || []) {
@@ -470,6 +473,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
           }
         } catch (innerError) {
           log.error(`Pull sync failed for item: ${result.itemId}`, innerError)
+          firstItemError ??= { error: innerError }
         }
       }
 
@@ -483,6 +487,10 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
 
       if (cursorsUpdated) {
         this.saveCursorsDebounced()
+      }
+
+      if (firstItemError) {
+        throw firstItemError.error
       }
     } catch (error) {
       log.error('Pull sync batch failed', error)
