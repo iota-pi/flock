@@ -422,8 +422,8 @@ describe('DynamoDriver', function () {
     }
 
     // Pushed out of order, to check the query returns them in cursor order
-    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry2, lastModified: Date.now() }] })
-    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry1, lastModified: Date.now() }] })
+    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry2 }] })
+    await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry1 }] })
 
     const result = await driver.getSyncMessages({ account, itemId })
     expect(result.messages.length).toBe(2)
@@ -553,7 +553,6 @@ describe('DynamoDriver', function () {
           encryptedMessage: { iv: 'message-iv', cipher: 'message-cipher', kver: '1', format: 2, version: '1.0' },
           createdAt: Date.now(),
         },
-        lastModified: Date.now(),
       }],
     })
 
@@ -678,7 +677,7 @@ describe('DynamoDriver', function () {
       await driver.pushSyncMessagesBatch({
         account,
         messages: [100, ...pushed].map(cursor => ({
-          itemId, entry: { cursor, encryptedMessage, createdAt: 1 }, lastModified: 1,
+          itemId, entry: { cursor, encryptedMessage, createdAt: 1 },
         })),
       })
 
@@ -731,9 +730,9 @@ describe('DynamoDriver', function () {
       await driver.pushSyncMessagesBatch({
         account,
         messages: [
-          { itemId: itemA, entry: { cursor: 110, encryptedMessage, createdAt: 1 }, lastModified: 1 },
-          { itemId: itemB, entry: { cursor: 120, encryptedMessage, createdAt: 1 }, lastModified: 1 },
-          { itemId: itemA, entry: { cursor: 130, encryptedMessage, createdAt: 1 }, lastModified: 1 },
+          { itemId: itemA, entry: { cursor: 110, encryptedMessage, createdAt: 1 } },
+          { itemId: itemB, entry: { cursor: 120, encryptedMessage, createdAt: 1 } },
+          { itemId: itemA, entry: { cursor: 130, encryptedMessage, createdAt: 1 } },
         ],
       })
 
@@ -760,7 +759,7 @@ describe('DynamoDriver', function () {
       const itemId = 'item#with#hashes' as ItemId
       await driver.pushSyncMessagesBatch({
         account,
-        messages: [{ itemId, entry: { cursor: 110, encryptedMessage, createdAt: 1 }, lastModified: 1 }],
+        messages: [{ itemId, entry: { cursor: 110, encryptedMessage, createdAt: 1 } }],
       })
 
       const page = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 100 })

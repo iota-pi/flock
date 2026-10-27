@@ -540,7 +540,7 @@ export default class DynamoDriver implements VaultDriver {
 
   async getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage> {
     const expectedSyncId = toSyncId(input.account, input.itemId)
-    const { items, hasMore, nextPageToken } = await this.querySyncMessagePage({
+    const { items, hasMore, nextPageToken } = await this.querySyncMessagePage<StoredSyncMessage>({
       partitionKey: 'syncId',
       partitionValue: expectedSyncId,
       afterCursor: input.fromCursor,
@@ -548,7 +548,7 @@ export default class DynamoDriver implements VaultDriver {
         ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
         : undefined,
     })
-    return { messages: items as StoredSyncMessage[], hasMore, nextPageToken }
+    return { messages: items, hasMore, nextPageToken }
   }
 
   validatePageToken(input: ValidatePageTokenInput): void {
@@ -565,7 +565,7 @@ export default class DynamoDriver implements VaultDriver {
     const startKey = input.pageToken
       ? decodeGlobalPageToken(input.pageToken, input.account)
       : undefined
-    const { items, hasMore, nextPageToken } = await this.querySyncMessagePage({
+    const { items, hasMore, nextPageToken } = await this.querySyncMessagePage<StoredSyncMessage & { syncId: string }>({
       indexName: ACCOUNT_CURSOR_INDEX,
       partitionKey: 'account',
       partitionValue: input.account,
@@ -577,7 +577,7 @@ export default class DynamoDriver implements VaultDriver {
     // track the global scan position independently of per-item cursors.
     let scannedThroughCursor = startKey?.cursor ?? input.cursor ?? 0
 
-    for (const item of items as (StoredSyncMessage & { syncId: string })[]) {
+    for (const item of items) {
       if (typeof item.cursor === 'number' && item.cursor > scannedThroughCursor) {
         scannedThroughCursor = item.cursor
       }
@@ -596,11 +596,10 @@ export default class DynamoDriver implements VaultDriver {
       })
     }
 
+    // The query returns messages in ascending cursor order (the index's range key) and grouping keeps
+    // that order, so each item's messages are already sorted by cursor
     return {
-      items: Array.from(messagesByItem.entries()).map(([itemId, messages]) => ({
-        itemId,
-        messages: messages.sort((a, b) => a.cursor - b.cursor),
-      })),
+      items: Array.from(messagesByItem.entries()).map(([itemId, messages]) => ({ itemId, messages })),
       hasMore,
       nextPageToken,
       scannedThroughCursor,
@@ -611,7 +610,7 @@ export default class DynamoDriver implements VaultDriver {
    * Queries one page of a partition's sync messages: from the decoded page token when there is one,
    * otherwise after `afterCursor`
    */
-  private async querySyncMessagePage({
+  private async querySyncMessagePage<T>({
     indexName,
     partitionKey,
     partitionValue,
@@ -623,7 +622,7 @@ export default class DynamoDriver implements VaultDriver {
     partitionValue: string
     afterCursor: number | undefined
     startKey: Record<string, unknown> | undefined
-  }): Promise<{ items: Record<string, unknown>[], hasMore: boolean, nextPageToken?: PageToken }> {
+  }): Promise<{ items: T[], hasMore: boolean, nextPageToken?: PageToken }> {
     const response = await this.client.send(new QueryCommand({
       TableName: this.tables.syncMessages,
       IndexName: indexName,
@@ -633,7 +632,7 @@ export default class DynamoDriver implements VaultDriver {
       ExclusiveStartKey: startKey,
     }))
     return {
-      items: response.Items ?? [],
+      items: (response.Items ?? []) as T[],
       hasMore: !!response.LastEvaluatedKey,
       nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
     }
