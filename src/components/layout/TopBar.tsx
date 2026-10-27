@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from 'react'
+import { Suspense, useCallback, useState } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import IconButton from '@mui/material/IconButton'
@@ -20,6 +20,7 @@ import {
 import { usePracticalFilterCount } from 'src/state/selectors'
 import { useDialogState } from 'src/hooks/useDialogState'
 import { useAppStore } from 'src/state/store'
+import { lazy } from 'src/utils/lazy'
 import type { ItemType } from 'src/shared/itemTypes'
 
 

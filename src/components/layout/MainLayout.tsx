@@ -1,4 +1,5 @@
-import { lazy, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import { lazy } from 'src/utils/lazy'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 

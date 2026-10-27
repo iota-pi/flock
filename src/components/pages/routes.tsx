@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { lazy } from 'src/utils/lazy'
 import {
   GroupIcon,
   OptionsIcon,

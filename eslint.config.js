@@ -102,6 +102,9 @@ export default defineConfig([
             { "regex": "^vitest$", allowTypeImports: true },
             { "regex": "docstore/core$", allowTypeImports: true, message: "Import from 'docstore/core' is restricted (functions are internal to docstore module)" },
           ],
+          "paths": [
+            { "name": "react", "importNames": ["lazy"], "message": "Use `lazy` from 'src/utils/lazy' so tests can wait for lazy loads." },
+          ],
         },
       ],
     },
