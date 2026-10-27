@@ -11,7 +11,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { isAuthError } from '../utils/errorClassifier'
 import { errorMessage } from '../utils/errorMessage'
-import { ManifestDeltaCalculator, type SyncDeltas } from './ManifestDeltaCalculator'
+import { ManifestDeltaCalculator, type QuarantinedItem, type SyncDeltas } from './ManifestDeltaCalculator'
 import { ManifestHydrator } from './ManifestHydrator'
 import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { KeyProvider } from '../../api/Keyring'
@@ -33,7 +33,7 @@ export interface ManifestSyncManagerDeps {
   apiClient: SyncApiClient
   onKeyVersionMissing?: (kver: string) => void
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
-  onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
+  onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /** Called when the server holds legacy rows and there is no `decodeLegacyItem` hook to read them */
@@ -151,12 +151,12 @@ export class ManifestSyncManager implements LifecycleAware {
     const localVersionsMap = new Map(this.deps.snapshotManager.exportItemVersions())
     checkAlive(signal, isAlive)
 
-    const quarantinedMap = new Map<ItemId, number>()
+    const quarantinedMap = new Map<ItemId, QuarantinedItem>()
     try {
       const recoveryEntries = await this.recoveryManager.listRecoveryItems()
       checkAlive(signal, isAlive)
       for (const entry of recoveryEntries) {
-        quarantinedMap.set(entry.itemId, entry.createdAt)
+        quarantinedMap.set(entry.itemId, { serverVersion: entry.serverVersion })
       }
     } catch (err) {
       if (signal.aborted || isAbortError(err)) throw err

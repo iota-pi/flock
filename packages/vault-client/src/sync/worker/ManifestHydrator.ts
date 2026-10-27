@@ -73,7 +73,8 @@ export interface ManifestHydratorDeps {
   snapshotManager: SnapshotManager
   keys: KeyProvider
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
-  onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
+  /** `serverVersion` is the manifest version of the snapshot that failed, when known */
+  onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   onKeyVersionMissing?: (kver: string) => void
   isShutdown?: () => boolean
@@ -189,7 +190,7 @@ export class ManifestHydrator {
           log.warn(
             `Item ${result.itemId} could not be decrypted; quarantining to manual recovery`,
           )
-          this.deps.onDecryptionFailure?.(result.itemId, result.error)
+          this.deps.onDecryptionFailure?.(result.itemId, result.error, manifestById.get(result.itemId)?.version)
           break
         case 'error':
           hasHydrationFailures = true

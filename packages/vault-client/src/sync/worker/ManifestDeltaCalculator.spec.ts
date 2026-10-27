@@ -33,37 +33,86 @@ describe('ManifestDeltaCalculator', () => {
       expect(result.knownSet.has('item-in-sync' as ItemId)).toBe(true)
     })
 
-    it('filters quarantined items unless server has a newer timestamp', () => {
+    it('skips a quarantined item until the server has a newer version than the one that failed', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-quarantined-old' as ItemId, modifiedAt: 500 },
-          { itemId: 'item-quarantined-new' as ItemId, modifiedAt: 1500 },
+          // Server clock far behind the quarantine time, but a newer version: fetched
+          { itemId: 'item-newer' as ItemId, version: 6, modifiedAt: 100 },
+          // Server clock far ahead of the quarantine time, but the same version that failed: skipped
+          { itemId: 'item-same' as ItemId, version: 5, modifiedAt: 999_999 },
+          { itemId: 'item-older' as ItemId, version: 4, modifiedAt: 999_999 },
         ],
         force: false,
-        knownItemIds: [],
+        knownItemIds: ['item-newer' as ItemId, 'item-same' as ItemId, 'item-older' as ItemId],
         tombstoneItemIds: [],
         localLastModifiedMap: new Map(),
         quarantinedMap: new Map([
-          ['item-quarantined-old' as ItemId, 600],
-          ['item-quarantined-new' as ItemId, 1000],
+          ['item-newer' as ItemId, { serverVersion: 5 }],
+          ['item-same' as ItemId, { serverVersion: 5 }],
+          ['item-older' as ItemId, { serverVersion: 5 }],
         ]),
-        localVersionsMap: new Map(),
+        // A failed hydration leaves baseVersion behind the version that failed
+        localVersionsMap: new Map([
+          ['item-newer' as ItemId, { baseVersion: 2, isDirty: false }],
+          ['item-same' as ItemId, { baseVersion: 2, isDirty: false }],
+          ['item-older' as ItemId, { baseVersion: 2, isDirty: false }],
+        ]),
       })
 
-      expect(result.missingIds).toEqual(['item-quarantined-new'])
+      expect(result.missingIds).toEqual(['item-newer'])
+      expect(result.upstreamIds).toEqual([])
+    })
+
+    it('falls back to baseVersion for quarantine entries without a recorded server version', () => {
+      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+        manifest: [
+          { itemId: 'item-legacy-newer' as ItemId, version: 4, modifiedAt: 100 },
+          { itemId: 'item-legacy-same' as ItemId, version: 3, modifiedAt: 999_999 },
+          { itemId: 'item-legacy-unknown' as ItemId, version: 1, modifiedAt: 100 },
+        ],
+        force: false,
+        knownItemIds: ['item-legacy-newer' as ItemId, 'item-legacy-same' as ItemId],
+        tombstoneItemIds: [],
+        localLastModifiedMap: new Map(),
+        quarantinedMap: new Map([
+          ['item-legacy-newer' as ItemId, {}],
+          ['item-legacy-same' as ItemId, {}],
+          ['item-legacy-unknown' as ItemId, {}],
+        ]),
+        localVersionsMap: new Map([
+          ['item-legacy-newer' as ItemId, { baseVersion: 3, isDirty: false }],
+          ['item-legacy-same' as ItemId, { baseVersion: 3, isDirty: false }],
+        ]),
+      })
+
+      expect(result.missingIds).toEqual(['item-legacy-newer', 'item-legacy-unknown'])
+    })
+
+    it('never skips past baseVersion when the recorded server version is older', () => {
+      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+        manifest: [{ itemId: 'item-1' as ItemId, version: 4, modifiedAt: 100 }],
+        force: false,
+        knownItemIds: ['item-1' as ItemId],
+        tombstoneItemIds: [],
+        localLastModifiedMap: new Map(),
+        quarantinedMap: new Map([['item-1' as ItemId, { serverVersion: 2 }]]),
+        localVersionsMap: new Map([['item-1' as ItemId, { baseVersion: 4, isDirty: false }]]),
+      })
+
+      expect(result.missingIds).toEqual([])
     })
 
     it('does not filter quarantined items when force is true', () => {
       const result = ManifestDeltaCalculator.calculateSyncDeltas({
         manifest: [
-          { itemId: 'item-quarantined-old' as ItemId, modifiedAt: 500 },
+          { itemId: 'item-quarantined-old' as ItemId, version: 5, modifiedAt: 500 },
         ],
         force: true,
         knownItemIds: [],
         tombstoneItemIds: [],
         localLastModifiedMap: new Map(),
         quarantinedMap: new Map([
-          ['item-quarantined-old' as ItemId, 600],
+          ['item-quarantined-old' as ItemId, { serverVersion: 5 }],
         ]),
         localVersionsMap: new Map(),
       })
@@ -227,8 +276,8 @@ describe('ManifestDeltaCalculator', () => {
         tombstoneItemIds: [],
         localLastModifiedMap: new Map(),
         quarantinedMap: new Map([
-          ['item-quarantined-new' as ItemId, 2000],
-          ['item-quarantined-dirty' as ItemId, 2000],
+          ['item-quarantined-new' as ItemId, {}],
+          ['item-quarantined-dirty' as ItemId, {}],
         ]),
         localVersionsMap: new Map([
           ['item-quarantined-new' as ItemId, { baseVersion: 0, isDirty: true }],

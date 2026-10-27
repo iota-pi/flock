@@ -621,7 +621,8 @@ describe('ManifestSyncManager', () => {
 
       expect(onDecryptionFailure).toHaveBeenCalledWith(
         'item-undecryptable',
-        expect.any(Error)
+        expect.any(Error),
+        undefined,
       )
       // Timestamp MUST NOT be recorded in SnapshotManager to prevent permanent lockout
       expect(depsObj.snapshotManager.importLastModified).not.toHaveBeenCalled()
@@ -632,13 +633,14 @@ describe('ManifestSyncManager', () => {
       warnSpy.mockRestore()
     })
 
-    it('skips quarantined items without newer server timestamps during routine sync to prevent endless retry loops', async () => {
+    it('skips quarantined items without a newer server version during routine sync to prevent endless retry loops', async () => {
       mockListAutomergeItemIds.mockResolvedValue([])
       mockReadManualRecoveryEntries.mockResolvedValue([
-        { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500 },
+        { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500, serverVersion: 3 },
       ])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-quarantined', modifiedAt: 500 }],
+        // A server clock far ahead of the quarantine time doesn't matter, only the version does
+        manifest: [{ itemId: 'item-quarantined', version: 3, modifiedAt: 999_999 }],
         serverTime: 500,
       })
 
@@ -677,13 +679,14 @@ describe('ManifestSyncManager', () => {
       expect(result).toEqual({ added: ['item-quarantined'], success: true })
     })
 
-    it('retries quarantined items when server has a newer timestamp than quarantine time', async () => {
+    it('retries quarantined items when server has a newer version than the one that failed', async () => {
       mockListAutomergeItemIds.mockResolvedValue([])
       mockReadManualRecoveryEntries.mockResolvedValue([
-        { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500 },
+        { id: 'item-quarantined', itemId: 'item-quarantined', reason: 'fail', createdAt: 500, serverVersion: 3 },
       ])
       mockFetchManifest.mockResolvedValue({
-        manifest: [{ itemId: 'item-quarantined', modifiedAt: 600 }],
+        // A server clock behind the quarantine time doesn't matter, only the version does
+        manifest: [{ itemId: 'item-quarantined', version: 4, modifiedAt: 100 }],
         serverTime: 600,
       })
       mockFetchSnapshotsByIds.mockResolvedValue({

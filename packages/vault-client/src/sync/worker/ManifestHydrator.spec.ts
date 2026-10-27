@@ -418,14 +418,14 @@ describe('ManifestHydrator', () => {
 
       const result = await hydrator.fetchAndHydrateRemoteItems({
         missingIds: ['item-bad' as ItemId],
-        manifest: [{ itemId: 'item-bad' as ItemId, modifiedAt: 1000 }],
+        manifest: [{ itemId: 'item-bad' as ItemId, version: 4, modifiedAt: 1000 }],
         serverTime: 1000,
         knownSet: new Set(),
         tombstoneSet: new Set(),
       })
 
       expect(result.hasFailures).toBe(true)
-      expect(onDecryptionFailureSpy).toHaveBeenCalledWith('item-bad', expect.any(Error))
+      expect(onDecryptionFailureSpy).toHaveBeenCalledWith('item-bad', expect.any(Error), 4)
     })
 
     it('retries an item whose key version is missing at the next sync instead of quarantining it', async () => {
