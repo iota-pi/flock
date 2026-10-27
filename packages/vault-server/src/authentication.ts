@@ -6,14 +6,15 @@ import { safeEqual } from './util'
 
 /**
  * Checks a login against the stored account record. `authTokenHash` is the hash of the auth token
- * the client sent. Throws `TooManyLoginAttemptsError` while the account is locked, and
- * `AuthenticationError` when the account doesn't exist or the hash doesn't match.
+ * the client sent. Returns normally when the login is valid. Throws `TooManyLoginAttemptsError`
+ * while the account is locked, and `AuthenticationError` when the account doesn't exist or the hash
+ * doesn't match.
  */
 export function authenticateLogin(
   record: StoredAccount | undefined,
   authTokenHash: string,
   now = Date.now(),
-): VaultAccountWithAuth {
+): void {
   if (!record) {
     throw new AuthenticationError('Could not find account')
   }
@@ -25,7 +26,6 @@ export function authenticateLogin(
     // Give same error as if account not found to avoid leaking account ids
     throw new AuthenticationError(`Could not find account ${record.account}`)
   }
-  return { ...record, session: authTokenHash }
 }
 
 /**

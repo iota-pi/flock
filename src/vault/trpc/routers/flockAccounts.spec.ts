@@ -14,7 +14,6 @@ function storedAccount(fields: Record<string, unknown> = {}) {
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
   const sessionValid = overrides?.sessionValid ?? true
   const vault = {
-    getNewAccountId: vi.fn(async () => 'acct-1'),
     createAccount: vi.fn(async () => true),
     updateAccountData: vi.fn(async () => undefined),
     getAccountSalt: vi.fn(async () => 'salt-1'),

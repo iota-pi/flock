@@ -1,5 +1,4 @@
 import { accountsRouter } from './accounts'
-import { AuthenticationError } from '../../errors'
 import { fakeSalt, hashString } from '../../util'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { MAX_FAILED_LOGINS } from '../../loginThrottle'
@@ -32,7 +31,6 @@ function storedAccount(fields: Record<string, unknown> = {}) {
 function createContext(overrides?: { authToken?: string, sessionValid?: boolean }) {
   const sessionValid = overrides?.sessionValid ?? true
   const vault = {
-    getNewAccountId: vi.fn(async () => 'acct-1'),
     createAccount: vi.fn(async () => true),
     updateAccountData: vi.fn(async () => undefined),
     getAccountSalt: vi.fn(async () => 'salt-1'),
@@ -137,25 +135,35 @@ describe('accountsRouter security contracts', () => {
 
   it('retries account creation with a new ID when another sign-up took the first one', async () => {
     const ctx = createContext({ authToken: '' })
-    ctx.vault.getNewAccountId
-      .mockResolvedValueOnce('acct-1')
-      .mockResolvedValueOnce('acct-2')
     ctx.vault.createAccount.mockResolvedValueOnce(false)
     const caller = accountsRouter.createCaller(ctx as any)
 
-    await expect(caller.createAccount(NEW_ACCOUNT))
-      .resolves.toEqual({ account: 'acct-2' })
-    expect(ctx.vault.createAccount).toHaveBeenCalledTimes(2)
+    const result = await caller.createAccount(NEW_ACCOUNT)
+
+    const attempted = ctx.vault.createAccount.mock.calls.map(([data]: any[]) => data.account)
+    expect(attempted).toHaveLength(2)
+    expect(attempted[0]).not.toBe(attempted[1])
+    expect(result).toEqual({ account: attempted[1] })
+  })
+
+  it('gives up creating an account after repeated ID collisions', async () => {
+    const ctx = createContext({ authToken: '' })
+    ctx.vault.createAccount.mockResolvedValue(false)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.createAccount(NEW_ACCOUNT)).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' })
+    expect(ctx.vault.createAccount).toHaveBeenCalledTimes(10)
   })
 
   it('stores the Argon2id parameters and keyring of a new account', async () => {
     const ctx = createContext({ authToken: '' })
     const caller = accountsRouter.createCaller(ctx as any)
 
-    await caller.createAccount(NEW_ACCOUNT)
+    const { account } = await caller.createAccount(NEW_ACCOUNT)
 
+    expect(account).toBeTypeOf('string')
     expect(ctx.vault.createAccount).toHaveBeenCalledWith({
-      account: 'acct-1',
+      account,
       authToken: hashString('auth'),
       salt: 'salt',
       saltVersion: 1,
@@ -416,8 +424,15 @@ describe('accountsRouter security contracts', () => {
   describe('data version', () => {
     it('returns the account data version with the security params, before login', async () => {
       const ctx = createContext({ authToken: '' })
-      const getSecurityParams = vi.fn(async () => ({ salt: 'salt-1', iterations: 1000, saltVersion: 1, dataVersion: 1 }))
-      const caller = accountsRouter.createCaller({ ...ctx, vault: { ...ctx.vault, getSecurityParams } } as any)
+      ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({
+        authToken: 'hash',
+        salt: 'salt-1',
+        iterations: 1000,
+        saltVersion: 1,
+        dataVersion: 1,
+        keyring: 'encrypted-keyring',
+      }) as any)
+      const caller = accountsRouter.createCaller(ctx as any)
 
       await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toEqual({
         success: true,
@@ -426,26 +441,46 @@ describe('accountsRouter security contracts', () => {
         saltVersion: 1,
         dataVersion: 1,
       })
+      expect(ctx.vault.getAccountRecord).toHaveBeenCalledWith({ account: 'acct-1' })
+    })
+
+    it('returns the Argon2id parameters of an account', async () => {
+      const ctx = createContext({ authToken: '' })
+      ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({ salt: 'salt-1', saltVersion: 1, kdf: ARGON2ID }) as any)
+      const caller = accountsRouter.createCaller(ctx as any)
+
+      await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toEqual({
+        success: true,
+        salt: 'salt-1',
+        iterations: undefined,
+        saltVersion: 1,
+        kdf: ARGON2ID,
+        dataVersion: 0,
+      })
+    })
+
+    it('falls back to the account ID as the salt for accounts from before per-account salts', async () => {
+      const ctx = createContext({ authToken: '' })
+      ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({ iterations: 1000 }) as any)
+      const caller = accountsRouter.createCaller(ctx as any)
+
+      await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toMatchObject({
+        salt: 'acct-1',
+        iterations: 1000,
+      })
     })
 
     it('reports an unknown account as NOT_FOUND without made-up parameters configured', async () => {
-      const ctx = createContext({ authToken: '' })
-      const getSecurityParams = vi.fn(async () => {
-        throw new AuthenticationError('Could not find account acct-1')
-      })
-      const caller = accountsRouter.createCaller({ ...ctx, vault: { ...ctx.vault, getSecurityParams } } as any)
+      const ctx = createContext({ authToken: '', sessionValid: false })
+      const caller = accountsRouter.createCaller(ctx as any)
 
       await expect(caller.getSecurityParams({ account: 'acct-1' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
     })
 
     it('answers an unknown account with stable made-up parameters when configured', async () => {
-      const ctx = createContext({ authToken: '' })
-      const getSecurityParams = vi.fn(async () => {
-        throw new AuthenticationError('Could not find account acct-1')
-      })
+      const ctx = createContext({ authToken: '', sessionValid: false })
       const caller = accountsRouter.createCaller({
         ...ctx,
-        vault: { ...ctx.vault, getSecurityParams },
         unknownAccountParams: { secret: 'server-secret', iterations: 600000, saltVersion: 1 },
         dataVersionPolicy: { current: 3, findBlockers: vi.fn() },
       } as any)
@@ -463,14 +498,19 @@ describe('accountsRouter security contracts', () => {
 
     it('answers unknown accounts with the same fields as a real Argon2id account', async () => {
       const ctx = createContext({ authToken: '' })
-      const realParams = { salt: 'salt-1', saltVersion: 1, kdf: ARGON2ID, dataVersion: 3 }
-      const getSecurityParams = vi.fn(async ({ account }: { account: string }) => {
-        if (account === 'real') return realParams
-        throw new AuthenticationError(`Could not find account ${account}`)
+      const realRecord = storedAccount({
+        account: 'real',
+        authToken: 'hash',
+        salt: 'salt-1',
+        saltVersion: 1,
+        kdf: ARGON2ID,
+        dataVersion: 3,
       })
+      ctx.vault.getAccountRecord.mockImplementation((async ({ account }: { account: string }) => (
+        account === 'real' ? realRecord : undefined
+      )) as any)
       const caller = accountsRouter.createCaller({
         ...ctx,
-        vault: { ...ctx.vault, getSecurityParams },
         unknownAccountParams: { secret: 'server-secret', saltVersion: 1, kdf: ARGON2ID },
         dataVersionPolicy: { current: 3, findBlockers: vi.fn() },
       } as any)
@@ -488,12 +528,9 @@ describe('accountsRouter security contracts', () => {
 
     it('does not hide a database failure behind made-up parameters', async () => {
       const ctx = createContext({ authToken: '' })
-      const getSecurityParams = vi.fn(async () => {
-        throw new Error('DynamoDB timeout')
-      })
+      ctx.vault.getAccountRecord.mockRejectedValueOnce(new Error('DynamoDB timeout'))
       const caller = accountsRouter.createCaller({
         ...ctx,
-        vault: { ...ctx.vault, getSecurityParams },
         unknownAccountParams: { secret: 'server-secret', iterations: 600000 },
       } as any)
 
@@ -504,8 +541,8 @@ describe('accountsRouter security contracts', () => {
 
     it('reports accounts that never recorded a data version as version 0', async () => {
       const ctx = createContext({ authToken: '' })
-      const getSecurityParams = vi.fn(async () => ({ salt: 'salt-1' }))
-      const caller = accountsRouter.createCaller({ ...ctx, vault: { ...ctx.vault, getSecurityParams } } as any)
+      ctx.vault.getAccountRecord.mockResolvedValueOnce(storedAccount({ salt: 'salt-1' }) as any)
+      const caller = accountsRouter.createCaller(ctx as any)
 
       await expect(caller.getSecurityParams({ account: 'acct-1' })).resolves.toMatchObject({ dataVersion: 0 })
     })

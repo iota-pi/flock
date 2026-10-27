@@ -13,7 +13,12 @@ const generateTestAccountId = () => generateAccountId(10)
 const driver = new DynamoDriver()
 
 async function login(account: string, authTokenHash: string) {
-  return authenticateLogin(await driver.getAccountRecord({ account }), authTokenHash)
+  const record = await driver.getAccountRecord({ account })
+  authenticateLogin(record, authTokenHash)
+  if (!record) {
+    throw new Error(`Could not find account ${account}`)
+  }
+  return record
 }
 
 async function getWithSession(account: string, session: string) {
@@ -264,19 +269,19 @@ describe('DynamoDriver', function () {
   it('raiseDataVersion raises the version but never lowers it', async () => {
     const account = generateTestAccountId()
     await driver.createAccount({ account, authToken, salt, iterations })
-    expect((await driver.getSecurityParams({ account })).dataVersion).toBeUndefined()
+    expect((await driver.getAccountRecord({ account }))?.dataVersion).toBeUndefined()
 
     await driver.raiseDataVersion({ account, dataVersion: 2 })
-    expect((await driver.getSecurityParams({ account })).dataVersion).toBe(2)
+    expect((await driver.getAccountRecord({ account }))?.dataVersion).toBe(2)
 
     await driver.raiseDataVersion({ account, dataVersion: 1 })
-    expect((await driver.getSecurityParams({ account })).dataVersion).toBe(2)
+    expect((await driver.getAccountRecord({ account }))?.dataVersion).toBe(2)
   })
 
   it('raiseDataVersion does not create a missing account', async () => {
     const account = generateTestAccountId()
     await driver.raiseDataVersion({ account, dataVersion: 1 })
-    await expect(driver.getSecurityParams({ account })).rejects.toBeInstanceOf(AuthenticationError)
+    await expect(driver.getAccountRecord({ account })).resolves.toBeUndefined()
   })
 
   it('listItemFormats describes how each item is stored', async () => {
@@ -316,10 +321,9 @@ describe('DynamoDriver', function () {
       randomDataKeys: true,
     })
 
-    const params = await driver.getSecurityParams({ account })
-    expect(params).toEqual({ salt, iterations: undefined, saltVersion: 1, kdf, dataVersion: undefined })
     const stored = await login(account, authToken)
-    expect(stored).toMatchObject({ keyring: 'encrypted-keyring', randomDataKeys: true, keyringVersion: 1 })
+    expect(stored).toMatchObject({ salt, saltVersion: 1, kdf, keyring: 'encrypted-keyring', randomDataKeys: true, keyringVersion: 1 })
+    expect(stored).not.toHaveProperty('dataVersion')
     expect(stored).not.toHaveProperty('iterations')
   })
 
@@ -657,7 +661,8 @@ describe('DynamoDriver', function () {
       iterations,
     })
 
-    const stored = authenticateLogin(await driverWithDefaults.getAccountRecord({ account }), authToken)
+    const stored = await driverWithDefaults.getAccountRecord({ account })
+    authenticateLogin(stored, authToken)
     expect((stored as VaultAccountWithAuth & { displayName?: string }).displayName).toBe('Default')
   })
 

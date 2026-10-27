@@ -22,15 +22,6 @@ export interface BaseData {
   account: string,
 }
 
-/** What a client needs to derive an account's master key, plus its data version */
-export interface SecurityParams {
-  salt: string,
-  iterations?: number,
-  saltVersion?: number,
-  kdf?: KdfParams,
-  dataVersion?: number,
-}
-
 export interface AuthData extends BaseData {
   session: string,
 }
@@ -120,12 +111,6 @@ export interface VaultDriver {
 
   /** Counts a failed login towards the account's limit. Does nothing for an account that doesn't exist. */
   recordFailedLogin(data: BaseData): Promise<void>
-
-  /** Throws `AuthenticationError` when the account doesn't exist */
-  getSecurityParams(data: BaseData): Promise<SecurityParams>
-
-  /** Returns an account ID that no account has yet */
-  getNewAccountId(): Promise<string>
 
   /**
    * Updates the given account fields, leaving the others as they are. Apps can store their own
