@@ -20,7 +20,6 @@ import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
 import type { RepoDoc } from './docStore'
 import { isIndexDocument } from './utils/automerge'
-import type { PollOutcome } from './SyncPoller'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../../api/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
 import { getTrackedFetch } from '../../api/trackedFetch'
@@ -232,7 +231,7 @@ export class SyncWorker implements SyncApi {
     this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
       switch (event.type) {
         case 'pollResult':
-          this.handlePollResult(event.outcome)
+          this.syncStatusManager.handlePollResult(event.outcome)
           break
         case 'multipleLeadersDetected':
           log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
@@ -264,10 +263,9 @@ export class SyncWorker implements SyncApi {
     await context.initialize()
     // A shutdown during initialization has stopped the context, which mustn't be brought back to life
     this.assertNotShutDown()
-    const { orchestrator, snapshotManager, broker, adapter, indexManager, accountSettings } = context.services
+    const { broker, adapter, indexManager, accountSettings } = context.services
 
-    orchestrator.setOnlineState(this.isOnline)
-    snapshotManager.onOnlineStateChange(this.isOnline)
+    this.applyOnlineState(context, this.isOnline)
 
     // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
     // sending messages before the broker is ready
@@ -363,14 +361,15 @@ export class SyncWorker implements SyncApi {
   setOnlineState = (isOnline: boolean) => {
     this.isOnline = isOnline
     return this.withContext(ctx => {
-      ctx.services.orchestrator.setOnlineState(isOnline)
-      ctx.services.snapshotManager.onOnlineStateChange(isOnline)
+      this.applyOnlineState(ctx, isOnline)
       this.syncStatusManager.setOnlineState(isOnline)
     })
   }
 
-  handlePollResult(outcome: PollOutcome) {
-    this.syncStatusManager.handlePollResult(outcome)
+  /** Tells the session's polling and snapshot uploads whether the device is online */
+  private applyOnlineState(context: SyncWorkerContext, isOnline: boolean): void {
+    context.services.orchestrator.setOnlineState(isOnline)
+    context.services.snapshotManager.onOnlineStateChange(isOnline)
   }
 
   /** Sends a subscribed item's state to the app and keeps the index in step with it */
