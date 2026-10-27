@@ -1,4 +1,5 @@
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
+import { lazy } from 'src/utils/lazy'
 import type { Frequency } from 'src/utils/frequencies'
 import type { Item } from 'src/state/items'
 import type { BackupPayloadV2 } from 'src/types/backup'

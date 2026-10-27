@@ -1,4 +1,5 @@
-import { Fragment, lazy, memo, Suspense, useCallback, useMemo, useState } from 'react'
+import { Fragment, memo, Suspense, useCallback, useMemo, useState } from 'react'
+import { lazy } from 'src/utils/lazy'
 import List from '@mui/material/List'
 import Typography from '@mui/material/Typography'
 import Divider from '@mui/material/Divider'

@@ -1,10 +1,10 @@
 import {
-  lazy,
   Suspense,
   useCallback,
   useMemo,
   useState,
 } from 'react'
+import { lazy } from 'src/utils/lazy'
 import CircularProgress from '@mui/material/CircularProgress'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'

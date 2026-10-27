@@ -74,11 +74,17 @@ import '@automerge/automerge'
 if (typeof window !== 'undefined') {
   const { cleanup } = await import('@testing-library/react')
   const { useAppStore } = await import('./state/store')
+  const { settleLazyLoads } = await import('./utils/lazy')
 
   // RTL registers its own cleanup only in the first file that loads it in a worker
   afterEach(() => {
     cleanup()
   })
+
+  // A lazy import still loading when its file finishes can be rejected as the worker moves on,
+  // and `React.lazy` caches that rejection for every later file in the worker. Rendering TopBar
+  // starts loading its dialogs, which can take several seconds when the whole suite is running.
+  afterAll(settleLazyLoads, 60_000)
 
   localStorage.clear()
   sessionStorage.clear()
