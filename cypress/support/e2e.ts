@@ -1,5 +1,6 @@
 /// <reference types="cypress" />
 import 'cypress-axe'
+import './diagnostics'
 import type { ProtectedPageId } from '../../src/components/pages/types'
 import type { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 
