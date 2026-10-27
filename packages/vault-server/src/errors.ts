@@ -4,31 +4,19 @@
  * nothing about the credentials and must not be reported that way, or the client drops its session.
  */
 export class AuthenticationError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'AuthenticationError'
-  }
+  override name = 'AuthenticationError'
 }
 
 export class ExpiredSessionError extends AuthenticationError {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ExpiredSessionError'
-  }
+  override name = 'ExpiredSessionError'
 }
 
 /** The account has had too many failed logins recently. Routers report it as TOO_MANY_REQUESTS. */
 export class TooManyLoginAttemptsError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'TooManyLoginAttemptsError'
-  }
+  override name = 'TooManyLoginAttemptsError'
 }
 
 /** A page token that is malformed, or was issued for another account, item or query */
 export class InvalidPageTokenError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'InvalidPageTokenError'
-  }
+  override name = 'InvalidPageTokenError'
 }

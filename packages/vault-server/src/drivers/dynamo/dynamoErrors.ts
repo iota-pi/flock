@@ -49,8 +49,14 @@ function readErrorFields(error: object): { name: string, code: string, typeStr: 
   }
 }
 
-export function isConditionalCheckFailure(error: unknown): boolean {
-  if (error instanceof ConditionalCheckFailedException) {
+/** Whether the error is the SDK exception `name`, or a plain error that names it or has one of its messages */
+function isDynamoError(
+  error: unknown,
+  exceptionClass: abstract new (...args: never[]) => Error,
+  exceptionName: string,
+  messageFragments: string[],
+): boolean {
+  if (error instanceof exceptionClass) {
     return true
   }
 
@@ -61,32 +67,25 @@ export function isConditionalCheckFailure(error: unknown): boolean {
   const { name, code, typeStr, message } = readErrorFields(error)
 
   return (
-    name === 'ConditionalCheckFailedException'
-    || code === 'ConditionalCheckFailedException'
-    || typeStr.includes('ConditionalCheckFailedException')
-    || message.includes('ConditionalCheckFailed')
-    || message.includes('conditional request failed')
+    name === exceptionName
+    || code === exceptionName
+    || typeStr.includes(exceptionName)
+    || messageFragments.some(fragment => message.includes(fragment))
   )
 }
 
+export function isConditionalCheckFailure(error: unknown): boolean {
+  return isDynamoError(error, ConditionalCheckFailedException, 'ConditionalCheckFailedException', [
+    'ConditionalCheckFailed',
+    'conditional request failed',
+  ])
+}
+
 export function isResourceInUseError(error: unknown): boolean {
-  if (error instanceof ResourceInUseException) {
-    return true
-  }
-
-  if (!error || typeof error !== 'object') {
-    return false
-  }
-
-  const { name, code, typeStr, message } = readErrorFields(error)
-
-  return (
-    name === 'ResourceInUseException'
-    || code === 'ResourceInUseException'
-    || typeStr.includes('ResourceInUseException')
-    || message.includes('ResourceInUseException')
-    || message.includes('already exists')
-  )
+  return isDynamoError(error, ResourceInUseException, 'ResourceInUseException', [
+    'ResourceInUseException',
+    'already exists',
+  ])
 }
 
 export function isTransientDynamoError(error: unknown): boolean {

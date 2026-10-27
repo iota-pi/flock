@@ -1,6 +1,5 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver, { SYNC_MESSAGE_PAGE_SIZE } from './driver'
-import { getConnectionParams } from './config'
 import { authenticateLogin, authenticateSession } from '../../authentication'
 import { AuthenticationError, InvalidPageTokenError } from '../../errors'
 import type { VaultAccountWithAuth } from '../vaultDriver'
@@ -22,7 +21,7 @@ async function getWithSession(account: string, session: string) {
 }
 describe('DynamoDriver', function () {
   beforeAll(function () {
-    driver.connect(getConnectionParams())
+    driver.connect()
   })
 
   it('set can create and update, bumping the version on each write', async () => {
@@ -649,7 +648,7 @@ describe('DynamoDriver', function () {
 
   it('createAccount writes the configured account defaults', async () => {
     const driverWithDefaults = new DynamoDriver({ accountDefaults: { displayName: 'Default' } })
-    driverWithDefaults.connect(getConnectionParams())
+    driverWithDefaults.connect()
     const account = generateTestAccountId()
     await driverWithDefaults.createAccount({
       account,
