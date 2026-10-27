@@ -1300,7 +1300,7 @@ describe('SyncPullQueueManager', () => {
       expect(hasPendingPulls(manager)).toBe(true)
     })
 
-    it('continues processing subsequent items if one item throws an error', async () => {
+    it('continues processing subsequent items if one item throws, then rethrows the first error', async () => {
       const onMessageParsedSpy = vi.fn()
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
@@ -1343,7 +1343,16 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
+      manager.addPendingItem('item-throw-error' as ItemId)
+      const saveSpy = vi.spyOn(cursorStore, 'saveCursors')
+
+      await expect(manager.processPullResults(pullResults)).rejects.toThrow('Failed to resolve URL')
+
+      // The failing item stays pending so the next (backed-off) poll retries it
+      expect(manager.getCursors()).toContainEqual(expect.objectContaining({ itemId: 'item-throw-error' }))
+      // Cursor saving still runs for the items that succeeded
+      await vi.runAllTimersAsync()
+      expect(saveSpy).toHaveBeenCalled()
 
       const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-success' as ItemId))
       expect(onMessageParsedSpy).toHaveBeenCalledWith(
