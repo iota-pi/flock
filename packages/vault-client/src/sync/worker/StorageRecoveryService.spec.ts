@@ -80,9 +80,9 @@ describe('StorageRecoveryService', () => {
     })
   })
 
-  describe('Emergency Compaction & Detection', () => {
-    it('calls wal.handleQuotaExceeded in handleEmergencyCompaction', async () => {
-      const reduced = await service.handleEmergencyCompaction()
+  describe('Emergency Pruning & Detection', () => {
+    it('calls wal.handleQuotaExceeded in handleEmergencyPrune', async () => {
+      const reduced = await service.handleEmergencyPrune()
       expect(reduced).toBe(5)
       expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
     })
@@ -113,8 +113,8 @@ describe('StorageRecoveryService', () => {
       )
     })
 
-    it('still emits quotaExceeded if emergency compaction fails', async () => {
-      mockWal.handleQuotaExceeded.mockRejectedValueOnce(new Error('Compaction failed'))
+    it('still emits quotaExceeded if emergency pruning fails', async () => {
+      mockWal.handleQuotaExceeded.mockRejectedValueOnce(new Error('Pruning failed'))
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
 
       await service.handleQuotaExceeded('Quota error')

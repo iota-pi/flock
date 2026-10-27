@@ -20,7 +20,8 @@ The local Automerge doc in IndexedDB is always the complete, authoritative state
 
 - Outbound Automerge sync messages are appended to `SyncWriteAheadLog` (it has its own IndexedDB database). `SyncPoller` encrypts and pushes them via `pollSyncBatch`, and entries are removed once the server acknowledges them.
 - **Pruning is safe.** When the WAL exceeds `MAX_ENTRIES`, `performPruneOldest` drops old entries. Nothing is lost, because the local doc is authoritative and the next snapshot captures the full merged state.
-- **Torn compaction self-heals.** If the worker crashes mid-compaction, `readAll()` finds entries listed in another entry's `replaces` array and purges them.
+- **Batching happens at push time, not in storage.** `SyncPoller` packs each item's entries into one batched message (`packBatchedMessages`) when it pushes, and every WAL entry holds a single message. Older versions compacted entries into batched ones (`isBatched`, with the IDs they superseded in `replaces`) when the WAL filled or hit a quota error. Compaction is gone because it only cut the record count, wrote before it freed space, and a compacted entry was double-framed when a backup restored it. Entries those versions stored are still read: `packBatchedMessages` keeps a batched entry's framing, `readAll()` and pruning purge entries listed in another entry's `replaces` array (a torn compaction), and `exportSyncState` unpacks batched entries into their messages so restore re-appends plain ones.
+- **Quota errors prune.** `handleQuotaExceeded` prunes the oldest `walPrune` entries, as overflow does.
 - **In-flight safety.** `SyncPoller.executePoll` calls `wal.unmarkInFlight` in a `finally` block, so entries cannot get stuck in-flight.
 
 ### Poll result contract

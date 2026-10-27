@@ -62,7 +62,7 @@ export class StorageRecoveryService implements LifecycleAware {
   start(): void {
     if (!this.unregisterQuotaRecovery) {
       this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
-        return this.handleEmergencyCompaction()
+        return this.handleEmergencyPrune()
       })
     }
 
@@ -88,27 +88,27 @@ export class StorageRecoveryService implements LifecycleAware {
   }
 
   /**
-   * Performs emergency WAL compaction and pruning to free storage space.
+   * Performs emergency WAL pruning to free storage space. Returns the number of entries removed.
    */
-  async handleEmergencyCompaction(): Promise<number> {
+  async handleEmergencyPrune(): Promise<number> {
     try {
       return await this.deps.wal.handleQuotaExceeded()
     } catch (err) {
-      log.error('Error during emergency WAL compaction:', err)
+      log.error('Error during emergency WAL pruning:', err)
       throw err
     }
   }
 
   /**
-   * Handles storage quota exceeded detection: runs WAL compaction and emits a quotaExceeded event.
+   * Handles storage quota exceeded detection: prunes the WAL and emits a quotaExceeded event.
    */
   async handleQuotaExceeded(errorOrMessage?: unknown): Promise<void> {
-    log.warn('Storage quota exceeded. Running emergency WAL compaction...', errorOrMessage)
+    log.warn('Storage quota exceeded. Pruning the WAL...', errorOrMessage)
 
     try {
-      await this.handleEmergencyCompaction()
-    } catch (compactionErr) {
-      log.error('Failed emergency compaction during quota handling:', compactionErr)
+      await this.handleEmergencyPrune()
+    } catch (pruneErr) {
+      log.error('Failed emergency WAL pruning during quota handling:', pruneErr)
     }
 
     const message =
