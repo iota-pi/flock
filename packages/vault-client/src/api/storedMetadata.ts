@@ -48,11 +48,12 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
 
 /**
  * Records the account and, when given, its key derivation parameters. They're always given as a
- * set: a missing `kdf` means PBKDF2. Without them, the stored ones are kept.
+ * set: a missing `kdf` means PBKDF2. Without them, the stored ones are kept if they belong to this
+ * account; another account's are dropped, leaving the account with no key derivation parameters.
  */
 export function writeStoredMetadata(account: string, params?: KeyDerivationParams) {
   const stored = readStoredMetadata()
-  const keyParams = params ?? stored
+  const keyParams = params ?? (stored?.account === account ? stored : undefined)
   // Learned from the server separately (see rememberRandomDataKeys), so a key derivation change keeps it
   const randomDataKeys = lastKeyringAnswer?.account === account
     ? lastKeyringAnswer.randomDataKeys || undefined
