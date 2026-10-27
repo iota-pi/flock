@@ -19,6 +19,14 @@ export default defineConfig({
         fs.rmSync(downloads, { recursive: true, force: true })
       }
 
+      // Prints to the terminal, which is all CI shows (cypress/support/diagnostics.ts)
+      on('task', {
+        log(message: string) {
+          console.log(message)
+          return null
+        },
+      })
+
       on('after:run', () => {
         if (fs.existsSync(downloads)) {
           fs.rmSync(downloads, { recursive: true, force: true })
