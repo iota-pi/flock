@@ -1,5 +1,6 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
-import DynamoDriver, { SYNC_MESSAGE_PAGE_SIZE } from './driver'
+import DynamoDriver from './driver'
+import { SYNC_MESSAGE_PAGE_SIZE } from './syncMessages'
 import { authenticateLogin, authenticateSession } from '../../authentication'
 import { AuthenticationError, InvalidPageTokenError } from '../../errors'
 import type { VaultAccountWithAuth } from '../vaultDriver'
