@@ -82,3 +82,18 @@ export function cursorKeyCondition(
     ExpressionAttributeValues: { [`:${partitionKey}`]: partitionValue, ':cursor': afterCursor },
   }
 }
+
+/**
+ * A projection of the given attribute paths (such as `metadata.modified`), with every path segment
+ * going through a name placeholder so that reserved words are safe.
+ */
+export function projection(
+  paths: string[],
+): { ProjectionExpression: string, ExpressionAttributeNames: Record<string, string> } {
+  const names: Record<string, string> = {}
+  const expression = paths.map(path => path.split('.').map(segment => {
+    names[`#${segment}`] = segment
+    return `#${segment}`
+  }).join('.')).join(', ')
+  return { ProjectionExpression: expression, ExpressionAttributeNames: names }
+}
