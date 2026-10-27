@@ -56,14 +56,13 @@ describe('AutomergeSyncService', () => {
     expect(Number.isSafeInteger(cursor1)).toBe(true)
     expect(Number.isSafeInteger(cursor2)).toBe(true)
 
-    // Check that repository is called with the absolute timestamp for createdAt/lastModified
+    // Check that repository is called with the absolute timestamp for createdAt
     expect(repository.pushSyncMessagesBatch).toHaveBeenCalledTimes(1)
     const callArgs = repository.pushSyncMessagesBatch.mock.calls[0][0]
     expect(callArgs.account).toBe('test-account')
     expect(callArgs.messages.length).toBe(3)
 
     expect(callArgs.messages[0].entry.createdAt).toBe(mockedTime)
-    expect(callArgs.messages[0].lastModified).toBe(mockedTime)
     expect(callArgs.messages[0].entry.cursor).toBe(cursor0)
   })
 

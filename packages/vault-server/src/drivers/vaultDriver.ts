@@ -64,7 +64,6 @@ export interface PushSyncMessagesInput {
   messages: Array<{
     itemId: ItemId
     entry: StoredSyncMessage
-    lastModified: number
   }>
 }
 

@@ -83,7 +83,6 @@ export async function pushAutomergeSyncBatch(
     storedMessages.push({
       itemId,
       entry: { cursor, encryptedMessage, createdAt: timestamp },
-      lastModified: timestamp,
     })
     results.push({ itemId, cursor })
   }
@@ -122,11 +121,11 @@ export async function pullAutomergeSyncBatch(
 ): Promise<ItemPullResult[]> {
   const dedupedCursorsByItemId = new Map<ItemId, { cursor: number; pageToken?: PageToken }>()
   for (const cursorInput of input.cursors) {
-    const nextCursor = cursorInput.cursor ?? 0
+    const fromCursor = cursorInput.cursor ?? 0
     const existing = dedupedCursorsByItemId.get(cursorInput.itemId)
-    if (!existing || nextCursor >= existing.cursor) {
+    if (!existing || fromCursor >= existing.cursor) {
       dedupedCursorsByItemId.set(cursorInput.itemId, {
-        cursor: nextCursor,
+        cursor: fromCursor,
         pageToken: cursorInput.pageToken,
       })
     }
