@@ -39,7 +39,7 @@ export class SnapshotTracker {
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
-  public readonly loadGuard = new SingleFlightGuard<void>()
+  public readonly loadGuard = new SingleFlightGuard<Set<ItemId>>()
   private readonly persistMutex = new AsyncMutex()
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
@@ -122,14 +122,6 @@ export class SnapshotTracker {
     return entry
   }
 
-  getLastSnapshotAt(itemId: ItemId): number | undefined {
-    return this.timestampsByItemId.get(itemId)?.lastSnapshotAt
-  }
-
-  getLocalModifiedAt(itemId: ItemId): number | undefined {
-    return this.timestampsByItemId.get(itemId)?.localModifiedAt
-  }
-
   scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
     if (!this.isOperational) return
     if (this.isRetryActive?.()) return
@@ -182,12 +174,8 @@ export class SnapshotTracker {
 
   /** Loads the stored timestamps, returning the items quarantined as oversized */
   async loadLastModified(): Promise<Set<ItemId>> {
-    let oversizedItemIds = new Set<ItemId>()
-    if (this.shutDown) return oversizedItemIds
-    await this.loadGuard.run(async () => {
-      oversizedItemIds = await this.executeLoadLastModified()
-    })
-    return oversizedItemIds
+    if (this.shutDown) return new Set()
+    return this.loadGuard.run(() => this.executeLoadLastModified())
   }
 
   private async executeLoadLastModified(): Promise<Set<ItemId>> {
@@ -321,10 +309,6 @@ export class SnapshotTracker {
       this.clearDebounceTimers()
     }
     return deleted
-  }
-
-  hasDirty(itemId: ItemId): boolean {
-    return this.dirtyItems.has(itemId)
   }
 
   getDirtyTick(itemId: ItemId): number | undefined {

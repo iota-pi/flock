@@ -87,8 +87,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     if (isLeader) {
       await this.loadLastModified()
     } else {
-      this.pusher.abortPush()
-      this.pusher.cancelRetry()
+      this.stopPushing()
     }
   }
 
@@ -100,9 +99,14 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
         fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onOnlineStateChange')
       }
     } else {
-      this.pusher.abortPush()
-      this.pusher.cancelRetry()
+      this.stopPushing()
     }
+  }
+
+  /** Aborts any push in flight and cancels a pending retry */
+  private stopPushing(): void {
+    this.pusher.abortPush()
+    this.pusher.cancelRetry()
   }
 
   async loadLastModified(): Promise<void> {

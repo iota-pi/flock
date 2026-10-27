@@ -8,6 +8,11 @@ function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Par
   byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
 }
 
+/** An item's tracked timestamps, empty if it has none */
+function getTimestamps(tracker: SnapshotTracker, itemId: string): Partial<ItemSyncTimestamps> {
+  return tracker['timestampsByItemId'].get(itemId as ItemId) ?? {}
+}
+
 describe('SnapshotTracker', () => {
   let tracker: SnapshotTracker
   let mockStore: any
@@ -80,7 +85,7 @@ describe('SnapshotTracker', () => {
   it('records local modification time for dirty items and persists it', async () => {
     vi.setSystemTime(12345)
     tracker.markItemDirty('item-1' as ItemId)
-    expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(12345)
+    expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(12345)
     expect(mockStore.saveTimestamps).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1000)
@@ -111,11 +116,23 @@ describe('SnapshotTracker', () => {
     const oversizedItemIds = await tracker.loadLastModified()
 
     expect(tracker.dirtyCount).toBe(1) // Only item-clean restored
-    expect(tracker.hasDirty('item-clean' as ItemId)).toBe(true)
-    expect(tracker.hasDirty('item-synced' as ItemId)).toBe(false)
-    expect(tracker.hasDirty('item-quarantined' as ItemId)).toBe(false)
+    expect(tracker.dirtyItems.has('item-clean' as ItemId)).toBe(true)
+    expect(tracker.dirtyItems.has('item-synced' as ItemId)).toBe(false)
+    expect(tracker.dirtyItems.has('item-quarantined' as ItemId)).toBe(false)
     expect(oversizedItemIds.has('item-oversized' as ItemId)).toBe(true)
     expect(oversizedItemIds.has('item-rate-limited' as ItemId)).toBe(false)
+  })
+
+  it('gives a caller that joins a load in flight the same oversized IDs', async () => {
+    mockRecoveryManager.listRecoveryItems.mockResolvedValue([
+      { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, kind: 'oversized' },
+    ])
+
+    const [first, second] = await Promise.all([tracker.loadLastModified(), tracker.loadLastModified()])
+
+    expect(mockStore.loadTimestamps).toHaveBeenCalledTimes(1)
+    expect([...first]).toEqual(['item-oversized'])
+    expect([...second]).toEqual(['item-oversized'])
   })
 
   it('recordSnapshotSuccess clears matching tick and updates lastSnapshotAt', () => {
@@ -124,8 +141,8 @@ describe('SnapshotTracker', () => {
 
     tracker.recordSnapshotSuccess('item-1' as ItemId, 2000, tick)
 
-    expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
-    expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(2000)
+    expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
+    expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(2000)
   })
 
   it('recordSnapshotSuccess does not clear item if tick has changed (new edits)', () => {
@@ -139,16 +156,16 @@ describe('SnapshotTracker', () => {
 
     tracker.recordSnapshotSuccess('item-1' as ItemId, 2000, oldTick)
 
-    expect(tracker.hasDirty('item-1' as ItemId)).toBe(true)
-    expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(2000)
+    expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(true)
+    expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(2000)
   })
 
   it('recordOversized removes item from dirty queue and advances lastSnapshotAt', () => {
     tracker.markItemDirty('item-big' as ItemId)
     tracker.recordOversized('item-big' as ItemId, 3000)
 
-    expect(tracker.hasDirty('item-big' as ItemId)).toBe(false)
-    expect(tracker.getLastSnapshotAt('item-big' as ItemId)).toBeGreaterThanOrEqual(3000)
+    expect(tracker.dirtyItems.has('item-big' as ItemId)).toBe(false)
+    expect(getTimestamps(tracker, 'item-big').lastSnapshotAt).toBeGreaterThanOrEqual(3000)
   })
 
   it('exports and imports last modified timestamps properly', async () => {
@@ -169,8 +186,8 @@ describe('SnapshotTracker', () => {
     })
 
     await newTracker.importLastModified(exported)
-    expect(newTracker.getLocalModifiedAt('item-1' as ItemId)).toBe(1000)
-    expect(newTracker.getLastSnapshotAt('item-2' as ItemId)).toBe(2000)
+    expect(getTimestamps(newTracker, 'item-1').localModifiedAt).toBe(1000)
+    expect(getTimestamps(newTracker, 'item-2').lastSnapshotAt).toBe(2000)
   })
 
   describe('importLastModified', () => {
@@ -180,13 +197,13 @@ describe('SnapshotTracker', () => {
 
       await tracker.importLastModified([['item-1' as ItemId, 5000]])
 
-      expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(5000)
-      expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(5000)
+      expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(5000)
+      expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(5000)
 
       mockStore.loadTimestamps.mockResolvedValue([])
       await tracker.loadLastModified()
       expect(tracker.dirtyCount).toBe(0)
-      expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
+      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
     })
 
     it('keeps a dirty item pending upload', async () => {
@@ -196,21 +213,21 @@ describe('SnapshotTracker', () => {
 
       await tracker.importLastModified([['item-1' as ItemId, 5000]])
 
-      expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(1000)
-      expect(tracker.getLocalModifiedAt('item-1' as ItemId)).toBe(9000)
-      expect(tracker.hasDirty('item-1' as ItemId)).toBe(true)
+      expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(1000)
+      expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(9000)
+      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(true)
     })
   })
 
   describe('deleteDirtyItem', () => {
     it('removes item from dirtyItems and clears timers when dirtyItems becomes empty', () => {
       tracker.markItemDirty('item-1' as ItemId)
-      expect(tracker.hasDirty('item-1' as ItemId)).toBe(true)
+      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(true)
       expect(tracker.debounceTimer).not.toBeNull()
 
       const deleted = tracker.deleteDirtyItem('item-1' as ItemId)
       expect(deleted).toBe(true)
-      expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
+      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
       expect(tracker.dirtyCount).toBe(0)
       expect(tracker.debounceTimer).toBeNull()
       expect(tracker.maxWaitTimer).toBeNull()
@@ -222,7 +239,7 @@ describe('SnapshotTracker', () => {
       // item-1 has localMod: 5000 and undefined lastSnapshotAt
 
       tracker.deleteDirtyItem('item-1' as ItemId)
-      expect(tracker.getLastSnapshotAt('item-1' as ItemId)).toBe(5000)
+      expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(5000)
 
       // Verify that audit does not restore it
       mockStore.loadTimestamps.mockResolvedValue([
@@ -230,7 +247,7 @@ describe('SnapshotTracker', () => {
       ])
       await tracker.loadLastModified()
       expect(tracker.dirtyCount).toBe(0)
-      expect(tracker.hasDirty('item-1' as ItemId)).toBe(false)
+      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
     })
 
     it('returns false when deleting an item that was not dirty', () => {
