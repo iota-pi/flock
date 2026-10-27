@@ -72,7 +72,7 @@ describe('createServer error reporting', () => {
 
   it('captures unexpected internal errors in Sentry with tRPC path tag', async () => {
     const server = await createServer(true)
-    vi.spyOn(DynamoDriver.prototype, 'getNewAccountId').mockRejectedValue(new Error('DynamoDB Connection Failure'))
+    vi.spyOn(DynamoDriver.prototype, 'createAccount').mockRejectedValue(new Error('DynamoDB Connection Failure'))
 
     try {
       const response = await server.inject({

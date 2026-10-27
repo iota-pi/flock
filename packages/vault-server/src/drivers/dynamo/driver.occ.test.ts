@@ -10,7 +10,12 @@ import { VersionConflictError } from '@vault/shared'
 const driver = new DynamoDriver()
 
 async function login(account: string, authTokenHash: string) {
-  return authenticateLogin(await driver.getAccountRecord({ account }), authTokenHash)
+  const record = await driver.getAccountRecord({ account })
+  authenticateLogin(record, authTokenHash)
+  if (!record) {
+    throw new Error(`Could not find account ${account}`)
+  }
+  return record
 }
 
 async function getWithSession(account: string, session: string) {

@@ -10,22 +10,44 @@ import {
   TOO_MANY_REQUESTS_MESSAGE,
   VersionConflictError,
 } from '@vault/shared'
-import { fakeSalt, hashString, safeEqual } from '../../util'
+import { fakeSalt, generateAccountId, hashString, safeEqual } from '../../util'
 import { addSessionRecord, findSession, SESSION_EXPIRY_MS } from '../../sessions'
 import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
 import { authenticateLogin } from '../../authentication'
 import { toTrpcError } from '../errors'
-import type { SecurityParams, VaultAccountWithAuth } from '../../drivers/vaultDriver'
+import type { StoredAccount, VaultAccountWithAuth } from '../../drivers/vaultDriver'
+import type { KdfParams } from '@vault/shared'
 import type { UnknownAccountParams } from '../trpc'
 import type { DataVersionPolicy } from '../../services/dataVersion'
 
-const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
+// Each attempt is a single conditional write, and a collision between random IDs is very unlikely
+const MAX_CREATE_ACCOUNT_ATTEMPTS = 10
+
+/** What a client needs to derive an account's master key, plus its data version */
+interface SecurityParams {
+  salt: string,
+  iterations?: number,
+  saltVersion?: number,
+  kdf?: KdfParams,
+  dataVersion?: number,
+}
 
 /** Credential changes need the current password as well as the session */
 function assertCurrentAuthToken(accountData: VaultAccountWithAuth, currentAuthToken: string): void {
   if (!safeEqual(accountData.authToken, hashString(currentAuthToken))) {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
+  }
+}
+
+function accountSecurityParams(record: StoredAccount): SecurityParams {
+  return {
+    // Accounts from before per-account salts used the account ID as the salt
+    salt: typeof record.salt === 'string' ? record.salt : record.account,
+    iterations: record.iterations,
+    saltVersion: record.saltVersion,
+    ...(record.kdf ? { kdf: record.kdf } : {}),
+    dataVersion: record.dataVersion,
   }
 }
 
@@ -52,8 +74,8 @@ export const accountsRouter = router({
     .input(CreateAccountBodySchema)
     .mutation(async ({ ctx, input }) => {
       for (let attempt = 0; attempt < MAX_CREATE_ACCOUNT_ATTEMPTS; attempt += 1) {
-        const account = await ctx.vault.getNewAccountId()
-        // Fails if another sign-up took the ID after getNewAccountId checked it
+        const account = generateAccountId()
+        // Returns false if the ID is already taken, in which case we try another one
         const created = await ctx.vault.createAccount({
           account,
           authToken: hashString(input.authToken),
@@ -107,17 +129,14 @@ export const accountsRouter = router({
   getSecurityParams: publicProcedure
     .input(AccountInputSchema)
     .query(async ({ ctx, input }) => {
+      const record = await ctx.vault.getAccountRecord({ account: input.account })
       let params: SecurityParams
-      try {
-        params = await ctx.vault.getSecurityParams({ account: input.account })
-      } catch (error) {
-        if (!(error instanceof AuthenticationError)) {
-          throw error
-        }
-        if (!ctx.unknownAccountParams) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' })
-        }
+      if (record) {
+        params = accountSecurityParams(record)
+      } else if (ctx.unknownAccountParams) {
         params = unknownAccountSecurityParams(input.account, ctx.unknownAccountParams, ctx.dataVersionPolicy)
+      } else {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' })
       }
 
       const { salt, iterations, saltVersion, kdf, dataVersion } = params
@@ -176,14 +195,12 @@ export const accountsRouter = router({
   changePassword: protectedProcedure
     .input(ChangePasswordBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const accountData = ctx.accountData
-
-      assertCurrentAuthToken(accountData, input.currentAuthToken)
+      assertCurrentAuthToken(ctx.accountData, input.currentAuthToken)
 
       const newAuthTokenHash = hashString(input.newAuthToken)
 
       // Changing the password ends every other session
-      const currentSessionExpiry = findSession(accountData.sessions, ctx.authToken)?.expiry
+      const currentSessionExpiry = findSession(ctx.accountData.sessions, ctx.authToken)?.expiry
         ?? Date.now() + SESSION_EXPIRY_MS
 
       try {

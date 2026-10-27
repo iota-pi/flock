@@ -19,7 +19,6 @@ import {
   UpdateCommandOutput,
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
-import { generateAccountId } from '../../util'
 import { addSessionRecord, normalizeSessionRecords, renewSessionRecord } from '../../sessions'
 import type {
   AuthData,
@@ -28,7 +27,6 @@ import type {
   GetSyncMessagesInput,
   GlobalSyncMessagesPage,
   ItemFormatSummary,
-  SecurityParams,
   StoredAccount,
   StoredSyncMessage,
   UpdateAccountDataParams,
@@ -69,7 +67,6 @@ const SYNC_MESSAGE_TTL = 90 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
 const FETCH_BATCH_SIZE = 100
 export const SYNC_MESSAGE_PAGE_SIZE = 200
-const MAX_ACCOUNT_ID_ATTEMPTS = 10
 
 const ITEM_DATA_PROJECTION = projection(['item', 'metadata', 'cipher', 'snapshot', 'version'])
 
@@ -196,31 +193,6 @@ export default class DynamoDriver implements VaultDriver {
         'attribute_exists(account) AND (attribute_not_exists(failedLoginsSince) OR failedLoginsSince <= :windowStart)',
       ExpressionAttributeValues: { ...values, ':now': now },
     }))
-  }
-
-  async getSecurityParams({ account }: BaseData): Promise<SecurityParams> {
-    const dbAccount = await this.getAccountRecord({ account })
-    if (!dbAccount) {
-      throw new AuthenticationError(`Could not find account ${account}`)
-    }
-    return {
-      salt: typeof dbAccount.salt === 'string' ? dbAccount.salt : account,
-      iterations: dbAccount.iterations,
-      saltVersion: dbAccount.saltVersion,
-      ...(dbAccount.kdf ? { kdf: dbAccount.kdf } : {}),
-      dataVersion: dbAccount.dataVersion,
-    }
-  }
-
-  async getNewAccountId(): Promise<string> {
-    for (let attempt = 0; attempt < MAX_ACCOUNT_ID_ATTEMPTS; attempt += 1) {
-      const account = generateAccountId()
-      if (!await this.getAccountRecord({ account })) {
-        return account
-      }
-    }
-
-    throw new Error('Could not generate new account ID')
   }
 
   async updateAccountData<TExtra extends object = Record<never, never>>({
