@@ -324,8 +324,11 @@ export class SyncWorkerContext {
         snapshotFormatUpgrade?.onSyncedWithoutFailures()
         fireAndForget(dataVersionTracker.onSyncedWithoutFailures(), 'SyncWorkerContext:recordDeviceDataVersion')
       },
-      onDecryptionFailure: (itemId, error) => {
-        fireAndForget(recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error), 'SyncWorkerContext:reportDecryptionFailure')
+      onDecryptionFailure: (itemId, error, serverVersion) => {
+        fireAndForget(
+          recoveryManager.reportDecryptionFailure(itemId, 'snapshotDecryption', error, { serverVersion }),
+          'SyncWorkerContext:reportDecryptionFailure',
+        )
       },
       onItemSnapshotHydrated: (itemId, heads) => {
         const docId = toDocumentIdFromItemId(itemId)

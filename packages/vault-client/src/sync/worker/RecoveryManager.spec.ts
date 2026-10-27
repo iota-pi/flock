@@ -289,13 +289,30 @@ describe('RecoveryManager', () => {
       consoleSpy.mockRestore()
     })
 
+    it('records the server version that failed', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await recoveryManager.reportDecryptionFailure(
+        'item-1' as ItemId,
+        'snapshotDecryption',
+        new Error('bad'),
+        { serverVersion: 7 },
+      )
+
+      expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', expect.objectContaining({
+        itemId: 'item-1',
+        kind: 'snapshotDecryption',
+        serverVersion: 7,
+      }))
+      consoleSpy.mockRestore()
+    })
+
     it('includes failed branches hint when available', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       await recoveryManager.reportDecryptionFailure(
         'item-1' as ItemId,
         'pullDecryption',
         new Error('bad decrypt'),
-        ['branch-A', 'branch-B']
+        { failedBranches: ['branch-A', 'branch-B'] },
       )
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {

@@ -103,6 +103,62 @@ describe('manualRecoveryStore', () => {
     })
   })
 
+  describe('serverVersion', () => {
+    function legacyStorage() {
+      return localforage.createInstance({
+        name: 'test-vault-manual-recovery-test-account-id',
+        storeName: 'manual-recovery-items',
+      })
+    }
+
+    it('persists the failed server version', async () => {
+      await upsertManualRecoveryEntry(accountId, {
+        itemId: 'item-1', reason: 'bad', kind: 'snapshotDecryption', serverVersion: 4,
+      })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'snapshotDecryption', serverVersion: 4 }))
+    })
+
+    it('reads entries stored without serverVersion, or with an invalid one, without it', async () => {
+      await legacyStorage().setItem('item-legacy', {
+        id: 'item-legacy', itemId: 'item-legacy', reason: 'decrypt', kind: 'snapshotDecryption', createdAt: 1,
+      })
+      await legacyStorage().setItem('item-bad', {
+        id: 'item-bad', itemId: 'item-bad', reason: 'decrypt', kind: 'snapshotDecryption', createdAt: 2, serverVersion: 'x',
+      })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries).toHaveLength(2)
+      for (const entry of entries) {
+        expect(entry).not.toHaveProperty('serverVersion')
+      }
+    })
+
+    it('keeps the newest failed version when a later quarantine has none', async () => {
+      await upsertManualRecoveryEntry(accountId, {
+        itemId: 'item-1', reason: 'bad', kind: 'snapshotDecryption', serverVersion: 4,
+      })
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'push', kind: 'pushFailure' })
+      await upsertManualRecoveryEntry(accountId, {
+        itemId: 'item-1', reason: 'bad again', kind: 'snapshotDecryption', serverVersion: 3,
+      })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries[0]).toEqual(expect.objectContaining({ reason: 'bad again', serverVersion: 4 }))
+    })
+
+    it('records a newer failed version on a stronger entry without replacing it', async () => {
+      await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'too big', kind: 'oversized' })
+      await upsertManualRecoveryEntry(accountId, {
+        itemId: 'item-1', reason: 'bad', kind: 'snapshotDecryption', serverVersion: 6,
+      })
+
+      const entries = await readManualRecoveryEntries(accountId)
+      expect(entries[0]).toEqual(expect.objectContaining({ kind: 'oversized', reason: 'too big', serverVersion: 6 }))
+    })
+  })
+
   describe('upsert precedence', () => {
     it.each([
       ['pullDecryption'],
