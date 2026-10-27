@@ -2,7 +2,7 @@ import type { VaultAccountWithAuth, VaultSessionRecord } from './drivers/vaultDr
 import { hashString, safeEqual } from './util'
 
 export const SESSION_EXPIRY_MS = 72 * 60 * 60 * 1000 // 72 hours
-export const SESSION_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000 // 1 day
+const SESSION_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000 // 1 day
 export const SESSION_RENEWAL_THRESHOLD_MS = SESSION_EXPIRY_MS - SESSION_RENEWAL_WINDOW_MS // 48 hours
 export const MAX_ACTIVE_SESSIONS = 8
 /** Allows for clock differences between server instances when checking a session expiry against its lifetime */
@@ -16,14 +16,9 @@ export function hashSessionToken(token: string): string {
   return hashString(token)
 }
 
-/**
- * Whether a stored session record is for `token`. Records written before tokens were hashed hold
- * the token itself. Renewing one rewrites it hashed, and the rest expire within SESSION_EXPIRY_MS
- * of the change, after which the second comparison can go. Until then a stored hash also works as
- * a token, which is no worse than the raw tokens stored before.
- */
+/** Whether a stored session record (which holds the token's hash) is for `token` */
 export function isSessionFor(record: { token: string }, token: string): boolean {
-  return safeEqual(hashSessionToken(token), record.token) || safeEqual(token, record.token)
+  return safeEqual(hashSessionToken(token), record.token)
 }
 
 /**
@@ -115,7 +110,6 @@ export function renewSessionRecord(
   }
 
   const renewed = activeSessions.slice()
-  // Also rewrites a record from before tokens were hashed
   renewed[index] = { token: hashSessionToken(token), expiry: now + SESSION_EXPIRY_MS }
   return renewed
 }

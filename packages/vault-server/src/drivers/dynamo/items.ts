@@ -2,11 +2,11 @@ import { MAX_ITEM_SIZE } from '@vault/shared'
 import type { VaultItem } from '../vaultDriver'
 
 /**
- * Validates a VaultItem.
- * Supports both legacy cipher and snapshot format
- * - Legacy: must have cipher and iv
- * - Snapshot: must have snapshot payload or external storage pointer
- * - Tombstone: needs no payload
+ * Throws unless the item has a payload and fits in MAX_ITEM_SIZE (measuring a binary snapshot
+ * ciphertext by its byte length). A payload is one of:
+ * - Legacy: `cipher` with `metadata.iv`
+ * - Snapshot: a `snapshot`
+ * - Tombstone: none needed
  */
 export function validateItem(item: VaultItem) {
   // Calculate item length without expanding binary Buffers into huge JSON arrays
