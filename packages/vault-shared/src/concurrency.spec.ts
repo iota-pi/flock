@@ -1,21 +1,6 @@
-import { mapWithConcurrency, resolveConcurrency, DEFAULT_CONCURRENCY } from './concurrency'
+import { mapWithConcurrency } from './concurrency'
 
 describe('concurrency utilities', () => {
-  describe('resolveConcurrency', () => {
-    it('returns positive integer when valid number provided', () => {
-      expect(resolveConcurrency(5)).toBe(5)
-      expect(resolveConcurrency(3.7)).toBe(3)
-    })
-
-    it('returns default fallback when non-positive or non-number provided', () => {
-      expect(resolveConcurrency(undefined)).toBe(DEFAULT_CONCURRENCY)
-      expect(resolveConcurrency(0)).toBe(DEFAULT_CONCURRENCY)
-      expect(resolveConcurrency(-1)).toBe(DEFAULT_CONCURRENCY)
-      expect(resolveConcurrency(NaN)).toBe(DEFAULT_CONCURRENCY)
-      expect(resolveConcurrency(undefined, 20)).toBe(20)
-    })
-  })
-
   describe('mapWithConcurrency', () => {
     it('returns empty array when input is empty', async () => {
       const fn = vi.fn()

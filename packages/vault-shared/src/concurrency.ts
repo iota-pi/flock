@@ -2,18 +2,6 @@
  * Concurrency utilities for bounding parallel asynchronous operations.
  */
 
-export const DEFAULT_CONCURRENCY = 10
-
-/**
- * Resolves a valid positive integer concurrency value, falling back to a default.
- */
-export function resolveConcurrency(concurrency?: number, fallback: number = DEFAULT_CONCURRENCY): number {
-  if (typeof concurrency === 'number' && Number.isFinite(concurrency) && concurrency > 0) {
-    return Math.floor(concurrency)
-  }
-  return fallback
-}
-
 /**
  * Maps an array of items asynchronously with bounded concurrency.
  * Preserves input array ordering in the returned results array.
