@@ -20,7 +20,8 @@ The local Automerge doc in IndexedDB is always the complete, authoritative state
 
 - Outbound Automerge sync messages are appended to `SyncWriteAheadLog` (it has its own IndexedDB database). `SyncPoller` encrypts and pushes them via `pollSyncBatch`, and entries are removed once the server acknowledges them.
 - **Pruning is safe.** When the WAL exceeds `MAX_ENTRIES`, `performPruneOldest` drops old entries. Nothing is lost, because the local doc is authoritative and the next snapshot captures the full merged state.
-- **Torn compaction self-heals.** If the worker crashes mid-compaction, `readAll()` finds entries listed in another entry's `replaces` array and purges them.
+- **Batching happens at push time, not in storage.** `SyncPoller` packs each item's entries into one batched message (`packBatchedMessages`) when it pushes, and every WAL entry holds a single message. Older versions compacted entries into batched ones (`isBatched`, with the IDs they superseded in `replaces`) when the WAL filled or hit a quota error. Compaction is gone because it only cut the record count, wrote before it freed space, and a compacted entry was double-framed when a backup restored it. Entries those versions stored are still read: `packBatchedMessages` keeps a batched entry's framing, `readAll()` and pruning purge entries listed in another entry's `replaces` array (a torn compaction), and `exportSyncState` unpacks batched entries into their messages so restore re-appends plain ones.
+- **Quota errors prune.** `handleQuotaExceeded` prunes the oldest `walPrune` entries, as overflow does.
 - **In-flight safety.** `SyncPoller.executePoll` calls `wal.unmarkInFlight` in a `finally` block, so entries cannot get stuck in-flight.
 
 ### Poll result contract
@@ -57,8 +58,12 @@ If `processPullResults` or any I/O throws and the poll still reports `'success'`
 | V_server ≤ V_base and dirty | Push a snapshot |
 | V_server ≤ V_base and clean | Do nothing |
 | Item missing from the server manifest | It was created offline, so push a snapshot |
+| Quarantined, V_server ≤ max(V_failed, V_base) | Skip (unless forced) |
+| Quarantined, V_server > max(V_failed, V_base) | Fetch the snapshot to retry recovery |
 
 Physical timestamps (`localModifiedAt`, `serverTime`, `SKEW_BUFFER_MS`) remain only as a legacy fallback for records that have no version.
+
+A quarantined item's manual recovery entry records `serverVersion`, the server version that failed (for example a snapshot that couldn't be decrypted), as V_failed. A failed hydration doesn't advance V_base, so without it the same broken snapshot would be fetched and fail again on every manifest sync. Entries without `serverVersion` (stored before it existed, or quarantines not tied to a server version) fall back to V_base. The comparison never uses the entry's `createdAt`, which comes from this device's clock.
 
 ### Snapshot writes are intentionally LWW (no OCC)
 
@@ -114,6 +119,7 @@ Items that can't be synced are quarantined in `manualRecoveryStore` and shown to
 - `kind` is one of `pullDecryption`, `snapshotDecryption`, `oversized`, `snapshotFailure`, `pushFailure` or `unknown`. For legacy entries it is inferred from the reason text.
 - Only `pullDecryption` is auto-cleared, and only by a successfully parsed inbound message from another device. Own push echoes are excluded via `SyncPullQueueManager.recordOwnPushedMessage`.
 - A server-confirmed snapshot upload clears every kind, as does any explicit user action (retry, overwrite, delete, recreate, dismiss).
+- `serverVersion` (optional) is the server version that failed; manifest sync skips the item until the server has a newer one (see "Monotonic versions"). An upsert keeps the highest version seen, even when a weaker kind doesn't replace the entry.
 - A weaker quarantine never overwrites an `oversized` entry. Oversized detection (`SnapshotTracker`, `DataRecoveryDialog`) checks `kind`, never reason text.
 
 ## Multi-tab and leader election

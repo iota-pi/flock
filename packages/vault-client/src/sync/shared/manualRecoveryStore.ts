@@ -22,10 +22,18 @@ export type ManualRecoveryEntry = {
   reason: string
   kind: ManualRecoveryKind
   createdAt: number
+  /**
+   * The server-assigned version that failed (e.g. a snapshot that couldn't be decrypted). Manifest sync
+   * re-fetches the item only once the server has a newer version. Entries stored before this existed lack it.
+   */
+  serverVersion?: number
 }
 
-// Entries persisted before `kind` existed may lack it (or hold garbage)
-type StoredManualRecoveryEntry = Omit<ManualRecoveryEntry, 'kind'> & { kind?: unknown }
+// Entries persisted before `kind` or `serverVersion` existed may lack them (or hold garbage)
+type StoredManualRecoveryEntry = Omit<ManualRecoveryEntry, 'kind' | 'serverVersion'> & {
+  kind?: unknown
+  serverVersion?: unknown
+}
 
 const entryMutex = new KeyedAsyncMutex<string>()
 
@@ -59,6 +67,10 @@ function inferLegacyManualRecoveryKind(reason: string): ManualRecoveryKind {
   return 'unknown'
 }
 
+function isValidServerVersion(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
 function normalizeManualRecoveryEntry(value: unknown): ManualRecoveryEntry | null {
   if (!value || typeof value !== 'object') return null
   const stored = value as StoredManualRecoveryEntry
@@ -71,7 +83,18 @@ function normalizeManualRecoveryEntry(value: unknown): ManualRecoveryEntry | nul
     return null
   }
   const kind = isManualRecoveryKind(stored.kind) ? stored.kind : inferLegacyManualRecoveryKind(stored.reason)
-  return { ...stored, kind }
+  const { serverVersion, ...rest } = stored
+  return {
+    ...rest,
+    kind,
+    ...(isValidServerVersion(serverVersion) ? { serverVersion } : {}),
+  }
+}
+
+function maxDefined(left: number | undefined, right: number | undefined): number | undefined {
+  if (left === undefined) return right
+  if (right === undefined) return left
+  return Math.max(left, right)
 }
 
 function kindRank(kind: ManualRecoveryKind): number {
@@ -167,15 +190,21 @@ export async function upsertManualRecoveryEntry(
     itemId: ItemId
     reason: string
     kind: ManualRecoveryKind
+    serverVersion?: number
   }
 ): Promise<ManualRecoveryEntry> {
   if (!accountId) throw new Error('accountId is required')
   const storage = getManualRecoveryStorage(accountId)
   return entryMutex.runExclusive(entryLockKey(accountId, input.itemId), async () => {
     const existing = normalizeManualRecoveryEntry(await storage.getItem<unknown>(input.itemId))
+    // Keep the newest failed server version across kinds, so manifest sync keeps waiting for a newer one
+    const serverVersion = maxDefined(input.serverVersion, existing?.serverVersion)
     // A weaker quarantine must not replace a stronger one (e.g. oversized)
     if (existing && kindRank(input.kind) < kindRank(existing.kind)) {
-      return existing
+      if (serverVersion === existing.serverVersion) return existing
+      const updated: ManualRecoveryEntry = { ...existing, serverVersion }
+      await runStorageOperation(() => storage.setItem(updated.id, updated))
+      return updated
     }
 
     const entry: ManualRecoveryEntry = {
@@ -184,6 +213,7 @@ export async function upsertManualRecoveryEntry(
       reason: input.reason,
       kind: input.kind,
       createdAt: Date.now(),
+      ...(serverVersion !== undefined ? { serverVersion } : {}),
     }
     await runStorageOperation(() => storage.setItem(entry.id, entry))
     return entry

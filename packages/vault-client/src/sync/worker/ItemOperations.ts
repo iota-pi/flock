@@ -30,6 +30,21 @@ export interface StoreItemsOptions {
 
 class DocumentCreateRefusedError extends Error {}
 
+/** `refusedDeleted`: the doc is a tombstone and the change would have edited it (deletes are terminal) */
+type DocumentChangeResult = 'applied' | 'failed' | 'refusedDeleted'
+
+/**
+ * Drops `deleted` from a change set unless it deletes the item. Whole-object edits carry `deleted: false`
+ * or `undefined`, which would otherwise write over a concurrent remote delete when the docs merge.
+ */
+function withoutUndelete(itemOrChanges: Partial<VaultDoc>): Partial<VaultDoc> {
+  if (!('deleted' in itemOrChanges) || itemOrChanges.deleted === true) {
+    return itemOrChanges
+  }
+  const { deleted: _deleted, ...rest } = itemOrChanges
+  return rest
+}
+
 export class ItemOperations {
   public readonly recoveryManager: RecoveryManager
   private readonly recreateGuard = new KeyedSingleFlightGuard<ItemId, ItemId>()
@@ -42,20 +57,30 @@ export class ItemOperations {
     id: ItemId,
     itemOrChanges: Partial<VaultDoc>,
     options?: { createIfMissing?: boolean; knownToExist?: boolean },
-  ): Promise<boolean> {
-    return await this.deps.docStore.changeDocument(
+  ): Promise<DocumentChangeResult> {
+    const changes = withoutUndelete(itemOrChanges)
+    let refusedDeleted = false
+    const updated = await this.deps.docStore.changeDocument(
       id,
       doc => {
-        applyItemUpdatesToDraft(doc, itemOrChanges)
+        // Checked inside the change, so a delete landing after any earlier read still wins
+        if (doc.deleted === true && changes.deleted !== true) {
+          refusedDeleted = true
+          return
+        }
+        applyItemUpdatesToDraft(doc, changes)
       },
       options,
     )
+    if (!updated) return 'failed'
+    return refusedDeleted ? 'refusedDeleted' : 'applied'
   }
 
   private async emitTrueState(id: ItemId): Promise<void> {
     try {
       const trueState = await this.deps.docStore.getAutomergeItem(id)
-      this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
+      const item = trueState?.deleted === true ? null : trueState
+      this.deps.eventHub.emit({ type: 'itemUpdated', id, item })
     } catch {
       // Doc retrieval failure fallback
     }
@@ -75,14 +100,14 @@ export class ItemOperations {
 
   async mutateItem(id: ItemId, changes: Partial<VaultDoc>): Promise<void> {
     try {
-      const updated = await this.applyDocumentChange(id, changes, { knownToExist: true })
-      if (updated) {
+      const result = await this.applyDocumentChange(id, changes, { knownToExist: true })
+      if (result === 'applied') {
         if (changes.deleted === true) {
           await this.deps.indexManager.removeAutomergeItemIdsFromIndex([id])
-        } else if (changes.deleted === false) {
-          await this.deps.indexManager.addAutomergeItemIdsToIndex([id])
         }
         this.deps.markDocumentDirty(id)
+      } else if (result === 'refusedDeleted') {
+        await this.handleMutationFailure(id, 'edit', `Cannot edit deleted item ${id}`)
       } else {
         await this.handleMutationFailure(id, 'edit', `Failed to update document ${id}`)
       }
@@ -96,11 +121,11 @@ export class ItemOperations {
    * `documentCreated` on the thrown error distinguishes a refused change from an exception.
    */
   private async createDocumentOrThrow(item: VaultDoc): Promise<void> {
-    const updated = await this.applyDocumentChange(item.id, item, {
+    const result = await this.applyDocumentChange(item.id, item, {
       createIfMissing: true,
       knownToExist: false,
     })
-    if (updated !== true) {
+    if (result !== 'applied') {
       throw new DocumentCreateRefusedError(`Failed to create document ${item.id}`)
     }
     await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
@@ -126,11 +151,12 @@ export class ItemOperations {
 
     for (const item of items) {
       try {
-        const updated = await this.applyDocumentChange(item.id, item, {
+        // A live object never undeletes an existing tombstone; that counts as a failure
+        const result = await this.applyDocumentChange(item.id, item, {
           createIfMissing: true,
           knownToExist: existingIds.has(item.id),
         })
-        if (updated) {
+        if (result === 'applied') {
           if (item.deleted) {
             succeededDeletedIds.push(item.id)
           } else {
@@ -303,8 +329,8 @@ export class ItemOperations {
           const candidate = await this.deps.docStore.getAutomergeItem(id)
           const changes = candidate ? remapReferences(candidate, oldItemId, newItemId) : null
           if (!changes) continue
-          const updated = await this.applyDocumentChange(id, changes, { knownToExist: true })
-          if (updated) {
+          const result = await this.applyDocumentChange(id, changes, { knownToExist: true })
+          if (result === 'applied') {
             this.deps.markDocumentDirty(id)
             const updatedItem = await this.deps.docStore.getAutomergeItem(id)
             this.deps.eventHub.emit({ type: 'itemUpdated', id, item: updatedItem })

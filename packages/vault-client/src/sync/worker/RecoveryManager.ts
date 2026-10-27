@@ -30,6 +30,8 @@ export interface QuarantineOptions {
   checkCooldown?: boolean
   cooldownMs?: number
   failedBranches?: string[]
+  /** The server version that failed, recorded so manifest sync waits for a newer one */
+  serverVersion?: number
 }
 
 export class RecoveryManager implements LifecycleAware {
@@ -131,7 +133,7 @@ export class RecoveryManager implements LifecycleAware {
         reason = 'Automated recovery is unavailable for this revision'
       }
 
-      await upsertManualRecoveryEntry(accountId, { itemId, reason, kind })
+      await upsertManualRecoveryEntry(accountId, { itemId, reason, kind, serverVersion: options?.serverVersion })
       await this.pushRecoveryItems()
 
       const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
@@ -196,7 +198,7 @@ export class RecoveryManager implements LifecycleAware {
     itemId: ItemId,
     kind: 'pullDecryption' | 'snapshotDecryption' | 'localDecryption',
     error: unknown,
-    failedBranches?: string[],
+    options?: Pick<QuarantineOptions, 'failedBranches' | 'serverVersion'>,
   ): Promise<void> {
     const normalizedError = normalizeSyncError(error)
     log.error('Failed to decrypt item', {
@@ -206,7 +208,7 @@ export class RecoveryManager implements LifecycleAware {
 
     if (!itemId || !this.accountId) return
     try {
-      await this.quarantine(itemId, kind, null, { checkCooldown: true, failedBranches })
+      await this.quarantine(itemId, kind, null, { ...options, checkCooldown: true })
     } catch (quarantineError) {
       log.error('Failed to record manual recovery entry', quarantineError)
     }

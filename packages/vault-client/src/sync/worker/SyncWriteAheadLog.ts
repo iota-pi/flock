@@ -1,7 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { ItemId } from '@vault/shared'
 import { runStorageOperation } from '../utils/storageManager'
-import { packBatchedMessages } from './utils/binaryFraming'
 import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import type { WorkerInternalEventHub } from './SyncEventHub'
@@ -18,7 +17,9 @@ export interface WalEntry extends WalEntryDescriptor {
   data: Uint8Array
   createdAt: number
   seq?: number
+  /** Set by WAL compaction in older versions: `data` is a batch of messages packed by packBatchedMessages */
   isBatched?: boolean
+  /** Set by WAL compaction in older versions: the IDs of the entries this batched entry superseded */
   replaces?: string[]
 }
 
@@ -187,78 +188,18 @@ export class SyncWriteAheadLog {
     return new WalEntryQuery(entries, this.inFlightEntryIds)
   }
 
-  private readonly compactionGuard = new SingleFlightGuard<number>()
-
-  /**
-   * Compacts WAL by grouping entries by itemId and merging multiple entries
-   * into a single batched entry per itemId.
-   * Returns the number of entries reduced.
-   */
-  async compact(): Promise<number> {
-    return this.compactionGuard.run(() => this.performCompact())
-  }
-
-  private async performCompact(): Promise<number> {
-    const byItem = await this.readAll()
-    let reducedCount = 0
-
-    for (const [itemId, entries] of byItem.entries()) {
-      const itemQuery = this.query(entries)
-
-      // Skip compaction for items with active in-flight entries to prevent
-      // fragmenting entries or splitting outbound delivery
-      if (itemQuery.inFlight().length > 0) {
-        continue
-      }
-
-      const availableEntries = itemQuery.available()
-
-      if (availableEntries.length <= 1) continue
-
-      const combinedData = packBatchedMessages(availableEntries)
-      const latestCreatedAt = Math.max(...availableEntries.map(e => e.createdAt || 0))
-      const latestSeq = Math.max(...availableEntries.map(e => e.seq ?? 0))
-      const newId = nanoid()
-
-      // Track all old IDs being replaced (including transitive replacements)
-      const oldIds = Array.from(
-        new Set(availableEntries.flatMap(e => [e.id, ...(e.replaces || [])]))
-      )
-
-      const compactedEntry: WalEntry = {
-        id: newId,
-        itemId,
-        data: combinedData,
-        createdAt: latestCreatedAt,
-        seq: latestSeq,
-        isBatched: true,
-        replaces: oldIds,
-      }
-
-      // Save new compacted entry first
-      const stored = await this.toStored(compactedEntry)
-      await runStorageOperation(() => this.storage.setItem(newId, stored), { retryOnQuotaError: false })
-
-      // Remove the old individual entries
-      await this.remove(oldIds)
-
-      reducedCount += availableEntries.length - 1
-    }
-
-    return reducedCount
-  }
-
-  private readonly pruningGuard = new SingleFlightGuard<void>()
+  private readonly pruningGuard = new SingleFlightGuard<number>()
 
   /**
    * Prunes oldest entries from WAL to keep size within limits or free space.
+   * Returns the number of entries removed.
    */
-  private async pruneOldest(count: number): Promise<void> {
-    if (count <= 0) return
+  private async pruneOldest(count: number): Promise<number> {
+    if (count <= 0) return 0
     return this.pruningGuard.run(() => this.performPruneOldest(count))
   }
 
-  private async performPruneOldest(count: number): Promise<void> {
+  private async performPruneOldest(count: number): Promise<number> {
     try {
       const allEntries: { id: string; itemId: ItemId; createdAt: number; seq: number }[] = []
       const supersededIds = new Set<string>()
@@ -283,7 +224,8 @@ export class SyncWriteAheadLog {
 
       const query = this.query(allEntries)
 
-      // Clean up superseded entries first, excluding any in-flight entries
+      // Clean up entries superseded by batched entries that older versions' compaction left behind,
+      // excluding any in-flight entries
       const supersededInStorage = query.superseded(supersededIds).map(e => e.id)
       if (supersededInStorage.length > 0) {
         await this.remove(supersededInStorage)
@@ -294,7 +236,7 @@ export class SyncWriteAheadLog {
       const prunableEntries = query.prunableSorted(supersededIds)
       const entriesToPrune = prunableEntries.slice(0, count)
       if (entriesToPrune.length === 0) {
-        return
+        return supersededInStorage.length
       }
 
       const prunedItemIds = Array.from(
@@ -319,8 +261,10 @@ export class SyncWriteAheadLog {
       if (prunedItemIds.length > 0) {
         this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: prunedItemIds })
       }
+      return supersededInStorage.length + toRemove.length
     } catch (err) {
       log.error('Failed to prune oldest entries', err)
+      return 0
     }
   }
 
@@ -334,21 +278,11 @@ export class SyncWriteAheadLog {
     try {
       const currentLength = await this.storage.length()
       if (currentLength >= MAX_ENTRIES) {
+        const overflow = currentLength - MAX_ENTRIES + PRUNE_BATCH_SIZE
         log.warn(
-          `WAL entry count (${currentLength}) reached threshold (${MAX_ENTRIES}). Compacting entries by item...`
+          `WAL entry count (${currentLength}) reached threshold (${MAX_ENTRIES}). Pruning ${overflow} oldest entries.`
         )
-        // Step 1: Compact multiple entries per item
-        await this.compact()
-
-        const newLength = await this.storage.length()
-        // Step 2: If still over limit (e.g. >2,000 unique items), prune oldest
-        if (newLength >= MAX_ENTRIES) {
-          const overflow = newLength - MAX_ENTRIES + PRUNE_BATCH_SIZE
-          log.warn(
-            `WAL still at ${newLength} entries after compaction. Pruning ${overflow} oldest entries.`
-          )
-          await this.pruneOldest(overflow)
-        }
+        await this.pruneOldest(overflow)
       }
     } catch (err) {
       log.error('Error checking WAL size limit', err)
@@ -356,23 +290,12 @@ export class SyncWriteAheadLog {
   }
 
   /**
-   * Emergency compaction and pruning to recover storage space on QuotaExceededError.
-   * Returns the number of entries reduced.
+   * Emergency pruning to recover storage space on QuotaExceededError. Pruned items fall back to
+   * snapshot-only sync. Returns the number of entries removed.
    */
   async handleQuotaExceeded(): Promise<number> {
-    log.warn('Handling QuotaExceededError: compacting entries...')
-    let reduced: number
-    try {
-      reduced = await this.compact()
-      if (reduced === 0) {
-        log.warn(`Compaction freed 0 entries. Emergency pruning oldest ${PRUNE_BATCH_SIZE} entries...`)
-        await this.pruneOldest(PRUNE_BATCH_SIZE)
-      }
-    } catch (err) {
-      log.error('Error during emergency compaction/prune:', err)
-      throw err
-    }
-    return reduced
+    log.warn(`Handling QuotaExceededError: pruning oldest ${PRUNE_BATCH_SIZE} entries...`)
+    return this.pruneOldest(PRUNE_BATCH_SIZE)
   }
 
   /**
@@ -404,7 +327,7 @@ export class SyncWriteAheadLog {
 
   /**
    * Read all pending WAL entries, grouped by item, ordered by creation time.
-   * Reconciles any superseded entries left behind by interrupted compactions.
+   * Purges entries superseded by a batched entry, which older versions' compaction could leave behind.
    */
   async readAll(): Promise<Map<ItemId, WalEntry[]>> {
     const storedEntries: StoredWalEntry[] = []
@@ -448,7 +371,7 @@ export class SyncWriteAheadLog {
       this.initializeSeq(mark)
     }
 
-    // If any superseded entries are still present in storage (e.g. crash during compaction),
+    // If any superseded entries are still present in storage (an older version crashed mid-compaction),
     // purge them from storage immediately, excluding any in-flight entries to avoid deleting mid-push.
     if (supersededIds.size > 0) {
       const query = this.query(rawEntries)

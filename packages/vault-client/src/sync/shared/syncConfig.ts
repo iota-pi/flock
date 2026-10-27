@@ -31,7 +31,7 @@ export const SYNC_TIMEOUTS = {
 export const SYNC_BATCH_SIZES = {
   /** Number of items to query per poll chunk from sync messages */
   pollChunk: 5,
-  /** Maximum entry count in the write-ahead log before compaction and pruning */
+  /** Maximum entry count in the write-ahead log before pruning */
   walMax: 2000,
   /** Number of oldest WAL entries to prune on buffer overflow */
   walPrune: 100,

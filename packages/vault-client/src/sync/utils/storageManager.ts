@@ -60,7 +60,7 @@ export interface RunStorageOperationOptions {
 
 /**
  * Runs a storage operation, intercepts IndexedDB write/quota errors, and reports them centrally.
- * If a QuotaRecoveryHandler is registered, attempts compaction/pruning and retries the operation once.
+ * If a QuotaRecoveryHandler is registered, attempts recovery (WAL pruning) and retries the operation once.
  */
 export async function runStorageOperation<T>(
   operation: () => Promise<T>,
@@ -73,7 +73,7 @@ export async function runStorageOperation<T>(
       if (options?.retryOnQuotaError !== false && quotaRecoveryHandler) {
         try {
           await quotaRecoveryHandler()
-          // Retry once after recovery/compaction attempt
+          // Retry once after the recovery attempt
           return await operation()
         } catch (retryError) {
           if (isQuotaError(retryError)) {

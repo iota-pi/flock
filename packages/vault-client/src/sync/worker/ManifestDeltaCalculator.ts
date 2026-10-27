@@ -1,6 +1,15 @@
 import type { VaultDoc } from '../shared/types'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 
+/** What a manifest sync knows about an item quarantined in manual recovery */
+export interface QuarantinedItem {
+  /**
+   * The server version this device saw fail (e.g. a snapshot it couldn't decrypt). Absent for entries
+   * stored before it was recorded and for quarantines that aren't tied to a server version.
+   */
+  serverVersion?: number
+}
+
 export interface SyncDeltas {
   missingIds: ItemId[]
   upstreamIds: ItemId[]
@@ -17,7 +26,7 @@ export interface CalculateSyncDeltasParams {
   knownItemIds: ItemId[]
   tombstoneItemIds: ItemId[]
   localLastModifiedMap: Map<ItemId, number>
-  quarantinedMap: Map<ItemId, number>
+  quarantinedMap: Map<ItemId, QuarantinedItem>
   localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
 
@@ -26,7 +35,7 @@ export interface CalculateInboundDeltasParams {
   activeSet: Set<ItemId>
   tombstoneSet: Set<ItemId>
   knownSet: Set<ItemId>
-  quarantinedMap: Map<ItemId, number>
+  quarantinedMap: Map<ItemId, QuarantinedItem>
   force: boolean
   localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
 }
@@ -39,7 +48,7 @@ export interface CalculateUpstreamDeltasParams {
   serverManifestIds: Set<ItemId>
   serverDeletedSet: Set<ItemId>
   localVersionsMap: Map<ItemId, { baseVersion: number; isDirty: boolean }>
-  quarantinedMap: Map<ItemId, number>
+  quarantinedMap: Map<ItemId, QuarantinedItem>
   force: boolean
 }
 
@@ -57,16 +66,20 @@ export class ManifestDeltaCalculator {
       const serverVersion = typeof entry.version === 'number' ? entry.version : 1
       const isDeleted = entry.isDeleted
 
-      // If not forced and item is currently quarantined in manual recovery:
-      // skip unless the server has a newer snapshot timestamp than when it was quarantined
-      if (!params.force && params.quarantinedMap.has(id)) {
-        const quarantinedAt = params.quarantinedMap.get(id) ?? 0
-        if (serverTime <= quarantinedAt) {
+      const baseVersion = params.localVersionsMap.get(id)?.baseVersion ?? 0
+
+      // If not forced and item is currently quarantined in manual recovery, skip it unless the server
+      // has a newer version than the one that failed. Versions are server-assigned, so this doesn't
+      // depend on this device's clock. A failed hydration doesn't advance `baseVersion`, so the version
+      // recorded at quarantine time stops a failing snapshot being re-fetched on every sync; entries
+      // without one fall back to `baseVersion`.
+      const quarantined = params.quarantinedMap.get(id)
+      if (!params.force && quarantined) {
+        const failedVersion = Math.max(quarantined.serverVersion ?? 0, baseVersion)
+        if (serverVersion <= failedVersion) {
           continue
         }
       }
-
-      const baseVersion = params.localVersionsMap.get(id)?.baseVersion ?? 0
 
       if (isDeleted) {
         if (params.activeSet.has(id)) {
@@ -90,7 +103,7 @@ export class ManifestDeltaCalculator {
         continue
       }
 
-      // If the item was quarantined and not skipped above (either force is true or server has newer timestamp),
+      // If the item was quarantined and not skipped above (either force is true or server has a newer version),
       // fetch it immediately to retry recovery.
       if (params.quarantinedMap.has(id)) {
         missingIds.push(id)

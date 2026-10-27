@@ -123,7 +123,6 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     await (broker as any).handleOutgoingMessage(newMsg)
 
     // Step 3: Verify that:
-    // - Compaction ran (2000 unique items -> cannot reduce)
     // - Oldest 100 items (offline-item-0 to offline-item-99) were pruned
     // - onWalEntriesPruned was called with the pruned items
     expect(onPrunedSpy).toHaveBeenCalledTimes(1)

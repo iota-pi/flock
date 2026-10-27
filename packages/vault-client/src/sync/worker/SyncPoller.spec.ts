@@ -448,6 +448,40 @@ describe('SyncPoller', () => {
       const outcome = await poller.executePoll()
       expect(outcome).toBe('failure')
     })
+
+    it('processes the other items but returns failure when one item throws', async () => {
+      await pullQueueManager.setAccount('test-account')
+      pullQueueManager.addPendingItem('item-bad' as ItemId)
+      pullQueueManager.addPendingItem('item-good' as ItemId)
+
+      const internals = pullQueueManager as unknown as {
+        processSinglePullResult: (result: syncWorkerClient.PullSyncMessagesResponse, ...rest: unknown[]) => Promise<unknown>
+      }
+      const realProcess = internals.processSinglePullResult.bind(pullQueueManager)
+      const processSpy = vi.spyOn(internals, 'processSinglePullResult').mockImplementation(
+        async (result, ...rest) => {
+          if (result.itemId === 'item-bad') throw new Error('unexpected item failure')
+          return realProcess(result, ...rest)
+        },
+      )
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [
+          { success: true, itemId: 'item-bad', messages: [], hasMore: false, nextCursor: 10 },
+          { success: true, itemId: 'item-good', messages: [], hasMore: false, nextCursor: 20 },
+        ],
+      })
+
+      expect(await poller.executePoll()).toBe('failure')
+      expect(processSpy).toHaveBeenCalledTimes(2)
+      expect(pullQueueManager.getCursors()).toContainEqual(expect.objectContaining({ itemId: 'item-bad' }))
+      expect(pullQueueManager.getCursors()).not.toContainEqual(expect.objectContaining({ itemId: 'item-good' }))
+      expect(pullQueueManager.exportCursors()).toContainEqual(['item-good', 20])
+      errorSpy.mockRestore()
+    })
   })
 
   describe('shutdown and in-flight cancellation', () => {

@@ -188,110 +188,52 @@ describe('SyncWriteAheadLog', () => {
     }
   })
 
-  it('compacts multiple entries for the same item into 1 batched entry', async () => {
+  it('never marks new entries as batched or superseding', async () => {
+    await wal.append('item-A' as ItemId, new Uint8Array([1]))
+    await wal.append('item-A' as ItemId, new Uint8Array([2]))
+
+    const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
+    for (const stored of store.store.values()) {
+      expect(stored.isBatched).toBeUndefined()
+      expect(stored.replaces).toBeUndefined()
+    }
+  })
+
+  it('keeps the framing of a batched entry stored by an older version', async () => {
     const data1 = new Uint8Array([10, 20])
     const data2 = new Uint8Array([30, 40, 50])
-    const data3 = new Uint8Array([60])
-
-    await wal.append('item-A' as ItemId, data1)
-    await wal.append('item-A' as ItemId, data2)
-    await wal.append('item-B' as ItemId, data3)
-
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
-    expect(await store.length()).toBe(3)
+    store.store.set('batched', {
+      id: 'batched',
+      itemId: 'item-A' as ItemId,
+      data: packBatchedMessages([{ data: data1 }, { data: data2 }]),
+      createdAt: 1,
+      seq: 1,
+      isBatched: true,
+    })
+    const plainId = await wal.append('item-A' as ItemId, new Uint8Array([60]))
 
-    const reduced = await wal.compact()
-    expect(reduced).toBe(1) // 2 entries for item-A became 1 (reduced by 1), item-B stayed 1
-    expect(await store.length()).toBe(2)
+    const entries = (await wal.readAll()).get('item-A' as ItemId)!
 
-    const entries = await wal.readAll()
-    const itemAEntries = entries.get('item-A' as ItemId)!
-    expect(itemAEntries).toHaveLength(1)
-    expect(itemAEntries[0].isBatched).toBe(true)
-
-    // Using packBatchedMessages on itemAEntries should preserve the packed stream
-    const packed = packBatchedMessages(itemAEntries)
-    expect(packed.length).toBe((4 + data1.length) + (4 + data2.length))
+    expect(entries.map(e => e.id)).toEqual(['batched', plainId])
+    expect(entries[0].isBatched).toBe(true)
+    expect(entries[1].isBatched).toBe(false)
+    expect(packBatchedMessages(entries).length).toBe((4 + data1.length) + (4 + data2.length) + (4 + 1))
   })
 
-  it('prefers compaction over pruning when multiple entries exist per item', async () => {
+  it('prunes the oldest entries on quota errors and returns how many it removed', async () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
-    // Create 2000 entries across only 2 items (1000 each)
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
-      const itemId = i % 2 === 0 ? 'item-even' : 'item-odd'
-      store.store.set(`id-${i}`, {
-        id: `id-${i}`,
-        itemId: itemId as ItemId,
-        data: new Uint8Array([1, 2]),
-        createdAt: i,
-      })
+    for (let i = 0; i < 3; i += 1) {
+      store.store.set(`id-${i}`, { id: `id-${i}`, itemId: `item-${i}` as ItemId, data: new Uint8Array([i]), createdAt: i, seq: i })
     }
 
-    expect(await store.length()).toBe(SyncWriteAheadLog.MAX_ENTRIES)
+    const removed = await wal.handleQuotaExceeded()
 
-    // Append 1 new entry -> triggers size limit enforcement
-    await wal.append('item-new' as ItemId, new Uint8Array([9]))
-
-    // After compaction, 2000 entries across 2 items collapse to 2 entries + 1 new entry = 3 total!
-    const currentLength = await store.length()
-    expect(currentLength).toBe(3)
-
-    const entries = await wal.readAll()
-    expect(entries.size).toBe(3)
-    expect(entries.has('item-even' as ItemId)).toBe(true)
-    expect(entries.has('item-odd' as ItemId)).toBe(true)
-    expect(entries.has('item-new' as ItemId)).toBe(true)
-  })
-
-  it('handles crash between writing compacted entry and removing old entries without duplicating operations', async () => {
-    const data1 = new Uint8Array([1, 2])
-    const data2 = new Uint8Array([3, 4])
-    const id1 = await wal.append('item-crash-atomicity' as ItemId, data1)
-    const id2 = await wal.append('item-crash-atomicity' as ItemId, data2)
-
-    const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
-    expect(await store.length()).toBe(2)
-
-    // Simulate crash after setItem but before remove(oldIds) completes:
-    // Mock remove to throw, leaving both compacted and original entries in storage
-    vi.spyOn(wal, 'remove').mockImplementationOnce(async () => {
-      throw new Error('Simulated crash / process killed during remove()')
-    })
-
-    await expect(wal.compact()).rejects.toThrow('Simulated crash')
-
-    // At this point in storage, both the old entries AND the new compacted entry exist!
-    expect(await store.length()).toBe(3)
-    expect(store.store.has(id1)).toBe(true)
-    expect(store.store.has(id2)).toBe(true)
-
-    // A new instance is created on recovery
-    const recoveredWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
-    const recoveredMap = await recoveredWal.readAll()
-
-    // It should have only 1 entry for the item (the compacted one), not 3!
-    const itemEntries = recoveredMap.get('item-crash-atomicity' as ItemId)!
-    expect(itemEntries).toBeDefined()
-    expect(itemEntries).toHaveLength(1)
-    expect(itemEntries[0].isBatched).toBe(true)
-    expect(itemEntries[0].id).not.toBe(id1)
-    expect(itemEntries[0].id).not.toBe(id2)
-
-    // The superseded old entries should have been purged from storage
-    expect(store.store.has(id1)).toBe(false)
-    expect(store.store.has(id2)).toBe(false)
-    expect(await store.length()).toBe(1)
-
-    // Subsequent readAll calls still return the single compacted entry
-    const secondRead = await recoveredWal.readAll()
-    expect(secondRead.get('item-crash-atomicity' as ItemId)!).toHaveLength(1)
-
-    // When the compacted entry is removed (e.g. after sync push), storage becomes completely empty
-    await recoveredWal.remove([itemEntries[0].id])
+    expect(removed).toBe(3)
     expect(await store.length()).toBe(0)
   })
 
-  it('handles crash recovery across multiple items where some were interrupted', async () => {
+  it('handles entries left by compaction in older versions across multiple items', async () => {
     const idA1 = await wal.append('item-A' as ItemId, new Uint8Array([1]))
     const idA2 = await wal.append('item-A' as ItemId, new Uint8Array([2]))
     const idB1 = await wal.append('item-B' as ItemId, new Uint8Array([3]))
@@ -299,7 +241,8 @@ describe('SyncWriteAheadLog', () => {
 
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
-    // In storage, inject a state where item-A was fully compacted, but item-B crashed before remove
+    // Older versions compacted entries into batched ones. Inject a state where item-A was fully
+    // compacted, but item-B crashed before remove
     store.store.delete(idA1)
     store.store.delete(idA2)
     store.store.set('compacted-A', {
@@ -333,7 +276,7 @@ describe('SyncWriteAheadLog', () => {
     expect(await store.length()).toBe(2) // only compacted-A and compacted-B
   })
 
-  it('recovers from transitive compaction crashes', async () => {
+  it('recovers from transitive compaction crashes left by older versions', async () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
     // Suppose e1 and e2 were compacted into c1, which crashed before cleanup
@@ -359,25 +302,10 @@ describe('SyncWriteAheadLog', () => {
     expect(await store.length()).toBe(1)
   })
 
-  it('serializes concurrent compact() calls to avoid duplicate work', async () => {
-    await wal.append('item-concurrent' as ItemId, new Uint8Array([1]))
-    await wal.append('item-concurrent' as ItemId, new Uint8Array([2]))
-
-    const p1 = wal.compact()
-    const p2 = wal.compact()
-
-    const [r1, r2] = await Promise.all([p1, p2])
-    expect(r1).toBe(1)
-    expect(r2).toBe(1)
-
-    const entries = await wal.readAll()
-    expect(entries.get('item-concurrent' as ItemId)!).toHaveLength(1)
-  })
-
   it('prunes oldest entries while purging superseded crash remnants', async () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
-    // Injected superseded entry e1 (older) replaced by c1
+    // Injected superseded entry e1 (older) replaced by c1, as an older version's compaction left it
     store.store.set('e1', { id: 'e1', itemId: 'item-prune' as ItemId, data: new Uint8Array([1]), createdAt: 1 })
     store.store.set('c1', { id: 'c1', itemId: 'item-prune' as ItemId, data: new Uint8Array([1, 2]), createdAt: 10, isBatched: true, replaces: ['e1'] })
     store.store.set('valid-old', { id: 'valid-old', itemId: 'item-other' as ItemId, data: new Uint8Array([5]), createdAt: 2 })
@@ -422,25 +350,6 @@ describe('SyncWriteAheadLog', () => {
     vi.restoreAllMocks()
   })
 
-  it('preserves seq ordering across compaction', async () => {
-    const fixedNow = 1700000000000
-    vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
-
-    await wal.append('item-compact-seq' as ItemId, new Uint8Array([1]))
-    await wal.append('item-compact-seq' as ItemId, new Uint8Array([2]))
-
-    const reduced = await wal.compact()
-    expect(reduced).toBe(1)
-
-    const entriesMap = await wal.readAll()
-    const entries = entriesMap.get('item-compact-seq' as ItemId)!
-    expect(entries).toHaveLength(1)
-    expect(entries[0].isBatched).toBe(true)
-    expect(entries[0].seq).toBeGreaterThan(0)
-
-    vi.restoreAllMocks()
-  })
-
   it('handles legacy entries lacking seq gracefully in readAll', async () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
     store.store.set('legacy-1', { id: 'legacy-1', itemId: 'item-legacy' as ItemId, data: new Uint8Array([1]), createdAt: 100 })
@@ -456,7 +365,7 @@ describe('SyncWriteAheadLog', () => {
   it('serializes concurrent enforceSizeLimit() calls during concurrent appends to prevent over-deleting entries', async () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
-    // Populate store directly with MAX_ENTRIES unique items so compact() cannot reduce them
+    // Populate store directly with MAX_ENTRIES unique items
     for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
       store.store.set(`id-unique-${i}`, {
         id: `id-unique-${i}`,
@@ -524,71 +433,6 @@ describe('SyncWriteAheadLog', () => {
     // Should only have executed performPruneOldest once for the batch
     expect(pruneSpy).toHaveBeenCalledTimes(1)
     expect(await store.length()).toBe(40)
-  })
-
-  it('skips in-flight entries during compaction so they are not merged while actively pushing', async () => {
-    const id1 = await wal.append('item-push-race' as ItemId, new Uint8Array([1, 2]))
-    const id2 = await wal.append('item-push-race' as ItemId, new Uint8Array([3, 4]))
-
-    // Simulate poller marking id1 and id2 in flight for push
-    wal.markInFlight([id1, id2])
-    expect(wal.isInFlight(id1)).toBe(true)
-    expect(wal.isInFlight(id2)).toBe(true)
-
-    // Compaction is triggered (e.g. by quota or size limit)
-    const reduced = await wal.compact()
-    expect(reduced).toBe(0)
-
-    // Verify neither entry was merged or deleted
-    const entries = await wal.readAll()
-    const itemEntries = entries.get('item-push-race' as ItemId)!
-    expect(itemEntries).toHaveLength(2)
-    expect(itemEntries[0].id).toBe(id1)
-    expect(itemEntries[1].id).toBe(id2)
-
-    // When push succeeds, remove removes both cleanly
-    await wal.remove([id1, id2])
-    expect(wal.isInFlight(id1)).toBe(false)
-    expect(wal.isInFlight(id2)).toBe(false)
-
-    const remaining = await wal.readAll()
-    expect(remaining.has('item-push-race' as ItemId)).toBe(false)
-  })
-
-  it('skips compaction for items with in-flight entries to prevent entry fragmentation', async () => {
-    const id1 = await wal.append('item-partial-push' as ItemId, new Uint8Array([1]))
-    const id2 = await wal.append('item-partial-push' as ItemId, new Uint8Array([2]))
-
-    // id1 and id2 are in flight
-    wal.markInFlight([id1, id2])
-
-    // id3 and id4 arrive while id1 and id2 are in flight
-    const id3 = await wal.append('item-partial-push' as ItemId, new Uint8Array([3]))
-    const id4 = await wal.append('item-partial-push' as ItemId, new Uint8Array([4]))
-
-    // Compaction runs while item has active in-flight entries
-    const reduced = await wal.compact()
-    // Entire item should be skipped from compaction to avoid fragmenting its entries
-    expect(reduced).toBe(0)
-
-    const entries = await wal.readAll()
-    const itemEntries = entries.get('item-partial-push' as ItemId)!
-    // All 4 original individual entries remain untouched without fragmentation
-    expect(itemEntries).toHaveLength(4)
-    expect(itemEntries.map(e => e.id)).toEqual([id1, id2, id3, id4])
-
-    // Remove the acknowledged in-flight entries
-    await wal.remove([id1, id2])
-
-    // Now that item has no in-flight entries, subsequent compaction compacts remaining id3+id4
-    const reducedAfterAck = await wal.compact()
-    expect(reducedAfterAck).toBe(1)
-
-    // Only the compacted id3+id4 entry remains
-    const remaining = await wal.readAll()
-    const remainingEntries = remaining.get('item-partial-push' as ItemId)!
-    expect(remainingEntries).toHaveLength(1)
-    expect(remainingEntries[0].isBatched).toBe(true)
   })
 
   it('does not prune in-flight entries during pruneOldest', async () => {
@@ -700,7 +544,7 @@ describe('SyncWriteAheadLog', () => {
   it('triggers onEntriesPruned when WAL hits MAX_ENTRIES and prunes oldest entries', async () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
-    // Populate store with MAX_ENTRIES unique items so compact cannot reduce them
+    // Populate store with MAX_ENTRIES unique items
     for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
       store.store.set(`id-unique-${i}`, {
         id: `id-unique-${i}`,
@@ -797,7 +641,7 @@ describe('SyncWriteAheadLog', () => {
     it('does not purge in-flight superseded entries during readAll to avoid corrupting in-flight push tracking', async () => {
       const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
-      // Setup storage: e1 was compacted into c1, but crashed before remove(e1)
+      // Setup storage: an older version compacted e1 into c1, but crashed before remove(e1)
       store.store.set('e1', {
         id: 'e1',
         itemId: 'item-1' as ItemId,
