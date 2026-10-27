@@ -45,7 +45,7 @@ describe('protectedProcedure session renewal behavior', () => {
         account: 'acc-1',
         authToken: 'stored-hash',
         sessions: [
-          { token: authToken, expiry },
+          { token: hashSessionToken(authToken), expiry },
         ],
       } as StoredAccount
     })

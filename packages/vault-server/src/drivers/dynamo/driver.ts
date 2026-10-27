@@ -351,7 +351,7 @@ export default class DynamoDriver implements VaultDriver {
 
   /** Writes an item and bumps its version. With `unlessDeleted`, the write fails its condition on a tombstone. */
   private updateItemCommand(item: VaultItem, { unlessDeleted = false } = {}): UpdateCommand {
-    const modifiedAt = typeof item.metadata?.modified === 'number'
+    const modifiedAt = typeof item.metadata.modified === 'number'
       ? item.metadata.modified
       : Date.now()
     // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists

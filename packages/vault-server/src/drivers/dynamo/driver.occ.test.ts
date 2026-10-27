@@ -150,7 +150,7 @@ describe('DynamoDriver conditional account writes', () => {
 
       await driver.updateAccountData({
         account,
-        sessions: [{ token: sessionA, expiry: initialExpiry }],
+        sessions: [{ token: hashSessionToken(sessionA), expiry: initialExpiry }],
       })
 
       let intercepted = false
@@ -166,8 +166,8 @@ describe('DynamoDriver conditional account writes', () => {
             UpdateExpression: 'SET sessions = :sessions',
             ExpressionAttributeValues: {
               ':sessions': [
-                { token: sessionA, expiry: initialExpiry },
-                { token: sessionB, expiry: initialExpiry + 60_000 },
+                { token: hashSessionToken(sessionA), expiry: initialExpiry },
+                { token: hashSessionToken(sessionB), expiry: initialExpiry + 60_000 },
               ],
             },
           }))
@@ -210,7 +210,7 @@ describe('DynamoDriver conditional account writes', () => {
 
       await driver.updateAccountData({
         account,
-        sessions: [{ token: sessionA, expiry: initialExpiry }],
+        sessions: [{ token: hashSessionToken(sessionA), expiry: initialExpiry }],
       })
 
       let intercepted = false
@@ -226,7 +226,7 @@ describe('DynamoDriver conditional account writes', () => {
             UpdateExpression: 'SET sessions = :sessions',
             ExpressionAttributeValues: {
               ':sessions': [
-                { token: sessionB, expiry: initialExpiry + 60_000 },
+                { token: hashSessionToken(sessionB), expiry: initialExpiry + 60_000 },
               ],
             },
           }))
@@ -264,7 +264,7 @@ describe('DynamoDriver conditional account writes', () => {
 
       await driver.updateAccountData({
         account,
-        sessions: [{ token: sessionA, expiry: initialExpiry }],
+        sessions: [{ token: hashSessionToken(sessionA), expiry: initialExpiry }],
       })
 
       let intercepted = false
@@ -284,7 +284,7 @@ describe('DynamoDriver conditional account writes', () => {
             UpdateExpression: 'SET sessions = :sessions',
             ExpressionAttributeValues: {
               ':sessions': [
-                { token: sessionA, expiry: Date.now() + SESSION_EXPIRY_MS },
+                { token: hashSessionToken(sessionA), expiry: Date.now() + SESSION_EXPIRY_MS },
               ],
             },
           }))
@@ -404,19 +404,6 @@ describe('DynamoDriver conditional account writes', () => {
       const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
       expect(raw.Item?.sessions).toEqual([{ token: hashSessionToken('session-A'), expiry: expect.any(Number) }])
       await expect(getWithSession(account, 'session-A')).resolves.toMatchObject({ account })
-    })
-
-    it('accepts a session stored before hashing and rewrites it hashed when renewing it', async () => {
-      const account = uniqueAccountId()
-      await driver.createAccount({ account, authToken: 'token', salt: 'salt', iterations: 1000 })
-      await driver.updateAccountData({ account, sessions: [{ token: 'legacy-session', expiry: Date.now() + 60_000 }] })
-
-      await expect(getWithSession(account, 'legacy-session')).resolves.toMatchObject({ account })
-      await driver.extendSession({ account, session: 'legacy-session' })
-
-      const raw = await driver.client.send(new GetCommand({ TableName: driver.tables.accounts, Key: { account } }))
-      expect(raw.Item?.sessions).toEqual([{ token: hashSessionToken('legacy-session'), expiry: expect.any(Number) }])
-      await expect(getWithSession(account, 'legacy-session')).resolves.toMatchObject({ account })
     })
   })
 

@@ -2,7 +2,6 @@ import {
   addSessionRecord,
   findSession,
   hashSessionToken,
-  isSessionFor,
   MAX_ACTIVE_SESSIONS,
   normalizeSessionRecords,
   renewSessionRecord,
@@ -52,12 +51,16 @@ describe('addSessionRecord', () => {
 })
 
 describe('findSession', () => {
-  it('finds a hashed or legacy raw record for the token', () => {
-    const hashed = { token: hashSessionToken('token-a'), expiry: now + 1 }
-    const legacy = { token: 'token-b', expiry: now + 2 }
+  it('finds the hashed record for the token', () => {
+    const recordA = { token: hashSessionToken('token-a'), expiry: now + 1 }
+    const recordB = { token: hashSessionToken('token-b'), expiry: now + 2 }
 
-    expect(findSession([hashed, legacy], 'token-a')).toBe(hashed)
-    expect(findSession([hashed, legacy], 'token-b')).toBe(legacy)
+    expect(findSession([recordA, recordB], 'token-a')).toBe(recordA)
+    expect(findSession([recordA, recordB], 'token-b')).toBe(recordB)
+  })
+
+  it('does not accept a record holding the raw token', () => {
+    expect(findSession([{ token: 'token-a', expiry: now + 1 }], 'token-a')).toBeUndefined()
   })
 
   it('returns undefined without a matching record', () => {
@@ -78,12 +81,6 @@ describe('renewSessionRecord', () => {
     expect(sessions[1].expiry).toBe(now + 1000)
   })
 
-  it('rewrites a record from before tokens were hashed', () => {
-    const renewed = renewSessionRecord([{ token: 'legacy', expiry: now + SESSION_EXPIRY_MS }], 'legacy', now, false)
-    expect(renewed).toEqual([{ token: hashSessionToken('legacy'), expiry: now + SESSION_EXPIRY_MS }])
-    expect(isSessionFor(renewed![0], 'legacy')).toBe(true)
-  })
-
   it('leaves the sessions alone without a matching one, or on a retry after a concurrent renewal', () => {
     expect(renewSessionRecord([other], 'token', now, false)).toBeUndefined()
     const justRenewed = [{ token: hashSessionToken('token'), expiry: now + SESSION_EXPIRY_MS }]
@@ -98,7 +95,7 @@ describe('shouldRenewSession', () => {
     const accountData = {
       sessions: [
         {
-          token: authToken,
+          token: hashSessionToken(authToken),
           expiry: now + SESSION_EXPIRY_MS, // exactly 72 hours remaining
         },
       ],
@@ -111,7 +108,7 @@ describe('shouldRenewSession', () => {
     const accountData = {
       sessions: [
         {
-          token: authToken,
+          token: hashSessionToken(authToken),
           expiry: now + SESSION_RENEWAL_THRESHOLD_MS, // exactly 48 hours remaining
         },
       ],
@@ -124,7 +121,7 @@ describe('shouldRenewSession', () => {
     const accountData = {
       sessions: [
         {
-          token: authToken,
+          token: hashSessionToken(authToken),
           expiry: now + SESSION_RENEWAL_THRESHOLD_MS - 1000, // just under 48 hours remaining
         },
       ],
@@ -137,7 +134,7 @@ describe('shouldRenewSession', () => {
     const accountData = {
       sessions: [
         {
-          token: authToken,
+          token: hashSessionToken(authToken),
           expiry: now + 3600_000,
         },
       ],
@@ -179,7 +176,7 @@ describe('shouldRenewSession', () => {
     const accountData = {
       sessions: [
         {
-          token: authToken,
+          token: hashSessionToken(authToken),
           expiry: NaN,
         },
       ],

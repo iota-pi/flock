@@ -6,7 +6,7 @@ import type { VaultAccountWithAuth } from '../vaultDriver'
 import { generateItemId, type ItemId } from '@vault/shared'
 import { generateAccountId } from '../../util'
 import { MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
-import { isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
+import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
 
 const generateTestAccountId = () => generateAccountId(10)
 
@@ -175,7 +175,7 @@ describe('DynamoDriver', function () {
     const expiry = Date.now() + 60_000
     await driver.updateAccountData({
       account,
-      sessions: [{ token: newSession, expiry }],
+      sessions: [{ token: hashSessionToken(newSession), expiry }],
     })
     await expect(
       getWithSession(account, session)
@@ -210,8 +210,8 @@ describe('DynamoDriver', function () {
     await driver.updateAccountData({
       account,
       sessions: [
-        { token: sessionA, expiry },
-        { token: sessionB, expiry },
+        { token: hashSessionToken(sessionA), expiry },
+        { token: hashSessionToken(sessionB), expiry },
       ],
     })
 
@@ -243,7 +243,7 @@ describe('DynamoDriver', function () {
     const expiry = Date.now() + 1000 // 1 second expiry
     await driver.updateAccountData({
       account,
-      sessions: [{ token: sessionA, expiry }]
+      sessions: [{ token: hashSessionToken(sessionA), expiry }]
     })
 
     // Session should be valid after creation
@@ -334,16 +334,16 @@ describe('DynamoDriver', function () {
 
     const now = Date.now()
     const sessions = Array.from({ length: 9 }, (_, i) => ({
-      token: `session-${i + 1}`,
+      token: hashSessionToken(`session-${i + 1}`),
       expiry: now + (i + 1) * 1000,
     }))
 
     await driver.updateAccountData({
       account,
       sessions: [
-        { token: 'expired', expiry: now - 1000 },
+        { token: hashSessionToken('expired'), expiry: now - 1000 },
         ...sessions,
-        { token: 'session-3', expiry: now + 5000 },
+        { token: hashSessionToken('session-3'), expiry: now + 5000 },
       ],
     })
 
@@ -351,8 +351,8 @@ describe('DynamoDriver', function () {
     const tokens = result.sessions?.map(entry => entry.token) ?? []
 
     expect(tokens.length).toBe(8)
-    expect(tokens).toContain('session-9')
-    expect(tokens).not.toContain('session-1')
+    expect(tokens).toContain(hashSessionToken('session-9'))
+    expect(tokens).not.toContain(hashSessionToken('session-1'))
   })
 
   it('drops sessions that expire later than the current session lifetime allows', async () => {
@@ -368,14 +368,14 @@ describe('DynamoDriver', function () {
     await driver.updateAccountData({
       account,
       sessions: [
-        { token: 'old-lifetime', expiry: now + 30 * 24 * 60 * 60 * 1000 },
-        { token: 'current-lifetime', expiry: now + SESSION_EXPIRY_MS },
+        { token: hashSessionToken('old-lifetime'), expiry: now + 30 * 24 * 60 * 60 * 1000 },
+        { token: hashSessionToken('current-lifetime'), expiry: now + SESSION_EXPIRY_MS },
       ],
     })
 
     await expect(getWithSession(account, 'old-lifetime')).rejects.toThrow(AuthenticationError)
     const result = await getWithSession(account, 'current-lifetime')
-    expect(result.sessions?.map(entry => entry.token)).toEqual(['current-lifetime'])
+    expect(result.sessions?.map(entry => entry.token)).toEqual([hashSessionToken('current-lifetime')])
   })
 
   it('can save and retrieve keyring', async () => {
@@ -390,7 +390,7 @@ describe('DynamoDriver', function () {
     const testSession = 'session-keyring-test'
     await driver.updateAccountData({
       account,
-      sessions: [{ token: testSession, expiry: Date.now() + 60_000 }]
+      sessions: [{ token: hashSessionToken(testSession), expiry: Date.now() + 60_000 }]
     })
 
     const keyringValue = 'encrypted_keyring_payload_sample'
@@ -442,8 +442,8 @@ describe('DynamoDriver', function () {
     await driver.updateAccountData({
       account,
       sessions: [
-        { token: sessionA, expiry },
-        { token: sessionB, expiry },
+        { token: hashSessionToken(sessionA), expiry },
+        { token: hashSessionToken(sessionB), expiry },
       ],
     })
 
@@ -454,7 +454,7 @@ describe('DynamoDriver', function () {
     // Simulate changePassword by updating sessions array to only contain sessionA
     await driver.updateAccountData({
       account,
-      sessions: [{ token: sessionA, expiry }],
+      sessions: [{ token: hashSessionToken(sessionA), expiry }],
     })
 
     // Now sessionA is valid, sessionB is revoked

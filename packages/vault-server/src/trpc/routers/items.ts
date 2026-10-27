@@ -1,6 +1,6 @@
 import { router, protectedProcedure } from '../trpc'
 import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema, PutSnapshotBatchSchema } from '@vault/shared'
-import { toFetchedItem } from '../../services/manifestService'
+import { toFetchedItem } from '../../services/fetchedItem'
 import { persistSnapshots } from '../../services/snapshotService'
 
 export const itemsRouter = router({

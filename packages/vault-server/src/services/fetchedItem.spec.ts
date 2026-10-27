@@ -1,7 +1,7 @@
-import { toFetchedItem } from './manifestService'
+import { toFetchedItem } from './fetchedItem'
 import type { VaultItem } from '../drivers/vaultDriver'
 
-describe('manifestService.toFetchedItem', () => {
+describe('toFetchedItem', () => {
   it('sends a snapshot row without its legacy cipher', () => {
     const record: VaultItem = {
       account: 'acct',
