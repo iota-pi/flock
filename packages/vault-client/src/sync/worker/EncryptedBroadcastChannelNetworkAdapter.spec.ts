@@ -333,7 +333,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     expect(Array.from(mockMessageListener.mock.calls[1][0].data)).toEqual([2, 2, 2])
   })
 
-  it('continues processing receive queue and notifies onKeyVersionMissing without resetting connection when decryption throws permanent errors', async () => {
+  it('continues processing receive queue without resetting connection or reloading the keyring when decryption throws permanent errors', async () => {
     const onKeyVersionMissing = vi.fn()
     const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, onKeyVersionMissing, cryptoRetryDelayMs: 0 })
     const customInnerMock = (customAdapter as any).inner
@@ -384,7 +384,8 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
       expect.any(Error)
     )
-    expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
+    // Key version 2 is loaded, so the failure is not a missing key
+    expect(onKeyVersionMissing).not.toHaveBeenCalled()
     expect(customInnerMock.disconnect).not.toHaveBeenCalled()
     expect(mockMessageListener).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: 'goodDoc' })
@@ -934,6 +935,144 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       // msgK5 must be dispatched BEFORE msgK6 (causal FIFO preserved)
       expect(messageListener.mock.calls[0][0].documentId).toBe('docK5')
       expect(messageListener.mock.calls[1][0].documentId).toBe('docK6')
+    })
+
+    it('does not request a keyring reload on decrypt retries when the key version is loaded', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const onKeyVersionMissing = vi.fn()
+      const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+        keys,
+        cryptoRetryDelayMs: 0,
+        maxCryptoRetries: 3,
+        onKeyVersionMissing,
+      })
+      const innerMock = (customAdapter as any).inner
+      let innerCallback: any
+      for (const call of innerMock.on.mock.calls) {
+        if (call[0] === 'message') innerCallback = call[1]
+      }
+
+      const { decryptBytes } = vault
+      vi.mocked(decryptBytes).mockRejectedValue(new Error('Corrupt ciphertext'))
+
+      innerCallback({
+        type: 'sync',
+        senderId: 'peer2' as PeerId,
+        targetId: 'peer1' as PeerId,
+        documentId: 'docCorrupt' as DocumentId,
+        data: new TextEncoder().encode(JSON.stringify({ iv: 'iv', cipher: 'mock-cipher-1', kver: '7', version: '1.0' })),
+      } satisfies Message)
+
+      await vi.waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
+          expect.any(Error),
+        )
+      })
+      expect(decryptBytes).toHaveBeenCalledTimes(3)
+      expect(onKeyVersionMissing).not.toHaveBeenCalled()
+
+      consoleWarnSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    describe('with fake timers', () => {
+      beforeEach(() => {
+        vi.useFakeTimers()
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('backs off keyring reload requests while waiting indefinitely, and drains as soon as the key arrives', async () => {
+        const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const onKeyVersionMissing = vi.fn()
+        const timeout = 1000
+        const customAdapter = new EncryptedBroadcastChannelNetworkAdapter({
+          keys,
+          cryptoRetryDelayMs: 0,
+          onKeyVersionMissing,
+          keyWaitTimeoutMs: timeout,
+        })
+        const innerMock = (customAdapter as any).inner
+        const messageListener = vi.fn()
+        customAdapter.on('message', messageListener)
+        let innerCallback: any
+        for (const call of innerMock.on.mock.calls) {
+          if (call[0] === 'message') innerCallback = call[1]
+        }
+
+        const { hasVaultKey, waitForKeyVersion } = vault
+        let keyAvailable = false
+        vi.mocked(hasVaultKey).mockImplementation((kver?: string) => kver !== '8' || keyAvailable)
+
+        // Behaves like the keyring: resolves true when the key arrives, false on timeout
+        const arrivalResolvers = new Set<() => void>()
+        vi.mocked(waitForKeyVersion).mockImplementation((kver: string, timeoutMs?: number) => {
+          if (kver !== '8' || keyAvailable) return Promise.resolve(true)
+          return new Promise<boolean>(resolve => {
+            const timer = setTimeout(() => {
+              arrivalResolvers.delete(onArrival)
+              resolve(false)
+            }, timeoutMs)
+            function onArrival() {
+              clearTimeout(timer)
+              resolve(true)
+            }
+            arrivalResolvers.add(onArrival)
+          })
+        })
+
+        const makeMessage = (docId: string, bytes: string): Message => ({
+          type: 'sync',
+          senderId: 'peer2' as PeerId,
+          targetId: 'peer1' as PeerId,
+          documentId: docId as DocumentId,
+          data: new TextEncoder().encode(JSON.stringify({ iv: 'iv', cipher: `mock-cipher-${bytes}`, kver: '8', version: '1.0' })),
+        })
+
+        innerCallback(makeMessage('docA', '1,2'))
+        await vi.advanceTimersByTimeAsync(0)
+        // The inline wait asks once up front
+        expect(onKeyVersionMissing).toHaveBeenCalledTimes(1)
+
+        // After the inline wait times out, the message is buffered and the background waiter takes over
+        await vi.advanceTimersByTimeAsync(timeout)
+        innerCallback(makeMessage('docB', '3,4'))
+
+        // Requests back off: 1s, 2s, 4s, 8s, 16s, 32s, then every 60s after the inline wait
+        const expectedRequestTimes = [1, 3, 7, 15, 31, 63, 123, 183, 243].map(m => m * timeout)
+        let elapsed = 0
+        for (const [index, requestTime] of expectedRequestTimes.entries()) {
+          await vi.advanceTimersByTimeAsync(requestTime - 1 - elapsed)
+          expect(onKeyVersionMissing).toHaveBeenCalledTimes(index + 1)
+          await vi.advanceTimersByTimeAsync(1)
+          expect(onKeyVersionMissing).toHaveBeenCalledTimes(index + 2)
+          elapsed = requestTime
+        }
+        expect(onKeyVersionMissing).toHaveBeenLastCalledWith('8')
+        expect(messageListener).not.toHaveBeenCalled()
+
+        // The key arrives mid-wait: both buffered messages drain without waiting for a timeout
+        await vi.advanceTimersByTimeAsync(timeout / 2)
+        keyAvailable = true
+        for (const onArrival of arrivalResolvers) onArrival()
+        await vi.advanceTimersByTimeAsync(0)
+
+        expect(messageListener).toHaveBeenCalledTimes(2)
+        expect(messageListener.mock.calls[0][0]).toEqual({ ...makeMessage('docA', '1,2'), data: new Uint8Array([1, 2]) })
+        expect(messageListener.mock.calls[1][0]).toEqual({ ...makeMessage('docB', '3,4'), data: new Uint8Array([3, 4]) })
+
+        // No further reload requests once the key has arrived
+        const requestCount = onKeyVersionMissing.mock.calls.length
+        await vi.advanceTimersByTimeAsync(600 * timeout)
+        expect(onKeyVersionMissing).toHaveBeenCalledTimes(requestCount)
+        expect((customAdapter as any).activeKeyWaiters.size).toBe(0)
+
+        consoleWarnSpy.mockRestore()
+      })
     })
   })
 

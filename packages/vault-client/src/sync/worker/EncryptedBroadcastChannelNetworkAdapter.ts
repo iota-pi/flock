@@ -29,6 +29,14 @@ const log = createLogger('EncryptedBroadcastChannelNetworkAdapter')
 const DEFAULT_MAX_CRYPTO_RETRIES = 3
 const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
 
+/**
+ * While messages wait for a missing key version, keyring reload requests
+ * (`onKeyVersionMissing`) back off by these multiples of `keyWaitTimeoutMs`,
+ * repeating the last one. With the default 5s wait this is 5s, 10s, 20s, 40s,
+ * 80s, 160s, then every 5 minutes. The wait for the key itself never stops.
+ */
+const KEY_REQUEST_BACKOFF_MULTIPLIERS = [1, 2, 4, 8, 16, 32, 60] as const
+
 export interface EncryptedBroadcastChannelOptions
   extends Partial<BroadcastChannelNetworkAdapterOptions> {
   /** The keys cross-tab messages are encrypted with */
@@ -204,6 +212,13 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   }
 
   private async waitForKeyAndDrain(kver: string): Promise<void> {
+    const timeout = this.options.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait
+    // Multiples of `timeout`, so each wait below is a whole `timeout` and the
+    // loop rechecks the pending buffer and connection state that often.
+    const requestBackoff = new RetryStrategy({
+      delays: KEY_REQUEST_BACKOFF_MULTIPLIERS.map(multiplier => multiplier * timeout),
+    })
+    let untilNextRequestMs = requestBackoff.nextDelay()
     try {
       while (this.hasPendingMessages(kver) && !this.isDisconnected) {
         if (this.keys.hasKey(kver)) {
@@ -211,12 +226,18 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
           break
         }
 
-        const timeout = this.options.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait
-        const keyAcquired = await this.keys.waitForKey(kver, timeout)
+        const waitMs = Math.min(timeout, untilNextRequestMs)
+        const keyAcquired = await this.keys.waitForKey(kver, waitMs)
         if (keyAcquired || this.keys.hasKey(kver)) {
           this.requeuePendingMessages(kver)
           break
         }
+
+        untilNextRequestMs -= waitMs
+        if (untilNextRequestMs > 0) {
+          continue
+        }
+        untilNextRequestMs = requestBackoff.nextDelay()
 
         if (this.hasPendingMessages(kver) && !this.isDisconnected && this.options.onKeyVersionMissing) {
           this.options.onKeyVersionMissing(kver)
@@ -282,7 +303,9 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
           this.options.onDocumentReceived(message.documentId)
         }
       } catch (err) {
-        if (kver && this.options.onKeyVersionMissing) {
+        // Only a missing key needs a keyring reload. Other failures (such as a
+        // decrypt error with the key loaded) are retried without one.
+        if (kver && !this.keys.hasKey(kver) && this.options.onKeyVersionMissing) {
           this.options.onKeyVersionMissing(kver)
         }
         throw err
