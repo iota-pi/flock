@@ -8,13 +8,11 @@ import {
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 import { debounce } from 'lodash-es'
 
-import {
-  BaseSyncNetworkAdapter,
-  DEFAULT_MAX_OUTBOUND_QUEUE_SIZE,
-} from './BaseSyncNetworkAdapter'
+import { BaseSyncNetworkAdapter } from './BaseSyncNetworkAdapter'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
 import type { WorkerInternalEventHub } from './SyncEventHub'
+import { BoundedQueue } from '../utils/BoundedQueue'
 import { BoundedSet } from '../utils/BoundedSet'
 import { RetryTimer } from '../utils/RetryTimer'
 import type { LifecycleAware } from './ServiceLifecycleManager'
@@ -24,6 +22,8 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('VaultNetworkAdapter')
 
 const MAX_SEEDED_DOCUMENTS = 5000
+/** Outbound messages buffered while sending isn't possible */
+export const MAX_OUTBOUND_QUEUE_SIZE = 1000
 export const MAX_RENEGOTIATION_ATTEMPTS = 3
 export const RENEGOTIATION_WINDOW_MS = 5000
 export const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
@@ -73,6 +73,13 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   private account: string | null = null
   private sendEnabled = false
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
+  private readonly outboundQueue = new BoundedQueue<Message>(MAX_OUTBOUND_QUEUE_SIZE, {
+    onEvict: evicted => this.onOutboundQueueEvict(evicted),
+  })
+
+  private ready = false
+  private readyPromiseResolver: (() => void) | null = null
+  private readyPromise: Promise<void>
 
   private pendingReNegotiations = new Set<DocumentId>()
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
@@ -89,8 +96,9 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     private readonly internalEventHub: WorkerInternalEventHub,
     options: VaultNetworkAdapterOptions = {},
   ) {
-    super({
-      maxOutboundQueueSize: DEFAULT_MAX_OUTBOUND_QUEUE_SIZE,
+    super()
+    this.readyPromise = new Promise<void>(resolve => {
+      this.readyPromiseResolver = resolve
     })
     this.syncedHeadsStore = options.syncedHeadsStore ?? null
     this.headsValidator = options.headsValidator ?? null
@@ -105,8 +113,40 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.disconnect()
   }
 
+  isReady(): boolean {
+    return this.ready
+  }
+
+  whenReady(): Promise<void> {
+    return this.readyPromise
+  }
+
+  private markReady(): void {
+    if (!this.ready) {
+      this.ready = true
+      this.readyPromiseResolver?.()
+      this.readyPromiseResolver = null
+    }
+  }
+
+  /**
+   * Resets readiness, so that whenReady() waits for the next markReady(). A pending
+   * readiness promise is kept, so waiters from an earlier disconnect still resolve.
+   */
+  private resetReady(): void {
+    if (this.ready || !this.readyPromiseResolver) {
+      this.ready = false
+      this.readyPromise = new Promise<void>(resolve => {
+        this.readyPromiseResolver = resolve
+      })
+    }
+  }
+
   protected override canSend(): boolean {
-    return super.canSend() && this.connected && Boolean(this.account) && this.sendEnabled
+    return super.canSend()
+      && this.connectionState === 'connected'
+      && Boolean(this.account)
+      && this.sendEnabled
   }
 
   setSendEnabled(sendEnabled: boolean): void {
@@ -151,6 +191,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
 
   override connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
     super.connect(peerId, peerMetadata)
+    this.markReady()
     this.clearSeededDocuments()
     this.resumeSending()
   }
@@ -180,7 +221,8 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.processMessage(message)
   }
 
-  protected override enqueueOutboundMessage(message: Message): void {
+  /** Buffers a message to send once sending is possible again */
+  private enqueueOutboundMessage(message: Message): void {
     if (isEmptySyncMessage(message)) {
       // Drop empty negotiation/ACK messages during disconnect window.
       // Since the peer is not connected, reflecting an ACK is invalid.
@@ -189,12 +231,22 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       return
     }
 
-    super.enqueueOutboundMessage(message)
+    this.outboundQueue.push(message)
   }
 
-  protected override onOutboundQueueEvict(evicted: Message): void {
+  private flushOutboundQueue(): void {
+    if (!this.canSend()) {
+      return
+    }
+
+    while (this.outboundQueue.length > 0) {
+      this.processMessage(this.outboundQueue.shift()!)
+    }
+  }
+
+  private onOutboundQueueEvict(evicted: Message): void {
     log.warn(
-      `Outbound queue exceeded max capacity (${DEFAULT_MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
+      `Outbound queue exceeded max capacity (${MAX_OUTBOUND_QUEUE_SIZE}). Evicting oldest message.`
     )
     if (evicted?.documentId) {
       const renegotiated = this.triggerReNegotiation(evicted.documentId)
@@ -204,10 +256,6 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
         )
       }
     }
-  }
-
-  protected override processOutboundMessage(message: Message): void {
-    this.processMessage(message)
   }
 
   private scheduleReNegotiationRetry(
@@ -380,17 +428,8 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.clearSyncedHeads()
     this.resetReNegotiationCircuit()
     this.disconnectPeer()
+    this.resetReady()
     super.disconnect()
-  }
-
-  isReNegotiationCircuitOpen(documentId: DocumentId): boolean {
-    const circuit = this.renegotiationCircuits.get(documentId)
-    if (!circuit?.circuitOpenUntil) return false
-    return Date.now() < circuit.circuitOpenUntil
-  }
-
-  hasReNegotiationRetryScheduled(documentId: DocumentId): boolean {
-    return Boolean(this.renegotiationCircuits.get(documentId)?.retryTimer.isPending)
   }
 
   resetReNegotiationCircuit(documentId?: DocumentId): void {
@@ -451,18 +490,14 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.seededDocuments.delete(documentId)
   }
 
-  override clearOutboundQueue(): void {
-    super.clearOutboundQueue()
+  clearOutboundQueue(): void {
+    this.outboundQueue.clear()
     this.pendingReNegotiations.clear()
     this.resetReNegotiationCircuit()
   }
 
-  getPendingReNegotiationCount(): number {
-    return this.pendingReNegotiations.size
-  }
-
   private connectPeer(): void {
-    if (this.account && this.connected && this.sendEnabled) {
+    if (this.account && this.connectionState === 'connected' && this.sendEnabled) {
       this.dispatchPeerCandidate(VAULT_PEER_ID, {
         storageId: `vault:${this.account}` as StorageId,
         isEphemeral: false,

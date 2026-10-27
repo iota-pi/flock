@@ -6,8 +6,8 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 import {
   VaultNetworkAdapter,
   CIRCUIT_BREAKER_COOLDOWN_MS,
+  MAX_OUTBOUND_QUEUE_SIZE,
 } from './VaultNetworkAdapter'
-import { DEFAULT_MAX_OUTBOUND_QUEUE_SIZE } from './BaseSyncNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
@@ -124,6 +124,41 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     adapter.connect('test-peer' as PeerId)
     expect(adapter.isReady()).toBe(true)
+    await Promise.resolve()
+    expect(reconnected).toBe(true)
+  })
+
+  it('becomes ready on the first connect()', async () => {
+    const freshAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    expect(freshAdapter.isReady()).toBe(false)
+
+    let resolved = false
+    void freshAdapter.whenReady().then(() => {
+      resolved = true
+    })
+    await Promise.resolve()
+    expect(resolved).toBe(false)
+
+    freshAdapter.connect('test-peer' as PeerId)
+    expect(freshAdapter.isReady()).toBe(true)
+    await Promise.resolve()
+    expect(resolved).toBe(true)
+  })
+
+  it('preserves a pending whenReady() waiter across redundant disconnect() calls', async () => {
+    adapter.disconnect()
+
+    let reconnected = false
+    void adapter.whenReady().then(() => {
+      reconnected = true
+    })
+
+    adapter.disconnect()
+    adapter.disconnect()
+    await Promise.resolve()
+    expect(reconnected).toBe(false)
+
+    adapter.connect('test-peer' as PeerId)
     await Promise.resolve()
     expect(reconnected).toBe(true)
   })
@@ -895,14 +930,16 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.send(message)
 
     expect(sentMessages).toHaveLength(0)
-    expect(testAdapter.getPendingOutboundCount()).toBe(1)
 
     // Connect adapter -> should flush buffered messages
     testAdapter.connect('test-peer' as PeerId)
 
     expect(sentMessages).toHaveLength(1)
     expect(sentMessages[0].documentId).toBe('doc-buf-1')
-    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+
+    // The flush emptied the queue, so connecting again sends nothing more
+    testAdapter.connect('test-peer' as PeerId)
+    expect(sentMessages).toHaveLength(1)
   })
 
   it('buffers outbound sync messages when sendEnabled is false and flushes on setSendEnabled(true)', async () => {
@@ -935,14 +972,49 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.send(message)
 
     expect(sentMessages).toHaveLength(0)
-    expect(testAdapter.getPendingOutboundCount()).toBe(1)
 
     // Enabling send flushes the buffered message
     testAdapter.setSendEnabled(true)
 
     expect(sentMessages).toHaveLength(1)
     expect(sentMessages[0].documentId).toBe('doc-buf-2')
-    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+
+    // The flush emptied the queue, so re-enabling sends nothing more
+    testAdapter.setSendEnabled(false)
+    testAdapter.setSendEnabled(true)
+    expect(sentMessages).toHaveLength(1)
+  })
+
+  it('holds messages while paused and sends them, in order, with the next send after resume()', () => {
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+    testAdapter.connect('test-peer' as PeerId)
+
+    const sentMessages: Message[] = []
+    testHub.subscribe(e => {
+      if (e.type === 'messageToSend') sentMessages.push(e.message)
+    })
+
+    const makeMessage = (documentId: string): Message => ({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: documentId as DocumentId,
+      data: encodeSyncMessage({ heads: [], need: [], have: [], changes: [new Uint8Array([1])] }),
+    })
+
+    testAdapter.pause()
+    testAdapter.send(makeMessage('doc-paused-1'))
+    testAdapter.send(makeMessage('doc-paused-2'))
+    expect(sentMessages).toHaveLength(0)
+
+    testAdapter.resume()
+    expect(sentMessages).toHaveLength(0)
+
+    testAdapter.send(makeMessage('doc-resumed'))
+    expect(sentMessages.map(m => m.documentId)).toEqual(['doc-paused-1', 'doc-paused-2', 'doc-resumed'])
   })
 
   it('drops empty negotiation messages during disconnect window without buffering', async () => {
@@ -972,14 +1044,25 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       data: emptySyncMsg,
     })
 
-    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+    // A buffered negotiation would be flushed on reconnect and answered with a seeded ACK
+    const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
+    testAdapter.connect('test-peer' as PeerId)
+    await Promise.resolve()
+
+    expect(receiveSpy).not.toHaveBeenCalled()
     expect(sentMessages).toHaveLength(0)
   })
 
   it('clears outbound queue when switching accounts or setting account to null', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('account-A')
+
+    const sentMessages: Message[] = []
+    testHub.subscribe(e => {
+      if (e.type === 'messageToSend') sentMessages.push(e.message)
+    })
 
     const syncMsgWithChanges = encodeSyncMessage({
       heads: [],
@@ -987,43 +1070,38 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       have: [],
       changes: [new Uint8Array([1])],
     })
-
-    testAdapter.send({
+    const sendFor = (documentId: string) => testAdapter.send({
       type: 'sync',
       senderId: 'client' as PeerId,
       targetId: 'vault' as PeerId,
-      documentId: 'doc-A' as DocumentId,
+      documentId: documentId as DocumentId,
       data: syncMsgWithChanges,
     })
 
-    expect(testAdapter.getPendingOutboundCount()).toBe(1)
+    sendFor('doc-A')
 
     // Switch account to account-B -> queue for account-A must be cleared
     testAdapter.setAccount('account-B')
-    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+    sendFor('doc-B')
+    testAdapter.connect('test-peer' as PeerId)
+    expect(sentMessages.map(m => m.documentId)).toEqual(['doc-B'])
 
-    // Buffer another message for account-B
-    testAdapter.send({
-      type: 'sync',
-      senderId: 'client' as PeerId,
-      targetId: 'vault' as PeerId,
-      documentId: 'doc-B' as DocumentId,
-      data: syncMsgWithChanges,
-    })
-    expect(testAdapter.getPendingOutboundCount()).toBe(1)
-
-    // Clear account to null -> queue must be cleared
+    // Buffer another message, then clear account to null -> queue must be cleared
+    testAdapter.setSendEnabled(false)
+    sendFor('doc-C')
     testAdapter.setAccount(null)
-    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+    testAdapter.setAccount('account-C')
+    testAdapter.setSendEnabled(true)
+    expect(sentMessages.map(m => m.documentId)).toEqual(['doc-B'])
   })
 
-  it('caps outbound queue at DEFAULT_MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
+  it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
     const testHub = new WorkerInternalEventHub()
     const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
-    const totalToSend = DEFAULT_MAX_OUTBOUND_QUEUE_SIZE + 5
+    const totalToSend = MAX_OUTBOUND_QUEUE_SIZE + 5
     for (let i = 0; i < totalToSend; i++) {
       const syncMsg = encodeSyncMessage({
         heads: [],
@@ -1040,8 +1118,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       })
     }
 
-    expect(testAdapter.getPendingOutboundCount()).toBe(DEFAULT_MAX_OUTBOUND_QUEUE_SIZE)
-
     const sentMessages: Message[] = []
     testHub.subscribe(e => {
       if (e.type === 'messageToSend') sentMessages.push(e.message)
@@ -1049,11 +1125,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     testAdapter.connect('test-peer' as PeerId)
 
-    expect(sentMessages).toHaveLength(DEFAULT_MAX_OUTBOUND_QUEUE_SIZE)
-    // Oldest 5 (doc-0 .. doc-4) should have been evicted; first flushed message is doc-5
-    expect(sentMessages[0].documentId).toBe('doc-5')
-    expect(sentMessages[sentMessages.length - 1].documentId).toBe(`doc-${totalToSend - 1}`)
-    expect(testAdapter.getPendingOutboundCount()).toBe(0)
+    // Oldest 5 (doc-0 .. doc-4) should have been evicted; the rest flush in FIFO order
+    expect(sentMessages.map(m => m.documentId)).toEqual(
+      Array.from({ length: MAX_OUTBOUND_QUEUE_SIZE }, (_, i) => `doc-${i + 5}`),
+    )
   })
 
   it('preserves Automerge Repo document mutations sent during disconnect window', async () => {
@@ -1101,7 +1176,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
 
     // Message must be buffered in outbound queue rather than silently dropped
-    expect(testAdapter.getPendingOutboundCount()).toBe(1)
     expect(outgoingMessages).toHaveLength(0)
 
     // Reconnect adapter to simulate connection restoration
@@ -1112,17 +1186,22 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(outgoingMessages[0].documentId).toBe(handle.documentId)
     const decoded = decodeSyncMessage(outgoingMessages[0].data as Uint8Array)
     expect(decoded.changes.length).toBeGreaterThan(0)
-    expect(testAdapter.getPendingOutboundCount()).toBe(0)
 
     await repo.shutdown()
   })
 
   it('triggers re-negotiation for documents evicted from outbound queue', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const testHub = new WorkerInternalEventHub()
+    const testAdapter = new VaultNetworkAdapter(testHub)
     testAdapter.setSendEnabled(true)
     testAdapter.setAccount('test-account')
 
+    const sentMessages: Message[] = []
+    testHub.subscribe(e => {
+      if (e.type === 'messageToSend') sentMessages.push(e.message)
+    })
     const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
+    const doc0Deliveries = () => receiveSpy.mock.calls.filter(call => call[0] === 'doc-0')
 
     // Seed doc-0 first
     const initialSyncMsg = encodeSyncMessage({
@@ -1168,8 +1247,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       data: syncMsgWithChange,
     })
 
-    // Now send DEFAULT_MAX_OUTBOUND_QUEUE_SIZE other messages to evict doc-0's oldest message
-    for (let i = 1; i <= DEFAULT_MAX_OUTBOUND_QUEUE_SIZE; i++) {
+    // Now send MAX_OUTBOUND_QUEUE_SIZE other messages to evict doc-0's oldest message
+    for (let i = 1; i <= MAX_OUTBOUND_QUEUE_SIZE; i++) {
       testAdapter.send({
         type: 'sync',
         senderId: 'client-peer' as PeerId,
@@ -1179,23 +1258,27 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       })
     }
 
-    // doc-0 was evicted:
-    // 1. Pending re-negotiation recorded
-    expect(testAdapter.getPendingReNegotiationCount()).toBeGreaterThanOrEqual(1)
-    // 2. doc-0's secondary queued message was also purged to prevent sending broken causal chain
-    const pendingDocs = (testAdapter as any).outboundQueue.map((m: any) => m.documentId)
-    expect(pendingDocs).not.toContain('doc-0')
+    // doc-0 was evicted, but its re-negotiation waits until sending is enabled
+    // (the only delivery so far is the seeding ACK)
+    expect(doc0Deliveries()).toHaveLength(1)
 
     // Re-enable send: pending re-negotiation should flush empty sync message to client
     testAdapter.setSendEnabled(true)
-    expect(testAdapter.getPendingReNegotiationCount()).toBe(0)
 
-    const renegCalls = receiveSpy.mock.calls.filter(call => call[0] === 'doc-0')
-    expect(renegCalls.length).toBeGreaterThanOrEqual(1)
-    const emptyMsgPayload = renegCalls[renegCalls.length - 1][1] as Uint8Array
+    expect(doc0Deliveries()).toHaveLength(2)
+    const emptyMsgPayload = doc0Deliveries()[1][1] as Uint8Array
     const decodedEmpty = decodeSyncMessage(emptyMsgPayload)
     expect(decodedEmpty.heads).toEqual([])
     expect(decodedEmpty.changes).toEqual([])
+
+    // doc-0's secondary queued message was also purged to prevent sending broken causal chain
+    expect(sentMessages.length).toBeGreaterThan(0)
+    expect(sentMessages.map(m => m.documentId)).not.toContain('doc-0')
+
+    // The pending re-negotiation was consumed, so it isn't delivered again
+    testAdapter.setSendEnabled(false)
+    testAdapter.setSendEnabled(true)
+    expect(doc0Deliveries()).toHaveLength(2)
   })
 
   it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
@@ -1252,6 +1335,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // 2. Disconnect adapter temporarily so messages are queued
     testAdapter.setSendEnabled(false)
+    const renegotiatedDocs: DocumentId[] = []
+    testHub.subscribe(e => {
+      if (e.type === 'renegotiationTriggered') renegotiatedDocs.push(e.documentId)
+    })
 
     // 3. Perform a mutation during disconnect window
     handle.change(doc => {
@@ -1274,7 +1361,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
 
     // 4. Flood queue to force eviction of handle's message
-    for (let i = 0; i < DEFAULT_MAX_OUTBOUND_QUEUE_SIZE; i++) {
+    for (let i = 0; i < MAX_OUTBOUND_QUEUE_SIZE; i++) {
       testAdapter.send({
         type: 'sync',
         senderId: repo.peerId,
@@ -1284,11 +1371,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       })
     }
 
-    expect(testAdapter.getPendingReNegotiationCount()).toBe(1)
+    expect(renegotiatedDocs).toEqual([handle.documentId])
 
     // 5. Re-enable sending
     testAdapter.setSendEnabled(true)
-    expect(testAdapter.getPendingReNegotiationCount()).toBe(0)
 
     // Wait for re-negotiation sync message for handle to be produced and ACKed
     for (let i = 0; i < 20; i++) {
@@ -1417,12 +1503,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
       expect(callback).toHaveBeenCalledTimes(3)
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
 
       // 4th call should trip the circuit breaker
       expect(adapter.triggerReNegotiation(docId)).toBe(false)
       expect(callback).toHaveBeenCalledTimes(3)
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
 
       // 5th call while circuit is open is dropped
       expect(adapter.triggerReNegotiation(docId)).toBe(false)
@@ -1437,28 +1521,32 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       adapter.triggerReNegotiation(docId)
       adapter.triggerReNegotiation(docId)
       expect(adapter.triggerReNegotiation(docId)).toBe(false)
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
 
       // Advance timers past cooldown (30s)
       vi.advanceTimersByTime(31000)
 
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
     })
 
     it('resets circuit immediately via resetReNegotiationCircuit', () => {
       const docId = 'doc-reset' as DocumentId
+      const callback = vi.fn()
+      internalEventHub.subscribe(e => {
+        if (e.type === 'renegotiationTriggered') callback(e.documentId)
+      })
 
       adapter.triggerReNegotiation(docId)
       adapter.triggerReNegotiation(docId)
       adapter.triggerReNegotiation(docId)
       expect(adapter.triggerReNegotiation(docId)).toBe(false)
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
 
       adapter.resetReNegotiationCircuit(docId)
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
-      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
+      expect(callback).toHaveBeenCalledTimes(4)
+
+      // The reset cancelled the scheduled retry
+      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS + 1000)
+      expect(callback).toHaveBeenCalledTimes(4)
     })
 
     it('automatically retries renegotiation when circuit breaker cooldown expires without manual invocation', () => {
@@ -1472,25 +1560,24 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
       expect(callback).toHaveBeenCalledTimes(3)
-      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
 
       // 4th call trips circuit and schedules automatic retry
       expect(adapter.triggerReNegotiation(docId)).toBe(false)
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(true)
-      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(true)
       expect(callback).toHaveBeenCalledTimes(3)
 
       // Before cooldown expires, retry should not have fired
       vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS - 100)
       expect(callback).toHaveBeenCalledTimes(3)
-      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(true)
 
       // Once cooldown expires, retry fires automatically
       vi.advanceTimersByTime(100)
       expect(callback).toHaveBeenCalledTimes(4)
       expect(callback).toHaveBeenLastCalledWith(docId)
-      expect(adapter.isReNegotiationCircuitOpen(docId)).toBe(false)
-      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
+
+      // The retry succeeded, so the circuit is closed and nothing else is scheduled
+      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS * 2)
+      expect(callback).toHaveBeenCalledTimes(4)
+      expect(adapter.triggerReNegotiation(docId)).toBe(true)
     })
 
     it('de-duplicates retry timers and does not push out cooldown deadline on repeated calls while open', () => {
@@ -1516,7 +1603,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       // Advance remaining 15s of the original 30s cooldown: retry must fire now (not 15s later)
       vi.advanceTimersByTime(15000)
       expect(callback).toHaveBeenCalledTimes(4)
-      expect(adapter.hasReNegotiationRetryScheduled(docId)).toBe(false)
+
+      // Only the one retry was scheduled
+      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS * 2)
+      expect(callback).toHaveBeenCalledTimes(4)
     })
 
     it('cancels pending retry timer on resetReNegotiationCircuit, clearOutboundQueue, and disconnect', () => {
@@ -1533,53 +1623,56 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
         adapter.triggerReNegotiation(id)
         adapter.triggerReNegotiation(id)
         expect(adapter.triggerReNegotiation(id)).toBe(false)
-        expect(adapter.hasReNegotiationRetryScheduled(id)).toBe(true)
       }
+      const advancePastCooldown = () => vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS + 1000)
 
+      // 1. Resetting one document's circuit cancels only its retry
       tripCircuit(doc1)
+      tripCircuit(doc2)
+      callback.mockClear()
+      adapter.resetReNegotiationCircuit(doc1)
+      advancePastCooldown()
+      expect(callback.mock.calls).toEqual([[doc2]])
+
+      // 2. Clearing the outbound queue cancels every retry
       tripCircuit(doc2)
       tripCircuit(doc3)
       callback.mockClear()
-
-      // 1. Reset single document circuit
-      adapter.resetReNegotiationCircuit(doc1)
-      expect(adapter.hasReNegotiationRetryScheduled(doc1)).toBe(false)
-      expect(adapter.hasReNegotiationRetryScheduled(doc2)).toBe(true)
-
-      // 2. Clear outbound queue cancels remaining circuits
       adapter.clearOutboundQueue()
-      expect(adapter.hasReNegotiationRetryScheduled(doc2)).toBe(false)
-      expect(adapter.hasReNegotiationRetryScheduled(doc3)).toBe(false)
+      advancePastCooldown()
+      expect(callback).not.toHaveBeenCalled()
 
-      // Re-trip doc3 and test disconnect()
+      // 3. disconnect() cancels every retry
       tripCircuit(doc3)
       callback.mockClear()
       adapter.disconnect()
-      expect(adapter.hasReNegotiationRetryScheduled(doc3)).toBe(false)
-
-      // Advance past cooldown: no renegotiation should fire for any cancelled circuit
-      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS + 1000)
+      advancePastCooldown()
       expect(callback).not.toHaveBeenCalled()
     })
 
     it('recovers evicted outbound queue document after circuit breaker cooldown expires', () => {
       const evictedDocId = 'doc-evicted-circuit' as DocumentId
+      const testHub = new WorkerInternalEventHub()
+      const testAdapter = new VaultNetworkAdapter(testHub)
+      testAdapter.setSendEnabled(true)
+      testAdapter.setAccount('test-account')
+      testAdapter.connect('test-peer' as PeerId)
       const callback = vi.fn()
-      internalEventHub.subscribe(e => {
+      testHub.subscribe(e => {
         if (e.type === 'renegotiationTriggered') callback(e.documentId)
       })
 
-      // Disable sending so messages buffer into outboundQueue
-      adapter.setSendEnabled(false)
-
-      // Consume the 3 allowed renegotiation attempts within the window for evictedDocId
-      expect(adapter.triggerReNegotiation(evictedDocId)).toBe(true)
-      expect(adapter.triggerReNegotiation(evictedDocId)).toBe(true)
-      expect(adapter.triggerReNegotiation(evictedDocId)).toBe(true)
+      // Consume the 3 allowed renegotiation attempts within the window for evictedDocId.
+      // Sending is enabled, so they're delivered at once and none is left pending.
+      expect(testAdapter.triggerReNegotiation(evictedDocId)).toBe(true)
+      expect(testAdapter.triggerReNegotiation(evictedDocId)).toBe(true)
+      expect(testAdapter.triggerReNegotiation(evictedDocId)).toBe(true)
       expect(callback).toHaveBeenCalledTimes(3)
 
-      // Clear pending renegotiations from the setup calls to isolate the eviction test
-      ;(adapter as any).pendingReNegotiations.clear()
+      // Disable sending so messages buffer into outboundQueue
+      testAdapter.setSendEnabled(false)
+      const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
+      const evictedDeliveries = () => receiveSpy.mock.calls.filter(call => call[0] === evictedDocId)
 
       const syncMsgWithChange = encodeSyncMessage({
         heads: [],
@@ -1589,7 +1682,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       })
 
       // Enqueue a message for evictedDocId at the front of the outboundQueue
-      adapter.send({
+      testAdapter.send({
         type: 'sync',
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
@@ -1597,9 +1690,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
         data: syncMsgWithChange,
       })
 
-      // Flood outboundQueue with DEFAULT_MAX_OUTBOUND_QUEUE_SIZE messages to evict evictedDocId
-      for (let i = 0; i < DEFAULT_MAX_OUTBOUND_QUEUE_SIZE; i++) {
-        adapter.send({
+      // Flood outboundQueue with MAX_OUTBOUND_QUEUE_SIZE messages to evict evictedDocId
+      for (let i = 0; i < MAX_OUTBOUND_QUEUE_SIZE; i += 1) {
+        testAdapter.send({
           type: 'sync',
           senderId: 'test-peer' as PeerId,
           targetId: 'vault' as PeerId,
@@ -1609,20 +1702,20 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       }
 
       // Eviction called triggerReNegotiation(evictedDocId) which tripped the circuit breaker (4th attempt)
-      expect(adapter.isReNegotiationCircuitOpen(evictedDocId)).toBe(true)
-      expect(adapter.hasReNegotiationRetryScheduled(evictedDocId)).toBe(true)
-      expect(adapter.getPendingReNegotiationCount()).toBe(0)
       expect(callback).toHaveBeenCalledTimes(3)
 
       // Advance time past circuit breaker cooldown
       vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS)
 
       // Scheduled retry should have automatically fired and queued the pending renegotiation
-      expect(adapter.isReNegotiationCircuitOpen(evictedDocId)).toBe(false)
-      expect(adapter.hasReNegotiationRetryScheduled(evictedDocId)).toBe(false)
-      expect(adapter.getPendingReNegotiationCount()).toBe(1)
       expect(callback).toHaveBeenCalledTimes(4)
       expect(callback).toHaveBeenLastCalledWith(evictedDocId)
+      expect(evictedDeliveries()).toHaveLength(0)
+
+      // Re-enabling sending delivers the queued renegotiation
+      testAdapter.setSendEnabled(true)
+      expect(evictedDeliveries()).toHaveLength(1)
+      expect(decodeSyncMessage(evictedDeliveries()[0][1] as Uint8Array).heads).toEqual([])
     })
   })
 })

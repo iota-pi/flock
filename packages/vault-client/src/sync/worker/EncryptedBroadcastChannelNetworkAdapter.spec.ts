@@ -1014,9 +1014,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         if (call[0] === 'message') innerMessageCallback = call[1]
       }
 
-      expect(adapter.isSyncPaused()).toBe(false)
       adapter.pause()
-      expect(adapter.isSyncPaused()).toBe(true)
 
       // Send while paused
       const message: Message = {
@@ -1043,7 +1041,6 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       // Resume
       adapter.resume()
-      expect(adapter.isSyncPaused()).toBe(false)
 
       adapter.send(message)
       await vi.waitFor(() => {

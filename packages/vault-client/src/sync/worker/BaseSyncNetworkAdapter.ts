@@ -4,76 +4,21 @@ import {
   type PeerId,
   type PeerMetadata,
 } from '@automerge/automerge-repo/slim'
-import { BoundedQueue } from '../utils/BoundedQueue'
-
-export const DEFAULT_MAX_OUTBOUND_QUEUE_SIZE = 1000
-
-export interface BaseSyncNetworkAdapterOptions {
-  /** Maximum number of outbound messages to buffer when disconnected or not ready. Default: 1000 */
-  maxOutboundQueueSize?: number
-}
 
 /**
- * BaseSyncNetworkAdapter provides a consolidated connection state machine,
- * disconnect buffering and replay queue, and Automerge Repo adapter event
- * dispatching for the vault network adapters.
+ * BaseSyncNetworkAdapter holds the connection and pause state shared by the vault network
+ * adapters, and dispatches Automerge Repo adapter events.
  */
 export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
-  protected connected = false
-  protected isDisconnected = false
-  protected ready = false
+  /**
+   * `'new'` (before the first connect) differs from `'disconnected'`: an adapter that was
+   * never connected may still send.
+   */
+  protected connectionState: 'new' | 'connected' | 'disconnected' = 'new'
   protected isPaused = false
 
-  protected readyPromiseResolver: (() => void) | null = null
-  protected readyPromise: Promise<void>
-  protected outboundQueue: BoundedQueue<Message>
-
-  constructor(options?: BaseSyncNetworkAdapterOptions) {
-    super()
-    const maxQueue = options?.maxOutboundQueueSize ?? DEFAULT_MAX_OUTBOUND_QUEUE_SIZE
-    this.outboundQueue = new BoundedQueue<Message>(maxQueue, {
-      onEvict: evicted => this.onOutboundQueueEvict(evicted),
-    })
-    this.readyPromise = new Promise<void>(resolve => {
-      this.readyPromiseResolver = resolve
-    })
-  }
-
-  isReady(): boolean {
-    return this.ready
-  }
-
-  whenReady(): Promise<void> {
-    return this.readyPromise
-  }
-
-  protected markReady(): void {
-    if (!this.ready) {
-      this.ready = true
-      this.readyPromiseResolver?.()
-      this.readyPromiseResolver = null
-    }
-  }
-
-  /**
-   * Resets readiness state and recreates the readiness promise if the adapter was ready.
-   * Ensures subsequent calls to whenReady() will wait for the next markReady() invocation.
-   */
-  protected resetReady(): void {
-    if (this.ready || !this.readyPromiseResolver) {
-      this.ready = false
-      this.readyPromise = new Promise<void>(resolve => {
-        this.readyPromiseResolver = resolve
-      })
-    }
-  }
-
-  isConnected(): boolean {
-    return this.connected && !this.isDisconnected
-  }
-
-  isSyncPaused(): boolean {
-    return this.isPaused
+  protected get isDisconnected(): boolean {
+    return this.connectionState === 'disconnected'
   }
 
   pause(): void {
@@ -87,15 +32,11 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
   connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
-    this.connected = true
-    this.isDisconnected = false
-    this.markReady()
+    this.connectionState = 'connected'
   }
 
   disconnect(): void {
-    this.connected = false
-    this.isDisconnected = true
-    this.resetReady()
+    this.connectionState = 'disconnected'
     this.dispatchClose()
   }
 
@@ -107,53 +48,6 @@ export abstract class BaseSyncNetworkAdapter extends NetworkAdapter {
    */
   protected canSend(): boolean {
     return !this.isDisconnected && !this.isPaused
-  }
-
-  /**
-   * Buffers an outbound message into the disconnect replay queue.
-   */
-  protected enqueueOutboundMessage(message: Message): void {
-    this.outboundQueue.push(message)
-  }
-
-  /**
-   * Flushes queued outbound messages if sending is currently permitted.
-   */
-  protected flushOutboundQueue(): void {
-    if (!this.canSend()) {
-      return
-    }
-
-    while (this.outboundQueue.length > 0) {
-      const message = this.outboundQueue.shift()!
-      this.processOutboundMessage(message)
-    }
-  }
-
-  /**
-   * Subclass hook to process/deliver a flushed outbound message from the replay queue.
-   */
-  protected processOutboundMessage(_: Message): void {
-    // Override in subclass to process or route flushed messages
-  }
-
-  /**
-   * Subclass hook when an outbound message is evicted from the bounded queue.
-   */
-  protected onOutboundQueueEvict(_: Message): void {
-    // Override in subclass if eviction handling is needed
-  }
-
-  clearOutboundQueue(): void {
-    this.outboundQueue.clear()
-  }
-
-  getPendingOutboundCount(): number {
-    return this.outboundQueue.length
-  }
-
-  hasPendingOutboundMessages(): boolean {
-    return this.outboundQueue.length > 0
   }
 
   // --- Automerge Repo adapter event dispatching ---
