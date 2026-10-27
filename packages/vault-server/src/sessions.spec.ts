@@ -1,5 +1,6 @@
 import {
   addSessionRecord,
+  findSession,
   hashSessionToken,
   isSessionFor,
   MAX_ACTIVE_SESSIONS,
@@ -44,6 +45,21 @@ describe('addSessionRecord', () => {
       existing,
       { token: hashSessionToken('token'), expiry: now + 5000 },
     ])
+  })
+})
+
+describe('findSession', () => {
+  it('finds a hashed or legacy raw record for the token', () => {
+    const hashed = { token: hashSessionToken('token-a'), expiry: now + 1 }
+    const legacy = { token: 'token-b', expiry: now + 2 }
+
+    expect(findSession([hashed, legacy], 'token-a')).toBe(hashed)
+    expect(findSession([hashed, legacy], 'token-b')).toBe(legacy)
+  })
+
+  it('returns undefined without a matching record', () => {
+    expect(findSession([{ token: hashSessionToken('token-a'), expiry: now }], 'token-c')).toBeUndefined()
+    expect(findSession(undefined, 'token-a')).toBeUndefined()
   })
 })
 

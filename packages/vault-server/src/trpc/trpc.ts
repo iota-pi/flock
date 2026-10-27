@@ -109,25 +109,19 @@ export const protectedProcedure = publicProcedure
       throw toTrpcError(error, [{ error: AuthenticationError, code: 'UNAUTHORIZED' }])
     }
 
-    let extendSessionPromise: Promise<void> | null = null
-    if (shouldRenewSession(accountData, ctx.authToken)) {
-      extendSessionPromise = (
-        ctx.vault.extendSession({ account, session: ctx.authToken })
-          .catch(error => console.error('[extendSession failed]', error))
-      )
-    }
+    const extendSessionPromise = shouldRenewSession(accountData, ctx.authToken)
+      ? ctx.vault.extendSession({ account, session: ctx.authToken })
+        .catch(error => console.error('[extendSession failed]', error))
+      : undefined
 
     try {
       return await next({
         ctx: {
           ...ctx,
-          account,
           accountData,
         },
       })
     } finally {
-      if (extendSessionPromise) {
-        await extendSessionPromise
-      }
+      await extendSessionPromise
     }
   })

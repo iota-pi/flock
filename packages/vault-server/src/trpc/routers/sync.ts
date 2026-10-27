@@ -10,7 +10,7 @@ export const syncRouter = router({
     .input(SyncPollBatchSchema)
     .mutation(async ({ ctx, input }) => {
       try {
-        return await pollSync(ctx.vault, { ...input, account: ctx.account })
+        return await pollSync(ctx.vault, input)
       } catch (error) {
         throw toTrpcError(error, [
           { error: InvalidPageTokenError, code: 'BAD_REQUEST', message: e => e.message },
