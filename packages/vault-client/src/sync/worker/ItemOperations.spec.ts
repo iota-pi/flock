@@ -75,6 +75,16 @@ describe('ItemOperations', () => {
     operations = new ItemOperations(deps)
   })
 
+  /** Makes changeDocument run its change against `docs[id]`, as the doc store would */
+  function backChangesWithDocs(docs: Record<string, Record<string, unknown>>) {
+    changeDocumentMock.mockImplementation(async (id: ItemId, change: (doc: any) => void) => {
+      docs[id] ??= {}
+      change(docs[id])
+      return true
+    })
+    getAutomergeItemMock.mockImplementation(async (id: ItemId) => docs[id] ?? null)
+  }
+
   describe('createItem', () => {
     const testItem = { id: 'item-1' as ItemId, type: 'note', text: 'hello' } as unknown as VaultDoc
 
@@ -213,7 +223,105 @@ describe('ItemOperations', () => {
     })
   })
 
+  describe('mutating deleted items', () => {
+    const itemId = 'item-1' as ItemId
+
+    it('refuses an edit of a deleted doc and emits its true state as null', async () => {
+      const docs = { [itemId]: { id: itemId, text: 'old', deleted: true } }
+      backChangesWithDocs(docs)
+
+      await operations.mutateItem(itemId, { text: 'stale edit', deleted: false } as Partial<VaultDoc>)
+
+      expect(docs[itemId]).toEqual({ id: itemId, text: 'old', deleted: true })
+      expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+      expect(emitMock.mock.calls.map(([event]: any[]) => event)).toEqual([
+        { type: 'mutationFailed', mutationType: 'edit', error: `Cannot edit deleted item ${itemId}` },
+        { type: 'itemUpdated', id: itemId, item: null },
+      ])
+    })
+
+    it('refuses a whole-object edit with no deleted flag', async () => {
+      const docs = { [itemId]: { id: itemId, text: 'old', deleted: true } }
+      backChangesWithDocs(docs)
+
+      await operations.mutateItem(itemId, { id: itemId, text: 'stale edit' } as Partial<VaultDoc>)
+
+      expect(docs[itemId]).toEqual({ id: itemId, text: 'old', deleted: true })
+      expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+      expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: itemId, item: null })
+    })
+
+    it.each([false, undefined])('ignores deleted: %s in a change, leaving any concurrent remote delete to win the merge', async deleted => {
+      const docs: Record<string, Record<string, unknown>> = { [itemId]: { id: itemId, text: 'old' } }
+      backChangesWithDocs(docs)
+
+      await operations.mutateItem(itemId, { text: 'new', deleted } as Partial<VaultDoc>)
+
+      expect(docs[itemId]).toEqual({ id: itemId, text: 'new' })
+      expect('deleted' in docs[itemId]).toBe(false)
+      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith(itemId)
+      expect(emitMock).not.toHaveBeenCalled()
+    })
+
+    it('still deletes a live doc', async () => {
+      const docs: Record<string, Record<string, unknown>> = { [itemId]: { id: itemId, text: 'old' } }
+      backChangesWithDocs(docs)
+
+      await operations.mutateItem(itemId, { deleted: true } as Partial<VaultDoc>)
+
+      expect(docs[itemId]).toEqual({ id: itemId, text: 'old', deleted: true })
+      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith([itemId])
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith(itemId)
+    })
+  })
+
   describe('storeItems', () => {
+    it('does not undelete an existing deleted doc', async () => {
+      const docs: Record<string, Record<string, unknown>> = {
+        'item-del': { id: 'item-del', text: 'old', deleted: true },
+        'item-live': { id: 'item-live', text: 'old' },
+      }
+      backChangesWithDocs(docs)
+
+      await operations.storeItems([
+        { id: 'item-del' as ItemId, text: 'stale', deleted: false } as unknown as VaultDoc,
+        { id: 'item-live' as ItemId, text: 'new', deleted: false } as unknown as VaultDoc,
+      ])
+
+      expect(docs['item-del']).toEqual({ id: 'item-del', text: 'old', deleted: true })
+      expect(docs['item-live']).toEqual({ id: 'item-live', text: 'new' })
+      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-live'])
+      expect(markDocumentDirtyMock).toHaveBeenCalledTimes(1)
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-live')
+      expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-del', item: null })
+    })
+
+    it('still applies a tombstone to an existing deleted doc', async () => {
+      const docs: Record<string, Record<string, unknown>> = {
+        'item-del': { id: 'item-del', deleted: true },
+      }
+      backChangesWithDocs(docs)
+
+      await operations.storeItems([{ id: 'item-del' as ItemId, deleted: true } as VaultDoc], { markDirty: false })
+
+      expect(docs['item-del']).toEqual({ id: 'item-del', deleted: true })
+      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-del'])
+      expect(emitMock).not.toHaveBeenCalled()
+    })
+
+    it('creates a missing doc from a live object', async () => {
+      const docs: Record<string, Record<string, unknown>> = {}
+      backChangesWithDocs(docs)
+
+      await operations.storeItems([{ id: 'item-new' as ItemId, text: 'imported' } as unknown as VaultDoc])
+
+      expect(docs['item-new']).toEqual({ id: 'item-new', text: 'imported' })
+      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-new'])
+    })
+
     it('handles successful items and thrown exceptions gracefully', async () => {
       const items = [
         { id: 'item-1' as ItemId, text: 'one' } as unknown as VaultDoc,
