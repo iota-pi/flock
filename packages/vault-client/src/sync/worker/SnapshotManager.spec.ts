@@ -36,6 +36,11 @@ function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Par
   byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
 }
 
+/** An item's tracked timestamps, empty if it has none */
+function getTimestamps(tracker: SnapshotTracker, itemId: string): Partial<ItemSyncTimestamps> {
+  return tracker['timestampsByItemId'].get(itemId as ItemId) ?? {}
+}
+
 function createMockBroker() {
   return {
     setSyncedHeads: vi.fn(),
@@ -1300,7 +1305,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       manager.markItemDirty('item-1' as ItemId)
       await manager.flushPendingSnapshots()
 
-      const lastSnapshotAt = manager['tracker'].getLastSnapshotAt('item-1' as ItemId)
+      const lastSnapshotAt = getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt
       expect(lastSnapshotAt).toBeDefined()
       expect(typeof lastSnapshotAt).toBe('number')
       expect(lastSnapshotAt).toBeGreaterThan(0)
@@ -1327,10 +1332,10 @@ describe('SnapshotManager Retry Mechanism', () => {
         await manager.importLastModified([['item-1' as ItemId, 1000]])
         await manager.importLastModified([['item-2' as ItemId, 2000]])
 
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBe(1000)
-        expect(manager['tracker'].getLastSnapshotAt('item-1' as ItemId)).toBe(1000)
-        expect(manager['tracker'].getLocalModifiedAt('item-2' as ItemId)).toBe(2000)
-        expect(manager['tracker'].getLastSnapshotAt('item-2' as ItemId)).toBe(2000)
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(1000)
+        expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(1000)
+        expect(getTimestamps(manager['tracker'], 'item-2').localModifiedAt).toBe(2000)
+        expect(getTimestamps(manager['tracker'], 'item-2').lastSnapshotAt).toBe(2000)
       })
 
       it('preserves lastSnapshotAt for unsaved dirty items', async () => {
@@ -1342,8 +1347,8 @@ describe('SnapshotManager Retry Mechanism', () => {
         // importLastModified is called with local timestamp (e.g. 5000)
         await manager.importLastModified([['item-1' as ItemId, 5000]])
 
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBe(5000)
-        expect(manager['tracker'].getLastSnapshotAt('item-1' as ItemId)).toBe(2000)
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(5000)
+        expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(2000)
       })
 
       it('preserves undefined lastSnapshotAt for newly created unsaved offline items', async () => {
@@ -1352,8 +1357,8 @@ describe('SnapshotManager Retry Mechanism', () => {
 
         await manager.importLastModified([['item-new' as ItemId, 5000]])
 
-        expect(manager['tracker'].getLocalModifiedAt('item-new' as ItemId)).toBe(5000)
-        expect(manager['tracker'].getLastSnapshotAt('item-new' as ItemId)).toBeUndefined()
+        expect(getTimestamps(manager['tracker'], 'item-new').localModifiedAt).toBe(5000)
+        expect(getTimestamps(manager['tracker'], 'item-new').lastSnapshotAt).toBeUndefined()
       })
 
       it('advances lastSnapshotAt when mod is strictly newer than localModifiedAt', async () => {
@@ -1361,8 +1366,8 @@ describe('SnapshotManager Retry Mechanism', () => {
 
         await manager.importLastModified([['item-1' as ItemId, 3000]])
 
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBe(3000)
-        expect(manager['tracker'].getLastSnapshotAt('item-1' as ItemId)).toBe(3000)
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(3000)
+        expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(3000)
       })
 
       it('ensures startup dirty audit re-enqueues unsaved offline edits after ManifestSync updates other items', async () => {
@@ -1373,11 +1378,11 @@ describe('SnapshotManager Retry Mechanism', () => {
         await manager.importLastModified([['item-server' as ItemId, 2500]])
 
         // Verify in-memory state before crash
-        expect(manager['tracker'].getLastSnapshotAt('item-offline' as ItemId)).toBe(1000)
+        expect(getTimestamps(manager['tracker'], 'item-offline').lastSnapshotAt).toBe(1000)
 
         // 3. Worker crashes / restarts -> clear in-memory state and reload from storage
         manager.clear()
-        expect(manager['tracker'].getLocalModifiedAt('item-offline' as ItemId)).toBeUndefined()
+        expect(getTimestamps(manager['tracker'], 'item-offline').localModifiedAt).toBeUndefined()
 
         await manager.loadLastModified()
 
@@ -1393,8 +1398,8 @@ describe('SnapshotManager Retry Mechanism', () => {
         manager.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
 
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBe(1000)
-        expect(manager['tracker'].getLastSnapshotAt('item-1' as ItemId)).toBeUndefined()
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(1000)
+        expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBeUndefined()
 
         mockPutSnapshots.mockResolvedValue({
           success: true,
@@ -1409,8 +1414,8 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(pushedSnapshot.modified).toBe(31000)
 
         // Both timestamps must be in parity with the pushed snapshot
-        expect(manager['tracker'].getLastSnapshotAt('item-1' as ItemId)).toBe(31000)
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBe(31000)
+        expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(31000)
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(31000)
 
         // exportLastModified must export 31000 so ManifestSyncManager matches serverTime
         expect(manager.exportLastModified()).toEqual([['item-1', 31000]])
@@ -1436,7 +1441,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         vi.setSystemTime(32000)
         manager.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBe(32000)
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(32000)
 
         // Upload completes for the snapshot built at 31000
         resolveUpload!({
@@ -1446,8 +1451,8 @@ describe('SnapshotManager Retry Mechanism', () => {
         await vi.advanceTimersByTimeAsync(0)
 
         // lastSnapshotAt is 31000, but localModifiedAt must retain 32000
-        expect(manager['tracker'].getLastSnapshotAt('item-1' as ItemId)).toBe(31000)
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBe(32000)
+        expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(31000)
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(32000)
         expect(manager.getDirtyItemIds()).toContain('item-1')
         expect(manager.exportLastModified()).toEqual([['item-1', 32000]])
       })
@@ -1476,13 +1481,13 @@ describe('SnapshotManager Retry Mechanism', () => {
         await vi.advanceTimersByTimeAsync(29_000)
 
         // Snapshot timestamp was captured at T1, so lastSnapshotAt must be 31000
-        expect(manager['tracker'].getLastSnapshotAt('item-1' as ItemId)).toBe(31000)
+        expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(31000)
         // The edit made during encryption keeps the item dirty
         expect(manager.getDirtyItemIds()).toContain('item-1')
 
         // Debounced flush records the edit as newer than the uploaded snapshot
         await vi.advanceTimersByTimeAsync(1000)
-        expect(manager['tracker'].getLocalModifiedAt('item-1' as ItemId)).toBeGreaterThan(31000)
+        expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBeGreaterThan(31000)
 
         // Persist timestamps and simulate restart / promotion audit
         await manager.persistLastModified()
@@ -1500,13 +1505,13 @@ describe('SnapshotManager Retry Mechanism', () => {
         ])
 
         manager.clear()
-        expect(manager['tracker'].getLocalModifiedAt('item-legacy' as ItemId)).toBeUndefined()
+        expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBeUndefined()
 
         await manager.loadLastModified()
 
         // localModifiedAt must be healed to at least lastSnapshotAt
-        expect(manager['tracker'].getLocalModifiedAt('item-legacy' as ItemId)).toBe(5000)
-        expect(manager['tracker'].getLastSnapshotAt('item-legacy' as ItemId)).toBe(5000)
+        expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBe(5000)
+        expect(getTimestamps(manager['tracker'], 'item-legacy').lastSnapshotAt).toBe(5000)
         expect(manager.getDirtyItemIds()).not.toContain('item-legacy')
         expect(manager.exportLastModified()).toEqual([['item-legacy', 5000]])
       })
