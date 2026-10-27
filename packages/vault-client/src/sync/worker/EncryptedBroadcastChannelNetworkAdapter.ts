@@ -11,10 +11,7 @@ import {
 
 import type { CryptoResult } from '../../api/crypto'
 import type { KeyProvider } from '../../api/Keyring'
-import {
-  BaseSyncNetworkAdapter,
-  type BaseSyncNetworkAdapterOptions,
-} from './BaseSyncNetworkAdapter'
+import { BaseSyncNetworkAdapter } from './BaseSyncNetworkAdapter'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from '../utils/errorClassifier'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
@@ -33,8 +30,7 @@ const DEFAULT_MAX_CRYPTO_RETRIES = 3
 const DEFAULT_CRYPTO_RETRY_DELAY_MS = 50
 
 export interface EncryptedBroadcastChannelOptions
-  extends Partial<BroadcastChannelNetworkAdapterOptions>,
-  BaseSyncNetworkAdapterOptions {
+  extends Partial<BroadcastChannelNetworkAdapterOptions> {
   /** The keys cross-tab messages are encrypted with */
   keys: KeyProvider
   accountId?: string
@@ -65,7 +61,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   private cryptoRetryDelayMs: number
 
   constructor(options: EncryptedBroadcastChannelOptions) {
-    super(options)
+    super()
     this.options = options
     this.keys = options.keys
     this.accountId = options.accountId ?? accountIdFromChannelName(options.channelName)
@@ -93,11 +89,11 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
     })
   }
 
-  override isReady(): boolean {
+  isReady(): boolean {
     return this.inner.isReady()
   }
 
-  override whenReady(): Promise<void> {
+  whenReady(): Promise<void> {
     return this.inner.whenReady()
   }
 
@@ -119,10 +115,6 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
     super.pause()
     this.sendQueue.clear()
     this.receiveQueue.clear()
-  }
-
-  override resume(): void {
-    super.resume()
   }
 
   send(message: Message): void {
