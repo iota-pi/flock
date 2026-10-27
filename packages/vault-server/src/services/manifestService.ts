@@ -1,29 +1,5 @@
-import type { VaultItem, VaultDriver } from '../drivers/vaultDriver'
-import type { FetchedItem, ItemId, ManifestEntry } from '@vault/shared'
-
-export async function fetchManifest(
-  vault: VaultDriver,
-  input: { account: string },
-): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
-  const manifest = await vault.fetchManifest({ account: input.account })
-
-  return {
-    manifest,
-    serverTime: Date.now(),
-  }
-}
-
-export async function fetchSnapshotsByIds(
-  vault: VaultDriver,
-  input: { account: string; itemIds: ItemId[] },
-): Promise<{ items: FetchedItem[]; serverTime: number }> {
-  const items = await vault.fetchByIds({ account: input.account, itemIds: input.itemIds })
-
-  return {
-    items: items.map(toFetchedItem),
-    serverTime: Date.now(),
-  }
-}
+import type { VaultItem } from '../drivers/vaultDriver'
+import type { FetchedItem, ItemId } from '@vault/shared'
 
 /**
  * Narrows a stored row to the envelope clients read. A snapshot supersedes the legacy payload, so a

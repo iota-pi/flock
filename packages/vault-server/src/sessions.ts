@@ -63,12 +63,20 @@ export function normalizeSessionRecords(value: unknown, now = Date.now()): Vault
     .slice(-MAX_ACTIVE_SESSIONS)
 }
 
+/** The stored session record for `token`, if there is one */
+export function findSession(
+  sessions: VaultSessionRecord[] | undefined,
+  token: string,
+): VaultSessionRecord | undefined {
+  return sessions?.find(session => isSessionFor(session, token))
+}
+
 export function shouldRenewSession(
   accountData: Pick<VaultAccountWithAuth, 'sessions'>,
   authToken: string,
   now = Date.now(),
 ): boolean {
-  const currentSession = accountData.sessions?.find(s => isSessionFor(s, authToken))
+  const currentSession = findSession(accountData.sessions, authToken)
 
   if (!currentSession || !Number.isFinite(currentSession.expiry)) {
     return true

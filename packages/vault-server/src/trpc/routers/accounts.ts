@@ -11,12 +11,14 @@ import {
   VersionConflictError,
 } from '@vault/shared'
 import { fakeSalt, hashString, safeEqual } from '../../util'
-import { hashSessionToken, isSessionFor, SESSION_EXPIRY_MS } from '../../sessions'
+import { addSessionRecord, findSession, SESSION_EXPIRY_MS } from '../../sessions'
 import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
 import { authenticateLogin } from '../../authentication'
 import { toTrpcError } from '../errors'
-import type { VaultAccountWithAuth } from '../../drivers/vaultDriver'
+import type { SecurityParams, VaultAccountWithAuth } from '../../drivers/vaultDriver'
+import type { UnknownAccountParams } from '../trpc'
+import type { DataVersionPolicy } from '../../services/dataVersion'
 
 const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
 
@@ -24,6 +26,24 @@ const MAX_CREATE_ACCOUNT_ATTEMPTS = 3
 function assertCurrentAuthToken(accountData: VaultAccountWithAuth, currentAuthToken: string): void {
   if (!safeEqual(accountData.authToken, hashString(currentAuthToken))) {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
+  }
+}
+
+/**
+ * Made-up security parameters for an account that doesn't exist. They look like an account that has
+ * nothing to migrate, so that logging in fails as for a wrong password.
+ */
+function unknownAccountSecurityParams(
+  account: string,
+  fake: UnknownAccountParams,
+  dataVersionPolicy?: DataVersionPolicy,
+): SecurityParams {
+  return {
+    salt: fakeSalt(account, fake.secret),
+    iterations: fake.iterations,
+    saltVersion: fake.saltVersion,
+    kdf: fake.kdf,
+    dataVersion: dataVersionPolicy?.current,
   }
 }
 
@@ -87,25 +107,17 @@ export const accountsRouter = router({
   getSecurityParams: publicProcedure
     .input(AccountInputSchema)
     .query(async ({ ctx, input }) => {
-      let params: Awaited<ReturnType<typeof ctx.vault.getSecurityParams>>
+      let params: SecurityParams
       try {
         params = await ctx.vault.getSecurityParams({ account: input.account })
       } catch (error) {
         if (!(error instanceof AuthenticationError)) {
           throw error
         }
-        const fake = ctx.unknownAccountParams
-        if (!fake) {
+        if (!ctx.unknownAccountParams) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' })
         }
-        // Looks like an account that has nothing to migrate, so that logging in fails as for a wrong password
-        params = {
-          salt: fakeSalt(input.account, fake.secret),
-          iterations: fake.iterations,
-          saltVersion: fake.saltVersion,
-          kdf: fake.kdf,
-          dataVersion: ctx.dataVersionPolicy?.current,
-        }
+        params = unknownAccountSecurityParams(input.account, ctx.unknownAccountParams, ctx.dataVersionPolicy)
       }
 
       const { salt, iterations, saltVersion, kdf, dataVersion } = params
@@ -171,7 +183,7 @@ export const accountsRouter = router({
       const newAuthTokenHash = hashString(input.newAuthToken)
 
       // Changing the password ends every other session
-      const currentSessionExpiry = accountData.sessions?.find(s => isSessionFor(s, ctx.authToken))?.expiry
+      const currentSessionExpiry = findSession(accountData.sessions, ctx.authToken)?.expiry
         ?? Date.now() + SESSION_EXPIRY_MS
 
       try {
@@ -184,7 +196,7 @@ export const accountsRouter = router({
           saltVersion: input.saltVersion,
           keyringVersion: input.keyringVersion,
           expectedKeyringVersion: input.expectedKeyringVersion,
-          sessions: [{ token: hashSessionToken(ctx.authToken), expiry: currentSessionExpiry }],
+          sessions: addSessionRecord([], ctx.authToken, currentSessionExpiry),
         })
       } catch (error) {
         throw toTrpcError(error, [
