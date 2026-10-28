@@ -33,16 +33,20 @@ export interface DynamoDriverOptions {
   tables?: Partial<VaultTableNames>
   /** App-specific fields written to every new account record */
   accountDefaults?: Record<string, unknown>
+  /** Most sync messages one page holds. Tests lower it so paging needs only a few messages. */
+  syncMessagePageSize?: number
 }
 
 export default class DynamoDriver implements VaultDriver {
   private internalClient: DynamoDBDocumentClient | undefined
   readonly tables: VaultTableNames
   private readonly accountDefaults: Record<string, unknown>
+  private readonly syncMessagePageSize: number
 
   constructor(options: DynamoDriverOptions = {}) {
     this.tables = resolveVaultTableNames(options.tables)
     this.accountDefaults = options.accountDefaults ?? {}
+    this.syncMessagePageSize = options.syncMessagePageSize ?? syncMessages.SYNC_MESSAGE_PAGE_SIZE
   }
 
   get client() {
@@ -54,7 +58,7 @@ export default class DynamoDriver implements VaultDriver {
 
   /** Built per call, so operations use whichever client `connect` (or a test) set */
   private get context(): DynamoContext {
-    return { client: this.client, tables: this.tables }
+    return { client: this.client, tables: this.tables, syncMessagePageSize: this.syncMessagePageSize }
   }
 
   /** Creates any of the vault's tables that don't exist yet */

@@ -18,6 +18,8 @@ import type { VaultTableNames } from './config'
 export interface DynamoContext {
   client: DynamoDBDocumentClient
   tables: VaultTableNames
+  /** Most sync messages one query returns */
+  syncMessagePageSize: number
 }
 
 /** Sends a conditional write. Resolves to undefined, instead of throwing, when the condition fails. */

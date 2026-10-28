@@ -95,13 +95,14 @@ describe('FilterCriterionDisplay', () => {
     const groupInput = valueInputs[0]
     expect(groupInput).toBeTruthy()
 
-    // Open the dropdown by clicking or typing
-    await user.click(groupInput)
-    await user.type(groupInput, 'Youth')
+    // Typing clicks the input first, which opens the dropdown. Each keystroke re-renders MUI's
+    // listbox, so one letter is enough to search without making a slow test slower.
+    await user.type(groupInput, 'Y')
 
     // Find option in dropdown
     const option = await screen.findByRole('option', { name: 'Youth Group' })
     expect(option).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'Alpha Team' })).toBeNull()
 
     // Archived group should not be in the options
     expect(screen.queryByRole('option', { name: 'Archived Group' })).toBeNull()

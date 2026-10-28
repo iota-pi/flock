@@ -133,7 +133,7 @@ export async function getGlobalSyncMessagesAfterCursor(
  * otherwise after `afterCursor`
  */
 async function querySyncMessagePage<T>(
-  { client, tables }: DynamoContext,
+  { client, tables, syncMessagePageSize }: DynamoContext,
   {
     indexName,
     partitionKey,
@@ -153,7 +153,7 @@ async function querySyncMessagePage<T>(
     IndexName: indexName,
     // A continuation starts from the token, which already lies after the cursor
     ...cursorKeyCondition(partitionKey, partitionValue, startKey ? undefined : afterCursor),
-    Limit: SYNC_MESSAGE_PAGE_SIZE,
+    Limit: syncMessagePageSize,
     ExclusiveStartKey: startKey,
   }))
   return {

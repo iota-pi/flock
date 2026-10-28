@@ -4,6 +4,12 @@ import { zxcvbn, zxcvbnOptions } from '@zxcvbn-ts/core'
 import { usePasswordStrength } from './usePasswordStrength'
 
 describe('usePasswordStrength', () => {
+  // The hook imports these dictionaries before its first score. Loading them takes most of a second,
+  // and longer under load, which would use up `waitFor`'s 1s, so load them before the tests run.
+  beforeAll(async () => {
+    await Promise.all([import('@zxcvbn-ts/language-common'), import('@zxcvbn-ts/language-en')])
+  })
+
   beforeEach(() => {
     vi.spyOn(zxcvbnOptions, 'setOptions').mockImplementation(() => {})
     vi.spyOn(zxcvbnCore, 'zxcvbn').mockReturnValue({

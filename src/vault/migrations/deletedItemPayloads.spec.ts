@@ -29,9 +29,11 @@ async function readRow(item: string) {
 }
 
 describe('dropDeletedItemPayloads', () => {
+  // Often the worker's first DynamoDB request, which opens the connection, and then three
+  // `CreateTable`s: about 0.1s alone, but 1-5s and once over 10s while other suites load the machine
   beforeAll(async () => {
     await driver.init()
-  })
+  }, 30_000)
 
   afterAll(async () => {
     for (const table of Object.values(tables)) {

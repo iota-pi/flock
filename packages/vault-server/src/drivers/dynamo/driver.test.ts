@@ -1,6 +1,5 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
 import DynamoDriver from './driver'
-import { SYNC_MESSAGE_PAGE_SIZE } from './syncMessages'
 import { authenticateLogin, authenticateSession } from '../../authentication'
 import { AuthenticationError, InvalidPageTokenError } from '../../errors'
 import type { VaultAccountWithAuth } from '../vaultDriver'
@@ -671,11 +670,14 @@ describe('DynamoDriver', function () {
     const pageToken = (key: Record<string, unknown>) => Buffer.from(JSON.stringify(key)).toString('base64url')
 
     it('getSyncMessages pages through an item with opaque tokens', async () => {
+      // A small page needs only a few messages: DynamoDB Local takes seconds to write a full page's worth
+      const pageSize = 3
+      const pagingDriver = new DynamoDriver({ syncMessagePageSize: pageSize }).connect()
       const account = generateTestAccountId()
       const itemId = generateItemId()
       // More messages than fit on one page
-      const pushed = Array.from({ length: SYNC_MESSAGE_PAGE_SIZE + 1 }, (_, i) => 101 + i)
-      await driver.pushSyncMessagesBatch({
+      const pushed = Array.from({ length: pageSize + 1 }, (_, i) => 101 + i)
+      await pagingDriver.pushSyncMessagesBatch({
         account,
         messages: [100, ...pushed].map(cursor => ({
           itemId, entry: { cursor, encryptedMessage, createdAt: 1 },
@@ -686,7 +688,7 @@ describe('DynamoDriver', function () {
       let token: string | undefined
       let pages = 0
       do {
-        const page = await driver.getSyncMessages({ account, itemId, fromCursor: 100, pageToken: token })
+        const page = await pagingDriver.getSyncMessages({ account, itemId, fromCursor: 100, pageToken: token })
         cursors.push(...page.messages.map(m => m.cursor))
         token = page.nextPageToken
         expect(page.hasMore).toBe(!!token)
