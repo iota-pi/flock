@@ -208,7 +208,7 @@ export class ItemOperations {
 
     const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
 
-    await this.deps.docStore.changeDocument(
+    const overwritten = await this.deps.docStore.changeDocument(
       itemId,
       doc => {
         mutateDraftToMatchSnapshot(doc, localSnapshot)
@@ -218,6 +218,10 @@ export class ItemOperations {
       },
       { createIfMissing: true },
     )
+    // Leave the item quarantined and untouched, so the user can still choose another recovery action
+    if (!overwritten) {
+      throw new Error(`Could not open the local copy of ${itemId} to overwrite the server item.`)
+    }
 
     await this.recoveryManager.unquarantine(itemId)
 
@@ -231,7 +235,7 @@ export class ItemOperations {
     if (!this.deps.accountId) return
     this.assertNotSettingsDoc(itemId, 'delete')
 
-    await this.deps.docStore.changeDocument(
+    const markedDeleted = await this.deps.docStore.changeDocument(
       itemId,
       doc => {
         if (typeof doc.id !== 'string' || doc.id.length === 0) {
@@ -241,6 +245,14 @@ export class ItemOperations {
       },
       { createIfMissing: true },
     )
+    // Without the tombstone the delete never reaches the server, so hiding the item here would only
+    // drop it from this device. Leave it quarantined and indexed instead.
+    if (!markedDeleted) {
+      throw new Error(
+        `Could not delete ${itemId} because this device's copy of it could not be opened. ` +
+          'Replace it from the server first, then try again.',
+      )
+    }
 
     await this.recoveryManager.unquarantine(itemId)
 
