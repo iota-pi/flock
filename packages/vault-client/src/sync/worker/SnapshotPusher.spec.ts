@@ -1,8 +1,14 @@
 import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder } from './snapshotBuilder'
+import { SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS, SnapshotBuilder } from './snapshotBuilder'
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError } from './SyncApiClient'
+import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { spyOnExports } from '../../../test/moduleMocks'
+import { passthroughCodec } from './domain'
+import * as docStoreModule from './docStore'
+import * as automergeModule from './utils/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 
 describe('SnapshotPusher', () => {
   let pusher: SnapshotPusher
@@ -264,6 +270,119 @@ describe('SnapshotPusher', () => {
     await pusher.triggerSnapshotPush()
 
     expect(pusher.isRetryActive).toBe(false)
+  })
+
+  describe('a document lookup that never settles', () => {
+    let mockRepo: any
+    let findSignals: Map<string, AbortSignal>
+
+    beforeEach(() => {
+      spyOnExports(Automerge, {
+        save: () => new Uint8Array([1, 2, 3]),
+        getHeads: () => ['head'],
+      })
+      spyOnExports(docStoreModule, {
+        normalizeItemSnapshot: () => ({ type: 'topic' }),
+      })
+      spyOnExports(automergeModule, {
+        toAutomergeUrlFromItemId: (itemId: string) => `automerge:${itemId}`,
+      })
+
+      findSignals = new Map()
+      mockRepo = {
+        // item-1's handle stays pending, like one whose local records fail to decrypt
+        find: vi.fn((url: string, { signal }: { signal?: AbortSignal } = {}) => {
+          if (signal) findSignals.set(url, signal)
+          if (url !== 'automerge:item-1') {
+            return Promise.resolve({ isReady: () => true, doc: () => ({ id: url }) })
+          }
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+          })
+        }),
+      }
+      const keys = createMockKeyProvider({
+        ...createMockVault(),
+        encryptBytes: vi.fn().mockResolvedValue({ cipher: 'abc', iv: '123', kver: '1' }),
+      })
+      mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      mockApiClient.putSnapshots.mockResolvedValue({
+        success: true,
+        persisted: 1,
+        results: [{ itemId: 'item-2', version: 2 }],
+      })
+
+      pusher = new SnapshotPusher({
+        accountId: 'test-acc',
+        tracker: mockTracker as unknown as SnapshotTracker,
+        builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
+        broker: mockBroker,
+        apiClient: mockApiClient,
+        recoveryManager: mockRecoveryManager,
+        eventHub: mockEventHub,
+        maxPayloadBytes: 10_000,
+      })
+    })
+
+    it('fails that item after the lookup timeout and still uploads the later items', async () => {
+      let settled = false
+      const push = pusher.triggerSnapshotPush().then(result => {
+        settled = true
+        return result
+      })
+
+      await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS - 1)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+
+      await expect(push).resolves.toEqual({ persisted: 1, total: 1 })
+      expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
+      expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-2'])
+      expect(pusher.consecutiveFailures.get('item-1' as ItemId)).toBe(1)
+      // A failed item leaves the push unsuccessful, so it's retried with backoff
+      expect(pusher.isRetryActive).toBe(true)
+    })
+
+    it('quarantines the item once its lookups have timed out too many times', async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const push = pusher.triggerSnapshotPush()
+        await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS)
+        await push
+        pusher.cancelRetry()
+      }
+
+      expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
+      expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
+        'item-1',
+        'snapshotFailure',
+        expect.stringContaining('Document lookup timed out'),
+      )
+    })
+
+    it('stops at once when the push is aborted, without counting a failure', async () => {
+      const push = pusher.triggerSnapshotPush()
+      await vi.waitFor(() => expect(findSignals.has('automerge:item-1')).toBe(true))
+
+      pusher.abortPush()
+
+      await expect(push).resolves.toEqual({ persisted: 0, total: 0 })
+      expect(findSignals.get('automerge:item-1')?.aborted).toBe(true)
+      expect(mockRepo.find).toHaveBeenCalledTimes(1)
+      expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
+      expect(pusher.consecutiveFailures.size).toBe(0)
+      expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+      expect(pusher.isRetryActive).toBe(false)
+    })
+
+    it('lets shutdown finish while the lookup is pending', async () => {
+      const push = pusher.triggerSnapshotPush()
+      await vi.waitFor(() => expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', expect.anything()))
+
+      await pusher.shutdown()
+
+      await expect(push).resolves.toEqual({ persisted: 0, total: 0 })
+      expect(vi.getTimerCount()).toBe(0)
+    })
   })
 
   it('handles push gracefully if no auth token is present (AuthError)', async () => {
