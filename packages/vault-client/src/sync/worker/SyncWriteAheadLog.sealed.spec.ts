@@ -75,22 +75,93 @@ describe('SyncWriteAheadLog with a cipher', () => {
 
     expect(entries).toEqual([expect.objectContaining({ id: 'batched', data: batch, isBatched: true })])
   })
-  it('skips an entry that cannot be opened, reports it and asks for a snapshot instead', async () => {
+  function corrupt(id: string): void {
+    storeFor('sealedWalDatabase')!.data.get(id).sealed.ct[0] ^= 1
+  }
+
+  it('skips an entry that cannot be opened and asks for a snapshot instead', async () => {
     const goodId = await wal.append('item-1' as ItemId, MESSAGE)
     const badId = await wal.append('item-2' as ItemId, MESSAGE)
     const store = storeFor('sealedWalDatabase')!
-    const bad = store.data.get(badId)
-    bad.sealed.ct[0] ^= 1
+    corrupt(badId)
 
     const entries = await wal.readAll()
 
     expect(Array.from(entries.keys())).toEqual(['item-1'])
     expect(entries.get('item-1' as ItemId)![0].id).toBe(goodId)
     expect(store.data.has(badId)).toBe(true)
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'localDecryptionFailed', itemId: 'item-2' }),
+    expect(events).toEqual([{ type: 'snapshotFallbackRequested', itemId: 'item-2' }])
+  })
+
+  it('does not quarantine the item for an unreadable entry, since the document itself is readable', async () => {
+    const badId = await wal.append('item-2' as ItemId, MESSAGE)
+    corrupt(badId)
+
+    await wal.readAll()
+    await wal.readAll()
+
+    expect(events.some(event => event.type === 'localDecryptionFailed')).toBe(false)
+  })
+
+  it('asks for a snapshot once per unreadable entry, however often it is read', async () => {
+    const goodId = await wal.append('item-1' as ItemId, MESSAGE)
+    const firstBadId = await wal.append('item-2' as ItemId, MESSAGE)
+    const secondBadId = await wal.append('item-3' as ItemId, MESSAGE)
+    corrupt(firstBadId)
+    corrupt(secondBadId)
+
+    await wal.readAll()
+    await wal.readAll()
+    const entries = await wal.readAll()
+
+    expect(events.filter(event => event.type === 'snapshotFallbackRequested')).toEqual(expect.arrayContaining([
       { type: 'snapshotFallbackRequested', itemId: 'item-2' },
+      { type: 'snapshotFallbackRequested', itemId: 'item-3' },
     ]))
+    expect(events).toHaveLength(2)
+    expect(entries.get('item-1' as ItemId)).toEqual([expect.objectContaining({ id: goodId, data: MESSAGE })])
+  })
+
+  it('reports a newly unreadable entry for an item that already had one', async () => {
+    const firstBadId = await wal.append('item-2' as ItemId, MESSAGE)
+    corrupt(firstBadId)
+    await wal.readAll()
+    const secondBadId = await wal.append('item-2' as ItemId, MESSAGE)
+    corrupt(secondBadId)
+
+    await wal.readAll()
+
+    expect(events).toEqual([
+      { type: 'snapshotFallbackRequested', itemId: 'item-2' },
+      { type: 'snapshotFallbackRequested', itemId: 'item-2' },
+    ])
+  })
+
+  it('still prunes and removes unreadable entries', async () => {
+    const badId = await wal.append('item-2' as ItemId, MESSAGE)
+    const otherBadId = await wal.append('item-3' as ItemId, MESSAGE)
+    corrupt(badId)
+    corrupt(otherBadId)
+    await wal.readAll()
+    const store = storeFor('sealedWalDatabase')!
+
+    await wal.handleQuotaExceeded()
+    expect(store.data.has(badId)).toBe(false)
+    expect(store.data.has(otherBadId)).toBe(false)
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'walEntriesPruned' }),
+    ]))
+  })
+
+  it('does not mark an unreadable entry in flight or block readable entries of the same item', async () => {
+    const badId = await wal.append('item-1' as ItemId, MESSAGE)
+    const goodId = await wal.append('item-1' as ItemId, MESSAGE)
+    corrupt(badId)
+
+    const entries = (await wal.readAll()).get('item-1' as ItemId)!
+
+    expect(entries.map(entry => entry.id)).toEqual([goodId])
+    expect(wal.isInFlight(badId)).toBe(false)
   })
 
   it('refuses an entry moved to another item', async () => {

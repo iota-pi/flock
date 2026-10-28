@@ -288,7 +288,7 @@ Deleting a database under a live old-build tab is unsafe. The old adapter closes
 
 `SyncWriteAheadLog` seals `entry.data` in `append` and `importEntries` and opens it in `readAll`, with the WAL associated data above. Like IndexedDB, localforage's `iterate` callback can't await, so it collects the entries first and decrypts them afterwards. Everything else about the WAL is unchanged, including pruning, `replaces` (on entries older versions compacted) and in-flight tracking.
 
-- **An entry that can't be opened is skipped, not thrown.** The WAL only delivers changes, which the local document holds (sync rule 1), and throwing would stall every push. The entry stays for pruning, the item is reported as `localDecryption`, and a snapshot is requested instead. It supersedes nothing, so the entries it replaced stay deliverable.
+- **An entry that can't be opened is skipped, not thrown.** The WAL only delivers changes, which the local document holds (sync rule 1), and throwing would stall every push. The entry stays for pruning and a snapshot is requested instead, once per entry per WAL instance, since `readAll` runs on every poll. The item isn't quarantined as `localDecryption`: only the WAL record is unreadable, and the document is fine, so the recovery UI mustn't offer to discard it. It supersedes nothing, so the entries it replaced stay deliverable.
 
 ### Index document
 
