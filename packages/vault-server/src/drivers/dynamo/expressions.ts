@@ -60,6 +60,17 @@ export function buildUpdateParams({ set = {}, remove = [], condition }: DynamoUp
   }
 }
 
+/** The key condition for every record in a partition */
+export function partitionKeyCondition(
+  partitionKey: string,
+  partitionValue: unknown,
+): Pick<QueryCommandInput, 'KeyConditionExpression' | 'ExpressionAttributeValues'> {
+  return {
+    KeyConditionExpression: `${partitionKey} = :${partitionKey}`,
+    ExpressionAttributeValues: { [`:${partitionKey}`]: partitionValue },
+  }
+}
+
 /**
  * The key condition for a partition, optionally limited to cursors strictly after `afterCursor`.
  * Pulls have no lookback (docs/sync-design.md).
@@ -69,17 +80,14 @@ export function cursorKeyCondition(
   partitionValue: unknown,
   afterCursor: number | undefined,
 ): Pick<QueryCommandInput, 'KeyConditionExpression' | 'ExpressionAttributeNames' | 'ExpressionAttributeValues'> {
-  const keyCondition = `${partitionKey} = :${partitionKey}`
+  const partition = partitionKeyCondition(partitionKey, partitionValue)
   if (typeof afterCursor !== 'number') {
-    return {
-      KeyConditionExpression: keyCondition,
-      ExpressionAttributeValues: { [`:${partitionKey}`]: partitionValue },
-    }
+    return partition
   }
   return {
-    KeyConditionExpression: `${keyCondition} AND #c > :cursor`,
+    KeyConditionExpression: `${partition.KeyConditionExpression} AND #c > :cursor`,
     ExpressionAttributeNames: { '#c': 'cursor' },
-    ExpressionAttributeValues: { [`:${partitionKey}`]: partitionValue, ':cursor': afterCursor },
+    ExpressionAttributeValues: { ...partition.ExpressionAttributeValues, ':cursor': afterCursor },
   }
 }
 

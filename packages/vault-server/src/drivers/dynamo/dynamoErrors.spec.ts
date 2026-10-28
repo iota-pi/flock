@@ -25,9 +25,9 @@ describe('dynamoErrors', () => {
       })).toBe(true)
     })
 
-    it('returns true for errors with matching message substrings', () => {
-      expect(isResourceInUseError(new Error('ResourceInUseException occurred'))).toBe(true)
-      expect(isResourceInUseError(new Error('Cannot create table: Table already exists'))).toBe(true)
+    it('ignores the message, which could match unrelated errors', () => {
+      expect(isResourceInUseError(new Error('ResourceInUseException occurred'))).toBe(false)
+      expect(isResourceInUseError(new Error('Cannot create table: Table already exists'))).toBe(false)
     })
 
     it('returns false for unrelated errors or non-object values', () => {
@@ -48,14 +48,16 @@ describe('dynamoErrors', () => {
       expect(isConditionalCheckFailure(err)).toBe(true)
     })
 
-    it('returns true for error-like objects and message patterns', () => {
+    it('returns true for error-like objects with name, code, or __type', () => {
       expect(isConditionalCheckFailure({ name: 'ConditionalCheckFailedException' })).toBe(true)
       expect(isConditionalCheckFailure({ code: 'ConditionalCheckFailedException' })).toBe(true)
       expect(isConditionalCheckFailure({
         __type: 'com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException',
       })).toBe(true)
-      expect(isConditionalCheckFailure(new Error('The conditional request failed'))).toBe(true)
-      expect(isConditionalCheckFailure(new Error('Item ConditionalCheckFailed'))).toBe(true)
+    })
+
+    it('ignores the message, which could match unrelated errors', () => {
+      expect(isConditionalCheckFailure(new Error('The conditional request failed'))).toBe(false)
     })
 
     it('returns false for unrelated errors or non-object values', () => {

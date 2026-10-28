@@ -407,7 +407,7 @@ describe('DynamoDriver', function () {
     expect(result.keyring).toBe(keyringValue)
   })
 
-  it('can push and get sync messages, in cursor order', async () => {
+  it('can push and get sync messages, in cursor order and without their record keys', async () => {
     const account = generateTestAccountId()
     const itemId = 'test-item-123' as ItemId
     const entry1 = {
@@ -426,8 +426,7 @@ describe('DynamoDriver', function () {
     await driver.pushSyncMessagesBatch({ account, messages: [{ itemId, entry: entry1 }] })
 
     const result = await driver.getSyncMessages({ account, itemId })
-    expect(result.messages.length).toBe(2)
-    expect(result.messages.map(m => m.cursor)).toEqual([1001, 1002])
+    expect(result.messages).toEqual([entry1, entry2])
   })
 
   it('session eviction on updateAccountData works', async () => {

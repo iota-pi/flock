@@ -12,8 +12,8 @@ export interface PersistSnapshotsResult {
 }
 
 /**
- * Persists a batch of encrypted item snapshots into the vault,
- * records error diagnostics for any rejected writes.
+ * Persists a batch of encrypted item snapshots, each written on its own. Logs any write that fails
+ * and reports which ones were persisted.
  */
 export async function persistSnapshots(
   vault: VaultDriver,
@@ -41,16 +41,15 @@ export async function persistSnapshots(
     })
   )
 
-  const persistedResults: Array<{ itemId: ItemId; version: number }> = []
-  results.forEach((result, index) => {
+  const persistedResults = results.flatMap((result, index) => {
     if (result.status === 'fulfilled') {
-      persistedResults.push(result.value)
-    } else {
-      console.error(
-        `[snapshotService.persistSnapshots] Failed to persist snapshot for item ${input.snapshots[index].itemId}:`,
-        result.reason,
-      )
+      return [result.value]
     }
+    console.error(
+      `[snapshotService.persistSnapshots] Failed to persist snapshot for item ${input.snapshots[index].itemId}:`,
+      result.reason,
+    )
+    return []
   })
   const persisted = persistedResults.length
 

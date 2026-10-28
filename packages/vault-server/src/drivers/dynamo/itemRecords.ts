@@ -6,11 +6,11 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 import { chunk } from 'lodash-es'
 import type { ItemId, ManifestEntry } from '@vault/shared'
-import type { BaseData, ItemFormatSummary, VaultItem } from '../vaultDriver'
+import type { BaseData, FetchedVaultItem, ItemFormatSummary, VaultItem } from '../vaultDriver'
 import type { VaultTableNames } from './config'
-import { buildUpdateParams, cursorKeyCondition, projection, RawUpdateValue } from './expressions'
+import { buildUpdateParams, partitionKeyCondition, projection, RawUpdateValue } from './expressions'
 import { sendBatchWithRetry } from './batchRetry'
-import { decodeStoredSnapshotCipher, toStoredItem, validateItem } from './items'
+import { fromStoredItem, toStoredItem, validateItem } from './items'
 import { queryAll, sendConditional, type DynamoContext } from './commands'
 
 const FETCH_BATCH_SIZE = 100
@@ -81,7 +81,7 @@ export async function fetchManifest({ client, tables }: DynamoContext, { account
   const manifest: ManifestEntry[] = []
   const records = queryAll(client, {
     TableName: tables.items,
-    ...cursorKeyCondition('account', account, undefined),
+    ...partitionKeyCondition('account', account),
     ...projection(['item', 'version', 'modifiedAt', 'metadata.modified', 'metadata.deleted', 'deleted']),
   })
 
@@ -111,7 +111,7 @@ export async function listItemFormats(
   const formats: ItemFormatSummary[] = []
   const records = queryAll(client, {
     TableName: tables.items,
-    ...cursorKeyCondition('account', account, undefined),
+    ...partitionKeyCondition('account', account),
     ...projection(['item', 'metadata.deleted', 'snapshot.iv', 'snapshot.format', 'snapshot.kver', 'cipher']),
   })
 
@@ -136,7 +136,7 @@ export async function listItemFormats(
 export async function fetchByIds(
   { client, tables }: DynamoContext,
   { account, itemIds }: BaseData & { itemIds: ItemId[] },
-): Promise<VaultItem[]> {
+): Promise<FetchedVaultItem[]> {
   // BatchGet rejects duplicate keys
   const uniqueItemIds = Array.from(new Set(itemIds))
   const batches = chunk(uniqueItemIds, FETCH_BATCH_SIZE)
@@ -163,9 +163,7 @@ export async function fetchByIds(
     }),
   )
 
-  const results = batchResults.flat()
-  results.forEach(decodeStoredSnapshotCipher)
-  return results
+  return batchResults.flat().map(fromStoredItem)
 }
 
 /** The version that a write to the items table returned */

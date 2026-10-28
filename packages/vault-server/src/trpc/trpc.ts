@@ -41,15 +41,13 @@ export interface UnknownAccountParams {
   kdf?: KdfParams
 }
 
-type TrpcContext = {
-  authToken: string,
-  vault: VaultDriver,
-  /** The protocol version the client sent (0 for builds that predate the header) */
-  protocolVersion: number,
-  minProtocolVersion: number,
-  dataVersionPolicy?: DataVersionPolicy,
-  unknownAccountParams?: UnknownAccountParams,
-}
+type TrpcContext = Required<Pick<VaultServerOptions, 'vault' | 'minProtocolVersion'>>
+  & Pick<VaultServerOptions, 'dataVersionPolicy' | 'unknownAccountParams'>
+  & {
+    authToken: string,
+    /** The protocol version the client sent (0 for builds that predate the header) */
+    protocolVersion: number,
+  }
 
 function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
   if (!authorizationHeader) {

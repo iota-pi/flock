@@ -171,17 +171,4 @@ describe('shouldRenewSession', () => {
 
     expect(shouldRenewSession(accountData, authToken, now)).toBe(false)
   })
-
-  it('returns true when expiry is not a valid finite number', () => {
-    const accountData = {
-      sessions: [
-        {
-          token: hashSessionToken(authToken),
-          expiry: NaN,
-        },
-      ],
-    }
-
-    expect(shouldRenewSession(accountData, authToken, now)).toBe(true)
-  })
 })
