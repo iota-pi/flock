@@ -6,7 +6,7 @@ import { generateItemId } from '@vault/shared'
 import { dropDeletedItemPayloads } from './deletedItemPayloads'
 
 // The migration scans a whole table, so it runs against tables of its own rather than the ones
-// other test files share. Always DynamoDB Local (`yarn initdb`'s endpoint), never AWS.
+// other test files share. Always the test DynamoDB Local (vitest.config.ts), never AWS.
 const suffix = randomUUID().slice(0, 8)
 const tables = {
   accounts: `DeletedPayloadsTestAccounts_${suffix}`,
@@ -14,7 +14,7 @@ const tables = {
   syncMessages: `DeletedPayloadsTestSyncMessages_${suffix}`,
 }
 const driver = new DynamoDriver({ tables }).connect({
-  endpoint: process.env.DYNAMODB_ENDPOINT ?? 'http://127.0.0.1:8000',
+  endpoint: process.env.DYNAMODB_ENDPOINT ?? 'http://127.0.0.1:8001',
   region: 'local',
   credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
 })

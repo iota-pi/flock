@@ -1,4 +1,5 @@
 services:
+  # For `yarn start`: keeps its data in a volume across restarts
   dynamodb:
     image: amazon/dynamodb-local
     command: [ "-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "." ]
@@ -6,6 +7,13 @@ services:
       - 8000:8000
     volumes:
       - dynamodata:/home/dynamodblocal
+
+  # For tests: in memory, so writes are fast and a restart clears it. The tests create its tables.
+  dynamodb-test:
+    image: amazon/dynamodb-local
+    command: [ "-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory" ]
+    ports:
+      - 8001:8000
 
 volumes:
   dynamodata:

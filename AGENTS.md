@@ -15,6 +15,8 @@ yarn initdb           # Create local DynamoDB tables (DYNAMODB_ENDPOINT=http://l
 yarn e2e              # Cypress (needs `yarn start` running)
 ```
 
+`docker compose up -d` runs two DynamoDB Locals: `dynamodb` (port 8000) keeps `yarn start`'s data, and `dynamodb-test` (port 8001) is in memory for unit tests, which create its tables themselves (`vitest.dynamodb.ts`). Tests always use 8001 (or `TEST_DYNAMODB_ENDPOINT`), whatever `DYNAMODB_ENDPOINT` says.
+
 CI runs `test run`, `typecheck` and `lint` on every PR, so run all three before calling work done.
 
 ## Style

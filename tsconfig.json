@@ -24,6 +24,7 @@
     "src",
     "vitest.config.ts",
     "vitest.setup.ts",
+    "vitest.dynamodb.ts",
     "scripts"
   ],
   "exclude": [

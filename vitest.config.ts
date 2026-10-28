@@ -1,8 +1,13 @@
 import { defineConfig } from 'vitest/config'
 
+// The in-memory DynamoDB Local that `docker compose` runs for tests (`dynamodb-test`). Tests ignore
+// a DYNAMODB_ENDPOINT from the shell, which may name the `yarn start` database.
+const TEST_DYNAMODB_ENDPOINT = process.env.TEST_DYNAMODB_ENDPOINT || 'http://127.0.0.1:8001'
+
 export default defineConfig({
   test: {
     globals: true,
+    env: { DYNAMODB_ENDPOINT: TEST_DYNAMODB_ENDPOINT },
     silent: 'passed-only',
     execArgv: ['--no-webstorage'],
     pool: 'threads',
@@ -46,6 +51,7 @@ export default defineConfig({
         test: {
           name: 'vault',
           environment: 'node',
+          globalSetup: ['./vitest.dynamodb.ts'],
           setupFiles: ['./src/setupTests.ts'],
           include: ['src/vault/**/*.{test,spec}.ts'],
         },
@@ -72,6 +78,7 @@ export default defineConfig({
         test: {
           name: 'vault-server',
           environment: 'node',
+          globalSetup: ['./vitest.dynamodb.ts'],
           setupFiles: ['./packages/vault-server/test/setup.ts'],
           include: ['packages/vault-server/src/**/*.{test,spec}.ts'],
         },

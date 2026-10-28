@@ -97,6 +97,10 @@ docker compose up -d
 yarn initdb
 ```
 
+Compose runs two DynamoDB Locals: `dynamodb` on port 8000 holds the data for `yarn start`, and
+`dynamodb-test` on port 8001 runs in memory for unit tests. Tests create their own tables, and
+restarting that container clears it.
+
 ## Run Locally
 
 ```shell

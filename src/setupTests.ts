@@ -57,12 +57,8 @@ if (typeof (globalThis as any).TextDecoder === 'undefined') {
   })
 }
 
-// Ensure `DYNAMODB_ENDPOINT` is set when running tests locally from the host
-// Default to the common DynamoDB Local address used by `docker compose`
-if (!process.env.DYNAMODB_ENDPOINT) {
-  process.env.DYNAMODB_ENDPOINT = 'http://127.0.0.1:8000'
-}
-// Table names used by the vault's DynamoDriver (created locally by `yarn initdb`)
+// Table names used by the vault's DynamoDriver (created in the test DynamoDB by vitest.dynamodb.ts,
+// which vitest.config.ts points DYNAMODB_ENDPOINT at)
 process.env.ACCOUNTS_TABLE ??= 'FlockAccounts'
 process.env.ITEMS_TABLE ??= 'FlockItems'
 process.env.SYNC_MESSAGES_TABLE ??= 'FlockSyncMessages'

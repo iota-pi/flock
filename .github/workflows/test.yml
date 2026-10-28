@@ -19,18 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
+      # The image runs in memory by default. Tests expect it where `docker compose` puts
+      # `dynamodb-test`, and create its tables themselves.
       dynamodb:
         image: amazon/dynamodb-local
         ports:
-          - 8000:8000
+          - 8001:8000
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-
-      - name: Initialise database
-        run: yarn initdb
-        env:
-          DYNAMODB_ENDPOINT: http://localhost:8000
 
       - name: Run Tests
         run: yarn test run
