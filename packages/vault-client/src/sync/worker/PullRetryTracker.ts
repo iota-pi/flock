@@ -231,15 +231,33 @@ export class PullRetryTracker {
     return cursors
   }
 
+  /**
+   * Replaces the per-item cursors with the ones a backup carried.
+   *
+   * The global scan cursor is left alone. A backup's per-item cursors can run ahead of the scan
+   * that produced them, and the list only covers items its device had pulled, so no value
+   * derived from them proves that every other item's messages below it were applied. Messages
+   * at or below an item's restored cursor are still skipped, per item, by `initialCursor`.
+   *
+   * Restored cursors are not retries: they go in `itemCursors`, so they don't trigger per-item
+   * pulls. Items that were already waiting for a pull stay pending, from the restored cursor if
+   * the backup has one.
+   */
   importCursors(cursors: [ItemId, number][]): void {
-    this.retryQueue.clear()
+    for (const [itemId, state] of this.retryQueue.entries()) {
+      if (!state.pending) {
+        this.retryQueue.delete(itemId)
+      }
+    }
     this.itemCursors.clear()
     for (const [itemId, cursor] of cursors) {
       if (isValidCursor(cursor)) {
-        this.globalCursor = Math.max(this.globalCursor, cursor)
         this.itemCursors.set(itemId, cursor)
-        const state = this.getOrCreateState(itemId)
-        state.cursor = cursor
+        const pendingState = this.retryQueue.get(itemId)
+        if (pendingState && pendingState.cursor !== cursor) {
+          pendingState.cursor = cursor
+          pendingState.pageToken = undefined
+        }
       }
     }
   }
@@ -307,7 +325,6 @@ export class PullRetryTracker {
 
       if (nextRetries >= maxRetries) {
         // Retries exhausted: skip past the failing message
-        pending = false
         retryCount = 0
         permanentlyFailed = true
 
@@ -321,7 +338,18 @@ export class PullRetryTracker {
           highestCursor = Math.max(highestCursor, advanceCursor)
         }
         targetCursor = highestCursor
-        removeFromRetryQueue = true
+
+        // Messages after the failing one in this response were never processed, and the global
+        // scan has usually passed them, so the item stays pending and the next per-item pull
+        // continues after the skipped message. That is only safe when skipping moved the cursor
+        // forward: otherwise the next pull would return the same message and spin, so the item
+        // is dropped as before.
+        if (highestCursor > state.cursor) {
+          pending = true
+        } else {
+          pending = false
+          removeFromRetryQueue = true
+        }
         updateGlobalCursor = true
       } else {
         pending = true
