@@ -1,5 +1,5 @@
 import { MAX_ITEM_SIZE } from '@vault/shared'
-import type { VaultItem } from '../vaultDriver'
+import type { FetchedVaultItem, VaultItem } from '../vaultDriver'
 
 /**
  * Throws unless the item has a payload and fits in MAX_ITEM_SIZE (measuring a binary snapshot
@@ -68,10 +68,11 @@ export function toStoredItem(item: VaultItem): VaultItem {
   }
 }
 
-/** Turns a stored item's binary snapshot ciphertext back into the base64 clients read, in place */
-export function decodeStoredSnapshotCipher(record: VaultItem): void {
+/** The stored item with its binary snapshot ciphertext back in the base64 clients read */
+export function fromStoredItem(record: VaultItem): FetchedVaultItem {
   const cipher = record.snapshot?.cipher
-  if (cipher instanceof Uint8Array) {
-    record.snapshot!.cipher = Buffer.from(cipher).toString('base64')
+  if (!(cipher instanceof Uint8Array)) {
+    return record
   }
+  return { ...record, snapshot: { ...record.snapshot!, cipher: Buffer.from(cipher).toString('base64') } }
 }

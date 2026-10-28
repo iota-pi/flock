@@ -7,6 +7,7 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
 import type {
   AuthData,
   BaseData,
+  FetchedVaultItem,
   GetGlobalSyncMessagesInput,
   GetSyncMessagesInput,
   GlobalSyncMessagesPage,
@@ -137,7 +138,7 @@ export default class DynamoDriver implements VaultDriver {
     return itemRecords.listItemFormats(this.context, data)
   }
 
-  async fetchByIds(data: BaseData & { itemIds: ItemId[] }): Promise<VaultItem[]> {
+  async fetchByIds(data: BaseData & { itemIds: ItemId[] }): Promise<FetchedVaultItem[]> {
     return itemRecords.fetchByIds(this.context, data)
   }
 

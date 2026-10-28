@@ -10,11 +10,11 @@ import {
   TOO_MANY_REQUESTS_MESSAGE,
   VersionConflictError,
 } from '@vault/shared'
-import { fakeSalt, generateAccountId, hashString, safeEqual } from '../../util'
+import { fakeSalt, generateAccountId, hashString } from '../../util'
 import { addSessionRecord, findSession, SESSION_EXPIRY_MS } from '../../sessions'
 import { raiseDataVersion } from '../../services/dataVersion'
 import { AuthenticationError, TooManyLoginAttemptsError } from '../../errors'
-import { authenticateLogin } from '../../authentication'
+import { authenticateLogin, matchesAuthTokenHash } from '../../authentication'
 import { toTrpcError } from '../errors'
 import type { StoredAccount, VaultAccountWithAuth } from '../../drivers/vaultDriver'
 import type { KdfParams } from '@vault/shared'
@@ -35,7 +35,7 @@ interface SecurityParams {
 
 /** Credential changes need the current password as well as the session */
 function assertCurrentAuthToken(accountData: VaultAccountWithAuth, currentAuthToken: string): void {
-  if (!safeEqual(accountData.authToken, hashString(currentAuthToken))) {
+  if (!matchesAuthTokenHash(accountData, hashString(currentAuthToken))) {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
   }
 }
@@ -46,7 +46,7 @@ function accountSecurityParams(record: StoredAccount): SecurityParams {
     salt: typeof record.salt === 'string' ? record.salt : record.account,
     iterations: record.iterations,
     saltVersion: record.saltVersion,
-    ...(record.kdf ? { kdf: record.kdf } : {}),
+    kdf: record.kdf,
     dataVersion: record.dataVersion,
   }
 }
@@ -139,15 +139,11 @@ export const accountsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' })
       }
 
-      const { salt, iterations, saltVersion, kdf, dataVersion } = params
       return {
         success: true,
-        salt,
-        iterations,
-        saltVersion,
-        kdf,
+        ...params,
         // Returned before login, so that the app can route accounts that need migrating
-        dataVersion: dataVersion ?? 0,
+        dataVersion: params.dataVersion ?? 0,
       }
     }),
 

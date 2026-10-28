@@ -4,6 +4,11 @@ import { isLoginLocked } from './loginThrottle'
 import { isSessionFor, normalizeSessionRecords } from './sessions'
 import { safeEqual } from './util'
 
+/** Whether `authTokenHash`, the hash of the auth token a client sent, is the account's */
+export function matchesAuthTokenHash(record: Pick<StoredAccount, 'authToken'>, authTokenHash: string): boolean {
+  return !!authTokenHash && safeEqual(authTokenHash, record.authToken)
+}
+
 /**
  * Checks a login against the stored account record. `authTokenHash` is the hash of the auth token
  * the client sent. Returns normally when the login is valid. Throws `TooManyLoginAttemptsError`
@@ -22,7 +27,7 @@ export function authenticateLogin(
   if (isLoginLocked(record, now)) {
     throw new TooManyLoginAttemptsError(`Too many failed logins for account ${record.account}`)
   }
-  if (!authTokenHash || !safeEqual(authTokenHash, record.authToken)) {
+  if (!matchesAuthTokenHash(record, authTokenHash)) {
     // Give same error as if account not found to avoid leaking account ids
     throw new AuthenticationError(`Could not find account ${record.account}`)
   }
