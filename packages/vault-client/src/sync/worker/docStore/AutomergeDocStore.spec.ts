@@ -1,4 +1,10 @@
-import { Repo, DocHandle } from '@automerge/automerge-repo/slim'
+import {
+  Repo,
+  DocHandle,
+  type Chunk,
+  type StorageAdapterInterface,
+  type StorageKey,
+} from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import type {
   AutomergeDocStore,
@@ -228,9 +234,38 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(mergedItem?.description).toBe('Remote Server Desc')
     })
 
-    it('Branch 3b: throws error refusing to overwrite when document is known to exist but storage binary is missing/empty', async () => {
+    it('Branch 3b: seeds a document hinted knownToExist when storage confirms it is absent (replace from server)', async () => {
       const customRepo = new Repo()
-      const itemId = 'branch3b-missing-binary' as ItemId
+      const itemId = 'branch3b-indexed-but-absent' as ItemId
+      const remoteBinary = createDocBinary(itemId, { name: 'Server Copy' })
+
+      vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+      // @ts-expect-error mocking storageSubsystem
+      customRepo.storageSubsystem = {
+        loadDocData: vi.fn().mockResolvedValue(undefined),
+      }
+
+      const storageAdapter: DocStorageChecker = { has: vi.fn().mockResolvedValue(false) }
+      const customStore = createTestDocStore(customRepo, { storageAdapter })
+      const seedSpy = vi.spyOn(customStore, 'seedImportedDocument')
+
+      const result = await customStore.hydrateAutomergeDocumentBinary(
+        itemId,
+        remoteBinary,
+        { knownToExist: true },
+      )
+
+      expect(storageAdapter.has).toHaveBeenCalledWith([toDocumentIdFromItemId(itemId)])
+      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary)
+      expect(result.hasLocalChanges).toBe(false)
+      const retrieved = await customStore.getAutomergeItem(itemId)
+      expect(retrieved?.name).toBe('Server Copy')
+    })
+
+    it('Branch 3b: refuses to overwrite when storage has the document but its binary could not be loaded', async () => {
+      const customRepo = new Repo()
+      const itemId = 'branch3b-present-unloadable' as ItemId
       const remoteBinary = createDocBinary(itemId)
 
       vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
@@ -240,11 +275,40 @@ describe('AutomergeDocStore Unit Tests', () => {
         loadDocData: vi.fn().mockResolvedValue(undefined),
       }
 
-      const customStore = createTestDocStore(customRepo)
+      const storageAdapter: DocStorageChecker = { has: vi.fn().mockResolvedValue(true) }
+      const customStore = createTestDocStore(customRepo, { storageAdapter })
+      const seedSpy = vi.spyOn(customStore, 'seedImportedDocument')
+
+      for (const options of [{ knownToExist: true }, {}]) {
+        await expect(
+          customStore.hydrateAutomergeDocumentBinary(itemId, remoteBinary, options)
+        ).rejects.toThrow(`Refusing to overwrite existing storage data for ${itemId}`)
+      }
+      expect(seedSpy).not.toHaveBeenCalled()
+    })
+
+    it('Branch 3b: refuses to seed when the storage existence check fails', async () => {
+      const customRepo = new Repo()
+      const itemId = 'branch3b-check-fails' as ItemId
+      const remoteBinary = createDocBinary(itemId)
+
+      vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+      // @ts-expect-error mocking storageSubsystem
+      customRepo.storageSubsystem = {
+        loadDocData: vi.fn().mockResolvedValue(undefined),
+      }
+
+      const storageAdapter: DocStorageChecker = {
+        has: vi.fn().mockRejectedValue(new Error('Storage lock contention')),
+      }
+      const customStore = createTestDocStore(customRepo, { storageAdapter })
+      const seedSpy = vi.spyOn(customStore, 'seedImportedDocument')
 
       await expect(
         customStore.hydrateAutomergeDocumentBinary(itemId, remoteBinary, { knownToExist: true })
-      ).rejects.toThrow(`Refusing to overwrite existing storage data for ${itemId}`)
+      ).rejects.toThrow('Storage lock contention')
+      expect(seedSpy).not.toHaveBeenCalled()
     })
 
     it('Branch 3b: throws error refusing to overwrite when storage binary is corrupt and fallback CRDT merge fails', async () => {
@@ -1093,6 +1157,97 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(exported.documents['missing-item' as BackupDocId]).toBeUndefined()
 
       indexManager.close()
+    })
+  })
+
+  describe('hydration merges into storage', () => {
+    class MemoryStorage implements StorageAdapterInterface {
+      readonly data = new Map<string, { key: StorageKey, data: Uint8Array }>()
+
+      private static id(key: StorageKey): string {
+        return JSON.stringify(key)
+      }
+
+      private static matches(key: StorageKey, prefix: StorageKey): boolean {
+        return prefix.every((part, index) => key[index] === part)
+      }
+
+      async load(key: StorageKey) {
+        return this.data.get(MemoryStorage.id(key))?.data
+      }
+
+      async save(key: StorageKey, data: Uint8Array) {
+        this.data.set(MemoryStorage.id(key), { key, data })
+      }
+
+      async remove(key: StorageKey) {
+        this.data.delete(MemoryStorage.id(key))
+      }
+
+      async loadRange(prefix: StorageKey): Promise<Chunk[]> {
+        return [...this.data.values()].filter(chunk => MemoryStorage.matches(chunk.key, prefix))
+      }
+
+      async removeRange(prefix: StorageKey) {
+        for (const [id, chunk] of this.data) {
+          if (MemoryStorage.matches(chunk.key, prefix)) this.data.delete(id)
+        }
+      }
+
+      /** Document IDs with chunks in storage (the Repo's storage ID record isn't a document) */
+      documentIds(): Set<string> {
+        return new Set([...this.data.values()].filter(c => c.key.length > 1).map(c => c.key[0]))
+      }
+    }
+
+    // Longer than the Repo's throttled save delay, so pending saves have landed
+    const waitForSaves = () => new Promise(resolve => setTimeout(resolve, 300))
+
+    it('leaves no temporary document in storage and keeps both histories', async () => {
+      const storage = new MemoryStorage()
+      const storageRepo = new Repo({ storage })
+      const store = createTestDocStore(storageRepo)
+      try {
+        const itemId = 'merge-no-leak' as ItemId
+        const baseBinary = createDocBinary(itemId, { name: 'Base', description: 'Base Desc' })
+        await store.seedImportedDocument(itemId, baseBinary)
+        await store.changeDocument(itemId, draft => {
+          draft.name = 'Local Name'
+        })
+        await waitForSaves()
+        expect(storage.documentIds()).toEqual(new Set([toDocumentIdFromItemId(itemId)]))
+
+        const remoteBinary = Automerge.save(
+          Automerge.change(Automerge.load<VaultDoc>(baseBinary), d => {
+            d.description = 'Remote Desc'
+          }),
+        )
+        const changeListener = vi.fn()
+        const handle = storageRepo.handles[toDocumentIdFromItemId(itemId)]
+        handle.on('change', changeListener)
+
+        const result = await store.hydrateAutomergeDocumentBinary(itemId, remoteBinary)
+        // A second merge goes through seedImportedDocument's ready-handle path
+        await store.seedImportedDocument(itemId, remoteBinary)
+        await waitForSaves()
+        handle.off('change', changeListener)
+
+        expect(result.hasLocalChanges).toBe(true)
+        expect(changeListener).toHaveBeenCalled()
+        expect(storage.documentIds()).toEqual(new Set([toDocumentIdFromItemId(itemId)]))
+
+        const merged = await store.getAutomergeItem(itemId)
+        expect(merged?.name).toBe('Local Name')
+        expect(merged?.description).toBe('Remote Desc')
+
+        const stored = await storageRepo.storageSubsystem!.loadDocData(toDocumentIdFromItemId(itemId))
+        const storedDoc = Automerge.load<RepoDoc>(stored!)
+        expect(storedDoc.name).toBe('Local Name')
+        expect(storedDoc.description).toBe('Remote Desc')
+      } finally {
+        await store.shutdown()
+        await storageRepo.shutdown()
+      }
     })
   })
 })
