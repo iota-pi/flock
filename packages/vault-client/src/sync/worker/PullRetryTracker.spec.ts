@@ -171,6 +171,54 @@ describe('PullRetryTracker', () => {
       expect(tracker2.exportCursors()).toEqual(exported)
     })
 
+    it('does not move the global scan cursor when importing per-item cursors', () => {
+      tracker.setGlobalCursor(100)
+      tracker.importCursors([
+        ['item-1' as ItemId, 500],
+        ['item-2' as ItemId, 300],
+      ])
+
+      // Per-item cursors can run ahead of the scan, so they never raise it
+      expect(tracker.getGlobalScanCursor()).toBe(100)
+      expect(tracker.exportState().globalCursor).toBe(100)
+      expect(tracker.getCursor('item-1' as ItemId)).toBe(500)
+      expect(tracker.getGlobalLatestCursor()).toBe(500)
+    })
+
+    it('does not turn imported cursors into retries', () => {
+      tracker.importCursors([
+        ['item-1' as ItemId, 10],
+        ['item-2' as ItemId, 20],
+      ])
+
+      expect(tracker.hasState('item-1' as ItemId)).toBe(false)
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
+      expect(tracker.getCursors()).toEqual([])
+      expect(tracker.exportState().retries).toBeUndefined()
+
+      // Nothing becomes pending on the next startup either
+      const restarted = new PullRetryTracker(keys)
+      restarted.loadState(tracker.exportState())
+      expect(restarted.getCursors()).toEqual([])
+    })
+
+    it('keeps items that were waiting for a pull pending across an import', () => {
+      tracker.addPendingItem('item-pending' as ItemId)
+      const pending = tracker.getOrCreateState('item-pending' as ItemId)
+      pending.cursor = 40
+      pending.pageToken = 'page-token'
+      tracker.addPendingItem('item-untouched' as ItemId)
+      tracker.getOrCreateState('item-untouched' as ItemId).cursor = 7
+
+      tracker.importCursors([['item-pending' as ItemId, 30]])
+
+      expect(tracker.getCursors()).toEqual(expect.arrayContaining([
+        { itemId: 'item-pending', cursor: 30, pageToken: undefined },
+        { itemId: 'item-untouched', cursor: 7, pageToken: undefined },
+      ]))
+      expect(tracker.getCursors()).toHaveLength(2)
+    })
+
     it('loads stored retries monotonically without regressing', () => {
       tracker.setGlobalCursor(500)
       tracker.getOrCreateState('item-1' as ItemId).cursor = 50
@@ -287,10 +335,91 @@ describe('PullRetryTracker', () => {
 
       expect(outcome.permanentlyFailed).toBe(true)
       expect(outcome.advanceCursor).toBe(25)
-      expect(state.pending).toBe(false)
+      // Still pending, so the next pull continues after the skipped message
+      expect(state.pending).toBe(true)
       expect(state.retryCount).toBe(0)
       expect(state.cursor).toBe(25)
       expect(outcome.cursorUpdated).toBe(true)
+      expect(tracker.getCursors()).toEqual([{ itemId: 'item-fail5', cursor: 25, pageToken: undefined }])
+    })
+
+    it('keeps the item pending after a give-up until a pull past the skipped message succeeds', () => {
+      const itemId = 'item-skip' as ItemId
+      tracker.getOrCreateState(itemId).pageToken = 'stale-token'
+      tracker.getOrCreateState(itemId).retryCount = 4
+
+      // The 5th failure skips the message at 25. Messages after it were never processed.
+      tracker.recordPullOutcome({
+        itemId,
+        initialCursor: 0,
+        highestCursor: 0,
+        isNewItem: false,
+        hasKeyFailure: false,
+        hasParseFailure: true,
+        failingCursor: 25,
+        hasMore: false,
+        nextCursor: 40,
+      })
+      expect(tracker.getState(itemId)).toMatchObject({ cursor: 25, pending: true, retryCount: 0, pageToken: undefined })
+      // One immediate poll continues the item; it is not a retry in backoff
+      expect(tracker.hasImmediatePendingPulls()).toBe(true)
+      expect(tracker.isAnyRetrying()).toBe(false)
+
+      // The next pull from 25 processes the later messages and finishes the item
+      tracker.recordPullOutcome({
+        itemId,
+        initialCursor: 25,
+        highestCursor: 40,
+        isNewItem: false,
+        hasKeyFailure: false,
+        hasParseFailure: false,
+        hasMore: false,
+      })
+      expect(tracker.hasState(itemId)).toBe(false)
+      expect(tracker.getCursor(itemId)).toBe(40)
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
+    })
+
+    it('backs off again when the message after a skipped one also fails', () => {
+      const itemId = 'item-skip-twice' as ItemId
+      tracker.getOrCreateState(itemId).retryCount = 4
+      const failAt = (initialCursor: number, failingCursor: number) => tracker.recordPullOutcome({
+        itemId,
+        initialCursor,
+        highestCursor: initialCursor,
+        isNewItem: false,
+        hasKeyFailure: false,
+        hasParseFailure: true,
+        failingCursor,
+        hasMore: false,
+      })
+
+      expect(failAt(0, 25).permanentlyFailed).toBe(true)
+      expect(failAt(25, 30).permanentlyFailed).toBe(false)
+      expect(tracker.getState(itemId)).toMatchObject({ cursor: 25, pending: true, retryCount: 1 })
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
+    })
+
+    it('drops the item on give-up when skipping cannot move the cursor forward', () => {
+      const itemId = 'item-no-progress' as ItemId
+      const state = tracker.getOrCreateState(itemId)
+      state.cursor = 30
+      state.pending = true
+      state.retryCount = 4
+
+      const outcome = tracker.recordPullOutcome({
+        itemId,
+        initialCursor: 30,
+        highestCursor: 30,
+        isNewItem: false,
+        hasKeyFailure: false,
+        hasParseFailure: true,
+        hasMore: false,
+      })
+
+      expect(outcome.permanentlyFailed).toBe(true)
+      expect(tracker.hasState(itemId)).toBe(false)
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
     })
 
     it('falls back to nextCursor if failingCursor is omitted on 5th failure', () => {
@@ -515,13 +644,14 @@ describe('PullRetryTracker', () => {
         5
       )
 
-      expect(transition.pending).toBe(false)
+      expect(transition.pending).toBe(true)
       expect(transition.retryCount).toBe(0)
+      expect(transition.pageToken).toBeUndefined()
       expect(transition.permanentlyFailed).toBe(true)
       expect(transition.advanceCursor).toBe(55)
       expect(transition.targetCursor).toBe(55)
       expect(transition.cursorUpdated).toBe(true)
-      expect(transition.removeFromRetryQueue).toBe(true)
+      expect(transition.removeFromRetryQueue).toBe(false)
       expect(transition.updateGlobalCursor).toBe(true)
     })
 
