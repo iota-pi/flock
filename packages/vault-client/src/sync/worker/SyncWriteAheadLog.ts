@@ -145,6 +145,12 @@ export class SyncWriteAheadLog {
     return { ...descriptor, sealed }
   }
 
+  /**
+   * Entries whose message bytes couldn't be opened, already reported. `readAll` runs on every poll,
+   * so each one is reported once per instance rather than on every read.
+   */
+  private readonly unreadableEntryIds = new Set<string>()
+
   /** Reads an entry's message bytes. Returns null when they can't be opened. */
   private async openData(entry: StoredWalEntry): Promise<Uint8Array | null> {
     if (!this.cipher) return entry.data ? toUint8Array(entry.data) : null
@@ -152,10 +158,23 @@ export class SyncWriteAheadLog {
       return await this.cipher.open({ store: 'wal', entryId: entry.id, itemId: entry.itemId }, entry.sealed)
     } catch (error) {
       // The local doc holds the change, so a snapshot delivers it instead. The entry stays for pruning.
-      log.error(`WAL entry ${entry.id} for ${entry.itemId} could not be decrypted`, error)
-      this.internalEventHub.emit({ type: 'localDecryptionFailed', itemId: entry.itemId, error })
-      this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId: entry.itemId })
+      // Only this WAL record is unreadable, not the document, so the item isn't quarantined as
+      // `localDecryption`: that would offer to discard a healthy local copy.
+      if (!this.unreadableEntryIds.has(entry.id)) {
+        this.unreadableEntryIds.add(entry.id)
+        log.error(`WAL entry ${entry.id} for ${entry.itemId} could not be decrypted`, error)
+        this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId: entry.itemId })
+      }
       return null
+    }
+  }
+
+  /** Forgets reported unreadable entries that are no longer stored */
+  private retainUnreadableEntryIds(storedIds: ReadonlySet<string>): void {
+    for (const id of this.unreadableEntryIds) {
+      if (!storedIds.has(id)) {
+        this.unreadableEntryIds.delete(id)
+      }
     }
   }
 
@@ -341,6 +360,7 @@ export class SyncWriteAheadLog {
       }
     })
 
+    this.retainUnreadableEntryIds(new Set(storedEntries.map(entry => entry.id)))
     const openedData = await Promise.all(storedEntries.map(entry => this.openData(entry)))
     const rawEntries: WalEntry[] = []
     const supersededIds = new Set<string>()
@@ -408,6 +428,7 @@ export class SyncWriteAheadLog {
 
     for (const id of uniqueIds) {
       this.inFlightEntryIds.delete(id)
+      this.unreadableEntryIds.delete(id)
     }
 
     await Promise.all(uniqueIds.map(id => runStorageOperation(() => this.storage.removeItem(id))))
@@ -436,6 +457,7 @@ export class SyncWriteAheadLog {
    */
   async clear(): Promise<void> {
     this.inFlightEntryIds.clear()
+    this.unreadableEntryIds.clear()
     this.seqCounter = 0
     this.lastCreatedAt = 0
     this.isSeqInitialized = true

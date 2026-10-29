@@ -370,17 +370,13 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     return this.decodeSnapshot(normalizedItemId, snapshot)
   }
 
+  /**
+   * Merges a binary into the handle's doc in place. Importing it as a temporary handle would leak a
+   * copy into storage: the Repo's throttled save still fires after the temporary doc is deleted.
+   */
   private applyMerge(targetHandle: DocHandle<RepoDoc>, binary: Uint8Array): void {
-    const incomingHandle = this.repo.import<RepoDoc>(binary)
-    try {
-      targetHandle.merge(incomingHandle)
-    } finally {
-      try {
-        this.repo.delete(incomingHandle.documentId)
-      } catch {
-        // Ignore temp handle cleanup failure
-      }
-    }
+    const incoming = Automerge.load<RepoDoc>(binary)
+    targetHandle.update(doc => Automerge.merge(doc, incoming))
   }
 
   async hydrateAutomergeDocumentBinary(
@@ -413,7 +409,10 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
           // Document handle was not available or not ready within timeout.
           // Check whether document exists in storage to avoid clobbering local edits.
           const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-          const existsInStorage = options.knownToExist || !!localBinary
+          // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
+          // replace an unreadable copy from the server, say), so ask storage rather than trusting the
+          // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
+          const existsInStorage = !!localBinary || await this.hasDataInStorage(normalizedItemId)
 
           // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
           const { documentId } = this.resolveDocumentId(normalizedItemId)

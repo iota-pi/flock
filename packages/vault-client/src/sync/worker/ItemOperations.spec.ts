@@ -524,6 +524,7 @@ describe('ItemOperations', () => {
           async (itemId: ItemId, changeCallback: (doc: any) => void) => {
             capturedDoc = {}
             changeCallback(capturedDoc)
+            return true
           }
         )
 
@@ -565,6 +566,20 @@ describe('ItemOperations', () => {
 
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       })
+
+      it('throws and leaves recovery state, index and dirty state untouched if the doc cannot be changed', async () => {
+        getAutomergeItemMock.mockResolvedValue({ id: 'item-3', type: 'person' })
+        changeDocumentMock.mockResolvedValue(false)
+
+        await expect(
+          operations.forceOverwriteRecoveryItem('item-3' as ItemId)
+        ).rejects.toThrow('Could not open the local copy of item-3')
+
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+        expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+        expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+        expect(mockPublishRealtimeBusSyncPing).not.toHaveBeenCalled()
+      })
     })
 
     describe('forceDeleteRecoveryItem', () => {
@@ -574,6 +589,7 @@ describe('ItemOperations', () => {
           async (itemId: ItemId, changeCallback: (doc: any) => void) => {
             capturedDoc = {}
             changeCallback(capturedDoc)
+            return true
           }
         )
 
@@ -602,6 +618,20 @@ describe('ItemOperations', () => {
         ).rejects.toThrow('Change document failed')
 
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+      })
+
+      it('throws and leaves recovery state, index and dirty state untouched if the doc cannot be marked deleted', async () => {
+        // e.g. the sealed local records can't be decrypted, so the doc store refuses to create over them
+        changeDocumentMock.mockResolvedValue(false)
+
+        await expect(
+          operations.forceDeleteRecoveryItem('item-4' as ItemId)
+        ).rejects.toThrow('Replace it from the server first')
+
+        expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
+        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+        expect(emitMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recoveryItemsChanged' }))
       })
     })
 

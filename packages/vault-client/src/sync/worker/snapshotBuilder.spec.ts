@@ -1,5 +1,5 @@
 import { ItemId } from '@vault/shared'
-import { buildSnapshot, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
+import { buildSnapshot, SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
 import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/Keyring'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -75,17 +75,89 @@ describe('buildSnapshot helper function', () => {
     })
 
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
-    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: undefined })
+    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: expect.any(AbortSignal) })
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'item-1')
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, testCodec)
   })
 
-  it('forwards abort signal to repo.find when provided in options', async () => {
-    const controller = new AbortController()
-    await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec })
+  describe('document lookup bounds', () => {
+    /** Like automerge-repo's find for a document whose handle never becomes ready: it settles only on abort */
+    const pendingFind = (_url: string, { signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    })
 
-    expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: controller.signal })
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('aborts the lookup when the caller aborts', async () => {
+      const controller = new AbortController()
+      await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec })
+
+      const lookupSignal: AbortSignal = mockRepo.find.mock.calls[0][1].signal
+      expect(lookupSignal.aborted).toBe(false)
+      controller.abort()
+      expect(lookupSignal.aborted).toBe(true)
+    })
+
+    it('returns an error when the lookup never settles', async () => {
+      mockRepo.find.mockImplementation(pendingFind)
+
+      const resultPromise = buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+      await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS - 1)
+      let settled = false
+      void resultPromise.then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(resultPromise).resolves.toEqual({
+        type: 'error',
+        reason: `Document lookup timed out after ${SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS}ms`,
+      })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('rethrows an abort of the caller signal rather than reporting an error', async () => {
+      mockRepo.find.mockImplementation(pendingFind)
+      const controller = new AbortController()
+
+      const resultPromise = buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec })
+      const caught = resultPromise.catch((error: unknown) => error)
+      controller.abort()
+      expect(await caught).toMatchObject({ name: 'AbortError' })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('does not look the document up when the caller signal is already aborted', async () => {
+      const controller = new AbortController()
+      controller.abort()
+
+      await expect(
+        buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec }),
+      ).rejects.toMatchObject({ name: 'AbortError' })
+      expect(mockRepo.find).not.toHaveBeenCalled()
+    })
+
+    it('SnapshotBuilder reports a timed-out lookup as an error and propagates a caller abort', async () => {
+      mockRepo.find.mockImplementation(pendingFind)
+      const builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec)
+
+      const timedOut = builder.build('item-1' as ItemId, 42)
+      await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS)
+      await expect(timedOut).resolves.toEqual(expect.objectContaining({ type: 'error' }))
+
+      const controller = new AbortController()
+      const aborted = builder.build('item-1' as ItemId, 42, { signal: controller.signal })
+      const caught = aborted.catch((error: unknown) => error)
+      controller.abort()
+      expect(await caught).toMatchObject({ name: 'AbortError' })
+    })
   })
 
   it('captures snapshot timestamp prior to async encryption to prevent stale timestamp masking', async () => {

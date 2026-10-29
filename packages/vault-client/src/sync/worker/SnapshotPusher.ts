@@ -255,13 +255,15 @@ export class SnapshotPusher {
   private async prepareItemForPush(
     itemId: ItemId,
     snapshotCursor: number,
+    signal?: AbortSignal,
   ): Promise<ItemPreparationResult> {
     const tick = this.tracker.getDirtyTick(itemId)
     if (tick === undefined) {
       return { type: 'skipped' }
     }
 
-    const buildResult = await this.builder.build(itemId, snapshotCursor)
+    // The build bounds its document lookup, so an unreadable document fails here rather than wedging the push
+    const buildResult = await this.builder.build(itemId, snapshotCursor, { signal })
     if (buildResult.type === 'not-ready') {
       return { type: 'not-ready' }
     }
@@ -392,7 +394,7 @@ export class SnapshotPusher {
 
     for (const itemId of dirtyItemIds) {
       checkAlive(signal, () => this.tracker.isOperational)
-      const prepared = await this.prepareItemForPush(itemId, snapshotCursor)
+      const prepared = await this.prepareItemForPush(itemId, snapshotCursor, signal)
       if (prepared.type === 'skipped') {
         continue
       }
