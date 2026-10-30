@@ -10,8 +10,8 @@ export interface IndexStoreOptions {
 export class IndexStore extends ScopedMetadataStore<AutomergeIndexDocument> {
   private readonly cipher?: LocalCipher
 
-  constructor(accountIdOrStore: string | LocalForage, options: IndexStoreOptions = {}) {
-    super(accountIdOrStore, {
+  constructor(accountId: string, options: IndexStoreOptions = {}) {
+    super(accountId, {
       metadataKey: options.cipher ? SYNC_METADATA_KEYS.INDEX_DOC_SEALED : SYNC_METADATA_KEYS.INDEX_DOC,
     })
     this.cipher = options.cipher
