@@ -46,3 +46,26 @@ export function checkAlive(
     throw err
   }
 }
+
+/**
+ * Settles with `promise`, or rejects with an AbortError once `signal` aborts, for a caller that stops
+ * waiting on work it can't cancel (such as a call to a worker that has been terminated, which never
+ * settles, or a run that other callers share).
+ */
+export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal, message?: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      try {
+        checkAlive(signal, true, message)
+      } catch (err) {
+        reject(err)
+      }
+    }
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}

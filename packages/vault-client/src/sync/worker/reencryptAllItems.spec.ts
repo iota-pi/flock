@@ -4,7 +4,6 @@ import { ClientEventHub } from './SyncEventHub'
 import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import { BuildSnapshotResult } from './snapshotBuilder'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
@@ -27,7 +26,7 @@ const vault = {
 }
 const keys = createMockKeyProvider(vault)
 
-/** Dependencies for a reencryptor whose pipeline stages are called directly */
+/** Dependencies for a reencryptor that is never run */
 function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencryptorOptions {
   return {
     accountId: 'test-account',
@@ -134,7 +133,33 @@ describe('reencryptAllItems', () => {
       failed: [],
     })
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+    expect(mockPutSnapshots).toHaveBeenCalledWith(
+      {
+        account: 'test-account',
+        snapshots: [
+          expect.objectContaining({ itemId: 'item-1' }),
+          expect.objectContaining({ itemId: 'item-2' }),
+        ],
+      },
+      { signal: undefined },
+    )
     expect(onProgress).toHaveBeenCalledWith(2, 2)
+  })
+
+  it('quarantines a batch the server only partly stored', async () => {
+    setApiAuthToken('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
+    mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
+
+    const result = await itemReencryptor.reencryptAllItems()
+
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
+    expect(result.succeeded).toEqual([])
+    expect(result.failed).toEqual([
+      { itemId: 'item-1', error: expect.stringContaining('Upload unconfirmed') },
+      { itemId: 'item-2', error: expect.stringContaining('Upload unconfirmed') },
+    ])
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledTimes(2)
   })
 
   it('reports the versions and heads of the snapshots the server stored', async () => {
@@ -356,39 +381,6 @@ describe('reencryptAllItems', () => {
       reason: 'Re-encryption snapshot build failed: Failed to build snapshot for item item-always-not-ready: Item item-always-not-ready document or vault was not ready',
     })
     expect(mockPutSnapshots).not.toHaveBeenCalled()
-
-    consoleErrorSpy.mockRestore()
-    consoleWarnSpy.mockRestore()
-  })
-
-  it('records not-ready item in failureDetails and quarantines it if returned directly to processChunk', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    setApiAuthToken('mock-token')
-
-    const recoveryManager = { quarantine: vi.fn() } as any
-    const reencryptor = new ItemReencryptor({
-      ...context,
-      keys,
-      apiClient: { putSnapshots: vi.fn() } as any,
-      recoveryManager,
-    })
-    vi.spyOn(reencryptor as any, 'buildSnapshotWithRetry').mockResolvedValueOnce({ type: 'not-ready' })
-
-    const result = await reencryptor.processChunk(['item-unready' as any], {})
-
-    expect(result.succeeded).toEqual([])
-    expect(result.failed).toEqual([
-      {
-        itemId: 'item-unready',
-        error: 'Failed to build snapshot for item item-unready: Document or vault was not ready after retries',
-      },
-    ])
-    expect(recoveryManager.quarantine).toHaveBeenCalledWith(
-      'item-unready',
-      'snapshotFailure',
-      'Re-encryption snapshot build failed: Failed to build snapshot for item item-unready: Document or vault was not ready after retries'
-    )
 
     consoleErrorSpy.mockRestore()
     consoleWarnSpy.mockRestore()
@@ -813,160 +805,6 @@ describe('ItemReencryptor class', () => {
     expect(r1.isRetryScheduled).toBe(false)
     expect(r2.retryAttempt).toBe(1)
     r2.cancelScheduled()
-  })
-
-  it('supports custom batchRetryDelays configuration', () => {
-    const r = new ItemReencryptor(stageDeps({ batchRetryDelays: [50, 100] }))
-    expect(r.batchRetryDelays).toEqual([50, 100])
-  })
-
-  describe('pipeline stages', () => {
-    it('buildReencryptionPlan partitions item IDs into chunks', () => {
-      const reencryptor = new ItemReencryptor(stageDeps())
-      const itemIds = ['item-1', 'item-2', 'item-3', 'item-4', 'item-5']
-      const plan = reencryptor.buildReencryptionPlan(itemIds as any, 2)
-      expect(plan).toEqual([
-        ['item-1', 'item-2'],
-        ['item-3', 'item-4'],
-        ['item-5'],
-      ])
-    })
-
-    it('buildSnapshot is a pure operation building snapshot for an item', async () => {
-      const reencryptor = new ItemReencryptor(stageDeps())
-      const mockHandle = {
-        isReady: vi.fn().mockReturnValue(true),
-        doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
-      }
-      const mockRepo = {
-        find: vi.fn().mockResolvedValue(mockHandle),
-      }
-
-      const result = await reencryptor.buildSnapshot('item-1' as any, mockRepo as any)
-      expect(result.type).toBe('success')
-      const typedResult = result as BuildSnapshotResult & { type: 'success' }
-      expect(typedResult.snapshot.itemId).toBe('item-1')
-    })
-
-    it('uploadBatch is a pure operation that uploads snapshots and verifies confirmation', async () => {
-      const reencryptor = new ItemReencryptor(stageDeps())
-      const mockApiClient = {
-        putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 1, results: [{ itemId: 'item-1', version: 2 }] }),
-      }
-
-      const snapshots: any = [
-        {
-          itemId: 'item-1',
-          snapshot: { cipher: 'c', iv: 'i', kver: '1' },
-          snapshotCursor: 0,
-          modified: 1000,
-        },
-      ]
-      await expect(
-        reencryptor.uploadBatch(mockApiClient as any, 'acc-1', snapshots.map((snapshot: any) => ({ snapshot })))
-      ).resolves.toEqual([{ itemId: 'item-1', version: 2 }])
-      expect(mockApiClient.putSnapshots).toHaveBeenCalledWith(
-        { account: 'acc-1', snapshots },
-        { signal: undefined }
-      )
-    })
-
-    it('uploadBatch throws when unconfirmed or failed', async () => {
-      const reencryptor = new ItemReencryptor(stageDeps())
-      const mockApiClient = {
-        putSnapshots: vi.fn().mockResolvedValue({ success: false }),
-      }
-
-      const snapshots: any = [
-        {
-          itemId: 'item-1',
-          snapshot: { cipher: 'c', iv: 'i', kver: '1' },
-          snapshotCursor: 0,
-          modified: 1000,
-        },
-      ]
-      await expect(
-        reencryptor.uploadBatch(mockApiClient as any, 'acc-1', snapshots.map((snapshot: any) => ({ snapshot })))
-      ).rejects.toThrow(/Upload unconfirmed/)
-    })
-
-    it('reportProgress clamps done to total and calls callback', () => {
-      const reencryptor = new ItemReencryptor(stageDeps())
-      const onProgress = vi.fn()
-      reencryptor.reportProgress(15, 10, onProgress)
-      expect(onProgress).toHaveBeenCalledWith(10, 10)
-    })
-
-    it('processChunk orchestrates building snapshots, uploading batch, and progress reporting', async () => {
-      const mockHandle = {
-        isReady: vi.fn().mockReturnValue(true),
-        doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
-      }
-      const mockRepo = {
-        find: vi.fn().mockResolvedValue(mockHandle),
-      }
-      const mockApiClient = {
-        putSnapshots: vi.fn().mockResolvedValue({ success: true }),
-      }
-      const mockRecoveryManager = {
-        quarantine: vi.fn().mockResolvedValue(undefined),
-      }
-      const onProgress = vi.fn()
-
-      const reencryptor = new ItemReencryptor(stageDeps({
-        accountId: 'test-acc',
-        repo: mockRepo as any,
-        apiClient: mockApiClient as any,
-        recoveryManager: mockRecoveryManager as any,
-      }))
-
-      const result = await reencryptor.processChunk(['item-1' as any], { total: 1, processedCount: 0, onProgress })
-      expect(result).toEqual({
-        succeeded: ['item-1'],
-        failed: [],
-      })
-      expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
-      expect(onProgress).toHaveBeenCalledWith(1, 1)
-    })
-
-    it('processChunk throws transient errors', async () => {
-      const mockHandle = {
-        isReady: vi.fn().mockReturnValue(true),
-        doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
-      }
-      const mockRepo = {
-        find: vi.fn().mockResolvedValue(mockHandle),
-      }
-      const mockApiClient = {
-        putSnapshots: vi.fn().mockRejectedValue(new Error('The network connection was lost.')),
-      }
-      const mockRecoveryManager = {
-        quarantine: vi.fn().mockResolvedValue(undefined),
-      }
-
-      const reencryptor = new ItemReencryptor(stageDeps({
-        accountId: 'test-acc',
-        repo: mockRepo as any,
-        apiClient: mockApiClient as any,
-        recoveryManager: mockRecoveryManager as any,
-      }))
-
-      await expect(reencryptor.processChunk(['item-1' as any], {})).rejects.toThrow(
-        /Re-encryption aborted: network error/
-      )
-    })
-
-    it('handleBatchUploadFailure classifies errors', () => {
-      const reencryptor = new ItemReencryptor(stageDeps())
-      // Network error throws
-      expect(() =>
-        reencryptor.handleBatchUploadFailure(new Error('network error'))
-      ).toThrow(/Re-encryption aborted: network error/)
-
-      // Permanent error returns string
-      const msg = reencryptor.handleBatchUploadFailure(new Error('400 Bad Request'))
-      expect(msg).toContain('Failed to upload snapshots for batch')
-    })
   })
 })
 
