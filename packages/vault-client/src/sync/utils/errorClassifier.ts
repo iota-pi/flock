@@ -1,6 +1,5 @@
 import { getOnlineState } from './onlineStatus'
 import { isAbortError } from './abort'
-import { parseError, type ParsedError } from './errorParser'
 
 export interface ClassifiedError {
   isAbort: boolean
@@ -92,6 +91,80 @@ const AUTH_ERROR_NAMES = new Set([
   'AuthError',
 ])
 
+interface ParsedError {
+  status?: number
+  code?: string
+  name?: string
+  message?: string
+  kver?: string
+  cause?: ParsedError
+}
+
+/**
+ * Normalizes an unknown error value into a ParsedError, reading the status and code from a tRPC
+ * `data` (or `shape.data`) envelope first, and unwrapping nested causes (cycles end in `{}`).
+ */
+function parseError(error: unknown, seen = new WeakSet<object>()): ParsedError {
+  if (!error) {
+    return {}
+  }
+
+  if (typeof error !== 'object') {
+    return {
+      message: String(error),
+    }
+  }
+
+  if (seen.has(error)) {
+    return {}
+  }
+  seen.add(error)
+
+  const anyError = error as { [key: string]: unknown }
+
+  const name = typeof anyError.name === 'string' ? anyError.name : undefined
+  const message = typeof anyError.message === 'string' ? anyError.message : undefined
+
+  const data = (anyError.data || (anyError as { shape?: { data?: unknown } }).shape?.data) as
+    | { [key: string]: unknown }
+    | undefined
+
+  const rawStatus =
+    data?.httpStatus ??
+    data?.status ??
+    data?.statusCode ??
+    anyError.httpStatus ??
+    anyError.status ??
+    anyError.statusCode
+
+  let status: number | undefined
+  if (typeof rawStatus === 'number' && Number.isFinite(rawStatus)) {
+    status = rawStatus
+  } else if (typeof rawStatus === 'string' && /^\d+$/.test(rawStatus)) {
+    const parsed = parseInt(rawStatus, 10)
+    if (!Number.isNaN(parsed)) {
+      status = parsed
+    }
+  }
+
+  const rawCode = data?.code ?? anyError.code
+  const code = typeof rawCode === 'string' ? rawCode : undefined
+
+  const rawKver = anyError.kver
+  const kver = typeof rawKver === 'string' ? rawKver : undefined
+
+  const cause = anyError.cause != null ? parseError(anyError.cause, seen) : undefined
+
+  return {
+    status,
+    code,
+    name,
+    message,
+    kver,
+    cause,
+  }
+}
+
 /**
  * Classifies an unknown error into declarative boolean flags, status, and message.
  * Inspects parsed error data and its cause chain in a single pass.
@@ -118,22 +191,12 @@ export function classifySyncError(error: unknown): ClassifiedError {
   let isAuth = false
   let isNetwork = isOffline
   let isServerError = false
-  let isTransientVault = (error as { name?: unknown })?.name === 'VaultNotInitializedError'
-  // Matched by name, like VaultNotInitializedError, because the classes live in code that imports this module
-  let isMissingKey = (error as { name?: unknown })?.name === 'MissingKeyError'
-  let missingKver: string | undefined =
-    typeof (error as { kver?: unknown })?.kver === 'string' ? (error as { kver: string }).kver : undefined
+  let isTransientVault = false
+  let isMissingKey = false
+  let missingKver: string | undefined
 
   let status = parsed.status
-  const message =
-    parsed.message ??
-    (error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : typeof (error as { message?: unknown })?.message === 'string'
-          ? (error as { message: string }).message
-          : '')
+  const message = parsed.message ?? ''
 
   const isObjectError = typeof error === 'object' && error !== null
 
@@ -203,7 +266,7 @@ export function classifySyncError(error: unknown): ClassifiedError {
       }
     }
 
-    // 6. Missing Key
+    // 6. Missing Key (matched by name, like VaultNotInitializedError, because the classes live in code that imports this module)
     if (!isMissingKey) {
       if (currentName === 'MissingKeyError') {
         isMissingKey = true
@@ -215,14 +278,6 @@ export function classifySyncError(error: unknown): ClassifiedError {
 
     current = current.cause
     depth += 1
-  }
-
-  // Handle direct string errors checking for transient vault
-  if (!isTransientVault && typeof error === 'string') {
-    const lower = error.toLowerCase()
-    if (TRANSIENT_VAULT_ERROR_SUBSTRINGS.some(sub => lower.includes(sub))) {
-      isTransientVault = true
-    }
   }
 
   return {

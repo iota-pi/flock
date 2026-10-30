@@ -245,6 +245,63 @@ describe('classifySyncError', () => {
     })
   })
 
+  describe('error parsing', () => {
+    it('uses the string form of non-string primitives as the message', () => {
+      expect(classifySyncError(123).message).toBe('123')
+    })
+
+    it('uses an empty message for objects without a string message', () => {
+      expect(classifySyncError({ status: 500 }).message).toBe('')
+      expect(classifySyncError({ message: 42 }).message).toBe('')
+    })
+
+    it('extracts name, message and code from a standard Error', () => {
+      const error = Object.assign(new TypeError('Invalid type'), { code: 'ECONNRESET' })
+      const classified = classifySyncError(error)
+      expect(classified.message).toBe('Invalid type')
+      expect(classified.status).toBeUndefined()
+      expect(classified.isNetwork).toBe(true)
+    })
+
+    it('parses numeric string statuses and ignores non-numeric ones', () => {
+      expect(classifySyncError({ status: '503' }).status).toBe(503)
+      expect(classifySyncError({ status: '5xx' }).status).toBeUndefined()
+      expect(classifySyncError({ status: Number.NaN }).status).toBeUndefined()
+    })
+
+    it('prefers the tRPC data envelope over top-level properties', () => {
+      const classified = classifySyncError({ status: 500, code: 'INTERNAL_SERVER_ERROR', data: { httpStatus: 401, code: 'UNAUTHORIZED' } })
+      expect(classified.status).toBe(401)
+      expect(classified.isAuth).toBe(true)
+      expect(classified.isServerError).toBe(false)
+    })
+
+    it('takes the outermost status, falling back to the first status in the cause chain', () => {
+      expect(classifySyncError({ status: 400, cause: { status: 503 } }).status).toBe(400)
+      expect(classifySyncError({ message: 'Outer', cause: { cause: { code: 'ECONNREFUSED', status: 503 } } })).toMatchObject({
+        status: 503,
+        message: 'Outer',
+        isNetwork: true,
+      })
+    })
+
+    it('takes the outermost kver in the cause chain', () => {
+      expect(classifySyncError({ kver: 'k1', cause: { name: 'MissingKeyError', kver: 'k2' } })).toMatchObject({
+        isMissingKey: true,
+        kver: 'k1',
+      })
+    })
+
+    it('handles circular cause references without hanging', () => {
+      const errorA: Error & { cause?: unknown } = new Error('Error A')
+      const errorB: Error & { cause?: unknown } = new Error('Error B', { cause: errorA })
+      errorA.cause = errorB
+      const classified = classifySyncError(errorA)
+      expect(classified.message).toBe('Error A')
+      expect(classified.isNetwork).toBe(false)
+    })
+  })
+
   describe('multi-flag classification in a single pass', () => {
     it('classifies 503 error as both server error and network error', () => {
       const err = { httpStatus: 503, message: '503 Service Unavailable' }
