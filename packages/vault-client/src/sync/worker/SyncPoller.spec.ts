@@ -1,15 +1,13 @@
 import { SyncPoller } from './SyncPoller'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
-import { SyncApiClient, AuthError } from './SyncApiClient'
+import { SyncApiClient, AuthError, type PullSyncMessagesResponse } from './SyncApiClient'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks } from './__test__/testUtils'
-import { spyOnExports } from '../../../test/moduleMocks'
+import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
-import * as syncWorkerClient from './SyncWorkerClient'
 
 const mockPollSyncBatch = vi.fn()
 const encryptBytes = vi.fn().mockResolvedValue({
@@ -20,8 +18,8 @@ const encryptBytes = vi.fn().mockResolvedValue({
 const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes })
 
 beforeEach(() => {
-  spyOnExports(syncWorkerClient, {
-    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  spyOnVaultTrpc({
+    pollSync: (...args: any[]) => mockPollSyncBatch(...args),
   })
 })
 
@@ -455,7 +453,7 @@ describe('SyncPoller', () => {
       pullQueueManager.addPendingItem('item-good' as ItemId)
 
       const internals = pullQueueManager as unknown as {
-        processSinglePullResult: (result: syncWorkerClient.PullSyncMessagesResponse, ...rest: unknown[]) => Promise<unknown>
+        processSinglePullResult: (result: PullSyncMessagesResponse, ...rest: unknown[]) => Promise<unknown>
       }
       const realProcess = internals.processSinglePullResult.bind(pullQueueManager)
       const processSpy = vi.spyOn(internals, 'processSinglePullResult').mockImplementation(

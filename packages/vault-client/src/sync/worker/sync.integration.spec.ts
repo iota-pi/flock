@@ -23,10 +23,9 @@ import {
   createTestEventHubs,
   noItemLocks,
   mockLocalForage,
+  spyOnVaultTrpc,
 } from './__test__/testUtils'
-import { spyOnExports } from '../../../test/moduleMocks'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
-import * as syncWorkerClient from './SyncWorkerClient'
 
 const mockStores = new Map<string, MockLocalforage>()
 const createLocalForageInstance = (opts: { name: string; storeName: string }) => {
@@ -53,8 +52,8 @@ function createTestSyncMessageData(): Uint8Array {
 }
 
 beforeEach(() => {
-  spyOnExports(syncWorkerClient, {
-    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  spyOnVaultTrpc({
+    pollSync: (...args: any[]) => mockPollSyncBatch(...args),
     putSnapshots: vi.fn().mockResolvedValue({ success: true }),
   })
 })

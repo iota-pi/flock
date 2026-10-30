@@ -1,22 +1,29 @@
 import type { z } from 'zod'
-import { getApiAuthToken } from '../../api/runtime'
-import { classifySyncError } from '../utils/errorClassifier'
+import type { inferRouterOutputs } from '@trpc/server'
+import type { VaultRouter } from '@vault/server'
 import {
-  putSnapshots,
-  pollSyncBatch,
-  type PollSyncBatchResponse,
-  type PutSnapshotsResponse,
-} from './SyncWorkerClient'
-import { fetchManifest, fetchSnapshotsByIds } from './ItemClient'
-import { raiseDataVersion } from '../../api/AccountClient'
-import type {
-  FetchedItem,
-  VaultSnapshotInput,
-  ItemId,
-  ManifestEntry,
-  SyncPollBatchSchema,
+  FetchItemsInputSchema,
+  FetchSnapshotsByIdsInputSchema,
+  type FetchedItem,
+  type VaultSnapshotInput,
+  type ItemId,
+  type ManifestEntry,
+  type SyncPollBatchSchema,
 } from '@vault/shared'
+import { getApiAuthToken } from '../../api/runtime'
+import { assertSuccess } from '../../api/clientUtils'
+import { getUntrackedVaultTrpcClient, getVaultTrpcClient } from '../../api/vaultTrpcClient'
+import { raiseDataVersion } from '../../api/AccountClient'
+import { classifySyncError } from '../utils/errorClassifier'
+import { errorMessage } from '../utils/errorMessage'
 import { createLogger } from '../utils/logger'
+
+type VaultOutputs = inferRouterOutputs<VaultRouter>
+
+export type PollSyncBatchResponse = VaultOutputs['sync']['pollSync']
+export type PullSyncMessagesResponse = PollSyncBatchResponse['pullResults'][number]
+export type PushResultItem = PollSyncBatchResponse['pushResults'][number]
+export type PutSnapshotsResponse = VaultOutputs['items']['putSnapshots']
 
 const log = createLogger('SyncApiClient')
 
@@ -39,11 +46,11 @@ export function toAuthExpiredError(err: unknown): AuthExpiredError {
   if (err instanceof AuthExpiredError) {
     return err
   }
-  const message = err instanceof Error
-    ? err.message
-    : typeof (err as { message?: unknown })?.message === 'string'
-      ? (err as { message: string }).message
-      : String(err)
+  // tRPC errors can arrive as plain objects, so take a string message from those too
+  const objectMessage = (err as { message?: unknown } | null | undefined)?.message
+  const message = !(err instanceof Error) && typeof objectMessage === 'string'
+    ? objectMessage
+    : errorMessage(err)
   return new AuthExpiredError(
     `Authentication session expired (${message})`,
     { cause: err }
@@ -132,7 +139,10 @@ export class SyncApiClient {
     },
     options?: { signal?: AbortSignal }
   ): Promise<PutSnapshotsResponse> {
-    return this.executeWithAuth(() => putSnapshots(input, options))
+    return this.executeWithAuth(() => getUntrackedVaultTrpcClient().items.putSnapshots.mutate(
+      { account: input.account, snapshots: input.snapshots },
+      options,
+    ))
   }
 
   async raiseDataVersion(input: { account: string }): Promise<{ dataVersion: number, blockers: string[] }> {
@@ -143,7 +153,12 @@ export class SyncApiClient {
     input: { account: string },
     options?: { signal?: AbortSignal },
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number }> {
-    return this.executeWithAuth(() => fetchManifest({ account: input.account }, options))
+    return this.executeWithAuth(async () => {
+      const parsed = FetchItemsInputSchema.parse({ account: input.account })
+      const data = await getVaultTrpcClient().items.fetchManifest.query(parsed, options)
+      assertSuccess(data, 'fetchManifest')
+      return { manifest: data.manifest, serverTime: data.serverTime }
+    })
   }
 
   async fetchSnapshotsByIds(
@@ -153,16 +168,18 @@ export class SyncApiClient {
     },
     options?: { signal?: AbortSignal }
   ): Promise<{ items: FetchedItem[]; serverTime: number }> {
-    return this.executeWithAuth(() => fetchSnapshotsByIds(
-      { account: input.account, itemIds: input.itemIds },
-      options,
-    ))
+    return this.executeWithAuth(async () => {
+      const parsed = FetchSnapshotsByIdsInputSchema.parse({ account: input.account, itemIds: input.itemIds })
+      const data = await getVaultTrpcClient().items.fetchSnapshotsByIds.query(parsed, options)
+      assertSuccess(data, 'fetchSnapshotsByIds')
+      return { items: data.items, serverTime: data.serverTime }
+    })
   }
 
   async pollSyncBatch(
     input: z.infer<typeof SyncPollBatchSchema>,
     options?: { signal?: AbortSignal }
   ): Promise<PollSyncBatchResponse> {
-    return this.executeWithAuth(() => pollSyncBatch(input, options))
+    return this.executeWithAuth(() => getUntrackedVaultTrpcClient().sync.pollSync.mutate(input, options))
   }
 }
