@@ -153,7 +153,7 @@ export class ItemReencryptor {
     const runPromise = this.reencryptGuard.run(() => this.runAll(options))
 
     try {
-      return await (signal ? untilAborted(runPromise, signal, 'Re-encryption aborted') : runPromise)
+      return await (signal ? untilAborted(runPromise, signal) : runPromise)
     } finally {
       if (onProgress) {
         this.progressCallbacks.delete(onProgress)

@@ -14,7 +14,7 @@ import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
-import { AbortError, untilAborted } from '../utils/abort'
+import { AbortError, delay, untilAborted } from '../utils/abort'
 import { noopTelemetry, type SyncTelemetry } from './host'
 
 const log = createLogger('WorkerLifecycleManager')
@@ -296,29 +296,13 @@ export class WorkerLifecycleManager {
         }
 
         if (!signal.aborted && this.initRetryStrategy.canRetry) {
-          const delay = this.initRetryStrategy.nextDelay()
-          this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${delay / 1000}s...`)
+          const retryDelay = this.initRetryStrategy.nextDelay()
+          this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${retryDelay / 1000}s...`)
 
           // Keep initializationPromise alive so ensureReady() callers wait
-          const retryPromise = new Promise<void>((resolve, reject) => {
-            let timer: ReturnType<typeof setTimeout> | null = null
-            const onAbort = () => {
-              if (timer !== null) {
-                clearTimeout(timer)
-                timer = null
-              }
-              reject(new Error('Aborted'))
-            }
-
-            timer = setTimeout(() => {
-              timer = null
-              signal.removeEventListener('abort', onAbort)
-              if (signal.aborted) return reject(new Error('Aborted'))
-              this.initializationPromise = null
-              this.initialize(accountId, options).then(resolve).catch(reject)
-            }, delay)
-
-            signal.addEventListener('abort', onAbort, { once: true })
+          const retryPromise = delay(retryDelay, signal).then(() => {
+            this.initializationPromise = null
+            return this.initialize(accountId, options)
           })
           retryPromise.catch(() => {})
           this.initializationPromise = retryPromise
