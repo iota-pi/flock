@@ -7,8 +7,8 @@ export interface PersistedSyncCursors {
 }
 
 export class CursorStore extends ScopedMetadataStore<PersistedSyncCursors> {
-  constructor(accountIdOrStore: string | LocalForage) {
-    super(accountIdOrStore, {
+  constructor(accountId: string) {
+    super(accountId, {
       metadataKey: SYNC_METADATA_KEYS.CURSORS,
       normalize: (raw: unknown): PersistedSyncCursors | null => (
         raw && typeof raw === 'object' && 'globalCursor' in raw ? raw as PersistedSyncCursors : null

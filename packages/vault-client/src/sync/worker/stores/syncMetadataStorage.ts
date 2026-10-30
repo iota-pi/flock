@@ -1,10 +1,9 @@
-import type { RunStorageOperationOptions } from '../../utils/storageManager'
+import { runStorageOperation, type RunStorageOperationOptions } from '../../utils/storageManager'
 import {
   createAccountStore,
   clearAccountStore,
   getAccountDatabaseName,
 } from '../../shared/createAccountStore'
-import { BaseLocalForageStore } from './BaseLocalForageStore'
 
 export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
 
@@ -51,27 +50,53 @@ export interface ScopedMetadataStoreOptions<T> {
  * Each store owns one key. Values in older layouts are migrated by the app's `migrateLocalData` hook
  * before any store is read.
  */
-export abstract class ScopedMetadataStore<T> extends BaseLocalForageStore {
+export abstract class ScopedMetadataStore<T> {
+  protected readonly store: LocalForage
   protected readonly metadataKey: string
   protected readonly normalizeValue?: (raw: unknown) => T | null
 
-  constructor(accountIdOrStore: string | LocalForage, options: ScopedMetadataStoreOptions<T>) {
-    super(typeof accountIdOrStore === 'string' ? getSyncMetadataStorage(accountIdOrStore) : accountIdOrStore)
+  constructor(accountId: string, options: ScopedMetadataStoreOptions<T>) {
+    this.store = getSyncMetadataStorage(accountId)
     this.metadataKey = options.metadataKey
     this.normalizeValue = options.normalize
   }
 
-  async getScopedData(): Promise<T | null> {
+  protected async getItem<V>(key: string): Promise<V | null> {
+    return this.store.getItem<V>(key)
+  }
+
+  protected async setItem<V>(key: string, value: V, options?: RunStorageOperationOptions): Promise<V> {
+    return runStorageOperation(() => this.store.setItem(key, value), options)
+  }
+
+  protected async getScopedData(): Promise<T | null> {
     const raw = await this.getItem<unknown>(this.metadataKey)
     if (raw === null || raw === undefined) return null
     return this.normalizeValue ? this.normalizeValue(raw) : raw as T
   }
 
-  async setScopedData(data: T, options?: RunStorageOperationOptions): Promise<void> {
+  protected async setScopedData(data: T, options?: RunStorageOperationOptions): Promise<void> {
     await this.setItem(this.metadataKey, data, options)
   }
 
-  override async clear(options?: RunStorageOperationOptions): Promise<void> {
-    await this.removeItem(this.metadataKey, options)
+  /** Removes this store's key, leaving the rest of the consolidated database intact */
+  async clear(options?: RunStorageOperationOptions): Promise<void> {
+    await runStorageOperation(() => this.store.removeItem(this.metadataKey), options)
+  }
+
+  /**
+   * Probes storage availability by writing and removing a temporary key.
+   * Intercepts and surfaces QuotaExceededError if storage quota is full.
+   */
+  async testStorageAvailable(): Promise<boolean> {
+    const probeKey = '__quota_probe__'
+    await runStorageOperation(
+      async () => {
+        await this.store.setItem(probeKey, Date.now())
+        await this.store.removeItem(probeKey)
+      },
+      { retryOnQuotaError: false }
+    )
+    return true
   }
 }
