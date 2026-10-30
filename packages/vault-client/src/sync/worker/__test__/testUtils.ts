@@ -7,6 +7,8 @@ import { LocalCipher } from '../localEncryption/LocalCipher'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { AutomergeDocStore, type AutomergeDocStoreOptions, type ItemLockCoordinator } from '../docStore/AutomergeDocStore'
 import { passthroughCodec } from '../domain'
+import * as vaultTrpcClientModule from '../../../api/vaultTrpcClient'
+import { spyOnExports } from '../../../../test/moduleMocks'
 
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
@@ -318,4 +320,36 @@ export function createTestDocStore(repo: Repo, overrides?: Partial<AutomergeDocS
 /** Runs each task straight away, for components tested without a doc store's item locks */
 export const noItemLocks: ItemLockCoordinator = {
   withItemLock: (_itemId, fn) => fn(),
+}
+
+type TrpcProcedure = (input: any, options?: { signal?: AbortSignal }) => unknown
+
+/**
+ * Replaces the vault tRPC clients (`getVaultTrpcClient` and `getUntrackedVaultTrpcClient`) for the
+ * current test with a fake whose sync procedures call the given functions with their input and
+ * options. Call it in `beforeEach`.
+ */
+export function spyOnVaultTrpc(procedures: {
+  pollSync?: TrpcProcedure
+  putSnapshots?: TrpcProcedure
+  fetchManifest?: TrpcProcedure
+  fetchSnapshotsByIds?: TrpcProcedure
+}): void {
+  const notMocked = (name: string) => async () => {
+    throw new Error(`tRPC procedure ${name} is not mocked in this test`)
+  }
+  const client = {
+    sync: {
+      pollSync: { mutate: procedures.pollSync ?? notMocked('sync.pollSync') },
+    },
+    items: {
+      putSnapshots: { mutate: procedures.putSnapshots ?? notMocked('items.putSnapshots') },
+      fetchManifest: { query: procedures.fetchManifest ?? notMocked('items.fetchManifest') },
+      fetchSnapshotsByIds: { query: procedures.fetchSnapshotsByIds ?? notMocked('items.fetchSnapshotsByIds') },
+    },
+  } as unknown as ReturnType<typeof vaultTrpcClientModule.getVaultTrpcClient>
+  spyOnExports(vaultTrpcClientModule, {
+    getVaultTrpcClient: () => client,
+    getUntrackedVaultTrpcClient: () => client,
+  })
 }

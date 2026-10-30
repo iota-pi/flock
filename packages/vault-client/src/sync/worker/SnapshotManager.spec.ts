@@ -6,10 +6,9 @@ import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
 import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
-import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import type { KeyProvider } from '../../api/Keyring'
-import * as syncWorkerClient from './SyncWorkerClient'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
 import * as automergeModule from './utils/automerge'
 import * as Automerge from '@automerge/automerge/slim'
@@ -50,7 +49,7 @@ function createMockBroker() {
 }
 
 beforeEach(() => {
-  spyOnExports(syncWorkerClient, {
+  spyOnVaultTrpc({
     putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
   })
   spyOnExports(manualRecoveryStoreModule, {

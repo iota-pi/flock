@@ -19,10 +19,8 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { ItemId } from '@vault/shared'
 
-import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
-import { spyOnExports } from '../../../test/moduleMocks'
+import { createMockKeyProvider, createTestEventHubs, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
-import * as syncWorkerClient from './SyncWorkerClient'
 
 const mockPollSyncBatch = vi.fn()
 
@@ -34,8 +32,8 @@ const WAL_ACCOUNT = 'test-account'
 setApiAuthToken('mock-auth-token')
 
 beforeEach(() => {
-  spyOnExports(syncWorkerClient, {
-    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  spyOnVaultTrpc({
+    pollSync: (...args: any[]) => mockPollSyncBatch(...args),
   })
 })
 

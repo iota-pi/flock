@@ -5,10 +5,9 @@ import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { BuildSnapshotResult } from './snapshotBuilder'
-import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
-import * as syncWorkerClient from './SyncWorkerClient'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
 import * as docStoreModule from './docStore'
 import * as automergeModule from './utils/automerge'
@@ -42,7 +41,7 @@ function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencry
 }
 
 beforeEach(() => {
-  spyOnExports(syncWorkerClient, {
+  spyOnVaultTrpc({
     putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
   })
   spyOnExports(manualRecoveryStoreModule, {

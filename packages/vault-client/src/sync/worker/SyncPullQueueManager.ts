@@ -1,7 +1,7 @@
 import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 import { debounce } from 'lodash-es'
 
-import type { PullSyncMessagesResponse } from './SyncWorkerClient'
+import type { PullSyncMessagesResponse } from './SyncApiClient'
 import type { KeyProvider } from '../../api/Keyring'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
