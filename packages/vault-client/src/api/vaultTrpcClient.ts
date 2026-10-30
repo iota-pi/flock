@@ -8,6 +8,7 @@ import { withRequestTimeout } from './requestTimeout'
 
 let vaultEndpoint = ''
 let vaultTrpcClient: ReturnType<typeof createTRPCProxyClient<VaultRouter>> | null = null
+let untrackedVaultTrpcClient: ReturnType<typeof createTRPCProxyClient<VaultRouter>> | null = null
 
 /**
  * Sets the vault API base URL (the tRPC handler is served at `${endpoint}/trpc`).
@@ -74,4 +75,16 @@ export function getVaultTrpcClient() {
     throw new Error('Vault tRPC client not initialized. Call initVaultTrpcClient with a fetch implementation first.')
   }
   return vaultTrpcClient
+}
+
+/**
+ * The client for the sync worker's background requests (polls and snapshot uploads). It skips the
+ * tracked fetch, so these requests don't show as activity in the sync status. Like the other
+ * clients, it sends the realm's current session token.
+ */
+export function getUntrackedVaultTrpcClient() {
+  untrackedVaultTrpcClient ??= createTRPCProxyClient<VaultRouter>({
+    links: createVaultLinks(),
+  })
+  return untrackedVaultTrpcClient
 }

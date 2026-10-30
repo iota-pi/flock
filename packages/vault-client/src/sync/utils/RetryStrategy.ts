@@ -1,4 +1,4 @@
-import { AbortError, isAbortError } from './abort'
+import { abortReason, delay, isAbortError } from './abort'
 
 export interface JitterOptions {
   /**
@@ -70,44 +70,6 @@ export interface ExecuteWithRetryOptions {
 
 export const DEFAULT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000] as const
 export const DEFAULT_POLL_BACKOFF_DELAYS = [30000, 60000, 120000, 300000] as const
-
-function delayWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
-      const reason =
-        signal.reason instanceof Error
-          ? signal.reason
-          : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Operation aborted')
-      return reject(reason)
-    }
-
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    const onAbort = () => {
-      if (timer !== null) {
-        clearTimeout(timer)
-        timer = null
-      }
-      const reason =
-        signal?.reason instanceof Error
-          ? signal.reason
-          : new AbortError(typeof signal?.reason === 'string' ? signal.reason : 'Operation aborted')
-      reject(reason)
-    }
-
-    if (signal) {
-      signal.addEventListener('abort', onAbort, { once: true })
-    }
-
-    timer = setTimeout(() => {
-      timer = null
-      if (signal) {
-        signal.removeEventListener('abort', onAbort)
-      }
-      resolve()
-    }, ms)
-  })
-}
 
 /**
  * Reusable retry strategy encapsulating backoff schedules, symmetric jitter,
@@ -260,18 +222,14 @@ export class RetryStrategy {
       attempt += 1
 
       if (signal?.aborted) {
-        throw signal.reason instanceof Error
-          ? signal.reason
-          : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Operation aborted')
+        throw abortReason(signal)
       }
 
       try {
         return await operation(attempt)
       } catch (error) {
         if (signal?.aborted) {
-          throw signal.reason instanceof Error
-            ? signal.reason
-            : new AbortError(typeof signal.reason === 'string' ? signal.reason : 'Operation aborted')
+          throw abortReason(signal)
         }
 
         if (isAbortError(error)) {
@@ -291,7 +249,7 @@ export class RetryStrategy {
         const delayMs = strategy.nextDelay()
         options.onRetry?.(error, attempt, delayMs)
 
-        await delayWithSignal(delayMs, signal)
+        await delay(delayMs, signal)
       }
     }
   }

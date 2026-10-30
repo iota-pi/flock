@@ -5,6 +5,7 @@ import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
 import { runStorageOperation } from '../../utils/storageManager'
 import { createLogger } from '../../utils/logger'
+import { delay } from '../../utils/abort'
 
 const log = createLogger('retireLegacyStores')
 
@@ -48,7 +49,7 @@ export async function retireLegacyStores(options: RetireLegacyStoresOptions): Pr
     options.onRetiring?.()
     const deadline = Date.now() + (options.waitMs ?? DEFAULT_WAIT_MS)
     do {
-      await new Promise(resolve => setTimeout(resolve, options.pollMs ?? DEFAULT_POLL_MS))
+      await delay(options.pollMs ?? DEFAULT_POLL_MS)
       if (!(await isAccountInUse(accountId))) break
     } while (Date.now() < deadline)
     if (await isAccountInUse(accountId)) return false

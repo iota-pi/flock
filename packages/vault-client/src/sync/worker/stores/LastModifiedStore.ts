@@ -24,8 +24,8 @@ function normalizeTimestamps(raw: [ItemId, ItemSyncTimestamps][]): [ItemId, Item
 }
 
 export class LastModifiedStore extends ScopedMetadataStore<[ItemId, ItemSyncTimestamps][]> {
-  constructor(accountIdOrStore: string | LocalForage) {
-    super(accountIdOrStore, {
+  constructor(accountId: string) {
+    super(accountId, {
       metadataKey: SYNC_METADATA_KEYS.LAST_MODIFIED,
       normalize: (raw: unknown) =>
         Array.isArray(raw) ? normalizeTimestamps(raw as [ItemId, ItemSyncTimestamps][]) : null,

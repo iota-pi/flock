@@ -7,6 +7,7 @@ import {
   type ScopedMetadataStoreOptions,
 } from './syncMetadataStorage'
 import localforage from 'localforage'
+import * as storageManager from '../../utils/storageManager'
 
 import {
   MockLocalforage,
@@ -73,13 +74,21 @@ interface TestData {
 
 class TestScopedStore extends ScopedMetadataStore<TestData> {
   constructor(
-    accountIdOrStore: string | LocalForage,
+    accountId: string,
     options?: Partial<ScopedMetadataStoreOptions<TestData>>
   ) {
-    super(accountIdOrStore, {
+    super(accountId, {
       metadataKey: 'testKey',
       ...options,
     })
+  }
+
+  async load(): Promise<TestData | null> {
+    return this.getScopedData()
+  }
+
+  async save(data: TestData): Promise<void> {
+    await this.setScopedData(data)
   }
 }
 
@@ -95,27 +104,19 @@ describe('ScopedMetadataStore', () => {
   })
 
   it('initializes with accountId string and uses consolidated metadata storage', async () => {
-    await store.setScopedData({ value: 'hello' })
+    await store.save({ value: 'hello' })
     const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
     expect(await consolidated.getItem('testKey')).toEqual({ value: 'hello' })
   })
 
-  it('initializes with a direct LocalForage instance', async () => {
-    const customInstance = createMockLocalForage({ name: 'custom-db', storeName: 'custom-store' })
-    const customStore = new TestScopedStore(customInstance as unknown as LocalForage)
-
-    await customStore.setScopedData({ value: 'direct' })
-    expect(await customInstance.getItem('testKey')).toEqual({ value: 'direct' })
-  })
-
   it('loads scoped data when present in primary metadataKey', async () => {
-    await store.setScopedData({ value: 'existing' })
-    const data = await store.getScopedData()
+    await store.save({ value: 'existing' })
+    const data = await store.load()
     expect(data).toEqual({ value: 'existing' })
   })
 
   it('returns null when the key is missing', async () => {
-    expect(await store.getScopedData()).toBeNull()
+    expect(await store.load()).toBeNull()
   })
 
   it('returns null without rewriting the value when normalize rejects it', async () => {
@@ -125,7 +126,7 @@ describe('ScopedMetadataStore', () => {
     const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
     await consolidated.setItem('testKey', 'raw-string-value')
 
-    expect(await strictStore.getScopedData()).toBeNull()
+    expect(await strictStore.load()).toBeNull()
     expect(await consolidated.getItem('testKey')).toBe('raw-string-value')
   })
 
@@ -138,5 +139,28 @@ describe('ScopedMetadataStore', () => {
 
     expect(await consolidated.getItem('testKey')).toBeNull()
     expect(await consolidated.getItem('unrelatedKey')).toBe('important-data')
+  })
+  it('writes and clears through runStorageOperation', async () => {
+    const runStorageOperationSpy = vi.spyOn(storageManager, 'runStorageOperation')
+
+    await store.save({ value: 'tracked' })
+    expect(runStorageOperationSpy).toHaveBeenCalledTimes(1)
+
+    await store.clear()
+    expect(runStorageOperationSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('testStorageAvailable returns true when storage writes succeed', async () => {
+    expect(await store.testStorageAvailable()).toBe(true)
+    const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+    expect(consolidated.data.size).toBe(0)
+  })
+
+  it('testStorageAvailable surfaces QuotaExceededError when storage write fails', async () => {
+    const consolidated = getSyncMetadataStorage(accountId) as unknown as MockLocalforage
+    const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
+    vi.spyOn(consolidated, 'setItem').mockRejectedValueOnce(quotaErr)
+
+    await expect(store.testStorageAvailable()).rejects.toThrow('Quota exceeded')
   })
 })

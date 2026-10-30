@@ -14,7 +14,7 @@ export interface RecordCodec {
 }
 
 /** The `{ key, binary }` records the adapter has always stored */
-export const plaintextRecordCodec: RecordCodec = {
+const plaintextRecordCodec: RecordCodec = {
   encode: async (key, bytes) => ({ key, binary: bytes }),
   decode: async (_key, record) => {
     if (record && typeof record === 'object' && 'binary' in record) {

@@ -19,10 +19,8 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { ItemId } from '@vault/shared'
 
-import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
-import { spyOnExports } from '../../../test/moduleMocks'
+import { createMockKeyProvider, createTestEventHubs, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
-import * as syncWorkerClient from './SyncWorkerClient'
 
 const mockPollSyncBatch = vi.fn()
 
@@ -34,8 +32,8 @@ const WAL_ACCOUNT = 'test-account'
 setApiAuthToken('mock-auth-token')
 
 beforeEach(() => {
-  spyOnExports(syncWorkerClient, {
-    pollSyncBatch: (...args: any[]) => mockPollSyncBatch(...args),
+  spyOnVaultTrpc({
+    pollSync: (...args: any[]) => mockPollSyncBatch(...args),
   })
 })
 
@@ -1609,7 +1607,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       expect(callback).toHaveBeenCalledTimes(4)
     })
 
-    it('cancels pending retry timer on resetReNegotiationCircuit, clearOutboundQueue, and disconnect', () => {
+    it('cancels pending retry timer on resetReNegotiationCircuit, account change, and disconnect', () => {
       const doc1 = 'doc-cancel-1' as DocumentId
       const doc2 = 'doc-cancel-2' as DocumentId
       const doc3 = 'doc-cancel-3' as DocumentId
@@ -1634,11 +1632,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       advancePastCooldown()
       expect(callback.mock.calls).toEqual([[doc2]])
 
-      // 2. Clearing the outbound queue cancels every retry
+      // 2. Changing account clears the outbound queue, which cancels every retry
       tripCircuit(doc2)
       tripCircuit(doc3)
       callback.mockClear()
-      adapter.clearOutboundQueue()
+      adapter.setAccount('other-account')
       advancePastCooldown()
       expect(callback).not.toHaveBeenCalled()
 

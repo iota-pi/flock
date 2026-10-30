@@ -14,23 +14,10 @@ import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
-import { AbortError } from '../utils/abort'
+import { AbortError, delay, untilAborted } from '../utils/abort'
 import { noopTelemetry, type SyncTelemetry } from './host'
 
 const log = createLogger('WorkerLifecycleManager')
-
-/**
- * Settles with `promise`, or rejects with an AbortError once `signal` aborts. A call to a worker
- * that has been terminated never settles, so initialization would otherwise wait forever.
- */
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(new AbortError('Initialization aborted'))
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new AbortError('Initialization aborted'))
-    signal.addEventListener('abort', onAbort, { once: true })
-    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
-  })
-}
 
 /** A running sync worker with its Comlink API and the event and ping channels to it */
 class WorkerSession {
@@ -176,7 +163,7 @@ export class WorkerLifecycleManager {
     this.lastKnownAccountId = accountId
     this.currentAccountId = accountId
 
-    this.initAbortController?.abort()
+    this.initAbortController?.abort(new AbortError('Initialization aborted'))
     const abortController = new AbortController()
     this.initAbortController = abortController
     const { signal } = abortController
@@ -309,29 +296,13 @@ export class WorkerLifecycleManager {
         }
 
         if (!signal.aborted && this.initRetryStrategy.canRetry) {
-          const delay = this.initRetryStrategy.nextDelay()
-          this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${delay / 1000}s...`)
+          const retryDelay = this.initRetryStrategy.nextDelay()
+          this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${retryDelay / 1000}s...`)
 
           // Keep initializationPromise alive so ensureReady() callers wait
-          const retryPromise = new Promise<void>((resolve, reject) => {
-            let timer: ReturnType<typeof setTimeout> | null = null
-            const onAbort = () => {
-              if (timer !== null) {
-                clearTimeout(timer)
-                timer = null
-              }
-              reject(new Error('Aborted'))
-            }
-
-            timer = setTimeout(() => {
-              timer = null
-              signal.removeEventListener('abort', onAbort)
-              if (signal.aborted) return reject(new Error('Aborted'))
-              this.initializationPromise = null
-              this.initialize(accountId, options).then(resolve).catch(reject)
-            }, delay)
-
-            signal.addEventListener('abort', onAbort, { once: true })
+          const retryPromise = delay(retryDelay, signal).then(() => {
+            this.initializationPromise = null
+            return this.initialize(accountId, options)
           })
           retryPromise.catch(() => {})
           this.initializationPromise = retryPromise
@@ -391,7 +362,7 @@ export class WorkerLifecycleManager {
     )
 
     if (!options?.internalRestart) {
-      this.initAbortController?.abort()
+      this.initAbortController?.abort(new AbortError('Initialization aborted'))
       this.initAbortController = null
       this.initializationPromise = null
       this.currentAccountId = null

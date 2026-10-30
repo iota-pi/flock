@@ -109,7 +109,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     this.pusher.cancelRetry()
   }
 
-  async loadLastModified(): Promise<void> {
+  private async loadLastModified(): Promise<void> {
     const oversizedItemIds = await this.tracker.loadLastModified()
     for (const id of oversizedItemIds) {
       this.pusher.addOversized(id)
@@ -156,11 +156,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
 
   async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
     await this.tracker.importVersions(updates)
-  }
-
-  clear(): void {
-    this.tracker.clear()
-    this.pusher.clear()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {

@@ -16,10 +16,9 @@ const mockUpdateLastManifestSyncTime = vi.fn()
 
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
-import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import * as docStoreModule from './docStore'
-import * as itemClient from './ItemClient'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
 import * as runtimeModule from '../../api/runtime'
 
@@ -47,9 +46,10 @@ beforeEach(() => {
       updateLastManifestSyncTime: mockUpdateLastManifestSyncTime,
     })),
   })
-  spyOnExports(itemClient, {
-    fetchManifest: (...args: any[]) => mockFetchManifest(...args),
-    fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
+  // The mocks return the procedures' data without the `success` flag the server adds
+  spyOnVaultTrpc({
+    fetchManifest: async (...args: any[]) => ({ success: true, ...await mockFetchManifest(...args) }),
+    fetchSnapshotsByIds: async (...args: any[]) => ({ success: true, ...await mockFetchSnapshotsByIds(...args) }),
   })
   spyOnExports(manualRecoveryStoreModule, {
     readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
