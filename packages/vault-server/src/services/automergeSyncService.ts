@@ -7,7 +7,11 @@ export type PollSyncInput = z.infer<typeof SyncPollBatchSchema>
 
 type PushSyncBatchInput = Pick<PollSyncInput, 'account'> & { messages: PollSyncInput['pushMessages'] }
 type PullSyncBatchInput = Pick<PollSyncInput, 'account'> & { cursors: PollSyncInput['pullCursors'] }
-type PullSyncMessageInput = Pick<PollSyncInput, 'account'> & PollSyncInput['pullCursors'][number]
+type PullSyncMessageInput = Pick<PollSyncInput, 'account'> & {
+  itemId: ItemId
+  cursor: number
+  pageToken?: PageToken
+}
 
 type PullSyncGlobalInput = {
   account: string
@@ -64,17 +68,22 @@ function nextCursorAfter(messages: StoredSyncMessage[], fromCursor: number): num
   return messages.at(-1)?.cursor ?? fromCursor
 }
 
+/**
+ * The first cursor for a batch pushed at `timestamp`: whole seconds since CUSTOM_EPOCH, plus a
+ * random offset so that concurrent pushes in the same second are unlikely to collide
+ */
+function baseCursorAt(timestamp: number): number {
+  const relativeTimestampSeconds = Math.floor(Math.max(0, timestamp - CUSTOM_EPOCH) / 1000)
+  const invocationOffset = Math.floor(Math.random() * MAX_OFFSET)
+  return relativeTimestampSeconds * TIMESTAMP_MULTIPLIER + invocationOffset
+}
+
 export async function pushAutomergeSyncBatch(
   vault: AutomergeSyncRepository,
   input: PushSyncBatchInput,
 ): Promise<ItemPushResult[]> {
   const timestamp = Date.now()
-  const relativeTimestampMs = Math.max(0, timestamp - CUSTOM_EPOCH)
-  const relativeTimestampSeconds = Math.floor(relativeTimestampMs / 1000)
-
-  // Generate a random invocation offset to prevent collisions from concurrent writes
-  const invocationOffset = Math.floor(Math.random() * MAX_OFFSET)
-  const baseCursor = relativeTimestampSeconds * TIMESTAMP_MULTIPLIER + invocationOffset
+  const baseCursor = baseCursorAt(timestamp)
 
   const storedMessages: PushSyncMessagesInput['messages'] = []
   const results: ItemPushResult[] = []
@@ -96,19 +105,18 @@ async function pullAutomergeSyncMessages(
   vault: AutomergeSyncRepository,
   input: PullSyncMessageInput,
 ): Promise<ItemPullResult> {
-  const fromCursor = input.cursor ?? 0
   // The page size is the driver's to choose
   const { messages, hasMore, nextPageToken } = await vault.getSyncMessages({
     account: input.account,
     itemId: input.itemId,
-    fromCursor,
+    fromCursor: input.cursor,
     pageToken: input.pageToken,
   })
 
   return {
     success: true,
     itemId: input.itemId,
-    nextCursor: nextCursorAfter(messages, fromCursor),
+    nextCursor: nextCursorAfter(messages, input.cursor),
     messages,
     hasMore,
     nextPageToken,

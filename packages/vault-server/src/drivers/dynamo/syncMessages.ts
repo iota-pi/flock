@@ -57,9 +57,17 @@ export async function pushSyncMessagesBatch(
   )
 }
 
+/** A sync messages table record, as far as the driver reads it */
+type SyncMessageRow = StoredSyncMessage & { syncId: string }
+
+/** The message clients read, without the record's keys and TTL */
+function toStoredSyncMessage({ cursor, encryptedMessage, createdAt }: SyncMessageRow): StoredSyncMessage {
+  return { cursor, encryptedMessage, createdAt }
+}
+
 export async function getSyncMessages(context: DynamoContext, input: GetSyncMessagesInput): Promise<SyncMessagesPage> {
   const expectedSyncId = toSyncId(input.account, input.itemId)
-  const { items, hasMore, nextPageToken } = await querySyncMessagePage<StoredSyncMessage>(context, {
+  const { items, hasMore, nextPageToken } = await querySyncMessagePage(context, {
     partitionKey: 'syncId',
     partitionValue: expectedSyncId,
     afterCursor: input.fromCursor,
@@ -67,7 +75,7 @@ export async function getSyncMessages(context: DynamoContext, input: GetSyncMess
       ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
       : undefined,
   })
-  return { messages: items, hasMore, nextPageToken }
+  return { messages: items.map(toStoredSyncMessage), hasMore, nextPageToken }
 }
 
 export function validatePageToken(input: ValidatePageTokenInput): void {
@@ -87,7 +95,7 @@ export async function getGlobalSyncMessagesAfterCursor(
   const startKey = input.pageToken
     ? decodeGlobalPageToken(input.pageToken, input.account)
     : undefined
-  const { items, hasMore, nextPageToken } = await querySyncMessagePage<StoredSyncMessage & { syncId: string }>(context, {
+  const { items, hasMore, nextPageToken } = await querySyncMessagePage(context, {
     indexName: ACCOUNT_CURSOR_INDEX,
     partitionKey: 'account',
     partitionValue: input.account,
@@ -111,11 +119,7 @@ export async function getGlobalSyncMessagesAfterCursor(
       messages = []
       messagesByItem.set(itemId, messages)
     }
-    messages.push({
-      cursor: item.cursor,
-      encryptedMessage: item.encryptedMessage,
-      createdAt: item.createdAt,
-    })
+    messages.push(toStoredSyncMessage(item))
   }
 
   // The query returns messages in ascending cursor order (the index's range key) and grouping keeps
@@ -132,7 +136,7 @@ export async function getGlobalSyncMessagesAfterCursor(
  * Queries one page of a partition's sync messages: from the decoded page token when there is one,
  * otherwise after `afterCursor`
  */
-async function querySyncMessagePage<T>(
+async function querySyncMessagePage(
   { client, tables, syncMessagePageSize }: DynamoContext,
   {
     indexName,
@@ -147,7 +151,7 @@ async function querySyncMessagePage<T>(
     afterCursor: number | undefined
     startKey: Record<string, unknown> | undefined
   },
-): Promise<{ items: T[], hasMore: boolean, nextPageToken?: PageToken }> {
+): Promise<{ items: SyncMessageRow[], hasMore: boolean, nextPageToken?: PageToken }> {
   const response = await client.send(new QueryCommand({
     TableName: tables.syncMessages,
     IndexName: indexName,
@@ -157,7 +161,7 @@ async function querySyncMessagePage<T>(
     ExclusiveStartKey: startKey,
   }))
   return {
-    items: (response.Items ?? []) as T[],
+    items: (response.Items ?? []) as SyncMessageRow[],
     hasMore: !!response.LastEvaluatedKey,
     nextPageToken: response.LastEvaluatedKey ? encodePageToken(response.LastEvaluatedKey) : undefined,
   }

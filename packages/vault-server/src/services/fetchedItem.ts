@@ -1,4 +1,4 @@
-import type { VaultItem } from '../drivers/vaultDriver'
+import type { FetchedVaultItem } from '../drivers/vaultDriver'
 import type { FetchedItem, ItemId } from '@vault/shared'
 
 /**
@@ -6,14 +6,12 @@ import type { FetchedItem, ItemId } from '@vault/shared'
  * row with one never also sends `cipher` (a client would decode the older content and upload it).
  * Metadata passes through whole, because legacy rows keep fields the schema doesn't describe.
  */
-export function toFetchedItem(record: VaultItem): FetchedItem {
+export function toFetchedItem(record: FetchedVaultItem): FetchedItem {
   const base = { item: record.item as ItemId, metadata: record.metadata, version: record.version }
   if (record.snapshot) {
-    const { cipher } = record.snapshot
-    // Drivers return the ciphertext as base64 (the stored row's type also allows the binary form it
-    // has at rest, which this narrows away). A row without one gets an empty string, which fails to
-    // decrypt, so the client quarantines the item as it would any unreadable snapshot.
-    return { ...base, snapshot: { ...record.snapshot, cipher: typeof cipher === 'string' ? cipher : '' } }
+    // A snapshot without a ciphertext gets an empty string, which fails to decrypt, so the client
+    // quarantines the item as it would any unreadable snapshot
+    return { ...base, snapshot: { ...record.snapshot, cipher: record.snapshot.cipher ?? '' } }
   }
   if (record.cipher) {
     return { ...base, cipher: record.cipher }

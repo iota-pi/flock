@@ -66,18 +66,14 @@ export function findSession(
   return sessions?.find(session => isSessionFor(session, token))
 }
 
+/** Whether the session for `authToken` is due for renewal. Expects the active sessions from `authenticateSession`. */
 export function shouldRenewSession(
   accountData: Pick<VaultAccountWithAuth, 'sessions'>,
   authToken: string,
   now = Date.now(),
 ): boolean {
   const currentSession = findSession(accountData.sessions, authToken)
-
-  if (!currentSession || !Number.isFinite(currentSession.expiry)) {
-    return true
-  }
-
-  return currentSession.expiry - now < SESSION_RENEWAL_THRESHOLD_MS
+  return !currentSession || currentSession.expiry - now < SESSION_RENEWAL_THRESHOLD_MS
 }
 
 /** The active sessions with one for `token` added */

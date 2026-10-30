@@ -1,4 +1,4 @@
-import { buildUpdateParams, cursorKeyCondition, projection, RawUpdateValue } from './expressions'
+import { buildUpdateParams, cursorKeyCondition, partitionKeyCondition, projection, RawUpdateValue } from './expressions'
 
 describe('buildUpdateParams', () => {
   it('builds a SET expression and mapped values for the given fields', () => {
@@ -89,6 +89,15 @@ describe('buildUpdateParams', () => {
       ConditionExpression: undefined,
       ExpressionAttributeNames: { '#a': 'a', '#b': 'b' },
       ExpressionAttributeValues: {},
+    })
+  })
+})
+
+describe('partitionKeyCondition', () => {
+  it('matches the whole partition', () => {
+    expect(partitionKeyCondition('account', 'acct')).toEqual({
+      KeyConditionExpression: 'account = :account',
+      ExpressionAttributeValues: { ':account': 'acct' },
     })
   })
 })

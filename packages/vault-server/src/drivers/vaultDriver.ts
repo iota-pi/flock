@@ -15,6 +15,10 @@ export type VaultAccount = z.infer<typeof VaultAccountSchema>
 export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>
 export type VaultItem = z.infer<typeof VaultItemSchema>
 export type StoredSyncMessage = z.infer<typeof StoredSyncMessageSchema>
+/** An item as `fetchByIds` returns it, with any snapshot ciphertext as base64 */
+export type FetchedVaultItem = Omit<VaultItem, 'snapshot'> & {
+  snapshot?: Omit<NonNullable<VaultItem['snapshot']>, 'cipher'> & { cipher?: string }
+}
 /** An account record as stored, before its credentials are checked (see authentication.ts) */
 export type StoredAccount = VaultAccount & FailedLoginRecord
 
@@ -140,7 +144,7 @@ export interface VaultDriver {
   fetchManifest(data: BaseData): Promise<ManifestEntry[]>
 
   /** Loads the given items. Items that don't exist are left out. */
-  fetchByIds(data: BaseData & { itemIds: ItemId[] }): Promise<VaultItem[]>
+  fetchByIds(data: BaseData & { itemIds: ItemId[] }): Promise<FetchedVaultItem[]>
 
   /** Stores sync messages, each under its own item */
   pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void>
