@@ -162,7 +162,7 @@ describe('Document Hydration Race Condition (C4)', () => {
           },
         ],
       },
-    ])
+    ], false, undefined, undefined)
 
     // Verify pull queue has NOT processed the message yet because hydration holds the item lock!
     await new Promise(r => setTimeout(r, 20))
@@ -249,7 +249,7 @@ describe('Document Hydration Race Condition (C4)', () => {
           },
         ],
       },
-    ])
+    ], false, undefined, undefined)
 
     // Now hydrate snapshot from Device B
     const hydrationResult = await docStore.hydrateAutomergeDocumentBinary(itemId, snapshotB)

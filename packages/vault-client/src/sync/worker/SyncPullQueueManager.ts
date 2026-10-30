@@ -361,7 +361,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   private async processSinglePullResult(
     result: PullSyncMessagesResponse,
     timedOutKeys: Set<string>,
-    advanceGlobalCursor: boolean,
   ): Promise<{ itemId: ItemId; hasParsedMessages: boolean; cursorUpdated: boolean }> {
     const itemId = result.itemId
     const hasMore = result.hasMore === true
@@ -396,7 +395,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       hasMore,
       nextCursor: result.nextCursor,
       pageToken: result.nextPageToken,
-      advanceGlobalCursor,
     })
 
     if (highestCursor > initialCursor) {
@@ -434,21 +432,18 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   }
 
   /**
-   * @param globalScannedThroughCursor Global scan position reported by the server. When provided,
-   * it alone advances the global cursor; per-item results (which may run ahead of the scan) do not.
-   * Older servers omit it, in which case per-item results advance the global cursor as before.
+   * @param globalScannedThroughCursor Global scan position reported by the server. Only it advances
+   * the global cursor; per-item results (which may run ahead of the scan) never do.
    */
   async processPullResults(
     results: PullSyncMessagesResponse[],
-    hasMoreGlobal?: boolean,
-    globalNextPageToken?: PageToken,
-    globalScannedThroughCursor?: number,
+    hasMoreGlobal: boolean,
+    globalNextPageToken: PageToken | undefined,
+    globalScannedThroughCursor: number | undefined,
   ): Promise<void> {
     if (!this.account || this.isShutdown) return
-    if (typeof hasMoreGlobal === 'boolean') {
-      this.hasMoreGlobal = hasMoreGlobal
-      this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
-    }
+    this.hasMoreGlobal = hasMoreGlobal
+    this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
 
     const successfullyPulledItemIds = new Set<ItemId>()
     let cursorsUpdated = false
@@ -460,11 +455,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     try {
       for (const result of results || []) {
         try {
-          const itemOutcome = await this.processSinglePullResult(
-            result,
-            timedOutKeys,
-            globalScannedThroughCursor === undefined,
-          )
+          const itemOutcome = await this.processSinglePullResult(result, timedOutKeys)
           if (itemOutcome.hasParsedMessages) {
             successfullyPulledItemIds.add(itemOutcome.itemId)
           }

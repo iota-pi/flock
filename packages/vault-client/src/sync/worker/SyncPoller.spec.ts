@@ -222,7 +222,7 @@ describe('SyncPoller', () => {
       nextCursor: 0,
       nextPageToken: 'item-page-token',
       messages: [],
-    }])
+    }], false, undefined, undefined)
     expect(pullQueueManager.getCursors()).toEqual([expect.objectContaining({ pageToken: 'item-page-token' })])
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})

@@ -23,11 +23,6 @@ export interface RecordPullOutcomeParams {
   hasMore: boolean
   nextCursor?: number
   pageToken?: PageToken
-  /**
-   * Whether this outcome may advance the global scan cursor. Only legacy servers, which don't
-   * report the global scan position, rely on per-item results for this. Defaults to true.
-   */
-  advanceGlobalCursor?: boolean
 }
 
 export interface RecordPullOutcomeResult {
@@ -38,7 +33,6 @@ export interface RecordPullOutcomeResult {
 
 export interface PullStateTransition {
   targetCursor: number
-  effectiveHighestCursor: number
   pending: boolean
   retryCount: number
   blockedOnKey?: string
@@ -47,7 +41,6 @@ export interface PullStateTransition {
   advanceCursor?: number
   cursorUpdated: boolean
   removeFromRetryQueue: boolean
-  updateGlobalCursor: boolean
 }
 
 function isValidCursor(cursor: number): boolean {
@@ -300,7 +293,6 @@ export class PullRetryTracker {
     let permanentlyFailed = false
     let advanceCursor: number | undefined
     let removeFromRetryQueue = false
-    let updateGlobalCursor = false
     let targetCursor = state.cursor
 
     if (hasKeyFailure) {
@@ -318,7 +310,6 @@ export class PullRetryTracker {
       if (highestCursor > targetCursor) {
         targetCursor = highestCursor
       }
-      updateGlobalCursor = true
     } else if (hasParseFailure) {
       nextPageToken = undefined
       const nextRetries = state.retryCount + 1
@@ -350,7 +341,6 @@ export class PullRetryTracker {
           pending = false
           removeFromRetryQueue = true
         }
-        updateGlobalCursor = true
       } else {
         pending = true
         retryCount = nextRetries
@@ -366,7 +356,6 @@ export class PullRetryTracker {
       nextPageToken = undefined
       targetCursor = highestCursor
       removeFromRetryQueue = true
-      updateGlobalCursor = true
     }
 
     let cursorUpdated = false
@@ -380,7 +369,6 @@ export class PullRetryTracker {
 
     return {
       targetCursor,
-      effectiveHighestCursor: highestCursor,
       pending,
       retryCount,
       blockedOnKey: nextBlockedOnKey,
@@ -389,7 +377,6 @@ export class PullRetryTracker {
       advanceCursor,
       cursorUpdated,
       removeFromRetryQueue,
-      updateGlobalCursor,
     }
   }
 
@@ -401,15 +388,13 @@ export class PullRetryTracker {
     state.pageToken = transition.pageToken
   }
 
-  advanceGlobalCursor(itemId: ItemId, transition: PullStateTransition, allowGlobalAdvance = true): void {
+  /** Records the item's new cursor and drops it from the retry queue once it has caught up */
+  updateItemCursor(itemId: ItemId, transition: PullStateTransition): void {
     if (transition.cursorUpdated) {
       this.itemCursors.set(itemId, transition.targetCursor)
     }
     if (transition.removeFromRetryQueue) {
       this.retryQueue.delete(itemId)
-    }
-    if (transition.updateGlobalCursor && allowGlobalAdvance) {
-      this.setGlobalCursor(transition.effectiveHighestCursor)
     }
   }
 
@@ -418,7 +403,7 @@ export class PullRetryTracker {
     const state = this.getOrCreateState(itemId)
     const transition = this.computeTransition(state, params)
     this.applyTransition(state, transition)
-    this.advanceGlobalCursor(itemId, transition, params.advanceGlobalCursor ?? true)
+    this.updateItemCursor(itemId, transition)
 
     return {
       cursorUpdated: transition.cursorUpdated,

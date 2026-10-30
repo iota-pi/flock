@@ -494,7 +494,7 @@ describe('PullRetryTracker', () => {
       expect(tracker2.getCursors()).toEqual([{ itemId: 'item-retrying', cursor: 400, pageToken: undefined }])
     })
 
-    it('does not raise the global scan cursor from per-item outcomes when advanceGlobalCursor is false', () => {
+    it('never raises the global scan cursor from per-item outcomes', () => {
       tracker.setGlobalCursor(100)
       tracker.recordPullOutcome({
         itemId: 'item-ahead' as ItemId,
@@ -504,7 +504,6 @@ describe('PullRetryTracker', () => {
         hasKeyFailure: false,
         hasParseFailure: false,
         hasMore: false,
-        advanceGlobalCursor: false,
       })
 
       expect(tracker.getGlobalScanCursor()).toBe(100)
@@ -550,7 +549,6 @@ describe('PullRetryTracker', () => {
       expect(state).toEqual(originalCopy)
       expect(transition).toEqual({
         targetCursor: 10,
-        effectiveHighestCursor: 10,
         pending: true,
         retryCount: 2,
         blockedOnKey: 'new-key',
@@ -559,11 +557,10 @@ describe('PullRetryTracker', () => {
         advanceCursor: undefined,
         cursorUpdated: false,
         removeFromRetryQueue: false,
-        updateGlobalCursor: false,
       })
     })
 
-    it('computes partial-success transition with pagination and global cursor flag', () => {
+    it('computes partial-success transition with pagination', () => {
       const state = {
         cursor: 50,
         pending: true,
@@ -585,7 +582,6 @@ describe('PullRetryTracker', () => {
 
       expect(transition).toEqual({
         targetCursor: 120,
-        effectiveHighestCursor: 120,
         pending: true,
         retryCount: 0,
         blockedOnKey: undefined,
@@ -594,7 +590,6 @@ describe('PullRetryTracker', () => {
         advanceCursor: undefined,
         cursorUpdated: true,
         removeFromRetryQueue: false,
-        updateGlobalCursor: true,
       })
     })
 
@@ -619,7 +614,6 @@ describe('PullRetryTracker', () => {
       expect(transition.retryCount).toBe(2)
       expect(transition.permanentlyFailed).toBe(false)
       expect(transition.removeFromRetryQueue).toBe(false)
-      expect(transition.updateGlobalCursor).toBe(false)
     })
 
     it('computes parse-failure-exhausted transition with failingCursor fallback', () => {
@@ -652,7 +646,6 @@ describe('PullRetryTracker', () => {
       expect(transition.targetCursor).toBe(55)
       expect(transition.cursorUpdated).toBe(true)
       expect(transition.removeFromRetryQueue).toBe(false)
-      expect(transition.updateGlobalCursor).toBe(true)
     })
 
     it('computes terminal-success transition removing item from retryQueue', () => {
@@ -677,7 +670,6 @@ describe('PullRetryTracker', () => {
       expect(transition.targetCursor).toBe(80)
       expect(transition.cursorUpdated).toBe(true)
       expect(transition.removeFromRetryQueue).toBe(true)
-      expect(transition.updateGlobalCursor).toBe(true)
     })
   })
 
@@ -693,7 +685,6 @@ describe('PullRetryTracker', () => {
 
       const transition: PullStateTransition = {
         targetCursor: 200,
-        effectiveHighestCursor: 200,
         pending: false,
         retryCount: 0,
         blockedOnKey: undefined,
@@ -702,7 +693,6 @@ describe('PullRetryTracker', () => {
         advanceCursor: undefined,
         cursorUpdated: true,
         removeFromRetryQueue: true,
-        updateGlobalCursor: true,
       }
 
       tracker.applyTransition(state, transition)
@@ -717,27 +707,25 @@ describe('PullRetryTracker', () => {
     })
   })
 
-  describe('advanceGlobalCursor', () => {
-    it('updates itemCursors, removes from retryQueue, and advances globalCursor', () => {
+  describe('updateItemCursor', () => {
+    it('updates itemCursors and removes from retryQueue without touching the global scan cursor', () => {
       tracker.addPendingItem('item-adv' as ItemId)
       expect(tracker.hasState('item-adv' as ItemId)).toBe(true)
 
       const transition: PullStateTransition = {
         targetCursor: 350,
-        effectiveHighestCursor: 350,
         pending: false,
         retryCount: 0,
         permanentlyFailed: false,
         cursorUpdated: true,
         removeFromRetryQueue: true,
-        updateGlobalCursor: true,
       }
 
-      tracker.advanceGlobalCursor('item-adv' as ItemId, transition)
+      tracker.updateItemCursor('item-adv' as ItemId, transition)
 
       expect(tracker.getCursor('item-adv' as ItemId)).toBe(350)
       expect(tracker.hasState('item-adv' as ItemId)).toBe(false)
-      expect(tracker.getGlobalLatestCursor()).toBe(350)
+      expect(tracker.getGlobalScanCursor()).toBe(0)
     })
 
     it('does not mutate itemCursors or remove from retryQueue when flags are false', () => {
@@ -746,16 +734,14 @@ describe('PullRetryTracker', () => {
 
       const transition: PullStateTransition = {
         targetCursor: 50,
-        effectiveHighestCursor: 50,
         pending: true,
         retryCount: 1,
         permanentlyFailed: false,
         cursorUpdated: false,
         removeFromRetryQueue: false,
-        updateGlobalCursor: false,
       }
 
-      tracker.advanceGlobalCursor('item-keep' as ItemId, transition)
+      tracker.updateItemCursor('item-keep' as ItemId, transition)
 
       expect(tracker.hasState('item-keep' as ItemId)).toBe(true)
       expect(tracker.getGlobalLatestCursor()).toBe(0)
