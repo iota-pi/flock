@@ -122,6 +122,12 @@ describe('SnapshotManager Retry Mechanism', () => {
     vi.useRealTimers()
   })
 
+  /** Simulates a worker restart: drops the manager's in-memory state and replaces it with a fresh one */
+  async function restartManager(): Promise<void> {
+    await manager.shutdown({ clearLocalData: true })
+    manager = new SnapshotManager(context as any, lastModifiedStore, { isLeader: true })
+  }
+
   it('successfully pushes snapshots', async () => {
     mockPutSnapshots.mockResolvedValue({
       success: true,
@@ -385,7 +391,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager['pusher'].retryAttempt).toBe(0)
   })
 
-  it('resets all retry properties on clear', async () => {
+  it('resets all retry properties on shutdown', async () => {
     mockPutSnapshots.mockResolvedValue({
       success: false,
       persisted: 0,
@@ -396,8 +402,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
 
-    // Clear manager
-    manager.clear()
+    await manager.shutdown({ clearLocalData: true })
 
     expect(manager['pusher'].retryAttempt).toBe(0)
     expect(manager['pusher'].isRetryActive).toBe(false)
@@ -559,11 +564,11 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(clearSpy).not.toHaveBeenCalled()
     })
 
-    it('clear() resets in-memory state without clearing the persisted store', async () => {
+    it('resets in-memory state on shutdown with clearLocalData without clearing the persisted store', async () => {
       const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
 
       await manager.importLastModified([['item-1' as ItemId, 123456]])
-      manager.clear()
+      await manager.shutdown({ clearLocalData: true })
 
       expect(manager.exportLastModified()).toHaveLength(0)
       expect(clearSpy).not.toHaveBeenCalled()
@@ -1112,7 +1117,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-normal' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
       ])
 
-      await manager.loadLastModified()
+      await manager.onLifecycleStart()
 
       // Normal un-snapshotted item restored
       expect(manager.getDirtyItemIds()).toContain('item-normal' as ItemId)
@@ -1276,14 +1281,14 @@ describe('SnapshotManager Retry Mechanism', () => {
   })
 
   describe('Dual Timestamp & Startup Dirty Audit', () => {
-    it('restores un-snapshotted items into dirtyItems on loadLastModified', async () => {
+    it('restores un-snapshotted items into dirtyItems on start', async () => {
       vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
         ['item-unpushed' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
         ['item-clean' as ItemId, { localModifiedAt: 3000, lastSnapshotAt: 3000 }],
         ['item-never-snapshotted' as ItemId, { localModifiedAt: 4000 }],
       ])
 
-      await manager.loadLastModified()
+      await manager.onLifecycleStart()
 
       expect(manager.getDirtyItemIds()).toContain('item-unpushed' as ItemId)
       expect(manager.getDirtyItemIds()).toContain('item-never-snapshotted' as ItemId)
@@ -1381,10 +1386,10 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(getTimestamps(manager['tracker'], 'item-offline').lastSnapshotAt).toBe(1000)
 
         // 3. Worker crashes / restarts -> clear in-memory state and reload from storage
-        manager.clear()
+        await restartManager()
         expect(getTimestamps(manager['tracker'], 'item-offline').localModifiedAt).toBeUndefined()
 
-        await manager.loadLastModified()
+        await manager.onLifecycleStart()
 
         // 4. Dirty audit must successfully re-enqueue item-offline because 5000 > 1000
         expect(manager.getDirtyItemIds()).toContain('item-offline' as ItemId)
@@ -1491,10 +1496,10 @@ describe('SnapshotManager Retry Mechanism', () => {
 
         // Persist timestamps and simulate restart / promotion audit
         await manager.persistLastModified()
-        manager.clear()
+        await restartManager()
         expect(manager.getDirtyItemIds()).not.toContain('item-1')
 
-        await manager.loadLastModified()
+        await manager.onLifecycleStart()
         // Startup audit should detect localMod > lastSnap (31000) and re-enqueue item-1
         expect(manager.getDirtyItemIds()).toContain('item-1')
       })
@@ -1504,10 +1509,10 @@ describe('SnapshotManager Retry Mechanism', () => {
           ['item-legacy' as ItemId, { localModifiedAt: 1000, lastSnapshotAt: 5000 }],
         ])
 
-        manager.clear()
+        await restartManager()
         expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBeUndefined()
 
-        await manager.loadLastModified()
+        await manager.onLifecycleStart()
 
         // localModifiedAt must be healed to at least lastSnapshotAt
         expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBe(5000)
