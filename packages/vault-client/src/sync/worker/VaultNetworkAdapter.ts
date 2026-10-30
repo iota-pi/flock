@@ -24,8 +24,8 @@ const log = createLogger('VaultNetworkAdapter')
 const MAX_SEEDED_DOCUMENTS = 5000
 /** Outbound messages buffered while sending isn't possible */
 export const MAX_OUTBOUND_QUEUE_SIZE = 1000
-export const MAX_RENEGOTIATION_ATTEMPTS = 3
-export const RENEGOTIATION_WINDOW_MS = 5000
+const MAX_RENEGOTIATION_ATTEMPTS = 3
+const RENEGOTIATION_WINDOW_MS = 5000
 export const CIRCUIT_BREAKER_COOLDOWN_MS = 30000
 const VAULT_PEER_ID = 'vault' as PeerId
 const EMPTY_BLOOM = new Uint8Array()
@@ -156,7 +156,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.sendEnabled = sendEnabled
 
     if (sendEnabled) {
-      this.clearSeededDocuments()
+      this.seededDocuments.clear()
       this.resumeSending()
     } else {
       this.disconnectPeer()
@@ -192,7 +192,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   override connect(peerId: PeerId, peerMetadata?: PeerMetadata): void {
     super.connect(peerId, peerMetadata)
     this.markReady()
-    this.clearSeededDocuments()
+    this.seededDocuments.clear()
     this.resumeSending()
   }
 
@@ -309,7 +309,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
 
     circuit.timestamps.push(now)
 
-    this.removeSeededDocument(documentId)
+    this.seededDocuments.delete(documentId)
     this.outboundQueue.filterInPlace(m => m.documentId !== documentId)
 
     if (this.canSend() && this.peerId) {
@@ -476,21 +476,13 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     }
   }
 
-  clearSyncedHeads(): void {
+  private clearSyncedHeads(): void {
     this.saveSyncedHeadsDebounced.cancel()
     this.hasUnsavedSyncedHeads = false
     this.syncedHeads.clear()
   }
 
-  clearSeededDocuments(): void {
-    this.seededDocuments.clear()
-  }
-
-  removeSeededDocument(documentId: DocumentId): void {
-    this.seededDocuments.delete(documentId)
-  }
-
-  clearOutboundQueue(): void {
+  private clearOutboundQueue(): void {
     this.outboundQueue.clear()
     this.pendingReNegotiations.clear()
     this.resetReNegotiationCircuit()
@@ -506,7 +498,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   }
 
   private disconnectPeer(): void {
-    this.clearSeededDocuments()
+    this.seededDocuments.clear()
     if (this.peerId) {
       this.dispatchPeerDisconnected(VAULT_PEER_ID)
     }
