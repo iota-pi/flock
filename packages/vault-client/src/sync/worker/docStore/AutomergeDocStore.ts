@@ -399,65 +399,53 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
         // Ignore initial parse failure here; it will throw when importing/loading below if corrupt
       }
 
-      try {
-        const existingHandle = await this.findHandleInternal(normalizedItemId, options)
+      const existingHandle = await this.findHandleInternal(normalizedItemId, options)
 
-        if (existingHandle?.isReady()) {
-          this.applyMerge(existingHandle, binary)
-          return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
-        } else {
-          // Document handle was not available or not ready within timeout.
-          // Check whether document exists in storage to avoid clobbering local edits.
-          const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-          // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
-          // replace an unreadable copy from the server, say), so ask storage rather than trusting the
-          // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
-          const existsInStorage = !!localBinary || await this.hasDataInStorage(normalizedItemId)
+      if (existingHandle?.isReady()) {
+        this.applyMerge(existingHandle, binary)
+        return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
+      } else {
+        // Document handle was not available or not ready within timeout.
+        // Check whether document exists in storage to avoid clobbering local edits.
+        const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+        // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
+        // replace an unreadable copy from the server, say), so ask storage rather than trusting the
+        // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
+        const existsInStorage = !!localBinary || await this.hasDataInStorage(normalizedItemId)
 
-          // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
-          const { documentId } = this.resolveDocumentId(normalizedItemId)
-          const inMemoryHandle = this.getReadyHandle(documentId)
-          if (inMemoryHandle) {
-            this.applyMerge(inMemoryHandle, binary)
-            return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
-          }
-
-          if (existsInStorage) {
-            // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
-            if (localBinary && localBinary.byteLength > 0) {
-              try {
-                const localDoc = Automerge.load<RepoDoc>(localBinary)
-                const mergedDoc = Automerge.merge(localDoc, incomingDoc ?? Automerge.load<RepoDoc>(binary))
-                const mergedBinary = Automerge.save(mergedDoc)
-                await this.seedImportedDocument(normalizedItemId, mergedBinary)
-                return this.buildHydrateResult(mergedDoc, incomingHeads)
-              } catch (mergeError) {
-                log.error('Non-destructive direct merge failed', {
-                  itemId: normalizedItemId,
-                  error: mergeError,
-                })
-              }
-            }
-
-            log.error(
-              `Refusing to overwrite existing storage data for ${normalizedItemId}. ` +
-              `Document exists in storage but handle could not be loaded within timeout and fallback merge failed.`
-            )
-            throw new Error(
-              `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}`
-            )
-          }
-
-          // Genuinely new document - safe to seed
-          const handle = await this.seedImportedDocument(normalizedItemId, binary)
-          return this.buildHydrateResult(handle.doc(), incomingHeads)
+        // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
+        const { documentId } = this.resolveDocumentId(normalizedItemId)
+        const inMemoryHandle = this.getReadyHandle(documentId)
+        if (inMemoryHandle) {
+          this.applyMerge(inMemoryHandle, binary)
+          return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
         }
-      } catch (error) {
-        log.error('Failed to hydrate document', {
-          itemId,
-          error,
-        })
-        throw error
+
+        if (existsInStorage) {
+          // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
+          let mergeFailure: unknown
+          if (localBinary && localBinary.byteLength > 0) {
+            try {
+              const localDoc = Automerge.load<RepoDoc>(localBinary)
+              const mergedDoc = Automerge.merge(localDoc, incomingDoc ?? Automerge.load<RepoDoc>(binary))
+              const mergedBinary = Automerge.save(mergedDoc)
+              await this.seedImportedDocument(normalizedItemId, mergedBinary)
+              return this.buildHydrateResult(mergedDoc, incomingHeads)
+            } catch (mergeError) {
+              mergeFailure = mergeError
+            }
+          }
+
+          throw new Error(
+            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}: ` +
+            `its handle didn't load in time and the fallback merge failed`,
+            { cause: mergeFailure },
+          )
+        }
+
+        // Genuinely new document - safe to seed
+        const handle = await this.seedImportedDocument(normalizedItemId, binary)
+        return this.buildHydrateResult(handle.doc(), incomingHeads)
       }
     })
   }

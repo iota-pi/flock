@@ -469,9 +469,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       if (firstItemError) {
         throw firstItemError.error
       }
-    } catch (error) {
-      log.error('Pull sync batch failed', error)
-      throw error
     } finally {
       const isRetrying = this.retryTracker.isAnyRetrying()
       this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })

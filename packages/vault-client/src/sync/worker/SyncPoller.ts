@@ -267,7 +267,12 @@ export class SyncPoller {
       )
     }
 
-    await this.handlePollResponse(response)
+    await this.pullQueueManager.processPullResults(
+      response.pullResults,
+      response.globalHasMore,
+      response.globalNextPageToken,
+      response.globalScannedThroughCursor,
+    )
 
     return summary
   }
@@ -331,12 +336,7 @@ export class SyncPoller {
 
     const idsToRemove = [...acknowledgedIds, ...quarantinedIds]
     if (idsToRemove.length > 0) {
-      try {
-        await this.wal.remove(idsToRemove)
-      } catch (walErr) {
-        log.error('Failed to remove acknowledged/quarantined IDs from WAL', walErr)
-        throw walErr
-      }
+      await this.wal.remove(idsToRemove)
     }
 
     return {
@@ -363,20 +363,6 @@ export class SyncPoller {
       }
     } catch (err) {
       log.warn('Failed to decode acknowledged sync message', err)
-    }
-  }
-
-  private async handlePollResponse(response: PollSyncBatchResponse): Promise<void> {
-    try {
-      await this.pullQueueManager.processPullResults(
-        response.pullResults,
-        response.globalHasMore,
-        response.globalNextPageToken,
-        response.globalScannedThroughCursor,
-      )
-    } catch (pullErr) {
-      log.error('Error processing pull results', pullErr)
-      throw pullErr
     }
   }
 
