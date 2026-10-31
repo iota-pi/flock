@@ -6,7 +6,7 @@ import { safeEqual } from './util'
 
 /** Whether `authTokenHash`, the hash of the auth token a client sent, is the account's */
 export function matchesAuthTokenHash(record: Pick<StoredAccount, 'authToken'>, authTokenHash: string): boolean {
-  return !!authTokenHash && safeEqual(authTokenHash, record.authToken)
+  return safeEqual(authTokenHash, record.authToken)
 }
 
 /**

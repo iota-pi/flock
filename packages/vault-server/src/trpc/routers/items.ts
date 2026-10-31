@@ -1,11 +1,10 @@
 import { router, protectedProcedure } from '../trpc'
-import { FetchItemsInputSchema, FetchSnapshotsByIdsInputSchema, PutSnapshotBatchSchema } from '@vault/shared'
+import { FetchSnapshotsByIdsInputSchema, PutSnapshotBatchSchema } from '@vault/shared'
 import { toFetchedItem } from '../../services/fetchedItem'
 import { persistSnapshots } from '../../services/snapshotService'
 
 export const itemsRouter = router({
   fetchManifest: protectedProcedure
-    .input(FetchItemsInputSchema)
     .query(async ({ ctx, input }) => {
       const manifest = await ctx.vault.fetchManifest({ account: input.account })
       return { success: true, manifest, serverTime: Date.now() }
