@@ -56,12 +56,26 @@ const REMINDER_PAYLOAD = {
   badge: '/badge-96x96.png',
 }
 
+/** What FCM answers (403) for a subscription the browser made with a different VAPID key */
+const VAPID_MISMATCH_BODY = 'do not correspond to the credentials used to create the subscriptions'
+
+/**
+ * Whether the subscription can never be sent to again: it expired or was revoked (404/410), or it
+ * was made with another VAPID key, which would otherwise be retried every day forever
+ */
+function isSubscriptionGone(error: unknown) {
+  const { statusCode, body } = error as { statusCode?: number, body?: unknown }
+  if (statusCode === 404 || statusCode === 410) {
+    return true
+  }
+  return statusCode === 403 && typeof body === 'string' && body.includes(VAPID_MISMATCH_BODY)
+}
+
 export async function processMessage({ accountId, subscription, topic }: ReminderMessage) {
   try {
     await sendPushNotification(subscription, REMINDER_PAYLOAD, { topic })
   } catch (error) {
-    const statusCode = (error as { statusCode?: number }).statusCode
-    if (statusCode !== 404 && statusCode !== 410) {
+    if (!isSubscriptionGone(error)) {
       throw error
     }
     await removeSubscription(accountId, subscription.endpoint)

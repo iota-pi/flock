@@ -9,7 +9,7 @@ import { failCypressTestOnRequestError, isCypress } from './vault/cypress'
 import { ensurePersistentStorage, getTrackedFetch, initVaultTrpcClient } from '@vault/client'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { useNavigate } from 'react-router'
-import { syncReminderTimezone } from '../utils/pushNotifications'
+import { refreshPushSubscription, syncReminderTimezone } from '../utils/pushNotifications'
 import { useAutoClearPrayerNotifications } from '../hooks/useAutoClearPrayerNotifications'
 
 export default function AppInitializer() {
@@ -39,6 +39,7 @@ export default function AppInitializer() {
   useEffect(() => {
     if (loggedIn && account) {
       void syncReminderTimezone(account).catch(console.error)
+      void refreshPushSubscription(account).catch(console.error)
     }
   }, [loggedIn, account])
 

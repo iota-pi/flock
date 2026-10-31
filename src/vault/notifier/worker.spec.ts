@@ -1,7 +1,7 @@
 import { handler, processMessage } from './worker'
 import { sendPushNotification } from './webpush'
 import * as webpushModule from './webpush'
-import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { WebPushError } from 'web-push'
 import { spyOnExports } from '../../utils/testUtils'
 
@@ -65,6 +65,33 @@ describe('notifier worker', () => {
     await expect(processMessage(reminder('expired-sub'))).resolves.toBeUndefined()
 
     expect(mockSend).toHaveBeenCalled()
+  })
+
+  it('removes a subscription made with another VAPID key', async () => {
+    const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
+    mockSend.mockRejectedValue(new WebPushError(
+      'Received unexpected response code',
+      403,
+      {},
+      'the VAPID credentials in the authorization header do not correspond to the credentials used to create the subscriptions.\n',
+      'https://push.example.com/expired-sub',
+    ))
+    const mockDbSend = DynamoDBDocumentClient.prototype.send as unknown as ReturnType<typeof vi.fn>
+
+    await expect(processMessage(reminder('expired-sub'))).resolves.toBeUndefined()
+
+    const update = mockDbSend.mock.calls.map(([command]) => command).find(command => command instanceof UpdateCommand)
+    expect(update?.input.ExpressionAttributeValues).toEqual({
+      ':pushSubscriptions': [{ endpoint: 'https://push.example.com/valid-sub' }],
+    })
+  })
+
+  it('rethrows other 403 errors', async () => {
+    const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
+    const error = new WebPushError('Received unexpected response code', 403, {}, 'Forbidden', 'https://push.example.com/sub-1')
+    mockSend.mockRejectedValue(error)
+
+    await expect(processMessage(reminder('sub-1'))).rejects.toBe(error)
   })
 
   it('rethrows non-404/410 errors', async () => {

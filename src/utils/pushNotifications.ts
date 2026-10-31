@@ -17,7 +17,32 @@ function fromBase64Url(base64Url: string) {
   return bytes
 }
 
-async function getPushSubscription() {
+/**
+ * Whether the browser made this subscription with a different VAPID key (it was rotated, or another
+ * build made it). The push service rejects every message sent to such a subscription. A browser
+ * that doesn't report the key is taken to have the current one.
+ */
+function isForOtherKey(subscription: PushSubscription, key: Uint8Array) {
+  const subscriptionKey = subscription.options?.applicationServerKey
+  if (!subscriptionKey) {
+    return false
+  }
+  const bytes = new Uint8Array(subscriptionKey)
+  return bytes.length !== key.length || bytes.some((byte, index) => byte !== key[index])
+}
+
+async function replaceSubscription(account: string, pushManager: PushManager, existing: PushSubscription | null, key: Uint8Array<ArrayBuffer>) {
+  if (existing) {
+    await deletePushSubscription(account, existing.endpoint)
+    await existing.unsubscribe()
+  }
+  return pushManager.subscribe({
+    applicationServerKey: key,
+    userVisibleOnly: true,
+  })
+}
+
+async function getPushSubscription(account: string, key: string) {
   const registration = await navigator.serviceWorker.getRegistration()
   if (!registration) {
     throw new Error('Service worker registration not found')
@@ -26,33 +51,19 @@ async function getPushSubscription() {
     throw new Error('Push manager is not supported in this browser')
   }
 
-  const existing = await registration.pushManager.getSubscription()
-  if (existing) {
-    return existing
-  }
-
-  const key = env.VAPID_PUBLIC_KEY
   if (!key) {
     throw new Error('Missing VITE_VAPID_PUBLIC_KEY')
   }
+  const keyBytes = fromBase64Url(key)
 
-  return registration.pushManager.subscribe({
-    applicationServerKey: fromBase64Url(key),
-    userVisibleOnly: true,
-  })
+  const existing = await registration.pushManager.getSubscription()
+  if (existing && !isForOtherKey(existing, keyBytes)) {
+    return existing
+  }
+  return replaceSubscription(account, registration.pushManager, existing, keyBytes)
 }
 
-export async function subscribe(account: string, hours: number[]) {
-  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-    throw new Error('Push notifications are not supported in this browser')
-  }
-
-  const permission = await Notification.requestPermission()
-  if (permission !== 'granted') {
-    throw new Error('Notification permission was not granted')
-  }
-
-  const subscription = await getPushSubscription()
+async function registerSubscription(account: string, subscription: PushSubscription) {
   const subscriptionJson = subscription.toJSON()
   if (!subscriptionJson.endpoint || !subscriptionJson.keys?.auth || !subscriptionJson.keys?.p256dh) {
     throw new Error('Failed to create push subscription')
@@ -65,6 +76,41 @@ export async function subscribe(account: string, hours: number[]) {
       p256dh: subscriptionJson.keys.p256dh,
     },
   })
+}
+
+/**
+ * Replaces this device's push subscription if it was made with a different VAPID key, so that
+ * reminders reach it again without the user turning them off and on. Returns whether it did.
+ */
+export async function refreshPushSubscription(account: string, key = env.VAPID_PUBLIC_KEY): Promise<boolean> {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) {
+    return false
+  }
+  const pushManager = (await navigator.serviceWorker.getRegistration())?.pushManager
+  if (!pushManager || !key) {
+    return false
+  }
+  const keyBytes = fromBase64Url(key)
+
+  const existing = await pushManager.getSubscription()
+  if (!existing || !isForOtherKey(existing, keyBytes)) {
+    return false
+  }
+  await registerSubscription(account, await replaceSubscription(account, pushManager, existing, keyBytes))
+  return true
+}
+
+export async function subscribe(account: string, hours: number[], key = env.VAPID_PUBLIC_KEY) {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    throw new Error('Push notifications are not supported in this browser')
+  }
+
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') {
+    throw new Error('Notification permission was not granted')
+  }
+
+  await registerSubscription(account, await getPushSubscription(account, key))
 
   const firstHour = hours[0] ?? 8
   await updateReminderSettings(account, {

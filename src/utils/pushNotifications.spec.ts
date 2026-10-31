@@ -1,5 +1,16 @@
-import { checkSubscription, syncReminderTimezone, clearReminderNotifications } from './pushNotifications'
-import { getReminderSettings, updateReminderSettings } from '../api/notificationClient'
+import {
+  checkSubscription,
+  syncReminderTimezone,
+  clearReminderNotifications,
+  refreshPushSubscription,
+  subscribe,
+} from './pushNotifications'
+import {
+  addPushSubscription,
+  deletePushSubscription,
+  getReminderSettings,
+  updateReminderSettings,
+} from '../api/notificationClient'
 import * as notificationClientModule from '../api/notificationClient'
 import { spyOnExports } from './testUtils'
 
@@ -156,6 +167,98 @@ describe('pushNotifications utility', () => {
       expect(closeNotification1).toHaveBeenCalled()
       expect(closeNotification2).toHaveBeenCalled()
       expect(closeOtherNotification).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('VAPID key changes', () => {
+    const originalServiceWorker = navigator.serviceWorker
+    // Base64url for the bytes 1, 2, 3
+    const key = 'AQID'
+
+    const browserSubscription = (endpoint: string, keyBytes: number[] | null) => ({
+      endpoint,
+      options: { applicationServerKey: keyBytes && new Uint8Array(keyBytes).buffer },
+      unsubscribe: vi.fn().mockResolvedValue(true),
+      toJSON: () => ({ endpoint, keys: { auth: 'auth', p256dh: 'p256dh' } }),
+    })
+
+    function stubPushManager(existing: ReturnType<typeof browserSubscription> | null) {
+      const pushManager = {
+        getSubscription: vi.fn().mockResolvedValue(existing),
+        subscribe: vi.fn().mockResolvedValue(browserSubscription('https://push.example.com/new', [1, 2, 3])),
+      }
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: { getRegistration: vi.fn().mockResolvedValue({ pushManager }) },
+        configurable: true,
+      })
+      return pushManager
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(globalThis, 'Notification', {
+        value: { permission: 'granted', requestPermission: vi.fn().mockResolvedValue('granted') },
+        writable: true,
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(navigator, 'serviceWorker', { value: originalServiceWorker, configurable: true })
+    })
+
+    it('replaces a subscription made with another key', async () => {
+      const stale = browserSubscription('https://push.example.com/old', [9, 9, 9])
+      const pushManager = stubPushManager(stale)
+
+      await expect(refreshPushSubscription('user-1', key)).resolves.toBe(true)
+
+      expect(deletePushSubscription).toHaveBeenCalledWith('user-1', 'https://push.example.com/old')
+      expect(stale.unsubscribe).toHaveBeenCalled()
+      expect(pushManager.subscribe).toHaveBeenCalledWith({
+        applicationServerKey: new Uint8Array([1, 2, 3]),
+        userVisibleOnly: true,
+      })
+      expect(addPushSubscription).toHaveBeenCalledWith('user-1', {
+        endpoint: 'https://push.example.com/new',
+        keys: { auth: 'auth', p256dh: 'p256dh' },
+      })
+    })
+
+    it('keeps a subscription made with the current key', async () => {
+      const pushManager = stubPushManager(browserSubscription('https://push.example.com/current', [1, 2, 3]))
+
+      await expect(refreshPushSubscription('user-1', key)).resolves.toBe(false)
+
+      expect(pushManager.subscribe).not.toHaveBeenCalled()
+      expect(addPushSubscription).not.toHaveBeenCalled()
+    })
+
+    it('keeps a subscription whose key the browser does not report', async () => {
+      const pushManager = stubPushManager(browserSubscription('https://push.example.com/unknown', null))
+
+      await expect(refreshPushSubscription('user-1', key)).resolves.toBe(false)
+
+      expect(pushManager.subscribe).not.toHaveBeenCalled()
+    })
+
+    it('does not subscribe a device that has no subscription', async () => {
+      const pushManager = stubPushManager(null)
+
+      await expect(refreshPushSubscription('user-1', key)).resolves.toBe(false)
+
+      expect(pushManager.subscribe).not.toHaveBeenCalled()
+    })
+
+    it('subscribing replaces a subscription made with another key', async () => {
+      const stale = browserSubscription('https://push.example.com/old', [9, 9, 9])
+      stubPushManager(stale)
+
+      await subscribe('user-1', [9], key)
+
+      expect(stale.unsubscribe).toHaveBeenCalled()
+      expect(addPushSubscription).toHaveBeenCalledWith('user-1', {
+        endpoint: 'https://push.example.com/new',
+        keys: { auth: 'auth', p256dh: 'p256dh' },
+      })
     })
   })
 })
