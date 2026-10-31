@@ -9,7 +9,6 @@ import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import type { DocCodec } from './domain'
 import { SnapshotPusher } from './SnapshotPusher'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { SnapshotPushResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { KeyProvider } from '../../api/Keyring'
@@ -21,18 +20,13 @@ export interface SnapshotManagerOptions {
   isLeader?: boolean
 }
 
-export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolean }> {
-  readonly lifecycleName = 'SnapshotManager'
+export class SnapshotManager {
   private readonly tracker: SnapshotTracker
   private readonly builder: SnapshotBuilder
   private readonly pusher: SnapshotPusher
 
-  async onLifecycleStart(): Promise<void> {
+  async loadLastModified(): Promise<void> {
     await this.tracker.loadLastModified()
-  }
-
-  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown(options)
   }
 
   constructor(

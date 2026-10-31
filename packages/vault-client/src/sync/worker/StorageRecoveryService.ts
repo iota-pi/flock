@@ -14,7 +14,6 @@ import type { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { SyncOrchestrator } from './SyncOrchestrator'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
@@ -41,20 +40,11 @@ export interface StorageRecoveryServiceDeps {
   orchestrator: SyncOrchestrator
 }
 
-export class StorageRecoveryService implements LifecycleAware {
-  readonly lifecycleName = 'StorageRecoveryService'
+export class StorageRecoveryService {
   private unregisterQuotaRecovery: (() => void) | null = null
   private unregisterQuotaReporter: (() => void) | null = null
 
   constructor(private readonly deps: StorageRecoveryServiceDeps) {}
-
-  onLifecycleStart(): void {
-    this.start()
-  }
-
-  onLifecycleStop(): void {
-    this.stop()
-  }
 
   /**
    * Starts the service and registers global storage handlers.

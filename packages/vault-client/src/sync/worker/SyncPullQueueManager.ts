@@ -17,7 +17,6 @@ import type { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedMap } from '../utils/BoundedMap'
 import { BoundedSet } from '../utils/BoundedSet'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -41,14 +40,9 @@ const BATCH_PROGRESS_CACHE_MAX = 500
 const OWN_PUSH_CACHE_MAX = 1000
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
 
-export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: boolean }> {
-  readonly lifecycleName = 'PullQueueManager'
+export class SyncPullQueueManager {
   private isShutdown = false
   private account: string | null = null
-
-  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown(options)
-  }
 
   private readonly retryTracker: PullRetryTracker
   private hasMoreGlobal = false

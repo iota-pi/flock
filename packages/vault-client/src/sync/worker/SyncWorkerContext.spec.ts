@@ -10,7 +10,6 @@ import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { publishRealtimeBusItemDirty } from './realtimeBus'
 import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
-import type { ServiceRegistration } from './ServiceLifecycleManager'
 import { AbortError } from '../utils/abort'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
@@ -111,84 +110,55 @@ beforeEach(() => {
   })
   spyOnExports(docStoreModule, {
     AutomergeDocStore: class MockAutomergeDocStore {
-      readonly lifecycleName = 'DocStore'
       shutdown = vi.fn().mockResolvedValue(undefined)
       saveDocToStorage = vi.fn().mockResolvedValue(undefined)
       readItemSnapshot = vi.fn().mockResolvedValue(null)
       hasDataInStorage = vi.fn().mockResolvedValue(true)
       constructor(readonly options: { isLocallyUnreadable: (documentId: string) => boolean }) {}
-      onLifecycleStop = vi.fn().mockImplementation(async () => {
-        await this.shutdown()
-      })
     },
     AutomergeIndexManager: class MockAutomergeIndexManager {
-      readonly lifecycleName = 'IndexManager'
       ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
       addAutomergeItemIdsToIndex = vi.fn()
       getAutomergeMetadata = vi.fn().mockResolvedValue({})
       close = vi.fn()
-      onLifecycleStart = vi.fn().mockImplementation(async () => {
-        await this.ensureIndexDocument()
-      })
-
-      onLifecycleStop = vi.fn().mockImplementation(() => {
-        this.close()
-      })
     },
   })
   spyOnExports(syncPullQueueManager, {
     SyncPullQueueManager: class MockSyncPullQueueManager {
-      readonly lifecycleName = 'PullQueueManager'
       setLockCoordinator = vi.fn()
       getGlobalLatestCursor = vi.fn().mockReturnValue(0)
       shutdown = vi.fn().mockResolvedValue(undefined)
-      onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
-        await this.shutdown(options)
-      })
     },
   })
   spyOnExports(syncMessageBroker, {
     SyncMessageBroker: class MockSyncMessageBroker {
-      readonly lifecycleName = 'SyncMessageBroker'
       unblockAllItems = vi.fn()
       getBlockedItemIds = vi.fn().mockReturnValue([])
       poller = { executePoll: vi.fn().mockResolvedValue('success') }
       shutdown = vi.fn().mockResolvedValue(undefined)
-      onLifecycleStop = vi.fn().mockImplementation(async () => {
-        await this.shutdown()
-      })
     },
   })
   spyOnExports(vaultNetworkAdapter, {
     VaultNetworkAdapter: class MockVaultNetworkAdapter {
-      readonly lifecycleName = 'VaultNetworkAdapter'
       triggerReNegotiation = vi.fn()
       setSyncedHeads = vi.fn()
       loadSyncedHeads = vi.fn()
       resetReNegotiationCircuit = vi.fn()
-      disconnect = vi.fn()
+      shutdown = vi.fn().mockResolvedValue(undefined)
       setAccount = vi.fn()
-      onLifecycleStop = vi.fn().mockImplementation(() => {
-        this.disconnect()
-      })
     },
   })
   spyOnExports(automergeRepoManager, {
     AutomergeRepoManager: class MockAutomergeRepoManager {
-      readonly lifecycleName = 'RepoManager'
       init = vi.fn().mockReturnValue({} /* mock Repo */)
       clearLocalData = vi.fn().mockResolvedValue(undefined)
       close = vi.fn().mockResolvedValue(undefined)
       getStorage = vi.fn().mockReturnValue(undefined)
       getStorageAdapter = vi.fn().mockReturnValue(undefined)
-      onLifecycleStop = vi.fn().mockImplementation(async () => {
-        await this.close()
-      })
     },
   })
   spyOnExports(snapshotManagerModule, {
     SnapshotManager: class MockSnapshotManager {
-      readonly lifecycleName = 'SnapshotManager'
       markItemDirty = vi.fn()
       loadLastModified = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
@@ -196,18 +166,10 @@ beforeEach(() => {
       setLeader = vi.fn()
       getDirtyItemIds = vi.fn().mockReturnValue([])
       persistLastModified = vi.fn().mockResolvedValue(undefined)
-      onLifecycleStart = vi.fn().mockImplementation(async () => {
-        await this.loadLastModified()
-      })
-
-      onLifecycleStop = vi.fn().mockImplementation(async (options?: { clearLocalData?: boolean }) => {
-        await this.shutdown(options)
-      })
     },
   })
   spyOnExports(syncOrchestrator, {
     SyncOrchestrator: class MockOrchestrator {
-      readonly lifecycleName = 'SyncOrchestrator'
       start = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
       setOnlineState = vi.fn()
@@ -215,13 +177,6 @@ beforeEach(() => {
       claimLeader = vi.fn()
       online = true
       flush = vi.fn()
-      onLifecycleStart = vi.fn().mockImplementation(async () => {
-        await this.start()
-      })
-
-      onLifecycleStop = vi.fn().mockImplementation(async () => {
-        await this.shutdown()
-      })
     },
   })
   spyOnExports(lastModifiedStoreModule, {
@@ -253,12 +208,8 @@ beforeEach(() => {
   })
   spyOnExports(manifestSyncManagerModule, {
     ManifestSyncManager: class MockManifestSyncManager {
-      readonly lifecycleName = 'ManifestSyncManager'
       shutdown = vi.fn()
       sync = vi.fn().mockResolvedValue({ added: [], success: true })
-      onLifecycleStop = vi.fn().mockImplementation(() => {
-        this.shutdown()
-      })
     },
   })
   spyOnExports(openLocalStorageModule, {
@@ -1030,7 +981,7 @@ describe('SyncWorkerContext', () => {
     const registerSpy = vi.spyOn(ctx.lifecycle, 'register')
     await ctx.initialize()
 
-    const serviceNames = registerSpy.mock.calls.map(([registration]) => (registration as unknown as ServiceRegistration).name)
+    const serviceNames = registerSpy.mock.calls.map(([registration]) => registration.name)
     expect(serviceNames).toEqual([
       'RepoManager',
       'VaultNetworkAdapter',

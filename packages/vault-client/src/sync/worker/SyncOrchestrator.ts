@@ -10,7 +10,6 @@ import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { ItemId } from '@vault/shared'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncOrchestrator')
@@ -48,21 +47,12 @@ export interface SyncOrchestratorDeps {
 
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 
-export class SyncOrchestrator implements LifecycleAware {
-  readonly lifecycleName = 'SyncOrchestrator'
+export class SyncOrchestrator {
   private leaderElection: LeaderElectionLike | null = null
   private isOnline = true
   private isLeader = false
   private pollingPausedForAuth = false
   private isShutdown = false
-
-  async onLifecycleStart(): Promise<void> {
-    await this.start()
-  }
-
-  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown()
-  }
 
   private pendingFlush = false
   private readonly pollGuard = new SingleFlightGuard<void>()

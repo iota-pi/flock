@@ -9,7 +9,6 @@ import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../utils/storageQuota'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { RecoveryManager } from './RecoveryManager'
 import type { KeyProvider } from '../../api/Keyring'
@@ -30,15 +29,10 @@ export interface SyncMessageBrokerDeps {
   onQuotaExceeded?: (error: unknown) => Promise<void>
 }
 
-export class SyncMessageBroker implements LifecycleAware {
-  readonly lifecycleName = 'SyncMessageBroker'
+export class SyncMessageBroker {
   private account: string | null = null
   private isOnline = true
   private sendEnabled = false
-
-  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown()
-  }
 
   private syncPoller: SyncPoller
   private readonly wal: SyncWriteAheadLog

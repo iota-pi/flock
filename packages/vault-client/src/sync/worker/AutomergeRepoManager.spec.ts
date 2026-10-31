@@ -109,7 +109,7 @@ describe('AutomergeRepoManager', () => {
     expect(typeof manager.getStorage()?.has).toBe('function')
   })
 
-  it('shuts down repo and closes adapter without clearing storage on lifecycle stop', async () => {
+  it('shuts down repo and closes adapter without clearing storage on close', async () => {
     const repo = manager.init(mockVaultAdapter, storage) as any
     const callOrder: string[] = []
 
@@ -121,7 +121,7 @@ describe('AutomergeRepoManager', () => {
       callOrder.push('adapter.close')
     })
 
-    await manager.onLifecycleStop({ clearLocalData: true })
+    await manager.close()
 
     expect(callOrder).toEqual(['repo.shutdown', 'adapter.close'])
     expect(repoShutdownSpy).toHaveBeenCalledTimes(1)
@@ -133,7 +133,7 @@ describe('AutomergeRepoManager', () => {
     // @ts-expect-error accessing private adapter
     const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close').mockResolvedValue(undefined)
 
-    await manager.onLifecycleStop()
+    await manager.close()
 
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })

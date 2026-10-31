@@ -17,7 +17,6 @@ import type { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
-import type { LifecycleAware } from '../ServiceLifecycleManager'
 import { createLogger } from '../../utils/logger'
 import { errorMessage } from '../../utils/errorMessage'
 
@@ -88,8 +87,7 @@ export interface AutomergeDocStoreOptions {
   isLocallyUnreadable: (documentId: DocumentId) => boolean
 }
 
-export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
-  readonly lifecycleName = 'DocStore'
+export class AutomergeDocStore implements ItemLockCoordinator {
   private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private readonly repo: Repo
@@ -97,10 +95,6 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
   private storageAdapter?: DocStorageChecker | null
   public readonly codec: DocCodec
   private readonly isLocallyUnreadable: (documentId: DocumentId) => boolean
-
-  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown()
-  }
 
   constructor(options: AutomergeDocStoreOptions) {
     this.repo = options.repo

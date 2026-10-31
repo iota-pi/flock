@@ -1128,7 +1128,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-normal' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
       ])
 
-      await manager.onLifecycleStart()
+      await manager.loadLastModified()
 
       // Normal un-snapshotted item restored
       expect(manager.getDirtyItemIds()).toContain('item-normal' as ItemId)
@@ -1299,7 +1299,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-never-snapshotted' as ItemId, { localModifiedAt: 4000 }],
       ])
 
-      await manager.onLifecycleStart()
+      await manager.loadLastModified()
 
       expect(manager.getDirtyItemIds()).toContain('item-unpushed' as ItemId)
       expect(manager.getDirtyItemIds()).toContain('item-never-snapshotted' as ItemId)
@@ -1400,7 +1400,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         await restartManager()
         expect(getTimestamps(manager['tracker'], 'item-offline').localModifiedAt).toBeUndefined()
 
-        await manager.onLifecycleStart()
+        await manager.loadLastModified()
 
         // 4. Dirty audit must successfully re-enqueue item-offline because 5000 > 1000
         expect(manager.getDirtyItemIds()).toContain('item-offline' as ItemId)
@@ -1510,7 +1510,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         await restartManager()
         expect(manager.getDirtyItemIds()).not.toContain('item-1')
 
-        await manager.onLifecycleStart()
+        await manager.loadLastModified()
         // Startup audit should detect localMod > lastSnap (31000) and re-enqueue item-1
         expect(manager.getDirtyItemIds()).toContain('item-1')
       })
@@ -1523,7 +1523,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         await restartManager()
         expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBeUndefined()
 
-        await manager.onLifecycleStart()
+        await manager.loadLastModified()
 
         // localModifiedAt must be healed to at least lastSnapshotAt
         expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBe(5000)

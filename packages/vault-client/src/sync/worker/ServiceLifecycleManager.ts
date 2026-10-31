@@ -1,21 +1,12 @@
 import { createLogger, type Logger } from '../utils/logger'
 
-export type LifecycleHook = () => Promise<void> | void
-export type LifecycleStopHook<TOptions = unknown> = (options?: TOptions) => Promise<void> | void
-
 export interface ServiceRegistration<TOptions = unknown> {
   name: string
-  onStart?: LifecycleHook
-  onStop?: LifecycleStopHook<TOptions>
+  onStart?: () => Promise<void> | void
+  onStop?: (options?: TOptions) => Promise<void> | void
 }
 
-export interface LifecycleAware<TOptions = unknown> {
-  readonly lifecycleName: string
-  onLifecycleStart?(): Promise<void> | void
-  onLifecycleStop?(options?: TOptions): Promise<void> | void
-}
-
-export type LifecycleStatus = 'uninitialized' | 'starting' | 'running' | 'stopping' | 'stopped' | 'errored'
+type LifecycleStatus = 'uninitialized' | 'starting' | 'running' | 'stopping' | 'stopped' | 'errored'
 
 /**
  * Manages standard initialization and teardown of dependent services.
@@ -31,7 +22,7 @@ export type LifecycleStatus = 'uninitialized' | 'starting' | 'running' | 'stoppi
  * 6. A `stop()` during `start()` waits for it to finish, so no service starts after teardown.
  */
 export class ServiceLifecycleManager<TOptions = unknown> {
-  private services: ServiceRegistration<TOptions>[] = []
+  private readonly services: ServiceRegistration<TOptions>[] = []
   private startedServices: ServiceRegistration<TOptions>[] = []
   private status: LifecycleStatus = 'uninitialized'
   private startPromise: Promise<void> | null = null
@@ -42,38 +33,8 @@ export class ServiceLifecycleManager<TOptions = unknown> {
     this.log = createLogger(`ServiceLifecycleManager${contextName ? `:${contextName}` : ''}`)
   }
 
-  public register(service: ServiceRegistration<TOptions> | LifecycleAware<TOptions>): this
-  public register(
-    name: string,
-    hooks: { onStart?: LifecycleHook; onStop?: LifecycleStopHook<TOptions> }
-  ): this
-
-  public register(
-    serviceOrName: string | ServiceRegistration<TOptions> | LifecycleAware<TOptions>,
-    hooks?: { onStart?: LifecycleHook; onStop?: LifecycleStopHook<TOptions> }
-  ): this {
-    let registration: ServiceRegistration<TOptions>
-    if (typeof serviceOrName === 'string') {
-      registration = { name: serviceOrName, onStart: hooks?.onStart, onStop: hooks?.onStop }
-    } else if ('lifecycleName' in serviceOrName) {
-      registration = {
-        name: serviceOrName.lifecycleName,
-        onStart: serviceOrName.onLifecycleStart?.bind(serviceOrName),
-        onStop: serviceOrName.onLifecycleStop?.bind(serviceOrName),
-      }
-    } else {
-      registration = serviceOrName
-    }
-
-    const existing = this.services.find(s => s.name === registration.name)
-    if (existing) {
-      this.log.warn(`Service "${registration.name}" already registered. Replacing registration.`)
-      const index = this.services.indexOf(existing)
-      this.services[index] = registration
-    } else {
-      this.services.push(registration)
-    }
-
+  public register(service: ServiceRegistration<TOptions>): this {
+    this.services.push(service)
     return this
   }
 
@@ -159,22 +120,5 @@ export class ServiceLifecycleManager<TOptions = unknown> {
 
     this.startedServices = []
     this.status = 'stopped'
-  }
-
-  public getStatus(): LifecycleStatus {
-    return this.status
-  }
-
-  public isRunning(): boolean {
-    return this.status === 'running'
-  }
-
-  public clear(): void {
-    if (this.status === 'running' || this.status === 'starting' || this.status === 'stopping') {
-      this.log.warn(`Clearing services while lifecycle is active (${this.status}).`)
-    }
-    this.services = []
-    this.startedServices = []
-    this.status = 'uninitialized'
   }
 }

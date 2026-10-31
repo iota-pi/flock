@@ -1734,7 +1734,7 @@ describe('VaultNetworkAdapter synced heads on shutdown', () => {
     const { adapter, store } = makeAdapter()
     adapter.setSyncedHeads('doc-1' as DocumentId, ['head-1'])
 
-    await adapter.onLifecycleStop()
+    await adapter.shutdown()
 
     expect(store.saveSyncedHeads).toHaveBeenCalledWith([['doc-1', ['head-1']]])
   })
@@ -1743,7 +1743,7 @@ describe('VaultNetworkAdapter synced heads on shutdown', () => {
     const { adapter, store } = makeAdapter()
     adapter.loadSyncedHeads([['doc-1' as DocumentId, ['old-head']]])
 
-    await adapter.onLifecycleStop()
+    await adapter.shutdown()
 
     expect(store.saveSyncedHeads).not.toHaveBeenCalled()
   })
@@ -1752,7 +1752,7 @@ describe('VaultNetworkAdapter synced heads on shutdown', () => {
     const { adapter, store } = makeAdapter()
     adapter.setSyncedHeads('doc-1' as DocumentId, ['head-1'])
 
-    await adapter.onLifecycleStop({ clearLocalData: true })
+    await adapter.shutdown({ clearLocalData: true })
 
     expect(store.saveSyncedHeads).not.toHaveBeenCalled()
   })

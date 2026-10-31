@@ -15,7 +15,6 @@ import type { WorkerInternalEventHub } from './SyncEventHub'
 import { BoundedQueue } from '../utils/BoundedQueue'
 import { BoundedSet } from '../utils/BoundedSet'
 import { RetryTimer } from '../utils/RetryTimer'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -68,8 +67,7 @@ interface RenegotiationCircuitState {
   retryTimer: RetryTimer
 }
 
-export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements LifecycleAware {
-  readonly lifecycleName = 'VaultNetworkAdapter'
+export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   private account: string | null = null
   private sendEnabled = false
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
@@ -105,7 +103,8 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.headsValidator = options.headsValidator ?? null
   }
 
-  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
+  /** Saves changed synced heads (unless local data is being cleared), then disconnects */
+  async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     // disconnect() drops the heads, and a debounced save with them
     if (this.hasUnsavedSyncedHeads && !options?.clearLocalData) {
       this.saveSyncedHeadsDebounced.cancel()

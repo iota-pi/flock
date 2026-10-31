@@ -1071,18 +1071,6 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(await docStore.getAutomergeItem('missing-item' as ItemId)).toBeNull()
     })
 
-    it('implements LifecycleAware: lifecycleName is DocStore and onLifecycleStop delegates to shutdown', async () => {
-      expect(docStore.lifecycleName).toBe('DocStore')
-
-      const customRepo = new Repo()
-      const store = createTestDocStore(customRepo)
-      const shutdownSpy = vi.spyOn(store, 'shutdown')
-
-      await store.onLifecycleStop()
-      expect(shutdownSpy).toHaveBeenCalledTimes(1)
-      await customRepo.shutdown()
-    })
-
     it('shutdown does not shut down repo since repo lifecycle is owned by AutomergeRepoManager (L-8)', async () => {
       const customRepo = new Repo()
       const shutdownSpy = vi.spyOn(customRepo, 'shutdown')

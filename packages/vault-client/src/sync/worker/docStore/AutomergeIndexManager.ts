@@ -3,7 +3,6 @@ import type { VaultMetadata } from '../../shared/types'
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import { AsyncMutex } from '../../utils/AsyncMutex'
-import type { LifecycleAware } from '../ServiceLifecycleManager'
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { createLogger } from '../../utils/logger'
 import { withTimeout } from '../../utils/abort'
@@ -59,20 +58,11 @@ export function mergeIndexDocuments(
   }
 }
 
-export class AutomergeIndexManager implements LifecycleAware {
-  readonly lifecycleName = 'IndexManager'
+export class AutomergeIndexManager {
   private mutex = new AsyncMutex()
   private broadcastChannel: BroadcastChannel | null = null
   private lastEmittedItemIds: string[] | null = null
   private isClosed = false
-
-  async onLifecycleStart(): Promise<void> {
-    await this.ensureIndexDocument()
-  }
-
-  onLifecycleStop(): void {
-    this.close()
-  }
 
   constructor(
     private readonly accountId: string,

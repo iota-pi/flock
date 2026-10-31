@@ -5,7 +5,6 @@ import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../utils/storageManager'
 import { isQuotaError } from '../utils/storageQuota'
 import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
@@ -64,8 +63,7 @@ export interface AutomergeRepoManagerOptions {
   onQuotaError?: (error: unknown) => void
 }
 
-export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: boolean }> {
-  readonly lifecycleName = 'RepoManager'
+export class AutomergeRepoManager {
   private repo: Repo | null = null
   private indexedDbAdapter: VaultIndexedDBStorageAdapter | null = null
   private quotaAdapter: QuotaHandlingStorageAdapter | null = null
@@ -75,10 +73,6 @@ export class AutomergeRepoManager implements LifecycleAware<{ clearLocalData?: b
     private readonly accountId: string,
     private readonly keys: KeyProvider,
   ) {}
-
-  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
-    await this.close()
-  }
 
   /** Creates the Repo on `storage`, which this manager then owns and closes on stop */
   init(

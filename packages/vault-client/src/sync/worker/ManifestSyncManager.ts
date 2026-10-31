@@ -14,7 +14,6 @@ import { isAuthError } from '../utils/errorClassifier'
 import { errorMessage } from '../utils/errorMessage'
 import { ManifestDeltaCalculator, type QuarantinedItem, type SyncDeltas } from './ManifestDeltaCalculator'
 import { ManifestHydrator } from './ManifestHydrator'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 
@@ -52,17 +51,12 @@ export interface ManifestSyncManagerDeps {
 
 export type SyncResult = { added: ItemId[], success: boolean }
 
-export class ManifestSyncManager implements LifecycleAware {
-  readonly lifecycleName = 'ManifestSyncManager'
+export class ManifestSyncManager {
   private readonly deps: ManifestSyncManagerDeps
   private readonly hydrator: ManifestHydrator
   private readonly recoveryManager: RecoveryManager
   private readonly apiClient: SyncApiClient
   private isShutdown = false
-
-  onLifecycleStop(): void {
-    this.shutdown()
-  }
 
   private readonly isAlive = () => !this.isShutdown
   private readonly syncRun = new AbortableRun(this.isAlive)

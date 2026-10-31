@@ -19,7 +19,7 @@ import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
-import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycleManager'
+import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor, type StoredSnapshot } from './reencryptAllItems'
@@ -468,16 +468,11 @@ export class SyncWorkerContext {
   }
 
   private registerLifecycleServices(services: SyncWorkerServices): void {
-    const { syncedHeadsStore, adapter } = services
-    const syncedHeadsService: LifecycleAware = {
-      lifecycleName: 'SyncedHeads',
-      onLifecycleStart: async () => {
-        const storedHeads = await syncedHeadsStore.loadSyncedHeads()
-        if (storedHeads && storedHeads.length > 0) {
-          adapter.loadSyncedHeads(storedHeads)
-        }
-      },
-    }
+    const {
+      repoManager, adapter, broker, storageRecoveryService, indexManager, recoveryManager, docStore,
+      snapshotManager, syncedHeadsStore, pullQueueManager, manifestSyncManager, orchestrator,
+      itemReencryptor, snapshotFormatUpgrade,
+    } = services
 
     // Teardown runs in LIFO order (reverse registration order).
     // Startup runs in FIFO order (registration order).
@@ -486,38 +481,51 @@ export class SyncWorkerContext {
     // Note: Local storage clearing during account logout is handled exclusively by the
     // main thread (clearAccountLocalData in localDataCleanup.ts) after the worker has cleanly
     // closed all connections. The worker must not attempt to clear databases on shutdown.
-    const lifecycleServices: LifecycleAware<{ clearLocalData?: boolean }>[] = [
-      services.repoManager,
-      services.adapter,
-      services.broker,
-      services.storageRecoveryService,
-      services.indexManager,
-      services.recoveryManager,
-      services.docStore,
-      services.snapshotManager,
-      syncedHeadsService,
-      services.pullQueueManager,
-      services.manifestSyncManager,
-      services.orchestrator,
+    const registrations: ServiceRegistration<{ clearLocalData?: boolean }>[] = [
+      { name: 'RepoManager', onStop: () => repoManager.close() },
+      { name: 'VaultNetworkAdapter', onStop: options => adapter.shutdown(options) },
+      { name: 'SyncMessageBroker', onStop: () => broker.shutdown() },
       {
-        lifecycleName: 'ItemReencryptor',
-        onLifecycleStop: () => services.itemReencryptor.cancelScheduled(),
+        name: 'StorageRecoveryService',
+        onStart: () => storageRecoveryService.start(),
+        onStop: () => storageRecoveryService.stop(),
       },
+      {
+        name: 'IndexManager',
+        onStart: () => indexManager.ensureIndexDocument(),
+        onStop: () => indexManager.close(),
+      },
+      { name: 'RecoveryManager', onStop: () => recoveryManager.resetRecoveryState() },
+      { name: 'DocStore', onStop: () => docStore.shutdown() },
+      {
+        name: 'SnapshotManager',
+        onStart: () => snapshotManager.loadLastModified(),
+        onStop: options => snapshotManager.shutdown(options),
+      },
+      {
+        name: 'SyncedHeads',
+        onStart: async () => {
+          const storedHeads = await syncedHeadsStore.loadSyncedHeads()
+          if (storedHeads && storedHeads.length > 0) {
+            adapter.loadSyncedHeads(storedHeads)
+          }
+        },
+      },
+      { name: 'PullQueueManager', onStop: options => pullQueueManager.shutdown(options) },
+      { name: 'ManifestSyncManager', onStop: () => manifestSyncManager.shutdown() },
+      {
+        name: 'SyncOrchestrator',
+        onStart: () => orchestrator.start(),
+        onStop: () => orchestrator.shutdown(),
+      },
+      { name: 'ItemReencryptor', onStop: () => itemReencryptor.cancelScheduled() },
     ]
-    const { snapshotFormatUpgrade } = services
     if (snapshotFormatUpgrade) {
-      lifecycleServices.push({
-        lifecycleName: 'SnapshotFormatUpgrade',
-        onLifecycleStop: () => snapshotFormatUpgrade.stop(),
-      })
+      registrations.push({ name: 'SnapshotFormatUpgrade', onStop: () => snapshotFormatUpgrade.stop() })
     }
 
-    for (const svc of lifecycleServices) {
-      this.lifecycle.register({
-        name: svc.lifecycleName,
-        onStart: svc.onLifecycleStart?.bind(svc),
-        onStop: svc.onLifecycleStop?.bind(svc),
-      })
+    for (const registration of registrations) {
+      this.lifecycle.register(registration)
     }
   }
 
