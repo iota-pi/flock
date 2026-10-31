@@ -11,6 +11,7 @@ const keys = createMockKeyProvider()
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { SyncPoller } from './SyncPoller'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
@@ -49,6 +50,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
   let wal: SyncWriteAheadLog
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
+  let poller: SyncPoller
 
   beforeEach(async () => {
     mockLocalForage(createLocalForageInstance)
@@ -73,15 +75,22 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     } as unknown as SyncPullQueueManager
 
     wal = new SyncWriteAheadLog(accountId, internalEventHub)
+    poller = new SyncPoller({
+      pullQueueManager,
+      clientEventHub,
+      internalEventHub,
+      keys,
+      wal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
+    })
     broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      keys,
+      poller,
       wal,
-      apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
     })
 
     broker.setSendEnabled(true)

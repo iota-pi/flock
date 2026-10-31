@@ -9,6 +9,7 @@ import {
   MAX_OUTBOUND_QUEUE_SIZE,
 } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { SyncPoller } from './SyncPoller'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { registerQuotaReporter } from '../utils/storageManager'
@@ -45,6 +46,7 @@ beforeEach(() => {
 describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
+  let poller: SyncPoller
   let orchestrator: SyncOrchestrator
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
@@ -76,19 +78,27 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const cursorStore = new CursorStore('test-account')
     pullQueueManager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, internalEventHub)
     const wal = new SyncWriteAheadLog(WAL_ACCOUNT, internalEventHub)
-    broker = new SyncMessageBroker({
-      adapter,
+    poller = new SyncPoller({
+      pullQueueManager,
       clientEventHub,
       internalEventHub,
-      pullQueueManager,
       keys,
       wal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: clientEventHub }),
     })
+    broker = new SyncMessageBroker({
+      adapter,
+      clientEventHub,
+      internalEventHub,
+      pullQueueManager,
+      poller,
+      wal,
+    })
     orchestrator = new SyncOrchestrator({
       accountId: 'test-account',
       broker,
+      poller,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
@@ -246,7 +256,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Set online and run poll manually and synchronously!
     broker.setOnlineState(true)
-    const outcome = await broker.poller.executePoll()
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
     broker.setOnlineState(false)
 
@@ -310,7 +320,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Set online and run poll manually and synchronously!
     broker.setOnlineState(true)
-    const outcome = await broker.poller.executePoll()
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
     broker.setOnlineState(false)
 
@@ -344,7 +354,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     // Set online and run poll manually and synchronously!
     broker.setOnlineState(true)
-    const outcome = await broker.poller.executePoll()
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('failure')
     broker.setOnlineState(false)
 
@@ -727,6 +737,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     orchestrator = new SyncOrchestrator({
       accountId,
       broker,
+      poller,
       clientEventHub,
       internalEventHub,
       pullQueueManager,

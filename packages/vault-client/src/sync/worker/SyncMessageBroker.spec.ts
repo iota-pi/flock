@@ -1,6 +1,7 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { SyncPoller } from './SyncPoller'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
@@ -27,6 +28,7 @@ function createSyncMessage(itemId: string, data: number[]): Message {
 
 describe('SyncMessageBroker', () => {
   let broker: SyncMessageBroker
+  let poller: SyncPoller
   let adapter: VaultNetworkAdapter
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
@@ -54,15 +56,22 @@ describe('SyncMessageBroker', () => {
       clear: vi.fn().mockResolvedValue(undefined),
     } as unknown as SyncWriteAheadLog
 
+    poller = new SyncPoller({
+      pullQueueManager,
+      clientEventHub,
+      internalEventHub,
+      keys,
+      wal: mockWal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: new RecoveryManager({ accountId: 'account-1', eventHub: clientEventHub }),
+    })
     broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      keys,
+      poller,
       wal: mockWal,
-      apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'account-1', eventHub: clientEventHub }),
     })
   })
 
@@ -177,7 +186,7 @@ describe('SyncMessageBroker', () => {
   })
 
   it('shuts down syncPoller and pullQueueManager cleanly', async () => {
-    const shutdownSpy = vi.spyOn(broker.poller, 'shutdown')
+    const shutdownSpy = vi.spyOn(poller, 'shutdown')
     await broker.shutdown()
     expect(shutdownSpy).toHaveBeenCalledTimes(1)
     expect(pullQueueManager.shutdown).toHaveBeenCalledTimes(1)

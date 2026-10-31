@@ -5,6 +5,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
+import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -37,6 +38,7 @@ export interface ManifestSyncManagerLike {
 export interface SyncOrchestratorDeps {
   accountId: string
   broker: SyncMessageBroker
+  poller: SyncPollerLike
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManagerLike
@@ -59,9 +61,9 @@ export class SyncOrchestrator {
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private readonly pollRun = new AbortableRun(() => this.isOperational)
   private readonly manifestSyncRun = new AbortableRun(() => this.isOperational)
-  private poller: SyncPollerLike
+  private readonly poller: SyncPollerLike
 
-  private pollIntervalId: number | null = null
+  private readonly pollTimer = new RetryTimer()
   private syncBatchTimeout: number | null = null
   private readonly pollBackoff = new RetryStrategy({
     delays: DEFAULT_POLL_BACKOFF_DELAYS,
@@ -89,7 +91,7 @@ export class SyncOrchestrator {
     this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
     this.createLeaderElection = deps.createLeaderElection
-    this.poller = deps.broker.poller
+    this.poller = deps.poller
     this.manifestSyncManager = deps.manifestSyncManager
     this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
@@ -115,7 +117,7 @@ export class SyncOrchestrator {
   }
 
   get hasScheduledPoll(): boolean {
-    return this.pollIntervalId !== null
+    return this.pollTimer.isPending
   }
 
   private canPoll(force = false): boolean {
@@ -241,7 +243,7 @@ export class SyncOrchestrator {
       }
 
       if (this.pollBackoff.attempt > 0) {
-        if (this.pollIntervalId === null) {
+        if (!this.pollTimer.isPending) {
           this.schedulePollTimer(this.pollBackoff.currentBaseDelay)
         }
         return
@@ -275,10 +277,7 @@ export class SyncOrchestrator {
   }
 
   stopPolling(): void {
-    if (this.pollIntervalId) {
-      self.clearTimeout(this.pollIntervalId)
-      this.pollIntervalId = null
-    }
+    this.pollTimer.cancel()
     if (this.syncBatchTimeout) {
       self.clearTimeout(this.syncBatchTimeout)
       this.syncBatchTimeout = null
@@ -293,15 +292,9 @@ export class SyncOrchestrator {
       return
     }
 
-    if (this.pollIntervalId) {
-      self.clearTimeout(this.pollIntervalId)
-    }
-
-    const jitteredDelayMs = this.pollBackoff.applyJitter(delayMs)
-    this.pollIntervalId = self.setTimeout(() => {
-      this.pollIntervalId = null
+    this.pollTimer.schedule(this.pollBackoff.applyJitter(delayMs), () => {
       fireAndForget(this.executeWrappedPoll(), 'SyncOrchestrator:executeWrappedPoll')
-    }, jitteredDelayMs)
+    })
   }
 
   private scheduleNextPoll(outcome: PollOutcome): void {
@@ -409,16 +402,12 @@ export class SyncOrchestrator {
       this.unsubscribeInternalEvents()
       this.unsubscribeInternalEvents = null
     }
-    const wasLeader = this.isLeader
     this.setLeader(false)
     if (this.leaderElection) {
       this.leaderElection.release()
       this.leaderElection = null
     }
-    if (!wasLeader) {
-      this.cursorReloadGuard.clear()
-      this.stopSyncing()
-    }
+    this.stopSyncing()
     await this.pollGuard.waitForRunning()
     await this.manifestSyncGuard.waitForRunning()
   }

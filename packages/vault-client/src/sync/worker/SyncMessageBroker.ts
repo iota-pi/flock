@@ -1,5 +1,5 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncPoller } from './SyncPoller'
+import type { SyncPoller } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from '@vault/shared'
@@ -8,10 +8,7 @@ import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { isQuotaError } from '../utils/storageQuota'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
-import type { SyncApiClient } from './SyncApiClient'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { RecoveryManager } from './RecoveryManager'
-import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncMessageBroker')
@@ -21,10 +18,9 @@ export interface SyncMessageBrokerDeps {
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManager
-  keys: KeyProvider
+  /** Shared with the orchestrator, which runs the polls. The broker keeps its account and online state current and shuts it down. */
+  poller: SyncPoller
   wal: SyncWriteAheadLog
-  apiClient: SyncApiClient
-  recoveryManager: RecoveryManager
   /** Frees space after a WAL append runs out of storage. Without it, the app is told the quota was exceeded. */
   onQuotaExceeded?: (error: unknown) => Promise<void>
 }
@@ -34,7 +30,7 @@ export class SyncMessageBroker {
   private isOnline = true
   private sendEnabled = false
 
-  private syncPoller: SyncPoller
+  private readonly syncPoller: SyncPoller
   private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
@@ -53,6 +49,7 @@ export class SyncMessageBroker {
     this.pullQueueManager = deps.pullQueueManager
     this.onQuotaExceeded = deps.onQuotaExceeded
     this.wal = deps.wal
+    this.syncPoller = deps.poller
 
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
       switch (event.type) {
@@ -72,16 +69,6 @@ export class SyncMessageBroker {
           this.handleWalEntriesPruned(event.itemIds)
           break
       }
-    })
-
-    this.syncPoller = new SyncPoller({
-      pullQueueManager: this.pullQueueManager,
-      clientEventHub: this.clientEventHub,
-      internalEventHub: this.internalEventHub,
-      keys: deps.keys,
-      wal: this.wal,
-      apiClient: deps.apiClient,
-      recoveryManager: deps.recoveryManager,
     })
 
     this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
@@ -243,10 +230,6 @@ export class SyncMessageBroker {
 
   flush(): void {
     this.internalEventHub.emit({ type: 'flushNeeded' })
-  }
-
-  get poller(): SyncPoller {
-    return this.syncPoller
   }
 
   async shutdown(): Promise<void> {

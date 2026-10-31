@@ -8,6 +8,7 @@ import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
+import { SyncPoller } from './SyncPoller'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
@@ -232,15 +233,23 @@ export class SyncWorkerContext {
     )
     const recoveryManager = new RecoveryManager({ accountId, eventHub: clientEventHub })
 
+    const poller = new SyncPoller({
+      pullQueueManager,
+      clientEventHub,
+      internalEventHub,
+      keys,
+      wal,
+      apiClient: this.apiClient,
+      recoveryManager,
+    })
+
     const broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      keys,
+      poller,
       wal,
-      apiClient: this.apiClient,
-      recoveryManager,
       // The storage recovery service takes the broker, so it's read once the services are built
       onQuotaExceeded: error => this.services.storageRecoveryService.handleQuotaExceeded(error),
     })
@@ -349,6 +358,7 @@ export class SyncWorkerContext {
     const orchestrator = new SyncOrchestrator({
       accountId,
       broker,
+      poller,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
