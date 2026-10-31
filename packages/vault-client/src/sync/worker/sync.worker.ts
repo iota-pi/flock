@@ -18,7 +18,7 @@ import { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
-import type { RepoDoc } from './docStore'
+import { exportAllBinaries, restoreFromBinaries, type RepoDoc } from './docStore'
 import { isIndexDocument } from './utils/automerge'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../../api/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
@@ -406,10 +406,10 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.services.accountSettings.mutate(changes))
 
   exportAllBinaries = () =>
-    this.withContext(ctx => ctx.services.docStore.exportAllBinaries(ctx.services.indexManager))
+    this.withContext(ctx => exportAllBinaries(ctx.services.docStore, ctx.services.indexManager))
 
   restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
-    this.withContext(ctx => ctx.services.docStore.restoreFromBinaries(documents, ctx.services.indexManager))
+    this.withContext(ctx => restoreFromBinaries(ctx.services.docStore, documents, ctx.services.indexManager))
 
   flushSync = (): Promise<void> =>
     this.withContext(ctx => ctx.services.orchestrator.flush())

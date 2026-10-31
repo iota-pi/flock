@@ -12,15 +12,11 @@ import type {
   RepoDoc,
 } from './AutomergeDocStore'
 import { createTestDocStore } from '../__test__/testUtils'
-import { AutomergeIndexManager } from './AutomergeIndexManager'
-import { IndexStore } from '../stores/IndexStore'
 import { WorkerInternalEventHub } from '../SyncEventHub'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import {
   toAutomergeUrlFromItemId,
   toDocumentIdFromItemId,
-  ACCOUNT_INDEX_DOCUMENT_ID,
-  type BackupDocId,
 } from '../utils/automerge'
 import { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
@@ -257,7 +253,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       )
 
       expect(storageAdapter.has).toHaveBeenCalledWith([toDocumentIdFromItemId(itemId)])
-      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary)
+      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary, expect.anything())
       expect(result.hasLocalChanges).toBe(false)
       const retrieved = await customStore.getAutomergeItem(itemId)
       expect(retrieved?.name).toBe('Server Copy')
@@ -350,7 +346,7 @@ describe('AutomergeDocStore Unit Tests', () => {
 
       expect(result.hasLocalChanges).toBe(false)
       expect(result.incomingHeads).toEqual(Automerge.getHeads(Automerge.load(remoteBinary)))
-      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary)
+      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary, expect.anything())
 
       const retrieved = await customStore.getAutomergeItem(itemId)
       expect(retrieved?.name).toBe('Brand New Item')
@@ -1079,72 +1075,6 @@ describe('AutomergeDocStore Unit Tests', () => {
       await store.shutdown()
       expect(shutdownSpy).not.toHaveBeenCalled()
       await customRepo.shutdown()
-    })
-
-    it('exportAllBinaries and restoreFromBinaries correctly roundtrips documents', async () => {
-      const accountId = 'test-docstore-backup-account'
-      const indexStore = new IndexStore(accountId)
-      const indexManager = new AutomergeIndexManager(accountId, indexStore)
-
-      await indexStore.clear()
-      await indexManager.ensureIndexDocument()
-
-      const item1 = createTestItem('backup-item-1' as ItemId, { name: 'Item 1' })
-      const item2 = createTestItem('backup-item-2' as ItemId, { name: 'Item 2' })
-
-      await docStore.seedImportedDocument(item1.id, createDocBinary(item1.id, item1))
-      await docStore.seedImportedDocument(item2.id, createDocBinary(item2.id, item2))
-      await indexManager.addAutomergeItemIdsToIndex([item1.id, item2.id])
-      await indexManager.updateAutomergeMetadata({ prayerGoal: 42 })
-
-      const exported = await docStore.exportAllBinaries(indexManager)
-
-      expect(exported.skipped).toEqual([])
-      expect(exported.documents[item1.id]).toBeDefined()
-      expect(exported.documents[item2.id]).toBeDefined()
-      expect(exported.documents[ACCOUNT_INDEX_DOCUMENT_ID]).toBeDefined()
-
-      // Restore on a device without the documents
-      const restoringStore = createTestDocStore(new Repo())
-      await indexStore.clear()
-      await indexManager.ensureIndexDocument()
-
-      expect(await restoringStore.getAutomergeItem(item1.id)).toBeNull()
-
-      // Restore from binaries
-      const restoredIds = await restoringStore.restoreFromBinaries(exported.documents, indexManager)
-      expect(restoredIds).toContain(item1.id)
-      expect(restoredIds).toContain(item2.id)
-
-      const restoredItem1 = await restoringStore.getAutomergeItem(item1.id)
-      expect(restoredItem1?.name).toBe('Item 1')
-
-      const indexItemIds = await indexManager.listAutomergeItemIds()
-      expect(indexItemIds).toContain(item1.id)
-      expect(indexItemIds).toContain(item2.id)
-
-      const restoredMeta = await indexManager.getAutomergeMetadata()
-      expect(restoredMeta.prayerGoal).toBe(42)
-
-      indexManager.close()
-    })
-
-    it('exportAllBinaries tracks skipped items when documents fail to load or have empty doc', async () => {
-      const accountId = 'test-docstore-skip-account'
-      const indexStore = new IndexStore(accountId)
-      const indexManager = new AutomergeIndexManager(accountId, indexStore)
-      await indexStore.clear()
-      await indexManager.ensureIndexDocument()
-
-      await indexManager.addAutomergeItemIdsToIndex(['missing-item' as ItemId])
-
-      vi.spyOn(docStore, 'findHandle').mockResolvedValue(undefined)
-
-      const exported = await docStore.exportAllBinaries(indexManager)
-      expect(exported.skipped).toContain('missing-item')
-      expect(exported.documents['missing-item' as BackupDocId]).toBeUndefined()
-
-      indexManager.close()
     })
   })
 

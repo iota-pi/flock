@@ -125,8 +125,6 @@ beforeEach(() => {
         docStore: {
           // SyncWorker.bindItemHandle decodes through the doc store; return a clean item shape
           decodeSnapshot: vi.fn().mockImplementation((id: string, doc: unknown) => (doc ? ({ ...(doc as object), id }) : null)),
-          exportAllBinaries: vi.fn().mockResolvedValue({}),
-          restoreFromBinaries: vi.fn().mockResolvedValue([]),
         },
         recoveryManager: {
           resolveQuarantines: mockRecoveryManagerResolveQuarantines,

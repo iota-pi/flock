@@ -6,12 +6,9 @@ import type { DocCodec } from '../domain'
 import {
   readObjectSnapshot,
   toAutomergeUrlFromItemId,
-  ACCOUNT_INDEX_DOCUMENT_ID,
   areHeadsEqual,
-  type BackupDocId,
 } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
-import type { AutomergeIndexManager } from './AutomergeIndexManager'
 import { findWithTimeout } from './findWithTimeout'
 import type { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
@@ -130,30 +127,19 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   async loadDocDataFromStorage(itemId: ItemId): Promise<Uint8Array | undefined> {
     if (!this.repo.storageSubsystem) return undefined
     const { documentId } = this.resolveDocumentId(itemId)
-    try {
-      const data = await this.repo.storageSubsystem.loadDocData(documentId)
-      return (data && data.length > 0) ? data : undefined
-    } catch (error) {
-      log.error(`Storage error loading document data for ${itemId}:`, error)
-      throw error
-    }
+    const data = await this.repo.storageSubsystem.loadDocData(documentId)
+    return (data && data.length > 0) ? data : undefined
   }
 
   async hasDataInStorage(itemId: ItemId): Promise<boolean> {
     const { documentId } = this.resolveDocumentId(itemId)
     if (this.storageAdapter) {
-      try {
-        return await this.storageAdapter.has([documentId])
-      } catch (error) {
-        log.error(`Storage error checking document existence for ${itemId}:`, error)
-        throw error
-      }
+      return this.storageAdapter.has([documentId])
     }
 
     const data = await this.loadDocDataFromStorage(itemId)
     return !!data
   }
-
 
   async saveDocToStorage(itemId: ItemId): Promise<boolean> {
     if (!this.repo.storageSubsystem) return false
@@ -359,11 +345,10 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   /**
-   * Merges a binary into the handle's doc in place. Importing it as a temporary handle would leak a
-   * copy into storage: the Repo's throttled save still fires after the temporary doc is deleted.
+   * Merges a doc into the handle's doc in place. Importing its binary as a temporary handle would
+   * leak a copy into storage: the Repo's throttled save still fires after the temporary doc is deleted.
    */
-  private applyMerge(targetHandle: DocHandle<RepoDoc>, binary: Uint8Array): void {
-    const incoming = Automerge.load<RepoDoc>(binary)
+  private applyMerge(targetHandle: DocHandle<RepoDoc>, incoming: Automerge.Doc<RepoDoc>): void {
     targetHandle.update(doc => Automerge.merge(doc, incoming))
   }
 
@@ -378,63 +363,54 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     }
 
     return this.withItemLock(normalizedItemId, async () => {
-      let incomingDoc: Automerge.Doc<RepoDoc> | undefined
-      let incomingHeads: string[] = []
-      try {
-        incomingDoc = Automerge.load<RepoDoc>(binary)
-        incomingHeads = Automerge.getHeads(incomingDoc)
-      } catch {
-        // Ignore initial parse failure here; it will throw when importing/loading below if corrupt
-      }
+      const incomingDoc = Automerge.load<RepoDoc>(binary)
+      const incomingHeads = Automerge.getHeads(incomingDoc)
 
       const existingHandle = await this.findHandleInternal(normalizedItemId, options)
-
       if (existingHandle?.isReady()) {
-        this.applyMerge(existingHandle, binary)
+        this.applyMerge(existingHandle, incomingDoc)
         return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
-      } else {
-        // Document handle was not available or not ready within timeout.
-        // Check whether document exists in storage to avoid clobbering local edits.
-        const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
-        // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
-        // replace an unreadable copy from the server, say), so ask storage rather than trusting the
-        // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
-        const existsInStorage = !!localBinary || await this.hasDataInStorage(normalizedItemId)
-
-        // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
-        const { documentId } = this.resolveDocumentId(normalizedItemId)
-        const inMemoryHandle = this.getReadyHandle(documentId)
-        if (inMemoryHandle) {
-          this.applyMerge(inMemoryHandle, binary)
-          return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
-        }
-
-        if (existsInStorage) {
-          // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
-          let mergeFailure: unknown
-          if (localBinary && localBinary.byteLength > 0) {
-            try {
-              const localDoc = Automerge.load<RepoDoc>(localBinary)
-              const mergedDoc = Automerge.merge(localDoc, incomingDoc ?? Automerge.load<RepoDoc>(binary))
-              const mergedBinary = Automerge.save(mergedDoc)
-              await this.seedImportedDocument(normalizedItemId, mergedBinary)
-              return this.buildHydrateResult(mergedDoc, incomingHeads)
-            } catch (mergeError) {
-              mergeFailure = mergeError
-            }
-          }
-
-          throw new Error(
-            `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}: ` +
-            `its handle didn't load in time and the fallback merge failed`,
-            { cause: mergeFailure },
-          )
-        }
-
-        // Genuinely new document - safe to seed
-        const handle = await this.seedImportedDocument(normalizedItemId, binary)
-        return this.buildHydrateResult(handle.doc(), incomingHeads)
       }
+
+      // Document handle was not available or not ready within timeout.
+      // Check whether document exists in storage to avoid clobbering local edits.
+      const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+      // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
+      // replace an unreadable copy from the server, say), so ask storage rather than trusting the
+      // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
+      const existsInStorage = !!localBinary || await this.hasDataInStorage(normalizedItemId)
+
+      // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
+      const { documentId } = this.resolveDocumentId(normalizedItemId)
+      const inMemoryHandle = this.getReadyHandle(documentId)
+      if (inMemoryHandle) {
+        this.applyMerge(inMemoryHandle, incomingDoc)
+        return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
+      }
+
+      if (existsInStorage) {
+        // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
+        let mergeFailure: unknown
+        if (localBinary) {
+          try {
+            const mergedDoc = Automerge.merge(Automerge.load<RepoDoc>(localBinary), incomingDoc)
+            await this.seedImportedDocument(normalizedItemId, Automerge.save(mergedDoc))
+            return this.buildHydrateResult(mergedDoc, incomingHeads)
+          } catch (mergeError) {
+            mergeFailure = mergeError
+          }
+        }
+
+        throw new Error(
+          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}: ` +
+          `its handle didn't load in time and the fallback merge failed`,
+          { cause: mergeFailure },
+        )
+      }
+
+      // Genuinely new document - safe to seed
+      const handle = await this.seedImportedDocument(normalizedItemId, binary, incomingDoc)
+      return this.buildHydrateResult(handle.doc(), incomingHeads)
     })
   }
 
@@ -450,13 +426,18 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     }
   }
 
-  async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<DocHandle<RepoDoc>> {
+  /** `parsed` is `binary` already loaded, when the caller has it */
+  async seedImportedDocument(
+    itemId: ItemId,
+    binary: Uint8Array,
+    parsed?: Automerge.Doc<RepoDoc>,
+  ): Promise<DocHandle<RepoDoc>> {
     const { documentId } = this.resolveDocumentId(itemId)
 
     // Concurrency defense: If a ready handle already exists in the repo, merge rather than evicting it!
     const existing = this.getReadyHandle(documentId)
     if (existing) {
-      this.applyMerge(existing, binary)
+      this.applyMerge(existing, parsed ?? Automerge.load<RepoDoc>(binary))
       this.notifyDocHandleReplaced(itemId, existing)
       return existing
     }
@@ -472,91 +453,6 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     })
     this.notifyDocHandleReplaced(itemId, handle)
     return handle
-  }
-
-  async exportAllBinaries(indexManager: AutomergeIndexManager): Promise<{
-    documents: Partial<Record<BackupDocId, string>>
-    skipped: ItemId[]
-  }> {
-    const exported: Partial<Record<BackupDocId, string>> = {}
-    const skipped: ItemId[] = []
-
-    for (const itemId of await indexManager.listAutomergeItemIds()) {
-      const handle = await this.findHandle(itemId, { knownToExist: true })
-      if (!handle?.isReady()) {
-        log.warn(`Skipping item ${itemId}: document could not be loaded in time`)
-        skipped.push(itemId)
-        continue
-      }
-
-      const doc = handle.doc()
-      if (!doc) {
-        log.warn(`Skipping item ${itemId}: document handle doc is empty`)
-        skipped.push(itemId)
-        continue
-      }
-
-      const binary = Automerge.save(doc)
-      exported[itemId] = binary.toBase64()
-    }
-
-    const indexDoc = await indexManager.getIndexSnapshot()
-    const indexBinary = new TextEncoder().encode(JSON.stringify(indexDoc))
-    exported[ACCOUNT_INDEX_DOCUMENT_ID] = indexBinary.toBase64()
-
-    return { documents: exported, skipped }
-  }
-
-  async restoreFromBinaries(
-    items: Partial<Record<BackupDocId, string>>,
-    indexManager: AutomergeIndexManager
-  ): Promise<ItemId[]> {
-    const restoredItemIds: ItemId[] = []
-    const activeItemIds: ItemId[] = []
-    const deletedItemIds: ItemId[] = []
-
-    const encodedIndex = items[ACCOUNT_INDEX_DOCUMENT_ID]
-    if (encodedIndex && typeof encodedIndex === 'string') {
-      try {
-        const indexBinary = Uint8Array.fromBase64(encodedIndex)
-        const indexDoc = JSON.parse(new TextDecoder().decode(indexBinary))
-        if (indexDoc && typeof indexDoc === 'object') {
-          await indexManager.mergeIndex(indexDoc)
-        }
-      } catch (err) {
-        log.error('Failed to restore index metadata from backup', err)
-      }
-    }
-
-    for (const [itemId, encodedBinary] of Object.entries(items)) {
-      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
-      if (typeof encodedBinary !== 'string' || encodedBinary.length === 0) continue
-
-      const normalizedItemId = normalizeItemId(itemId)
-      if (!normalizedItemId) continue
-
-      try {
-        const result = await this.hydrateAutomergeDocumentBinary(
-          normalizedItemId,
-          Uint8Array.fromBase64(encodedBinary)
-        )
-        restoredItemIds.push(normalizedItemId)
-        // Merged with the local doc, which may have been deleted since the backup
-        if (result.isDeleted) {
-          deletedItemIds.push(normalizedItemId)
-        } else {
-          activeItemIds.push(normalizedItemId)
-        }
-      } catch (err) {
-        log.error(`Failed to restore document for ${normalizedItemId}`, err)
-      }
-    }
-
-    await indexManager.addAutomergeItemIdsToIndex(activeItemIds)
-    if (deletedItemIds.length > 0) {
-      await indexManager.removeAutomergeItemIdsFromIndex(deletedItemIds)
-    }
-    return restoredItemIds
   }
 
   async shutdown(): Promise<void> {
