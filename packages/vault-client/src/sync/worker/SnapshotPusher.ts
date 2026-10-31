@@ -440,50 +440,40 @@ export class SnapshotPusher {
     const abortController = new AbortController()
     this.pushAbortController = abortController
     const { signal } = abortController
-
-    let persisted = 0
-    let total = 0
-    let success = true
+    let failed = false
 
     try {
       checkAlive(signal, () => this.tracker.isOperational)
       const context = this.preparePushContext()
       if (!context) {
-        if (this.tracker.dirtyCount > 0) {
-          success = false
-        }
-        return { persisted: 0, total: 0, success }
+        failed = this.tracker.dirtyCount > 0
+        return { persisted: 0, total: 0, success: !failed }
       }
 
       checkAlive(signal, () => this.tracker.isOperational)
       const result = await this.processSnapshotPush(context, signal)
-      persisted = result.persisted
-      total = result.total
-      success = result.success
-
-      if (success && this.tracker.dirtyCount === 0) {
+      failed = !result.success
+      if (result.success && this.tracker.dirtyCount === 0) {
         this.retryStrategy.reset()
       }
-
-      return { persisted, total, success }
+      return result
     } catch (error) {
       const classified = classifySyncError(error)
       if (signal.aborted || classified.isAbort || !this.tracker.isOperational) {
-        return { persisted, total, success: false }
+        return { persisted: 0, total: 0, success: false }
       }
+      failed = true
       if (classified.isAuth) {
         log.warn('Cannot push snapshots: auth failure', error)
-        success = false
-        return { persisted, total, success }
+      } else {
+        log.error('Error during pushSnapshots', error)
       }
-      log.error('Error during pushSnapshots', error)
-      success = false
-      return { persisted, total, success }
+      return { persisted: 0, total: 0, success: false }
     } finally {
       if (this.pushAbortController === abortController) {
         this.pushAbortController = null
       }
-      onSettled(success)
+      onSettled(!failed)
     }
   }
 

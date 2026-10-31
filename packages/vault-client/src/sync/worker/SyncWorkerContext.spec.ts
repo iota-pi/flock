@@ -1044,6 +1044,7 @@ describe('SyncWorkerContext', () => {
       'PullQueueManager',
       'ManifestSyncManager',
       'SyncOrchestrator',
+      'ItemReencryptor',
     ])
   })
 

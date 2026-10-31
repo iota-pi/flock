@@ -499,7 +499,18 @@ export class SyncWorkerContext {
       services.pullQueueManager,
       services.manifestSyncManager,
       services.orchestrator,
+      {
+        lifecycleName: 'ItemReencryptor',
+        onLifecycleStop: () => services.itemReencryptor.cancelScheduled(),
+      },
     ]
+    const { snapshotFormatUpgrade } = services
+    if (snapshotFormatUpgrade) {
+      lifecycleServices.push({
+        lifecycleName: 'SnapshotFormatUpgrade',
+        onLifecycleStop: () => snapshotFormatUpgrade.stop(),
+      })
+    }
 
     for (const svc of lifecycleServices) {
       this.lifecycle.register({
@@ -656,8 +667,6 @@ export class SyncWorkerContext {
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     this.isStopped = true
-    this._services?.snapshotFormatUpgrade?.stop()
-    this._services?.itemReencryptor.cancelScheduled()
     await this.lifecycle.stop(options)
     for (const unsub of this.unsubscribers) {
       unsub()
