@@ -2,6 +2,7 @@ import { handler, processMessage } from './worker'
 import { sendPushNotification } from './webpush'
 import * as webpushModule from './webpush'
 import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
+import { WebPushError } from 'web-push'
 import { spyOnExports } from '../../utils/testUtils'
 
 // The worker creates its client on import, so intercept what it sends
@@ -100,5 +101,20 @@ describe('notifier worker', () => {
 
     expect(result).toEqual({ batchItemFailures: [{ itemIdentifier: 'message-2' }] })
     expect(mockSend).toHaveBeenCalledTimes(3)
+  })
+
+  it('handler logs push errors without the subscription endpoint', async () => {
+    const endpoint = 'https://push.example.com/private-sub'
+    const mockSend = sendPushNotification as unknown as ReturnType<typeof vi.fn>
+    mockSend.mockRejectedValueOnce(new WebPushError('Received unexpected response code', 403, {}, 'VAPID mismatch', endpoint))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await handler({ Records: [{ messageId: 'message-1', body: JSON.stringify(reminder('private-sub')) }] })
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to process push notification message message-1',
+      { name: 'WebPushError', message: 'Received unexpected response code', statusCode: 403, body: 'VAPID mismatch' },
+    )
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(endpoint)
   })
 })

@@ -4,6 +4,7 @@ import {
   GetCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
+import { WebPushError } from 'web-push'
 import type { WebPushSubscription } from '../types'
 import { getConnectionParams } from '@vault/server/dynamo'
 import { FLOCK_TABLES } from '../flockDriver'
@@ -68,6 +69,17 @@ export async function processMessage({ accountId, subscription, topic }: Reminde
 }
 
 /**
+ * A push error carries the subscription's endpoint, which identifies the user's device, so only
+ * the parts that explain the failure are logged
+ */
+function describeError(error: unknown) {
+  if (error instanceof WebPushError) {
+    return { name: error.name, message: error.message, statusCode: error.statusCode, body: error.body }
+  }
+  return error
+}
+
+/**
  * Reports the records that failed, so SQS retries only those rather than the whole batch (which
  * would send duplicate reminders to the subscriptions that were already notified).
  */
@@ -78,7 +90,7 @@ export const handler = async (event: SqsEvent): Promise<SqsBatchResponse> => {
       const message = JSON.parse(record.body) as ReminderMessage
       await processMessage(message)
     } catch (error) {
-      console.error(`Failed to process push notification message ${record.messageId}`, error)
+      console.error(`Failed to process push notification message ${record.messageId}`, describeError(error))
       batchItemFailures.push({ itemIdentifier: record.messageId })
     }
   }
