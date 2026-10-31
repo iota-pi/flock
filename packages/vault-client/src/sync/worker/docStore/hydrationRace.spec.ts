@@ -5,6 +5,7 @@ import { SyncPullQueueManager } from '../SyncPullQueueManager'
 import { CursorStore } from '../stores/CursorStore'
 import { WorkerInternalEventHub } from '../SyncEventHub'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
+import { packBatchedMessages } from '../utils/binaryFraming'
 import { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 import { createMockKeyProvider, createMockVault, createTestDocStore, mockLocalForage } from '../__test__/testUtils'
@@ -138,7 +139,7 @@ describe('Document Hydration Race Condition (C4)', () => {
       }
     })
 
-    mockDecryptBytes.mockResolvedValueOnce(syncMsg)
+    mockDecryptBytes.mockResolvedValueOnce(packBatchedMessages([syncMsg]))
 
     // 1. Start hydration (which enters withItemLock and waits on storageDelayPromise)
     const hydrationPromise = docStore.hydrateAutomergeDocumentBinary(itemId, baseBinary)
@@ -228,7 +229,7 @@ describe('Document Hydration Race Condition (C4)', () => {
       }
     })
 
-    mockDecryptBytes.mockResolvedValueOnce(syncMsgA)
+    mockDecryptBytes.mockResolvedValueOnce(packBatchedMessages([syncMsgA]))
 
     // Pull queue applies message from Device A
     await pullQueueManager.processPullResults([

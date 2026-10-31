@@ -13,6 +13,7 @@ import { CursorStore } from './stores/CursorStore'
 import { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
+import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 
 import {
@@ -72,6 +73,13 @@ describe('Sync System Integration Test Suite', () => {
   beforeEach(async () => {
     mockLocalForage(createLocalForageInstance)
     vi.clearAllMocks()
+    // Pulled messages decrypt to a batch, as every push sends
+    vault.decryptBytes.mockImplementation(async (encrypted: any) => {
+      if (encrypted?.cipher === 'corrupt-cipher') {
+        throw new Error('Decryption failure: MAC mismatch')
+      }
+      return packBatchedMessages([createTestSyncMessageData()])
+    })
     mockStores.clear()
     clearAccountStoreInstancesCacheForTesting()
 
@@ -171,7 +179,7 @@ describe('Sync System Integration Test Suite', () => {
           itemId,
           hasMore: false,
           nextCursor: 10,
-          messages: [{ cursor: 10, encryptedMessage: { iv: 'iv', cipher: 'good-cipher', version: 'legacy' } }],
+          messages: [{ cursor: 10, encryptedMessage: { iv: 'iv', cipher: 'good-cipher', version: '1.0' } }],
         },
       ],
     })
@@ -188,7 +196,7 @@ describe('Sync System Integration Test Suite', () => {
           itemId,
           hasMore: false,
           nextCursor: 10,
-          messages: [{ cursor: 10, encryptedMessage: { iv: 'iv', cipher: 'good-cipher', version: 'legacy' } }],
+          messages: [{ cursor: 10, encryptedMessage: { iv: 'iv', cipher: 'good-cipher', version: '1.0' } }],
         },
       ],
     })
@@ -250,7 +258,7 @@ describe('Sync System Integration Test Suite', () => {
 
   it('Scenario 4: Worker crash during sync -> restart -> WAL retains unsent messages and successfully syncs', async () => {
     // 1. Client creates edit in WAL
-    await wal.append('item-crash-recover' as ItemId, new Uint8Array([99, 100]))
+    await wal.append('item-crash-recover' as ItemId, createTestSyncMessageData())
 
     // 2. Simulate worker termination and fresh instance start on same account
     const newWal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
@@ -301,7 +309,7 @@ describe('Sync System Integration Test Suite', () => {
           itemId,
           hasMore: false,
           nextCursor: 0,
-          messages: [{ cursor: 1, encryptedMessage: { iv: 'iv', cipher: 'corrupt-cipher', version: 'legacy' } }],
+          messages: [{ cursor: 1, encryptedMessage: { iv: 'iv', cipher: 'corrupt-cipher', version: '1.0' } }],
         },
       ],
     }
@@ -350,7 +358,7 @@ describe('Sync System Integration Test Suite', () => {
           itemId: deletedItemId,
           hasMore: false,
           nextCursor: 50,
-          messages: [{ cursor: 50, encryptedMessage: { iv: 'iv', cipher: 'good-cipher', version: 'legacy' } }],
+          messages: [{ cursor: 50, encryptedMessage: { iv: 'iv', cipher: 'good-cipher', version: '1.0' } }],
         },
       ],
     })
@@ -385,7 +393,7 @@ describe('Sync System Integration Test Suite', () => {
           itemId,
           hasMore: false,
           nextCursor: 50,
-          messages: [{ cursor: 40, encryptedMessage: { iv: 'iv', cipher: 'rotated-key-cipher', version: 'legacy', kver: '2' } }],
+          messages: [{ cursor: 40, encryptedMessage: { iv: 'iv', cipher: 'rotated-key-cipher', version: '1.0', kver: '2' } }],
         },
       ],
     }

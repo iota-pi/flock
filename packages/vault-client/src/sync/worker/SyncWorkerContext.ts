@@ -15,7 +15,7 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
@@ -35,27 +35,10 @@ import { DSK_KEY, openLocalStorage, type LocalStorage } from './localEncryption/
 import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
-import { parseBatchedMessages } from './utils/messageParser'
 import type { RetrySaveResult } from './syncProtocol'
 import type { BackupSyncState } from '../shared/backupSyncState'
 
 const log = createLogger('SyncWorkerContext')
-
-/**
- * The individual sync messages a WAL entry holds. Older versions' compaction stored batched
- * entries, and restore re-appends each exported message as a plain entry, so batches are unpacked.
- */
-function unpackWalEntry(entry: WalEntry): Uint8Array[] {
-  if (!entry.isBatched) return [entry.data]
-  const messages: Uint8Array[] = []
-  const parsed = parseBatchedMessages(entry.data, message => {
-    messages.push(message)
-  })
-  if (!parsed) {
-    log.warn(`WAL entry ${entry.id} for ${entry.itemId} has a malformed batch; exporting the messages before it`)
-  }
-  return messages
-}
 
 /** The host app's settings, which every session's context is built with (see SyncWorkerConfig) */
 export interface SyncSessionConfig {
@@ -770,7 +753,7 @@ export class SyncWorkerContext {
     const walMap = await wal.readAll()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
-      entries.flatMap(unpackWalEntry).map(message => message.toBase64()),
+      entries.map(entry => entry.data.toBase64()),
     ])
     const lastModified = snapshotManager.exportLastModified()
 

@@ -10,6 +10,7 @@ import { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import type { ItemPullState } from './PullRetryTracker'
 import { SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
+import { packBatchedMessages } from './utils/binaryFraming'
 
 import {
   MockLocalforage,
@@ -44,6 +45,11 @@ const {
 const mockPublishRealtimeBusSyncPing = vi.fn()
 const mockReportQuotaExceeded = vi.fn()
 const realToAutomergeUrlFromItemId = automerge.toAutomergeUrlFromItemId
+
+/** A decrypted pulled message: a batch of sync messages, as every push sends */
+function batch(...messages: Uint8Array[]): Uint8Array {
+  return packBatchedMessages(messages)
+}
 /** Whether part of the batch at `cursor` has been applied */
 function hasBatchProgress(manager: SyncPullQueueManager, itemId: ItemId, cursor: number): boolean {
   return (manager as any).getBatchProgress(itemId, cursor) > 0
@@ -118,6 +124,7 @@ describe('SyncPullQueueManager', () => {
 
     // Default mock behavior
     mockVault.reset()
+    mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
   })
 
   afterEach(() => {
@@ -199,12 +206,12 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-1')
     })
 
-    it('parses single unbatched message', async () => {
+    it('parses a single message', async () => {
       const onMessageParsedSpy = vi.fn()
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -315,7 +322,7 @@ describe('SyncPullQueueManager', () => {
 
     it('sets hasImmediatePendingPulls to true when hasMoreGlobal is true without adding healthy items to getCursors', async () => {
       const msg = new Uint8Array([1, 2, 3])
-      mockDecryptBytes.mockResolvedValue(msg)
+      mockDecryptBytes.mockResolvedValue(batch(msg))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -351,7 +358,7 @@ describe('SyncPullQueueManager', () => {
 
     it('attaches the page token to getCursors when hasMore is true, and clears it on completion', async () => {
       const msg = new Uint8Array([1, 2, 3])
-      mockDecryptBytes.mockResolvedValue(msg)
+      mockDecryptBytes.mockResolvedValue(batch(msg))
 
       const itemKey = 'item-pagination-token'
       const pullResultsWithKey: PullSyncMessagesResponse[] = [
@@ -514,7 +521,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('resetPagination discards item page tokens but keeps the items pending from their cursors', async () => {
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
       await processItemResults(manager, [{
         success: true,
         itemId: 'item-pagination' as ItemId,
@@ -618,7 +625,7 @@ describe('SyncPullQueueManager', () => {
       })
       mockDecryptBytes.mockImplementation(async (payload: { iv: string }) => {
         if (payload.iv === 'iv-bad') throw new Error('Decryption failed')
-        return new Uint8Array([Number(payload.iv.slice(3))])
+        return batch(new Uint8Array([Number(payload.iv.slice(3))]))
       })
       const message = (cursor: number, iv: string) => ({ cursor, createdAt: 0, encryptedMessage: { iv, cipher: 'abc' } })
 
@@ -772,7 +779,7 @@ describe('SyncPullQueueManager', () => {
       expect(hasPendingPulls(manager)).toBe(true)
 
       // 4th time succeeds
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
       const successResults: PullSyncMessagesResponse[] = [
         {
           success: true,
@@ -853,7 +860,7 @@ describe('SyncPullQueueManager', () => {
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       const batch1: PullSyncMessagesResponse[] = [
         {
@@ -923,7 +930,7 @@ describe('SyncPullQueueManager', () => {
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       // First, process messages with cursor 10 and 20 to populate seenMessageCursors
       await processItemResults(manager, [
@@ -1255,7 +1262,7 @@ describe('SyncPullQueueManager', () => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -1288,7 +1295,7 @@ describe('SyncPullQueueManager', () => {
       })
 
       mockDecryptBytes
-        .mockResolvedValueOnce(new Uint8Array([1]))
+        .mockResolvedValueOnce(batch(new Uint8Array([1])))
         .mockRejectedValueOnce(new Error('Decryption failed for message 2'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1368,7 +1375,7 @@ describe('SyncPullQueueManager', () => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -1438,7 +1445,7 @@ describe('SyncPullQueueManager', () => {
         if (encrypted.cipher === 'fail-msg2') {
           throw new Error('Decryption failed for cursor 2')
         }
-        return new Uint8Array([3])
+        return batch(new Uint8Array([3]))
       })
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1487,7 +1494,7 @@ describe('SyncPullQueueManager', () => {
       })
 
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
-        return new Uint8Array([encrypted.val])
+        return batch(new Uint8Array([encrypted.val]))
       })
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1520,7 +1527,7 @@ describe('SyncPullQueueManager', () => {
         if (encrypted.cipher === 'fail-msg30') {
           throw new Error('Decryption failed for cursor 30')
         }
-        return new Uint8Array([20])
+        return batch(new Uint8Array([20]))
       })
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1647,7 +1654,7 @@ describe('SyncPullQueueManager', () => {
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') parsedSpy(e.itemId)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1])))
       await manager.processPullResults([], false, undefined, 100)
 
       // The backup's item ran ahead of the scan that produced it
@@ -1692,7 +1699,7 @@ describe('SyncPullQueueManager', () => {
         if (e.type === 'remoteMessagesParsed') remoteSpy(e.itemId)
         if (e.type === 'messageParsed') parsedSpy(e.itemId)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
     })
 
     it('does not emit for echoes of own pushes, but still parses and advances the cursor', async () => {
@@ -2009,7 +2016,7 @@ describe('SyncPullQueueManager', () => {
 
     it('rethrows error and executes finally block when saveCursorsDebounced throws', async () => {
       await manager.setAccount('test-account')
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const emitSpy = vi.spyOn(eventHub, 'emit')
       ;(manager as any).saveCursorsDebounced = vi.fn().mockImplementation(() => {

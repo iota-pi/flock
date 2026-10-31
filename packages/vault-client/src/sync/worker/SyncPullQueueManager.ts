@@ -11,7 +11,6 @@ import { ItemId } from '@vault/shared'
 import type { PageToken } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
-import { BATCHED_MESSAGE_VERSION } from './utils/binaryFraming'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
 import type { WorkerInternalEventHub } from './SyncEventHub'
@@ -208,29 +207,19 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       return { parsed: false }
     }
 
-    const isBatched = entry.encryptedMessage.version === BATCHED_MESSAGE_VERSION
-    try {
-      if (isBatched) {
-        const success = parseBatchedMessages(
-          decrypted,
-          msg => this.notifyMessageParsed(itemId, documentId, msg),
-          {
-            startIndex: this.getBatchProgress(itemId, entry.cursor),
-            onMessageSuccess: index => {
-              this.setBatchProgress(itemId, entry.cursor, index + 1)
-            },
-          }
-        )
-        if (!success) {
-          return { parsed: false }
-        }
-      } else {
-        this.notifyMessageParsed(itemId, documentId, decrypted)
+    // Every push since 2026-05-19 is a batch packed by packBatchedMessages, and the 90-day TTL has
+    // expired anything older
+    const success = parseBatchedMessages(
+      decrypted,
+      msg => this.notifyMessageParsed(itemId, documentId, msg),
+      {
+        startIndex: this.getBatchProgress(itemId, entry.cursor),
+        onMessageSuccess: index => {
+          this.setBatchProgress(itemId, entry.cursor, index + 1)
+        },
       }
-    } catch (error) {
-      if (!isBatched) {
-        log.error('Error processing message', error)
-      }
+    )
+    if (!success) {
       return { parsed: false }
     }
 

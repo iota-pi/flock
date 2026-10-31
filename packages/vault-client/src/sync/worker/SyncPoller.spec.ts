@@ -8,6 +8,8 @@ import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
+import { encodeSyncMessage } from '@automerge/automerge/slim'
+import { packBatchedMessages } from './utils/binaryFraming'
 
 const mockPollSyncBatch = vi.fn()
 const encryptBytes = vi.fn().mockResolvedValue({
@@ -16,6 +18,11 @@ const encryptBytes = vi.fn().mockResolvedValue({
   kver: 'kver',
 })
 const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes })
+
+/** A sync message, which the poller checks every WAL entry it pushes is */
+function syncMessage(): Uint8Array {
+  return encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
+}
 
 beforeEach(() => {
   spyOnVaultTrpc({
@@ -271,7 +278,7 @@ describe('SyncPoller', () => {
     const walMap = new Map<ItemId, WalEntry[]>()
     for (let i = 0; i < 6; i++) {
       walMap.set(`item-${i}` as ItemId, [
-        { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: i },
+        { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: syncMessage(), createdAt: i },
       ])
     }
     vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
@@ -333,9 +340,62 @@ describe('SyncPoller', () => {
     expect(mockWal.remove).toHaveBeenNthCalledWith(2, ['msg-5'])
   })
 
+  describe('WAL entries that are not sync messages', () => {
+    it('drops every entry of the item, requests a snapshot and pushes the other items', async () => {
+      const internalEvents: unknown[] = []
+      internalEventHub.subscribe(event => internalEvents.push(event))
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+        ['item-bad' as ItemId, [
+          { id: 'bad-1', itemId: 'item-bad' as ItemId, data: syncMessage(), createdAt: 1 },
+          { id: 'bad-2', itemId: 'item-bad' as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: 2 },
+        ]],
+        ['item-good' as ItemId, [{ id: 'good', itemId: 'item-good' as ItemId, data: syncMessage(), createdAt: 3 }]],
+      ]))
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [{ itemId: 'item-good', cursor: 1 }],
+        pullResults: [],
+      })
+
+      expect(await poller.executePoll()).toBe('success')
+
+      expect(mockWal.remove).toHaveBeenNthCalledWith(1, ['bad-1', 'bad-2'])
+      expect(internalEvents).toContainEqual({ type: 'walEntriesPruned', itemIds: ['item-bad'] })
+      expect(mockWal.markInFlight).toHaveBeenCalledWith(['good'])
+      expect(mockPollSyncBatch).toHaveBeenCalledWith(
+        expect.objectContaining({ pushMessages: [expect.objectContaining({ itemId: 'item-good' })] }),
+        expect.anything(),
+      )
+    })
+
+    it('drops a batched entry left by WAL compaction in older versions', async () => {
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+        ['item-1' as ItemId, [
+          { id: 'batched', itemId: 'item-1' as ItemId, data: packBatchedMessages([syncMessage(), syncMessage()]), createdAt: 1 },
+        ]],
+      ]))
+      mockPollSyncBatch.mockResolvedValueOnce({ success: true, pushResults: [], pullResults: [] })
+
+      await poller.executePoll()
+
+      expect(mockWal.remove).toHaveBeenCalledWith(['batched'])
+      expect(mockPollSyncBatch).toHaveBeenCalledWith(expect.objectContaining({ pushMessages: [] }), expect.anything())
+    })
+
+    it('fails the poll without pushing when the entries cannot be removed', async () => {
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+        ['item-1' as ItemId, [{ id: 'bad', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 }]],
+      ]))
+      vi.mocked(mockWal.remove).mockRejectedValueOnce(new Error('storage failed'))
+
+      expect(await poller.executePoll()).toBe('failure')
+      expect(mockPollSyncBatch).not.toHaveBeenCalled()
+    })
+  })
+
   it('binds each pushed message to its item and sends the ciphertext format', async () => {
     vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
-      ['item-a' as ItemId, [{ id: 'msg-a', itemId: 'item-a' as ItemId, data: new Uint8Array([1]), createdAt: 1 }]],
+      ['item-a' as ItemId, [{ id: 'msg-a', itemId: 'item-a' as ItemId, data: syncMessage(), createdAt: 1 }]],
     ]))
     vi.mocked(encryptBytes).mockResolvedValueOnce({ iv: 'iv-a', cipher: 'cipher-a', kver: '2', format: 2 })
     mockPollSyncBatch.mockResolvedValueOnce({
@@ -417,7 +477,7 @@ describe('SyncPoller', () => {
     it('removes WAL items even if processPullResults throws an error', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -562,7 +622,7 @@ describe('SyncPoller', () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       for (let i = 0; i < 6; i++) {
         walMap.set(`item-${i}` as ItemId, [
-          { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: i },
+          { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: syncMessage(), createdAt: i },
         ])
       }
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
@@ -652,10 +712,10 @@ describe('SyncPoller', () => {
     it('removes only WAL entries for items explicitly acknowledged as successful when some items fail', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       walMap.set('item-2' as ItemId, [
-        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -679,10 +739,10 @@ describe('SyncPoller', () => {
     it('removes only WAL entries for items present in pushResults when an item is omitted', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       walMap.set('item-2' as ItemId, [
-        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -704,7 +764,7 @@ describe('SyncPoller', () => {
     it('does not remove any WAL entries when pushResults is empty', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -724,9 +784,9 @@ describe('SyncPoller', () => {
     it('removes all batched WAL entries for an acknowledged item', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1a', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
-        { id: 'msg-1b', itemId: 'item-1' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
-        { id: 'msg-1c', itemId: 'item-1' as ItemId, data: new Uint8Array([3]), createdAt: 3 },
+        { id: 'msg-1a', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+        { id: 'msg-1b', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 2 },
+        { id: 'msg-1c', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 3 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -747,7 +807,7 @@ describe('SyncPoller', () => {
     it('does not remove WAL entries when item has invalid or missing cursor without explicit success', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -769,10 +829,10 @@ describe('SyncPoller', () => {
     it('records successful push cursors as own messages before processing pull results', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       walMap.set('item-2' as ItemId, [
-        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -797,10 +857,10 @@ describe('SyncPoller', () => {
     it('processes pullResults without backoff on partial push failure in multi-item chunk (Option B)', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       walMap.set('item-2' as ItemId, [
-        { id: 'msg-2', itemId: 'item-2' as ItemId, data: new Uint8Array([2]), createdAt: 2 },
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
@@ -848,7 +908,7 @@ describe('SyncPoller', () => {
       const itemId = 'item-bad' as ItemId
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set(itemId, [
-        { id: 'msg-bad', itemId, data: new Uint8Array([99]), createdAt: 1 },
+        { id: 'msg-bad', itemId, data: syncMessage(), createdAt: 1 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValue(walMap)
 
@@ -883,7 +943,7 @@ describe('SyncPoller', () => {
       const itemId = 'item-flaky' as ItemId
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set(itemId, [
-        { id: 'msg-flaky', itemId, data: new Uint8Array([50]), createdAt: 1 },
+        { id: 'msg-flaky', itemId, data: syncMessage(), createdAt: 1 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValue(walMap)
 
@@ -908,7 +968,7 @@ describe('SyncPoller', () => {
     it('returns failure when wal.remove throws during push acknowledgment', async () => {
       const walMap = new Map<ItemId, WalEntry[]>()
       walMap.set('item-1' as ItemId, [
-        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 },
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
       ])
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
       vi.mocked(mockWal.remove).mockRejectedValueOnce(new Error('IndexedDB transaction failed'))
