@@ -15,7 +15,7 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
@@ -35,27 +35,10 @@ import { DSK_KEY, openLocalStorage, type LocalStorage } from './localEncryption/
 import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
-import { parseBatchedMessages } from './utils/messageParser'
 import type { RetrySaveResult } from './syncProtocol'
 import type { BackupSyncState } from '../shared/backupSyncState'
 
 const log = createLogger('SyncWorkerContext')
-
-/**
- * The individual sync messages a WAL entry holds. Older versions' compaction stored batched
- * entries, and restore re-appends each exported message as a plain entry, so batches are unpacked.
- */
-function unpackWalEntry(entry: WalEntry): Uint8Array[] {
-  if (!entry.isBatched) return [entry.data]
-  const messages: Uint8Array[] = []
-  const parsed = parseBatchedMessages(entry.itemId, toDocumentIdFromItemId(entry.itemId), entry.data, (_itemId, _docId, message) => {
-    messages.push(message)
-  })
-  if (!parsed) {
-    log.warn(`WAL entry ${entry.id} for ${entry.itemId} has a malformed batch; exporting the messages before it`)
-  }
-  return messages
-}
 
 /** The host app's settings, which every session's context is built with (see SyncWorkerConfig) */
 export interface SyncSessionConfig {
@@ -174,6 +157,10 @@ export class SyncWorkerContext {
   /** The sealed database, whose `meta` store holds the wrapped device storage key */
   private sealedStorage: LocalStorage['storage'] | null = null
   private readonly config: SyncWorkerContextConfig
+  /** Asks the main thread to refresh the keyring, for every component that meets an unknown key version */
+  private readonly emitKeyVersionMissing = (kver: string): void => {
+    this.clientEventHub.emit({ type: 'keyVersionMissing', kver })
+  }
 
   constructor(config: SyncWorkerContextConfig) {
     this.config = config
@@ -236,7 +223,13 @@ export class SyncWorkerContext {
       metadata => this._services?.accountSettings.handleLocalMetadata(metadata),
     )
 
-    const pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, internalEventHub)
+    const pullQueueManager = new SyncPullQueueManager(
+      cursorStore,
+      keys,
+      docStore,
+      internalEventHub,
+      this.emitKeyVersionMissing,
+    )
     const recoveryManager = new RecoveryManager({ accountId, eventHub: clientEventHub })
 
     const broker = new SyncMessageBroker({
@@ -331,7 +324,7 @@ export class SyncWorkerContext {
       keys,
       recoveryManager,
       apiClient: this.apiClient,
-      onKeyVersionMissing: kver => clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onKeyVersionMissing: this.emitKeyVersionMissing,
       storeItems: (items, options) => itemOperations.storeItems(items, options),
       decodeLegacyItem: this.domain.decodeLegacyItem,
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
@@ -448,7 +441,7 @@ export class SyncWorkerContext {
     })
     const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys)
     repo = repoManager.init(adapter, storage, {
-      onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onKeyVersionMissing: this.emitKeyVersionMissing,
       onDocumentReceived: docId => {
         const itemId = toVaultItemIdFromAutomergeId(docId)
         if (itemId && !isIndexDocument(itemId)) {
@@ -506,7 +499,18 @@ export class SyncWorkerContext {
       services.pullQueueManager,
       services.manifestSyncManager,
       services.orchestrator,
+      {
+        lifecycleName: 'ItemReencryptor',
+        onLifecycleStop: () => services.itemReencryptor.cancelScheduled(),
+      },
     ]
+    const { snapshotFormatUpgrade } = services
+    if (snapshotFormatUpgrade) {
+      lifecycleServices.push({
+        lifecycleName: 'SnapshotFormatUpgrade',
+        onLifecycleStop: () => snapshotFormatUpgrade.stop(),
+      })
+    }
 
     for (const svc of lifecycleServices) {
       this.lifecycle.register({
@@ -663,8 +667,6 @@ export class SyncWorkerContext {
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     this.isStopped = true
-    this._services?.snapshotFormatUpgrade?.stop()
-    this._services?.itemReencryptor.cancelScheduled()
     await this.lifecycle.stop(options)
     for (const unsub of this.unsubscribers) {
       unsub()
@@ -760,7 +762,7 @@ export class SyncWorkerContext {
     const walMap = await wal.readAll()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
-      entries.flatMap(unpackWalEntry).map(message => message.toBase64()),
+      entries.map(entry => entry.data.toBase64()),
     ])
     const lastModified = snapshotManager.exportLastModified()
 

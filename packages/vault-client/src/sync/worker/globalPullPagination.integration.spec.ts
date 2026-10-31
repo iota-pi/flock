@@ -4,12 +4,17 @@ import { hashSessionToken, SESSION_EXPIRY_MS, syncRouter } from '@vault/server'
 import { SyncPoller } from './SyncPoller'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
-import { createMockKeyProvider, createTestEventHubs, noItemLocks } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks } from './__test__/testUtils'
+import { packBatchedMessages } from './utils/binaryFraming'
 import type { SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 
-const keys = createMockKeyProvider()
+/** Decrypts a row's cipher text into a batch holding it as the one message */
+const keys = createMockKeyProvider({
+  ...createMockVault(),
+  decryptBytes: vi.fn(async (encrypted: { cipher: string }) => packBatchedMessages([new TextEncoder().encode(encrypted.cipher)])),
+})
 
 const ACCOUNT = 'account-pagination'
 const GLOBAL_PAGE_SIZE = 3
@@ -102,7 +107,7 @@ describe('global pull pagination (client ↔ router)', () => {
     const delivered: string[] = []
     internalEventHub.subscribe(event => {
       if (event.type === 'messageParsed') {
-        delivered.push(String(event.message))
+        delivered.push(new TextDecoder().decode(event.message))
       }
     })
 

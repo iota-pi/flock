@@ -11,7 +11,6 @@ import { ItemId } from '@vault/shared'
 import type { PageToken } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
-import { BATCHED_MESSAGE_VERSION } from './utils/binaryFraming'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker } from './PullRetryTracker'
 import type { WorkerInternalEventHub } from './SyncEventHub'
@@ -67,6 +66,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     private readonly keys: KeyProvider,
     private readonly lockCoordinator: ItemLockCoordinator,
     private readonly internalEventHub: WorkerInternalEventHub,
+    private readonly onKeyVersionMissing?: (kver: string) => void,
   ) {
     this.retryTracker = new PullRetryTracker(keys)
   }
@@ -197,9 +197,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         timedOutKeys,
-        onKeyVersionMissing: missingKver => {
-          this.internalEventHub.emit({ type: 'keyVersionMissing', kver: missingKver })
-        },
+        onKeyVersionMissing: this.onKeyVersionMissing,
       })
     } catch (error) {
       const classified = classifySyncError(error)
@@ -209,31 +207,19 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       return { parsed: false }
     }
 
-    const isBatched = entry.encryptedMessage.version === BATCHED_MESSAGE_VERSION
-    try {
-      if (isBatched) {
-        const success = parseBatchedMessages(
-          itemId,
-          documentId,
-          decrypted,
-          (id, docId, msg) => this.notifyMessageParsed(id, docId, msg),
-          {
-            startIndex: this.getBatchProgress(itemId, entry.cursor),
-            onMessageSuccess: index => {
-              this.setBatchProgress(itemId, entry.cursor, index + 1)
-            },
-          }
-        )
-        if (!success) {
-          return { parsed: false }
-        }
-      } else {
-        this.notifyMessageParsed(itemId, documentId, decrypted)
+    // Every push since 2026-05-19 is a batch packed by packBatchedMessages, and the 90-day TTL has
+    // expired anything older
+    const success = parseBatchedMessages(
+      decrypted,
+      msg => this.notifyMessageParsed(itemId, documentId, msg),
+      {
+        startIndex: this.getBatchProgress(itemId, entry.cursor),
+        onMessageSuccess: index => {
+          this.setBatchProgress(itemId, entry.cursor, index + 1)
+        },
       }
-    } catch (error) {
-      if (!isBatched) {
-        log.error('Error processing message', error)
-      }
+    )
+    if (!success) {
       return { parsed: false }
     }
 
@@ -361,7 +347,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   private async processSinglePullResult(
     result: PullSyncMessagesResponse,
     timedOutKeys: Set<string>,
-    advanceGlobalCursor: boolean,
   ): Promise<{ itemId: ItemId; hasParsedMessages: boolean; cursorUpdated: boolean }> {
     const itemId = result.itemId
     const hasMore = result.hasMore === true
@@ -396,7 +381,6 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       hasMore,
       nextCursor: result.nextCursor,
       pageToken: result.nextPageToken,
-      advanceGlobalCursor,
     })
 
     if (highestCursor > initialCursor) {
@@ -434,21 +418,18 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   }
 
   /**
-   * @param globalScannedThroughCursor Global scan position reported by the server. When provided,
-   * it alone advances the global cursor; per-item results (which may run ahead of the scan) do not.
-   * Older servers omit it, in which case per-item results advance the global cursor as before.
+   * @param globalScannedThroughCursor Global scan position reported by the server. Only it advances
+   * the global cursor; per-item results (which may run ahead of the scan) never do.
    */
   async processPullResults(
     results: PullSyncMessagesResponse[],
-    hasMoreGlobal?: boolean,
-    globalNextPageToken?: PageToken,
-    globalScannedThroughCursor?: number,
+    hasMoreGlobal: boolean,
+    globalNextPageToken: PageToken | undefined,
+    globalScannedThroughCursor: number | undefined,
   ): Promise<void> {
     if (!this.account || this.isShutdown) return
-    if (typeof hasMoreGlobal === 'boolean') {
-      this.hasMoreGlobal = hasMoreGlobal
-      this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
-    }
+    this.hasMoreGlobal = hasMoreGlobal
+    this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
 
     const successfullyPulledItemIds = new Set<ItemId>()
     let cursorsUpdated = false
@@ -460,11 +441,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     try {
       for (const result of results || []) {
         try {
-          const itemOutcome = await this.processSinglePullResult(
-            result,
-            timedOutKeys,
-            globalScannedThroughCursor === undefined,
-          )
+          const itemOutcome = await this.processSinglePullResult(result, timedOutKeys)
           if (itemOutcome.hasParsedMessages) {
             successfullyPulledItemIds.add(itemOutcome.itemId)
           }

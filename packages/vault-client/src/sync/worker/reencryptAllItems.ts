@@ -2,7 +2,7 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import { chunk } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { buildSnapshot, type BuildSnapshotResult } from './snapshotBuilder'
+import { buildSnapshot, estimateSnapshotSize, type BuildSnapshotResult } from './snapshotBuilder'
 import type { DocCodec } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
@@ -16,7 +16,6 @@ import {
   DEFAULT_MAX_BATCH_BYTES,
 } from '../utils/SizeAwareBatchAccumulator'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { fireAndForget } from '../utils/fireAndForget'
 import { getOnlineState } from '../utils/onlineStatus'
 import type { ItemId, PutSnapshotResultItem, VaultSnapshotInput } from '@vault/shared'

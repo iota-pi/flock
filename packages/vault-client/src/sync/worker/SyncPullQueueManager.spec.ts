@@ -10,6 +10,7 @@ import { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import type { ItemPullState } from './PullRetryTracker'
 import { SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
+import { packBatchedMessages } from './utils/binaryFraming'
 
 import {
   MockLocalforage,
@@ -44,6 +45,11 @@ const {
 const mockPublishRealtimeBusSyncPing = vi.fn()
 const mockReportQuotaExceeded = vi.fn()
 const realToAutomergeUrlFromItemId = automerge.toAutomergeUrlFromItemId
+
+/** A decrypted pulled message: a batch of sync messages, as every push sends */
+function batch(...messages: Uint8Array[]): Uint8Array {
+  return packBatchedMessages(messages)
+}
 /** Whether part of the batch at `cursor` has been applied */
 function hasBatchProgress(manager: SyncPullQueueManager, itemId: ItemId, cursor: number): boolean {
   return (manager as any).getBatchProgress(itemId, cursor) > 0
@@ -86,6 +92,11 @@ beforeEach(() => {
 })
 
 /** Whether the global scan or any item, including retrying and key-blocked ones, still awaits a pull */
+/** Processes per-item results from a poll whose global pull is complete and reported no scan position */
+function processItemResults(manager: SyncPullQueueManager, results: PullSyncMessagesResponse[]): Promise<void> {
+  return manager.processPullResults(results, false, undefined, undefined)
+}
+
 function hasPendingPulls(manager: SyncPullQueueManager): boolean {
   const internals = manager as unknown as {
     hasMoreGlobal: boolean
@@ -98,6 +109,7 @@ describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
   let eventHub: WorkerInternalEventHub
   let cursorStore: CursorStore
+  let onKeyVersionMissing: ReturnType<typeof vi.fn<(kver: string) => void>>
 
   beforeEach(() => {
     mockLocalForage(createLocalForageInstance)
@@ -107,10 +119,12 @@ describe('SyncPullQueueManager', () => {
     activeStore = null
     cursorStore = new CursorStore('account-1')
     eventHub = new WorkerInternalEventHub()
-    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub)
+    onKeyVersionMissing = vi.fn<(kver: string) => void>()
+    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub, onKeyVersionMissing)
 
     // Default mock behavior
     mockVault.reset()
+    mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
   })
 
   afterEach(() => {
@@ -192,12 +206,12 @@ describe('SyncPullQueueManager', () => {
       await manager.setAccount('account-1')
     })
 
-    it('parses single unbatched message', async () => {
+    it('parses a single message', async () => {
       const onMessageParsedSpy = vi.fn()
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -218,7 +232,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await manager.processPullResults(pullResults, false, undefined, 5)
 
       const expectedDocId = interpretAsDocumentId(
         toAutomergeUrlFromItemId('item-1' as ItemId)
@@ -283,7 +297,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       const expectedDocId = interpretAsDocumentId(
         toAutomergeUrlFromItemId('item-2' as ItemId)
@@ -308,7 +322,7 @@ describe('SyncPullQueueManager', () => {
 
     it('sets hasImmediatePendingPulls to true when hasMoreGlobal is true without adding healthy items to getCursors', async () => {
       const msg = new Uint8Array([1, 2, 3])
-      mockDecryptBytes.mockResolvedValue(msg)
+      mockDecryptBytes.mockResolvedValue(batch(msg))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -329,7 +343,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults, true)
+      await manager.processPullResults(pullResults, true, undefined, undefined)
 
       expect(hasPendingPulls(manager)).toBe(true)
       expect(manager.hasImmediatePendingPulls()).toBe(true)
@@ -337,14 +351,14 @@ describe('SyncPullQueueManager', () => {
       expect(manager.getCursors()).toHaveLength(0)
 
       // Next poll completes global backlog with hasMoreGlobal: false
-      await manager.processPullResults([], false)
+      await manager.processPullResults([], false, undefined, undefined)
       expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.hasImmediatePendingPulls()).toBe(false)
     })
 
     it('attaches the page token to getCursors when hasMore is true, and clears it on completion', async () => {
       const msg = new Uint8Array([1, 2, 3])
-      mockDecryptBytes.mockResolvedValue(msg)
+      mockDecryptBytes.mockResolvedValue(batch(msg))
 
       const itemKey = 'item-pagination-token'
       const pullResultsWithKey: PullSyncMessagesResponse[] = [
@@ -367,7 +381,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResultsWithKey)
+      await processItemResults(manager, pullResultsWithKey)
 
       expect(hasPendingPulls(manager)).toBe(true)
       const cursors = manager.getCursors()
@@ -398,7 +412,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(completionResults)
+      await processItemResults(manager, completionResults)
 
       expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.getCursors()).toHaveLength(0)
@@ -407,13 +421,13 @@ describe('SyncPullQueueManager', () => {
     it('stores the global page token when hasMoreGlobal is true, and clears it when false', async () => {
       const sampleGlobalKey = 'global-page-token'
 
-      await manager.processPullResults([], true, sampleGlobalKey)
+      await manager.processPullResults([], true, sampleGlobalKey, undefined)
 
       expect(manager.hasImmediatePendingPulls()).toBe(true)
       expect(manager.getGlobalPageToken()).toEqual(sampleGlobalKey)
 
       // Completing global backlog clears the global page token
-      await manager.processPullResults([], false)
+      await manager.processPullResults([], false, undefined, undefined)
 
       expect(manager.hasImmediatePendingPulls()).toBe(false)
       expect(manager.getGlobalPageToken()).toBeUndefined()
@@ -477,7 +491,7 @@ describe('SyncPullQueueManager', () => {
       ])
     })
 
-    it('falls back to per-item results for the global cursor when the server omits the scan position', async () => {
+    it('leaves the global scan cursor alone when the server omits the scan position', async () => {
       await manager.processPullResults(
         [
           {
@@ -488,9 +502,11 @@ describe('SyncPullQueueManager', () => {
           },
         ] as any,
         false,
+        undefined,
+        undefined,
       )
 
-      expect(manager.getGlobalScanCursor()).toBe(250)
+      expect(manager.getGlobalScanCursor()).toBe(0)
     })
 
     it('resetPagination discards the global page token', async () => {
@@ -505,8 +521,8 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('resetPagination discards item page tokens but keeps the items pending from their cursors', async () => {
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-      await manager.processPullResults([{
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
+      await processItemResults(manager, [{
         success: true,
         itemId: 'item-pagination' as ItemId,
         hasMore: true,
@@ -548,7 +564,7 @@ describe('SyncPullQueueManager', () => {
 
       // Attempts 1 to 4
       for (let attempt = 1; attempt <= 4; attempt++) {
-        await manager.processPullResults(pullResults)
+        await processItemResults(manager, pullResults)
         expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
         expect(hasPendingPulls(manager)).toBe(true)
         expect(manager.getCursors()).toContainEqual({ itemId: 'item-fail', cursor: 0 })
@@ -583,7 +599,7 @@ describe('SyncPullQueueManager', () => {
 
       // Run 5 attempts
       for (let attempt = 1; attempt <= 5; attempt++) {
-        await manager.processPullResults(pullResults)
+        await processItemResults(manager, pullResults)
       }
 
       expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
@@ -609,7 +625,7 @@ describe('SyncPullQueueManager', () => {
       })
       mockDecryptBytes.mockImplementation(async (payload: { iv: string }) => {
         if (payload.iv === 'iv-bad') throw new Error('Decryption failed')
-        return new Uint8Array([Number(payload.iv.slice(3))])
+        return batch(new Uint8Array([Number(payload.iv.slice(3))]))
       })
       const message = (cursor: number, iv: string) => ({ cursor, createdAt: 0, encryptedMessage: { iv, cipher: 'abc' } })
 
@@ -676,7 +692,7 @@ describe('SyncPullQueueManager', () => {
 
       // Attempts 1 to 4: cursor remains 0, pending remains true
       for (let attempt = 1; attempt <= 4; attempt++) {
-        await manager.processPullResults(pullResults)
+        await processItemResults(manager, pullResults)
         expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 0])
         expect(hasPendingPulls(manager)).toBe(true)
         expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
@@ -684,14 +700,14 @@ describe('SyncPullQueueManager', () => {
 
       // Attempt 5: permanently fails, invokes onDecryptionFailure, advances cursor to 10, and
       // stays pending to pull what follows the skipped message
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
       expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
       expect(hasPendingPulls(manager)).toBe(true)
 
       // Subsequent poll (attempt 6) receives the same corrupted message (e.g. via overlap window query)
       // The message is recognized as seen/skipped and does NOT re-trigger the 5-retry failure cycle
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
       expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
@@ -722,7 +738,7 @@ describe('SyncPullQueueManager', () => {
       ]
 
       for (let attempt = 1; attempt <= 5; attempt++) {
-        await manager.processPullResults(pullResults)
+        await processItemResults(manager, pullResults)
       }
 
       expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
@@ -758,12 +774,12 @@ describe('SyncPullQueueManager', () => {
       // Fail 3 times
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
       for (let attempt = 1; attempt <= 3; attempt++) {
-        await manager.processPullResults(failResults)
+        await processItemResults(manager, failResults)
       }
       expect(hasPendingPulls(manager)).toBe(true)
 
       // 4th time succeeds
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
       const successResults: PullSyncMessagesResponse[] = [
         {
           success: true,
@@ -782,13 +798,13 @@ describe('SyncPullQueueManager', () => {
           ],
         },
       ]
-      await manager.processPullResults(successResults)
+      await processItemResults(manager, successResults)
       expect(hasPendingPulls(manager)).toBe(false)
 
       // Now failing again should start from attempt 1 (requiring 5 more failures to quarantine)
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed again'))
       for (let attempt = 1; attempt <= 4; attempt++) {
-        await manager.processPullResults(failResults)
+        await processItemResults(manager, failResults)
         expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
       }
     })
@@ -821,7 +837,7 @@ describe('SyncPullQueueManager', () => {
 
       // Fail 4 times on account-1
       for (let attempt = 1; attempt <= 4; attempt++) {
-        await manager.processPullResults(failResults)
+        await processItemResults(manager, failResults)
       }
 
       // Switch account resets retry counts
@@ -829,13 +845,13 @@ describe('SyncPullQueueManager', () => {
       expect(hasPendingPulls(manager)).toBe(false)
 
       // 1 failure should not trigger max retry (5)
-      await manager.processPullResults(failResults)
+      await processItemResults(manager, failResults)
       expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
 
       // Shutdown also clears
       await manager.shutdown()
       await manager.setAccount('account-new')
-      await manager.processPullResults(failResults)
+      await processItemResults(manager, failResults)
       expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
     })
 
@@ -844,7 +860,7 @@ describe('SyncPullQueueManager', () => {
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       const batch1: PullSyncMessagesResponse[] = [
         {
@@ -873,7 +889,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(batch1)
+      await processItemResults(manager, batch1)
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
 
       // Batch 2 pulls overlap window starting before cursor 20
@@ -904,7 +920,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(batch2)
+      await processItemResults(manager, batch2)
       // Only 1 additional message should be processed
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
     })
@@ -914,10 +930,10 @@ describe('SyncPullQueueManager', () => {
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       // First, process messages with cursor 10 and 20 to populate seenMessageCursors
-      await manager.processPullResults([
+      await processItemResults(manager, [
         {
           success: true,
           itemId: 'item-stagnate' as ItemId,
@@ -951,7 +967,7 @@ describe('SyncPullQueueManager', () => {
       expect(manager.exportCursors()).toContainEqual(['item-stagnate', 5])
 
       // Receive a batch consisting entirely of seen messages with a nextCursor behind them
-      await manager.processPullResults([
+      await processItemResults(manager, [
         {
           success: true,
           itemId: 'item-stagnate' as ItemId,
@@ -984,7 +1000,7 @@ describe('SyncPullQueueManager', () => {
 
     it('re-queues pending items and clears them based on hasMore', async () => {
       // First batch hasMore: true
-      await manager.processPullResults([
+      await processItemResults(manager, [
         {
           success: true,
           itemId: 'item-x' as ItemId,
@@ -996,7 +1012,7 @@ describe('SyncPullQueueManager', () => {
       expect(hasPendingPulls(manager)).toBe(true)
 
       // Second batch hasMore: false
-      await manager.processPullResults([
+      await processItemResults(manager, [
         {
           success: true,
           itemId: 'item-x' as ItemId,
@@ -1057,7 +1073,7 @@ describe('SyncPullQueueManager', () => {
       ]
 
       // Attempt 1: Message 1 throws, halts immediately so message 2 is not applied out-of-order
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       const expectedDocId = interpretAsDocumentId(
         toAutomergeUrlFromItemId('item-batch-error' as ItemId)
@@ -1075,7 +1091,7 @@ describe('SyncPullQueueManager', () => {
 
       // Attempt 2 (retry): Transient failure resolved; both messages applied sequentially in batch order
       failMessage1 = false
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
@@ -1147,7 +1163,7 @@ describe('SyncPullQueueManager', () => {
       )
 
       // Attempt 1: msg1 succeeds, msg2 fails
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(1, 'item-partial-retry', expectedDocId, msg1)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(2, 'item-partial-retry', expectedDocId, msg2)
@@ -1156,7 +1172,7 @@ describe('SyncPullQueueManager', () => {
 
       // Attempt 2 (retry): msg1 must NOT be re-applied; msg2 succeeds
       failMessage2 = false
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
       // Only 1 additional call for msg2! (3 total, NOT 4)
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(3)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(3, 'item-partial-retry', expectedDocId, msg2)
@@ -1217,7 +1233,7 @@ describe('SyncPullQueueManager', () => {
 
       // 5 attempts
       for (let attempt = 1; attempt <= 5; attempt++) {
-        await manager.processPullResults(pullResults)
+        await processItemResults(manager, pullResults)
       }
 
       // msg1 was executed ONCE (on attempt 1) and never re-applied on attempts 2-5!
@@ -1246,7 +1262,7 @@ describe('SyncPullQueueManager', () => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -1267,7 +1283,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
+      await expect(processItemResults(manager, pullResults)).resolves.not.toThrow()
       expect(manager.exportCursors()).toEqual([['item-1', 0]])
       expect(hasPendingPulls(manager)).toBe(true)
     })
@@ -1279,7 +1295,7 @@ describe('SyncPullQueueManager', () => {
       })
 
       mockDecryptBytes
-        .mockResolvedValueOnce(new Uint8Array([1]))
+        .mockResolvedValueOnce(batch(new Uint8Array([1])))
         .mockRejectedValueOnce(new Error('Decryption failed for message 2'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1317,7 +1333,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(mockDecryptBytes).toHaveBeenCalledTimes(2)
@@ -1347,7 +1363,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       expect(manager.exportCursors()).toEqual([['item-corrupt-hasmore', 0]])
       expect(hasPendingPulls(manager)).toBe(true)
@@ -1359,7 +1375,7 @@ describe('SyncPullQueueManager', () => {
         if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
       })
 
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {
@@ -1399,7 +1415,7 @@ describe('SyncPullQueueManager', () => {
       manager.addPendingItem('item-throw-error' as ItemId)
       const saveSpy = vi.spyOn(cursorStore, 'saveCursors')
 
-      await expect(manager.processPullResults(pullResults)).rejects.toThrow('Failed to resolve URL')
+      await expect(processItemResults(manager, pullResults)).rejects.toThrow('Failed to resolve URL')
 
       // The failing item stays pending so the next (backed-off) poll retries it
       expect(manager.getCursors()).toContainEqual(expect.objectContaining({ itemId: 'item-throw-error' }))
@@ -1429,7 +1445,7 @@ describe('SyncPullQueueManager', () => {
         if (encrypted.cipher === 'fail-msg2') {
           throw new Error('Decryption failed for cursor 2')
         }
-        return new Uint8Array([3])
+        return batch(new Uint8Array([3]))
       })
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1459,7 +1475,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       // Cursor 2 must be processed first due to ascending sort; it fails immediately.
       // Cursor must NOT have advanced to 3, preserving cursor 0 for retry so cursor 2 is not skipped.
@@ -1478,7 +1494,7 @@ describe('SyncPullQueueManager', () => {
       })
 
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
-        return new Uint8Array([encrypted.val])
+        return batch(new Uint8Array([encrypted.val]))
       })
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1495,7 +1511,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       expect(processedCursors).toEqual([10, 20, 30])
       expect(manager.exportCursors()).toContainEqual(['item-sort-order', 35])
@@ -1511,7 +1527,7 @@ describe('SyncPullQueueManager', () => {
         if (encrypted.cipher === 'fail-msg30') {
           throw new Error('Decryption failed for cursor 30')
         }
-        return new Uint8Array([20])
+        return batch(new Uint8Array([20]))
       })
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -1541,7 +1557,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       // Cursor 20 succeeds, cursor 30 fails.
       // Cursor should advance to 20, and item should remain pending to retry cursor 30.
@@ -1615,7 +1631,7 @@ describe('SyncPullQueueManager', () => {
       await manager.shutdown()
       activeStore!.setItem.mockClear()
 
-      await manager.processPullResults([{ success: true, itemId: 'item-new' as ItemId, nextCursor: 0, messages: [], hasMore: false }])
+      await processItemResults(manager, [{ success: true, itemId: 'item-new' as ItemId, nextCursor: 0, messages: [], hasMore: false }])
 
       expect(activeStore?.setItem).not.toHaveBeenCalled()
       expect(manager.exportCursors()).toEqual([])
@@ -1638,7 +1654,7 @@ describe('SyncPullQueueManager', () => {
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') parsedSpy(e.itemId)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1])))
       await manager.processPullResults([], false, undefined, 100)
 
       // The backup's item ran ahead of the scan that produced it
@@ -1683,13 +1699,13 @@ describe('SyncPullQueueManager', () => {
         if (e.type === 'remoteMessagesParsed') remoteSpy(e.itemId)
         if (e.type === 'messageParsed') parsedSpy(e.itemId)
       })
-      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
     })
 
     it('does not emit for echoes of own pushes, but still parses and advances the cursor', async () => {
       manager.recordOwnPushedMessage('item-1' as ItemId, 10)
 
-      await manager.processPullResults([makeResult([10])])
+      await processItemResults(manager, [makeResult([10])])
 
       expect(remoteSpy).not.toHaveBeenCalled()
       expect(parsedSpy).toHaveBeenCalledTimes(1)
@@ -1697,7 +1713,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('emits once per pull result for unrecorded cursors', async () => {
-      await manager.processPullResults([makeResult([10, 11])])
+      await processItemResults(manager, [makeResult([10, 11])])
 
       expect(remoteSpy).toHaveBeenCalledTimes(1)
       expect(remoteSpy).toHaveBeenCalledWith('item-1')
@@ -1706,7 +1722,7 @@ describe('SyncPullQueueManager', () => {
     it('emits for a mixed batch of own and remote messages', async () => {
       manager.recordOwnPushedMessage('item-1' as ItemId, 10)
 
-      await manager.processPullResults([makeResult([10, 11])])
+      await processItemResults(manager, [makeResult([10, 11])])
 
       expect(remoteSpy).toHaveBeenCalledTimes(1)
     })
@@ -1715,19 +1731,19 @@ describe('SyncPullQueueManager', () => {
       mockDecryptBytes.mockReset()
       mockDecryptBytes.mockRejectedValue(new Error('bad data'))
 
-      await manager.processPullResults([makeResult([10])])
+      await processItemResults(manager, [makeResult([10])])
 
       expect(remoteSpy).not.toHaveBeenCalled()
     })
 
     it('removes the own-push key once the echo has been processed', async () => {
       manager.recordOwnPushedMessage('item-1' as ItemId, 10)
-      await manager.processPullResults([makeResult([10])])
+      await processItemResults(manager, [makeResult([10])])
       expect(remoteSpy).not.toHaveBeenCalled()
 
       // A later re-delivery of the same cursor (after rewinding the item) is no longer treated as an echo
       await manager.importCursors([['item-1' as ItemId, 0]])
-      await manager.processPullResults([makeResult([10])])
+      await processItemResults(manager, [makeResult([10])])
       expect(remoteSpy).toHaveBeenCalledTimes(1)
     })
 
@@ -1735,7 +1751,7 @@ describe('SyncPullQueueManager', () => {
       manager.recordOwnPushedMessage('item-1' as ItemId, 10)
       await manager.setAccount('account-1')
 
-      await manager.processPullResults([makeResult([10])])
+      await processItemResults(manager, [makeResult([10])])
 
       expect(remoteSpy).toHaveBeenCalledTimes(1)
     })
@@ -1812,10 +1828,6 @@ describe('SyncPullQueueManager', () => {
   describe('Missing Key Version Handling', () => {
     it('pauses inline and decrypts when missing key version arrives within timeout', async () => {
       await manager.setAccount('account-key-test')
-      const onKeyVersionMissingSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
-      })
 
       // Initially key '2' is not in keyring
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
@@ -1848,9 +1860,9 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
-      expect(onKeyVersionMissingSpy).toHaveBeenCalledWith('2')
+      expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
       expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 5000)
       expect(mockDecryptBytes).toHaveBeenCalled()
       expect(manager.exportCursors()).toContainEqual(['item-key-rotate', 100])
@@ -1859,10 +1871,8 @@ describe('SyncPullQueueManager', () => {
 
     it('does not advance cursor, mark seen, or burn retries when key version times out', async () => {
       await manager.setAccount('account-key-timeout')
-      const onKeyVersionMissingSpy = vi.fn()
       const onDecryptionFailureSpy = vi.fn()
       eventHub.subscribe(e => {
-        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
         if (e.type === 'decryptionFailure') onDecryptionFailureSpy(e.itemId, e.error)
       })
 
@@ -1892,7 +1902,7 @@ describe('SyncPullQueueManager', () => {
 
       // Even if processed 5 times (normally burning out 5 retries):
       for (let attempt = 1; attempt <= 5; attempt++) {
-        await manager.processPullResults(pullResults)
+        await processItemResults(manager, pullResults)
       }
 
       // Cursor must NOT be advanced past the failing message or by nextCursor
@@ -1931,7 +1941,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
       expect(manager.getCursors()).toEqual([])
       expect(manager.hasImmediatePendingPulls()).toBe(false)
 
@@ -1985,7 +1995,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(pullResults)
+      await processItemResults(manager, pullResults)
 
       // waitForKeyVersion should be called only ONCE for key '2', not twice
       expect(mockWaitForKeyVersion).toHaveBeenCalledTimes(1)
@@ -2001,12 +2011,12 @@ describe('SyncPullQueueManager', () => {
         },
       } as any
 
-      await expect(manager.processPullResults(throwingResults)).rejects.toThrow('Fatal batch iteration error')
+      await expect(processItemResults(manager, throwingResults)).rejects.toThrow('Fatal batch iteration error')
     })
 
     it('rethrows error and executes finally block when saveCursorsDebounced throws', async () => {
       await manager.setAccount('test-account')
-      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const emitSpy = vi.spyOn(eventHub, 'emit')
       ;(manager as any).saveCursorsDebounced = vi.fn().mockImplementation(() => {
@@ -2032,7 +2042,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await expect(manager.processPullResults(pullResults)).rejects.toThrow('Save cursors failed')
+      await expect(processItemResults(manager, pullResults)).rejects.toThrow('Save cursors failed')
       expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'retryingStateChange' }))
     })
   })
@@ -2085,7 +2095,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(attempt1Results)
+      await processItemResults(manager, attempt1Results)
 
       // batchProgress should now contain an entry for itemId:10
       expect(hasBatchProgress(manager, itemId, 10)).toBe(true)
@@ -2103,7 +2113,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      await manager.processPullResults(attempt2Results)
+      await processItemResults(manager, attempt2Results)
 
       // batchProgress must be cleared for cursor <= 20!
       expect(hasBatchProgress(manager, itemId, 10)).toBe(false)
@@ -2135,7 +2145,7 @@ describe('SyncPullQueueManager', () => {
 
       mockDecryptBytes.mockResolvedValue(combined)
 
-      await manager.processPullResults([
+      await processItemResults(manager, [
         {
           success: true,
           itemId,
@@ -2180,7 +2190,7 @@ describe('SyncPullQueueManager', () => {
 
       mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
 
-      await manager.processPullResults([
+      await processItemResults(manager, [
         {
           success: true,
           itemId,

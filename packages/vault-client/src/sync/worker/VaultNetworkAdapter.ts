@@ -73,9 +73,10 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   private account: string | null = null
   private sendEnabled = false
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
-  private readonly outboundQueue = new BoundedQueue<Message>(MAX_OUTBOUND_QUEUE_SIZE, {
-    onEvict: evicted => this.onOutboundQueueEvict(evicted),
-  })
+  private readonly outboundQueue = new BoundedQueue<Message>(
+    MAX_OUTBOUND_QUEUE_SIZE,
+    evicted => this.onOutboundQueueEvict(evicted),
+  )
 
   private ready = false
   private readyPromiseResolver: (() => void) | null = null

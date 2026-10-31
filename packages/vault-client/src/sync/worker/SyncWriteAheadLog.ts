@@ -1,7 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { ItemId } from '@vault/shared'
 import { runStorageOperation } from '../utils/storageManager'
-import { WalEntryQuery, type WalEntryDescriptor } from './WalEntryQuery'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import type { WorkerInternalEventHub } from './SyncEventHub'
 import { createAccountStore } from '../shared/createAccountStore'
@@ -11,16 +10,20 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncWriteAheadLog')
 
-export interface WalEntry extends WalEntryDescriptor {
+export interface WalEntry {
   id: string
   itemId: ItemId
   data: Uint8Array
   createdAt: number
   seq?: number
-  /** Set by WAL compaction in older versions: `data` is a batch of messages packed by packBatchedMessages */
-  isBatched?: boolean
-  /** Set by WAL compaction in older versions: the IDs of the entries this batched entry superseded */
-  replaces?: string[]
+}
+
+/** The fields that filter and order WAL entries, which stay readable when `data` is sealed */
+type WalEntrySummary = Pick<WalEntry, 'id' | 'itemId' | 'createdAt' | 'seq'>
+
+/** Oldest first by `createdAt`, then `seq`. Returns a new array. */
+function sortByAge<T extends WalEntrySummary>(entries: readonly T[]): T[] {
+  return [...entries].sort((a, b) => (a.createdAt - b.createdAt) || ((a.seq ?? 0) - (b.seq ?? 0)))
 }
 
 /** A WAL entry as stored: in plaintext, or with `data` sealed and the descriptor left readable */
@@ -201,10 +204,19 @@ export class SyncWriteAheadLog {
   }
 
   /**
-   * Create a query abstraction over a set of WAL entries, bound to this instance's in-flight state.
+   * Entries that aren't in flight, oldest first. Items with an entry in flight are left out
+   * entirely, so pruning never leaves an item with a partial WAL history.
    */
-  query<T extends WalEntryDescriptor>(entries: readonly T[]): WalEntryQuery<T> {
-    return new WalEntryQuery(entries, this.inFlightEntryIds)
+  private prunableEntries<T extends WalEntrySummary>(entries: readonly T[]): T[] {
+    const inFlightItemIds = new Set<string>()
+    for (const entry of entries) {
+      if (entry.itemId && this.inFlightEntryIds.has(entry.id)) {
+        inFlightItemIds.add(entry.itemId)
+      }
+    }
+    return sortByAge(entries.filter(e =>
+      !this.inFlightEntryIds.has(e.id) && !(e.itemId && inFlightItemIds.has(e.itemId))
+    ))
   }
 
   private readonly pruningGuard = new SingleFlightGuard<number>()
@@ -220,8 +232,7 @@ export class SyncWriteAheadLog {
 
   private async performPruneOldest(count: number): Promise<number> {
     try {
-      const allEntries: { id: string; itemId: ItemId; createdAt: number; seq: number }[] = []
-      const supersededIds = new Set<string>()
+      const allEntries: WalEntrySummary[] = []
 
       await this.storage.iterate<WalEntry, void>(entry => {
         if (entry && entry.id) {
@@ -231,31 +242,14 @@ export class SyncWriteAheadLog {
             createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
             seq: typeof entry.seq === 'number' ? entry.seq : 0,
           })
-          if (Array.isArray(entry.replaces)) {
-            for (const oldId of entry.replaces) {
-              if (typeof oldId === 'string') {
-                supersededIds.add(oldId)
-              }
-            }
-          }
         }
       })
 
-      const query = this.query(allEntries)
-
-      // Clean up entries superseded by batched entries that older versions' compaction left behind,
-      // excluding any in-flight entries
-      const supersededInStorage = query.superseded(supersededIds).map(e => e.id)
-      if (supersededInStorage.length > 0) {
-        await this.remove(supersededInStorage)
-      }
-
-      // Prunable entries exclude superseded entries, in-flight entries, and any entries
-      // belonging to items that have active in-flight entries (to prevent partial WAL history)
-      const prunableEntries = query.prunableSorted(supersededIds)
-      const entriesToPrune = prunableEntries.slice(0, count)
+      // Prunable entries exclude in-flight entries and any entries belonging to items that have
+      // active in-flight entries (to prevent partial WAL history)
+      const entriesToPrune = this.prunableEntries(allEntries).slice(0, count)
       if (entriesToPrune.length === 0) {
-        return supersededInStorage.length
+        return 0
       }
 
       const prunedItemIds = Array.from(
@@ -280,7 +274,7 @@ export class SyncWriteAheadLog {
       if (prunedItemIds.length > 0) {
         this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: prunedItemIds })
       }
-      return supersededInStorage.length + toRemove.length
+      return toRemove.length
     } catch (err) {
       log.error('Failed to prune oldest entries', err)
       return 0
@@ -346,7 +340,6 @@ export class SyncWriteAheadLog {
 
   /**
    * Read all pending WAL entries, grouped by item, ordered by creation time.
-   * Purges entries superseded by a batched entry, which older versions' compaction could leave behind.
    */
   async readAll(): Promise<Map<ItemId, WalEntry[]>> {
     const storedEntries: StoredWalEntry[] = []
@@ -362,57 +355,27 @@ export class SyncWriteAheadLog {
 
     this.retainUnreadableEntryIds(new Set(storedEntries.map(entry => entry.id)))
     const openedData = await Promise.all(storedEntries.map(entry => this.openData(entry)))
-    const rawEntries: WalEntry[] = []
-    const supersededIds = new Set<string>()
+    if (!this.isSeqInitialized) {
+      this.initializeSeq(mark)
+    }
+
+    const result = new Map<ItemId, WalEntry[]>()
     storedEntries.forEach((entry, index) => {
       const data = openedData[index]
-      // An entry that can't be opened supersedes nothing, so the entries it replaced stay deliverable
       if (!data) return
-      const validEntry: WalEntry = {
+      const list = result.get(entry.itemId) ?? []
+      list.push({
         id: entry.id,
         itemId: entry.itemId,
         data,
         createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
         seq: typeof entry.seq === 'number' ? entry.seq : 0,
-        isBatched: entry.isBatched === true,
-        replaces: Array.isArray(entry.replaces)
-          ? entry.replaces.filter((r): r is string => typeof r === 'string' && r.length > 0 && r !== entry.id)
-          : undefined,
-      }
-      rawEntries.push(validEntry)
-      if (validEntry.replaces) {
-        for (const oldId of validEntry.replaces) {
-          supersededIds.add(oldId)
-        }
-      }
+      })
+      result.set(entry.itemId, list)
     })
 
-    if (!this.isSeqInitialized) {
-      this.initializeSeq(mark)
-    }
-
-    // If any superseded entries are still present in storage (an older version crashed mid-compaction),
-    // purge them from storage immediately, excluding any in-flight entries to avoid deleting mid-push.
-    if (supersededIds.size > 0) {
-      const query = this.query(rawEntries)
-      const idsToDelete = query.superseded(supersededIds).map(e => e.id)
-      if (idsToDelete.length > 0) {
-        await this.remove(idsToDelete)
-      }
-    }
-
-    const result = new Map<ItemId, WalEntry[]>()
-    for (const entry of rawEntries) {
-      if (supersededIds.has(entry.id)) {
-        continue
-      }
-      const list = result.get(entry.itemId) ?? []
-      list.push(entry)
-      result.set(entry.itemId, list)
-    }
-
     for (const [itemId, list] of result) {
-      result.set(itemId, WalEntryQuery.sortByAge(list))
+      result.set(itemId, sortByAge(list))
     }
 
     return result

@@ -1,5 +1,11 @@
-import { ItemId } from '@vault/shared'
-import { buildSnapshot, SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS, SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
+import { ItemId, type VaultSnapshotInput } from '@vault/shared'
+import {
+  buildSnapshot,
+  estimateSnapshotSize,
+  SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS,
+  SnapshotBuilder,
+  toTombstoneSnapshot,
+} from './snapshotBuilder'
 import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/Keyring'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -361,5 +367,28 @@ describe('toTombstoneSnapshot', () => {
 
   it('throws when the snapshot is not deleted', () => {
     expect(() => toTombstoneSnapshot(base)).toThrow('Cannot create a tombstone')
+  })
+})
+
+describe('estimateSnapshotSize', () => {
+  it('estimates snapshot size based on cipher, iv, itemId, and overhead without JSON.stringify', () => {
+    const snapshot: VaultSnapshotInput = {
+      itemId: 'item-1' as ItemId,
+      snapshot: { iv: 'iv-12345678', cipher: 'a'.repeat(100), kver: '1' },
+      snapshotCursor: 1,
+      modified: 1000,
+    }
+    // 100 (cipher) + 11 (iv) + 6 (itemId) + 128 (base overhead) = 245
+    expect(estimateSnapshotSize(snapshot)).toBe(245)
+  })
+
+  it('handles empty or missing optional fields safely', () => {
+    const snapshot: VaultSnapshotInput = {
+      itemId: '' as ItemId,
+      snapshot: { iv: '', cipher: '' },
+      snapshotCursor: 0,
+      modified: 0,
+    }
+    expect(estimateSnapshotSize(snapshot)).toBe(128)
   })
 })

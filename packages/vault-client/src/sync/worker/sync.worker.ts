@@ -107,7 +107,6 @@ function installWorkerListeners(): void {
 export class SyncWorker implements SyncApi {
   private _context: SyncWorkerContext | null = null
   private ready = createReady()
-  private isReady = false
   private isShutDown = false
   private clientEventHub = new ClientEventHub()
   private internalEventHub = new WorkerInternalEventHub()
@@ -160,9 +159,6 @@ export class SyncWorker implements SyncApi {
   private async ensureReady(): Promise<SyncWorkerContext> {
     if (this.isShutDown) {
       throw new Error(NOT_INITIALIZED_MESSAGE)
-    }
-    if (this.isReady && this._context) {
-      return this._context
     }
     return this.ready.promise
   }
@@ -244,9 +240,6 @@ export class SyncWorker implements SyncApi {
         case 'retryingStateChange':
           this.syncStatusManager.setDegradedPull(event.isRetrying)
           break
-        case 'keyVersionMissing':
-          this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
-          break
         case 'docHandleReplaced':
           this.subscriptions.rebind(event.itemId, event.handle)
           break
@@ -307,10 +300,11 @@ export class SyncWorker implements SyncApi {
     options?: InitRepoOptions,
   ) {
     this.isShutDown = false
-    if (this.isReady) {
-      this.isReady = false
-      this.ready = createReady()
-    }
+    // Callers already waiting on the previous session wait for this one. Resolving a settled
+    // promise does nothing.
+    const previous = this.ready
+    this.ready = createReady()
+    previous.resolve(this.ready.promise)
 
     await this.teardownSession()
 
@@ -348,10 +342,8 @@ export class SyncWorker implements SyncApi {
       this.clientEventHub.emit({ type: 'ready' })
       this.syncStatusManager.reset(this.isOnline)
 
-      this.isReady = true
       this.ready.resolve(context)
     } catch (err) {
-      this.isReady = false
       this.ready.reject(err)
       this.ready = createReady()
       throw err
@@ -505,7 +497,6 @@ export class SyncWorker implements SyncApi {
   async shutdown(options?: { clearLocalData?: boolean }) {
     setApiAuthToken('')
     this.isShutDown = true
-    this.isReady = false
     this.ready.reject(new Error(NOT_INITIALIZED_MESSAGE))
     this.ready = createReady()
 

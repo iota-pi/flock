@@ -8,7 +8,6 @@ import type { KeyProvider } from '../../api/Keyring'
 import type { DocCodec } from './domain'
 import { ItemId } from '@vault/shared'
 import { classifySyncError } from '../utils/errorClassifier'
-import { estimateSnapshotSize } from './SnapshotBatchAccumulator'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
@@ -18,6 +17,25 @@ export type BuildSnapshotResult =
   | { type: 'success'; snapshot: VaultSnapshotInput; heads?: string[] }
   | { type: 'not-ready' }
   | { type: 'error'; reason?: string }
+
+export interface PreparedSnapshotItem {
+  snapshot: VaultSnapshotInput
+  tick: number
+  heads?: string[]
+}
+
+/**
+ * Direct ciphertext length estimation.
+ * Estimates the serialized JSON size by calculating ciphertext length plus base metadata/envelope overhead (~128 bytes),
+ * avoiding costly `JSON.stringify(snapshot)` string allocations.
+ */
+export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
+  const BASE_OVERHEAD_BYTES = 128
+  const cipherBytes = snapshot.snapshot?.cipher?.length ?? 0
+  const ivBytes = snapshot.snapshot?.iv?.length ?? 0
+  const idBytes = snapshot.itemId?.length ?? 0
+  return cipherBytes + ivBytes + idBytes + BASE_OVERHEAD_BYTES
+}
 
 export interface BuildSnapshotOptions {
   signal?: AbortSignal

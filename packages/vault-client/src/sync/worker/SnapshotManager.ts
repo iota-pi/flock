@@ -28,7 +28,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   private readonly pusher: SnapshotPusher
 
   async onLifecycleStart(): Promise<void> {
-    await this.loadLastModified()
+    await this.tracker.loadLastModified()
   }
 
   async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
@@ -85,7 +85,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     this.tracker.setLeader(isLeader)
 
     if (isLeader) {
-      await this.loadLastModified()
+      await this.tracker.loadLastModified()
     } else {
       this.stopPushing()
     }
@@ -109,13 +109,6 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     this.pusher.cancelRetry()
   }
 
-  private async loadLastModified(): Promise<void> {
-    const oversizedItemIds = await this.tracker.loadLastModified()
-    for (const id of oversizedItemIds) {
-      this.pusher.addOversized(id)
-    }
-  }
-
   async persistLastModified(): Promise<void> {
     await this.tracker.persistLastModified()
   }
@@ -135,7 +128,7 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
   }
 
   clearOversized(itemId: ItemId): void {
-    this.pusher.clearOversized(itemId)
+    this.tracker.clearOversized(itemId)
   }
 
   getDirtyItemIds(): ItemId[] {

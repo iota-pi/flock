@@ -11,9 +11,8 @@ import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
-import type { PreparedSnapshotItem } from './SnapshotBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
+import { SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -57,7 +56,6 @@ export class SnapshotPusher {
   public readonly maxPayloadBytes: number
 
   public readonly consecutiveFailures = new Map<ItemId, number>()
-  public readonly oversizedItems = new Set<ItemId>()
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
   private pushAbortController: AbortController | null = null
   private pendingPushRequested = false
@@ -160,7 +158,7 @@ export class SnapshotPusher {
     success: boolean
     responded: boolean
     persisted: number
-    results?: Array<{ itemId: ItemId; version: number }>
+    results: Array<{ itemId: ItemId; version: number }>
   }> {
     try {
       const response = await this.apiClient.putSnapshots(
@@ -172,17 +170,17 @@ export class SnapshotPusher {
       )
 
       return {
-        success: Boolean(response?.success) && response.persisted === batch.length,
-        responded: Boolean(response),
-        persisted: response?.persisted ?? 0,
-        results: response?.results,
+        success: response.success && response.persisted === batch.length,
+        responded: true,
+        persisted: response.persisted,
+        results: response.results,
       }
     } catch (error) {
       if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
         throw error
       }
       log.error('Failed to put snapshots', error)
-      return { success: false, responded: false, persisted: 0 }
+      return { success: false, responded: false, persisted: 0, results: [] }
     }
   }
 
@@ -228,12 +226,7 @@ export class SnapshotPusher {
     snapshotSize: number,
     modified: number,
   ): void {
-    const isAlreadyOversized = this.oversizedItems.has(itemId)
-    this.oversizedItems.add(itemId)
-
-    this.tracker.recordOversized(itemId, modified)
-
-    if (!isAlreadyOversized) {
+    if (this.tracker.recordOversized(itemId, modified)) {
       log.error(
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
@@ -280,7 +273,7 @@ export class SnapshotPusher {
 
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
-      this.oversizedItems.delete(itemId)
+      this.tracker.clearOversized(itemId)
       log.warn(`Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
       const tombstone = toTombstoneSnapshot(snapshot)
       return {
@@ -295,7 +288,7 @@ export class SnapshotPusher {
       return { type: 'oversized' }
     }
 
-    this.oversizedItems.delete(itemId)
+    this.tracker.clearOversized(itemId)
 
     return {
       type: 'ready',
@@ -306,11 +299,11 @@ export class SnapshotPusher {
 
   private finalizeSuccessfulBatch(
     batch: PreparedSnapshotItem[],
-    versionsMap?: Map<ItemId, number>,
+    versionsMap: Map<ItemId, number>,
   ): void {
     for (const item of batch) {
       this.consecutiveFailures.delete(item.snapshot.itemId)
-      const assignedVersion = versionsMap?.get(item.snapshot.itemId)
+      const assignedVersion = versionsMap.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
       // Tombstones deliberately carry no heads: the server does not hold the document state.
       // Setting the heads also clears snapshot-only and unblocks the item.
@@ -339,22 +332,15 @@ export class SnapshotPusher {
       return result
     }
 
-    const versionsMap = result.results
-      ? new Map(result.results.map(r => [r.itemId, r.version]))
-      : undefined
-    // Without per-item results, only a fully persisted batch says which items were stored
-    const stored = versionsMap
-      ? batch.filter(item => versionsMap.has(item.snapshot.itemId))
-      : result.success ? batch : []
+    const versionsMap = new Map(result.results.map(r => [r.itemId, r.version]))
+    const stored = batch.filter(item => versionsMap.has(item.snapshot.itemId))
     this.finalizeSuccessfulBatch(stored, versionsMap)
 
     // An item the server's results leave out was rejected. It counts towards quarantine, so an item
     // the server keeps rejecting doesn't keep failing every push.
-    if (versionsMap) {
-      for (const item of batch) {
-        if (!versionsMap.has(item.snapshot.itemId)) {
-          await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
-        }
+    for (const item of batch) {
+      if (!versionsMap.has(item.snapshot.itemId)) {
+        await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
       }
     }
     return result
@@ -374,7 +360,6 @@ export class SnapshotPusher {
     let sendFailed = false
 
     const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({
-      maxBatchCount: 25,
       maxBatchBytes: this.maxPayloadBytes,
       calculateSize: item => this.builder.estimateSize(item.snapshot),
     })
@@ -455,50 +440,40 @@ export class SnapshotPusher {
     const abortController = new AbortController()
     this.pushAbortController = abortController
     const { signal } = abortController
-
-    let persisted = 0
-    let total = 0
-    let success = true
+    let failed = false
 
     try {
       checkAlive(signal, () => this.tracker.isOperational)
       const context = this.preparePushContext()
       if (!context) {
-        if (this.tracker.dirtyCount > 0) {
-          success = false
-        }
-        return { persisted: 0, total: 0, success }
+        failed = this.tracker.dirtyCount > 0
+        return { persisted: 0, total: 0, success: !failed }
       }
 
       checkAlive(signal, () => this.tracker.isOperational)
       const result = await this.processSnapshotPush(context, signal)
-      persisted = result.persisted
-      total = result.total
-      success = result.success
-
-      if (success && this.tracker.dirtyCount === 0) {
+      failed = !result.success
+      if (result.success && this.tracker.dirtyCount === 0) {
         this.retryStrategy.reset()
       }
-
-      return { persisted, total, success }
+      return result
     } catch (error) {
       const classified = classifySyncError(error)
       if (signal.aborted || classified.isAbort || !this.tracker.isOperational) {
-        return { persisted, total, success: false }
+        return { persisted: 0, total: 0, success: false }
       }
+      failed = true
       if (classified.isAuth) {
         log.warn('Cannot push snapshots: auth failure', error)
-        success = false
-        return { persisted, total, success }
+      } else {
+        log.error('Error during pushSnapshots', error)
       }
-      log.error('Error during pushSnapshots', error)
-      success = false
-      return { persisted, total, success }
+      return { persisted: 0, total: 0, success: false }
     } finally {
       if (this.pushAbortController === abortController) {
         this.pushAbortController = null
       }
-      onSettled(success)
+      onSettled(!failed)
     }
   }
 
@@ -547,18 +522,9 @@ export class SnapshotPusher {
   clear(): void {
     this.cancelRetry()
     this.consecutiveFailures.clear()
-    this.oversizedItems.clear()
     this.pendingPushRequested = false
     this.pushGuard.clear()
     this.retryStrategy.reset()
-  }
-
-  clearOversized(itemId: ItemId): void {
-    this.oversizedItems.delete(itemId)
-  }
-
-  addOversized(itemId: ItemId): void {
-    this.oversizedItems.add(itemId)
   }
 
   async shutdown(): Promise<void> {

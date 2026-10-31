@@ -23,31 +23,22 @@ export interface RecordPullOutcomeParams {
   hasMore: boolean
   nextCursor?: number
   pageToken?: PageToken
-  /**
-   * Whether this outcome may advance the global scan cursor. Only legacy servers, which don't
-   * report the global scan position, rely on per-item results for this. Defaults to true.
-   */
-  advanceGlobalCursor?: boolean
 }
 
 export interface RecordPullOutcomeResult {
   cursorUpdated: boolean
   permanentlyFailed: boolean
-  advanceCursor?: number
 }
 
-export interface PullStateTransition {
+interface PullStateTransition {
   targetCursor: number
-  effectiveHighestCursor: number
   pending: boolean
   retryCount: number
   blockedOnKey?: string
   pageToken?: PageToken
   permanentlyFailed: boolean
-  advanceCursor?: number
   cursorUpdated: boolean
   removeFromRetryQueue: boolean
-  updateGlobalCursor: boolean
 }
 
 function isValidCursor(cursor: number): boolean {
@@ -65,10 +56,7 @@ export class PullRetryTracker {
   private readonly retryQueue = new Map<ItemId, ItemPullState>()
   private readonly itemCursors = new Map<ItemId, number>()
 
-  constructor(
-    private readonly keys: KeyProvider,
-    private readonly maxRetries: number = PullRetryTracker.MAX_PULL_RETRIES,
-  ) {}
+  constructor(private readonly keys: KeyProvider) {}
 
   /** Whether the state is waiting for a key version this device doesn't have yet */
   private isBlockedOnMissingKey(state: ItemPullState): boolean {
@@ -80,7 +68,7 @@ export class PullRetryTracker {
     return !!state.blockedOnKey && !this.isBlockedOnMissingKey(state)
   }
 
-  getOrCreateState(itemId: ItemId): ItemPullState {
+  private getOrCreateState(itemId: ItemId): ItemPullState {
     let state = this.retryQueue.get(itemId)
     if (!state) {
       state = createDefaultState(this.itemCursors.get(itemId) ?? 0)
@@ -91,14 +79,6 @@ export class PullRetryTracker {
 
   hasState(itemId: ItemId): boolean {
     return this.retryQueue.has(itemId)
-  }
-
-  /** Looks up an item's state without adding it to the retry queue */
-  getState(itemId: ItemId): ItemPullState | undefined {
-    const existing = this.retryQueue.get(itemId)
-    if (existing) return existing
-    const knownCursor = this.itemCursors.get(itemId)
-    return knownCursor === undefined ? undefined : createDefaultState(knownCursor)
   }
 
   getCursor(itemId: ItemId): number {
@@ -275,11 +255,7 @@ export class PullRetryTracker {
     this.itemCursors.clear()
   }
 
-  computeTransition(
-    state: Readonly<ItemPullState>,
-    outcome: RecordPullOutcomeParams,
-    maxRetries: number = this.maxRetries
-  ): PullStateTransition {
+  private computeTransition(state: Readonly<ItemPullState>, outcome: RecordPullOutcomeParams): PullStateTransition {
     const {
       initialCursor,
       isNewItem,
@@ -300,7 +276,6 @@ export class PullRetryTracker {
     let permanentlyFailed = false
     let advanceCursor: number | undefined
     let removeFromRetryQueue = false
-    let updateGlobalCursor = false
     let targetCursor = state.cursor
 
     if (hasKeyFailure) {
@@ -318,12 +293,11 @@ export class PullRetryTracker {
       if (highestCursor > targetCursor) {
         targetCursor = highestCursor
       }
-      updateGlobalCursor = true
     } else if (hasParseFailure) {
       nextPageToken = undefined
       const nextRetries = state.retryCount + 1
 
-      if (nextRetries >= maxRetries) {
+      if (nextRetries >= PullRetryTracker.MAX_PULL_RETRIES) {
         // Retries exhausted: skip past the failing message
         retryCount = 0
         permanentlyFailed = true
@@ -350,7 +324,6 @@ export class PullRetryTracker {
           pending = false
           removeFromRetryQueue = true
         }
-        updateGlobalCursor = true
       } else {
         pending = true
         retryCount = nextRetries
@@ -366,7 +339,6 @@ export class PullRetryTracker {
       nextPageToken = undefined
       targetCursor = highestCursor
       removeFromRetryQueue = true
-      updateGlobalCursor = true
     }
 
     let cursorUpdated = false
@@ -380,20 +352,17 @@ export class PullRetryTracker {
 
     return {
       targetCursor,
-      effectiveHighestCursor: highestCursor,
       pending,
       retryCount,
       blockedOnKey: nextBlockedOnKey,
       pageToken: nextPageToken,
       permanentlyFailed,
-      advanceCursor,
       cursorUpdated,
       removeFromRetryQueue,
-      updateGlobalCursor,
     }
   }
 
-  applyTransition(state: ItemPullState, transition: PullStateTransition): void {
+  private applyTransition(state: ItemPullState, transition: PullStateTransition): void {
     state.cursor = transition.targetCursor
     state.pending = transition.pending
     state.retryCount = transition.retryCount
@@ -401,15 +370,13 @@ export class PullRetryTracker {
     state.pageToken = transition.pageToken
   }
 
-  advanceGlobalCursor(itemId: ItemId, transition: PullStateTransition, allowGlobalAdvance = true): void {
+  /** Records the item's new cursor and drops it from the retry queue once it has caught up */
+  private updateItemCursor(itemId: ItemId, transition: PullStateTransition): void {
     if (transition.cursorUpdated) {
       this.itemCursors.set(itemId, transition.targetCursor)
     }
     if (transition.removeFromRetryQueue) {
       this.retryQueue.delete(itemId)
-    }
-    if (transition.updateGlobalCursor && allowGlobalAdvance) {
-      this.setGlobalCursor(transition.effectiveHighestCursor)
     }
   }
 
@@ -418,12 +385,11 @@ export class PullRetryTracker {
     const state = this.getOrCreateState(itemId)
     const transition = this.computeTransition(state, params)
     this.applyTransition(state, transition)
-    this.advanceGlobalCursor(itemId, transition, params.advanceGlobalCursor ?? true)
+    this.updateItemCursor(itemId, transition)
 
     return {
       cursorUpdated: transition.cursorUpdated,
       permanentlyFailed: transition.permanentlyFailed,
-      advanceCursor: transition.advanceCursor,
     }
   }
 }

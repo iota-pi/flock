@@ -64,17 +64,6 @@ describe('SyncWriteAheadLog with a cipher', () => {
     expect(entries.get('item-1' as ItemId)).toEqual([expect.objectContaining({ id, data: MESSAGE })])
   })
 
-  it('reads a sealed batched entry stored by an older version', async () => {
-    const batch = new Uint8Array([0, 0, 0, 1, 7, 0, 0, 0, 1, 8])
-    const sealed = await cipher.seal({ store: 'wal', entryId: 'batched', itemId: 'item-1' }, batch)
-    storeFor('sealedWalDatabase')?.data.set('batched', {
-      id: 'batched', itemId: 'item-1', sealed, createdAt: Date.now(), seq: 1, isBatched: true,
-    })
-
-    const entries = (await wal.readAll()).get('item-1' as ItemId)!
-
-    expect(entries).toEqual([expect.objectContaining({ id: 'batched', data: batch, isBatched: true })])
-  })
   function corrupt(id: string): void {
     storeFor('sealedWalDatabase')!.data.get(id).sealed.ct[0] ^= 1
   }
@@ -172,23 +161,6 @@ describe('SyncWriteAheadLog with a cipher', () => {
     const entries = await wal.readAll()
 
     expect(entries.size).toBe(0)
-  })
-
-  it('keeps the entries an unreadable compacted entry from an older version replaced', async () => {
-    const firstId = await wal.append('item-1' as ItemId, new Uint8Array([1]))
-    const secondId = await wal.append('item-1' as ItemId, new Uint8Array([2]))
-    const store = storeFor('sealedWalDatabase')!
-    const replacement = await cipher.seal({ store: 'wal', entryId: 'compacted', itemId: 'item-1' }, new Uint8Array([9]))
-    replacement.ct[0] ^= 1
-    store.data.set('compacted', {
-      id: 'compacted', itemId: 'item-1', sealed: replacement, createdAt: Date.now(), seq: 3, isBatched: true,
-      replaces: [firstId, secondId],
-    })
-
-    const entries = (await wal.readAll()).get('item-1' as ItemId)!
-
-    expect(entries.map(entry => entry.id)).toEqual([firstId, secondId])
-    expect(store.data.has(firstId)).toBe(true)
   })
 
   it('leaves the plaintext store alone', async () => {

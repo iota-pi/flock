@@ -6,8 +6,6 @@ import { ItemId } from '@vault/shared'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import { decodeSyncMessage } from '@automerge/automerge/slim'
-import type { DocumentId } from '@automerge/automerge-repo/slim'
-import { parseBatchedMessages } from './utils/messageParser'
 import { BATCHED_MESSAGE_VERSION, packBatchedMessages } from './utils/binaryFraming'
 import { classifySyncError } from '../utils/errorClassifier'
 import type { PushResultItem, PollSyncBatchResponse, SyncApiClient } from './SyncApiClient'
@@ -29,16 +27,6 @@ export interface ChunkPushSummary {
 }
 
 type ChunkEntry = [ItemId, WalEntry[]][]
-
-function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
-  if (!entry || !entry.data || entry.data.byteLength === 0) return null
-  if (!entry.isBatched) return entry.data
-  let last: Uint8Array | null = null
-  parseBatchedMessages(entry.itemId, '' as DocumentId, entry.data, (_itemId, _docId, msg) => {
-    last = msg
-  })
-  return last
-}
 
 const POLL_CHUNK_SIZE = SYNC_BATCH_SIZES.pollChunk
 
@@ -64,6 +52,8 @@ export class SyncPoller {
   private readonly internalEventHub: WorkerInternalEventHub
   private readonly keys: KeyProvider
   private readonly wal: SyncWriteAheadLog
+  /** WAL entries already checked to be sync messages, so a retried push doesn't decode them again */
+  private validEntryIds = new Set<string>()
 
   constructor(deps: SyncPollerDeps) {
     this.pullQueueManager = deps.pullQueueManager
@@ -154,6 +144,7 @@ export class SyncPoller {
 
   private async loadWalEntries(inFlightWalIds: string[]): Promise<ChunkEntry> {
     const walMap = await this.wal.readAll()
+    await this.dropInvalidEntries(walMap)
     const batchEntries = Array.from(walMap.entries())
     for (const [, messages] of batchEntries) {
       for (const m of messages) {
@@ -168,6 +159,47 @@ export class SyncPoller {
     return batchEntries
   }
 
+  /**
+   * Drops the WAL entries of every item with an entry that isn't an Automerge sync message, so bad
+   * bytes never reach other devices, and removes those items from `walMap`. The local doc holds the
+   * changes (sync rule 1), so the items get a snapshot instead, as for pruning. Entries that older
+   * versions' WAL compaction batched end up here too.
+   */
+  private async dropInvalidEntries(walMap: Map<ItemId, WalEntry[]>): Promise<void> {
+    const validEntryIds = new Set<string>()
+    const droppedEntryIds: string[] = []
+    const droppedItemIds: ItemId[] = []
+    for (const [itemId, entries] of walMap) {
+      if (entries.every(entry => this.isSyncMessage(entry))) {
+        for (const entry of entries) {
+          validEntryIds.add(entry.id)
+        }
+      } else {
+        droppedItemIds.push(itemId)
+        droppedEntryIds.push(...entries.map(entry => entry.id))
+        walMap.delete(itemId)
+      }
+    }
+    this.validEntryIds = validEntryIds
+
+    if (droppedItemIds.length > 0) {
+      await this.wal.remove(droppedEntryIds)
+      this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: droppedItemIds })
+    }
+  }
+
+  private isSyncMessage(entry: WalEntry): boolean {
+    if (this.validEntryIds.has(entry.id)) return true
+    try {
+      decodeSyncMessage(entry.data)
+      return true
+    } catch (error) {
+      // An error, not a warning: the snapshot heals the item, so this is the only sign of whatever wrote the entry
+      log.error(`WAL entry ${entry.id} for ${entry.itemId} isn't a sync message; dropping the item's entries for a snapshot`, error)
+      return false
+    }
+  }
+
   private async processChunk(
     chunkEntry: ChunkEntry,
     signal: AbortSignal
@@ -179,7 +211,7 @@ export class SyncPoller {
           itemId,
           messages.map(m => m.id)
         )
-        const combined = packBatchedMessages(messages)
+        const combined = packBatchedMessages(messages.map(m => m.data))
         const encryptedMessage = await this.keys.encryptBytes(combined, itemId)
         return {
           itemId,
@@ -319,11 +351,9 @@ export class SyncPoller {
     const itemMessages = chunkEntry.find(([id]) => id === result.itemId)?.[1]
     const lastEntry = itemMessages?.[itemMessages.length - 1]
     if (!lastEntry) return
-    const rawMsg = extractLastSyncMessage(lastEntry)
-    if (!rawMsg) return
 
     try {
-      const decoded = decodeSyncMessage(rawMsg)
+      const decoded = decodeSyncMessage(lastEntry.data)
       if (decoded.heads && decoded.heads.length > 0) {
         this.internalEventHub.emit({
           type: 'pushAcknowledged',

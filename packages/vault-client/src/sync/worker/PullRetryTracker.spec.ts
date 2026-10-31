@@ -1,10 +1,13 @@
-import { PullRetryTracker, PullStateTransition } from './PullRetryTracker'
+import { PullRetryTracker } from './PullRetryTracker'
+import type { RecordPullOutcomeParams } from './PullRetryTracker'
 import { ItemId } from '@vault/shared'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockVault = createMockVault()
 const mockHasVaultKey = mockVault.hasVaultKey
 const keys = createMockKeyProvider(mockVault)
+
+const ITEM = 'item-1' as ItemId
 
 describe('PullRetryTracker', () => {
   let tracker: PullRetryTracker
@@ -15,91 +18,123 @@ describe('PullRetryTracker', () => {
     tracker = new PullRetryTracker(keys)
   })
 
-  describe('state initialization and queries', () => {
-    it('creates default state on demand', () => {
-      expect(tracker.hasState('item-1' as ItemId)).toBe(false)
-      expect(tracker.getCursor('item-1' as ItemId)).toBe(0)
+  function record(itemId: ItemId, outcome: Partial<RecordPullOutcomeParams> = {}) {
+    return tracker.recordPullOutcome({
+      itemId,
+      initialCursor: 0,
+      highestCursor: 0,
+      isNewItem: false,
+      hasKeyFailure: false,
+      hasParseFailure: false,
+      hasMore: false,
+      ...outcome,
+    })
+  }
 
-      const state = tracker.getOrCreateState('item-1' as ItemId)
-      expect(state).toEqual({
-        cursor: 0,
-        pending: false,
-        retryCount: 0,
-      })
-      expect(tracker.hasState('item-1' as ItemId)).toBe(true)
-      expect(tracker.getState('item-1' as ItemId)).toBe(state)
+  /** Records a parse failure for a pull that started (and got no further than) `cursor` */
+  function failParse(itemId: ItemId, cursor: number, outcome: Partial<RecordPullOutcomeParams> = {}) {
+    return record(itemId, { initialCursor: cursor, highestCursor: cursor, hasParseFailure: true, ...outcome })
+  }
+
+  /** Records the transient parse failures one short of giving up */
+  function failParseUntilLastRetry(itemId: ItemId, cursor: number) {
+    for (let attempt = 1; attempt < PullRetryTracker.MAX_PULL_RETRIES; attempt += 1) {
+      expect(failParse(itemId, cursor).permanentlyFailed).toBe(false)
+    }
+  }
+
+  function blockOnMissingKey(itemId: ItemId, kver: string, cursor = 0) {
+    mockHasVaultKey.mockImplementation((k: string) => k !== kver)
+    return record(itemId, { initialCursor: cursor, highestCursor: cursor, hasKeyFailure: true, blockedOnKey: kver })
+  }
+
+  /** Puts an item in the retry queue, waiting for a pull from `cursor` */
+  function pendingAt(itemId: ItemId, cursor: number) {
+    tracker.loadState({ globalCursor: 0, retries: [[itemId, cursor]] })
+  }
+
+  describe('state initialization and queries', () => {
+    it('has no state for an unknown item until it is added', () => {
+      expect(tracker.hasState(ITEM)).toBe(false)
+      expect(tracker.getCursor(ITEM)).toBe(0)
+
+      tracker.addPendingItem(ITEM)
+      expect(tracker.hasState(ITEM)).toBe(true)
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 0, pageToken: undefined }])
     })
 
-    it('reports a default state for known cursors without queueing the item', () => {
-      expect(tracker.getState('item-1' as ItemId)).toBeUndefined()
+    it('keeps the cursor of a finished item without queueing it', () => {
+      tracker.importCursors([[ITEM, 40]])
+      record(ITEM, { initialCursor: 40, highestCursor: 60 })
 
-      tracker.importCursors([['item-1' as ItemId, 40]])
-      tracker.recordPullOutcome({
-        itemId: 'item-1' as ItemId,
-        initialCursor: 40,
-        highestCursor: 60,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: false,
-      })
-
-      expect(tracker.getState('item-1' as ItemId)).toEqual({ cursor: 60, pending: false, retryCount: 0 })
-      expect(tracker.hasState('item-1' as ItemId)).toBe(false)
+      expect(tracker.getCursor(ITEM)).toBe(60)
+      expect(tracker.hasState(ITEM)).toBe(false)
+      expect(tracker.getCursors()).toEqual([])
+      expect(tracker.exportCursors()).toEqual([[ITEM, 60]])
     })
 
     it('adds pending items and ignores empty id', () => {
       tracker.addPendingItem('' as ItemId)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
 
-      tracker.addPendingItem('item-1' as ItemId)
-      expect(tracker.getState('item-1' as ItemId)?.pending).toBe(true)
+      tracker.addPendingItem(ITEM)
       expect(tracker.hasImmediatePendingPulls()).toBe(true)
     })
 
     it('unblocks blockedOnKey if key is available when adding pending item', () => {
-      mockHasVaultKey.mockReturnValue(true)
-      const state = tracker.getOrCreateState('item-1' as ItemId)
-      state.blockedOnKey = 'key-1'
+      blockOnMissingKey(ITEM, 'key-1')
+      expect(tracker.getCursors()).toEqual([])
 
-      tracker.addPendingItem('item-1' as ItemId)
-      expect(state.blockedOnKey).toBeUndefined()
-      expect(state.pending).toBe(true)
+      mockHasVaultKey.mockReturnValue(true)
+      tracker.addPendingItem(ITEM)
+
+      // The block was cleared, so the item stays pullable even if the key check changes
+      mockHasVaultKey.mockReturnValue(false)
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 0, pageToken: undefined }])
+    })
+
+    it('keeps an item blocked when it is added before its key arrives', () => {
+      blockOnMissingKey(ITEM, 'key-1')
+      tracker.addPendingItem(ITEM)
+
+      expect(tracker.getCursors()).toEqual([])
+      expect(tracker.hasImmediatePendingPulls()).toBe(false)
     })
   })
 
   describe('retrying and immediate pulls evaluation', () => {
-    it('reports isAnyRetrying correctly', () => {
+    it('reports items in retry backoff as retrying until they succeed', () => {
       expect(tracker.isAnyRetrying()).toBe(false)
 
-      const state = tracker.getOrCreateState('item-1' as ItemId)
-      state.retryCount = 1
+      failParse(ITEM, 0)
       expect(tracker.isAnyRetrying()).toBe(true)
 
-      state.retryCount = 0
+      record(ITEM, { highestCursor: 10 })
       expect(tracker.isAnyRetrying()).toBe(false)
+    })
 
-      state.blockedOnKey = 'missing-key'
-      mockHasVaultKey.mockReturnValue(false)
+    it('reports items blocked on a missing key as retrying until the key arrives', () => {
+      blockOnMissingKey(ITEM, 'missing-key')
       expect(tracker.isAnyRetrying()).toBe(true)
 
       mockHasVaultKey.mockReturnValue(true)
       expect(tracker.isAnyRetrying()).toBe(false)
     })
 
-    it('reports hasImmediatePendingPulls correctly', () => {
-      const state = tracker.getOrCreateState('item-1' as ItemId)
-      state.pending = true
+    it('reports pending items as immediate pulls', () => {
+      tracker.addPendingItem(ITEM)
       expect(tracker.hasImmediatePendingPulls()).toBe(true)
+    })
 
-      // In retry backoff (retryCount > 0)
-      state.retryCount = 1
+    it('does not report items in retry backoff as immediate pulls', () => {
+      failParse(ITEM, 0)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
+      // Still pending, so the next per-item poll retries it
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 0, pageToken: undefined }])
+    })
 
-      // Blocked on key
-      state.retryCount = 0
-      state.blockedOnKey = 'missing-key'
-      mockHasVaultKey.mockReturnValue(false)
+    it('does not report items blocked on a missing key as immediate pulls until the key arrives', () => {
+      blockOnMissingKey(ITEM, 'missing-key')
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
 
       mockHasVaultKey.mockReturnValue(true)
@@ -108,48 +143,39 @@ describe('PullRetryTracker', () => {
   })
 
   describe('keyring unblocking', () => {
-    it('unblocks blocked items when key becomes available', () => {
-      const state = tracker.getOrCreateState('item-1' as ItemId)
-      state.blockedOnKey = 'key-2'
-      state.pending = false
-      state.retryCount = 2
+    it('unblocks blocked items and resets their retries when the key becomes available', () => {
+      failParse(ITEM, 0)
+      failParse(ITEM, 0)
+      blockOnMissingKey(ITEM, 'key-2')
 
-      mockHasVaultKey.mockReturnValue(false)
       expect(tracker.onKeyringUpdated()).toBe(false)
+      expect(tracker.getCursors()).toEqual([])
 
       mockHasVaultKey.mockReturnValue(true)
-      const unblocked = tracker.onKeyringUpdated()
-      expect(unblocked).toBe(true)
-      expect(state.blockedOnKey).toBeUndefined()
-      expect(state.pending).toBe(true)
-      expect(state.retryCount).toBe(0)
+      expect(tracker.onKeyringUpdated()).toBe(true)
+      expect(tracker.isAnyRetrying()).toBe(false)
+      expect(tracker.hasImmediatePendingPulls()).toBe(true)
+
+      // The block was cleared rather than just satisfied
+      mockHasVaultKey.mockReturnValue(false)
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 0, pageToken: undefined }])
     })
   })
 
   describe('getCursors and global cursors', () => {
     it('returns only pending and unblocked cursors', () => {
-      const s1 = tracker.getOrCreateState('item-1' as ItemId)
-      s1.cursor = 10
-      s1.pending = true
+      pendingAt('item-1' as ItemId, 10)
+      record('item-2' as ItemId, { highestCursor: 20 })
+      pendingAt('item-3' as ItemId, 30)
+      blockOnMissingKey('item-3' as ItemId, 'missing-k', 30)
 
-      const s2 = tracker.getOrCreateState('item-2' as ItemId)
-      s2.cursor = 20
-      s2.pending = false
-
-      const s3 = tracker.getOrCreateState('item-3' as ItemId)
-      s3.cursor = 30
-      s3.pending = true
-      s3.blockedOnKey = 'missing-k'
-      mockHasVaultKey.mockImplementation((k: string) => k !== 'missing-k')
-
-      const cursors = tracker.getCursors()
-      expect(cursors).toEqual([{ itemId: 'item-1', cursor: 10, pageToken: undefined }])
+      expect(tracker.getCursors()).toEqual([{ itemId: 'item-1', cursor: 10, pageToken: undefined }])
     })
 
     it('returns global latest cursor', () => {
-      tracker.getOrCreateState('item-1' as ItemId).cursor = 50
-      tracker.getOrCreateState('item-2' as ItemId).cursor = 120
-      tracker.getOrCreateState('item-3' as ItemId).cursor = 80
+      pendingAt('item-1' as ItemId, 50)
+      pendingAt('item-2' as ItemId, 120)
+      record('item-3' as ItemId, { highestCursor: 80 })
 
       expect(tracker.getGlobalLatestCursor()).toBe(120)
     })
@@ -157,8 +183,8 @@ describe('PullRetryTracker', () => {
 
   describe('import, export, and load', () => {
     it('exports and imports cursors', () => {
-      tracker.getOrCreateState('item-1' as ItemId).cursor = 10
-      tracker.getOrCreateState('item-2' as ItemId).cursor = 20
+      pendingAt('item-1' as ItemId, 10)
+      record('item-2' as ItemId, { highestCursor: 20 })
 
       const exported = tracker.exportCursors()
       expect(exported).toEqual([
@@ -203,12 +229,8 @@ describe('PullRetryTracker', () => {
     })
 
     it('keeps items that were waiting for a pull pending across an import', () => {
-      tracker.addPendingItem('item-pending' as ItemId)
-      const pending = tracker.getOrCreateState('item-pending' as ItemId)
-      pending.cursor = 40
-      pending.pageToken = 'page-token'
-      tracker.addPendingItem('item-untouched' as ItemId)
-      tracker.getOrCreateState('item-untouched' as ItemId).cursor = 7
+      record('item-pending' as ItemId, { highestCursor: 40, isNewItem: true, hasMore: true, pageToken: 'page-token' })
+      pendingAt('item-untouched' as ItemId, 7)
 
       tracker.importCursors([['item-pending' as ItemId, 30]])
 
@@ -219,9 +241,17 @@ describe('PullRetryTracker', () => {
       expect(tracker.getCursors()).toHaveLength(2)
     })
 
+    it('keeps the page token of a pending item whose imported cursor is unchanged', () => {
+      record(ITEM, { highestCursor: 40, isNewItem: true, hasMore: true, pageToken: 'page-token' })
+
+      tracker.importCursors([[ITEM, 40]])
+
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 40, pageToken: 'page-token' }])
+    })
+
     it('loads stored retries monotonically without regressing', () => {
       tracker.setGlobalCursor(500)
-      tracker.getOrCreateState('item-1' as ItemId).cursor = 50
+      pendingAt('item-1' as ItemId, 50)
       tracker.loadState({
         globalCursor: 100, // lower, should not regress
         retries: [
@@ -236,229 +266,173 @@ describe('PullRetryTracker', () => {
       expect(tracker.getCursor('item-2' as ItemId)).toBe(30)
       expect(tracker.hasState('item-3' as ItemId)).toBe(false)
     })
+
+    it('drops page tokens without losing pending items', () => {
+      record(ITEM, { highestCursor: 40, isNewItem: true, hasMore: true, pageToken: 'page-token' })
+
+      tracker.clearPageTokens()
+
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 40, pageToken: undefined }])
+    })
   })
 
   describe('recordPullOutcome', () => {
     it('handles key failure outcome', () => {
-      const outcome = tracker.recordPullOutcome({
-        itemId: 'item-1' as ItemId,
-        initialCursor: 0,
-        highestCursor: 0,
-        isNewItem: true,
-        hasKeyFailure: true,
-        blockedOnKey: 'kver-2',
-        hasParseFailure: false,
-        hasMore: false,
-      })
+      const outcome = blockOnMissingKey(ITEM, 'kver-2')
 
-      const state = tracker.getState('item-1' as ItemId)
-      expect(state?.pending).toBe(true)
-      expect(state?.blockedOnKey).toBe('kver-2')
+      expect(outcome).toEqual({ cursorUpdated: false, permanentlyFailed: false })
+      expect(tracker.hasState(ITEM)).toBe(true)
+      expect(tracker.getCursors()).toEqual([])
+
+      mockHasVaultKey.mockReturnValue(true)
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 0, pageToken: undefined }])
+    })
+
+    it('reports a cursor update for a new item even when a key failure kept it at 0', () => {
+      const outcome = record(ITEM, { isNewItem: true, hasKeyFailure: true, blockedOnKey: 'kver-2' })
+
       expect(outcome.cursorUpdated).toBe(true) // isNewItem && highestCursor >= 0
       expect(outcome.permanentlyFailed).toBe(false)
     })
 
-    it('handles pagination success outcome (hasMore: true)', () => {
-      const evalKey = 'item-page-token'
-      const outcome = tracker.recordPullOutcome({
-        itemId: 'item-page' as ItemId,
-        initialCursor: 0,
-        highestCursor: 100,
-        isNewItem: true,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: true,
-        pageToken: evalKey,
-      })
+    it('keeps the cursor and retry count on a key failure', () => {
+      pendingAt(ITEM, 10)
+      failParse(ITEM, 10)
+      failParse(ITEM, 10)
 
-      const state = tracker.getState('item-page' as ItemId)
-      expect(state?.pending).toBe(true)
-      expect(state?.pageToken).toEqual(evalKey)
-      expect(state?.cursor).toBe(100)
-      expect(outcome.cursorUpdated).toBe(true)
-      expect(outcome.permanentlyFailed).toBe(false)
+      const outcome = blockOnMissingKey(ITEM, 'new-key', 10)
+
+      expect(outcome).toEqual({ cursorUpdated: false, permanentlyFailed: false })
+      expect(tracker.getCursor(ITEM)).toBe(10)
+
+      // Retries continue from where they were once the key arrives
+      mockHasVaultKey.mockReturnValue(true)
+      expect(tracker.isAnyRetrying()).toBe(true)
+      expect(failParse(ITEM, 10).permanentlyFailed).toBe(false)
+      expect(failParse(ITEM, 10).permanentlyFailed).toBe(false)
+      expect(failParse(ITEM, 10, { failingCursor: 11 }).permanentlyFailed).toBe(true)
+    })
+
+    it('handles pagination success outcome (hasMore: true)', () => {
+      const outcome = record(ITEM, { highestCursor: 100, isNewItem: true, hasMore: true, pageToken: 'item-1-page-token' })
+
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 100, pageToken: 'item-1-page-token' }])
+      expect(tracker.hasImmediatePendingPulls()).toBe(true)
+      expect(outcome).toEqual({ cursorUpdated: true, permanentlyFailed: false })
+    })
+
+    it('clears retries and key blocks on a partial success', () => {
+      pendingAt(ITEM, 50)
+      failParse(ITEM, 50)
+      blockOnMissingKey(ITEM, 'some-key', 50)
+
+      // The key is still missing, but the page was readable after all
+      record(ITEM, { initialCursor: 50, highestCursor: 120, hasMore: true, pageToken: 'next-page' })
+
+      expect(tracker.isAnyRetrying()).toBe(false)
+      expect(tracker.hasImmediatePendingPulls()).toBe(true)
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 120, pageToken: 'next-page' }])
     })
 
     it('handles terminal success outcome (hasMore: false)', () => {
-      const outcome = tracker.recordPullOutcome({
-        itemId: 'item-done' as ItemId,
-        initialCursor: 100,
-        highestCursor: 150,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: false,
-      })
+      record(ITEM, { initialCursor: 0, highestCursor: 100, isNewItem: true, hasMore: true, pageToken: 'page-token' })
 
-      const state = tracker.getState('item-done' as ItemId)
-      expect(state?.pending).toBe(false)
-      expect(state?.pageToken).toBeUndefined()
-      expect(state?.cursor).toBe(150)
-      expect(outcome.cursorUpdated).toBe(true)
-      expect(outcome.permanentlyFailed).toBe(false)
+      const outcome = record(ITEM, { initialCursor: 100, highestCursor: 150 })
+
+      expect(tracker.hasState(ITEM)).toBe(false)
+      expect(tracker.getCursors()).toEqual([])
+      expect(tracker.getCursor(ITEM)).toBe(150)
+      expect(outcome).toEqual({ cursorUpdated: true, permanentlyFailed: false })
     })
 
-    it('increments retryCount and remains pending on transient parse failures (attempts 1 to 4)', () => {
-      for (let attempt = 1; attempt <= 4; attempt += 1) {
-        const outcome = tracker.recordPullOutcome({
-          itemId: 'item-retry' as ItemId,
-          initialCursor: 0,
-          highestCursor: 0,
-          isNewItem: attempt === 1,
-          hasKeyFailure: false,
-          hasParseFailure: true,
-          failingCursor: 10,
-          hasMore: false,
-        })
+    it('does not report a cursor update when a pull ends where it started', () => {
+      tracker.importCursors([[ITEM, 30]])
 
-        const state = tracker.getState('item-retry' as ItemId)
-        expect(state?.retryCount).toBe(attempt)
-        expect(state?.pending).toBe(true)
+      const outcome = record(ITEM, { initialCursor: 30, highestCursor: 30 })
+
+      expect(outcome.cursorUpdated).toBe(false)
+      expect(tracker.getCursor(ITEM)).toBe(30)
+    })
+
+    it('stays pending in backoff on transient parse failures (attempts 1 to 4)', () => {
+      for (let attempt = 1; attempt < PullRetryTracker.MAX_PULL_RETRIES; attempt += 1) {
+        const outcome = failParse(ITEM, 0, { isNewItem: attempt === 1, failingCursor: 10 })
+
         expect(outcome.permanentlyFailed).toBe(false)
+        expect(tracker.isAnyRetrying()).toBe(true)
+        expect(tracker.hasImmediatePendingPulls()).toBe(false)
+        expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 0, pageToken: undefined }])
       }
     })
 
     it('marks permanently failed on 5th consecutive parse failure and advances cursor past failing message', () => {
-      const state = tracker.getOrCreateState('item-fail5' as ItemId)
-      state.retryCount = 4
+      failParseUntilLastRetry(ITEM, 0)
 
-      const outcome = tracker.recordPullOutcome({
-        itemId: 'item-fail5' as ItemId,
-        initialCursor: 0,
-        highestCursor: 0,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: true,
-        failingCursor: 25,
-        hasMore: false,
-      })
+      const outcome = failParse(ITEM, 0, { failingCursor: 25 })
 
-      expect(outcome.permanentlyFailed).toBe(true)
-      expect(outcome.advanceCursor).toBe(25)
+      expect(outcome).toEqual({ cursorUpdated: true, permanentlyFailed: true })
+      expect(tracker.getCursor(ITEM)).toBe(25)
       // Still pending, so the next pull continues after the skipped message
-      expect(state.pending).toBe(true)
-      expect(state.retryCount).toBe(0)
-      expect(state.cursor).toBe(25)
-      expect(outcome.cursorUpdated).toBe(true)
-      expect(tracker.getCursors()).toEqual([{ itemId: 'item-fail5', cursor: 25, pageToken: undefined }])
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 25, pageToken: undefined }])
     })
 
     it('keeps the item pending after a give-up until a pull past the skipped message succeeds', () => {
-      const itemId = 'item-skip' as ItemId
-      tracker.getOrCreateState(itemId).pageToken = 'stale-token'
-      tracker.getOrCreateState(itemId).retryCount = 4
+      record(ITEM, { isNewItem: true, hasMore: true, pageToken: 'stale-token' })
+      failParseUntilLastRetry(ITEM, 0)
 
       // The 5th failure skips the message at 25. Messages after it were never processed.
-      tracker.recordPullOutcome({
-        itemId,
-        initialCursor: 0,
-        highestCursor: 0,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: true,
-        failingCursor: 25,
-        hasMore: false,
-        nextCursor: 40,
-      })
-      expect(tracker.getState(itemId)).toMatchObject({ cursor: 25, pending: true, retryCount: 0, pageToken: undefined })
+      failParse(ITEM, 0, { failingCursor: 25, nextCursor: 40 })
+      expect(tracker.getCursors()).toEqual([{ itemId: ITEM, cursor: 25, pageToken: undefined }])
       // One immediate poll continues the item; it is not a retry in backoff
       expect(tracker.hasImmediatePendingPulls()).toBe(true)
       expect(tracker.isAnyRetrying()).toBe(false)
 
       // The next pull from 25 processes the later messages and finishes the item
-      tracker.recordPullOutcome({
-        itemId,
-        initialCursor: 25,
-        highestCursor: 40,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: false,
-      })
-      expect(tracker.hasState(itemId)).toBe(false)
-      expect(tracker.getCursor(itemId)).toBe(40)
+      record(ITEM, { initialCursor: 25, highestCursor: 40 })
+      expect(tracker.hasState(ITEM)).toBe(false)
+      expect(tracker.getCursor(ITEM)).toBe(40)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
     })
 
     it('backs off again when the message after a skipped one also fails', () => {
-      const itemId = 'item-skip-twice' as ItemId
-      tracker.getOrCreateState(itemId).retryCount = 4
-      const failAt = (initialCursor: number, failingCursor: number) => tracker.recordPullOutcome({
-        itemId,
-        initialCursor,
-        highestCursor: initialCursor,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: true,
-        failingCursor,
-        hasMore: false,
-      })
+      failParseUntilLastRetry(ITEM, 0)
 
-      expect(failAt(0, 25).permanentlyFailed).toBe(true)
-      expect(failAt(25, 30).permanentlyFailed).toBe(false)
-      expect(tracker.getState(itemId)).toMatchObject({ cursor: 25, pending: true, retryCount: 1 })
+      expect(failParse(ITEM, 0, { failingCursor: 25 }).permanentlyFailed).toBe(true)
+      expect(failParse(ITEM, 25, { failingCursor: 30 }).permanentlyFailed).toBe(false)
+      expect(tracker.getCursor(ITEM)).toBe(25)
+      expect(tracker.isAnyRetrying()).toBe(true)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
     })
 
     it('drops the item on give-up when skipping cannot move the cursor forward', () => {
-      const itemId = 'item-no-progress' as ItemId
-      const state = tracker.getOrCreateState(itemId)
-      state.cursor = 30
-      state.pending = true
-      state.retryCount = 4
+      pendingAt(ITEM, 30)
+      failParseUntilLastRetry(ITEM, 30)
 
-      const outcome = tracker.recordPullOutcome({
-        itemId,
-        initialCursor: 30,
-        highestCursor: 30,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: true,
-        hasMore: false,
-      })
+      const outcome = failParse(ITEM, 30)
 
       expect(outcome.permanentlyFailed).toBe(true)
-      expect(tracker.hasState(itemId)).toBe(false)
+      expect(tracker.hasState(ITEM)).toBe(false)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
+      expect(tracker.isAnyRetrying()).toBe(false)
     })
 
     it('falls back to nextCursor if failingCursor is omitted on 5th failure', () => {
-      const state = tracker.getOrCreateState('item-fail-fallback' as ItemId)
-      state.retryCount = 4
+      failParseUntilLastRetry(ITEM, 0)
 
-      const outcome = tracker.recordPullOutcome({
-        itemId: 'item-fail-fallback' as ItemId,
-        initialCursor: 0,
-        highestCursor: 0,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: true,
-        nextCursor: 40,
-        hasMore: false,
-      })
+      const outcome = failParse(ITEM, 0, { nextCursor: 40 })
 
       expect(outcome.permanentlyFailed).toBe(true)
-      expect(outcome.advanceCursor).toBe(40)
-      expect(state.cursor).toBe(40)
+      expect(tracker.getCursor(ITEM)).toBe(40)
     })
 
     it('evicts healthy items from retryQueue on success while advancing globalCursor', () => {
-      tracker.addPendingItem('item-healthy' as ItemId)
-      expect(tracker.getState('item-healthy' as ItemId)?.pending).toBe(true)
-      expect(tracker.hasState('item-healthy' as ItemId)).toBe(true)
+      tracker.addPendingItem(ITEM)
+      expect(tracker.hasState(ITEM)).toBe(true)
 
-      const outcome = tracker.recordPullOutcome({
-        itemId: 'item-healthy' as ItemId,
-        initialCursor: 0,
-        highestCursor: 500,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: false,
-      })
+      const outcome = record(ITEM, { highestCursor: 500 })
 
       expect(outcome.cursorUpdated).toBe(true)
-      expect(tracker.hasState('item-healthy' as ItemId)).toBe(false)
+      expect(tracker.hasState(ITEM)).toBe(false)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)
       expect(tracker.getGlobalLatestCursor()).toBe(500)
       expect(tracker.getCursors()).toEqual([])
@@ -479,9 +453,7 @@ describe('PullRetryTracker', () => {
 
     it('exports and loads state with globalCursor and active retries', () => {
       tracker.setGlobalCursor(1000)
-      tracker.addPendingItem('item-retrying' as ItemId)
-      const s = tracker.getOrCreateState('item-retrying' as ItemId)
-      s.cursor = 400
+      record('item-retrying' as ItemId, { highestCursor: 400, isNewItem: true, hasMore: true, pageToken: 'page-token' })
 
       const state = tracker.exportState()
       expect(state.globalCursor).toBe(1000)
@@ -490,22 +462,13 @@ describe('PullRetryTracker', () => {
       const tracker2 = new PullRetryTracker(keys)
       tracker2.loadState(state)
       expect(tracker2.getGlobalLatestCursor()).toBe(1000)
-      expect(tracker2.getState('item-retrying' as ItemId)?.pending).toBe(true)
+      expect(tracker2.hasImmediatePendingPulls()).toBe(true)
       expect(tracker2.getCursors()).toEqual([{ itemId: 'item-retrying', cursor: 400, pageToken: undefined }])
     })
 
-    it('does not raise the global scan cursor from per-item outcomes when advanceGlobalCursor is false', () => {
+    it('never raises the global scan cursor from per-item outcomes', () => {
       tracker.setGlobalCursor(100)
-      tracker.recordPullOutcome({
-        itemId: 'item-ahead' as ItemId,
-        initialCursor: 0,
-        highestCursor: 500,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: false,
-        advanceGlobalCursor: false,
-      })
+      record('item-ahead' as ItemId, { highestCursor: 500 })
 
       expect(tracker.getGlobalScanCursor()).toBe(100)
       expect(tracker.getGlobalLatestCursor()).toBe(500)
@@ -513,8 +476,7 @@ describe('PullRetryTracker', () => {
 
     it('persists the global scan position rather than the highest per-item cursor', () => {
       tracker.setGlobalCursor(100)
-      tracker.addPendingItem('item-ahead' as ItemId)
-      tracker.getOrCreateState('item-ahead' as ItemId).cursor = 500
+      record('item-ahead' as ItemId, { highestCursor: 500, isNewItem: true, hasMore: true, pageToken: 'page-token' })
 
       const state = tracker.exportState()
       expect(state.globalCursor).toBe(100)
@@ -524,241 +486,17 @@ describe('PullRetryTracker', () => {
       restored.loadState(state)
       expect(restored.getGlobalScanCursor()).toBe(100)
     })
-  })
 
-  describe('computeTransition', () => {
-    it('computes key-failure transition without mutating original state', () => {
-      const state = {
-        cursor: 10,
-        pending: false,
-        retryCount: 2,
-        blockedOnKey: 'old-key',
-      }
-      const originalCopy = { ...state }
+    it('forgets everything on clear', () => {
+      tracker.setGlobalCursor(100)
+      pendingAt('item-1' as ItemId, 50)
+      record('item-2' as ItemId, { highestCursor: 80 })
 
-      const transition = tracker.computeTransition(state, {
-        itemId: 'item-1' as ItemId,
-        initialCursor: 10,
-        highestCursor: 10,
-        isNewItem: false,
-        hasKeyFailure: true,
-        blockedOnKey: 'new-key',
-        hasParseFailure: false,
-        hasMore: false,
-      })
+      tracker.clear()
 
-      expect(state).toEqual(originalCopy)
-      expect(transition).toEqual({
-        targetCursor: 10,
-        effectiveHighestCursor: 10,
-        pending: true,
-        retryCount: 2,
-        blockedOnKey: 'new-key',
-        pageToken: undefined,
-        permanentlyFailed: false,
-        advanceCursor: undefined,
-        cursorUpdated: false,
-        removeFromRetryQueue: false,
-        updateGlobalCursor: false,
-      })
-    })
-
-    it('computes partial-success transition with pagination and global cursor flag', () => {
-      const state = {
-        cursor: 50,
-        pending: true,
-        retryCount: 1,
-        blockedOnKey: 'some-key',
-      }
-      const evalKey = 'item-1-page-token'
-
-      const transition = tracker.computeTransition(state, {
-        itemId: 'item-1' as ItemId,
-        initialCursor: 50,
-        highestCursor: 120,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: true,
-        pageToken: evalKey,
-      })
-
-      expect(transition).toEqual({
-        targetCursor: 120,
-        effectiveHighestCursor: 120,
-        pending: true,
-        retryCount: 0,
-        blockedOnKey: undefined,
-        pageToken: evalKey,
-        permanentlyFailed: false,
-        advanceCursor: undefined,
-        cursorUpdated: true,
-        removeFromRetryQueue: false,
-        updateGlobalCursor: true,
-      })
-    })
-
-    it('computes parse-failure-retry transition when retries are under the limit', () => {
-      const state = {
-        cursor: 10,
-        pending: false,
-        retryCount: 1,
-      }
-
-      const transition = tracker.computeTransition(state, {
-        itemId: 'item-1' as ItemId,
-        initialCursor: 10,
-        highestCursor: 10,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: true,
-        hasMore: false,
-      })
-
-      expect(transition.pending).toBe(true)
-      expect(transition.retryCount).toBe(2)
-      expect(transition.permanentlyFailed).toBe(false)
-      expect(transition.removeFromRetryQueue).toBe(false)
-      expect(transition.updateGlobalCursor).toBe(false)
-    })
-
-    it('computes parse-failure-exhausted transition with failingCursor fallback', () => {
-      const state = {
-        cursor: 10,
-        pending: true,
-        retryCount: 4,
-      }
-
-      const transition = tracker.computeTransition(
-        state,
-        {
-          itemId: 'item-1' as ItemId,
-          initialCursor: 10,
-          highestCursor: 10,
-          isNewItem: false,
-          hasKeyFailure: false,
-          hasParseFailure: true,
-          failingCursor: 55,
-          hasMore: false,
-        },
-        5
-      )
-
-      expect(transition.pending).toBe(true)
-      expect(transition.retryCount).toBe(0)
-      expect(transition.pageToken).toBeUndefined()
-      expect(transition.permanentlyFailed).toBe(true)
-      expect(transition.advanceCursor).toBe(55)
-      expect(transition.targetCursor).toBe(55)
-      expect(transition.cursorUpdated).toBe(true)
-      expect(transition.removeFromRetryQueue).toBe(false)
-      expect(transition.updateGlobalCursor).toBe(true)
-    })
-
-    it('computes terminal-success transition removing item from retryQueue', () => {
-      const state = {
-        cursor: 50,
-        pending: true,
-        retryCount: 0,
-      }
-
-      const transition = tracker.computeTransition(state, {
-        itemId: 'item-1' as ItemId,
-        initialCursor: 50,
-        highestCursor: 80,
-        isNewItem: false,
-        hasKeyFailure: false,
-        hasParseFailure: false,
-        hasMore: false,
-      })
-
-      expect(transition.pending).toBe(false)
-      expect(transition.retryCount).toBe(0)
-      expect(transition.targetCursor).toBe(80)
-      expect(transition.cursorUpdated).toBe(true)
-      expect(transition.removeFromRetryQueue).toBe(true)
-      expect(transition.updateGlobalCursor).toBe(true)
-    })
-  })
-
-  describe('applyTransition', () => {
-    it('mutates ItemPullState according to transition values', () => {
-      const state = {
-        cursor: 0,
-        pending: true,
-        retryCount: 3,
-        blockedOnKey: 'k1',
-        pageToken: 'item-1-page-token',
-      }
-
-      const transition: PullStateTransition = {
-        targetCursor: 200,
-        effectiveHighestCursor: 200,
-        pending: false,
-        retryCount: 0,
-        blockedOnKey: undefined,
-        pageToken: undefined,
-        permanentlyFailed: false,
-        advanceCursor: undefined,
-        cursorUpdated: true,
-        removeFromRetryQueue: true,
-        updateGlobalCursor: true,
-      }
-
-      tracker.applyTransition(state, transition)
-
-      expect(state).toEqual({
-        cursor: 200,
-        pending: false,
-        retryCount: 0,
-        blockedOnKey: undefined,
-        pageToken: undefined,
-      })
-    })
-  })
-
-  describe('advanceGlobalCursor', () => {
-    it('updates itemCursors, removes from retryQueue, and advances globalCursor', () => {
-      tracker.addPendingItem('item-adv' as ItemId)
-      expect(tracker.hasState('item-adv' as ItemId)).toBe(true)
-
-      const transition: PullStateTransition = {
-        targetCursor: 350,
-        effectiveHighestCursor: 350,
-        pending: false,
-        retryCount: 0,
-        permanentlyFailed: false,
-        cursorUpdated: true,
-        removeFromRetryQueue: true,
-        updateGlobalCursor: true,
-      }
-
-      tracker.advanceGlobalCursor('item-adv' as ItemId, transition)
-
-      expect(tracker.getCursor('item-adv' as ItemId)).toBe(350)
-      expect(tracker.hasState('item-adv' as ItemId)).toBe(false)
-      expect(tracker.getGlobalLatestCursor()).toBe(350)
-    })
-
-    it('does not mutate itemCursors or remove from retryQueue when flags are false', () => {
-      tracker.addPendingItem('item-keep' as ItemId)
-      expect(tracker.hasState('item-keep' as ItemId)).toBe(true)
-
-      const transition: PullStateTransition = {
-        targetCursor: 50,
-        effectiveHighestCursor: 50,
-        pending: true,
-        retryCount: 1,
-        permanentlyFailed: false,
-        cursorUpdated: false,
-        removeFromRetryQueue: false,
-        updateGlobalCursor: false,
-      }
-
-      tracker.advanceGlobalCursor('item-keep' as ItemId, transition)
-
-      expect(tracker.hasState('item-keep' as ItemId)).toBe(true)
       expect(tracker.getGlobalLatestCursor()).toBe(0)
+      expect(tracker.exportCursors()).toEqual([])
+      expect(tracker.getCursors()).toEqual([])
     })
   })
 })

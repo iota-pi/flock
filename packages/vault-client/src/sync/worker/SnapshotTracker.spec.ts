@@ -113,26 +113,25 @@ describe('SnapshotTracker', () => {
       { itemId: 'item-rate-limited', reason: 'Push failed after 5 consecutive attempts: Rate limit exceeded', kind: 'pushFailure' },
     ])
 
-    const oversizedItemIds = await tracker.loadLastModified()
+    await tracker.loadLastModified()
 
     expect(tracker.dirtyCount).toBe(1) // Only item-clean restored
     expect(tracker.dirtyItems.has('item-clean' as ItemId)).toBe(true)
     expect(tracker.dirtyItems.has('item-synced' as ItemId)).toBe(false)
     expect(tracker.dirtyItems.has('item-quarantined' as ItemId)).toBe(false)
-    expect(oversizedItemIds.has('item-oversized' as ItemId)).toBe(true)
-    expect(oversizedItemIds.has('item-rate-limited' as ItemId)).toBe(false)
+    expect(tracker.oversizedItems.has('item-oversized' as ItemId)).toBe(true)
+    expect(tracker.oversizedItems.has('item-rate-limited' as ItemId)).toBe(false)
   })
 
-  it('gives a caller that joins a load in flight the same oversized IDs', async () => {
+  it('loads once for callers that join a load in flight', async () => {
     mockRecoveryManager.listRecoveryItems.mockResolvedValue([
       { itemId: 'item-oversized', reason: `Snapshot size exceeds ${MAX_ITEM_SIZE_KB} KB limit`, kind: 'oversized' },
     ])
 
-    const [first, second] = await Promise.all([tracker.loadLastModified(), tracker.loadLastModified()])
+    await Promise.all([tracker.loadLastModified(), tracker.loadLastModified()])
 
     expect(mockStore.loadTimestamps).toHaveBeenCalledTimes(1)
-    expect([...first]).toEqual(['item-oversized'])
-    expect([...second]).toEqual(['item-oversized'])
+    expect([...tracker.oversizedItems]).toEqual(['item-oversized'])
   })
 
   it('recordSnapshotSuccess clears matching tick and updates lastSnapshotAt', () => {
@@ -166,6 +165,16 @@ describe('SnapshotTracker', () => {
 
     expect(tracker.dirtyItems.has('item-big' as ItemId)).toBe(false)
     expect(getTimestamps(tracker, 'item-big').lastSnapshotAt).toBeGreaterThanOrEqual(3000)
+  })
+
+  it('recordOversized reports only the first time an item is found oversized', () => {
+    expect(tracker.recordOversized('item-big' as ItemId, 3000)).toBe(true)
+    expect(tracker.recordOversized('item-big' as ItemId, 3000)).toBe(false)
+
+    tracker.clearOversized('item-big' as ItemId)
+
+    expect(tracker.oversizedItems.has('item-big' as ItemId)).toBe(false)
+    expect(tracker.recordOversized('item-big' as ItemId, 3000)).toBe(true)
   })
 
   it('exports and imports last modified timestamps properly', async () => {

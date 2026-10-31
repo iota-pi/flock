@@ -1193,8 +1193,8 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
   })
 
-  describe('Crypto retry behavior and queue retention', () => {
-    it('does not shift message from sendQueue while retrying encryption, retaining it until success', async () => {
+  describe('Crypto retry behavior', () => {
+    it('retries encryption before sending later messages', async () => {
       const { encryptBytes } = vault
       const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
         keys,
@@ -1230,26 +1230,28 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         data: new Uint8Array([50, 51]),
       }
 
-      retryAdapter.send(message)
+      const laterMessage: Message = { ...message, documentId: 'docRetrySendLater' as DocumentId }
 
-      // During second attempt (awaiting retryWaitPromise), the message must still be at the head of sendQueue
+      retryAdapter.send(message)
+      retryAdapter.send(laterMessage)
+
+      // The later message waits while the first is retried
       await vi.waitFor(() => {
         expect(attempts).toBe(2)
-        expect((retryAdapter as any).sendQueue.length).toBe(1)
-        expect((retryAdapter as any).sendQueue[0]).toBe(message)
       })
+      expect(innerMock.send).not.toHaveBeenCalled()
 
-      // Resolve retry wait promise to let attempt 2 complete
       resolveRetryWait()
 
-      // The retry succeeds and shifts the message from sendQueue
       await vi.waitFor(() => {
-        expect((retryAdapter as any).sendQueue.length).toBe(0)
-        expect(innerMock.send).toHaveBeenCalledTimes(1)
+        expect(innerMock.send.mock.calls.map(([sent]: [Message]) => sent.documentId)).toEqual([
+          'docRetrySend',
+          'docRetrySendLater',
+        ])
       })
     })
 
-    it('does not shift message from receiveQueue while retrying decryption, retaining it until success', async () => {
+    it('retries decryption before dispatching later messages', async () => {
       const { decryptBytes } = vault
       const retryAdapter = new EncryptedBroadcastChannelNetworkAdapter({
         keys,
@@ -1288,26 +1290,28 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
         data: new TextEncoder().encode(JSON.stringify(payload)),
       }
 
-      innerCallback(incomingMessage)
+      const laterMessage: Message = { ...incomingMessage, documentId: 'docRetryRecvLater' as DocumentId }
 
-      // During second attempt (awaiting retryWaitPromise), message must still be retained at head of receiveQueue
+      innerCallback(incomingMessage)
+      innerCallback(laterMessage)
+
+      // The later message waits while the first is retried
       await vi.waitFor(() => {
         expect(attempts).toBe(2)
-        expect((retryAdapter as any).receiveQueue.length).toBe(1)
-        expect((retryAdapter as any).receiveQueue[0]).toBe(incomingMessage)
       })
+      expect(messageListener).not.toHaveBeenCalled()
 
-      // Resolve retry wait promise to let attempt 2 complete
       resolveRetryWait()
 
-      // The retry succeeds and shifts from receiveQueue, emitting message
       await vi.waitFor(() => {
-        expect((retryAdapter as any).receiveQueue.length).toBe(0)
-        expect(messageListener).toHaveBeenCalledTimes(1)
+        expect(messageListener.mock.calls.map(([received]) => (received as Message).documentId)).toEqual([
+          'docRetryRecv',
+          'docRetryRecvLater',
+        ])
       })
     })
 
-    it('shifts message from sendQueue only after maxCryptoRetries attempts are exhausted', async () => {
+    it('gives up sending after maxCryptoRetries attempts', async () => {
       const { encryptBytes } = vault
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -1335,18 +1339,16 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       await vi.waitFor(() => {
         expect(calls).toBe(2)
-        expect((retryAdapter as any).sendQueue.length).toBe(0)
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          '[EncryptedBroadcastChannelNetworkAdapter] Error sending message:',
+          expect.any(Error)
+        )
       })
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannelNetworkAdapter] Error sending message:',
-        expect.any(Error)
-      )
 
       consoleErrorSpy.mockRestore()
     })
 
-    it('shifts message from receiveQueue only after maxCryptoRetries attempts are exhausted', async () => {
+    it('gives up decrypting after maxCryptoRetries attempts', async () => {
       const { decryptBytes } = vault
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -1381,13 +1383,11 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
       await vi.waitFor(() => {
         expect(calls).toBe(2)
-        expect((retryAdapter as any).receiveQueue.length).toBe(0)
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
+          expect.any(Error)
+        )
       })
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[EncryptedBroadcastChannelNetworkAdapter] Error decrypting message:',
-        expect.any(Error)
-      )
 
       consoleErrorSpy.mockRestore()
     })

@@ -14,7 +14,6 @@ import type { ServiceRegistration } from './ServiceLifecycleManager'
 import { AbortError } from '../utils/abort'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
-import { packBatchedMessages } from './utils/binaryFraming'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
 import { Keyring } from '../../api/Keyring'
 import { generateVaultKey } from '../../api/crypto'
@@ -506,27 +505,6 @@ describe('SyncWorkerContext', () => {
       expect(pullQueueManager.importCursors).toHaveBeenCalledWith([['item-1', 5]])
       expect(wal.append).toHaveBeenCalledWith('item-1', message)
       expect(snapshotManager.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
-    })
-
-    it('round-trips a batched entry from an older version as its individual messages', async () => {
-      const { pullQueueManager, wal, snapshotManager } = context.services as any
-      pullQueueManager.exportCursors = vi.fn().mockReturnValue([])
-      pullQueueManager.importCursors = vi.fn().mockResolvedValue(undefined)
-      snapshotManager.exportLastModified = vi.fn().mockReturnValue([])
-      snapshotManager.importLastModified = vi.fn().mockResolvedValue(undefined)
-      const first = new Uint8Array([1, 2])
-      const second = new Uint8Array([3, 4, 5])
-      const plain = new Uint8Array([6])
-      wal.readAll.mockResolvedValue(new Map([['item-1', [
-        { id: 'batched', itemId: 'item-1', data: packBatchedMessages([{ data: first }, { data: second }]), isBatched: true },
-        { id: 'plain', itemId: 'item-1', data: plain, isBatched: false },
-      ]]]))
-
-      const state = await context.exportSyncState()
-      await context.restoreSyncState(state)
-
-      expect(state.pendingSync).toEqual([['item-1', [first.toBase64(), second.toBase64(), plain.toBase64()]]])
-      expect(wal.append.mock.calls).toEqual([['item-1', first], ['item-1', second], ['item-1', plain]])
     })
   })
 
@@ -1066,6 +1044,7 @@ describe('SyncWorkerContext', () => {
       'PullQueueManager',
       'ManifestSyncManager',
       'SyncOrchestrator',
+      'ItemReencryptor',
     ])
   })
 

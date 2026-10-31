@@ -29,7 +29,8 @@ describe('SnapshotPusher', () => {
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId]),
       getDirtyTick: vi.fn().mockReturnValue(1),
       recordSnapshotSuccess: vi.fn(),
-      recordOversized: vi.fn(),
+      recordOversized: vi.fn().mockReturnValue(true),
+      clearOversized: vi.fn(),
       removeDirtyItemIfTickMatches: vi.fn(),
       clearDebounceTimers: vi.fn(),
     }
@@ -106,7 +107,6 @@ describe('SnapshotPusher', () => {
     const result = await pusher.triggerSnapshotPush()
 
     expect(result).toEqual({ persisted: 0, total: 0 })
-    expect(pusher.oversizedItems.has('item-1' as ItemId)).toBe(true)
     expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
     expect(mockEventHub.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'quotaExceeded' }),
@@ -116,6 +116,17 @@ describe('SnapshotPusher', () => {
       'oversized',
       expect.stringContaining(`exceeds ${MAX_ITEM_SIZE_KB} KB limit`),
     )
+  })
+
+  it('does not warn again about an item the tracker already knows is oversized', async () => {
+    mockBuilder.estimateSize.mockReturnValue(5000)
+    mockTracker.recordOversized.mockReturnValue(false)
+
+    await pusher.triggerSnapshotPush()
+
+    expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
+    expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
+    expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
   })
 
   describe('deleted oversized items', () => {
@@ -156,18 +167,7 @@ describe('SnapshotPusher', () => {
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
       expect(mockBroker.setSyncedHeads).not.toHaveBeenCalled()
-      expect(pusher.oversizedItems.has('item-1' as ItemId)).toBe(false)
-    })
-
-    it('does not re-quarantine after the oversized flag was cleared by a recreation', async () => {
-      pusher.addOversized('item-1' as ItemId)
-      pusher.clearOversized('item-1' as ItemId)
-
-      await pusher.triggerSnapshotPush()
-
-      expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
-      expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
-      expect(mockTracker.recordOversized).not.toHaveBeenCalled()
+      expect(mockTracker.clearOversized).toHaveBeenCalledWith('item-1')
     })
 
     it('batches a tombstone alongside normal snapshots and only records heads for the normal one', async () => {
@@ -235,7 +235,7 @@ describe('SnapshotPusher', () => {
   })
 
   it('schedules retry on push failure when items remain dirty', async () => {
-    mockApiClient.putSnapshots.mockResolvedValue({ success: false, persisted: 0 })
+    mockApiClient.putSnapshots.mockResolvedValue({ success: false, persisted: 0, results: [] })
 
     await pusher.triggerSnapshotPush()
 

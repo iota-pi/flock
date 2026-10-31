@@ -29,6 +29,11 @@ const keys = createMockKeyProvider()
 /** The broker's WAL is built once per test, so tests that switch accounts still read it under this one. */
 const WAL_ACCOUNT = 'test-account'
 
+/** A sync message carrying `n` as its change, which the poller pushes (it drops WAL entries that aren't sync messages) */
+function syncMessage(n: number): Uint8Array {
+  return encodeSyncMessage({ heads: [], need: [], have: [], changes: [new Uint8Array([n])] })
+}
+
 setApiAuthToken('mock-auth-token')
 
 beforeEach(() => {
@@ -232,7 +237,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
         documentId: `item-${i}` as DocumentId,
-        data: new Uint8Array([i]),
+        data: syncMessage(i),
       })
     }
 
@@ -272,14 +277,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
         documentId: 'item-1' as DocumentId,
-        data: new Uint8Array([20]),
+        data: syncMessage(20),
       })
       adapter.send({
         type: 'sync',
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
         documentId: 'item-1' as DocumentId,
-        data: new Uint8Array([30]),
+        data: syncMessage(30),
       })
 
       return {
@@ -298,7 +303,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
       documentId: 'item-1' as DocumentId,
-      data: new Uint8Array([10]),
+      data: syncMessage(10),
     })
 
     await vi.advanceTimersByTimeAsync(50)
@@ -316,8 +321,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(item1).toBeDefined()
     expect(item1).toHaveLength(2)
 
-    expect(Array.from(item1![0].data)).toEqual([20])
-    expect(Array.from(item1![1].data)).toEqual([30])
+    expect(item1![0].data).toEqual(syncMessage(20))
+    expect(item1![1].data).toEqual(syncMessage(30))
   })
 
   it('retains messages in SyncWriteAheadLog if the poll call fails', async () => {
@@ -332,7 +337,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
       documentId: 'item-1' as DocumentId,
-      data: new Uint8Array([100]),
+      data: syncMessage(100),
     })
 
     await vi.advanceTimersByTimeAsync(50)
@@ -350,7 +355,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(item1).toBeDefined()
     expect(item1).toHaveLength(1)
 
-    expect(Array.from(item1![0].data)).toEqual([100])
+    expect(item1![0].data).toEqual(syncMessage(100))
   })
 
   it('detects and reports QuotaExceededError when persisting pending writes', async () => {

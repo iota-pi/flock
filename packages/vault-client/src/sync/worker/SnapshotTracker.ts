@@ -33,13 +33,15 @@ export class SnapshotTracker {
   public readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private readonly timestampsByItemId = new Map<ItemId, TrackedTimestamps>()
+  /** Items quarantined as too large to upload, so the warning is given only once */
+  public readonly oversizedItems = new Set<ItemId>()
 
   private debounceTimeout: ReturnType<typeof setTimeout> | null = null
   private maxWaitTimeout: ReturnType<typeof setTimeout> | null = null
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
-  public readonly loadGuard = new SingleFlightGuard<Set<ItemId>>()
+  public readonly loadGuard = new SingleFlightGuard<void>()
   private readonly persistMutex = new AsyncMutex()
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
@@ -172,15 +174,13 @@ export class SnapshotTracker {
     this.saveLastModifiedDebounced.flush()
   }
 
-  /** Loads the stored timestamps, returning the items quarantined as oversized */
-  async loadLastModified(): Promise<Set<ItemId>> {
-    if (this.shutDown) return new Set()
+  /** Loads the stored timestamps and the items quarantined as oversized */
+  async loadLastModified(): Promise<void> {
+    if (this.shutDown) return
     return this.loadGuard.run(() => this.executeLoadLastModified())
   }
 
-  private async executeLoadLastModified(): Promise<Set<ItemId>> {
-    const oversizedItemIds = new Set<ItemId>()
-
+  private async executeLoadLastModified(): Promise<void> {
     try {
       checkAlive(null, () => !this.shutDown)
       const stored = await this.lastModifiedStore.loadTimestamps()
@@ -206,7 +206,7 @@ export class SnapshotTracker {
         for (const entry of recoveryEntries) {
           quarantinedIds.add(entry.itemId)
           if (entry.kind === 'oversized') {
-            oversizedItemIds.add(entry.itemId)
+            this.oversizedItems.add(entry.itemId)
           }
         }
       } catch (recoveryErr) {
@@ -233,11 +233,9 @@ export class SnapshotTracker {
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
-      if (isAbortError(error) || this.shutDown) return oversizedItemIds
+      if (isAbortError(error) || this.shutDown) return
       log.error('Failed to load lastModified timestamps', error)
     }
-
-    return oversizedItemIds
   }
 
   /**
@@ -279,7 +277,11 @@ export class SnapshotTracker {
     this.saveLastModifiedDebounced()
   }
 
-  recordOversized(itemId: ItemId, modified: number): void {
+  /** Returns whether the item wasn't already known to be oversized */
+  recordOversized(itemId: ItemId, modified: number): boolean {
+    const isNew = !this.oversizedItems.has(itemId)
+    this.oversizedItems.add(itemId)
+
     // Unconditionally remove from dirtyItems to avoid infinite retry loops
     this.dirtyItems.delete(itemId)
 
@@ -287,6 +289,11 @@ export class SnapshotTracker {
     const entry = this.timestamps(itemId)
     entry.lastSnapshotAt = entry.localModifiedAt ?? modified
     this.saveLastModifiedDebounced()
+    return isNew
+  }
+
+  clearOversized(itemId: ItemId): void {
+    this.oversizedItems.delete(itemId)
   }
 
   removeDirtyItemIfTickMatches(itemId: ItemId, tick: number): boolean {
@@ -371,6 +378,7 @@ export class SnapshotTracker {
     this.saveLastModifiedDebounced.cancel()
     this.dirtyItems.clear()
     this.timestampsByItemId.clear()
+    this.oversizedItems.clear()
     this.loadGuard.clear()
   }
 

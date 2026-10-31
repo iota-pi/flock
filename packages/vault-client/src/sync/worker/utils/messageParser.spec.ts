@@ -1,6 +1,5 @@
-import { parseBatchedMessages, DEFAULT_MAX_MESSAGE_SIZE } from './messageParser'
-import { ItemId } from '@vault/shared'
-import { DocumentId } from '@automerge/automerge-repo/slim'
+import { MAX_ITEM_SIZE_BYTES } from '@vault/shared'
+import { parseBatchedMessages } from './messageParser'
 
 describe('parseBatchedMessages', () => {
   it('correctly parses messages with length prefixes', () => {
@@ -16,20 +15,18 @@ describe('parseBatchedMessages', () => {
     combined.set(msg2, 10)
 
     const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
       combined,
       onMessageParsed
     )
 
     expect(result).toBe(true)
     expect(onMessageParsed).toHaveBeenCalledTimes(2)
-    expect(onMessageParsed).toHaveBeenNthCalledWith(1, 'item-1', 'doc-1', msg1)
-    expect(onMessageParsed).toHaveBeenNthCalledWith(2, 'item-1', 'doc-1', msg2)
+    expect(onMessageParsed).toHaveBeenNthCalledWith(1, msg1)
+    expect(onMessageParsed).toHaveBeenNthCalledWith(2, msg2)
   })
 
   it('returns false and halts when onMessageParsed throws', () => {
-    const onMessageParsed = vi.fn().mockImplementation((itemId, docId, msg) => {
+    const onMessageParsed = vi.fn().mockImplementation(msg => {
       if (msg[0] === 1) {
         throw new Error('Processing failed')
       }
@@ -45,8 +42,6 @@ describe('parseBatchedMessages', () => {
     combined.set(msg2, 10)
 
     const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
       combined,
       onMessageParsed
     )
@@ -70,8 +65,6 @@ describe('parseBatchedMessages', () => {
     combined.set(msg2, 10)
 
     const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
       combined,
       onMessageParsed,
       {
@@ -82,13 +75,13 @@ describe('parseBatchedMessages', () => {
 
     expect(result).toBe(true)
     expect(onMessageParsed).toHaveBeenCalledTimes(1)
-    expect(onMessageParsed).toHaveBeenCalledWith('item-1', 'doc-1', msg2)
+    expect(onMessageParsed).toHaveBeenCalledWith(msg2)
     expect(onMessageSuccess).toHaveBeenCalledTimes(1)
     expect(onMessageSuccess).toHaveBeenCalledWith(1)
   })
 
   it('calls onMessageSuccess for each message that succeeds until failure', () => {
-    const onMessageParsed = vi.fn().mockImplementation((itemId, docId, msg) => {
+    const onMessageParsed = vi.fn().mockImplementation(msg => {
       if (msg[0] === 3) {
         throw new Error('Processing failed for message 2')
       }
@@ -105,8 +98,6 @@ describe('parseBatchedMessages', () => {
     combined.set(msg2, 10)
 
     const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
       combined,
       onMessageParsed,
       {
@@ -125,8 +116,6 @@ describe('parseBatchedMessages', () => {
     const malformed = new Uint8Array([0, 0]) // Less than 4 bytes for length prefix
 
     const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
       malformed,
       onMessageParsed
     )
@@ -140,8 +129,6 @@ describe('parseBatchedMessages', () => {
     const zeroLengthBatch = new Uint8Array(4) // 4 zero bytes => length = 0
 
     const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
       zeroLengthBatch,
       onMessageParsed
     )
@@ -150,36 +137,16 @@ describe('parseBatchedMessages', () => {
     expect(onMessageParsed).not.toHaveBeenCalled()
   })
 
-  it('rejects messages exceeding DEFAULT_MAX_MESSAGE_SIZE', () => {
+  it('rejects messages exceeding MAX_ITEM_SIZE_BYTES', () => {
     const onMessageParsed = vi.fn()
-    const oversizedLength = DEFAULT_MAX_MESSAGE_SIZE + 1
+    const oversizedLength = MAX_ITEM_SIZE_BYTES + 1
     const buffer = new Uint8Array(4 + 10)
     const view = new DataView(buffer.buffer)
     view.setUint32(0, oversizedLength, false)
 
     const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
       buffer,
       onMessageParsed
-    )
-
-    expect(result).toBe(false)
-    expect(onMessageParsed).not.toHaveBeenCalled()
-  })
-
-  it('rejects messages exceeding custom maxMessageSize option', () => {
-    const onMessageParsed = vi.fn()
-    const buffer = new Uint8Array(4 + 100)
-    const view = new DataView(buffer.buffer)
-    view.setUint32(0, 50, false)
-
-    const result = parseBatchedMessages(
-      'item-1' as ItemId,
-      'doc-1' as DocumentId,
-      buffer,
-      onMessageParsed,
-      { maxMessageSize: 30 }
     )
 
     expect(result).toBe(false)
