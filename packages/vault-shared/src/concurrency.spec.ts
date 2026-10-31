@@ -1,6 +1,36 @@
-import { mapWithConcurrency } from './concurrency'
+import { chunk, mapWithConcurrency } from './concurrency'
 
 describe('concurrency utilities', () => {
+  describe('chunk', () => {
+    it('returns no chunks for an empty array', () => {
+      expect(chunk([], 3)).toEqual([])
+    })
+
+    it('splits evenly divisible input into full chunks', () => {
+      expect(chunk([1, 2, 3, 4], 2)).toEqual([[1, 2], [3, 4]])
+    })
+
+    it('puts the remainder in a smaller last chunk', () => {
+      expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
+    })
+
+    it('returns a single chunk when size exceeds the length', () => {
+      expect(chunk([1, 2], 5)).toEqual([[1, 2]])
+    })
+
+    it('does not modify the input', () => {
+      const items = [1, 2, 3]
+      chunk(items, 2)
+      expect(items).toEqual([1, 2, 3])
+    })
+
+    it('rejects sizes that are not positive integers', () => {
+      expect(() => chunk([1], 0)).toThrow(RangeError)
+      expect(() => chunk([1], -1)).toThrow(RangeError)
+      expect(() => chunk([1], 1.5)).toThrow(RangeError)
+    })
+  })
+
   describe('mapWithConcurrency', () => {
     it('returns empty array when input is empty', async () => {
       const fn = vi.fn()

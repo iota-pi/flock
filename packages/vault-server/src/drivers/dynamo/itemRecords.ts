@@ -4,8 +4,7 @@ import {
   UpdateCommand,
   UpdateCommandOutput,
 } from '@aws-sdk/lib-dynamodb'
-import { chunk } from 'lodash-es'
-import type { ItemId, ManifestEntry } from '@vault/shared'
+import { chunk, type ItemId, type ManifestEntry } from '@vault/shared'
 import type { BaseData, FetchedVaultItem, ItemFormatSummary, VaultItem } from '../vaultDriver'
 import type { VaultTableNames } from './config'
 import { buildUpdateParams, partitionKeyCondition, projection, RawUpdateValue } from './expressions'

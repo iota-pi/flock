@@ -46,3 +46,18 @@ export async function mapWithConcurrency<T, R>(
 
   return results
 }
+
+/**
+ * Splits items into consecutive groups of `size` (the last group may be smaller).
+ * Throws if `size` is not a positive integer.
+ */
+export function chunk<T>(items: readonly T[], size: number): T[][] {
+  if (!Number.isInteger(size) || size < 1) {
+    throw new RangeError(`chunk size must be a positive integer, got ${size}`)
+  }
+  const chunks: T[][] = []
+  for (let start = 0; start < items.length; start += size) {
+    chunks.push(items.slice(start, start + size))
+  }
+  return chunks
+}

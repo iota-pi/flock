@@ -4707,7 +4707,6 @@ __metadata:
     "@types/node": "npm:^24.10.1"
     "@vault/shared": "workspace:*"
     fastify: "npm:^5.6.2"
-    lodash-es: "npm:^4.17.23"
     typescript: "npm:^6.0.3"
     vitest: "npm:^4.1.7"
     zod: "npm:^4.3.6"
