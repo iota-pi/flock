@@ -4,11 +4,12 @@ import type { VaultDoc } from '../shared/types'
 import { passthroughCodec } from './domain'
 import { settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
-import * as realtimeBusModule from './realtimeBus'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
 import { spyOnExports } from '../../../test/moduleMocks'
+import { createFakeRealtimeBus } from './__test__/testUtils'
 
-const mockPublishRealtimeBusSyncPing = vi.fn()
+const realtimeBus = createFakeRealtimeBus()
+const mockPublishRealtimeBusSyncPing = realtimeBus.publishSyncPing
 const mockReadManualRecoveryEntries = vi.fn()
 const mockReadManualRecoveryCount = vi.fn()
 const mockRemoveManualRecoveryEntryById = vi.fn()
@@ -16,9 +17,6 @@ const mockRemoveManualRecoveryEntryByItemId = vi.fn()
 const mockUpsertManualRecoveryEntry = vi.fn()
 
 beforeEach(() => {
-  spyOnExports(realtimeBusModule, {
-    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-  })
   spyOnExports(manualRecoveryStoreModule, {
     readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
     readManualRecoveryCount: (...args: any[]) => mockReadManualRecoveryCount(...args),
@@ -55,6 +53,7 @@ describe('ItemOperations', () => {
 
     deps = {
       accountId: 'account-1',
+      bus: realtimeBus.bus,
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: getAutomergeItemMock,
@@ -95,7 +94,7 @@ describe('ItemOperations', () => {
 
       expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-1'])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-1'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
       expect(emitMock).not.toHaveBeenCalled()
     })
 
@@ -387,7 +386,7 @@ describe('ItemOperations', () => {
 
       expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-deleted'])
       expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-active'])
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-active'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-active'])
       expect(markDocumentDirtyMock).toHaveBeenCalledTimes(2)
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-active')
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-deleted')
@@ -502,14 +501,6 @@ describe('ItemOperations', () => {
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       })
 
-      it('does nothing if accountId is not set', async () => {
-        deps.accountId = ''
-
-        await operations.forceOverwriteRecoveryItem('item-3' as ItemId)
-
-        expect(getAutomergeItemMock).not.toHaveBeenCalled()
-      })
-
       it('mutates the Automerge document to match local snapshot and clears recovery entry', async () => {
         const localItem = {
           id: 'item-3',
@@ -542,7 +533,7 @@ describe('ItemOperations', () => {
         )
         expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-3'])
         expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-3')
-        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-3'])
+        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-3'])
 
         // Verify the document was mutated properly
         expect(capturedDoc).toEqual({
@@ -641,14 +632,6 @@ describe('ItemOperations', () => {
 
         await expect(operations.recreateOversizedItem('item-5' as ItemId)).rejects.toThrow(
           'No local item found for item-5 to recreate.'
-        )
-      })
-
-      it('throws if accountId is not set', async () => {
-        deps.accountId = ''
-
-        await expect(operations.recreateOversizedItem('item-5' as ItemId)).rejects.toThrow(
-          'Account ID is required to recreate oversized item.'
         )
       })
 

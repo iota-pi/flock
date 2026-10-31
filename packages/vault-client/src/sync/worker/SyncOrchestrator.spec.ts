@@ -1,16 +1,44 @@
 import {
   SyncOrchestrator,
+  type SyncOrchestratorDeps,
   type SyncPullQueueManagerLike,
   type LeaderElectionLike,
 } from './SyncOrchestrator'
+import { SyncSessionState } from './SyncSessionState'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { createTestEventHubs } from './__test__/testUtils'
 import type { LeaderElectionCallbacks } from './utils/LeaderElection'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
+const sessions = new WeakMap<SyncOrchestrator, SyncSessionState>()
+
+/** An orchestrator with its own session state, as each context has */
+function createOrchestrator(deps: Omit<SyncOrchestratorDeps, 'session'>): SyncOrchestrator {
+  const session = new SyncSessionState()
+  const created = new SyncOrchestrator({ ...deps, session })
+  sessions.set(created, session)
+  return created
+}
+
+/** Changes the session's online state and tells the orchestrator, as the context does */
+function setOnline(target: SyncOrchestrator, isOnline: boolean): void {
+  if (sessions.get(target)!.setOnline(isOnline)) {
+    target.onOnlineStateChange()
+  }
+}
+
+/** Marks the session shut down and stops the orchestrator, as the context does */
+function shutDown(target: SyncOrchestrator): Promise<void> {
+  sessions.get(target)!.markShutdown()
+  return target.shutdown()
+}
+
+function isLeader(target: SyncOrchestrator): boolean {
+  return sessions.get(target)!.isLeader
+}
+
 describe('SyncOrchestrator', () => {
   let orchestrator: SyncOrchestrator
-  let mockBroker: any
   let mockPoller: any
   let mockPullQueueManager: any
   let clientEventHub: ClientEventHub
@@ -29,11 +57,6 @@ describe('SyncOrchestrator', () => {
       executePoll: vi.fn().mockResolvedValue('success'),
     }
 
-    mockBroker = {
-      setOnlineState: vi.fn(),
-      setSendEnabled: vi.fn(),
-    }
-
     mockPullQueueManager = {
       loadCursors: vi.fn().mockResolvedValue(undefined),
       hasPendingPulls: vi.fn().mockReturnValue(false),
@@ -44,9 +67,8 @@ describe('SyncOrchestrator', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
 
-    orchestrator = new SyncOrchestrator({
+    orchestrator = createOrchestrator({
       accountId: 'account-1',
-      broker: mockBroker,
       poller: mockPoller,
       clientEventHub,
       internalEventHub,
@@ -68,7 +90,7 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -91,7 +113,7 @@ describe('SyncOrchestrator', () => {
 
   it('applies symmetric jitter centered around target delay when scheduling poll timers', () => {
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
 
     // Spy on the real setTimeout, not the fake one: restoring a spy on a fake timer would bring
     // the fake back after `useRealTimers`, and stall every later file in the worker
@@ -123,7 +145,7 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -162,7 +184,7 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     // Call flush while poll is in-flight
@@ -187,7 +209,7 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -213,7 +235,7 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -239,15 +261,15 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
     // Network goes offline then online
-    orchestrator.setOnlineState(false)
+    setOnline(orchestrator, false)
     mockPoller.executePoll.mockResolvedValueOnce('success')
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
@@ -262,7 +284,7 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -308,13 +330,13 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
     // Shutdown while poll is in flight
-    const shutdownPromise = orchestrator.shutdown()
+    const shutdownPromise = shutDown(orchestrator)
 
     // Complete in-flight poll
     resolvePoll('success')
@@ -335,11 +357,11 @@ describe('SyncOrchestrator', () => {
     mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     let shutdownCompleted = false
-    const shutdownPromise = orchestrator.shutdown().then(() => {
+    const shutdownPromise = shutDown(orchestrator).then(() => {
       shutdownCompleted = true
     })
 
@@ -360,11 +382,11 @@ describe('SyncOrchestrator', () => {
     })
 
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
     expect(capturedSignal?.aborted).toBe(false)
 
-    const shutdownPromise = orchestrator.shutdown()
+    const shutdownPromise = shutDown(orchestrator)
     expect(capturedSignal?.aborted).toBe(true)
 
     resolvePoll('no-poll')
@@ -373,7 +395,7 @@ describe('SyncOrchestrator', () => {
 
   it('does not execute pending flush after shutdown when shutdown occurs before batch timeout fires', async () => {
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
@@ -383,7 +405,7 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
     // Shut down before batch timeout fires
-    await orchestrator.shutdown()
+    await shutDown(orchestrator)
     expect(orchestrator.hasPendingFlush).toBe(false)
 
     // Advancing timers past the batch timeout should not execute any poll
@@ -393,12 +415,12 @@ describe('SyncOrchestrator', () => {
 
   it('stops polling and periodic manifest sync on shutdown (L-7)', async () => {
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
     const polls = mockPoller.executePoll.mock.calls.length
     const manifestSyncs = mockManifestSyncManager.sync.mock.calls.length
 
-    await orchestrator.shutdown()
+    await shutDown(orchestrator)
     await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.manifestSyncInterval * 2)
 
     expect(orchestrator.hasScheduledPoll).toBe(false)
@@ -410,7 +432,7 @@ describe('SyncOrchestrator', () => {
     const stopPollingSpy = vi.spyOn(orchestrator, 'stopPolling')
     const stopPeriodicSpy = vi.spyOn(orchestrator, 'stopPeriodicManifestSync')
 
-    await orchestrator.shutdown()
+    await shutDown(orchestrator)
 
     expect(stopPollingSpy).toHaveBeenCalledTimes(1)
     expect(stopPeriodicSpy).toHaveBeenCalledTimes(1)
@@ -418,7 +440,7 @@ describe('SyncOrchestrator', () => {
 
   it('executes poll after batch timeout delay when flush is called', async () => {
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
@@ -466,7 +488,7 @@ describe('SyncOrchestrator', () => {
 
   it('does not permanently freeze polling loop and continues polling over time', async () => {
     orchestrator.setLeader(true)
-    orchestrator.setOnlineState(true)
+    setOnline(orchestrator, true)
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -486,9 +508,8 @@ describe('SyncOrchestrator', () => {
     internalEventHub.subscribe(internalListener)
 
     let capturedCallbacks!: LeaderElectionCallbacks
-    const customOrchestrator = new SyncOrchestrator({
+    const customOrchestrator = createOrchestrator({
       accountId: 'account-1',
-      broker: mockBroker,
       poller: mockPoller,
       clientEventHub,
       internalEventHub,
@@ -514,7 +535,7 @@ describe('SyncOrchestrator', () => {
     capturedCallbacks.onSoleLeaderRestored?.()
     expect(internalListener).toHaveBeenCalledWith({ type: 'soleLeaderRestored' })
 
-    await customOrchestrator.shutdown()
+    await shutDown(customOrchestrator)
   })
 
   it('forwards leaderConflict event to clientEventHub', async () => {
@@ -522,9 +543,8 @@ describe('SyncOrchestrator', () => {
     clientEventHub.subscribe(clientListener)
 
     let capturedCallbacks!: LeaderElectionCallbacks
-    const customOrchestrator = new SyncOrchestrator({
+    const customOrchestrator = createOrchestrator({
       accountId: 'account-1',
-      broker: mockBroker,
       poller: mockPoller,
       clientEventHub,
       internalEventHub,
@@ -549,7 +569,7 @@ describe('SyncOrchestrator', () => {
     capturedCallbacks.onLeaderConflict?.(false)
     expect(clientListener).toHaveBeenCalledWith({ type: 'leaderConflict', hasConflict: false })
 
-    await customOrchestrator.shutdown()
+    await shutDown(customOrchestrator)
   })
 
   it('delegates claimLeader to leaderElection.claimLeadership', async () => {
@@ -558,9 +578,8 @@ describe('SyncOrchestrator', () => {
       release: vi.fn(),
       claimLeadership: vi.fn(),
     }
-    const customOrchestrator = new SyncOrchestrator({
+    const customOrchestrator = createOrchestrator({
       accountId: 'account-1',
-      broker: mockBroker,
       poller: mockPoller,
       clientEventHub,
       internalEventHub,
@@ -574,7 +593,7 @@ describe('SyncOrchestrator', () => {
     customOrchestrator.claimLeader()
     expect(mockLeaderElection.claimLeadership).toHaveBeenCalledTimes(1)
 
-    await customOrchestrator.shutdown()
+    await shutDown(customOrchestrator)
   })
 
   describe('promoted leader cursor reloading', () => {
@@ -588,9 +607,8 @@ describe('SyncOrchestrator', () => {
         hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       }
 
-      const orchestratorWithPQM = new SyncOrchestrator({
+      const orchestratorWithPQM = createOrchestrator({
         accountId: 'account-1',
-        broker: mockBroker,
         poller: mockPoller,
         clientEventHub,
         internalEventHub,
@@ -615,7 +633,7 @@ describe('SyncOrchestrator', () => {
       // Now poll should execute with reloaded cursors
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
-      await orchestratorWithPQM.shutdown()
+      await shutDown(orchestratorWithPQM)
     })
 
     it('reloads cursors on leader promotion before executing poll', async () => {
@@ -648,9 +666,8 @@ describe('SyncOrchestrator', () => {
         hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       }
 
-      const orchestratorWithPQM = new SyncOrchestrator({
+      const orchestratorWithPQM = createOrchestrator({
         accountId: 'account-1',
-        broker: mockBroker,
         poller: mockPoller,
         clientEventHub,
         internalEventHub,
@@ -671,7 +688,7 @@ describe('SyncOrchestrator', () => {
       // executePoll must NOT be called
       expect(mockPoller.executePoll).not.toHaveBeenCalled()
 
-      await orchestratorWithPQM.shutdown()
+      await shutDown(orchestratorWithPQM)
     })
   })
 
@@ -681,14 +698,14 @@ describe('SyncOrchestrator', () => {
       if (e.type === 'leaderChange') leaderChangeListener(e.isLeader)
     })
 
-    expect(orchestrator.leader).toBe(false)
+    expect(isLeader(orchestrator)).toBe(false)
 
     orchestrator.setLeader(true)
-    expect(orchestrator.leader).toBe(true)
+    expect(isLeader(orchestrator)).toBe(true)
     expect(leaderChangeListener).toHaveBeenCalledWith(true)
 
     orchestrator.setLeader(false)
-    expect(orchestrator.leader).toBe(false)
+    expect(isLeader(orchestrator)).toBe(false)
     expect(leaderChangeListener).toHaveBeenCalledWith(false)
   })
 
@@ -702,7 +719,7 @@ describe('SyncOrchestrator', () => {
       mockPoller.executePoll.mockImplementationOnce(() => pollPromise)
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -736,7 +753,7 @@ describe('SyncOrchestrator', () => {
       mockPoller.executePoll.mockResolvedValueOnce('failure')
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -757,7 +774,7 @@ describe('SyncOrchestrator', () => {
       mockPoller.executePoll.mockResolvedValueOnce('success')
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -783,7 +800,7 @@ describe('SyncOrchestrator', () => {
       mockPoller.executePoll.mockResolvedValueOnce('success')
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -805,7 +822,7 @@ describe('SyncOrchestrator', () => {
       mockPullQueueManager.hasImmediatePendingPulls = vi.fn().mockReturnValue(false)
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -830,7 +847,7 @@ describe('SyncOrchestrator', () => {
       mockPullQueueManager.hasImmediatePendingPulls = vi.fn().mockReturnValue(true)
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -849,11 +866,11 @@ describe('SyncOrchestrator', () => {
       orchestrator.setLeader(true)
       await vi.advanceTimersByTimeAsync(0)
       // Initial state is online, reset to offline
-      orchestrator.setOnlineState(false)
+      setOnline(orchestrator, false)
       mockManifestSyncManager.sync.mockClear()
 
       // Reconnect
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false, expect.any(AbortSignal))
@@ -861,19 +878,18 @@ describe('SyncOrchestrator', () => {
 
     it('does not trigger manifest sync on reconnection when not leader', async () => {
       orchestrator.setLeader(false)
-      orchestrator.setOnlineState(false)
+      setOnline(orchestrator, false)
       mockManifestSyncManager.sync.mockClear()
 
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
     })
 
     it('triggers manifest sync and starts periodic schedule on leader promotion when online', async () => {
-      const customOrchestrator = new SyncOrchestrator({
+      const customOrchestrator = createOrchestrator({
         accountId: 'account-1',
-        broker: mockBroker,
         poller: mockPoller,
         clientEventHub,
         internalEventHub,
@@ -881,7 +897,7 @@ describe('SyncOrchestrator', () => {
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 5000,
       })
-      customOrchestrator.setOnlineState(true)
+      setOnline(customOrchestrator, true)
       expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
 
       customOrchestrator.setLeader(true)
@@ -894,13 +910,12 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(5000)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(2)
 
-      await customOrchestrator.shutdown()
+      await shutDown(customOrchestrator)
     })
 
     it('periodically runs manifest sync at configured interval', async () => {
-      const customOrchestrator = new SyncOrchestrator({
+      const customOrchestrator = createOrchestrator({
         accountId: 'account-1',
-        broker: mockBroker,
         poller: mockPoller,
         clientEventHub,
         internalEventHub,
@@ -910,7 +925,7 @@ describe('SyncOrchestrator', () => {
       })
 
       customOrchestrator.setLeader(true)
-      customOrchestrator.setOnlineState(true)
+      setOnline(customOrchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
@@ -921,13 +936,12 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(10000)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(3)
 
-      await customOrchestrator.shutdown()
+      await shutDown(customOrchestrator)
     })
 
     it('stops periodic manifest sync when going offline', async () => {
-      const customOrchestrator = new SyncOrchestrator({
+      const customOrchestrator = createOrchestrator({
         accountId: 'account-1',
-        broker: mockBroker,
         poller: mockPoller,
         clientEventHub,
         internalEventHub,
@@ -937,24 +951,23 @@ describe('SyncOrchestrator', () => {
       })
 
       customOrchestrator.setLeader(true)
-      customOrchestrator.setOnlineState(true)
+      setOnline(customOrchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
 
       // Go offline
-      customOrchestrator.setOnlineState(false)
+      setOnline(customOrchestrator, false)
 
       // Advance time while offline - should NOT trigger manifest sync
       await vi.advanceTimersByTimeAsync(15000)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
 
-      await customOrchestrator.shutdown()
+      await shutDown(customOrchestrator)
     })
 
     it('stops periodic manifest sync when losing leadership', async () => {
-      const customOrchestrator = new SyncOrchestrator({
+      const customOrchestrator = createOrchestrator({
         accountId: 'account-1',
-        broker: mockBroker,
         poller: mockPoller,
         clientEventHub,
         internalEventHub,
@@ -964,7 +977,7 @@ describe('SyncOrchestrator', () => {
       })
 
       customOrchestrator.setLeader(true)
-      customOrchestrator.setOnlineState(true)
+      setOnline(customOrchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
 
@@ -975,7 +988,7 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(15000)
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
 
-      await customOrchestrator.shutdown()
+      await shutDown(customOrchestrator)
     })
 
     it('shutdown stops periodic schedule and awaits in-flight manifest sync', async () => {
@@ -985,13 +998,13 @@ describe('SyncOrchestrator', () => {
       )
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
 
       let shutdownFinished = false
-      const shutdownPromise = orchestrator.shutdown().then(() => {
+      const shutdownPromise = shutDown(orchestrator).then(() => {
         shutdownFinished = true
       })
 
@@ -1014,12 +1027,12 @@ describe('SyncOrchestrator', () => {
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
 
       // Rapidly toggle online/offline multiple times while sync is in flight
-      orchestrator.setOnlineState(false)
-      orchestrator.setOnlineState(true)
-      orchestrator.setOnlineState(false)
-      orchestrator.setOnlineState(true)
-      orchestrator.setOnlineState(false)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, false)
+      setOnline(orchestrator, true)
+      setOnline(orchestrator, false)
+      setOnline(orchestrator, true)
+      setOnline(orchestrator, false)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       // Must NOT have spawned additional concurrent manifest syncs
@@ -1030,8 +1043,8 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       // Now that the active sync has resolved, a subsequent reconnection can trigger a new sync
-      orchestrator.setOnlineState(false)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, false)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(2)
@@ -1044,7 +1057,7 @@ describe('SyncOrchestrator', () => {
       )
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
 
       const p1 = orchestrator.triggerManifestSync()
       const p2 = orchestrator.triggerManifestSync()
@@ -1076,13 +1089,13 @@ describe('SyncOrchestrator', () => {
       orchestrator.setLeader(true)
       expect(orchestrator.isOperational).toBe(true)
 
-      orchestrator.setOnlineState(false)
+      setOnline(orchestrator, false)
       expect(orchestrator.isOperational).toBe(false)
 
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       expect(orchestrator.isOperational).toBe(true)
 
-      await orchestrator.shutdown()
+      await shutDown(orchestrator)
       expect(orchestrator.isOperational).toBe(false)
     })
 
@@ -1095,7 +1108,7 @@ describe('SyncOrchestrator', () => {
       })
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -1125,14 +1138,14 @@ describe('SyncOrchestrator', () => {
       })
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
       expect(orchestrator.isPolling).toBe(true)
 
       // Go offline while poll is in-flight
-      orchestrator.setOnlineState(false)
+      setOnline(orchestrator, false)
 
       expect(capturedSignal?.aborted).toBe(true)
 
@@ -1154,7 +1167,7 @@ describe('SyncOrchestrator', () => {
       })
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
@@ -1175,13 +1188,13 @@ describe('SyncOrchestrator', () => {
       })
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
       expect(capturedSignal?.aborted).toBe(false)
 
-      orchestrator.setOnlineState(false)
+      setOnline(orchestrator, false)
 
       expect(capturedSignal?.aborted).toBe(true)
       expect(mockManifestSyncManager.abort).toHaveBeenCalledTimes(1)
@@ -1196,7 +1209,7 @@ describe('SyncOrchestrator', () => {
       mockPoller.executePoll.mockRejectedValueOnce(new Error('Network error'))
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -1222,7 +1235,7 @@ describe('SyncOrchestrator', () => {
       mockPoller.executePoll.mockRejectedValueOnce({ status: 401, message: 'Unauthorized' })
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -1247,7 +1260,7 @@ describe('SyncOrchestrator', () => {
       mockPoller.executePoll.mockRejectedValueOnce(abortError)
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -1266,7 +1279,7 @@ describe('SyncOrchestrator', () => {
       })
 
       orchestrator.setLeader(true)
-      orchestrator.setOnlineState(true)
+      setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)

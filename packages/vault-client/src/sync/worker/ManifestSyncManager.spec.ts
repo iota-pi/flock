@@ -65,7 +65,7 @@ describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager
   let storeItemsSpy: any
   let migrateLegacySettingsSpy: any
-  let depsObj: { accountId: string | null; docStore: any; indexManager: any; snapshotManager: any }
+  let depsObj: { accountId: string; docStore: any; indexManager: any; snapshotManager: any }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -134,14 +134,6 @@ describe('ManifestSyncManager', () => {
   })
 
   describe('gating & lifecycle', () => {
-    it('returns early if accountId is null', async () => {
-      depsObj.accountId = null
-
-      const result = await manifestSyncManager.sync()
-
-      expect(result).toEqual({ added: [], success: false })
-      expect(mockListAutomergeItemIds).not.toHaveBeenCalled()
-    })
 
     it('skips sync if known items exist and last sync was within 24 hours', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])

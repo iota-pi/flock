@@ -9,6 +9,7 @@ import { packBatchedMessages } from '../utils/binaryFraming'
 import { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 import { createMockKeyProvider, createMockVault, createTestDocStore, mockLocalForage } from '../__test__/testUtils'
+import { SyncSessionState } from '../SyncSessionState'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string; archived: boolean; time: number }> }
 
@@ -50,8 +51,14 @@ describe('Document Hydration Race Condition (C4)', () => {
     docStore = createTestDocStore(repo)
     cursorStore = new CursorStore('test-account')
     eventHub = new WorkerInternalEventHub()
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, eventHub)
-    await pullQueueManager.setAccount('test-account')
+    pullQueueManager = new SyncPullQueueManager({
+      cursorStore,
+      keys,
+      lockCoordinator: docStore,
+      internalEventHub: eventHub,
+      session: new SyncSessionState(),
+    })
+    await pullQueueManager.loadCursors()
     mockDecryptBytes.mockReset()
     mockDecryptBytes.mockImplementation(async (entry: any) => entry._rawBytes ?? new Uint8Array())
   })

@@ -7,6 +7,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import type { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
+import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotTracker')
 
@@ -15,7 +16,8 @@ export interface SnapshotTrackerOptions {
   recoveryManager: RecoveryManager
   debounceDelayMs?: number
   maxWaitMs?: number
-  isLeader?: boolean
+  /** Only the leader uploads snapshots, and only while online */
+  session: SyncSessionState
   onTriggerPush?: () => void
   isRetryActive?: () => boolean
 }
@@ -27,9 +29,7 @@ export interface SnapshotTrackerOptions {
 type TrackedTimestamps = Partial<ItemSyncTimestamps>
 
 export class SnapshotTracker {
-  private shutDown = false
-  private isLeader = false
-  private isOnline = true
+  private readonly session: SyncSessionState
   public readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private readonly timestampsByItemId = new Map<ItemId, TrackedTimestamps>()
@@ -61,13 +61,13 @@ export class SnapshotTracker {
     this.recoveryManager = options.recoveryManager
     this.debounceDelayMs = options.debounceDelayMs ?? 30_000
     this.maxWaitMs = options.maxWaitMs ?? 5 * 60 * 1000
-    this.isLeader = options.isLeader ?? false
+    this.session = options.session
     this.onTriggerPush = options.onTriggerPush
     this.isRetryActive = options.isRetryActive
   }
 
   get isShutdown(): boolean {
-    return this.shutDown
+    return this.session.isShutdown
   }
 
   get debounceTimer(): ReturnType<typeof setTimeout> | null {
@@ -79,20 +79,13 @@ export class SnapshotTracker {
   }
 
   get isOperational(): boolean {
-    return !this.shutDown && this.isLeader && this.isOnline
+    return this.session.isOperational
   }
 
-  get leader(): boolean {
-    return this.isLeader
-  }
-
-  setLeader(isLeader: boolean): void {
-    if (this.shutDown || this.isLeader === isLeader) {
-      return
-    }
-    this.isLeader = isLeader
-
-    if (isLeader) {
+  /** Schedules the pending uploads when this tab becomes the leader, and cancels them when it stops being one */
+  onLeaderChange(): void {
+    if (this.session.isShutdown) return
+    if (this.session.isLeader) {
       if (this.dirtyItems.size > 0) {
         this.scheduleDebouncedSnapshotPush()
       }
@@ -101,12 +94,8 @@ export class SnapshotTracker {
     }
   }
 
-  setOnline(isOnline: boolean): void {
-    this.isOnline = isOnline
-  }
-
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
-    if (this.shutDown || !itemId) return
+    if (this.session.isShutdown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.timestamps(itemId).localModifiedAt = Date.now()
@@ -176,15 +165,15 @@ export class SnapshotTracker {
 
   /** Loads the stored timestamps and the items quarantined as oversized */
   async loadLastModified(): Promise<void> {
-    if (this.shutDown) return
+    if (this.session.isShutdown) return
     return this.loadGuard.run(() => this.executeLoadLastModified())
   }
 
   private async executeLoadLastModified(): Promise<void> {
     try {
-      checkAlive(null, () => !this.shutDown)
+      checkAlive(null, () => !this.session.isShutdown)
       const stored = await this.lastModifiedStore.loadTimestamps()
-      checkAlive(null, () => !this.shutDown)
+      checkAlive(null, () => !this.session.isShutdown)
 
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
@@ -202,7 +191,7 @@ export class SnapshotTracker {
       const quarantinedIds = new Set<ItemId>()
       try {
         const recoveryEntries = await this.recoveryManager.listRecoveryItems()
-        checkAlive(null, () => !this.shutDown)
+        checkAlive(null, () => !this.session.isShutdown)
         for (const entry of recoveryEntries) {
           quarantinedIds.add(entry.itemId)
           if (entry.kind === 'oversized') {
@@ -214,7 +203,7 @@ export class SnapshotTracker {
         log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
       }
 
-      checkAlive(null, () => !this.shutDown)
+      checkAlive(null, () => !this.session.isShutdown)
 
       // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
       let auditCount = 0
@@ -233,7 +222,7 @@ export class SnapshotTracker {
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
-      if (isAbortError(error) || this.shutDown) return
+      if (isAbortError(error) || this.session.isShutdown) return
       log.error('Failed to load lastModified timestamps', error)
     }
   }
@@ -305,7 +294,7 @@ export class SnapshotTracker {
   }
 
   deleteDirtyItem(itemId: ItemId): boolean {
-    if (this.shutDown || !itemId) return false
+    if (this.session.isShutdown || !itemId) return false
     const deleted = this.dirtyItems.delete(itemId)
     const entry = this.timestampsByItemId.get(itemId)
     if (entry?.localModifiedAt !== undefined && entry.localModifiedAt > (entry.lastSnapshotAt ?? 0)) {
@@ -382,11 +371,8 @@ export class SnapshotTracker {
     this.loadGuard.clear()
   }
 
+  /** Saves the timestamps, unless local data is being cleared. Called once, by the context's lifecycle. */
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    if (this.shutDown) return
-    this.shutDown = true
-    this.isLeader = false
-
     await this.loadGuard.waitForRunning()
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()

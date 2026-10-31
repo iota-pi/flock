@@ -6,7 +6,7 @@ import { generateItemId, settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
 import { applyItemUpdatesToDraft } from './utils/crdtReconcile'
-import { publishRealtimeBusSyncPing } from './realtimeBus'
+import type { RealtimeBus } from './realtimeBus'
 import type { RecoveryManager } from './RecoveryManager'
 import { KeyedSingleFlightGuard } from '../utils/SingleFlightGuard'
 import { createLogger } from '../utils/logger'
@@ -21,6 +21,8 @@ export interface ItemOperationsDeps {
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
   recoveryManager: RecoveryManager
+  /** Tells the account's other tabs which items changed */
+  bus?: RealtimeBus
   hooks?: SyncDomainHooks
 }
 
@@ -130,7 +132,7 @@ export class ItemOperations {
     }
     await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
     this.deps.markDocumentDirty(item.id)
-    publishRealtimeBusSyncPing(this.deps.accountId, [item.id])
+    this.deps.bus?.publishSyncPing([item.id])
   }
 
   async createItem(item: VaultDoc): Promise<void> {
@@ -179,7 +181,7 @@ export class ItemOperations {
 
     if (succeededActiveIds.length > 0) {
       await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededActiveIds)
-      publishRealtimeBusSyncPing(this.deps.accountId, succeededActiveIds)
+      this.deps.bus?.publishSyncPing(succeededActiveIds)
     }
 
     for (const item of failedItems) {
@@ -189,7 +191,7 @@ export class ItemOperations {
 
   /** The settings document has a fixed ID, so deleting or recreating it would lose it for good */
   private assertNotSettingsDoc(itemId: ItemId, action: string): void {
-    if (this.deps.accountId && itemId === settingsDocId(this.deps.accountId)) {
+    if (itemId === settingsDocId(this.deps.accountId)) {
       throw new Error(`Cannot ${action} the account settings document.`)
     }
   }
@@ -197,7 +199,6 @@ export class ItemOperations {
   // --- Document-level Recovery Operations ---
 
   async forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
-    if (!this.deps.accountId) return
     const localItem = await this.deps.docStore.getAutomergeItem(itemId)
     if (!localItem) {
       throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
@@ -227,12 +228,11 @@ export class ItemOperations {
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
     this.deps.markDocumentDirty(itemId)
-    publishRealtimeBusSyncPing(this.deps.accountId, [itemId])
+    this.deps.bus?.publishSyncPing([itemId])
     await this.recoveryManager.pushRecoveryItems()
   }
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
-    if (!this.deps.accountId) return
     this.assertNotSettingsDoc(itemId, 'delete')
 
     const markedDeleted = await this.deps.docStore.changeDocument(
@@ -272,9 +272,6 @@ export class ItemOperations {
   }
 
   private async performRecreateOversizedItem(oldItemId: ItemId): Promise<ItemId> {
-    if (!this.deps.accountId) {
-      throw new Error('Account ID is required to recreate oversized item.')
-    }
     this.assertNotSettingsDoc(oldItemId, 'recreate')
     const localItem = await this.deps.docStore.getAutomergeItem(oldItemId)
     if (!localItem) {
@@ -372,7 +369,7 @@ export class ItemOperations {
     await this.recoveryManager.pushRecoveryItems()
 
     // 5. Notify subscribers & ping bus
-    publishRealtimeBusSyncPing(this.deps.accountId, [oldItemId, newItemId])
+    this.deps.bus?.publishSyncPing([oldItemId, newItemId])
     this.deps.eventHub.emit({ type: 'itemUpdated', id: oldItemId, item: null })
     this.deps.eventHub.emit({ type: 'itemUpdated', id: newItemId, item: newItem })
 

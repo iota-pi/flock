@@ -2,6 +2,7 @@ import { AutomergeIndexManager, mergeIndexDocuments } from './AutomergeIndexMana
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import type { ItemId } from '@vault/shared'
+import { RealtimeBus } from '../realtimeBus'
 
 /** Yields to other tasks, so concurrent operations interleave as they would against IndexedDB */
 const storeLatency = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -82,7 +83,7 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should initialize empty snapshot if store is empty', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
     const snapshot = await manager.getIndexSnapshot()
 
     expect(snapshot).toEqual({
@@ -94,7 +95,7 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should ensure index document is created', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
     await manager.ensureIndexDocument()
 
     expect(mockStore.saveIndex).toHaveBeenCalledTimes(1)
@@ -104,7 +105,7 @@ describe('AutomergeIndexManager', () => {
 
   it('should add item IDs and call onIndexUpdated callback', async () => {
     const onIndexUpdated = vi.fn()
-    const manager = new AutomergeIndexManager(accountId, indexStore, onIndexUpdated)
+    const manager = new AutomergeIndexManager({ accountId, indexStore, onIndexUpdated: onIndexUpdated })
 
     await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId, 'item-2' as ItemId])
 
@@ -120,7 +121,7 @@ describe('AutomergeIndexManager', () => {
 
   it('should remove item IDs', async () => {
     const onIndexUpdated = vi.fn()
-    const manager = new AutomergeIndexManager(accountId, indexStore, onIndexUpdated)
+    const manager = new AutomergeIndexManager({ accountId, indexStore, onIndexUpdated: onIndexUpdated })
 
     await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId, 'item-2' as ItemId])
 
@@ -133,7 +134,7 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should track tombstone IDs when items are removed and clear them if re-added', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId, 'item-b' as ItemId])
     await manager.removeAutomergeItemIdsFromIndex(['item-a' as ItemId])
@@ -148,7 +149,7 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('leaves tombstoned IDs alone when adding with skipTombstoned', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId])
     await manager.removeAutomergeItemIdsFromIndex(['item-a' as ItemId])
@@ -160,7 +161,7 @@ describe('AutomergeIndexManager', () => {
 
   it('should update metadata and notify listener', async () => {
     const onMetadataUpdated = vi.fn()
-    const manager = new AutomergeIndexManager(accountId, indexStore, undefined, onMetadataUpdated)
+    const manager = new AutomergeIndexManager({ accountId, indexStore, onMetadataUpdated: onMetadataUpdated })
 
     await manager.updateAutomergeMetadata({ prayerGoal: 10 })
     expect(onMetadataUpdated).toHaveBeenCalledWith({ prayerGoal: 10 })
@@ -181,7 +182,7 @@ describe('AutomergeIndexManager', () => {
       mockStore.data = JSON.parse(JSON.stringify(doc))
     })
 
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     // Launch multiple concurrent operations simultaneously
     await Promise.all([
@@ -202,7 +203,7 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should propagate errors to caller and not deadlock the queue for subsequent tasks', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     // First successful write
     await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId])
@@ -223,7 +224,7 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should update manifest sync time', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
     expect(await manager.getLastManifestSyncTime()).toBe(0)
 
     await manager.updateLastManifestSyncTime(987654)
@@ -231,7 +232,7 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('merges a backup index without hiding newer items or reviving deleted ones', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
     await manager.addAutomergeItemIdsToIndex(['local-new' as ItemId, 'deleted-since' as ItemId])
     await manager.removeAutomergeItemIdsFromIndex(['deleted-since' as ItemId])
     await manager.updateAutomergeMetadata({ prayerGoal: 5, localOnly: true })
@@ -261,7 +262,7 @@ describe('AutomergeIndexManager', () => {
       isWriteInProgress = false
     })
 
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     // Start an in-flight write
     const writePromise = manager.addAutomergeItemIdsToIndex(['item-concurrent' as ItemId])
@@ -328,8 +329,8 @@ describe('AutomergeIndexManager', () => {
       })
 
       // Two independent manager instances representing Tab A and Tab B pointing to the same shared IndexStore
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore })
 
       // Tab A creates Item X and Tab B creates Item Y concurrently
       await Promise.all([
@@ -365,8 +366,8 @@ describe('AutomergeIndexManager', () => {
         mockStore.data = JSON.parse(JSON.stringify(doc))
       })
 
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore })
 
       // Tab A adds item-3 while Tab B removes item-1
       await Promise.all([
@@ -400,8 +401,8 @@ describe('AutomergeIndexManager', () => {
         mockStore.data = JSON.parse(JSON.stringify(doc))
       })
 
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore })
 
       // Tab A adds item-2 while Tab B updates metadata
       await Promise.all([
@@ -419,8 +420,10 @@ describe('AutomergeIndexManager', () => {
 
     it('broadcasts index updates to peer tabs via BroadcastChannel', async () => {
       const onIndexUpdatedB = vi.fn()
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore, onIndexUpdatedB)
+      const busA = new RealtimeBus(accountId)
+      const busB = new RealtimeBus(accountId)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore, bus: busA })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore, bus: busB, onIndexUpdated: onIndexUpdatedB })
 
       await managerA.addAutomergeItemIdsToIndex(['item-broadcast-1' as ItemId])
 
@@ -428,12 +431,21 @@ describe('AutomergeIndexManager', () => {
 
       managerA.close()
       managerB.close()
+      busA.close()
+      busB.close()
     })
 
     it('broadcasts metadata updates to peer tabs via BroadcastChannel', async () => {
       const onMetadataUpdatedB = vi.fn()
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore, undefined, onMetadataUpdatedB)
+      const busA = new RealtimeBus(accountId)
+      const busB = new RealtimeBus(accountId)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore, bus: busA })
+      const managerB = new AutomergeIndexManager({
+        accountId,
+        indexStore,
+        bus: busB,
+        onMetadataUpdated: onMetadataUpdatedB,
+      })
 
       await managerA.updateAutomergeMetadata({ prayerGoal: 25 })
 
@@ -441,10 +453,12 @@ describe('AutomergeIndexManager', () => {
 
       managerA.close()
       managerB.close()
+      busA.close()
+      busB.close()
     })
 
     it('handles aborted lock request cleanly and does not deadlock queue', async () => {
-      const manager = new AutomergeIndexManager(accountId, indexStore)
+      const manager = new AutomergeIndexManager({ accountId, indexStore })
 
       // Mock request to throw an abort error once
       const abortError = new Error('Index lock request timed out after 10000ms')
@@ -465,7 +479,7 @@ describe('AutomergeIndexManager', () => {
 
     it('acquires cross-tab Web Lock for getIndexSnapshot and listAutomergeItemIds preventing concurrent reads during remote write (M-6)', async () => {
       const lockRequestSpy = vi.spyOn(mockLockManager, 'request')
-      const manager = new AutomergeIndexManager(accountId, indexStore)
+      const manager = new AutomergeIndexManager({ accountId, indexStore })
 
       await manager.getIndexSnapshot()
 
@@ -489,8 +503,8 @@ describe('AutomergeIndexManager', () => {
 
     it('stops receiving messages after close()', async () => {
       const onIndexUpdatedB = vi.fn()
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore, onIndexUpdatedB)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore, onIndexUpdated: onIndexUpdatedB })
 
       managerB.close()
 

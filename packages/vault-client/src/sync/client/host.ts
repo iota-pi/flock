@@ -10,7 +10,10 @@ export interface SyncStateSink<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   updateItems(updates: Array<{ id: string; item: TDoc | null }>): void
   updateIndex(itemIds: ItemId[]): void
   updateMetadata(metadata: TMeta): void
-  getSyncStatus(): SyncStatus
+  /**
+   * Shows the sync status. While a worker session runs, only its `statusChange` events set it; the
+   * client sets it itself only when no session can report one (starting, stopped or crashed).
+   */
   setSyncStatus(status: SyncStatus): void
   getSyncWarning(): string | null
   setSyncWarning(message: string): void

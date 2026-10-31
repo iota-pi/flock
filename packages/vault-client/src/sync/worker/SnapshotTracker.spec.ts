@@ -2,6 +2,7 @@ import { SnapshotTracker } from './SnapshotTracker'
 import { getTimestamps, setTimestamps } from './__test__/testUtils'
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { LastModifiedStore } from './stores/LastModifiedStore'
+import { SyncSessionState } from './SyncSessionState'
 
 describe('SnapshotTracker', () => {
   let tracker: SnapshotTracker
@@ -25,7 +26,7 @@ describe('SnapshotTracker', () => {
       recoveryManager: mockRecoveryManager,
       debounceDelayMs: 1000,
       maxWaitMs: 5000,
-      isLeader: true,
+      session: new SyncSessionState({ isLeader: true }),
       onTriggerPush: () => onTriggerPush(),
     })
   })
@@ -182,6 +183,7 @@ describe('SnapshotTracker', () => {
     const newTracker = new SnapshotTracker({
       lastModifiedStore: mockStore as unknown as LastModifiedStore,
       recoveryManager: mockRecoveryManager,
+      session: new SyncSessionState(),
     })
 
     await newTracker.importLastModified(exported)
@@ -266,7 +268,7 @@ describe('SnapshotTracker', () => {
       const makeTracker = (isLeader: boolean) => new SnapshotTracker({
         lastModifiedStore: sharedStore,
         recoveryManager: mockRecoveryManager,
-        isLeader,
+        session: new SyncSessionState({ isLeader }),
       })
       const leader = makeTracker(true)
       const follower = makeTracker(false)

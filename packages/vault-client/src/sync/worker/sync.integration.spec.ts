@@ -8,6 +8,7 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { SyncSessionState } from './SyncSessionState'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
 import { AutomergeIndexManager } from './docStore'
@@ -70,6 +71,7 @@ describe('Sync System Integration Test Suite', () => {
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
   let poller: SyncPoller
+  let session: SyncSessionState
 
   beforeEach(async () => {
     mockLocalForage(createLocalForageInstance)
@@ -88,9 +90,17 @@ describe('Sync System Integration Test Suite', () => {
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     cursorStore = new CursorStore(accountId)
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, internalEventHub)
+    // This tab is the online leader
+    session = new SyncSessionState({ isLeader: true })
+    pullQueueManager = new SyncPullQueueManager({
+      cursorStore,
+      keys,
+      lockCoordinator: noItemLocks,
+      internalEventHub,
+      session,
+    })
     wal = new SyncWriteAheadLog(accountId, internalEventHub)
-    adapter = new VaultNetworkAdapter(internalEventHub)
+    adapter = new VaultNetworkAdapter(internalEventHub, { accountId, session })
 
     indexManager = {
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
@@ -99,8 +109,9 @@ describe('Sync System Integration Test Suite', () => {
     } as unknown as AutomergeIndexManager
 
     poller = new SyncPoller({
+      accountId,
+      session,
       pullQueueManager,
-      clientEventHub,
       internalEventHub,
       keys,
       wal,
@@ -112,20 +123,20 @@ describe('Sync System Integration Test Suite', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      poller,
+      session,
       wal,
     })
 
-    adapter.setAccount(accountId)
     adapter.connect('client-peer' as PeerId)
-    broker.setSendEnabled(true)
-    await broker.setAccount(accountId)
-    broker.setOnlineState(true)
+    await pullQueueManager.loadCursors()
   })
 
   afterEach(async () => {
     adapter.disconnect()
-    await broker.shutdown()
+    session.markShutdown()
+    broker.shutdown()
+    poller.shutdown()
+    await pullQueueManager.shutdown()
   })
 
   it('Scenario 1: Client creates item -> WAL append -> push to server succeeds -> sent WAL entries removed', async () => {
@@ -215,7 +226,7 @@ describe('Sync System Integration Test Suite', () => {
   })
 
   it('Scenario 3: Offline edits accumulate in WAL -> Reconnect -> WAL drains completely', async () => {
-    broker.setOnlineState(false)
+    session.setOnline(false)
 
     const item1 = 'item-offline-1' as ItemId
     const item2 = 'item-offline-2' as ItemId
@@ -255,7 +266,7 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [],
     })
 
-    broker.setOnlineState(true)
+    session.setOnline(true)
     const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
 
@@ -281,16 +292,15 @@ describe('Sync System Integration Test Suite', () => {
     })
 
     const newPoller = new SyncPoller({
+      accountId,
+      session,
       pullQueueManager,
-      clientEventHub,
       internalEventHub,
       keys,
       wal: newWal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
     })
-    newPoller.setAccount(accountId)
-    newPoller.setOnlineState(true)
 
     const outcome = await newPoller.executePoll()
     expect(outcome).toBe('success')

@@ -3,6 +3,7 @@ import { ClientEventHub } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import * as storageManager from '../utils/storageManager'
+import { SyncSessionState } from './SyncSessionState'
 
 describe('StorageRecoveryService', () => {
   let clientEventHub: ClientEventHub
@@ -13,6 +14,7 @@ describe('StorageRecoveryService', () => {
   let mockBroker: any
   let mockAdapter: any
   let mockOrchestrator: any
+  let session: SyncSessionState
   let service: StorageRecoveryService
 
   beforeEach(() => {
@@ -39,13 +41,14 @@ describe('StorageRecoveryService', () => {
       resetReNegotiationCircuit: vi.fn(),
       triggerReNegotiation: vi.fn(),
     }
+    session = new SyncSessionState()
     mockOrchestrator = {
-      online: true,
       flush: vi.fn(),
     }
 
     service = new StorageRecoveryService({
       accountId: 'test-account',
+      session,
       clientEventHub,
       wal: mockWal,
       docStore: mockDocStore,
@@ -255,7 +258,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('does not flush snapshots if orchestrator is offline', async () => {
-      mockOrchestrator.online = false
+      session.setOnline(false)
 
       const result = await service.retrySave()
 

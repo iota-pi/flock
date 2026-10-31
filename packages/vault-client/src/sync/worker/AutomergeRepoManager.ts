@@ -7,6 +7,7 @@ import { isQuotaError } from '../utils/storageQuota'
 import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { KeyProvider } from '../../api/Keyring'
+import type { RealtimeBus } from './realtimeBus'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('AutomergeRepoManager')
@@ -61,6 +62,8 @@ export interface AutomergeRepoManagerOptions {
   onKeyVersionMissing?: (kver: string) => void
   onDocumentReceived?: (documentId: DocumentId) => void
   onQuotaError?: (error: unknown) => void
+  /** Tells the account's other tabs which items this tab sent them */
+  bus?: RealtimeBus
 }
 
 export class AutomergeRepoManager {
@@ -89,7 +92,7 @@ export class AutomergeRepoManager {
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       channelName: `${getVaultStorageNames().accountPrefixes.automergeBroadcastChannel}${this.accountId}`,
-      accountId: this.accountId,
+      bus: options?.bus,
       keys: this.keys,
       onKeyVersionMissing: options?.onKeyVersionMissing,
       onDocumentReceived: options?.onDocumentReceived,

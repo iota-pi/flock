@@ -1,13 +1,24 @@
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import * as syncMetadataStorage from './stores/syncMetadataStorage'
 import { SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
+import { SyncSessionState } from './SyncSessionState'
 
 const storage = new Map<string, unknown>()
+const sessions = new WeakMap<SnapshotFormatUpgrade, SyncSessionState>()
+
+/** Changes the upgrade's session leadership and tells it, as the context does */
+function setLeader(upgrade: SnapshotFormatUpgrade, isLeader: boolean): void {
+  sessions.get(upgrade)!.setLeader(isLeader)
+  upgrade.onLeaderChange()
+}
+
 function createUpgrade(result: { failed: unknown[] } = { failed: [] }) {
   const rewriteSnapshots = vi.fn<(signal: AbortSignal) => Promise<{ failed: unknown[] }>>()
     .mockResolvedValue(result)
   const onUpgraded = vi.fn()
-  const upgrade = new SnapshotFormatUpgrade({ accountId: 'acct', rewriteSnapshots, onUpgraded })
+  const session = new SyncSessionState()
+  const upgrade = new SnapshotFormatUpgrade({ accountId: 'acct', session, rewriteSnapshots, onUpgraded })
+  sessions.set(upgrade, session)
   return { upgrade, rewriteSnapshots, onUpgraded }
 }
 
@@ -31,7 +42,7 @@ describe('SnapshotFormatUpgrade', () => {
 
     upgrade.onSyncedWithoutFailures()
     expect(rewriteSnapshots).not.toHaveBeenCalled()
-    upgrade.onLeaderChange(true)
+    setLeader(upgrade, true)
 
     await vi.waitFor(() => expect(onUpgraded).toHaveBeenCalledTimes(1))
     expect(storage.get(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND)).toBe(true)
@@ -41,7 +52,7 @@ describe('SnapshotFormatUpgrade', () => {
   it('waits for a sync without failures when leadership comes first', async () => {
     const { upgrade, rewriteSnapshots } = createUpgrade()
 
-    upgrade.onLeaderChange(true)
+    setLeader(upgrade, true)
     await Promise.resolve()
     expect(rewriteSnapshots).not.toHaveBeenCalled()
     upgrade.onSyncedWithoutFailures()
@@ -52,8 +63,8 @@ describe('SnapshotFormatUpgrade', () => {
   it('does not start in a tab that lost leadership', async () => {
     const { upgrade, rewriteSnapshots } = createUpgrade()
 
-    upgrade.onLeaderChange(true)
-    upgrade.onLeaderChange(false)
+    setLeader(upgrade, true)
+    setLeader(upgrade, false)
     upgrade.onSyncedWithoutFailures()
     await Promise.resolve()
 
@@ -65,7 +76,7 @@ describe('SnapshotFormatUpgrade', () => {
     const { upgrade, rewriteSnapshots, onUpgraded } = createUpgrade()
 
     upgrade.onSyncedWithoutFailures()
-    upgrade.onLeaderChange(true)
+    setLeader(upgrade, true)
 
     await vi.waitFor(() => expect(onUpgraded).toHaveBeenCalledTimes(1))
     expect(rewriteSnapshots).not.toHaveBeenCalled()
@@ -75,10 +86,10 @@ describe('SnapshotFormatUpgrade', () => {
     const { upgrade, rewriteSnapshots } = createUpgrade()
 
     upgrade.onSyncedWithoutFailures()
-    upgrade.onLeaderChange(true)
+    setLeader(upgrade, true)
     upgrade.onSyncedWithoutFailures()
-    upgrade.onLeaderChange(false)
-    upgrade.onLeaderChange(true)
+    setLeader(upgrade, false)
+    setLeader(upgrade, true)
 
     await vi.waitFor(() => expect(storage.get(SYNC_METADATA_KEYS.SNAPSHOTS_DOC_BOUND)).toBe(true))
     expect(rewriteSnapshots).toHaveBeenCalledTimes(1)
@@ -89,7 +100,7 @@ describe('SnapshotFormatUpgrade', () => {
     const { upgrade, rewriteSnapshots, onUpgraded } = createUpgrade({ failed: [{ itemId: 'item-1', error: 'boom' }] })
 
     upgrade.onSyncedWithoutFailures()
-    upgrade.onLeaderChange(true)
+    setLeader(upgrade, true)
     await vi.waitFor(() => expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('1 snapshots were not rewritten')))
     upgrade.onSyncedWithoutFailures()
 
@@ -99,7 +110,7 @@ describe('SnapshotFormatUpgrade', () => {
 
     const next = createUpgrade()
     next.upgrade.onSyncedWithoutFailures()
-    next.upgrade.onLeaderChange(true)
+    setLeader(next.upgrade, true)
     await vi.waitFor(() => expect(next.rewriteSnapshots).toHaveBeenCalledTimes(1))
     warnSpy.mockRestore()
   })
@@ -112,7 +123,7 @@ describe('SnapshotFormatUpgrade', () => {
     }))
 
     upgrade.onSyncedWithoutFailures()
-    upgrade.onLeaderChange(true)
+    setLeader(upgrade, true)
     await vi.waitFor(() => expect(rewriteSnapshots).toHaveBeenCalled())
     upgrade.stop()
     expect(rewriteSnapshots.mock.calls[0][0].aborted).toBe(true)

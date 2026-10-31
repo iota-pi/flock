@@ -3,6 +3,7 @@ import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
+import { SyncSessionState } from './SyncSessionState'
 import * as automerge from './utils/automerge'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from './SyncApiClient'
@@ -14,6 +15,7 @@ import { packBatchedMessages } from './utils/binaryFraming'
 
 import {
   MockLocalforage,
+  createFakeRealtimeBus,
   createMockLocalForage,
   createMockKeyProvider,
   createMockVault,
@@ -23,7 +25,6 @@ import {
 import { spyOnExports } from '../../../test/moduleMocks'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 import { WorkerInternalEventHub } from './SyncEventHub'
-import * as realtimeBusModule from './realtimeBus'
 import * as storageManagerModule from '../utils/storageManager'
 
 // Mock localforage
@@ -42,7 +43,8 @@ const {
   waitForKeyVersion: mockWaitForKeyVersion,
 } = mockVault
 
-const mockPublishRealtimeBusSyncPing = vi.fn()
+const realtimeBus = createFakeRealtimeBus()
+const mockPublishRealtimeBusSyncPing = realtimeBus.publishSyncPing
 const mockReportQuotaExceeded = vi.fn()
 const realToAutomergeUrlFromItemId = automerge.toAutomergeUrlFromItemId
 
@@ -61,9 +63,6 @@ function batchProgressItemCount(manager: SyncPullQueueManager): number {
 }
 
 beforeEach(() => {
-  spyOnExports(realtimeBusModule, {
-    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-  })
   spyOnExports(storageManagerModule, {
     runStorageOperation: vi.fn(async (op: any) => {
       try {
@@ -109,6 +108,7 @@ describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
   let eventHub: WorkerInternalEventHub
   let cursorStore: CursorStore
+  let session: SyncSessionState
   let onKeyVersionMissing: ReturnType<typeof vi.fn<(kver: string) => void>>
 
   beforeEach(() => {
@@ -120,7 +120,16 @@ describe('SyncPullQueueManager', () => {
     cursorStore = new CursorStore('account-1')
     eventHub = new WorkerInternalEventHub()
     onKeyVersionMissing = vi.fn<(kver: string) => void>()
-    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub, onKeyVersionMissing)
+    session = new SyncSessionState()
+    manager = new SyncPullQueueManager({
+      cursorStore,
+      keys,
+      lockCoordinator: noItemLocks,
+      internalEventHub: eventHub,
+      session,
+      bus: realtimeBus.bus,
+      onKeyVersionMissing,
+    })
 
     // Default mock behavior
     mockVault.reset()
@@ -131,19 +140,11 @@ describe('SyncPullQueueManager', () => {
     vi.useRealTimers()
   })
 
-  describe('setAccount', () => {
-    it('sets the account and loads cursors if set', async () => {
-      await manager.setAccount('account-1')
+  describe('loading cursors', () => {
+    it('reads the stored cursors', async () => {
+      await manager.loadCursors()
       expect(activeStore).not.toBeNull()
       expect(activeStore?.getItem).toHaveBeenCalledWith(SYNC_METADATA_KEYS.CURSORS)
-    })
-
-    it('clears maps and ignores store loading if account is null', async () => {
-      activeStore = null
-      manager.addPendingItem('item-1' as ItemId)
-      await manager.setAccount(null)
-      expect(hasPendingPulls(manager)).toBe(false)
-      expect(activeStore).toBeNull()
     })
 
     it('loads previously stored cursors successfully', async () => {
@@ -156,8 +157,8 @@ describe('SyncPullQueueManager', () => {
 
       cursorStore = new CursorStore('account-2')
       eventHub = new WorkerInternalEventHub()
-      manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub)
-      await manager.setAccount('account-2')
+      manager = new SyncPullQueueManager({ cursorStore, keys, lockCoordinator: noItemLocks, internalEventHub: eventHub, session })
+      await manager.loadCursors()
       expect(manager.exportCursors()).toEqual(preLoadedCursors)
     })
   })
@@ -178,7 +179,7 @@ describe('SyncPullQueueManager', () => {
 
   describe('getAllCursors', () => {
     it('includes cursors only for pending items', async () => {
-      await manager.setAccount('account-1')
+      await manager.loadCursors()
 
       // Add multiple cursors to internal state
       await manager.importCursors([
@@ -203,7 +204,7 @@ describe('SyncPullQueueManager', () => {
 
   describe('processPullResults', () => {
     beforeEach(async () => {
-      await manager.setAccount('account-1')
+      await manager.loadCursors()
     })
 
     it('parses a single message', async () => {
@@ -244,7 +245,7 @@ describe('SyncPullQueueManager', () => {
       )
 
       expect(manager.exportCursors()).toContainEqual(['item-1', 5])
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-1'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
       // Decrypted as the item the message is applied to
       expect(mockDecryptBytes).toHaveBeenCalledWith({ iv: 'iv-1', cipher: 'abc', kver: '1' }, 'item-1')
 
@@ -481,8 +482,14 @@ describe('SyncPullQueueManager', () => {
       )
       await manager.persistCursors()
 
-      const restarted = new SyncPullQueueManager(cursorStore, keys, noItemLocks, new WorkerInternalEventHub())
-      await restarted.setAccount('account-1')
+      const restarted = new SyncPullQueueManager({
+        cursorStore,
+        keys,
+        lockCoordinator: noItemLocks,
+        internalEventHub: new WorkerInternalEventHub(),
+        session: new SyncSessionState(),
+      })
+      await restarted.loadCursors()
 
       expect(restarted.getGlobalPageToken()).toBeUndefined()
       expect(restarted.getGlobalScanCursor()).toBe(100)
@@ -807,52 +814,6 @@ describe('SyncPullQueueManager', () => {
         await processItemResults(manager, failResults)
         expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
       }
-    })
-
-    it('clears retry counter on shutdown and setAccount', async () => {
-      const mockOnDecryptionFailure = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
-      })
-      mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
-
-      const failResults: PullSyncMessagesResponse[] = [
-        {
-          success: true,
-          itemId: 'item-clear' as ItemId,
-          hasMore: false,
-          nextCursor: 20,
-          messages: [
-            {
-              cursor: 10,
-              createdAt: 0,
-              encryptedMessage: {
-                iv: 'iv-fail',
-                cipher: 'abc',
-              },
-            },
-          ],
-        },
-      ]
-
-      // Fail 4 times on account-1
-      for (let attempt = 1; attempt <= 4; attempt++) {
-        await processItemResults(manager, failResults)
-      }
-
-      // Switch account resets retry counts
-      await manager.setAccount('account-new')
-      expect(hasPendingPulls(manager)).toBe(false)
-
-      // 1 failure should not trigger max retry (5)
-      await processItemResults(manager, failResults)
-      expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
-
-      // Shutdown also clears
-      await manager.shutdown()
-      await manager.setAccount('account-new')
-      await processItemResults(manager, failResults)
-      expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
     })
 
     it('skips processing already seen messages (overlap window dedup)', async () => {
@@ -1570,7 +1531,7 @@ describe('SyncPullQueueManager', () => {
 
   describe('persistCursors and shutdown', () => {
     beforeEach(async () => {
-      await manager.setAccount('account-quota')
+      await manager.loadCursors()
     })
 
     /** Moves the global scan, and one item, to `cursor` */
@@ -1611,23 +1572,18 @@ describe('SyncPullQueueManager', () => {
       expect(activeStore?.setItem).not.toHaveBeenCalled()
     })
 
-    it('is idempotent on multiple shutdown calls and does not wipe out data on second call', async () => {
+    it("doesn't save cursors from a pull that finishes after the session shut down", async () => {
       await scanThrough(500)
       activeStore!.setItem.mockClear()
 
-      await manager.shutdown()
-      expect(activeStore?.setItem).toHaveBeenCalledTimes(1)
-      expect(activeStore?.setItem).toHaveBeenCalledWith(
-        SYNC_METADATA_KEYS.CURSORS,
-        expect.objectContaining({ globalCursor: 500 })
-      )
+      session.markShutdown()
+      await vi.advanceTimersByTimeAsync(2000)
 
-      activeStore!.setItem.mockClear()
-      await manager.shutdown()
       expect(activeStore?.setItem).not.toHaveBeenCalled()
     })
 
     it('ignores pull and push results after shutdown', async () => {
+      session.markShutdown()
       await manager.shutdown()
       activeStore!.setItem.mockClear()
 
@@ -1640,7 +1596,7 @@ describe('SyncPullQueueManager', () => {
 
   describe('importCursors', () => {
     it('stores imported cursors to cursorStore', async () => {
-      await manager.setAccount('account-import')
+      await manager.loadCursors()
       const imported: [ItemId, number][] = [['item-abc' as ItemId, 77]]
 
       await manager.importCursors(imported)
@@ -1649,7 +1605,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('does not move the global scan past messages for other items', async () => {
-      await manager.setAccount('account-import')
+      await manager.loadCursors()
       const parsedSpy = vi.fn()
       eventHub.subscribe(e => {
         if (e.type === 'messageParsed') parsedSpy(e.itemId)
@@ -1692,7 +1648,7 @@ describe('SyncPullQueueManager', () => {
     let parsedSpy: Mock
 
     beforeEach(async () => {
-      await manager.setAccount('account-1')
+      await manager.loadCursors()
       remoteSpy = vi.fn()
       parsedSpy = vi.fn()
       eventHub.subscribe(e => {
@@ -1746,20 +1702,11 @@ describe('SyncPullQueueManager', () => {
       await processItemResults(manager, [makeResult([10])])
       expect(remoteSpy).toHaveBeenCalledTimes(1)
     })
-
-    it('clears recorded own pushes on setAccount', async () => {
-      manager.recordOwnPushedMessage('item-1' as ItemId, 10)
-      await manager.setAccount('account-1')
-
-      await processItemResults(manager, [makeResult([10])])
-
-      expect(remoteSpy).toHaveBeenCalledTimes(1)
-    })
   })
 
   describe('loadCursors', () => {
     it('loads updated cursors from CursorStore when in-memory cursors are stale', async () => {
-      await manager.setAccount('account-reload')
+      await manager.loadCursors()
 
       // Initial in-memory state: item-1 at cursor 10
       await manager.importCursors([['item-1' as ItemId, 10]])
@@ -1785,7 +1732,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('does not regress in-memory cursors if in-memory is higher than stored', async () => {
-      await manager.setAccount('account-reload-monotonic')
+      await manager.loadCursors()
 
       await manager.importCursors([['item-1' as ItemId, 50]])
 
@@ -1800,7 +1747,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('preserves pending status when reloading cursors', async () => {
-      await manager.setAccount('account-reload-pending')
+      await manager.loadCursors()
 
       manager.addPendingItem('item-pending' as ItemId)
       expect(hasPendingPulls(manager)).toBe(true)
@@ -1814,8 +1761,9 @@ describe('SyncPullQueueManager', () => {
       expect(manager.getCursors()).toEqual([{ itemId: 'item-pending', cursor: 42 }])
     })
 
-    it('ignores reload if manager is shutdown or account is null', async () => {
-      await manager.setAccount('account-reload-shutdown')
+    it('ignores reload once the session has shut down', async () => {
+      await manager.loadCursors()
+      session.markShutdown()
       await manager.shutdown()
 
       activeStore?.getItem.mockResolvedValueOnce([['item-1', 999]])
@@ -1827,7 +1775,7 @@ describe('SyncPullQueueManager', () => {
 
   describe('Missing Key Version Handling', () => {
     it('pauses inline and decrypts when missing key version arrives within timeout', async () => {
-      await manager.setAccount('account-key-test')
+      await manager.loadCursors()
 
       // Initially key '2' is not in keyring
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
@@ -1870,7 +1818,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('does not advance cursor, mark seen, or burn retries when key version times out', async () => {
-      await manager.setAccount('account-key-timeout')
+      await manager.loadCursors()
       const onDecryptionFailureSpy = vi.fn()
       eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') onDecryptionFailureSpy(e.itemId, e.error)
@@ -1917,7 +1865,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('unblocks items and triggers onPendingPullsAvailable when onKeyringUpdated is called after key arrives', async () => {
-      await manager.setAccount('account-key-unblock')
+      await manager.loadCursors()
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
       mockWaitForKeyVersion.mockResolvedValue(false)
 
@@ -1954,7 +1902,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('deduplicates waitForKeyVersion timeouts across items in the same batch', async () => {
-      await manager.setAccount('account-batch-dedup')
+      await manager.loadCursors()
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
       mockWaitForKeyVersion.mockResolvedValue(false)
 
@@ -2003,7 +1951,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('rethrows error when batch-level error occurs, enabling callers to handle failure', async () => {
-      await manager.setAccount('test-account')
+      await manager.loadCursors()
       const err = new Error('Fatal batch iteration error')
       const throwingResults = {
         [Symbol.iterator]() {
@@ -2015,7 +1963,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('rethrows error and executes finally block when saveCursorsDebounced throws', async () => {
-      await manager.setAccount('test-account')
+      await manager.loadCursors()
       mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const emitSpy = vi.spyOn(eventHub, 'emit')
@@ -2049,7 +1997,7 @@ describe('SyncPullQueueManager', () => {
 
   describe('batchProgress cleanup on cursor advancement and retry (M-5)', () => {
     it('cleans up batchProgress when an item fails 1-4 times and then cursor advances without permanent failure', async () => {
-      await manager.setAccount('account-m5')
+      await manager.loadCursors()
       const itemId = 'item-m5-advance' as ItemId
 
       const failMessage2 = true
@@ -2121,7 +2069,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('cleans up batchProgress when importCursors advances cursor past pending batch progress', async () => {
-      await manager.setAccount('account-m5-import')
+      await manager.loadCursors()
       const itemId = 'item-m5-import' as ItemId
 
       eventHub.subscribe(e => {
@@ -2175,7 +2123,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('cleans up batchProgress when a message cursor <= initialCursor is skipped', async () => {
-      await manager.setAccount('account-m5-skip')
+      await manager.loadCursors()
       const itemId = 'item-m5-skip' as ItemId
 
       // Inject partial batch progress directly for cursor 5

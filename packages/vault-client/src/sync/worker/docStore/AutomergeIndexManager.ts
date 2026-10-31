@@ -4,17 +4,9 @@ import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import { AsyncMutex } from '../../utils/AsyncMutex'
 import { getVaultStorageNames } from '../../shared/storageNames'
-import { createLogger } from '../../utils/logger'
 import { withTimeout } from '../../utils/abort'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
-
-const log = createLogger('AutomergeIndexManager')
-
-interface IndexBroadcastMessage {
-  type: 'indexUpdated' | 'metadataUpdated'
-  itemIds?: ItemId[]
-  metadata?: VaultMetadata
-}
+import type { RealtimeBus } from '../realtimeBus'
 
 export interface MergeIndexOptions {
   /** Tombstones from either side win, rather than only the incoming ones for items not live locally */
@@ -58,40 +50,41 @@ export function mergeIndexDocuments(
   }
 }
 
+export interface AutomergeIndexManagerOptions {
+  accountId: string
+  indexStore: IndexStore
+  /** Tells the account's other tabs about index and metadata changes, and hears theirs */
+  bus?: RealtimeBus
+  onIndexUpdated?: (itemIds: ItemId[]) => void
+  onMetadataUpdated?: (metadata: VaultMetadata) => void
+}
+
 export class AutomergeIndexManager {
   private mutex = new AsyncMutex()
-  private broadcastChannel: BroadcastChannel | null = null
   private lastEmittedItemIds: string[] | null = null
   private isClosed = false
+  private readonly accountId: string
+  public readonly indexStore: IndexStore
+  private readonly bus: RealtimeBus | null
+  private readonly onIndexUpdated?: (itemIds: ItemId[]) => void
+  private readonly onMetadataUpdated?: (metadata: VaultMetadata) => void
+  private readonly unsubscribers: Array<() => void> = []
 
-  constructor(
-    private readonly accountId: string,
-    public readonly indexStore: IndexStore,
-    private readonly onIndexUpdated?: (itemIds: ItemId[]) => void,
-    private readonly onMetadataUpdated?: (metadata: VaultMetadata) => void,
-  ) {
-    this.setupBroadcastChannel()
-  }
-
-  private setupBroadcastChannel(): void {
-    if (typeof BroadcastChannel === 'undefined') {
-      return
-    }
-
-    try {
-      this.broadcastChannel = new BroadcastChannel(`${getVaultStorageNames().accountPrefixes.indexChannel}${this.accountId}`)
-      this.broadcastChannel.onmessage = (event: MessageEvent<IndexBroadcastMessage>) => {
-        if (this.isClosed || !event.data) return
-
-        if (event.data.type === 'indexUpdated' && Array.isArray(event.data.itemIds)) {
-          this.handleRemoteIndexUpdated(event.data.itemIds)
-        } else if (event.data.type === 'metadataUpdated' && event.data.metadata) {
-          this.handleRemoteMetadataUpdated(event.data.metadata)
-        }
-      }
-    } catch (err) {
-      log.warn('Failed to create BroadcastChannel:', err)
-      this.broadcastChannel = null
+  constructor(options: AutomergeIndexManagerOptions) {
+    this.accountId = options.accountId
+    this.indexStore = options.indexStore
+    this.bus = options.bus ?? null
+    this.onIndexUpdated = options.onIndexUpdated
+    this.onMetadataUpdated = options.onMetadataUpdated
+    if (this.bus) {
+      this.unsubscribers.push(
+        this.bus.subscribeIndexUpdated(itemIds => {
+          if (!this.isClosed) this.handleRemoteIndexUpdated(itemIds)
+        }),
+        this.bus.subscribeMetadataUpdated(metadata => {
+          if (!this.isClosed) this.handleRemoteMetadataUpdated(metadata)
+        }),
+      )
     }
   }
 
@@ -123,15 +116,8 @@ export class AutomergeIndexManager {
     }
     this.lastEmittedItemIds = [...itemIds]
     this.onIndexUpdated?.(itemIds)
-
-    if (!this.broadcastChannel || this.isClosed) return
-    try {
-      this.broadcastChannel.postMessage({
-        type: 'indexUpdated',
-        itemIds,
-      })
-    } catch (_) {
-      log.warn('Failed to broadcast index update')
+    if (!this.isClosed) {
+      this.bus?.publishIndexUpdated(itemIds)
     }
   }
 
@@ -140,26 +126,15 @@ export class AutomergeIndexManager {
   }
 
   private broadcastMetadataUpdated(metadata: VaultMetadata): void {
-    if (!this.broadcastChannel || this.isClosed) return
-    try {
-      this.broadcastChannel.postMessage({
-        type: 'metadataUpdated',
-        metadata,
-      })
-    } catch (_) {
-      log.warn('Failed to broadcast metadata update')
+    if (!this.isClosed) {
+      this.bus?.publishMetadataUpdated(metadata)
     }
   }
 
   close(): void {
     this.isClosed = true
-    if (this.broadcastChannel) {
-      try {
-        this.broadcastChannel.close()
-      } catch (_) {
-        log.warn('Failed to close broadcast channel')
-      }
-      this.broadcastChannel = null
+    for (const unsubscribe of this.unsubscribers.splice(0)) {
+      unsubscribe()
     }
   }
 

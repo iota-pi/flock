@@ -23,7 +23,6 @@ export function createFakeSink() {
     updateItems: vi.fn(),
     updateIndex: vi.fn(),
     updateMetadata: vi.fn(),
-    getSyncStatus: () => state.syncStatus,
     setSyncStatus: vi.fn((status: SyncStatus) => {
       state.syncStatus = status
     }),

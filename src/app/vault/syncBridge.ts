@@ -12,7 +12,6 @@ export const storeSink: SyncStateSink<Item, AccountMetadata> = {
   updateItems: updates => useAppStore.getState().updateItemsFromServer(updates),
   updateIndex: itemIds => useAppStore.getState().updateIndexFromServer(itemIds),
   updateMetadata: metadata => useAppStore.getState().updateMetadata(metadata),
-  getSyncStatus: () => useAppStore.getState().syncStatus,
   setSyncStatus: status => useAppStore.getState().setSyncStatus(status),
   getSyncWarning: () => useAppStore.getState().syncWarning,
   setSyncWarning: message => useAppStore.getState().setSyncWarning(message),

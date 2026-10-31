@@ -1,5 +1,5 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import type { SyncPoller } from './SyncPoller'
+import type { SyncSessionState } from './SyncSessionState'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from '@vault/shared'
@@ -18,19 +18,15 @@ export interface SyncMessageBrokerDeps {
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManager
-  /** Shared with the orchestrator, which runs the polls. The broker keeps its account and online state current and shuts it down. */
-  poller: SyncPoller
+  /** Only the leader writes outgoing messages to the WAL */
+  session: SyncSessionState
   wal: SyncWriteAheadLog
   /** Frees space after a WAL append runs out of storage. Without it, the app is told the quota was exceeded. */
   onQuotaExceeded?: (error: unknown) => Promise<void>
 }
 
 export class SyncMessageBroker {
-  private account: string | null = null
-  private isOnline = true
-  private sendEnabled = false
-
-  private readonly syncPoller: SyncPoller
+  private readonly session: SyncSessionState
   private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
@@ -49,7 +45,7 @@ export class SyncMessageBroker {
     this.pullQueueManager = deps.pullQueueManager
     this.onQuotaExceeded = deps.onQuotaExceeded
     this.wal = deps.wal
-    this.syncPoller = deps.poller
+    this.session = deps.session
 
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
       switch (event.type) {
@@ -57,9 +53,7 @@ export class SyncMessageBroker {
           fireAndForget(this.handleOutgoingMessage(event.message), 'SyncMessageBroker:handleOutgoingMessage')
           break
         case 'messageParsed':
-          if (this.account) {
-            this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
-          }
+          this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
           this.adapter.receiveServerMessage(event.documentId, event.message)
           break
         case 'pushAcknowledged':
@@ -129,43 +123,15 @@ export class SyncMessageBroker {
     this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId })
   }
 
-  setSendEnabled(sendEnabled: boolean): void {
-    this.sendEnabled = sendEnabled
-    this.adapter.setSendEnabled(sendEnabled)
-  }
-
-  async setAccount(account: string | null): Promise<void> {
-    const nextAccount = account && account.length > 0 ? account : null
-    if (this.account === nextAccount) {
-      return
-    }
-
-    this.unblockAllItems()
-    this.snapshotOnlyItems.clear()
-    this.account = nextAccount
-
-    await this.pullQueueManager.setAccount(this.account)
-    this.syncPoller.setAccount(this.account)
-  }
-
   private handleWalEntriesPruned(itemIds: ItemId[]): void {
     for (const itemId of itemIds) {
       this.snapshotOnlyItems.add(itemId)
     }
   }
 
-  setOnlineState(isOnline: boolean): void {
-    if (this.isOnline === isOnline) {
-      return
-    }
-
-    this.isOnline = isOnline
-    this.syncPoller.setOnlineState(isOnline)
-  }
-
   private async handleOutgoingMessage(message: Message): Promise<void> {
     try {
-      if (!this.sendEnabled || !this.account) {
+      if (!this.session.isLeader || this.session.isShutdown) {
         return
       }
 
@@ -232,15 +198,13 @@ export class SyncMessageBroker {
     this.internalEventHub.emit({ type: 'flushNeeded' })
   }
 
-  async shutdown(): Promise<void> {
+  shutdown(): void {
     this.unsubscribeClientEvents?.()
     this.unsubscribeClientEvents = null
     this.unsubscribeInternalEvents?.()
     this.unsubscribeInternalEvents = null
     this.unblockAllItems()
     this.snapshotOnlyItems.clear()
-    this.syncPoller.shutdown()
-    await this.pullQueueManager.shutdown()
   }
 }
 

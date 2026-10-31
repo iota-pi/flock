@@ -118,12 +118,6 @@ describe('RecoveryManager', () => {
       expect(recoveryManager.isInFlight('item-fail' as ItemId)).toBe(false)
       consoleSpy.mockRestore()
     })
-
-    it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'fail')
-      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
-    })
   })
 
   describe('unquarantine', () => {
@@ -141,13 +135,6 @@ describe('RecoveryManager', () => {
         type: 'recoveryItemsChanged',
         entries: [],
       })
-    })
-
-    it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.unquarantine('item-2' as ItemId)
-
-      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
     })
   })
 
@@ -198,13 +185,6 @@ describe('RecoveryManager', () => {
 
       expect(onEventMock).not.toHaveBeenCalled()
     })
-
-    it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
-
-      expect(mockRemoveManualRecoveryEntryIfKind).not.toHaveBeenCalled()
-    })
   })
 
   describe('dismissEntry', () => {
@@ -224,12 +204,6 @@ describe('RecoveryManager', () => {
       const result = await recoveryManager.listRecoveryItems()
       expect(result).toBe(mockEntries)
       expect(mockReadManualRecoveryEntries).toHaveBeenCalledWith('account-123', undefined)
-    })
-
-    it('returns empty array if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      const result = await recoveryManager.listRecoveryItems()
-      expect(result).toEqual([])
     })
   })
 
@@ -342,17 +316,6 @@ describe('RecoveryManager', () => {
 
       consoleSpy.mockRestore()
       vi.useRealTimers()
-    })
-
-    it('does nothing if accountId or itemId is not set', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      await recoveryManager.reportDecryptionFailure('' as ItemId, 'pullDecryption', new Error('fail'))
-      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
-
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('fail'))
-      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
-      consoleSpy.mockRestore()
     })
   })
 })

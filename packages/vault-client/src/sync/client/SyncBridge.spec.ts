@@ -746,7 +746,7 @@ describe('SyncBridge', () => {
     vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
   })
 
-  it('updates syncStatus to degraded and sets syncWarning when snapshotFailed event is received', async () => {
+  it('sets syncWarning when snapshotFailed event is received', async () => {
     await SyncBridge.initialize('test-account')
 
     expect(lastEventPort).not.toBeNull()
@@ -757,7 +757,6 @@ describe('SyncBridge', () => {
     })
 
     await vi.waitFor(() => {
-      expect(sink.state.syncStatus).toBe('degraded')
       expect(sink.state.syncWarning).toBe(
         'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
       )
@@ -774,7 +773,6 @@ describe('SyncBridge', () => {
     })
 
     await vi.waitFor(() => {
-      expect(sink.state.syncStatus).toBe('degraded')
       expect(sink.state.isQuotaExceeded).toBe(true)
     })
 

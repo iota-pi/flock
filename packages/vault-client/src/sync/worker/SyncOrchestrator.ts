@@ -1,6 +1,6 @@
 import { LeaderElection, type LeaderElectionCallbacks } from './utils/LeaderElection'
-import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
+import type { SyncSessionState } from './SyncSessionState'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
@@ -37,7 +37,8 @@ export interface ManifestSyncManagerLike {
 
 export interface SyncOrchestratorDeps {
   accountId: string
-  broker: SyncMessageBroker
+  /** The orchestrator records leadership here, as leader election grants and revokes it */
+  session: SyncSessionState
   poller: SyncPollerLike
   clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
@@ -51,10 +52,7 @@ const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
 
 export class SyncOrchestrator {
   private leaderElection: LeaderElectionLike | null = null
-  private isOnline = true
-  private isLeader = false
   private pollingPausedForAuth = false
-  private isShutdown = false
 
   private pendingFlush = false
   private readonly pollGuard = new SingleFlightGuard<void>()
@@ -78,7 +76,7 @@ export class SyncOrchestrator {
   private unsubscribeInternalEvents: (() => void) | null = null
 
   private readonly accountId: string
-  private readonly broker: SyncMessageBroker
+  private readonly session: SyncSessionState
   private readonly clientEventHub: ClientEventHub
   private readonly internalEventHub: WorkerInternalEventHub
   private readonly pullQueueManager: SyncPullQueueManagerLike
@@ -86,7 +84,7 @@ export class SyncOrchestrator {
 
   constructor(deps: SyncOrchestratorDeps) {
     this.accountId = deps.accountId
-    this.broker = deps.broker
+    this.session = deps.session
     this.clientEventHub = deps.clientEventHub
     this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
@@ -99,13 +97,14 @@ export class SyncOrchestrator {
         this.flush()
       }
     })
-    // Sync initial states with the broker
-    this.broker.setOnlineState(this.isOnline)
-    this.broker.setSendEnabled(this.isLeader)
   }
 
   get isOperational(): boolean {
-    return !this.isShutdown && this.isOnline && this.isLeader
+    return this.session.isOperational
+  }
+
+  private get isShutdown(): boolean {
+    return this.session.isShutdown
   }
 
   get isPolling(): boolean {
@@ -161,25 +160,15 @@ export class SyncOrchestrator {
     this.leaderElection?.claimLeadership()
   }
 
-  get leader(): boolean {
-    return this.isLeader
-  }
-
-  get online(): boolean {
-    return this.isOnline
-  }
-
   setLeader(isLeader: boolean): void {
-    if (this.isLeader === isLeader) {
+    if (!this.session.setLeader(isLeader)) {
       return
     }
-    this.isLeader = isLeader
-    this.broker.setSendEnabled(isLeader)
     this.internalEventHub.emit({ type: 'leaderChange', isLeader })
 
     if (isLeader) {
       fireAndForget(this.cursorReloadGuard.run(() => this.reloadCursors()), 'SyncOrchestrator:reloadCursors')
-      if (this.isOnline) {
+      if (this.session.isOnline) {
         this.startSyncing()
       } else {
         this.startPolling(true)
@@ -205,19 +194,14 @@ export class SyncOrchestrator {
     this.abortManifestSync()
   }
 
-  setOnlineState(isOnline: boolean): void {
-    if (this.isOnline === isOnline) {
-      return
-    }
-    this.isOnline = isOnline
-    this.broker.setOnlineState(isOnline)
-
-    if (!isOnline) {
+  /** Stops syncing when the device goes offline, and resumes when it's back. The session holds the state. */
+  onOnlineStateChange(): void {
+    if (!this.session.isOnline) {
       this.stopSyncing()
       return
     }
 
-    if (this.isLeader) {
+    if (this.session.isLeader) {
       this.pollBackoff.reset()
       this.startSyncing()
     }
@@ -259,7 +243,7 @@ export class SyncOrchestrator {
     if (this.isShutdown) return
     this.stopPolling()
 
-    if (!this.isLeader) {
+    if (!this.session.isLeader) {
       return
     }
 
@@ -396,8 +380,8 @@ export class SyncOrchestrator {
     }
   }
 
+  /** Stops polling and gives up leadership. The context has already marked the session shut down. */
   async shutdown(): Promise<void> {
-    this.isShutdown = true
     if (this.unsubscribeInternalEvents) {
       this.unsubscribeInternalEvents()
       this.unsubscribeInternalEvents = null

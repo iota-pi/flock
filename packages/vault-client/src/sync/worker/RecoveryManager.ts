@@ -21,7 +21,7 @@ const log = createLogger('RecoveryManager')
 export const INBOUND_MESSAGE_RESOLVABLE_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['pullDecryption'])
 
 export interface RecoveryManagerDeps {
-  accountId: string | null
+  accountId: string
   eventHub: ClientEventHub
 }
 
@@ -34,7 +34,7 @@ export interface QuarantineOptions {
 }
 
 export class RecoveryManager {
-  private accountId: string | null = null
+  private readonly accountId: string
   private readonly eventHub: ClientEventHub
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
@@ -79,7 +79,6 @@ export class RecoveryManager {
   }
 
   async pushRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
-    if (!this.accountId) return []
     try {
       const entries = await readManualRecoveryEntries(this.accountId, options)
       this.eventHub.emit({ type: 'recoveryItemsChanged', entries })
@@ -91,7 +90,6 @@ export class RecoveryManager {
   }
 
   async listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
-    if (!this.accountId) return []
     return await readManualRecoveryEntries(this.accountId, options)
   }
 
@@ -102,7 +100,7 @@ export class RecoveryManager {
     options?: QuarantineOptions,
   ): Promise<void> {
     const accountId = this.accountId
-    if (!accountId || !itemId) return
+    if (!itemId) return
 
     const now = Date.now()
     if (options?.checkCooldown) {
@@ -142,7 +140,7 @@ export class RecoveryManager {
 
   async unquarantine(itemId: ItemId): Promise<void> {
     const accountId = this.accountId
-    if (!accountId || !itemId) return
+    if (!itemId) return
 
     try {
       await removeManualRecoveryEntryByItemId(accountId, itemId)
@@ -159,7 +157,6 @@ export class RecoveryManager {
 
   async resolveQuarantines(itemIds: ItemId[], kinds: ReadonlySet<ManualRecoveryKind>): Promise<void> {
     const accountId = this.accountId
-    if (!accountId) return
     const uniqueItemIds = Array.from(new Set(itemIds.filter(id => Boolean(id))))
     if (uniqueItemIds.length === 0) return
 
@@ -182,7 +179,7 @@ export class RecoveryManager {
 
   async dismissEntry(entryId: string): Promise<void> {
     const accountId = this.accountId
-    if (!accountId || !entryId) return
+    if (!entryId) return
 
     await removeManualRecoveryEntryById(accountId, entryId)
     await this.pushRecoveryItems()
@@ -200,7 +197,7 @@ export class RecoveryManager {
       error: normalizedError,
     })
 
-    if (!itemId || !this.accountId) return
+    if (!itemId) return
     try {
       await this.quarantine(itemId, kind, null, { ...options, checkCooldown: true })
     } catch (quarantineError) {

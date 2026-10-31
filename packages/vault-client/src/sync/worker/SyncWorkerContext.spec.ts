@@ -2,12 +2,11 @@ import { SyncWorkerContext } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS } from './RecoveryManager'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
+import { createFakeRealtimeBus, createMockKeyProvider, createTestEventHubs, type FakeRealtimeBus } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
-import { publishRealtimeBusItemDirty } from './realtimeBus'
 import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
@@ -53,9 +52,8 @@ const mockOpenLocalStorage = vi.fn(async (_: unknown): Promise<any> => ({
 
 // ── Context-owned manager mocks ──────────────────────────────────────────────
 
-const mockRealtimeBus = {
-  itemDirtyListeners: [] as Array<(itemIds: string[]) => void>,
-}
+/** The bus the latest context created */
+let realtimeBus: FakeRealtimeBus
 
 // The real RecoveryManager is used (backed by the in-memory store mock above) so that
 // event handling can be verified end to end
@@ -127,6 +125,7 @@ beforeEach(() => {
     SyncPullQueueManager: class MockSyncPullQueueManager {
       setLockCoordinator = vi.fn()
       getGlobalLatestCursor = vi.fn().mockReturnValue(0)
+      loadCursors = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
     },
   })
@@ -145,7 +144,7 @@ beforeEach(() => {
       loadSyncedHeads = vi.fn()
       resetReNegotiationCircuit = vi.fn()
       shutdown = vi.fn().mockResolvedValue(undefined)
-      setAccount = vi.fn()
+      onLeaderChange = vi.fn()
     },
   })
   spyOnExports(automergeRepoManager, {
@@ -163,7 +162,8 @@ beforeEach(() => {
       loadLastModified = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
       flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
-      setLeader = vi.fn()
+      onLeaderChange = vi.fn().mockResolvedValue(undefined)
+      onOnlineStateChange = vi.fn()
       getDirtyItemIds = vi.fn().mockReturnValue([])
       persistLastModified = vi.fn().mockResolvedValue(undefined)
     },
@@ -172,10 +172,9 @@ beforeEach(() => {
     SyncOrchestrator: class MockOrchestrator {
       start = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
-      setOnlineState = vi.fn()
+      onOnlineStateChange = vi.fn()
       constructor(readonly deps: { manifestSyncManager: unknown }) {}
       claimLeader = vi.fn()
-      online = true
       flush = vi.fn()
     },
   })
@@ -198,13 +197,12 @@ beforeEach(() => {
     },
   })
   spyOnExports(realtimeBusModule, {
-    publishRealtimeBusItemDirty: vi.fn(),
-    subscribeRealtimeBusItemDirty: vi.fn((_accountId: string, listener: (itemIds: string[]) => void) => {
-      mockRealtimeBus.itemDirtyListeners.push(listener)
-      return () => {
-        mockRealtimeBus.itemDirtyListeners = mockRealtimeBus.itemDirtyListeners.filter(l => l !== listener)
+    RealtimeBus: class MockRealtimeBus {
+      constructor() {
+        realtimeBus = createFakeRealtimeBus()
+        return realtimeBus.bus
       }
-    }),
+    },
   })
   spyOnExports(manifestSyncManagerModule, {
     ManifestSyncManager: class MockManifestSyncManager {
@@ -228,7 +226,6 @@ describe('SyncWorkerContext', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     mockHasIndex.mockResolvedValue(false)
-    mockRealtimeBus.itemDirtyListeners = []
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
@@ -288,29 +285,45 @@ describe('SyncWorkerContext', () => {
     deps.markDocumentDirty('edited-item' as ItemId)
 
     expect(context.services.snapshotManager.markItemDirty).toHaveBeenCalledWith('edited-item')
-    expect(publishRealtimeBusItemDirty).toHaveBeenCalledWith('test-account', ['edited-item'])
+    expect(realtimeBus.publishItemDirty).toHaveBeenCalledWith(['edited-item'])
   })
 
   it('marks items dirty when another tab announces local edits', () => {
-    expect(mockRealtimeBus.itemDirtyListeners).toHaveLength(1)
-    mockRealtimeBus.itemDirtyListeners[0](['tab-item-1', 'tab-item-2'])
+    realtimeBus.receiveItemDirty(['tab-item-1', 'tab-item-2'] as ItemId[])
 
     expect(context.services.snapshotManager.markItemDirty).toHaveBeenCalledWith('tab-item-1')
     expect(context.services.snapshotManager.markItemDirty).toHaveBeenCalledWith('tab-item-2')
-    expect(publishRealtimeBusItemDirty).not.toHaveBeenCalled()
+    expect(realtimeBus.publishItemDirty).not.toHaveBeenCalled()
   })
 
-  it('stops listening for cross-tab edits on shutdown', async () => {
+  it('closes its realtime bus on shutdown', async () => {
     await context.shutdown()
-    expect(mockRealtimeBus.itemDirtyListeners).toHaveLength(0)
+    expect(realtimeBus.close).toHaveBeenCalledTimes(1)
   })
 
-  it('forwards leaderChange to snapshotManager.setLeader', () => {
-    internalEventHub.emit({ type: 'leaderChange', isLeader: true })
-    expect(context.services.snapshotManager.setLeader).toHaveBeenCalledWith(true)
+  it('marks the session shut down before stopping any component', async () => {
+    let shutDownFirst: boolean | undefined
+    vi.mocked(context.services.orchestrator.shutdown).mockImplementation(async () => {
+      shutDownFirst = context.session.isShutdown
+    })
+    await context.shutdown()
+    expect(shutDownFirst).toBe(true)
+  })
 
-    internalEventHub.emit({ type: 'leaderChange', isLeader: false })
-    expect(context.services.snapshotManager.setLeader).toHaveBeenCalledWith(false)
+  it('tells the adapter and snapshot manager about leaderChange', () => {
+    internalEventHub.emit({ type: 'leaderChange', isLeader: true })
+    expect(context.services.adapter.onLeaderChange).toHaveBeenCalledTimes(1)
+    expect(context.services.snapshotManager.onLeaderChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells the orchestrator and snapshot manager when the online state changes', () => {
+    context.setOnlineState(true)
+    expect(context.services.orchestrator.onOnlineStateChange).not.toHaveBeenCalled()
+
+    context.setOnlineState(false)
+    expect(context.session.isOnline).toBe(false)
+    expect(context.services.orchestrator.onOnlineStateChange).toHaveBeenCalledTimes(1)
+    expect(context.services.snapshotManager.onOnlineStateChange).toHaveBeenCalledTimes(1)
   })
 
   describe('manual recovery event handling', () => {
@@ -983,6 +996,7 @@ describe('SyncWorkerContext', () => {
 
     const serviceNames = registerSpy.mock.calls.map(([registration]) => registration.name)
     expect(serviceNames).toEqual([
+      'RealtimeBus',
       'RepoManager',
       'VaultNetworkAdapter',
       'SyncMessageBroker',
@@ -993,6 +1007,7 @@ describe('SyncWorkerContext', () => {
       'SnapshotManager',
       'SyncedHeads',
       'PullQueueManager',
+      'SyncPoller',
       'ManifestSyncManager',
       'SyncOrchestrator',
       'ItemReencryptor',

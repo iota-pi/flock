@@ -9,6 +9,7 @@ import { packBatchedMessages } from './utils/binaryFraming'
 import type { SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { SyncSessionState } from './SyncSessionState'
 
 /** Decrypts a row's cipher text into a batch holding it as the one message */
 const keys = createMockKeyProvider({
@@ -100,8 +101,15 @@ describe('global pull pagination (client ↔ router)', () => {
     const caller = syncRouter.createCaller({ authToken: 'session-token', vault } as never)
 
     const { clientEventHub, internalEventHub } = createTestEventHubs()
-    const pullQueueManager = new SyncPullQueueManager(new CursorStore(ACCOUNT), keys, noItemLocks, internalEventHub)
-    await pullQueueManager.setAccount(ACCOUNT)
+    const session = new SyncSessionState({ isLeader: true })
+    const pullQueueManager = new SyncPullQueueManager({
+      cursorStore: new CursorStore(ACCOUNT),
+      keys,
+      lockCoordinator: noItemLocks,
+      internalEventHub,
+      session,
+    })
+    await pullQueueManager.loadCursors()
     pullQueueManager.addPendingItem('item-z' as ItemId)
 
     const delivered: string[] = []
@@ -116,8 +124,16 @@ describe('global pull pagination (client ↔ router)', () => {
     } as unknown as SyncApiClient
     const wal = new SyncWriteAheadLog(ACCOUNT, internalEventHub)
     const recoveryManager = new RecoveryManager({ accountId: ACCOUNT, eventHub: clientEventHub })
-    const poller = new SyncPoller({ pullQueueManager, clientEventHub, internalEventHub, keys, wal, apiClient, recoveryManager })
-    poller.setAccount(ACCOUNT)
+    const poller = new SyncPoller({
+      accountId: ACCOUNT,
+      session,
+      pullQueueManager,
+      internalEventHub,
+      keys,
+      wal,
+      apiClient,
+      recoveryManager,
+    })
 
     const outcomes: string[] = []
     for (let i = 0; i < 10 && (i === 0 || pullQueueManager.hasImmediatePendingPulls()); i += 1) {

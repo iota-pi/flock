@@ -4,7 +4,8 @@ import { debounce } from 'lodash-es'
 import type { PullSyncMessagesResponse } from './SyncApiClient'
 import type { KeyProvider } from '../../api/Keyring'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { publishRealtimeBusSyncPing } from './realtimeBus'
+import type { RealtimeBus } from './realtimeBus'
+import type { SyncSessionState } from './SyncSessionState'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from '../utils/errorClassifier'
 import { ItemId } from '@vault/shared'
@@ -40,9 +41,26 @@ const BATCH_PROGRESS_CACHE_MAX = 500
 const OWN_PUSH_CACHE_MAX = 1000
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
 
+export interface SyncPullQueueManagerDeps {
+  /** The account's stored cursors */
+  cursorStore: CursorStore
+  keys: KeyProvider
+  lockCoordinator: ItemLockCoordinator
+  internalEventHub: WorkerInternalEventHub
+  session: SyncSessionState
+  /** Tells the account's other tabs which items were pulled */
+  bus?: RealtimeBus
+  onKeyVersionMissing?: (kver: string) => void
+}
+
 export class SyncPullQueueManager {
-  private isShutdown = false
-  private account: string | null = null
+  private readonly cursorStore: CursorStore
+  private readonly keys: KeyProvider
+  private readonly lockCoordinator: ItemLockCoordinator
+  private readonly internalEventHub: WorkerInternalEventHub
+  private readonly session: SyncSessionState
+  private readonly bus: RealtimeBus | null
+  private readonly onKeyVersionMissing?: (kver: string) => void
 
   private readonly retryTracker: PullRetryTracker
   private hasMoreGlobal = false
@@ -53,16 +71,21 @@ export class SyncPullQueueManager {
   // "itemId:cursor" of messages this device pushed, so their server echoes aren't mistaken for remote edits
   private readonly ownPushedMessageKeys = new BoundedSet<string>(OWN_PUSH_CACHE_MAX)
 
-  private readonly saveCursorsDebounced = debounce(() => fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors'), 1000)
+  // A pull that finishes after shutdown mustn't save, since shutdown may be clearing local data
+  private readonly saveCursorsDebounced = debounce(() => {
+    if (this.session.isShutdown) return
+    fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors')
+  }, 1000)
 
-  constructor(
-    private readonly cursorStore: CursorStore,
-    private readonly keys: KeyProvider,
-    private readonly lockCoordinator: ItemLockCoordinator,
-    private readonly internalEventHub: WorkerInternalEventHub,
-    private readonly onKeyVersionMissing?: (kver: string) => void,
-  ) {
-    this.retryTracker = new PullRetryTracker(keys)
+  constructor(deps: SyncPullQueueManagerDeps) {
+    this.cursorStore = deps.cursorStore
+    this.keys = deps.keys
+    this.lockCoordinator = deps.lockCoordinator
+    this.internalEventHub = deps.internalEventHub
+    this.session = deps.session
+    this.bus = deps.bus ?? null
+    this.onKeyVersionMissing = deps.onKeyVersionMissing
+    this.retryTracker = new PullRetryTracker(deps.keys)
   }
 
   private makeOwnPushKey(itemId: ItemId, cursor: number): string {
@@ -114,24 +137,8 @@ export class SyncPullQueueManager {
     this.ownPushedMessageKeys.clear()
   }
 
-  setAccount(account: string | null): Promise<void> {
-    this.saveCursorsDebounced.cancel()
-    this.account = account
-    this.isShutdown = false
-
-    this.clearPullState()
-    this.hasMoreGlobal = false
-    this.globalPageToken = undefined
-    this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
-
-    if (account) {
-      return this.loadCursors()
-    }
-    return Promise.resolve()
-  }
-
   async loadCursors(): Promise<void> {
-    if (this.isShutdown || !this.account) return
+    if (this.session.isShutdown) return
     try {
       const stored = await this.cursorStore.loadCursors()
       if (stored) {
@@ -143,7 +150,6 @@ export class SyncPullQueueManager {
   }
 
   async persistCursors(): Promise<void> {
-    if (!this.account) return
     const data = this.retryTracker.exportState()
     try {
       await this.cursorStore.saveCursors(data)
@@ -152,17 +158,14 @@ export class SyncPullQueueManager {
     }
   }
 
+  /** Saves the cursors, unless local data is being cleared. Called once, by the context's lifecycle. */
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    if (this.isShutdown) return
-    this.isShutdown = true
-
     this.saveCursorsDebounced.cancel()
     if (!options?.clearLocalData) {
       await this.persistCursors()
     }
     this.clearPullState()
     this.hasMoreGlobal = false
-    this.account = null
   }
 
   addPendingItem(itemId: ItemId): void {
@@ -421,7 +424,7 @@ export class SyncPullQueueManager {
     globalNextPageToken: PageToken | undefined,
     globalScannedThroughCursor: number | undefined,
   ): Promise<void> {
-    if (!this.account || this.isShutdown) return
+    if (this.session.isShutdown) return
     this.hasMoreGlobal = hasMoreGlobal
     this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
 
@@ -466,12 +469,8 @@ export class SyncPullQueueManager {
     } finally {
       const isRetrying = this.retryTracker.isAnyRetrying()
       this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-      if (this.account && successfullyPulledItemIds.size > 0) {
-        try {
-          publishRealtimeBusSyncPing(this.account, Array.from(successfullyPulledItemIds))
-        } catch (error) {
-          log.error('publishRealtimeBusSyncPing failed', error)
-        }
+      if (successfullyPulledItemIds.size > 0) {
+        this.bus?.publishSyncPing(Array.from(successfullyPulledItemIds))
       }
     }
   }
@@ -481,7 +480,6 @@ export class SyncPullQueueManager {
   }
 
   async importCursors(cursors: [ItemId, number][]): Promise<void> {
-    if (!this.account) return
     this.retryTracker.importCursors(cursors)
     for (const [itemId, cursor] of cursors) {
       this.clearBatchProgressUpTo(itemId, cursor)

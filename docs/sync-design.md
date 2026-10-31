@@ -160,6 +160,8 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 
 ## Shutdown order (`ServiceLifecycleManager`)
 
+- Each session's components share one `SyncSessionState` (online, leader, shut down) and take the account in their constructor; a new account gets a new context. `SyncWorkerContext.shutdown` marks the session shut down first, so no component starts new work, then the lifecycle stops each component exactly once, in reverse registration order. Nothing else stops a component: a second stop with other options (such as without `clearLocalData`) could save state during a data clear.
+- The context's `RealtimeBus` (cross-tab sync pings, item-dirty, index and metadata messages) is registered first, so it closes last.
 - Shut down the Automerge Repo before clearing IndexedDB. Otherwise pending saves write data back into the cleared database.
 - Don't run `clearSyncMetadataStorage` (`dropInstance`) concurrently with per-store `.clear()` calls on the same database.
 - `wal.clear()` targets a different database, so it may run concurrently with the above.

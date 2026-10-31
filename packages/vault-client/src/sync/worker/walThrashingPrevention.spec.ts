@@ -1,21 +1,16 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 import {
   MockLocalforage,
-  createMockKeyProvider,
   createMockLocalForage,
   createTestEventHubs,
   mockLocalForage,
 } from './__test__/testUtils'
 
-const keys = createMockKeyProvider()
-
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { SyncPoller } from './SyncPoller'
-import { RecoveryManager } from './RecoveryManager'
-import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { SyncSessionState } from './SyncSessionState'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
@@ -50,7 +45,6 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
   let wal: SyncWriteAheadLog
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
-  let poller: SyncPoller
 
   beforeEach(async () => {
     mockLocalForage(createLocalForageInstance)
@@ -61,11 +55,12 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
-    adapter = new VaultNetworkAdapter(internalEventHub)
+    // This tab is the leader, which writes outgoing messages to the WAL
+    const session = new SyncSessionState({ isLeader: true })
+    adapter = new VaultNetworkAdapter(internalEventHub, { accountId, session })
     adapter.connect('peer-1' as any)
 
     pullQueueManager = {
-      setAccount: vi.fn().mockResolvedValue(undefined),
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),
@@ -75,26 +70,14 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     } as unknown as SyncPullQueueManager
 
     wal = new SyncWriteAheadLog(accountId, internalEventHub)
-    poller = new SyncPoller({
-      pullQueueManager,
-      clientEventHub,
-      internalEventHub,
-      keys,
-      wal,
-      apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
-    })
     broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      poller,
+      session,
       wal,
     })
-
-    broker.setSendEnabled(true)
-    await broker.setAccount(accountId)
   })
 
   async function sendIncrementalEdits(itemIds: ItemId[]): Promise<void> {

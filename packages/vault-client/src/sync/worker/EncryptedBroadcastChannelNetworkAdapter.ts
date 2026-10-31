@@ -14,13 +14,12 @@ import type { KeyProvider } from '../../api/Keyring'
 import { BaseSyncNetworkAdapter } from './BaseSyncNetworkAdapter'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from '../utils/errorClassifier'
-import { publishRealtimeBusSyncPing } from './realtimeBus'
+import type { RealtimeBus } from './realtimeBus'
 import { toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import { AsyncQueue } from '../utils/AsyncQueue'
 import { RetryStrategy } from '../utils/RetryStrategy'
 import { BoundedQueue } from '../utils/BoundedQueue'
 import { fireAndForget } from '../utils/fireAndForget'
-import { getVaultStorageNames } from '../shared/storageNames'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 
@@ -41,7 +40,8 @@ export interface EncryptedBroadcastChannelOptions
   extends Partial<BroadcastChannelNetworkAdapterOptions> {
   /** The keys cross-tab messages are encrypted with */
   keys: KeyProvider
-  accountId?: string
+  /** Tells the account's other tabs which items this tab sent */
+  bus?: RealtimeBus
   onKeyVersionMissing?: (kver: string) => void
   keyWaitTimeoutMs?: number
   maxPendingMessagesPerKey?: number
@@ -50,15 +50,10 @@ export interface EncryptedBroadcastChannelOptions
   cryptoRetryDelayMs?: number
 }
 
-function accountIdFromChannelName(channelName?: string): string | undefined {
-  const prefix = getVaultStorageNames().accountPrefixes.automergeBroadcastChannel
-  return channelName?.startsWith(prefix) ? channelName.slice(prefix.length) : undefined
-}
-
 export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdapter {
   private options: EncryptedBroadcastChannelOptions
   private readonly keys: KeyProvider
-  private accountId?: string
+  private readonly bus: RealtimeBus | null
   private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: AsyncQueue<Message>
   private receiveQueue: AsyncQueue<Message>
@@ -72,7 +67,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
     super()
     this.options = options
     this.keys = options.keys
-    this.accountId = options.accountId ?? accountIdFromChannelName(options.channelName)
+    this.bus = options.bus ?? null
     this.maxPendingMessagesPerKey = options.maxPendingMessagesPerKey ?? 1000
     this.maxCryptoRetries = options.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
     this.cryptoRetryDelayMs = options.cryptoRetryDelayMs ?? DEFAULT_CRYPTO_RETRY_DELAY_MS
@@ -164,10 +159,10 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         const jsonString = JSON.stringify(cryptoResult)
         const encodedData = new TextEncoder().encode(jsonString)
         this.inner.send({ ...message, data: encodedData })
-        if (message.documentId && this.accountId) {
+        if (message.documentId && this.bus) {
           const itemId = toVaultItemIdFromAutomergeId(message.documentId)
           if (itemId && !isIndexDocument(itemId)) {
-            publishRealtimeBusSyncPing(this.accountId, [itemId])
+            this.bus.publishSyncPing([itemId])
           }
         }
       } else {

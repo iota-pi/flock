@@ -18,6 +18,7 @@ import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
+import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('StorageRecoveryService')
 
@@ -30,6 +31,7 @@ export class QuotaExceededRetryError extends Error {
 
 export interface StorageRecoveryServiceDeps {
   accountId: string
+  session: SyncSessionState
   clientEventHub: ClientEventHub
   wal: SyncWriteAheadLog
   docStore: AutomergeDocStore
@@ -180,7 +182,7 @@ export class StorageRecoveryService {
    * If online, flushes pending snapshots and triggers orchestrator sync.
    */
   flushPendingSyncIfOnline(): void {
-    if (this.deps.orchestrator.online) {
+    if (this.deps.session.isOnline) {
       fireAndForget(
         this.deps.snapshotManager.flushPendingSnapshots(),
         'StorageRecoveryService:flushPendingSnapshots',

@@ -2,11 +2,14 @@ import { fireAndForget } from '../utils/fireAndForget'
 import { runStorageOperation } from '../utils/storageManager'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 import { createLogger } from '../utils/logger'
+import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotFormatUpgrade')
 
 export interface SnapshotFormatUpgradeDeps {
   accountId: string
+  /** Snapshot uploads belong to the leader */
+  session: SyncSessionState
   /** Re-encrypts and uploads the snapshot of every item */
   rewriteSnapshots: (signal: AbortSignal) => Promise<{ failed: unknown[] }>
   /** Called once this device's snapshots are all bound, whether rewritten now or in an earlier session */
@@ -24,7 +27,6 @@ export interface SnapshotFormatUpgradeDeps {
  */
 export class SnapshotFormatUpgrade {
   private hasSynced = false
-  private isLeader = false
   private hasStarted = false
   private readonly abortController = new AbortController()
 
@@ -36,8 +38,8 @@ export class SnapshotFormatUpgrade {
     this.startIfReady()
   }
 
-  onLeaderChange(isLeader: boolean): void {
-    this.isLeader = isLeader
+  /** Call after the session's leadership changed */
+  onLeaderChange(): void {
     this.startIfReady()
   }
 
@@ -46,7 +48,7 @@ export class SnapshotFormatUpgrade {
   }
 
   private startIfReady(): void {
-    if (this.hasStarted || !this.hasSynced || !this.isLeader) return
+    if (this.hasStarted || !this.hasSynced || !this.deps.session.isLeader) return
     this.hasStarted = true
     fireAndForget(this.run(), 'SnapshotFormatUpgrade:run')
   }

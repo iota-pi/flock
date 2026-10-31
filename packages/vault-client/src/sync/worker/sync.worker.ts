@@ -7,7 +7,6 @@ import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 
 import type { VaultDoc, VaultMetadata } from '../shared/types'
-import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
 import { Keyring } from '../../api/Keyring'
 import { setApiAuthToken } from '../../api/runtime'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -110,8 +109,9 @@ export class SyncWorker implements SyncApi {
   private isShutDown = false
   private clientEventHub = new ClientEventHub()
   private internalEventHub = new WorkerInternalEventHub()
+  /** Whether the device is online, kept between sessions. Each session's state starts from it. */
   private isOnline = true
-  /** Bound to each session's client event hub, so it's created by initWorkerState */
+  /** Bound to each session's client event hub and state, so it's created with the session */
   private syncStatusManager!: SyncStatusManager
   private unsubscribeRealtimeBus: (() => void) | null = null
   private readonly subscriptions = new ItemSubscriptions(
@@ -175,15 +175,10 @@ export class SyncWorker implements SyncApi {
 
   private async teardownSession(options?: { clearLocalData?: boolean }): Promise<void> {
     this.resolveTokenRefresh(null)
-    const accountId = this._context?.accountId
     this.subscriptions.clear()
-    if (this.unsubscribeRealtimeBus) {
-      this.unsubscribeRealtimeBus()
-      this.unsubscribeRealtimeBus = null
-    }
-    if (accountId) {
-      teardownRealtimeBus(accountId)
-    }
+    // The context closes its bus when it stops, but pings mustn't reach the subscriptions before then
+    this.unsubscribeRealtimeBus?.()
+    this.unsubscribeRealtimeBus = null
     await this._context?.shutdown(options)
     this._context = null
   }
@@ -194,7 +189,6 @@ export class SyncWorker implements SyncApi {
     if (globalEventPort) {
       this.clientEventHub.setExternalPort(globalEventPort)
     }
-    this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
     this.internalEventHub = new WorkerInternalEventHub()
 
     const trackedFetch = getTrackedFetch(
@@ -218,6 +212,9 @@ export class SyncWorker implements SyncApi {
           break
         case 'quotaResolved':
           this.syncStatusManager.setQuotaExceeded(false)
+          break
+        case 'snapshotFailed':
+          this.syncStatusManager.setSnapshotFailed()
           break
       }
     })
@@ -252,19 +249,11 @@ export class SyncWorker implements SyncApi {
     })
   }
 
-  private async initializeAccountSession(context: SyncWorkerContext, accountId: string): Promise<void> {
+  private async initializeAccountSession(context: SyncWorkerContext): Promise<void> {
     await context.initialize()
     // A shutdown during initialization has stopped the context, which mustn't be brought back to life
     this.assertNotShutDown()
-    const { broker, adapter, indexManager, accountSettings } = context.services
-
-    this.applyOnlineState(context, this.isOnline)
-
-    // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
-    // sending messages before the broker is ready
-    await broker.setAccount(accountId)
-    this.assertNotShutDown()
-    adapter.setAccount(accountId)
+    const { indexManager, accountSettings } = context.services
 
     const localItemIds = await indexManager.listAutomergeItemIds()
     this.subscriptions.update(localItemIds)
@@ -280,8 +269,8 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  private setupRealtimeBus(accountId: string): void {
-    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(accountId, itemIds => {
+  private setupRealtimeBus(context: SyncWorkerContext): void {
+    this.unsubscribeRealtimeBus = context.services.realtimeBus.subscribeSyncPing(itemIds => {
       this.subscriptions.subscribe(itemIds)
       if (this._context) {
         // Pings also name deleted items, which mustn't come back. A deliberate restore reaches this
@@ -321,6 +310,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         internalEventHub: this.internalEventHub,
+        isOnline: this.isOnline,
         apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
         onIndexUpdated: itemIds => {
@@ -332,15 +322,16 @@ export class SyncWorker implements SyncApi {
         localKeys: this.keyring,
       })
       this._context = context
+      this.syncStatusManager = new SyncStatusManager(this.clientEventHub, context.session)
 
       this.subscribeClientEvents()
       this.subscribeInternalEvents()
 
-      await this.initializeAccountSession(context, accountId)
-      this.setupRealtimeBus(accountId)
+      await this.initializeAccountSession(context)
+      this.setupRealtimeBus(context)
 
       this.clientEventHub.emit({ type: 'ready' })
-      this.syncStatusManager.reset(this.isOnline)
+      this.syncStatusManager.reset()
 
       this.ready.resolve(context)
     } catch (err) {
@@ -353,15 +344,9 @@ export class SyncWorker implements SyncApi {
   setOnlineState = (isOnline: boolean) => {
     this.isOnline = isOnline
     return this.withContext(ctx => {
-      this.applyOnlineState(ctx, isOnline)
-      this.syncStatusManager.setOnlineState(isOnline)
+      ctx.setOnlineState(isOnline)
+      this.syncStatusManager.onOnlineStateChange()
     })
-  }
-
-  /** Tells the session's polling and snapshot uploads whether the device is online */
-  private applyOnlineState(context: SyncWorkerContext, isOnline: boolean): void {
-    context.services.orchestrator.setOnlineState(isOnline)
-    context.services.snapshotManager.onOnlineStateChange(isOnline)
   }
 
   /** Sends a subscribed item's state to the app and keeps the index in step with it */
@@ -500,10 +485,6 @@ export class SyncWorker implements SyncApi {
     this.ready.reject(new Error(NOT_INITIALIZED_MESSAGE))
     this.ready = createReady()
 
-    if (!this._context) {
-      // With no session to name an account, every account's bus is closed
-      teardownRealtimeBus()
-    }
     await this.teardownSession(options)
   }
 }

@@ -2,15 +2,14 @@ import { Repo } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import type { AutomergeDocStore, RepoDoc } from './docStore'
-import { createTestDocStore } from './__test__/testUtils'
-import { spyOnExports } from '../../../test/moduleMocks'
+import { createFakeRealtimeBus, createTestDocStore } from './__test__/testUtils'
 import { passthroughCodec, type DocCodec, type LegacySettingsSource } from './domain'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { VaultMetadata } from '../shared/types'
 import { settingsDocId, type ItemId } from '@vault/shared'
-import * as realtimeBusModule from './realtimeBus'
 
-const mockPublishRealtimeBusSyncPing = vi.fn()
+const realtimeBus = createFakeRealtimeBus()
+const mockPublishRealtimeBusSyncPing = realtimeBus.publishSyncPing
 const SYNCED_KEYS = ['prayerGoal', 'defaultPrayerFrequency', 'completedMigrations']
 
 /** In-memory index that reports metadata changes like AutomergeIndexManager's onMetadataUpdated callback */
@@ -40,12 +39,6 @@ function createIndexManager(initial: VaultMetadata = {}) {
   return manager
 }
 
-beforeEach(() => {
-  spyOnExports(realtimeBusModule, {
-    publishRealtimeBusSyncPing: (...args: unknown[]) => mockPublishRealtimeBusSyncPing(...args),
-  })
-})
-
 describe('AccountSettings', () => {
   let accountCounter = 0
   let accountId: string
@@ -58,6 +51,7 @@ describe('AccountSettings', () => {
     indexManager = createIndexManager(options.local)
     const settings = new AccountSettings({
       accountId,
+      bus: realtimeBus.bus,
       docStore,
       indexManager: indexManager as any,
       eventHub: { emit } as any,
@@ -116,7 +110,7 @@ describe('AccountSettings', () => {
     expect(indexManager.metadata).toEqual({ sortCriteria: [{ type: 'name', reverse: true }] })
     expect(indexManager.itemIds.has(settings.docId)).toBe(true)
     expect(markDocumentDirty).toHaveBeenCalledWith(settings.docId)
-    expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(accountId, [settings.docId])
+    expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith([settings.docId])
     expect(settings.getMetadata()).toEqual({ prayerGoal: 5, sortCriteria: [{ type: 'name', reverse: true }] })
   })
 
@@ -259,6 +253,7 @@ describe('AccountSettings', () => {
       indexManager = createIndexManager({ prayerGoal: 4 })
       const settings = new AccountSettings({
         accountId,
+        bus: realtimeBus.bus,
         docStore,
         indexManager: indexManager as any,
         eventHub: { emit } as any,

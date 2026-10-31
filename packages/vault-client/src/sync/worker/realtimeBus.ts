@@ -1,184 +1,161 @@
 import { ItemId } from '@vault/shared'
+import type { VaultMetadata } from '../shared/types'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('realtimeBus')
 
-export type SyncPingListener = (itemIds: ItemId[]) => void
-export type ItemDirtyListener = (itemIds: ItemId[]) => void
+type ItemIdsListener = (itemIds: ItemId[]) => void
+type MetadataListener = (metadata: VaultMetadata) => void
 
 export function getSyncPingChannelName(accountId: string): string {
   return `${getVaultStorageNames().accountPrefixes.syncPingChannel}${accountId}`
 }
 
-interface AccountBusState {
-  channel: BroadcastChannel | null
-  hasAttemptedInit: boolean
-  listeners: Set<SyncPingListener>
-  dirtyListeners: Set<ItemDirtyListener>
+export function getIndexChannelName(accountId: string): string {
+  return `${getVaultStorageNames().accountPrefixes.indexChannel}${accountId}`
 }
 
-const busStateByAccount = new Map<string, AccountBusState>()
-
-function getBusState(accountId: string): AccountBusState {
-  let state = busStateByAccount.get(accountId)
-  if (!state) {
-    state = {
-      channel: null,
-      hasAttemptedInit: false,
-      listeners: new Set(),
-      dirtyListeners: new Set(),
-    }
-    busStateByAccount.set(accountId, state)
-  }
-  return state
-}
-
-function notifyListeners(
-  listeners: Set<(itemIds: ItemId[]) => void>,
-  itemIds: ItemId[],
-  listenerName: string,
-): void {
+function notifyListeners<T>(listeners: Set<(value: T) => void>, value: T, listenerName: string): void {
   for (const listener of listeners) {
     try {
-      listener(itemIds)
+      listener(value)
     } catch (error) {
       log.error(`Error in ${listenerName}:`, error)
     }
   }
 }
 
-function getChannel(accountId: string): BroadcastChannel | null {
-  if (!accountId) return null
-  const state = getBusState(accountId)
-  if (state.hasAttemptedInit) {
-    return state.channel
-  }
-  state.hasAttemptedInit = true
-
+function openChannel(name: string, onMessage: (data: unknown) => void): BroadcastChannel | null {
   if (typeof BroadcastChannel === 'undefined') {
     return null
   }
-
   try {
-    const channelName = getSyncPingChannelName(accountId)
-    const channel = new BroadcastChannel(channelName)
-    channel.onmessage = event => {
-      if (!Array.isArray(event.data?.itemIds)) return
-      if (event.data.type === 'sync_ping') {
-        notifyListeners(state.listeners, event.data.itemIds, 'SyncPingListener')
-      } else if (event.data.type === 'item_dirty') {
-        notifyListeners(state.dirtyListeners, event.data.itemIds, 'ItemDirtyListener')
-      }
-    }
+    const channel = new BroadcastChannel(name)
+    channel.onmessage = event => onMessage(event.data)
     channel.onmessageerror = event => {
       log.warn('Error deserializing message on BroadcastChannel:', event)
     }
-    state.channel = channel
+    return channel
   } catch (error) {
     log.warn('BroadcastChannel is not supported or failed to initialize:', error)
-    state.channel = null
-  }
-
-  return state.channel
-}
-
-export function subscribeRealtimeBusSyncPing(
-  accountId: string,
-  listener: SyncPingListener
-): () => void {
-  return addListener(accountId, state => state.listeners, listener)
-}
-
-/**
- * Subscribes to local edits made by other tabs of this device. The leader uses these to mark
- * items dirty for snapshot upload, since follower tabs cannot upload snapshots themselves.
- */
-export function subscribeRealtimeBusItemDirty(
-  accountId: string,
-  listener: ItemDirtyListener
-): () => void {
-  return addListener(accountId, state => state.dirtyListeners, listener)
-}
-
-function addListener<T>(
-  accountId: string,
-  getListeners: (state: AccountBusState) => Set<T>,
-  listener: T,
-): () => void {
-  if (!accountId) {
-    return () => {}
-  }
-  const state = getBusState(accountId)
-  const listeners = getListeners(state)
-  listeners.add(listener)
-  getChannel(accountId)
-
-  return () => {
-    if (!listeners.has(listener)) {
-      return
-    }
-    listeners.delete(listener)
-    if (state.listeners.size === 0 && state.dirtyListeners.size === 0) {
-      closeAccountBus(state)
-      busStateByAccount.delete(accountId)
-    }
+    return null
   }
 }
 
-export function publishRealtimeBusSyncPing(
-  accountId: string,
-  itemIds: ItemId[]
-): void {
-  postToBus(accountId, 'sync_ping', itemIds)
-}
-
-export function publishRealtimeBusItemDirty(
-  accountId: string,
-  itemIds: ItemId[]
-): void {
-  postToBus(accountId, 'item_dirty', itemIds)
-}
-
-function postToBus(accountId: string, type: 'sync_ping' | 'item_dirty', itemIds: ItemId[]): void {
-  if (!accountId || !itemIds || itemIds.length === 0) return
-
-  const channel = getChannel(accountId)
+function closeChannel(channel: BroadcastChannel | null): void {
   if (!channel) return
-
+  channel.onmessage = null
+  channel.onmessageerror = null
   try {
-    channel.postMessage({ type, itemIds })
+    channel.close()
+  } catch {
+    // Ignore close errors
+  }
+}
+
+function postToChannel(channel: BroadcastChannel | null, message: unknown): void {
+  if (!channel) return
+  try {
+    channel.postMessage(message)
   } catch (error) {
     log.warn('Failed to post message to BroadcastChannel:', error)
   }
 }
 
-function closeAccountBus(state: AccountBusState): void {
-  if (state.channel) {
-    state.channel.onmessage = null
-    state.channel.onmessageerror = null
-    try {
-      state.channel.close()
-    } catch {
-      // Ignore close errors
+/**
+ * Tells this account's other tabs on the device what this tab did: items synced (`sync_ping`), items
+ * edited (`item_dirty`, so the leader uploads their snapshots), and index and metadata changes. Each
+ * session's context owns one and closes it when it stops. Index and metadata messages keep their own
+ * channel, so tabs running an earlier release still hear them.
+ */
+export class RealtimeBus {
+  private syncChannel: BroadcastChannel | null
+  private indexChannel: BroadcastChannel | null
+  private readonly syncPingListeners = new Set<ItemIdsListener>()
+  private readonly itemDirtyListeners = new Set<ItemIdsListener>()
+  private readonly indexListeners = new Set<ItemIdsListener>()
+  private readonly metadataListeners = new Set<MetadataListener>()
+
+  constructor(accountId: string) {
+    this.syncChannel = openChannel(getSyncPingChannelName(accountId), data => this.handleSyncMessage(data))
+    this.indexChannel = openChannel(getIndexChannelName(accountId), data => this.handleIndexMessage(data))
+  }
+
+  private handleSyncMessage(data: unknown): void {
+    const message = data as { type?: string; itemIds?: unknown } | null
+    if (!Array.isArray(message?.itemIds)) return
+    const itemIds = message.itemIds as ItemId[]
+    if (message.type === 'sync_ping') {
+      notifyListeners(this.syncPingListeners, itemIds, 'SyncPingListener')
+    } else if (message.type === 'item_dirty') {
+      notifyListeners(this.itemDirtyListeners, itemIds, 'ItemDirtyListener')
     }
   }
-  state.listeners.clear()
-  state.dirtyListeners.clear()
-  state.channel = null
+
+  private handleIndexMessage(data: unknown): void {
+    const message = data as { type?: string; itemIds?: unknown; metadata?: VaultMetadata } | null
+    if (message?.type === 'indexUpdated' && Array.isArray(message.itemIds)) {
+      notifyListeners(this.indexListeners, message.itemIds as ItemId[], 'IndexListener')
+    } else if (message?.type === 'metadataUpdated' && message.metadata) {
+      notifyListeners(this.metadataListeners, message.metadata, 'MetadataListener')
+    }
+  }
+
+  /** Items another tab synced */
+  subscribeSyncPing(listener: ItemIdsListener): () => void {
+    return addListener(this.syncPingListeners, listener)
+  }
+
+  /** Items another tab edited. The leader marks them dirty, since followers can't upload snapshots. */
+  subscribeItemDirty(listener: ItemIdsListener): () => void {
+    return addListener(this.itemDirtyListeners, listener)
+  }
+
+  /** Another tab's index */
+  subscribeIndexUpdated(listener: ItemIdsListener): () => void {
+    return addListener(this.indexListeners, listener)
+  }
+
+  /** Another tab's local metadata */
+  subscribeMetadataUpdated(listener: MetadataListener): () => void {
+    return addListener(this.metadataListeners, listener)
+  }
+
+  publishSyncPing(itemIds: ItemId[]): void {
+    if (itemIds.length === 0) return
+    postToChannel(this.syncChannel, { type: 'sync_ping', itemIds })
+  }
+
+  publishItemDirty(itemIds: ItemId[]): void {
+    if (itemIds.length === 0) return
+    postToChannel(this.syncChannel, { type: 'item_dirty', itemIds })
+  }
+
+  publishIndexUpdated(itemIds: ItemId[]): void {
+    postToChannel(this.indexChannel, { type: 'indexUpdated', itemIds })
+  }
+
+  publishMetadataUpdated(metadata: VaultMetadata): void {
+    postToChannel(this.indexChannel, { type: 'metadataUpdated', metadata })
+  }
+
+  /** Closes the channels and drops every listener */
+  close(): void {
+    closeChannel(this.syncChannel)
+    closeChannel(this.indexChannel)
+    this.syncChannel = null
+    this.indexChannel = null
+    this.syncPingListeners.clear()
+    this.itemDirtyListeners.clear()
+    this.indexListeners.clear()
+    this.metadataListeners.clear()
+  }
 }
 
-export function teardownRealtimeBus(accountId?: string): void {
-  if (accountId) {
-    const state = busStateByAccount.get(accountId)
-    if (state) {
-      closeAccountBus(state)
-      busStateByAccount.delete(accountId)
-    }
-  } else {
-    for (const state of busStateByAccount.values()) {
-      closeAccountBus(state)
-    }
-    busStateByAccount.clear()
+function addListener<T>(listeners: Set<T>, listener: T): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
   }
 }

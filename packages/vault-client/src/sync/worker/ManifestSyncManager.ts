@@ -93,7 +93,7 @@ export class ManifestSyncManager {
   }
 
   async sync(force = false, signal?: AbortSignal): Promise<SyncResult> {
-    if (this.isShutdown || !this.deps.accountId) return { added: [], success: false }
+    if (this.isShutdown) return { added: [], success: false }
     return this.syncGuard.run(() => this.executeSync(force, signal))
   }
 

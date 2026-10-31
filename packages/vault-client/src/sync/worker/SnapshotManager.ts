@@ -12,18 +12,19 @@ import { SnapshotPusher } from './SnapshotPusher'
 import type { SnapshotPushResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { KeyProvider } from '../../api/Keyring'
+import type { SyncSessionState } from './SyncSessionState'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
   debounceDelayMs?: number
   maxWaitMs?: number
-  isLeader?: boolean
 }
 
 export class SnapshotManager {
   private readonly tracker: SnapshotTracker
   private readonly builder: SnapshotBuilder
   private readonly pusher: SnapshotPusher
+  private readonly session: SyncSessionState
 
   async loadLastModified(): Promise<void> {
     await this.tracker.loadLastModified()
@@ -32,6 +33,7 @@ export class SnapshotManager {
   constructor(
     deps: {
       accountId: string
+      session: SyncSessionState
       repo: Repo
       broker: SyncMessageBroker
       getLatestCursor?: () => number
@@ -44,13 +46,14 @@ export class SnapshotManager {
     lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
+    this.session = deps.session
     this.builder = new SnapshotBuilder(deps.repo, deps.keys, deps.codec)
     this.tracker = new SnapshotTracker({
       lastModifiedStore,
       recoveryManager: deps.recoveryManager,
       debounceDelayMs: options?.debounceDelayMs,
       maxWaitMs: options?.maxWaitMs,
-      isLeader: options?.isLeader,
+      session: deps.session,
       onTriggerPush: () => fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onTriggerPush'),
       isRetryActive: () => this.pusher.isRetryActive,
     })
@@ -68,27 +71,22 @@ export class SnapshotManager {
     })
   }
 
-  get leader(): boolean {
-    return this.tracker.leader
-  }
+  /** Called after the session's leadership changed */
+  async onLeaderChange(): Promise<void> {
+    if (this.session.isShutdown) return
+    this.tracker.onLeaderChange()
 
-  async setLeader(isLeader: boolean): Promise<void> {
-    if (this.tracker.isShutdown || this.tracker.leader === isLeader) {
-      return
-    }
-    this.tracker.setLeader(isLeader)
-
-    if (isLeader) {
+    if (this.session.isLeader) {
       await this.tracker.loadLastModified()
     } else {
       this.stopPushing()
     }
   }
 
-  onOnlineStateChange(isOnline: boolean): void {
-    this.tracker.setOnline(isOnline)
-    if (isOnline) {
-      if (this.tracker.leader && this.tracker.dirtyCount > 0) {
+  /** Called after the session's online state changed */
+  onOnlineStateChange(): void {
+    if (this.session.isOnline) {
+      if (this.session.isLeader && this.tracker.dirtyCount > 0) {
         this.pusher.resetRetry()
         fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onOnlineStateChange')
       }

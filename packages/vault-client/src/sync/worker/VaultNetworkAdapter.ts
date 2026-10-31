@@ -12,6 +12,7 @@ import { BaseSyncNetworkAdapter } from './BaseSyncNetworkAdapter'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
 import type { WorkerInternalEventHub } from './SyncEventHub'
+import type { SyncSessionState } from './SyncSessionState'
 import { BoundedQueue } from '../utils/BoundedQueue'
 import { BoundedSet } from '../utils/BoundedSet'
 import { RetryTimer } from '../utils/RetryTimer'
@@ -52,6 +53,9 @@ function isEmptySyncMessage(message: Message): boolean {
 export type HeadsValidator = (documentId: DocumentId, heads: string[]) => boolean
 
 export interface VaultNetworkAdapterOptions {
+  accountId: string
+  /** Only the leader sends to the vault */
+  session: SyncSessionState
   /** Persists the last confirmed synced heads so they survive a restart */
   syncedHeadsStore?: SyncedHeadsStore
   /**
@@ -68,8 +72,8 @@ interface RenegotiationCircuitState {
 }
 
 export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
-  private account: string | null = null
-  private sendEnabled = false
+  private readonly accountId: string
+  private readonly session: SyncSessionState
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
   private readonly outboundQueue = new BoundedQueue<Message>(
     MAX_OUTBOUND_QUEUE_SIZE,
@@ -93,9 +97,11 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
 
   constructor(
     private readonly internalEventHub: WorkerInternalEventHub,
-    options: VaultNetworkAdapterOptions = {},
+    options: VaultNetworkAdapterOptions,
   ) {
     super()
+    this.accountId = options.accountId
+    this.session = options.session
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve
     })
@@ -145,47 +151,16 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   protected override canSend(): boolean {
     return super.canSend()
       && this.connectionState === 'connected'
-      && Boolean(this.account)
-      && this.sendEnabled
+      && this.session.isLeader
   }
 
-  setSendEnabled(sendEnabled: boolean): void {
-    if (this.sendEnabled === sendEnabled) {
-      return
-    }
-    this.sendEnabled = sendEnabled
-
-    if (sendEnabled) {
+  /** Connects the vault peer when this tab becomes the leader, and disconnects it when it stops being one */
+  onLeaderChange(): void {
+    if (this.session.isLeader) {
       this.seededDocuments.clear()
       this.resumeSending()
     } else {
       this.disconnectPeer()
-    }
-  }
-
-  setAccount(account: string | null): void {
-    const nextAccount = account && account.length > 0 ? account : null
-    if (this.account === nextAccount) {
-      return
-    }
-
-    if (this.account) {
-      this.seededDocuments.clear()
-      this.clearSyncedHeads()
-
-      if (!nextAccount) {
-        this.disconnectPeer()
-      }
-
-      this.clearOutboundQueue()
-    }
-
-    this.account = nextAccount
-
-    if (this.account) {
-      this.resumeSending()
-    } else {
-      this.clearOutboundQueue()
     }
   }
 
@@ -482,16 +457,10 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
     this.syncedHeads.clear()
   }
 
-  private clearOutboundQueue(): void {
-    this.outboundQueue.clear()
-    this.pendingReNegotiations.clear()
-    this.resetReNegotiationCircuit()
-  }
-
   private connectPeer(): void {
-    if (this.account && this.connectionState === 'connected' && this.sendEnabled) {
+    if (this.connectionState === 'connected' && this.session.isLeader) {
       this.dispatchPeerCandidate(VAULT_PEER_ID, {
-        storageId: `vault:${this.account}` as StorageId,
+        storageId: `vault:${this.accountId}` as StorageId,
         isEphemeral: false,
       })
     }

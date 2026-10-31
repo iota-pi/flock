@@ -1,14 +1,10 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { SyncPoller } from './SyncPoller'
-import { RecoveryManager } from './RecoveryManager'
-import { SyncApiClient } from './SyncApiClient'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createMockKeyProvider, createTestEventHubs } from './__test__/testUtils'
-
-const keys = createMockKeyProvider()
+import { createTestEventHubs } from './__test__/testUtils'
+import { SyncSessionState } from './SyncSessionState'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
@@ -28,7 +24,7 @@ function createSyncMessage(itemId: string, data: number[]): Message {
 
 describe('SyncMessageBroker', () => {
   let broker: SyncMessageBroker
-  let poller: SyncPoller
+  let session: SyncSessionState
   let adapter: VaultNetworkAdapter
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
@@ -40,9 +36,9 @@ describe('SyncMessageBroker', () => {
     const hubs = createTestEventHubs()
     clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
-    adapter = new VaultNetworkAdapter(internalEventHub)
+    session = new SyncSessionState()
+    adapter = new VaultNetworkAdapter(internalEventHub, { accountId: 'account-1', session })
     pullQueueManager = {
-      setAccount: vi.fn().mockResolvedValue(undefined),
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),
@@ -56,21 +52,12 @@ describe('SyncMessageBroker', () => {
       clear: vi.fn().mockResolvedValue(undefined),
     } as unknown as SyncWriteAheadLog
 
-    poller = new SyncPoller({
-      pullQueueManager,
-      clientEventHub,
-      internalEventHub,
-      keys,
-      wal: mockWal,
-      apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId: 'account-1', eventHub: clientEventHub }),
-    })
     broker = new SyncMessageBroker({
       adapter,
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      poller,
+      session,
       wal: mockWal,
     })
   })
@@ -83,20 +70,20 @@ describe('SyncMessageBroker', () => {
     return vi.mocked(mockWal.append).mock.calls.length === appendsBefore
   }
 
+  /** Makes this tab the leader, which writes outgoing messages to the WAL */
   async function startSending(): Promise<void> {
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
+    session.setLeader(true)
   }
 
-  it('does not write to WAL if send is not enabled or account is not set', () => {
+  it('does not write to WAL unless this tab is the leader and the session is running', async () => {
     const msg = createSyncMessage('item123', [1, 2, 3])
 
-    broker.setSendEnabled(false)
     internalEventHub.emit({ type: 'messageToSend', message: msg })
 
-    broker.setSendEnabled(true)
-    // Account not set yet
+    session.setLeader(true)
+    session.markShutdown()
     internalEventHub.emit({ type: 'messageToSend', message: msg })
+    await Promise.resolve()
 
     expect(mockWal.append).not.toHaveBeenCalled()
   })
@@ -106,8 +93,7 @@ describe('SyncMessageBroker', () => {
     internalEventHub.subscribe(e => {
       if (e.type === 'flushNeeded') flushSpy()
     })
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
+    session.setLeader(true)
 
     const msg = createSyncMessage('item123', [1, 2, 3])
     internalEventHub.emit({ type: 'messageToSend', message: msg })
@@ -123,8 +109,7 @@ describe('SyncMessageBroker', () => {
     internalEventHub.subscribe(e => {
       if (e.type === 'snapshotFallbackRequested') fallbackSpy(e.itemId)
     })
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
+    session.setLeader(true)
 
     const msg = createSyncMessage('item-big', [])
     msg.data = new Uint8Array(MAX_INCREMENTAL_MESSAGE_BYTES + 1)
@@ -148,8 +133,7 @@ describe('SyncMessageBroker', () => {
     internalEventHub.subscribe(e => {
       if (e.type === 'flushNeeded') flushSpy()
     })
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
+    session.setLeader(true)
 
     const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-req' as ItemId))
     const reqMsg: Message = {
@@ -175,7 +159,6 @@ describe('SyncMessageBroker', () => {
         mockOnItemParsed(e.itemId)
       }
     })
-    await broker.setAccount('account-1')
 
     const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-1' as ItemId))
     const msgData = new Uint8Array([1, 2, 3])
@@ -185,11 +168,9 @@ describe('SyncMessageBroker', () => {
     expect(receiveSpy).toHaveBeenCalledWith(docId, msgData)
   })
 
-  it('shuts down syncPoller and pullQueueManager cleanly', async () => {
-    const shutdownSpy = vi.spyOn(poller, 'shutdown')
-    await broker.shutdown()
-    expect(shutdownSpy).toHaveBeenCalledTimes(1)
-    expect(pullQueueManager.shutdown).toHaveBeenCalledTimes(1)
+  it("leaves stopping the pull queue to the context's lifecycle", () => {
+    broker.shutdown()
+    expect(pullQueueManager.shutdown).not.toHaveBeenCalled()
   })
 
   it('triggers renegotiation and notifies onWalAppendFailed when WAL append fails', async () => {
@@ -200,8 +181,7 @@ describe('SyncMessageBroker', () => {
       if (e.type === 'flushNeeded') flushSpy()
       if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
     })
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
+    session.setLeader(true)
 
     const appendError = new Error('Disk full')
     vi.mocked(mockWal.append).mockRejectedValueOnce(appendError)
@@ -223,8 +203,7 @@ describe('SyncMessageBroker', () => {
     internalEventHub.subscribe(e => {
       if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
     })
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
+    session.setLeader(true)
 
     const quotaError = new DOMException('Storage quota exceeded', 'QuotaExceededError')
     vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
@@ -241,16 +220,6 @@ describe('SyncMessageBroker', () => {
         message: expect.stringContaining('quota'),
       })
     )
-  })
-
-  it('keeps using the WAL it was given after setAccount', async () => {
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
-
-    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage('item123', [1, 2, 3]) })
-    await Promise.resolve()
-
-    expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
   })
 
   it('flags items for snapshot-only sync without triggering renegotiation when WAL prunes entries', async () => {
@@ -276,8 +245,7 @@ describe('SyncMessageBroker', () => {
     internalEventHub.subscribe(e => {
       if (e.type === 'walEntriesPruned') prunedSpy(e.itemIds)
     })
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
+    session.setLeader(true)
 
     // Mark item-1 as snapshot-only (via pruned callback)
     internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId] })
@@ -348,19 +316,9 @@ describe('SyncMessageBroker', () => {
     expect(await dropsIncrementalSync(itemId)).toBe(true)
   })
 
-  it('clears snapshot-only items on account change', async () => {
-    await startSending()
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId] })
-    expect(await dropsIncrementalSync('item-1')).toBe(true)
-
-    await broker.setAccount('account-2')
-    expect(await dropsIncrementalSync('item-1')).toBe(false)
-  })
-
   describe('blocked items and infinite loop prevention on storage quota exceeded', () => {
     it('marks item as blocked when WAL append fails, preventing infinite loops on renegotiation', async () => {
-      broker.setSendEnabled(true)
-      await broker.setAccount('account-1')
+      session.setLeader(true)
 
       const quotaError = new DOMException('Storage quota exceeded', 'QuotaExceededError')
       vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
@@ -391,8 +349,7 @@ describe('SyncMessageBroker', () => {
     })
 
     it('unblocks item when setSyncedHeads is called after successful snapshot upload', async () => {
-      broker.setSendEnabled(true)
-      await broker.setAccount('account-1')
+      session.setLeader(true)
 
       // Block the item
       broker.blockItem('item-snap' as ItemId)
@@ -413,8 +370,7 @@ describe('SyncMessageBroker', () => {
     })
 
     it('unblocks all items and triggers renegotiation for previously blocked items when quotaResolved is emitted', async () => {
-      broker.setSendEnabled(true)
-      await broker.setAccount('account-1')
+      session.setLeader(true)
 
       const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
       const resetCircuitSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
@@ -440,8 +396,7 @@ describe('SyncMessageBroker', () => {
       internalEventHub.subscribe(e => {
         if (e.type === 'flushNeeded') flushSpy()
       })
-      broker.setSendEnabled(true)
-      await broker.setAccount('account-1')
+      session.setLeader(true)
 
       // Block item
       broker.blockItem('item-blocked' as ItemId)

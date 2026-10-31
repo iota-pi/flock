@@ -1,9 +1,17 @@
 import { SyncStatusManager } from './SyncStatusManager'
 import { ClientEventHub } from './SyncEventHub'
+import { SyncSessionState } from './SyncSessionState'
 
 describe('SyncStatusManager', () => {
   let clientEventHub: ClientEventHub
   let statusManager: SyncStatusManager
+  let session: SyncSessionState
+
+  /** Changes the session's online state and tells the manager, as the worker does */
+  function setOnline(isOnline: boolean): void {
+    session.setOnline(isOnline)
+    statusManager.onOnlineStateChange()
+  }
   let emittedStatuses: string[]
 
   beforeEach(() => {
@@ -14,36 +22,39 @@ describe('SyncStatusManager', () => {
         emittedStatuses.push(event.status)
       }
     })
-    statusManager = new SyncStatusManager(clientEventHub)
+    session = new SyncSessionState()
+    statusManager = new SyncStatusManager(clientEventHub, session)
   })
 
   it('initializes with offline status and resets cleanly', () => {
     expect(statusManager.getStatus()).toBe('offline')
 
-    statusManager.reset(true)
+    statusManager.reset()
     expect(statusManager.getStatus()).toBe('idle')
     expect(emittedStatuses).toEqual(['idle'])
 
-    statusManager.reset(false)
+    session.setOnline(false)
+
+    statusManager.reset()
     expect(statusManager.getStatus()).toBe('offline')
     expect(emittedStatuses).toEqual(['idle', 'offline'])
   })
 
   it('handles online and offline transitions', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
-    statusManager.setOnlineState(false)
+    setOnline(false)
     expect(statusManager.getStatus()).toBe('offline')
     expect(emittedStatuses).toEqual(['offline'])
 
-    statusManager.setOnlineState(true)
+    setOnline(true)
     expect(statusManager.getStatus()).toBe('idle')
     expect(emittedStatuses).toEqual(['offline', 'idle'])
   })
 
   it('tracks in-flight requests and sets status to syncing', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.startRequest()
@@ -63,7 +74,7 @@ describe('SyncStatusManager', () => {
   })
 
   it('preserves activeRequests across reset() so in-flight requests do not desynchronize', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.startRequest()
@@ -71,7 +82,7 @@ describe('SyncStatusManager', () => {
     expect(emittedStatuses).toEqual(['syncing'])
 
     // When reset() is called with in-flight requests outstanding:
-    statusManager.reset(true)
+    statusManager.reset()
     // activeRequests is preserved and status remains syncing
     expect(statusManager.getStatus()).toBe('syncing')
     // No spurious status change emitted
@@ -93,19 +104,20 @@ describe('SyncStatusManager', () => {
     expect(emittedStatuses).toEqual(['syncing', 'idle'])
   })
 
-  it('preserves activeRequests across reset(false) and resumes syncing upon reconnecting', () => {
-    statusManager.reset(true)
+  it('preserves activeRequests across reset() while offline and resumes syncing upon reconnecting', () => {
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.startRequest()
     expect(statusManager.getStatus()).toBe('syncing')
 
     // Reset with offline state
-    statusManager.reset(false)
+    session.setOnline(false)
+    statusManager.reset()
     expect(statusManager.getStatus()).toBe('offline')
 
     // Reconnecting while request is still pending restores syncing status
-    statusManager.setOnlineState(true)
+    setOnline(true)
     expect(statusManager.getStatus()).toBe('syncing')
 
     // Request completes
@@ -114,7 +126,7 @@ describe('SyncStatusManager', () => {
   })
 
   it('transitions to degraded on poll failure and recovers on success', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.handlePollResult('failure')
@@ -138,7 +150,7 @@ describe('SyncStatusManager', () => {
   })
 
   it('transitions to degraded on quota exceeded', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.setQuotaExceeded(true)
@@ -151,7 +163,7 @@ describe('SyncStatusManager', () => {
   })
 
   it('transitions to degraded on pull retry state active', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.setDegradedPull(true)
@@ -164,7 +176,7 @@ describe('SyncStatusManager', () => {
   })
 
   it('transitions to offline on auth-failure outcome', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.handlePollResult('auth-failure')
@@ -177,11 +189,23 @@ describe('SyncStatusManager', () => {
   })
 
   it('ignores no-poll outcomes', () => {
-    statusManager.reset(true)
+    statusManager.reset()
     emittedStatuses = []
 
     statusManager.handlePollResult('no-poll')
     expect(statusManager.getStatus()).toBe('idle')
     expect(emittedStatuses).toEqual([])
+  })
+
+  it('is degraded after a snapshot failure until the next successful poll', () => {
+    statusManager.reset()
+    emittedStatuses = []
+
+    statusManager.setSnapshotFailed()
+    expect(statusManager.getStatus()).toBe('degraded')
+
+    statusManager.handlePollResult('success')
+    expect(statusManager.getStatus()).toBe('idle')
+    expect(emittedStatuses).toEqual(['degraded', 'idle'])
   })
 })

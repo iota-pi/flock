@@ -3,12 +3,12 @@ import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { toDocumentIdFromItemId, ACCOUNT_INDEX_DOCUMENT_ID } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
-import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { createFakeRealtimeBus, createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
-import * as realtimeBusModule from './realtimeBus'
 import * as broadcastChannelAdapter from '@automerge/automerge-repo-network-broadcastchannel'
 
-const mockPublishRealtimeBusSyncPing = vi.fn()
+const realtimeBus = createFakeRealtimeBus()
+const mockPublishRealtimeBusSyncPing = realtimeBus.publishSyncPing
 const mockOn = vi.fn()
 const mockSend = vi.fn()
 const mockConnect = vi.fn()
@@ -31,9 +31,6 @@ const keys = createMockKeyProvider(vault)
 beforeEach(() => {
   spyOnExports(broadcastChannelAdapter, {
     BroadcastChannelNetworkAdapter: BroadcastChannelNetworkAdapterMock,
-  })
-  spyOnExports(realtimeBusModule, {
-    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
   })
 })
 
@@ -59,7 +56,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     })
     vi.mocked(hasVaultKey).mockReturnValue(true)
     vi.mocked(waitForKeyVersion).mockResolvedValue(true)
-    adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, accountId: 'account-1', cryptoRetryDelayMs: 0 })
+    adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, bus: realtimeBus.bus, cryptoRetryDelayMs: 0 })
     innerAdapterMock = (adapter as any).inner
   })
 
@@ -1091,7 +1088,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       adapter.send(message)
 
       await vi.waitFor(() => {
-        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['item-abc'])
+        expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-abc'])
       })
     })
 

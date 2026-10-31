@@ -1,5 +1,6 @@
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
-import { SnapshotManager } from './SnapshotManager'
+import { SnapshotManager, type SnapshotManagerOptions } from './SnapshotManager'
+import { SyncSessionState } from './SyncSessionState'
 import { RecoveryManager } from './RecoveryManager'
 import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
@@ -27,6 +28,45 @@ const vault = {
   }),
 }
 const keys = createMockKeyProvider(vault)
+
+const sessions = new WeakMap<SnapshotManager, SyncSessionState>()
+
+/** A manager with its own session state, a leader's when `isLeader` is set */
+function createManager(
+  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session'>,
+  lastModifiedStore: LastModifiedStore,
+  options: SnapshotManagerOptions & { isLeader?: boolean } = {},
+): SnapshotManager {
+  const { isLeader, ...managerOptions } = options
+  const session = new SyncSessionState({ isLeader })
+  const created = new SnapshotManager({ ...context, session }, lastModifiedStore, managerOptions)
+  sessions.set(created, session)
+  return created
+}
+
+/** Changes the session's leadership and tells the manager, as the context does */
+async function setLeader(target: SnapshotManager, isLeader: boolean): Promise<void> {
+  if (sessions.get(target)!.setLeader(isLeader)) {
+    await target.onLeaderChange()
+  }
+}
+
+/** Changes the session's online state and tells the manager, as the context does */
+function setOnline(target: SnapshotManager, isOnline: boolean): void {
+  if (sessions.get(target)!.setOnline(isOnline)) {
+    target.onOnlineStateChange()
+  }
+}
+
+/** Marks the session shut down and stops the manager, as the context does */
+function shutDown(target: SnapshotManager, options?: { clearLocalData?: boolean }): Promise<void> {
+  sessions.get(target)!.markShutdown()
+  return target.shutdown(options)
+}
+
+function isLeader(target: SnapshotManager): boolean {
+  return sessions.get(target)!.isLeader
+}
 
 function createMockBroker() {
   return {
@@ -117,7 +157,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     }
 
     lastModifiedStore = new LastModifiedStore('test-account')
-    manager = new SnapshotManager(context as any, lastModifiedStore, { isLeader: true })
+    manager = createManager(context as any, lastModifiedStore, { isLeader: true })
   })
 
   afterEach(() => {
@@ -126,8 +166,8 @@ describe('SnapshotManager Retry Mechanism', () => {
 
   /** Simulates a worker restart: drops the manager's in-memory state and replaces it with a fresh one */
   async function restartManager(): Promise<void> {
-    await manager.shutdown({ clearLocalData: true })
-    manager = new SnapshotManager(context as any, lastModifiedStore, { isLeader: true })
+    await shutDown(manager, { clearLocalData: true })
+    manager = createManager(context as any, lastModifiedStore, { isLeader: true })
   }
 
   it('successfully pushes snapshots', async () => {
@@ -355,7 +395,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager['pusher'].isRetryActive).toBe(true)
 
     // Go offline
-    manager.onOnlineStateChange(false)
+    setOnline(manager, false)
     expect(manager['pusher'].isRetryActive).toBe(false)
 
     // Advance time, no additional retry should occur
@@ -375,7 +415,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager['pusher'].retryAttempt).toBe(1)
 
     // 2. Go offline (clears retry timer)
-    manager.onOnlineStateChange(false)
+    setOnline(manager, false)
     expect(manager['pusher'].isRetryActive).toBe(false)
 
     // 3. Make next call succeed
@@ -385,7 +425,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     // 4. Come back online
-    manager.onOnlineStateChange(true)
+    setOnline(manager, true)
     await vi.advanceTimersByTimeAsync(0)
 
     // Immediate push should have happened and succeeded
@@ -404,7 +444,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
 
-    await manager.shutdown({ clearLocalData: true })
+    await shutDown(manager, { clearLocalData: true })
 
     expect(manager['pusher'].retryAttempt).toBe(0)
     expect(manager['pusher'].isRetryActive).toBe(false)
@@ -515,7 +555,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('splits batches when total estimated payload bytes exceed maxPayloadBytes', async () => {
       // Create a manager with small maxPayloadBytes, e.g. 200 bytes
-      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 200, isLeader: true })
+      const testManager = createManager(context as any, lastModifiedStore, { maxPayloadBytes: 200, isLeader: true })
 
       mockPutSnapshots.mockResolvedValue({
         success: true,
@@ -535,7 +575,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('skips a single snapshot if it exceeds maxPayloadBytes', async () => {
       // Create a manager with extremely small maxPayloadBytes, e.g. 10 bytes
-      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 10, isLeader: true })
+      const testManager = createManager(context as any, lastModifiedStore, { maxPayloadBytes: 10, isLeader: true })
 
       mockPutSnapshots.mockResolvedValue({
         success: true,
@@ -560,7 +600,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       await manager.importLastModified([['item-1' as ItemId, 123456]])
 
       // Execute shutdown
-      await manager.shutdown()
+      await shutDown(manager)
 
       expect(saveSpy).toHaveBeenCalledWith([['item-1', { localModifiedAt: 123456, lastSnapshotAt: 123456, baseVersion: 0 }]])
       expect(clearSpy).not.toHaveBeenCalled()
@@ -570,7 +610,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
 
       await manager.importLastModified([['item-1' as ItemId, 123456]])
-      await manager.shutdown({ clearLocalData: true })
+      await shutDown(manager, { clearLocalData: true })
 
       expect(manager.exportLastModified()).toHaveLength(0)
       expect(clearSpy).not.toHaveBeenCalled()
@@ -581,7 +621,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       manager.markItemDirty('item-1' as ItemId)
 
-      await manager.shutdown()
+      await shutDown(manager)
 
       expect(saveSpy).toHaveBeenCalledTimes(1)
 
@@ -809,7 +849,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       let shutdownFinished = false
-      const shutdownPromise = manager.shutdown().then(() => {
+      const shutdownPromise = shutDown(manager).then(() => {
         shutdownFinished = true
       })
 
@@ -938,7 +978,7 @@ describe('SnapshotManager Retry Mechanism', () => {
   })
 
   it('saves pending timestamps at once when flushed, even in a follower tab', async () => {
-    const follower = new SnapshotManager(context as any, lastModifiedStore, { isLeader: false })
+    const follower = createManager(context as any, lastModifiedStore, { isLeader: false })
     const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
     follower.markItemDirty('item-1' as ItemId)
     expect(saveSpy).not.toHaveBeenCalled()
@@ -1030,7 +1070,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const mockEventHub = {
         emit: vi.fn(),
       }
-      const managerWithLimits = new SnapshotManager(
+      const managerWithLimits = createManager(
         {
           accountId: 'test-account',
           repo: mockRepo,
@@ -1071,7 +1111,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     it('suppresses repeated error logs and repeated manual recovery upserts on subsequent pushes for the same oversized item', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       const mockEventHub = { emit: vi.fn() }
-      const managerWithLimits = new SnapshotManager(
+      const managerWithLimits = createManager(
         {
           accountId: 'test-account',
           repo: mockRepo,
@@ -1144,7 +1184,7 @@ describe('SnapshotManager Retry Mechanism', () => {
           kver: '1',
         })
 
-      const testManager = new SnapshotManager(
+      const testManager = createManager(
         context as any,
         lastModifiedStore,
         { maxPayloadBytes: 200, isLeader: true },
@@ -1170,7 +1210,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      const testManager = new SnapshotManager(
+      const testManager = createManager(
         context as any,
         lastModifiedStore,
         { maxPayloadBytes: 200, isLeader: true },
@@ -1526,7 +1566,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
         manager.markItemDirty('item-dirty' as ItemId)
 
-        await manager.shutdown()
+        await shutDown(manager)
 
         expect(saveSpy).toHaveBeenCalled()
         saveSpy.mockClear()
@@ -1540,7 +1580,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
         manager.markItemDirty('item-dirty' as ItemId)
 
-        await manager.shutdown({ clearLocalData: true })
+        await shutDown(manager, { clearLocalData: true })
 
         expect(saveSpy).not.toHaveBeenCalled()
 
@@ -1549,19 +1589,8 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(saveSpy).not.toHaveBeenCalled()
       })
 
-      it('is idempotent on multiple shutdown calls', async () => {
-        const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
-        manager.markItemDirty('item-dirty' as ItemId)
-
-        await manager.shutdown()
-        expect(saveSpy).toHaveBeenCalledTimes(1)
-
-        await manager.shutdown()
-        expect(saveSpy).toHaveBeenCalledTimes(1)
-      })
-
       it('ignores markItemDirty after shutdown', async () => {
-        await manager.shutdown()
+        await shutDown(manager)
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
 
         manager.markItemDirty('item-after-shutdown' as ItemId)
@@ -1577,11 +1606,11 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     beforeEach(() => {
       // Default creation without options starts with isLeader: false
-      followerManager = new SnapshotManager(context as any, lastModifiedStore)
+      followerManager = createManager(context as any, lastModifiedStore)
     })
 
     it('defaults isLeader to false and exposes leader getter', () => {
-      expect(followerManager.leader).toBe(false)
+      expect(isLeader(followerManager)).toBe(false)
     })
 
     it('prevents flushPendingSnapshots from uploading when not leader', async () => {
@@ -1604,7 +1633,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('does not trigger push on online state change when not leader', async () => {
       followerManager.markItemDirty('follower-item-1' as ItemId)
-      followerManager.onOnlineStateChange(true)
+      setOnline(followerManager, true)
 
       await vi.advanceTimersByTimeAsync(1000)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1620,8 +1649,8 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshots).not.toHaveBeenCalled()
 
       // Promoted to leader
-      followerManager.setLeader(true)
-      expect(followerManager.leader).toBe(true)
+      setLeader(followerManager, true)
+      expect(isLeader(followerManager)).toBe(true)
 
       // Debounced push runs
       await vi.advanceTimersByTimeAsync(30_000)
@@ -1634,8 +1663,8 @@ describe('SnapshotManager Retry Mechanism', () => {
       manager.markItemDirty('leader-item-1' as ItemId)
 
       // Leadership revoked before debounce timer fires
-      manager.setLeader(false)
-      expect(manager.leader).toBe(false)
+      setLeader(manager, false)
+      expect(isLeader(manager)).toBe(false)
 
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1660,7 +1689,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       expect(followerManager.getDirtyItemIds()).toEqual([])
 
-      await followerManager.setLeader(true)
+      await setLeader(followerManager, true)
 
       expect(followerManager.getDirtyItemIds()).toContain('item-unpushed')
       expect(followerManager.getDirtyItemIds()).not.toContain('item-clean')
@@ -1677,7 +1706,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-from-previous-leader' as ItemId, { localModifiedAt: 6000, lastSnapshotAt: 1000 }],
       ])
 
-      await followerManager.setLeader(true)
+      await setLeader(followerManager, true)
 
       await vi.advanceTimersByTimeAsync(30_000)
 
@@ -1698,7 +1727,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-from-previous-leader' as ItemId, { localModifiedAt: 8000, lastSnapshotAt: 2000 }],
       ])
 
-      await followerManager.setLeader(true)
+      await setLeader(followerManager, true)
 
       expect(followerManager.getDirtyItemIds()).toContain('follower-local-item')
       expect(followerManager.getDirtyItemIds()).toContain('item-from-previous-leader')
@@ -1716,7 +1745,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-clean' as ItemId, { localModifiedAt: 4000, lastSnapshotAt: 4000 }],
       ])
 
-      await followerManager.setLeader(true)
+      await setLeader(followerManager, true)
 
       expect(followerManager.getDirtyItemIds()).toHaveLength(0)
 
@@ -1731,11 +1760,11 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
       vi.spyOn(lastModifiedStore, 'loadTimestamps').mockReturnValue(pendingLoad as any)
 
-      const promotionPromise = followerManager.setLeader(true)
+      const promotionPromise = setLeader(followerManager, true)
 
       // Leadership revoked before load completes
-      await followerManager.setLeader(false)
-      expect(followerManager.leader).toBe(false)
+      await setLeader(followerManager, false)
+      expect(isLeader(followerManager)).toBe(false)
 
       resolveTimestamps!([
         ['item-unpushed' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
@@ -1769,7 +1798,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(capturedSignal).toBeDefined()
       expect(capturedSignal?.aborted).toBe(false)
 
-      await manager.setLeader(false)
+      await setLeader(manager, false)
 
       expect(capturedSignal?.aborted).toBe(true)
       const result = await pushPromise
@@ -1796,7 +1825,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(capturedSignal?.aborted).toBe(false)
 
-      manager.onOnlineStateChange(false)
+      setOnline(manager, false)
 
       expect(capturedSignal?.aborted).toBe(true)
       const result = await pushPromise
@@ -1821,7 +1850,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(capturedSignal?.aborted).toBe(false)
 
-      await manager.shutdown()
+      await shutDown(manager)
 
       expect(capturedSignal?.aborted).toBe(true)
       const result = await pushPromise

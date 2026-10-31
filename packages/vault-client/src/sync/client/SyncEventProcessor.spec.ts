@@ -82,14 +82,25 @@ describe('SyncEventProcessor', () => {
       type: 'quotaExceeded',
       message: 'Storage quota exceeded',
     })
-    expect(sink.state.syncStatus).toBe('degraded')
     expect(sink.state.isQuotaExceeded).toBe(true)
     expect(sink.state.syncWarning).toBe('Storage quota exceeded')
 
     processor.handleSyncEvent({ type: 'quotaResolved' })
     expect(sink.state.isQuotaExceeded).toBe(false)
-    expect(sink.state.syncStatus).toBe('idle')
     expect(sink.state.syncWarning).toBeNull()
+  })
+
+  it("leaves the sync status to the worker's statusChange events", () => {
+    processor.handleSyncEvent({ type: 'statusChange', status: 'idle' })
+
+    processor.handleSyncEvent({ type: 'authFailure', message: 'Session expired' })
+    processor.handleSyncEvent({ type: 'quotaExceeded', message: 'Storage quota exceeded' })
+    processor.handleSyncEvent({ type: 'quotaResolved' })
+    processor.handleSyncEvent({ type: 'snapshotFailed', itemId: 'item-1' as ItemId, message: 'Snapshot failed' })
+    expect(sink.state.syncStatus).toBe('idle')
+
+    processor.handleSyncEvent({ type: 'statusChange', status: 'degraded' })
+    expect(sink.state.syncStatus).toBe('degraded')
   })
 
   it('on quotaResolved, leaves a warning that replaced the quota warning', () => {

@@ -13,6 +13,8 @@ import type { IDBFactory } from 'fake-indexeddb'
 import type { ItemId } from '@vault/shared'
 import type { SnapshotTracker } from '../SnapshotTracker'
 import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
+import type { RealtimeBus } from '../realtimeBus'
+import type { VaultMetadata } from '../../shared/types'
 
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
@@ -385,4 +387,56 @@ export function setTimestamps(tracker: SnapshotTracker, itemId: string, timestam
 /** An item's tracked timestamps, empty if it has none */
 export function getTimestamps(tracker: SnapshotTracker, itemId: string): Partial<ItemSyncTimestamps> {
   return tracker['timestampsByItemId'].get(itemId as ItemId) ?? {}
+}
+
+/** A realtime bus that records what's published and lets a test deliver other tabs' messages */
+export interface FakeRealtimeBus {
+  bus: RealtimeBus
+  publishSyncPing: Mock<(itemIds: ItemId[]) => void>
+  publishItemDirty: Mock<(itemIds: ItemId[]) => void>
+  publishIndexUpdated: Mock<(itemIds: ItemId[]) => void>
+  publishMetadataUpdated: Mock<(metadata: VaultMetadata) => void>
+  close: Mock<() => void>
+  /** Delivers messages as if another tab had published them */
+  receiveSyncPing(itemIds: ItemId[]): void
+  receiveItemDirty(itemIds: ItemId[]): void
+  receiveIndexUpdated(itemIds: ItemId[]): void
+  receiveMetadataUpdated(metadata: VaultMetadata): void
+}
+
+export function createFakeRealtimeBus(): FakeRealtimeBus {
+  const syncPing = new Set<(itemIds: ItemId[]) => void>()
+  const itemDirty = new Set<(itemIds: ItemId[]) => void>()
+  const index = new Set<(itemIds: ItemId[]) => void>()
+  const metadata = new Set<(metadata: VaultMetadata) => void>()
+  const subscribe = <T>(listeners: Set<T>) => (listener: T) => {
+    listeners.add(listener)
+    return () => {
+      listeners.delete(listener)
+    }
+  }
+  const fake = {
+    publishSyncPing: vi.fn(),
+    publishItemDirty: vi.fn(),
+    publishIndexUpdated: vi.fn(),
+    publishMetadataUpdated: vi.fn(),
+    close: vi.fn(() => {
+      syncPing.clear()
+      itemDirty.clear()
+      index.clear()
+      metadata.clear()
+    }),
+    receiveSyncPing: (itemIds: ItemId[]) => syncPing.forEach(listener => listener(itemIds)),
+    receiveItemDirty: (itemIds: ItemId[]) => itemDirty.forEach(listener => listener(itemIds)),
+    receiveIndexUpdated: (itemIds: ItemId[]) => index.forEach(listener => listener(itemIds)),
+    receiveMetadataUpdated: (value: VaultMetadata) => metadata.forEach(listener => listener(value)),
+  }
+  const bus = {
+    ...fake,
+    subscribeSyncPing: subscribe(syncPing),
+    subscribeItemDirty: subscribe(itemDirty),
+    subscribeIndexUpdated: subscribe(index),
+    subscribeMetadataUpdated: subscribe(metadata),
+  } as unknown as RealtimeBus
+  return { ...fake, bus }
 }

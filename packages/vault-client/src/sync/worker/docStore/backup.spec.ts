@@ -19,7 +19,7 @@ describe('backup operations', () => {
   beforeEach(async () => {
     indexStore = new IndexStore(accountId)
     docStore = createTestDocStore(testRepo)
-    indexManager = new AutomergeIndexManager(accountId, indexStore)
+    indexManager = new AutomergeIndexManager({ accountId, indexStore })
 
     await indexStore.clear()
     await indexManager.ensureIndexDocument()

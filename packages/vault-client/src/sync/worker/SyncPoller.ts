@@ -3,7 +3,8 @@ import { chunk } from 'lodash-es'
 import type { KeyProvider } from '../../api/Keyring'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from '@vault/shared'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import type { WorkerInternalEventHub } from './SyncEventHub'
+import type { SyncSessionState } from './SyncSessionState'
 import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import { decodeSyncMessage } from '@automerge/automerge/slim'
 import { BATCHED_MESSAGE_VERSION, packBatchedMessages } from './utils/binaryFraming'
@@ -31,8 +32,9 @@ type ChunkEntry = [ItemId, WalEntry[]][]
 const POLL_CHUNK_SIZE = SYNC_BATCH_SIZES.pollChunk
 
 export interface SyncPollerDeps {
+  accountId: string
+  session: SyncSessionState
   pullQueueManager: SyncPullQueueManager
-  clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
   keys: KeyProvider
   wal: SyncWriteAheadLog
@@ -41,14 +43,12 @@ export interface SyncPollerDeps {
 }
 
 export class SyncPoller {
-  private account: string | null = null
-  private isOnline = true
-  private isShutdown = false
+  private readonly accountId: string
+  private readonly session: SyncSessionState
   private readonly apiClient: SyncApiClient
   public readonly consecutivePushFailures = new Map<ItemId, number>()
   private readonly recoveryManager: RecoveryManager
   private readonly pullQueueManager: SyncPullQueueManager
-  private readonly clientEventHub: ClientEventHub
   private readonly internalEventHub: WorkerInternalEventHub
   private readonly keys: KeyProvider
   private readonly wal: SyncWriteAheadLog
@@ -56,8 +56,9 @@ export class SyncPoller {
   private validEntryIds = new Set<string>()
 
   constructor(deps: SyncPollerDeps) {
+    this.accountId = deps.accountId
+    this.session = deps.session
     this.pullQueueManager = deps.pullQueueManager
-    this.clientEventHub = deps.clientEventHub
     this.internalEventHub = deps.internalEventHub
     this.keys = deps.keys
     this.wal = deps.wal
@@ -65,32 +66,21 @@ export class SyncPoller {
     this.recoveryManager = deps.recoveryManager
   }
 
-  setAccount(account: string | null): void {
-    this.account = account
-    this.consecutivePushFailures.clear()
-    if (account) {
-      this.isShutdown = false
-    }
-  }
-
-  setOnlineState(isOnline: boolean): void {
-    this.isOnline = isOnline
-  }
-
-  get isOperational(): boolean {
-    return !this.isShutdown && this.isOnline && Boolean(this.account)
+  private get isOperational(): boolean {
+    return this.session.isOperational
   }
 
   shutdown(): void {
-    this.isShutdown = true
     this.consecutivePushFailures.clear()
   }
 
-  /** Pushes the WAL and pulls updates. Aborting `signal` cancels the poll, which then reports `'no-poll'`. */
+  /**
+   * Pushes the WAL and pulls updates. Aborting `signal` cancels the poll, which then reports `'no-poll'`.
+   * The requests it makes are counted by the worker's tracked fetch, so it reports none of its own.
+   */
   async executePoll(signal: AbortSignal = new AbortController().signal): Promise<PollOutcome> {
     if (!this.isOperational) return 'no-poll'
 
-    this.clientEventHub.emit({ type: 'startRequest' })
     const inFlightWalIds: string[] = []
     try {
       let batchEntries: ChunkEntry
@@ -138,7 +128,6 @@ export class SyncPoller {
       if (inFlightWalIds.length > 0) {
         this.wal.unmarkInFlight(inFlightWalIds)
       }
-      this.clientEventHub.emit({ type: 'finishRequest' })
     }
   }
 
@@ -234,7 +223,7 @@ export class SyncPoller {
     try {
       response = await this.apiClient.pollSyncBatch(
         {
-          account: this.account!,
+          account: this.accountId,
           pushMessages,
           pullCursors,
           clientLatestCursor: this.pullQueueManager.getGlobalScanCursor(),

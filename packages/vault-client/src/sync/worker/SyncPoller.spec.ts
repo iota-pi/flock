@@ -1,7 +1,7 @@
 import { SyncPoller } from './SyncPoller'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { SyncApiClient, AuthError, type PullSyncMessagesResponse } from './SyncApiClient'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { WorkerInternalEventHub } from './SyncEventHub'
 import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
@@ -10,6 +10,7 @@ import { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
 import { encodeSyncMessage } from '@automerge/automerge/slim'
 import { packBatchedMessages } from './utils/binaryFraming'
+import { SyncSessionState } from './SyncSessionState'
 
 const mockPollSyncBatch = vi.fn()
 const encryptBytes = vi.fn().mockResolvedValue({
@@ -32,7 +33,7 @@ beforeEach(() => {
 
 describe('SyncPoller', () => {
   let poller: SyncPoller
-  let clientEventHub: ClientEventHub
+  let session: SyncSessionState
   let internalEventHub: WorkerInternalEventHub
   let pullQueueManager: SyncPullQueueManager
   let mockWal: SyncWriteAheadLog
@@ -41,10 +42,16 @@ describe('SyncPoller', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setApiAuthToken('mock-token')
-    const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
-    internalEventHub = hubs.internalEventHub
-    pullQueueManager = new SyncPullQueueManager(new CursorStore('test-account'), keys, noItemLocks, internalEventHub)
+    internalEventHub = createTestEventHubs().internalEventHub
+    // Only the leader polls
+    session = new SyncSessionState({ isLeader: true })
+    pullQueueManager = new SyncPullQueueManager({
+      cursorStore: new CursorStore('test-account'),
+      keys,
+      lockCoordinator: noItemLocks,
+      internalEventHub,
+      session,
+    })
     mockWal = {
       append: vi.fn().mockResolvedValue('id-1'),
       readAll: vi.fn().mockResolvedValue(new Map()),
@@ -59,25 +66,25 @@ describe('SyncPoller', () => {
     } as unknown as RecoveryManager
 
     poller = new SyncPoller({
+      accountId: 'test-account',
+      session,
       pullQueueManager,
-      clientEventHub,
       internalEventHub,
       keys,
       wal: mockWal,
       apiClient: new SyncApiClient(),
       recoveryManager: mockRecoveryManager,
     })
-    poller.setAccount('test-account')
-    poller.setOnlineState(true)
   })
 
-  it('returns no-poll when offline or account is missing', async () => {
-    poller.setOnlineState(false)
+  it('returns no-poll when offline or not the leader', async () => {
+    session.setOnline(false)
     expect(await poller.executePoll()).toBe('no-poll')
 
-    poller.setOnlineState(true)
-    poller.setAccount(null)
+    session.setOnline(true)
+    session.setLeader(false)
     expect(await poller.executePoll()).toBe('no-poll')
+    expect(mockPollSyncBatch).not.toHaveBeenCalled()
   })
 
   it('returns success on successful empty poll batch', async () => {
@@ -192,7 +199,7 @@ describe('SyncPoller', () => {
   })
 
   it('restarts pagination when the server rejects a page token', async () => {
-    await pullQueueManager.setAccount('test-account')
+    await pullQueueManager.loadCursors()
     const sampleKey = 'global-page-token'
     await pullQueueManager.processPullResults([], true, sampleKey, 100)
     expect(pullQueueManager.getGlobalPageToken()).toEqual(sampleKey)
@@ -221,7 +228,7 @@ describe('SyncPoller', () => {
   })
 
   it('drops item page tokens when the server rejects one', async () => {
-    await pullQueueManager.setAccount('test-account')
+    await pullQueueManager.loadCursors()
     await pullQueueManager.processPullResults([{
       success: true,
       itemId: 'item-1' as ItemId,
@@ -245,7 +252,7 @@ describe('SyncPoller', () => {
   })
 
   it.each([408, 429])('keeps pagination when the server answers %i', async status => {
-    await pullQueueManager.setAccount('test-account')
+    await pullQueueManager.loadCursors()
     await pullQueueManager.processPullResults([], true, 'global-page-token', 100)
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -259,7 +266,7 @@ describe('SyncPoller', () => {
   })
 
   it('keeps global pagination state on transient failures', async () => {
-    await pullQueueManager.setAccount('test-account')
+    await pullQueueManager.loadCursors()
     const sampleKey = 'global-page-token'
     await pullQueueManager.processPullResults([], true, sampleKey, 100)
 
@@ -508,7 +515,7 @@ describe('SyncPoller', () => {
     })
 
     it('processes the other items but returns failure when one item throws', async () => {
-      await pullQueueManager.setAccount('test-account')
+      await pullQueueManager.loadCursors()
       pullQueueManager.addPendingItem('item-bad' as ItemId)
       pullQueueManager.addPendingItem('item-good' as ItemId)
 
@@ -543,8 +550,8 @@ describe('SyncPoller', () => {
   })
 
   describe('shutdown and in-flight cancellation', () => {
-    it('returns no-poll and skips network calls if poller is already shutdown', async () => {
-      poller.shutdown()
+    it('returns no-poll and skips network calls once the session has shut down', async () => {
+      session.markShutdown()
       const outcome = await poller.executePoll()
       expect(outcome).toBe('no-poll')
       expect(mockPollSyncBatch).not.toHaveBeenCalled()
@@ -571,7 +578,7 @@ describe('SyncPoller', () => {
       })
 
       // Poller is in-flight; trigger shutdown (e.g. user logout)
-      poller.shutdown()
+      session.markShutdown()
 
       // Network request completes after shutdown
       resolveNetwork({
@@ -629,7 +636,7 @@ describe('SyncPoller', () => {
 
       mockPollSyncBatch.mockImplementation(async () => {
         // Shut down poller during chunk 1 processing
-        poller.shutdown()
+        session.markShutdown()
         return {
           success: true,
           pushResults: [],
@@ -644,20 +651,6 @@ describe('SyncPoller', () => {
       expect(mockPollSyncBatch).toHaveBeenCalledTimes(1)
       // WAL removal should have been suppressed because of shutdown
       expect(mockWal.remove).not.toHaveBeenCalled()
-    })
-
-    it('resets isShutdown when setAccount is called with valid account', async () => {
-      poller.shutdown()
-      expect(await poller.executePoll()).toBe('no-poll')
-
-      poller.setAccount('new-account')
-      mockPollSyncBatch.mockResolvedValueOnce({
-        success: true,
-        pushResults: [],
-        pullResults: [],
-      })
-
-      expect(await poller.executePoll()).toBe('success')
     })
 
     it('aborting the signal cancels an in-flight poll without disabling future polls', async () => {
@@ -688,7 +681,7 @@ describe('SyncPoller', () => {
       const outcome = await pollPromise
       expect(outcome).toBe('no-poll')
 
-      // Subsequent executePoll should succeed without calling setAccount
+      // Later polls still run
       mockPollSyncBatch.mockResolvedValueOnce({
         success: true,
         pushResults: [],
@@ -701,7 +694,7 @@ describe('SyncPoller', () => {
 
     it('checkAlive aborts poll before network dispatch if poller goes offline during preparation', async () => {
       // Mock packBatchedMessages / encryptBytes to take time or trigger offline before network call
-      poller.setOnlineState(false)
+      session.setOnline(false)
       const outcome = await poller.executePoll()
       expect(outcome).toBe('no-poll')
       expect(mockPollSyncBatch).not.toHaveBeenCalled()
@@ -994,16 +987,15 @@ describe('SyncPoller', () => {
       } as unknown as SyncApiClient
 
       const authPoller = new SyncPoller({
+        accountId: 'test-account',
+        session,
         pullQueueManager,
-        clientEventHub,
         internalEventHub,
         keys,
         wal: mockWal,
         apiClient: mockApiClient,
         recoveryManager: mockRecoveryManager,
       })
-      authPoller.setAccount('test-account')
-      authPoller.setOnlineState(true)
 
       const outcome = await authPoller.executePoll()
       expect(outcome).toBe('auth-failure')
@@ -1033,16 +1025,15 @@ describe('SyncPoller', () => {
         })
 
       const authPoller = new SyncPoller({
+        accountId: 'test-account',
+        session,
         pullQueueManager,
-        clientEventHub,
         internalEventHub,
         keys,
         wal: mockWal,
         apiClient,
         recoveryManager: mockRecoveryManager,
       })
-      authPoller.setAccount('test-account')
-      authPoller.setOnlineState(true)
 
       const outcome = await authPoller.executePoll()
       expect(outcome).toBe('success')
@@ -1058,16 +1049,15 @@ describe('SyncPoller', () => {
       mockPollSyncBatch.mockRejectedValue({ httpStatus: 401, message: 'Unauthorized' })
 
       const authPoller = new SyncPoller({
+        accountId: 'test-account',
+        session,
         pullQueueManager,
-        clientEventHub,
         internalEventHub,
         keys,
         wal: mockWal,
         apiClient,
         recoveryManager: mockRecoveryManager,
       })
-      authPoller.setAccount('test-account')
-      authPoller.setOnlineState(true)
 
       const outcome = await authPoller.executePoll()
       expect(outcome).toBe('auth-failure')
