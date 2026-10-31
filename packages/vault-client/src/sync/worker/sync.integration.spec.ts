@@ -54,7 +54,7 @@ function createTestSyncMessageData(): Uint8Array {
 beforeEach(() => {
   spyOnVaultTrpc({
     pollSync: (...args: any[]) => mockPollSyncBatch(...args),
-    putSnapshots: vi.fn().mockResolvedValue({ success: true }),
+    putSnapshots: vi.fn().mockResolvedValue({ success: true, persisted: 0, results: [] }),
   })
 })
 

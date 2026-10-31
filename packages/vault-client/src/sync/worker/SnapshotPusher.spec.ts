@@ -235,7 +235,7 @@ describe('SnapshotPusher', () => {
   })
 
   it('schedules retry on push failure when items remain dirty', async () => {
-    mockApiClient.putSnapshots.mockResolvedValue({ success: false, persisted: 0 })
+    mockApiClient.putSnapshots.mockResolvedValue({ success: false, persisted: 0, results: [] })
 
     await pusher.triggerSnapshotPush()
 

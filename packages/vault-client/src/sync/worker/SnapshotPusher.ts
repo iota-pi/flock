@@ -11,9 +11,8 @@ import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
-import type { PreparedSnapshotItem } from './SnapshotBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder, toTombstoneSnapshot } from './snapshotBuilder'
+import { SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -160,7 +159,7 @@ export class SnapshotPusher {
     success: boolean
     responded: boolean
     persisted: number
-    results?: Array<{ itemId: ItemId; version: number }>
+    results: Array<{ itemId: ItemId; version: number }>
   }> {
     try {
       const response = await this.apiClient.putSnapshots(
@@ -172,17 +171,17 @@ export class SnapshotPusher {
       )
 
       return {
-        success: Boolean(response?.success) && response.persisted === batch.length,
-        responded: Boolean(response),
-        persisted: response?.persisted ?? 0,
-        results: response?.results,
+        success: response.success && response.persisted === batch.length,
+        responded: true,
+        persisted: response.persisted,
+        results: response.results,
       }
     } catch (error) {
       if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
         throw error
       }
       log.error('Failed to put snapshots', error)
-      return { success: false, responded: false, persisted: 0 }
+      return { success: false, responded: false, persisted: 0, results: [] }
     }
   }
 
@@ -306,11 +305,11 @@ export class SnapshotPusher {
 
   private finalizeSuccessfulBatch(
     batch: PreparedSnapshotItem[],
-    versionsMap?: Map<ItemId, number>,
+    versionsMap: Map<ItemId, number>,
   ): void {
     for (const item of batch) {
       this.consecutiveFailures.delete(item.snapshot.itemId)
-      const assignedVersion = versionsMap?.get(item.snapshot.itemId)
+      const assignedVersion = versionsMap.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
       // Tombstones deliberately carry no heads: the server does not hold the document state.
       // Setting the heads also clears snapshot-only and unblocks the item.
@@ -339,22 +338,15 @@ export class SnapshotPusher {
       return result
     }
 
-    const versionsMap = result.results
-      ? new Map(result.results.map(r => [r.itemId, r.version]))
-      : undefined
-    // Without per-item results, only a fully persisted batch says which items were stored
-    const stored = versionsMap
-      ? batch.filter(item => versionsMap.has(item.snapshot.itemId))
-      : result.success ? batch : []
+    const versionsMap = new Map(result.results.map(r => [r.itemId, r.version]))
+    const stored = batch.filter(item => versionsMap.has(item.snapshot.itemId))
     this.finalizeSuccessfulBatch(stored, versionsMap)
 
     // An item the server's results leave out was rejected. It counts towards quarantine, so an item
     // the server keeps rejecting doesn't keep failing every push.
-    if (versionsMap) {
-      for (const item of batch) {
-        if (!versionsMap.has(item.snapshot.itemId)) {
-          await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
-        }
+    for (const item of batch) {
+      if (!versionsMap.has(item.snapshot.itemId)) {
+        await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
       }
     }
     return result
@@ -374,7 +366,6 @@ export class SnapshotPusher {
     let sendFailed = false
 
     const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({
-      maxBatchCount: 25,
       maxBatchBytes: this.maxPayloadBytes,
       calculateSize: item => this.builder.estimateSize(item.snapshot),
     })

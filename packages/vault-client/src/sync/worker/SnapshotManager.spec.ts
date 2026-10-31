@@ -48,9 +48,24 @@ function createMockBroker() {
   } as any
 }
 
+/**
+ * The server always lists the stored items in `results`. A mocked response that leaves them out stores
+ * the whole batch when it persisted every item and nothing otherwise.
+ */
+async function withSnapshotResults(input: any, response: any) {
+  const resolved = await response
+  if (!resolved || resolved.results) {
+    return resolved
+  }
+  const results = resolved.persisted === input.snapshots.length
+    ? input.snapshots.map((s: any) => ({ itemId: s.itemId, version: 1 }))
+    : []
+  return { ...resolved, results }
+}
+
 beforeEach(() => {
   spyOnVaultTrpc({
-    putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
+    putSnapshots: (...args: any[]) => withSnapshotResults(args[0], mockPutSnapshots(...args)),
   })
   spyOnExports(manualRecoveryStoreModule, {
     upsertManualRecoveryEntry: (...args: any[]) => mockUpsertManualRecoveryEntry(...args),
@@ -901,10 +916,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('does not drop items or count failures when batch network send fails', async () => {
-      mockPutSnapshots.mockResolvedValue({
-        success: false,
-        persisted: 0,
-      })
+      mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
 
       manager.markItemDirty('item-1' as ItemId)
       manager.markItemDirty('item-2' as ItemId)
