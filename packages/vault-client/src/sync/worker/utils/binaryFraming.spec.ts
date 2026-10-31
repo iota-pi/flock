@@ -1,7 +1,5 @@
 import { packBatchedMessages } from './binaryFraming'
 import { parseBatchedMessages } from './messageParser'
-import type { ItemId } from '@vault/shared'
-import type { DocumentId } from '@automerge/automerge-repo/slim'
 
 describe('binaryFraming', () => {
   describe('packBatchedMessages', () => {
@@ -59,10 +57,8 @@ describe('binaryFraming', () => {
 
       const parsedMessages: Uint8Array[] = []
       const success = parseBatchedMessages(
-        'item-test' as ItemId,
-        'doc-test' as DocumentId,
         packed,
-        (_itemId, _docId, msg) => {
+        msg => {
           parsedMessages.push(new Uint8Array(msg))
         }
       )
@@ -85,10 +81,8 @@ describe('binaryFraming', () => {
 
       const parsed: Uint8Array[] = []
       const result = parseBatchedMessages(
-        'item-roundtrip' as ItemId,
-        'doc-roundtrip' as DocumentId,
         packed,
-        (_itemId, _docId, msg) => {
+        msg => {
           parsed.push(new Uint8Array(msg))
         }
       )

@@ -212,10 +212,8 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     try {
       if (isBatched) {
         const success = parseBatchedMessages(
-          itemId,
-          documentId,
           decrypted,
-          (id, docId, msg) => this.notifyMessageParsed(id, docId, msg),
+          msg => this.notifyMessageParsed(itemId, documentId, msg),
           {
             startIndex: this.getBatchProgress(itemId, entry.cursor),
             onMessageSuccess: index => {

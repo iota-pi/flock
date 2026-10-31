@@ -1,29 +1,22 @@
-import { DocumentId } from '@automerge/automerge-repo/slim'
-import { ItemId, MAX_ITEM_SIZE_BYTES } from '@vault/shared'
+import { MAX_ITEM_SIZE_BYTES } from '@vault/shared'
 import { createLogger } from '../../utils/logger'
 
 const log = createLogger('messageParser')
 
-export const DEFAULT_MAX_MESSAGE_SIZE = MAX_ITEM_SIZE_BYTES
-
 export interface ParseBatchedMessagesOptions {
   startIndex?: number
   onMessageSuccess?: (index: number) => void
-  maxMessageSize?: number
 }
 
 export function parseBatchedMessages(
-  itemId: ItemId,
-  documentId: DocumentId,
   decrypted: Uint8Array,
-  onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void,
+  onMessageParsed: (message: Uint8Array) => void,
   options?: ParseBatchedMessagesOptions
 ): boolean {
   let offset = 0
   let index = 0
   let success = true
   const startIndex = options?.startIndex ?? 0
-  const maxMessageSize = options?.maxMessageSize ?? DEFAULT_MAX_MESSAGE_SIZE
   const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
 
   while (offset < decrypted.byteLength) {
@@ -36,8 +29,8 @@ export function parseBatchedMessages(
       if (length === 0) {
         throw new Error('Zero-length message in batch')
       }
-      if (length > maxMessageSize) {
-        throw new Error(`Batched message length (${length}) exceeds maximum limit (${maxMessageSize})`)
+      if (length > MAX_ITEM_SIZE_BYTES) {
+        throw new Error(`Batched message length (${length}) exceeds maximum limit (${MAX_ITEM_SIZE_BYTES})`)
       }
       if (offset + length > decrypted.byteLength) {
         throw new Error('Unexpected end of batch payload')
@@ -54,7 +47,7 @@ export function parseBatchedMessages(
       offset += length
 
       try {
-        onMessageParsed(itemId, documentId, msg)
+        onMessageParsed(msg)
         options?.onMessageSuccess?.(currentIndex)
       } catch (error) {
         log.error('Error processing message in batch', error)

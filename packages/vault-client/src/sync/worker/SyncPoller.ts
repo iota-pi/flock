@@ -6,7 +6,6 @@ import { ItemId } from '@vault/shared'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import { decodeSyncMessage } from '@automerge/automerge/slim'
-import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { parseBatchedMessages } from './utils/messageParser'
 import { BATCHED_MESSAGE_VERSION, packBatchedMessages } from './utils/binaryFraming'
 import { classifySyncError } from '../utils/errorClassifier'
@@ -34,7 +33,7 @@ function extractLastSyncMessage(entry: WalEntry): Uint8Array | null {
   if (!entry || !entry.data || entry.data.byteLength === 0) return null
   if (!entry.isBatched) return entry.data
   let last: Uint8Array | null = null
-  parseBatchedMessages(entry.itemId, '' as DocumentId, entry.data, (_itemId, _docId, msg) => {
+  parseBatchedMessages(entry.data, msg => {
     last = msg
   })
   return last

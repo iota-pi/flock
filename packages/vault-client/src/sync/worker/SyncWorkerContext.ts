@@ -48,7 +48,7 @@ const log = createLogger('SyncWorkerContext')
 function unpackWalEntry(entry: WalEntry): Uint8Array[] {
   if (!entry.isBatched) return [entry.data]
   const messages: Uint8Array[] = []
-  const parsed = parseBatchedMessages(entry.itemId, toDocumentIdFromItemId(entry.itemId), entry.data, (_itemId, _docId, message) => {
+  const parsed = parseBatchedMessages(entry.data, message => {
     messages.push(message)
   })
   if (!parsed) {
