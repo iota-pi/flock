@@ -67,6 +67,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     private readonly keys: KeyProvider,
     private readonly lockCoordinator: ItemLockCoordinator,
     private readonly internalEventHub: WorkerInternalEventHub,
+    private readonly onKeyVersionMissing?: (kver: string) => void,
   ) {
     this.retryTracker = new PullRetryTracker(keys)
   }
@@ -197,9 +198,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
         docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         timedOutKeys,
-        onKeyVersionMissing: missingKver => {
-          this.internalEventHub.emit({ type: 'keyVersionMissing', kver: missingKver })
-        },
+        onKeyVersionMissing: this.onKeyVersionMissing,
       })
     } catch (error) {
       const classified = classifySyncError(error)

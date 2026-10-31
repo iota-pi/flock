@@ -174,6 +174,10 @@ export class SyncWorkerContext {
   /** The sealed database, whose `meta` store holds the wrapped device storage key */
   private sealedStorage: LocalStorage['storage'] | null = null
   private readonly config: SyncWorkerContextConfig
+  /** Asks the main thread to refresh the keyring, for every component that meets an unknown key version */
+  private readonly emitKeyVersionMissing = (kver: string): void => {
+    this.clientEventHub.emit({ type: 'keyVersionMissing', kver })
+  }
 
   constructor(config: SyncWorkerContextConfig) {
     this.config = config
@@ -236,7 +240,13 @@ export class SyncWorkerContext {
       metadata => this._services?.accountSettings.handleLocalMetadata(metadata),
     )
 
-    const pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, internalEventHub)
+    const pullQueueManager = new SyncPullQueueManager(
+      cursorStore,
+      keys,
+      docStore,
+      internalEventHub,
+      this.emitKeyVersionMissing,
+    )
     const recoveryManager = new RecoveryManager({ accountId, eventHub: clientEventHub })
 
     const broker = new SyncMessageBroker({
@@ -331,7 +341,7 @@ export class SyncWorkerContext {
       keys,
       recoveryManager,
       apiClient: this.apiClient,
-      onKeyVersionMissing: kver => clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onKeyVersionMissing: this.emitKeyVersionMissing,
       storeItems: (items, options) => itemOperations.storeItems(items, options),
       decodeLegacyItem: this.domain.decodeLegacyItem,
       migrateLegacySettings: () => accountSettings.migrateLegacySettings(),
@@ -448,7 +458,7 @@ export class SyncWorkerContext {
     })
     const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys)
     repo = repoManager.init(adapter, storage, {
-      onKeyVersionMissing: kver => this.clientEventHub.emit({ type: 'keyVersionMissing', kver }),
+      onKeyVersionMissing: this.emitKeyVersionMissing,
       onDocumentReceived: docId => {
         const itemId = toVaultItemIdFromAutomergeId(docId)
         if (itemId && !isIndexDocument(itemId)) {

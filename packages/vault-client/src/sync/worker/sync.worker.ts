@@ -244,9 +244,6 @@ export class SyncWorker implements SyncApi {
         case 'retryingStateChange':
           this.syncStatusManager.setDegradedPull(event.isRetrying)
           break
-        case 'keyVersionMissing':
-          this.clientEventHub.emit({ type: 'keyVersionMissing', kver: event.kver })
-          break
         case 'docHandleReplaced':
           this.subscriptions.rebind(event.itemId, event.handle)
           break

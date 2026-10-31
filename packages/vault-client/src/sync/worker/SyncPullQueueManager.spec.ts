@@ -103,6 +103,7 @@ describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
   let eventHub: WorkerInternalEventHub
   let cursorStore: CursorStore
+  let onKeyVersionMissing: ReturnType<typeof vi.fn<(kver: string) => void>>
 
   beforeEach(() => {
     mockLocalForage(createLocalForageInstance)
@@ -112,7 +113,8 @@ describe('SyncPullQueueManager', () => {
     activeStore = null
     cursorStore = new CursorStore('account-1')
     eventHub = new WorkerInternalEventHub()
-    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub)
+    onKeyVersionMissing = vi.fn<(kver: string) => void>()
+    manager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, eventHub, onKeyVersionMissing)
 
     // Default mock behavior
     mockVault.reset()
@@ -1819,10 +1821,6 @@ describe('SyncPullQueueManager', () => {
   describe('Missing Key Version Handling', () => {
     it('pauses inline and decrypts when missing key version arrives within timeout', async () => {
       await manager.setAccount('account-key-test')
-      const onKeyVersionMissingSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
-      })
 
       // Initially key '2' is not in keyring
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
@@ -1857,7 +1855,7 @@ describe('SyncPullQueueManager', () => {
 
       await processItemResults(manager, pullResults)
 
-      expect(onKeyVersionMissingSpy).toHaveBeenCalledWith('2')
+      expect(onKeyVersionMissing).toHaveBeenCalledWith('2')
       expect(mockWaitForKeyVersion).toHaveBeenCalledWith('2', 5000)
       expect(mockDecryptBytes).toHaveBeenCalled()
       expect(manager.exportCursors()).toContainEqual(['item-key-rotate', 100])
@@ -1866,10 +1864,8 @@ describe('SyncPullQueueManager', () => {
 
     it('does not advance cursor, mark seen, or burn retries when key version times out', async () => {
       await manager.setAccount('account-key-timeout')
-      const onKeyVersionMissingSpy = vi.fn()
       const onDecryptionFailureSpy = vi.fn()
       eventHub.subscribe(e => {
-        if (e.type === 'keyVersionMissing') onKeyVersionMissingSpy(e.kver)
         if (e.type === 'decryptionFailure') onDecryptionFailureSpy(e.itemId, e.error)
       })
 

@@ -54,7 +54,6 @@ export type WorkerInternalEvent =
   /** A record in this device's sealed storage failed to decrypt */
   | { type: 'localDecryptionFailed'; itemId: ItemId; error: unknown }
   | { type: 'retryingStateChange'; isRetrying: boolean }
-  | { type: 'keyVersionMissing'; kver: string }
   | { type: 'pushAcknowledged'; itemId: ItemId; heads: string[] }
   | { type: 'leaderChange'; isLeader: boolean }
   | { type: 'renegotiationTriggered'; documentId: DocumentId }
