@@ -13,14 +13,13 @@ type PullSyncMessageInput = Pick<PollSyncInput, 'account'> & {
   pageToken?: PageToken
 }
 
-type PullSyncGlobalInput = {
-  account: string
+type PullSyncGlobalInput = Pick<PollSyncInput, 'account'> & {
   cursor: number
   pageToken?: PageToken
 }
 
 /** The driver methods the sync service uses */
-export type AutomergeSyncRepository = Pick<
+export type SyncRepository = Pick<
   VaultDriver,
   'pushSyncMessagesBatch' | 'getSyncMessages' | 'getGlobalSyncMessagesAfterCursor' | 'validatePageToken'
 >
@@ -78,8 +77,8 @@ function baseCursorAt(timestamp: number): number {
   return relativeTimestampSeconds * TIMESTAMP_MULTIPLIER + invocationOffset
 }
 
-export async function pushAutomergeSyncBatch(
-  vault: AutomergeSyncRepository,
+export async function pushSyncBatch(
+  vault: SyncRepository,
   input: PushSyncBatchInput,
 ): Promise<ItemPushResult[]> {
   const timestamp = Date.now()
@@ -101,8 +100,8 @@ export async function pushAutomergeSyncBatch(
   return results
 }
 
-async function pullAutomergeSyncMessages(
-  vault: AutomergeSyncRepository,
+async function pullItemSyncMessages(
+  vault: SyncRepository,
   input: PullSyncMessageInput,
 ): Promise<ItemPullResult> {
   // The page size is the driver's to choose
@@ -123,8 +122,8 @@ async function pullAutomergeSyncMessages(
   }
 }
 
-export async function pullAutomergeSyncBatch(
-  vault: AutomergeSyncRepository,
+export async function pullSyncBatch(
+  vault: SyncRepository,
   input: PullSyncBatchInput,
 ): Promise<ItemPullResult[]> {
   const dedupedCursorsByItemId = new Map<ItemId, { cursor: number; pageToken?: PageToken }>()
@@ -142,7 +141,7 @@ export async function pullAutomergeSyncBatch(
   return mapWithConcurrency(
     Array.from(dedupedCursorsByItemId.entries()),
     DEFAULT_PULL_BATCH_CONCURRENCY,
-    ([itemId, { cursor, pageToken }]) => pullAutomergeSyncMessages(vault, {
+    ([itemId, { cursor, pageToken }]) => pullItemSyncMessages(vault, {
       account: input.account,
       itemId,
       cursor,
@@ -151,8 +150,8 @@ export async function pullAutomergeSyncBatch(
   )
 }
 
-export async function pullAutomergeSyncGlobal(
-  vault: AutomergeSyncRepository,
+export async function pullSyncGlobal(
+  vault: SyncRepository,
   input: PullSyncGlobalInput,
 ): Promise<PullSyncGlobalResult> {
   const { items, hasMore, nextPageToken, scannedThroughCursor } = await vault.getGlobalSyncMessagesAfterCursor({
@@ -178,7 +177,7 @@ export async function pullAutomergeSyncGlobal(
  * before storing anything if a page token is bad, or the client would push its messages again.
  */
 export async function pollSync(
-  vault: AutomergeSyncRepository,
+  vault: SyncRepository,
   input: PollSyncInput,
 ): Promise<PollSyncResult> {
   if (input.globalPageToken) {
@@ -196,17 +195,17 @@ export async function pollSync(
   }
 
   const pushResults = input.pushMessages.length > 0
-    ? await pushAutomergeSyncBatch(vault, { account: input.account, messages: input.pushMessages })
+    ? await pushSyncBatch(vault, { account: input.account, messages: input.pushMessages })
     : []
 
   const shouldPullBatch = input.pullCursors.length > 0
   const shouldPullGlobal = typeof input.clientLatestCursor === 'number' || !!input.globalPageToken
   const [batchPullResults, globalPullResult] = await Promise.all([
     shouldPullBatch
-      ? pullAutomergeSyncBatch(vault, { account: input.account, cursors: input.pullCursors })
+      ? pullSyncBatch(vault, { account: input.account, cursors: input.pullCursors })
       : null,
     shouldPullGlobal
-      ? pullAutomergeSyncGlobal(vault, {
+      ? pullSyncGlobal(vault, {
         account: input.account,
         cursor: input.clientLatestCursor ?? 0,
         pageToken: input.globalPageToken,
