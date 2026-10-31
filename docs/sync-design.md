@@ -39,7 +39,7 @@ If `processPullResults` or any I/O throws and the poll still reports `'success'`
 
 - In `pollSync`, items present in `pullCursors` (targeted per-item pulls) are filtered out of `globalPullResult` (the account-wide pull) to prevent cursor jumps. If the global pull truncates an active item, that item's own `batchPullResult` reports `hasMore` with a `nextPageToken`, and the next poll continues from there.
 - Cursors advance monotonically. `SyncPullQueueManager` sorts messages ascending and `break`s on a parse failure, so the cursor only reaches the last message that was processed successfully. It skips `cursor <= initialCursor`.
-- **Server cursor format:** `relativeTimestampSeconds * 10_000_000 + random(0, 9_999_000)` (`automergeSyncService`). The `FlockSyncMessages` key is `syncId` (`${account}#${itemId}`) plus `cursor`, so a collision needs the same account, the same item, the same second and the same random offset (P ≈ 10⁻⁷).
+- **Server cursor format:** `relativeTimestampSeconds * 10_000_000 + random(0, 9_999_000)` (`syncService`). The `FlockSyncMessages` key is `syncId` (`${account}#${itemId}`) plus `cursor`, so a collision needs the same account, the same item, the same second and the same random offset (P ≈ 10⁻⁷).
 - **No lookback window.** An earlier 10s overlap (`OVERLAP_CURSOR_DELTA`) plus a client LRU of seen cursors caused every client to re-download the same batch on every poll forever. Queries are now strictly `#c > :fromCursor`. A message can still become visible after one with a higher cursor: the cursor is fixed when the push starts, the write can take seconds (including `UnprocessedItems` retries), and the account-wide pull reads the `AccountCursorIndex` GSI, which is eventually consistent. A client that reads in between advances past the late message. This is rare, and snapshots and manifest sync recover the missed change. Do not reintroduce a lookback.
 - **Page tokens are opaque.** The driver issues `nextPageToken` / `globalNextPageToken` and checks them when they come back (`validatePageToken`); the Dynamo driver wraps its `LastEvaluatedKey`. The router validates every token before storing pushed messages, so a rejected poll never leaves pushed messages the client would push again. On `BAD_REQUEST` the client drops all its page tokens (`resetPagination`) and continues from its cursors. Pagination doesn't depend on the token: a client that drops it advances its cursor to the highest message received and continues with `cursor > from`.
 - Failed pull messages are retried up to `MAX_PULL_RETRIES` (5, `PullRetryTracker`) before the item is quarantined. The failing message is then skipped, and the item stays pending so the next per-item pull continues with the messages after it (the global scan has usually passed them).
@@ -172,7 +172,7 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 
 - `pushSyncMessagesBatch` chunks writes into groups of 25, the `BatchWriteItem` limit.
 - `fetchSnapshotsByIds` chunks reads into groups of 100, the `BatchGetItem` limit.
-- `pullAutomergeSyncBatch` limits per-item queries to `DEFAULT_PULL_BATCH_CONCURRENCY` (10) via `mapWithConcurrency`.
+- `pullSyncBatch` limits per-item queries to `DEFAULT_PULL_BATCH_CONCURRENCY` (10) via `mapWithConcurrency`.
 - `UnprocessedItems` / `UnprocessedKeys` are retried with jittered exponential backoff.
 
 ## Other recovery
