@@ -56,7 +56,6 @@ export class SnapshotPusher {
   public readonly maxPayloadBytes: number
 
   public readonly consecutiveFailures = new Map<ItemId, number>()
-  public readonly oversizedItems = new Set<ItemId>()
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
   private pushAbortController: AbortController | null = null
   private pendingPushRequested = false
@@ -227,12 +226,7 @@ export class SnapshotPusher {
     snapshotSize: number,
     modified: number,
   ): void {
-    const isAlreadyOversized = this.oversizedItems.has(itemId)
-    this.oversizedItems.add(itemId)
-
-    this.tracker.recordOversized(itemId, modified)
-
-    if (!isAlreadyOversized) {
+    if (this.tracker.recordOversized(itemId, modified)) {
       log.error(
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
@@ -279,7 +273,7 @@ export class SnapshotPusher {
 
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
-      this.oversizedItems.delete(itemId)
+      this.tracker.clearOversized(itemId)
       log.warn(`Uploading metadata-only tombstone for oversized deleted item ${itemId}`)
       const tombstone = toTombstoneSnapshot(snapshot)
       return {
@@ -294,7 +288,7 @@ export class SnapshotPusher {
       return { type: 'oversized' }
     }
 
-    this.oversizedItems.delete(itemId)
+    this.tracker.clearOversized(itemId)
 
     return {
       type: 'ready',
@@ -538,18 +532,9 @@ export class SnapshotPusher {
   clear(): void {
     this.cancelRetry()
     this.consecutiveFailures.clear()
-    this.oversizedItems.clear()
     this.pendingPushRequested = false
     this.pushGuard.clear()
     this.retryStrategy.reset()
-  }
-
-  clearOversized(itemId: ItemId): void {
-    this.oversizedItems.delete(itemId)
-  }
-
-  addOversized(itemId: ItemId): void {
-    this.oversizedItems.add(itemId)
   }
 
   async shutdown(): Promise<void> {

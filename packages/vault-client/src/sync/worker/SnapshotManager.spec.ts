@@ -1199,7 +1199,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       await testManager.flushPendingSnapshots()
 
       expect(mockPutSnapshots).not.toHaveBeenCalled()
-      expect(testManager['pusher'].oversizedItems.has('item-1' as ItemId)).toBe(true)
+      expect(testManager['tracker'].oversizedItems.has('item-1' as ItemId)).toBe(true)
 
       // Step 2: Compaction occurs -> encrypted payload is now small (< 200 bytes)
       vi.mocked(encryptBytes).mockResolvedValueOnce({
@@ -1215,7 +1215,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       // Now successfully pushed and cleared from oversizedItems
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-1')
-      expect(testManager['pusher'].oversizedItems.has('item-1' as ItemId)).toBe(false)
+      expect(testManager['tracker'].oversizedItems.has('item-1' as ItemId)).toBe(false)
       expect(testManager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
     })
   })
