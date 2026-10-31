@@ -343,7 +343,7 @@ describe('SyncPoller', () => {
   describe('WAL entries that are not sync messages', () => {
     it('drops every entry of the item, requests a snapshot and pushes the other items', async () => {
       const internalEvents: unknown[] = []
-      internalEventHub.subscribe(event => internalEvents.push(event))
+      internalEventHub.subscribe(event => void internalEvents.push(event))
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
         ['item-bad' as ItemId, [
           { id: 'bad-1', itemId: 'item-bad' as ItemId, data: syncMessage(), createdAt: 1 },

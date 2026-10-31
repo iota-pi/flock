@@ -139,7 +139,7 @@ describe('Document Hydration Race Condition (C4)', () => {
       }
     })
 
-    mockDecryptBytes.mockResolvedValueOnce(packBatchedMessages([syncMsg]))
+    mockDecryptBytes.mockResolvedValueOnce(packBatchedMessages([syncMsg!]))
 
     // 1. Start hydration (which enters withItemLock and waits on storageDelayPromise)
     const hydrationPromise = docStore.hydrateAutomergeDocumentBinary(itemId, baseBinary)
@@ -229,7 +229,7 @@ describe('Document Hydration Race Condition (C4)', () => {
       }
     })
 
-    mockDecryptBytes.mockResolvedValueOnce(packBatchedMessages([syncMsgA]))
+    mockDecryptBytes.mockResolvedValueOnce(packBatchedMessages([syncMsgA!]))
 
     // Pull queue applies message from Device A
     await pullQueueManager.processPullResults([
