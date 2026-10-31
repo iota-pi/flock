@@ -620,23 +620,6 @@ describe('SyncWriteAheadLog', () => {
     expect(store.store.has('prune-4')).toBe(true)
   })
 
-  it('exposes query() abstraction bound to instance in-flight state', async () => {
-    const entries = [
-      { id: 'q1', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 10, seq: 1 },
-      { id: 'q2', itemId: 'item-1' as ItemId, data: new Uint8Array([2]), createdAt: 20, seq: 2 },
-    ]
-
-    wal.markInFlight(['q1'])
-    const query = wal.query(entries)
-
-    expect(query.available().map(e => e.id)).toEqual(['q2'])
-    expect(query.inFlight().map(e => e.id)).toEqual(['q1'])
-
-    wal.unmarkInFlight(['q1'])
-    const query2 = wal.query(entries)
-    expect(query2.available().map(e => e.id)).toEqual(['q1', 'q2'])
-  })
-
   describe('H-7: readAll superseded entries in-flight safety', () => {
     it('does not purge in-flight superseded entries during readAll to avoid corrupting in-flight push tracking', async () => {
       const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!

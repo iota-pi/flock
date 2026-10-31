@@ -260,7 +260,7 @@ The keyring is loaded in `initGlobalPrerequisites` before the context is created
    - **What's copied:** `snapshot` and `incremental` chunks only. Their keys are content hashes (heads hash and `keyHash`), and the Repo merges every chunk it loads and compacts away superseded ones, so the copy is idempotent and resumes after a crash.
    - **`storage-adapter-id`** is copied only on the first import.
    - **`sync-state`** records are skipped. They're keyed per peer, not by content, so a copy could overwrite newer state, and the sync protocol rebuilds them.
-3. **Copies WAL entries** with `data` sealed and the descriptor fields (`id`, `itemId`, `seq`, `createdAt`, `replaces`) unchanged, so `WalEntryQuery` still works. The plaintext WAL is copied, not dropped: a plaintext entry may be a change no snapshot covers yet.
+3. **Copies WAL entries** with `data` sealed and the descriptor fields (`id`, `itemId`, `seq`, `createdAt`, `replaces`) unchanged, so the WAL can still filter and order entries without opening them. The plaintext WAL is copied, not dropped: a plaintext entry may be a change no snapshot covers yet.
 4. **Merges the plaintext index** `indexDoc` into `indexDocSealed` with `mergeIndexDocuments` (see "Index document"). On a re-import, deletions from either side win and the sealed side's settings win.
 5. **Writes `{ upgradedAt }`** to the sealed `meta` store.
 6. **Retires the plaintext stores** (next section). If that can't happen yet, the upgrade still counts as done, and the next start re-imports anything new and tries again.
