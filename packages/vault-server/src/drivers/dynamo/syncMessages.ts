@@ -3,8 +3,7 @@ import {
   BatchWriteCommandInput,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb'
-import { chunk } from 'lodash-es'
-import type { ItemId, PageToken } from '@vault/shared'
+import { chunk, type ItemId, type PageToken } from '@vault/shared'
 import type {
   GetGlobalSyncMessagesInput,
   GetSyncMessagesInput,
@@ -42,7 +41,7 @@ export async function pushSyncMessagesBatch(
               account: input.account,
               encryptedMessage: message.entry.encryptedMessage,
               createdAt: message.entry.createdAt,
-              expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
+              expiresAt: Math.floor(message.entry.createdAt / 1000) + SYNC_MESSAGE_TTL,
             },
           },
         })),
@@ -108,7 +107,7 @@ export async function getGlobalSyncMessagesAfterCursor(
   let scannedThroughCursor = startKey?.cursor ?? input.cursor ?? 0
 
   for (const item of items) {
-    if (typeof item.cursor === 'number' && item.cursor > scannedThroughCursor) {
+    if (item.cursor > scannedThroughCursor) {
       scannedThroughCursor = item.cursor
     }
     const itemId = parseSyncId(item.syncId)?.itemId

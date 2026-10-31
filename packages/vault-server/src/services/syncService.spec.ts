@@ -1,16 +1,16 @@
 import type { Mocked } from 'vitest'
 import {
   DEFAULT_PULL_BATCH_CONCURRENCY,
-  pullAutomergeSyncBatch,
-  pullAutomergeSyncGlobal,
+  pullSyncBatch,
+  pullSyncGlobal,
   pollSync,
-  pushAutomergeSyncBatch,
-} from './automergeSyncService'
+  pushSyncBatch,
+} from './syncService'
 import { InvalidPageTokenError } from '../errors'
 import { mapWithConcurrency, ItemId } from '@vault/shared'
-import type { AutomergeSyncRepository, PollSyncInput } from './automergeSyncService'
+import type { SyncRepository, PollSyncInput } from './syncService'
 
-describe('AutomergeSyncService', () => {
+describe('SyncService', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -22,7 +22,7 @@ describe('AutomergeSyncService', () => {
     return {
       pushSyncMessagesBatch: vi.fn(),
       getSyncMessages: vi.fn(),
-    } as unknown as Mocked<AutomergeSyncRepository>
+    } as unknown as Mocked<SyncRepository>
   }
 
   it('generates monotonically increasing cursors within a batch and preserves absolute timestamps', async () => {
@@ -36,7 +36,7 @@ describe('AutomergeSyncService', () => {
       { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv3', cipher: 'c3' } },
     ]
 
-    const result = await pushAutomergeSyncBatch(repository, {
+    const result = await pushSyncBatch(repository, {
       account: 'test-account',
       messages,
     })
@@ -69,7 +69,7 @@ describe('AutomergeSyncService', () => {
   it('remains safe from precision loss (base + 1 === base is false)', async () => {
     const repository = createMockRepository()
     
-    const result = await pushAutomergeSyncBatch(repository, {
+    const result = await pushSyncBatch(repository, {
       account: 'test-account',
       messages: [
         { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } },
@@ -88,7 +88,7 @@ describe('AutomergeSyncService', () => {
     // 0 is way before custom epoch
     vi.setSystemTime(0)
 
-    const result = await pushAutomergeSyncBatch(repository, {
+    const result = await pushSyncBatch(repository, {
       account: 'test-account',
       messages: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } }],
     })
@@ -115,7 +115,7 @@ describe('AutomergeSyncService', () => {
     const cursors: number[] = []
     try {
       for (const [i] of randomValues.entries()) {
-        const result = await pushAutomergeSyncBatch(repository, {
+        const result = await pushSyncBatch(repository, {
           account: 'test-account',
           messages: [{
             itemId: 'item-1' as ItemId,
@@ -149,7 +149,7 @@ describe('AutomergeSyncService', () => {
       encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
     }))
 
-    const result = await pushAutomergeSyncBatch(repository, {
+    const result = await pushSyncBatch(repository, {
       account: 'test-account',
       messages,
     })
@@ -171,7 +171,7 @@ describe('AutomergeSyncService', () => {
     repository.getSyncMessages.mockResolvedValueOnce({ messages: [], hasMore: false })
 
     const inputCursor = 150_000_000 // 15 seconds into epoch
-    await pullAutomergeSyncBatch(repository, {
+    await pullSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: inputCursor }],
     })
@@ -187,10 +187,10 @@ describe('AutomergeSyncService', () => {
     const repository = {
       ...createMockRepository(),
       getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({ items: [], hasMore: false }),
-    } as unknown as Mocked<AutomergeSyncRepository>
+    } as unknown as Mocked<SyncRepository>
 
     const inputCursor = 200_000_000 // 20 seconds into epoch
-    await pullAutomergeSyncGlobal(repository, {
+    await pullSyncGlobal(repository, {
       account: 'test-account',
       cursor: inputCursor,
     })
@@ -201,7 +201,7 @@ describe('AutomergeSyncService', () => {
     })
   })
 
-  it('returns response-level hasMore and sets item-level hasMore to false for all items in pullAutomergeSyncGlobal', async () => {
+  it('returns response-level hasMore and sets item-level hasMore to false for all items in pullSyncGlobal', async () => {
     const repository = {
       ...createMockRepository(),
       getGlobalSyncMessagesAfterCursor: vi.fn().mockResolvedValueOnce({
@@ -217,9 +217,9 @@ describe('AutomergeSyncService', () => {
         ],
         hasMore: true,
       }),
-    } as unknown as Mocked<AutomergeSyncRepository>
+    } as unknown as Mocked<SyncRepository>
 
-    const result = await pullAutomergeSyncGlobal(repository, {
+    const result = await pullSyncGlobal(repository, {
       account: 'test-account',
       cursor: 5,
     })
@@ -238,7 +238,7 @@ describe('AutomergeSyncService', () => {
       hasMore: false,
     })
 
-    await pullAutomergeSyncBatch(repository, {
+    await pullSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 150_000_199, pageToken: 'item-1-token' }],
     })
@@ -259,9 +259,9 @@ describe('AutomergeSyncService', () => {
         hasMore: false,
         scannedThroughCursor: 200_000_999,
       }),
-    } as unknown as Mocked<AutomergeSyncRepository>
+    } as unknown as Mocked<SyncRepository>
 
-    await pullAutomergeSyncGlobal(repository, {
+    await pullSyncGlobal(repository, {
       account: 'test-account',
       cursor: 200_000_999,
       pageToken: 'global-token',
@@ -296,7 +296,7 @@ describe('AutomergeSyncService', () => {
     })
 
 
-    const page1Result = await pullAutomergeSyncBatch(repository, {
+    const page1Result = await pullSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 100_000_000 }],
     })
@@ -317,7 +317,7 @@ describe('AutomergeSyncService', () => {
       hasMore: false,
     })
 
-    const page2Result = await pullAutomergeSyncBatch(repository, {
+    const page2Result = await pullSyncBatch(repository, {
       account: 'test-account',
       cursors: [{
         itemId: 'item-1' as ItemId,
@@ -344,7 +344,7 @@ describe('AutomergeSyncService', () => {
       hasMore: false,
     })
 
-    const result = await pullAutomergeSyncBatch(repository, {
+    const result = await pullSyncBatch(repository, {
       account: 'test-account',
       cursors: [{ itemId: 'item-1' as ItemId, cursor: 500_000 }],
     })
@@ -367,7 +367,7 @@ describe('AutomergeSyncService', () => {
       scannedThroughCursor: 999,
     })
 
-    const result = await pullAutomergeSyncGlobal(repository, {
+    const result = await pullSyncGlobal(repository, {
       account: 'test-account',
       cursor: 1000,
       pageToken: 'global-token',
@@ -376,7 +376,7 @@ describe('AutomergeSyncService', () => {
     expect(result.scannedThroughCursor).toBe(999)
   })
 
-  describe('concurrency control in pullAutomergeSyncBatch', () => {
+  describe('concurrency control in pullSyncBatch', () => {
     it('limits peak concurrent DynamoDB queries to DEFAULT_PULL_BATCH_CONCURRENCY by default', async () => {
       const repository = createMockRepository()
       let activeCount = 0
@@ -395,7 +395,7 @@ describe('AutomergeSyncService', () => {
         cursor: 100,
       }))
 
-      const result = await pullAutomergeSyncBatch(repository, {
+      const result = await pullSyncBatch(repository, {
         account: 'test-account',
         cursors,
       })
@@ -427,7 +427,7 @@ describe('AutomergeSyncService', () => {
         cursor: i * 10,
       }))
 
-      const result = await pullAutomergeSyncBatch(repository, {
+      const result = await pullSyncBatch(repository, {
         account: 'test-account',
         cursors,
       })
@@ -458,7 +458,7 @@ describe('AutomergeSyncService', () => {
       }))
 
       await expect(
-        pullAutomergeSyncBatch(repository, {
+        pullSyncBatch(repository, {
           account: 'test-account',
           cursors,
         })
@@ -518,7 +518,7 @@ describe('pollSync', () => {
       }),
       validatePageToken: vi.fn(() => { calls.push('validate') }),
     }
-    return { vault: vault as unknown as Mocked<AutomergeSyncRepository>, calls }
+    return { vault: vault as unknown as Mocked<SyncRepository>, calls }
   }
 
   const input = (overrides: Partial<PollSyncInput> = {}): PollSyncInput => ({
