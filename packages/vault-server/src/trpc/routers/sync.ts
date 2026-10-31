@@ -1,6 +1,6 @@
 import { protectedProcedure, router } from '../trpc'
 import { SyncPollBatchSchema } from '@vault/shared'
-import { pollSync } from '../../services/automergeSyncService'
+import { pollSync } from '../../services/syncService'
 import { InvalidPageTokenError } from '../../errors'
 import { toTrpcError } from '../errors'
 
