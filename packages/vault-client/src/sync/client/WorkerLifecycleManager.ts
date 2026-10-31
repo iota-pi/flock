@@ -166,160 +166,199 @@ export class WorkerLifecycleManager {
     this.initAbortController?.abort(new AbortError('Initialization aborted'))
     const abortController = new AbortController()
     this.initAbortController = abortController
-    const { signal } = abortController
 
-    this.initializationPromise = (async () => {
-      if (this.activeShutdownPromise) {
-        await this.activeShutdownPromise
-      }
-      if (signal.aborted || this.currentAccountId !== accountId) {
-        return
-      }
-
-      if (this.session) {
-        await this.shutdown({ internalRestart: true, clearLocalData: options?.clearLocalData, accountId })
-      } else if (options?.clearLocalData) {
-        await clearAccountLocalData(accountId)
-      }
-
-      if (signal.aborted || this.currentAccountId !== accountId) {
-        return
-      }
-
-      this.callbacks.onStatusChange('connecting')
-      const initialOnlineState = getOnlineState()
-
-      let session: WorkerSession | null = null
-
-      // Whatever aborted this run (a shutdown, or a newer initialize, which shuts the old worker down)
-      // takes over the worker and shuts it down cleanly, so an aborted run leaves it alone
-      const isAborted = () => signal.aborted || this.currentAccountId !== accountId
-      const throwIfAborted = () => {
-        if (isAborted()) throw new AbortError('Initialization aborted')
-      }
-
-      try {
-        const vaultKey = await exportKeyringData()
-        if (!vaultKey) throw new Error('Vault key not found in storage')
-        throwIfAborted()
-
-        const worker = this.callbacks.createWorker()
-        worker.addEventListener('error', (event: ErrorEvent) => {
-          const error = event.error || new Error(event.message || 'Sync Worker Error')
-          log.error('Worker error:', error)
-          this.telemetry.captureException(error, { origin: 'sync-worker-host' })
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
-          }
-        })
-
-        const currentSession = new WorkerSession(worker, event => this.callbacks.onEvent(event))
-        session = currentSession
-        this.session = currentSession
-        const api = currentSession.api
-
-        await untilAborted(
-          api.initRepo(accountId, vaultKey, {
-            randomDataKeys: hasRandomDataKeys(accountId),
-            authToken: getVaultSession() || null,
-          }),
-          signal,
-        )
-        const authToken = getVaultSession()
-        if (authToken) {
-          await untilAborted(api.updateAuthToken(authToken), signal)
-        }
-        throwIfAborted()
-
-        await untilAborted(api.setOnlineState(initialOnlineState), signal)
-        throwIfAborted()
-
-        await untilAborted(api.bootstrapItems(), signal)
-        this.healthMonitor.recordActivity()
-        throwIfAborted()
-
-        this.syncApi = api
-
-        this.callbacks.onReady?.()
-
-        this.initRetryStrategy.reset()
-        this.callbacks.onSyncWarning?.(null)
-        this.healthMonitor.setupWorkerHealthCheck({
-          worker,
-          pingPort: currentSession.pingPort,
-          isCurrentWorker: () => this.session === currentSession && !!this.syncApi,
-          onCrash: (willRestart = true) => {
-            if (this.session === currentSession) {
-              currentSession.close()
-              this.session = null
-              this.syncApi = null
-              if (willRestart) {
-                // Keep initializationPromise as a pending promise so mutations queue up
-                this.pendingRestart = Promise.withResolvers<void>()
-                this.initializationPromise = this.pendingRestart.promise
-              } else {
-                this.initializationPromise = null
-                this.resolvePendingRestart()
-              }
-            }
-          },
-          onRestart: () => {
-            setTimeout(() => {
-              if (this.currentAccountId === accountId) {
-                this.initializationPromise = null
-                this.callbacks.onRestart(accountId)
-                  .then(() => this.resolvePendingRestart())
-                  .catch(err => {
-                    log.error('Auto-restart initialization failed:', err)
-                    this.resolvePendingRestart()
-                  })
-              } else {
-                this.resolvePendingRestart()
-              }
-            }, SYNC_TIMEOUTS.workerRestartDelay)
-          },
-        })
-      } catch (error) {
-        if (isAborted()) {
-          log.warn('Initialization aborted due to account change or concurrent shutdown')
-          return
-        }
-        log.error('Failed to initialize SyncBridge:', error)
-        if (session) {
-          session.close()
-          if (this.session === session) {
-            this.session = null
-          }
-          if (this.syncApi === session.api) {
-            this.syncApi = null
-          }
-        }
-
-        if (!signal.aborted && this.initRetryStrategy.canRetry) {
-          const retryDelay = this.initRetryStrategy.nextDelay()
-          this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${retryDelay / 1000}s...`)
-
-          // Keep initializationPromise alive so ensureReady() callers wait
-          const retryPromise = delay(retryDelay, signal).then(() => {
-            this.initializationPromise = null
-            return this.initialize(accountId, options)
-          })
-          retryPromise.catch(() => {})
-          this.initializationPromise = retryPromise
-        } else {
-          // Exhausted retries — surface to user
-          if (!signal.aborted) {
-            this.callbacks.onFatalError?.('Unable to start sync. Please refresh the page.')
-            this.callbacks.onStatusChange('offline')
-            this.currentAccountId = null
-            this.initializationPromise = null
-          }
-        }
-        throw error
-      }
-    })()
-
+    this.initializationPromise = this.runInitialization(accountId, options, abortController.signal)
     return this.initializationPromise
+  }
+
+  /**
+   * Whether a shutdown or a newer initialize (which shuts the old worker down) has aborted this run.
+   * Whatever aborted it takes over the worker and shuts it down cleanly, so an aborted run leaves it alone.
+   */
+  private isInitAborted(accountId: string, signal: AbortSignal): boolean {
+    return signal.aborted || this.currentAccountId !== accountId
+  }
+
+  private throwIfInitAborted(accountId: string, signal: AbortSignal): void {
+    if (this.isInitAborted(accountId, signal)) throw new AbortError('Initialization aborted')
+  }
+
+  private async runInitialization(
+    accountId: string,
+    options: WorkerInitOptions | undefined,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (this.activeShutdownPromise) {
+      await this.activeShutdownPromise
+    }
+    if (this.isInitAborted(accountId, signal)) {
+      return
+    }
+
+    if (this.session) {
+      await this.shutdown({ internalRestart: true, clearLocalData: options?.clearLocalData, accountId })
+    } else if (options?.clearLocalData) {
+      await clearAccountLocalData(accountId)
+    }
+
+    if (this.isInitAborted(accountId, signal)) {
+      return
+    }
+
+    this.callbacks.onStatusChange('connecting')
+    const initialOnlineState = getOnlineState()
+
+    let session: WorkerSession | null = null
+    try {
+      const vaultKey = await exportKeyringData()
+      if (!vaultKey) throw new Error('Vault key not found in storage')
+      this.throwIfInitAborted(accountId, signal)
+
+      session = this.startSession()
+      await this.initSession(session, { accountId, vaultKey, onlineState: initialOnlineState, signal })
+
+      this.syncApi = session.api
+      this.callbacks.onReady?.()
+      this.initRetryStrategy.reset()
+      this.callbacks.onSyncWarning?.(null)
+      this.watchHealth(session, accountId)
+    } catch (error) {
+      if (this.isInitAborted(accountId, signal)) {
+        log.warn('Initialization aborted due to account change or concurrent shutdown')
+        return
+      }
+      this.handleInitFailure(error, { accountId, options, signal, session })
+      throw error
+    }
+  }
+
+  /** Starts a worker and makes it the current session, so a shutdown during initialization can shut it down */
+  private startSession(): WorkerSession {
+    const worker = this.callbacks.createWorker()
+    worker.addEventListener('error', (event: ErrorEvent) => {
+      const error = event.error || new Error(event.message || 'Sync Worker Error')
+      log.error('Worker error:', error)
+      this.telemetry.captureException(error, { origin: 'sync-worker-host' })
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
+      }
+    })
+
+    const session = new WorkerSession(worker, event => this.callbacks.onEvent(event))
+    this.session = session
+    return session
+  }
+
+  /** Opens the account's repo in a new session's worker and loads its items */
+  private async initSession(
+    session: WorkerSession,
+    { accountId, vaultKey, onlineState, signal }: {
+      accountId: string
+      vaultKey: Parameters<SyncApi['initRepo']>[1]
+      onlineState: boolean
+      signal: AbortSignal
+    },
+  ): Promise<void> {
+    const { api } = session
+    await untilAborted(
+      api.initRepo(accountId, vaultKey, {
+        randomDataKeys: hasRandomDataKeys(accountId),
+        authToken: getVaultSession() || null,
+      }),
+      signal,
+    )
+    const authToken = getVaultSession()
+    if (authToken) {
+      await untilAborted(api.updateAuthToken(authToken), signal)
+    }
+    this.throwIfInitAborted(accountId, signal)
+
+    await untilAborted(api.setOnlineState(onlineState), signal)
+    this.throwIfInitAborted(accountId, signal)
+
+    await untilAborted(api.bootstrapItems(), signal)
+    this.healthMonitor.recordActivity()
+    this.throwIfInitAborted(accountId, signal)
+  }
+
+  /** Health-checks a ready session, tearing it down if it crashes and restarting sync after a delay */
+  private watchHealth(session: WorkerSession, accountId: string): void {
+    this.healthMonitor.setupWorkerHealthCheck({
+      worker: session.worker,
+      pingPort: session.pingPort,
+      isCurrentWorker: () => this.session === session && !!this.syncApi,
+      onCrash: (willRestart = true) => {
+        if (this.session === session) {
+          session.close()
+          this.session = null
+          this.syncApi = null
+          if (willRestart) {
+            // Keep initializationPromise as a pending promise so mutations queue up
+            this.pendingRestart = Promise.withResolvers<void>()
+            this.initializationPromise = this.pendingRestart.promise
+          } else {
+            this.initializationPromise = null
+            this.resolvePendingRestart()
+          }
+        }
+      },
+      onRestart: () => {
+        setTimeout(() => {
+          if (this.currentAccountId === accountId) {
+            this.initializationPromise = null
+            this.callbacks.onRestart(accountId)
+              .then(() => this.resolvePendingRestart())
+              .catch(err => {
+                log.error('Auto-restart initialization failed:', err)
+                this.resolvePendingRestart()
+              })
+          } else {
+            this.resolvePendingRestart()
+          }
+        }, SYNC_TIMEOUTS.workerRestartDelay)
+      },
+    })
+  }
+
+  /** Closes a failed run's worker, then schedules a retry or, once retries run out, reports a fatal error */
+  private handleInitFailure(
+    error: unknown,
+    { accountId, options, signal, session }: {
+      accountId: string
+      options: WorkerInitOptions | undefined
+      signal: AbortSignal
+      session: WorkerSession | null
+    },
+  ): void {
+    log.error('Failed to initialize SyncBridge:', error)
+    if (session) {
+      session.close()
+      if (this.session === session) {
+        this.session = null
+      }
+      if (this.syncApi === session.api) {
+        this.syncApi = null
+      }
+    }
+
+    if (this.initRetryStrategy.canRetry) {
+      const retryDelay = this.initRetryStrategy.nextDelay()
+      this.callbacks.onSyncWarning?.(`Sync initialization failed. Retrying in ${retryDelay / 1000}s...`)
+
+      // Keep initializationPromise alive so ensureReady() callers wait
+      const retryPromise = delay(retryDelay, signal).then(() => {
+        this.initializationPromise = null
+        return this.initialize(accountId, options)
+      })
+      retryPromise.catch(() => {})
+      this.initializationPromise = retryPromise
+    } else {
+      // Exhausted retries — surface to user
+      this.callbacks.onFatalError?.('Unable to start sync. Please refresh the page.')
+      this.callbacks.onStatusChange('offline')
+      this.currentAccountId = null
+      this.initializationPromise = null
+    }
   }
 
   async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
@@ -379,18 +418,24 @@ export class WorkerLifecycleManager {
     this.callbacks.onShutdownCleanup?.(options)
 
     if (oldSession) {
+      let shutdownTimer: ReturnType<typeof setTimeout> | undefined
       try {
         await Promise.race([
           oldSession.api.shutdown({
             ...options,
             clearLocalData: shouldClearLocalData,
           }),
-          new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error('Sync worker shutdown timed out')), SYNC_TIMEOUTS.workerShutdown)
-          ),
+          new Promise<void>((_, reject) => {
+            shutdownTimer = setTimeout(
+              () => reject(new Error('Sync worker shutdown timed out')),
+              SYNC_TIMEOUTS.workerShutdown,
+            )
+          }),
         ])
       } catch (err) {
         log.error('Failed to shut down worker cleanly:', err)
+      } finally {
+        clearTimeout(shutdownTimer)
       }
       oldSession.close()
     }
