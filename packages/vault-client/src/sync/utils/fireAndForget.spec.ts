@@ -81,12 +81,4 @@ describe('fireAndForget', () => {
       handlerError,
     )
   })
-
-  it('handles non-promise values gracefully', () => {
-    expect(() => fireAndForget(null, 'NullTag')).not.toThrow()
-    expect(() => fireAndForget(undefined, 'UndefinedTag')).not.toThrow()
-    expect(() => fireAndForget(123 as unknown as Promise<unknown>, 'NumTag')).not.toThrow()
-    expect(() => fireAndForget(() => 'string' as unknown as Promise<unknown>, 'FnTag')).not.toThrow()
-    expect(consoleErrorSpy).not.toHaveBeenCalled()
-  })
 })

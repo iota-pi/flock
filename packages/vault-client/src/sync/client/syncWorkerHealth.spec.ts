@@ -1,4 +1,5 @@
 import {
+  HeartbeatTimeoutError,
   sendPing,
   MAX_CONSECUTIVE_CRASHES,
   MAX_CONSECUTIVE_TIMEOUTS,
@@ -63,7 +64,7 @@ describe('sendPing', () => {
 
     vi.advanceTimersByTime(5000)
 
-    await expect(pingPromise).rejects.toThrow('Heartbeat timeout')
+    await expect(pingPromise).rejects.toThrow(HeartbeatTimeoutError)
     expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
   })
 

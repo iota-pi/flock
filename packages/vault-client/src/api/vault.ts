@@ -34,6 +34,7 @@ import {
 } from './session'
 import { deriveMasterKey } from './vaultHost'
 import { vaultKeys } from './VaultKeyState'
+import { getApiAuthToken } from './runtime'
 
 const log = createLogger('vault')
 
@@ -263,7 +264,7 @@ export async function storeVault(account: string, activeVersionOverride?: string
   writeStoredMetadata(account)
   const encryptedStr = await wrapKeyring(keyring, vaultKeys.requireMasterKey(), effectiveVersion)
 
-  if (vaultKeys.session) {
+  if (getApiAuthToken()) {
     const currentVer = parseInt(effectiveVersion, 10)
     const expectedVer = Math.max(currentVer - 1, 1)
     await updateKeyring({
@@ -380,7 +381,7 @@ export async function createVaultAccount(password: string): Promise<string> {
  * one: the old one's PBKDF2 output survives in backups (auth token hashes and data key v1).
  */
 export async function upgradeKeyDerivation(account: string, newPassword: string): Promise<void> {
-  if (!vaultKeys.session || !vaultKeys.keyHash) {
+  if (!getApiAuthToken() || !vaultKeys.keyHash) {
     throw new Error('Changing the password needs a connection to the server. Please try again once you are online.')
   }
   await rewrapMasterKey({ account, currentAuthToken: vaultKeys.keyHash, newPassword })
@@ -396,7 +397,7 @@ export function getActiveKeyVersion(): string {
  * would only cache the keyring locally, leaving data encrypted with a key no other device can get.
  */
 export async function rotateVaultKey(account: string): Promise<void> {
-  if (!vaultKeys.session) {
+  if (!getApiAuthToken()) {
     throw new Error('Key rotation needs a connection to the server. Please try again once you are online.')
   }
   const newKey = await generateVaultKey()

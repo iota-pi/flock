@@ -523,7 +523,6 @@ export class SnapshotPusher {
   async shutdown(): Promise<void> {
     this.abortPush()
     await this.pushGuard.waitForRunning()
-    this.cancelRetry()
     this.clear()
   }
 }

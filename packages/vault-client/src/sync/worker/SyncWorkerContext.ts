@@ -187,7 +187,7 @@ export class SyncWorkerContext {
     this.sealedStorage = local.mode === 'sealed' ? local.storage : null
     const services = this.createServices(local)
     this._services = services
-    services.snapshotManager.setLeader(services.orchestrator.leader)
+    fireAndForget(services.snapshotManager.setLeader(services.orchestrator.leader), 'SyncWorkerContext:setLeader')
     this.subscribeInternalEvents(services)
     this.subscribeCrossTabDirtyItems(services)
     this.registerLifecycleServices(services)
@@ -550,7 +550,7 @@ export class SyncWorkerContext {
     const unsub = this.internalEventHub.subscribe(event => {
       switch (event.type) {
         case 'leaderChange':
-          snapshotManager.setLeader(event.isLeader)
+          fireAndForget(snapshotManager.setLeader(event.isLeader), 'SyncWorkerContext:leaderChange')
           snapshotFormatUpgrade?.onLeaderChange(event.isLeader)
           break
         case 'decryptionFailure':

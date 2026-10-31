@@ -1,7 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { clearWriteAheadLog } from './writeAheadLogStorage'
 import { clearAccountStoreInstancesCacheForTesting, createAccountStore, getAccountDatabaseName } from './createAccountStore'
-import { createMockLocalForage, type MockLocalforage, mockLocalForage } from '../worker/__test__/testUtils'
+import { createDatabase, createMockLocalForage, listDatabases, type MockLocalforage, mockLocalForage } from '../worker/__test__/testUtils'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
 const createLocalForageInstance = (options: { name: string; storeName: string }) => {
@@ -10,22 +10,6 @@ const createLocalForageInstance = (options: { name: string; storeName: string })
     activeStoreMap.set(key, createMockLocalForage(options))
   }
   return activeStoreMap.get(key)
-}
-
-async function createDatabase(factory: IDBFactory, name: string): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const request = factory.open(name, 1)
-    request.onupgradeneeded = () => request.result.createObjectStore('wal-entries')
-    request.onsuccess = () => {
-      request.result.close()
-      resolve()
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-async function listDatabases(factory: IDBFactory): Promise<string[]> {
-  return (await factory.databases()).map(db => db.name ?? '')
 }
 
 describe('clearWriteAheadLog', () => {

@@ -1,12 +1,11 @@
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { SnapshotManager } from './SnapshotManager'
-import type { SnapshotTracker } from './SnapshotTracker'
 import { RecoveryManager } from './RecoveryManager'
 import { passthroughCodec } from './domain'
 import { SyncApiClient } from './SyncApiClient'
-import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
+import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
-import { createMockKeyProvider, createMockVault, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, getTimestamps, setTimestamps, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import type { KeyProvider } from '../../api/Keyring'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -28,17 +27,6 @@ const vault = {
   }),
 }
 const keys = createMockKeyProvider(vault)
-
-/** Sets some of an item's tracked timestamps directly */
-function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Partial<ItemSyncTimestamps>): void {
-  const byItemId = tracker['timestampsByItemId']
-  byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
-}
-
-/** An item's tracked timestamps, empty if it has none */
-function getTimestamps(tracker: SnapshotTracker, itemId: string): Partial<ItemSyncTimestamps> {
-  return tracker['timestampsByItemId'].get(itemId as ItemId) ?? {}
-}
 
 function createMockBroker() {
   return {

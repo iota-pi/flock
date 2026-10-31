@@ -13,7 +13,7 @@ import { createLogger } from './logger'
  * @param onError Optional error handler callback (e.g. for custom warning or cleanup).
  */
 export function fireAndForget(
-  promiseOrFactory: Promise<unknown> | (() => Promise<unknown>) | unknown,
+  promiseOrFactory: Promise<unknown> | (() => Promise<unknown>),
   tag: string,
   onError?: (err: unknown) => void,
 ): void {
@@ -30,10 +30,8 @@ export function fireAndForget(
   }
 
   try {
-    const promise = typeof promiseOrFactory === 'function' ? (promiseOrFactory as () => unknown)() : promiseOrFactory
-    if (promise && typeof (promise as Promise<unknown>).catch === 'function') {
-      (promise as Promise<unknown>).catch(err => handleError(err, 'Unhandled async error:'))
-    }
+    const promise = typeof promiseOrFactory === 'function' ? promiseOrFactory() : promiseOrFactory
+    promise.catch(err => handleError(err, 'Unhandled async error:'))
   } catch (err) {
     handleError(err, 'Unhandled synchronous error:')
   }

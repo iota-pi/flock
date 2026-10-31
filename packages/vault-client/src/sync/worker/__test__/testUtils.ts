@@ -9,6 +9,10 @@ import { AutomergeDocStore, type AutomergeDocStoreOptions, type ItemLockCoordina
 import { passthroughCodec } from '../domain'
 import * as vaultTrpcClientModule from '../../../api/vaultTrpcClient'
 import { spyOnExports } from '../../../../test/moduleMocks'
+import type { IDBFactory } from 'fake-indexeddb'
+import type { ItemId } from '@vault/shared'
+import type { SnapshotTracker } from '../SnapshotTracker'
+import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
 
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
@@ -352,4 +356,33 @@ export function spyOnVaultTrpc(procedures: {
     getVaultTrpcClient: () => client,
     getUntrackedVaultTrpcClient: () => client,
   })
+}
+
+/** Creates an IndexedDB database with one object store, then closes it */
+export async function createDatabase(factory: IDBFactory, name: string, storeName = 'store'): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const request = factory.open(name, 1)
+    request.onupgradeneeded = () => request.result.createObjectStore(storeName)
+    request.onsuccess = () => {
+      request.result.close()
+      resolve()
+    }
+    request.onerror = () => reject(request.error)
+  })
+}
+
+/** The names of the factory's databases */
+export async function listDatabases(factory: IDBFactory): Promise<string[]> {
+  return (await factory.databases()).map(db => db.name ?? '')
+}
+
+/** Sets some of an item's tracked timestamps directly */
+export function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Partial<ItemSyncTimestamps>): void {
+  const byItemId = tracker['timestampsByItemId']
+  byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
+}
+
+/** An item's tracked timestamps, empty if it has none */
+export function getTimestamps(tracker: SnapshotTracker, itemId: string): Partial<ItemSyncTimestamps> {
+  return tracker['timestampsByItemId'].get(itemId as ItemId) ?? {}
 }

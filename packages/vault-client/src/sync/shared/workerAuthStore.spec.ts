@@ -1,6 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { deleteStoredSessionToken } from './workerAuthStore'
 import { getVaultStorageNames } from './storageNames'
+import { listDatabases } from '../worker/__test__/testUtils'
 
 /** Stores a session token the way earlier builds did (localforage's object store) */
 async function storeLegacyToken(factory: IDBFactory, name: string): Promise<void> {
@@ -19,10 +20,6 @@ async function storeLegacyToken(factory: IDBFactory, name: string): Promise<void
     }
     request.onerror = () => reject(request.error)
   })
-}
-
-async function listDatabases(factory: IDBFactory): Promise<string[]> {
-  return (await factory.databases()).map(db => db.name ?? '')
 }
 
 describe('workerAuthStore', () => {

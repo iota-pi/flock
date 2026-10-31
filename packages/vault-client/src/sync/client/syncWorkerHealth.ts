@@ -1,6 +1,5 @@
 import type { SyncStatus } from '../shared/types'
 import { createLogger } from '../utils/logger'
-import { errorMessage } from '../utils/errorMessage'
 
 const log = createLogger('syncWorkerHealth')
 
@@ -10,6 +9,14 @@ const CRASH_RESET_WINDOW_MS = 60000
 export const MAX_CONSECUTIVE_TIMEOUTS = 5
 export const MAX_CONSECUTIVE_CRASHES = 3
 const DEFAULT_MAX_MISSED_PINGS = 2
+
+/** The worker didn't answer a ping in time */
+export class HeartbeatTimeoutError extends Error {
+  constructor() {
+    super('Heartbeat timeout')
+    this.name = 'HeartbeatTimeoutError'
+  }
+}
 
 export interface SendPingOptions {
   signal?: AbortSignal
@@ -86,7 +93,7 @@ export const sendPing = (
     if (timeoutMs !== undefined && timeoutMs > 0) {
       timer = setTimeout(() => {
         cleanup()
-        reject(new Error('Heartbeat timeout'))
+        reject(new HeartbeatTimeoutError())
       }, timeoutMs)
     }
 
@@ -104,10 +111,7 @@ export const sendPing = (
 }
 
 function isExternalAbort(signal: AbortSignal): boolean {
-  if (!signal.aborted) return false
-  const reason = signal.reason
-  const msg = errorMessage(reason)
-  return msg !== 'Heartbeat timeout'
+  return signal.aborted && !(signal.reason instanceof HeartbeatTimeoutError)
 }
 
 /** Where the health monitor reports problems with the sync worker */
