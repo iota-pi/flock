@@ -12,6 +12,7 @@ import {
 } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
+import { findWithTimeout } from './findWithTimeout'
 import type { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
@@ -175,15 +176,8 @@ export class AutomergeDocStore implements ItemLockCoordinator, LifecycleAware {
     url: AutomergeUrl,
     timeoutMs: number,
   ): Promise<RepoDocHandle> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-    try {
-      return await this.repo.find<RepoDoc>(url, { signal: controller.signal })
-    } catch {
-      return undefined
-    } finally {
-      clearTimeout(timeoutId)
-    }
+    const lookup = await findWithTimeout<RepoDoc>(this.repo, url, timeoutMs)
+    return lookup.type === 'found' ? lookup.handle : undefined
   }
 
   async findHandle(

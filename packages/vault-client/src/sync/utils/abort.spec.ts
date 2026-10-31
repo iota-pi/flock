@@ -1,4 +1,4 @@
-import { AbortError, isAbortError, checkAlive, abortReason, untilAborted, delay } from './abort'
+import { AbortError, isAbortError, checkAlive, abortReason, untilAborted, delay, withTimeout } from './abort'
 
 describe('abort utility', () => {
   describe('AbortError', () => {
@@ -157,6 +157,51 @@ describe('abort utility', () => {
       const controller = new AbortController()
       controller.abort('Stopped')
       await expect(delay(100, controller.signal)).rejects.toThrow('Stopped')
+    })
+  })
+
+  describe('withTimeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('aborts the signal with the reason after the timeout', async () => {
+      const reason = new Error('Timed out')
+      let seen: AbortSignal | undefined
+      const running = withTimeout(100, signal => {
+        seen = signal
+        return new Promise<never>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason))
+        })
+      }, { reason })
+      const caught = running.catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(99)
+      expect(seen?.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await caught).toBe(reason)
+    })
+
+    it('aborts the signal with the caller signal', async () => {
+      const controller = new AbortController()
+      let seen: AbortSignal | undefined
+      const running = withTimeout(100, async signal => {
+        seen = signal
+        await delay(50)
+      }, { signal: controller.signal })
+      controller.abort()
+      expect(seen?.aborted).toBe(true)
+      await vi.advanceTimersByTimeAsync(50)
+      await running
+    })
+
+    it('clears the timer once fn settles', async () => {
+      await expect(withTimeout(100, async () => 'done')).resolves.toBe('done')
+      await expect(withTimeout(100, async () => { throw new Error('Failed') })).rejects.toThrow('Failed')
+      expect(vi.getTimerCount()).toBe(0)
     })
   })
 })

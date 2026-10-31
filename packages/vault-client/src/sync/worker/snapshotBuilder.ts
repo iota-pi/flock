@@ -1,8 +1,8 @@
 import * as Automerge from '@automerge/automerge/slim'
-import type { AutomergeUrl, DocHandle, Repo } from '@automerge/automerge-repo/slim'
+import type { Repo } from '@automerge/automerge-repo/slim'
 
 import type { VaultSnapshotInput } from '@vault/shared'
-import { normalizeItemSnapshot } from './docStore'
+import { findWithTimeout, normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { KeyProvider } from '../../api/Keyring'
 import type { DocCodec } from './domain'
@@ -42,44 +42,6 @@ export interface BuildSnapshotOptions {
   codec: DocCodec
 }
 
-/**
- * How long a snapshot build waits for the document, matching the doc store's whole lookup budget for a
- * document it knows is stored (fast path plus extended attempt)
- */
-export const SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS = SYNC_TIMEOUTS.docStoreFastPath + SYNC_TIMEOUTS.docStoreExtended
-
-type DocLookupResult =
-  | { type: 'found'; handle: DocHandle<unknown> | undefined }
-  | { type: 'timeout' }
-
-/**
- * Looks the document up, giving up after SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS. `repo.find` can stay pending
- * forever: for a document whose local records fail to decrypt, and for one missing from storage, which no
- * peer answers for. An abort of the caller's signal is rethrown so the push stops rather than counting it
- * as this item's failure.
- */
-async function findWithTimeout(
-  repo: Repo,
-  documentUrl: AutomergeUrl,
-  signal: AbortSignal | undefined,
-): Promise<DocLookupResult> {
-  signal?.throwIfAborted()
-  const timeout = new AbortController()
-  const timeoutId = setTimeout(() => timeout.abort(), SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS)
-  const lookupSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal
-  try {
-    return { type: 'found', handle: await repo.find(documentUrl, { signal: lookupSignal }) }
-  } catch {
-    signal?.throwIfAborted()
-    if (timeout.signal.aborted) {
-      return { type: 'timeout' }
-    }
-    return { type: 'found', handle: undefined }
-  } finally {
-    clearTimeout(timeoutId)
-  }
-}
-
 export async function buildSnapshot(
   repo: Repo,
   itemId: ItemId,
@@ -88,11 +50,11 @@ export async function buildSnapshot(
   options: BuildSnapshotOptions,
 ): Promise<BuildSnapshotResult> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
-  const lookup = await findWithTimeout(repo, documentUrl, options.signal)
+  const lookup = await findWithTimeout(repo, documentUrl, SYNC_TIMEOUTS.snapshotDocLookup, options.signal)
   if (lookup.type === 'timeout') {
     return {
       type: 'error',
-      reason: `Document lookup timed out after ${SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS}ms`,
+      reason: `Document lookup timed out after ${SYNC_TIMEOUTS.snapshotDocLookup}ms`,
     }
   }
   const handle = lookup.handle

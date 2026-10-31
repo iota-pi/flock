@@ -1,6 +1,7 @@
 import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS, SnapshotBuilder } from './snapshotBuilder'
+import { SnapshotBuilder } from './snapshotBuilder'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError } from './SyncApiClient'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -331,7 +332,7 @@ describe('SnapshotPusher', () => {
         return result
       })
 
-      await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS - 1)
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup - 1)
       expect(settled).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
 
@@ -346,7 +347,7 @@ describe('SnapshotPusher', () => {
     it('quarantines the item once its lookups have timed out too many times', async () => {
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const push = pusher.triggerSnapshotPush()
-        await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS)
+        await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup)
         await push
         pusher.cancelRetry()
       }

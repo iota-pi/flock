@@ -6,6 +6,8 @@ import { AsyncMutex } from '../../utils/AsyncMutex'
 import type { LifecycleAware } from '../ServiceLifecycleManager'
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { createLogger } from '../../utils/logger'
+import { withTimeout } from '../../utils/abort'
+import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 
 const log = createLogger('AutomergeIndexManager')
 
@@ -14,8 +16,6 @@ interface IndexBroadcastMessage {
   itemIds?: ItemId[]
   metadata?: VaultMetadata
 }
-
-const INDEX_LOCK_TIMEOUT_MS = 10000
 
 export interface MergeIndexOptions {
   /** Tombstones from either side win, rather than only the incoming ones for items not live locally */
@@ -177,22 +177,11 @@ export class AutomergeIndexManager implements LifecycleAware {
     return this.mutex.runExclusive(async () => {
       if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
         const lockName = `${getVaultStorageNames().accountPrefixes.indexLock}${this.accountId}`
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => {
-          controller.abort(new Error(`Index lock request timed out after ${INDEX_LOCK_TIMEOUT_MS}ms`))
-        }, INDEX_LOCK_TIMEOUT_MS)
-
-        try {
-          return await navigator.locks.request(
-            lockName,
-            { mode: 'exclusive', signal: controller.signal },
-            async () => {
-              return await task()
-            }
-          )
-        } finally {
-          clearTimeout(timeoutId)
-        }
+        return withTimeout(
+          SYNC_TIMEOUTS.indexLock,
+          signal => navigator.locks.request(lockName, { mode: 'exclusive', signal }, task),
+          { reason: new Error(`Index lock request timed out after ${SYNC_TIMEOUTS.indexLock}ms`) },
+        )
       }
 
       return task()

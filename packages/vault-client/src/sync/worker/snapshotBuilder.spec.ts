@@ -2,10 +2,10 @@ import { ItemId, type VaultSnapshotInput } from '@vault/shared'
 import {
   buildSnapshot,
   estimateSnapshotSize,
-  SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS,
   SnapshotBuilder,
   toTombstoneSnapshot,
 } from './snapshotBuilder'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../../api/Keyring'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -115,7 +115,7 @@ describe('buildSnapshot helper function', () => {
       mockRepo.find.mockImplementation(pendingFind)
 
       const resultPromise = buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
-      await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS - 1)
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup - 1)
       let settled = false
       void resultPromise.then(() => { settled = true })
       await vi.advanceTimersByTimeAsync(0)
@@ -124,7 +124,7 @@ describe('buildSnapshot helper function', () => {
       await vi.advanceTimersByTimeAsync(1)
       await expect(resultPromise).resolves.toEqual({
         type: 'error',
-        reason: `Document lookup timed out after ${SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS}ms`,
+        reason: `Document lookup timed out after ${SYNC_TIMEOUTS.snapshotDocLookup}ms`,
       })
       expect(vi.getTimerCount()).toBe(0)
     })
@@ -155,7 +155,7 @@ describe('buildSnapshot helper function', () => {
       const builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec)
 
       const timedOut = builder.build('item-1' as ItemId, 42)
-      await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS)
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup)
       await expect(timedOut).resolves.toEqual(expect.objectContaining({ type: 'error' }))
 
       const controller = new AbortController()

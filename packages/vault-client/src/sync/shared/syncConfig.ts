@@ -8,6 +8,10 @@ export const SYNC_TIMEOUTS = {
   docStoreFastPath: 2000,
   /** Extended document lookup timeout when document is confirmed to exist in storage */
   docStoreExtended: 8000,
+  /** Document lookup timeout for a snapshot build: the doc store's whole budget (fast path plus extended) */
+  snapshotDocLookup: 10_000,
+  /** Timeout for acquiring the cross-tab account index Web Lock */
+  indexLock: 10_000,
   /** Timeout when waiting for a missing encryption key version to arrive */
   keyWait: 5000,
   /** Shorter key wait during manifest hydration, which hydrates many items in one pass */
