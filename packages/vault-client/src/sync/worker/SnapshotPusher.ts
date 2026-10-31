@@ -7,6 +7,7 @@ import { ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
@@ -57,7 +58,7 @@ export class SnapshotPusher {
 
   public readonly consecutiveFailures = new Map<ItemId, number>()
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
-  private pushAbortController: AbortController | null = null
+  private readonly pushRun = new AbortableRun(() => this.tracker.isOperational)
   private pendingPushRequested = false
   private readonly retryTimer = new RetryTimer()
   public readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
@@ -88,10 +89,7 @@ export class SnapshotPusher {
   }
 
   abortPush(): void {
-    if (this.pushAbortController) {
-      this.pushAbortController.abort()
-      this.pushAbortController = null
-    }
+    this.pushRun.abort()
   }
 
   cancelRetry(): void {
@@ -437,29 +435,27 @@ export class SnapshotPusher {
   }
 
   private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushOutcome> {
-    const abortController = new AbortController()
-    this.pushAbortController = abortController
-    const { signal } = abortController
     let failed = false
 
     try {
-      checkAlive(signal, () => this.tracker.isOperational)
-      const context = this.preparePushContext()
-      if (!context) {
-        failed = this.tracker.dirtyCount > 0
-        return { persisted: 0, total: 0, success: !failed }
-      }
+      return await this.pushRun.run(async signal => {
+        const context = this.preparePushContext()
+        if (!context) {
+          failed = this.tracker.dirtyCount > 0
+          return { persisted: 0, total: 0, success: !failed }
+        }
 
-      checkAlive(signal, () => this.tracker.isOperational)
-      const result = await this.processSnapshotPush(context, signal)
-      failed = !result.success
-      if (result.success && this.tracker.dirtyCount === 0) {
-        this.retryStrategy.reset()
-      }
-      return result
+        checkAlive(signal, () => this.tracker.isOperational)
+        const result = await this.processSnapshotPush(context, signal)
+        failed = !result.success
+        if (result.success && this.tracker.dirtyCount === 0) {
+          this.retryStrategy.reset()
+        }
+        return result
+      })
     } catch (error) {
       const classified = classifySyncError(error)
-      if (signal.aborted || classified.isAbort || !this.tracker.isOperational) {
+      if (classified.isAbort) {
         return { persisted: 0, total: 0, success: false }
       }
       failed = true
@@ -470,9 +466,6 @@ export class SnapshotPusher {
       }
       return { persisted: 0, total: 0, success: false }
     } finally {
-      if (this.pushAbortController === abortController) {
-        this.pushAbortController = null
-      }
       onSettled(!failed)
     }
   }

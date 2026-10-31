@@ -7,6 +7,7 @@ import type { StoreItemsOptions } from './ItemOperations'
 import type { SyncDomain } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { AbortableRun } from '../utils/AbortableRun'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { isAuthError } from '../utils/errorClassifier'
@@ -63,7 +64,8 @@ export class ManifestSyncManager implements LifecycleAware {
     this.shutdown()
   }
 
-  private abortController: AbortController | null = null
+  private readonly isAlive = () => !this.isShutdown
+  private readonly syncRun = new AbortableRun(this.isAlive)
   private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 
   constructor(deps: ManifestSyncManagerDeps) {
@@ -88,10 +90,7 @@ export class ManifestSyncManager implements LifecycleAware {
   }
 
   abort(): void {
-    if (this.abortController) {
-      this.abortController.abort()
-      this.abortController = null
-    }
+    this.syncRun.abort()
   }
 
   shutdown(): void {
@@ -166,13 +165,6 @@ export class ManifestSyncManager implements LifecycleAware {
     return { tombstoneItemIds, localLastModifiedMap, quarantinedMap, localVersionsMap }
   }
 
-  private createSyncAbortContext(outerSignal?: AbortSignal) {
-    const abortController = new AbortController()
-    const signal = outerSignal ? AbortSignal.any([abortController.signal, outerSignal]) : abortController.signal
-    const isAlive = () => !this.isShutdown && !outerSignal?.aborted
-    return { abortController, signal, isAlive }
-  }
-
   private async checkGating(
     force: boolean,
     signal: AbortSignal,
@@ -208,13 +200,8 @@ export class ManifestSyncManager implements LifecycleAware {
     }
   }
 
-  private handleSyncError(
-    e: unknown,
-    signal: AbortSignal,
-    isAlive: () => boolean,
-    hasKnownItems: boolean,
-  ): SyncResult {
-    if (signal.aborted || isAbortError(e) || !isAlive()) {
+  private handleSyncError(e: unknown, hasKnownItems: boolean): SyncResult {
+    if (isAbortError(e)) {
       return { added: [], success: false }
     }
     if (hasKnownItems) {
@@ -226,83 +213,79 @@ export class ManifestSyncManager implements LifecycleAware {
   }
 
   private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {
-    const { abortController, signal, isAlive } = this.createSyncAbortContext(outerSignal)
-    this.abortController = abortController
-
+    const isAlive = this.isAlive
     let hasKnownItems = false
     try {
-      const gating = await this.checkGating(force, signal, isAlive)
-      hasKnownItems = gating.hasKnownItems
-      if (gating.skip) {
-        // Only a sync without failures records the time that lets later syncs be skipped
-        this.deps.onSyncedWithoutFailures?.()
-        return { added: [], success: true }
-      }
+      return await this.syncRun.run(async signal => {
+        const gating = await this.checkGating(force, signal, isAlive)
+        hasKnownItems = gating.hasKnownItems
+        if (gating.skip) {
+          // Only a sync without failures records the time that lets later syncs be skipped
+          this.deps.onSyncedWithoutFailures?.()
+          return { added: [], success: true }
+        }
 
-      // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
-      await this.flushPendingSnapshotsSafely()
-      checkAlive(signal, isAlive)
-
-      const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems)
-      if (!remoteData) {
-        return { added: [], success: false }
-      }
-      checkAlive(signal, isAlive)
-
-      const localState = await this.collectLocalSyncState(signal, isAlive)
-      checkAlive(signal, isAlive)
-
-      // Step 1: Calculate sync deltas
-      const deltas = ManifestDeltaCalculator.calculateSyncDeltas({
-        manifest: remoteData.manifest,
-        force,
-        knownItemIds: gating.knownItemIds,
-        tombstoneItemIds: localState.tombstoneItemIds,
-        localLastModifiedMap: localState.localLastModifiedMap,
-        quarantinedMap: localState.quarantinedMap,
-        localVersionsMap: localState.localVersionsMap,
-      })
-
-      // Step 2: Push local updates
-      await this.pushLocalUpdates(deltas)
-      checkAlive(signal, isAlive)
-
-      let added: ItemId[] = []
-      let hasFailures = false
-
-      // Step 3: Fetch and hydrate remote items
-      if (deltas.missingIds.length > 0) {
-        const hydrationResult = await this.hydrator.fetchAndHydrateRemoteItems(
-          {
-            missingIds: deltas.missingIds,
-            manifest: remoteData.manifest,
-            serverTime: remoteData.serverTime,
-            knownSet: deltas.knownSet,
-            tombstoneSet: deltas.tombstoneSet,
-          },
-          signal,
-        )
-        added = hydrationResult.added
-        hasFailures = hydrationResult.hasFailures
+        // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
+        await this.flushPendingSnapshotsSafely()
         checkAlive(signal, isAlive)
-      }
 
-      await this.migrateLegacySettings()
-      checkAlive(signal, isAlive)
+        const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems)
+        if (!remoteData) {
+          return { added: [], success: false }
+        }
+        checkAlive(signal, isAlive)
 
-      await this.recordSyncCompletion(hasFailures)
+        const localState = await this.collectLocalSyncState(signal, isAlive)
+        checkAlive(signal, isAlive)
 
-      if (!hasFailures) {
-        this.deps.onSyncedWithoutFailures?.()
-      }
+        // Step 1: Calculate sync deltas
+        const deltas = ManifestDeltaCalculator.calculateSyncDeltas({
+          manifest: remoteData.manifest,
+          force,
+          knownItemIds: gating.knownItemIds,
+          tombstoneItemIds: localState.tombstoneItemIds,
+          localLastModifiedMap: localState.localLastModifiedMap,
+          quarantinedMap: localState.quarantinedMap,
+          localVersionsMap: localState.localVersionsMap,
+        })
 
-      return { added, success: !hasFailures }
+        // Step 2: Push local updates
+        await this.pushLocalUpdates(deltas)
+        checkAlive(signal, isAlive)
+
+        let added: ItemId[] = []
+        let hasFailures = false
+
+        // Step 3: Fetch and hydrate remote items
+        if (deltas.missingIds.length > 0) {
+          const hydrationResult = await this.hydrator.fetchAndHydrateRemoteItems(
+            {
+              missingIds: deltas.missingIds,
+              manifest: remoteData.manifest,
+              serverTime: remoteData.serverTime,
+              knownSet: deltas.knownSet,
+              tombstoneSet: deltas.tombstoneSet,
+            },
+            signal,
+          )
+          added = hydrationResult.added
+          hasFailures = hydrationResult.hasFailures
+          checkAlive(signal, isAlive)
+        }
+
+        await this.migrateLegacySettings()
+        checkAlive(signal, isAlive)
+
+        await this.recordSyncCompletion(hasFailures)
+
+        if (!hasFailures) {
+          this.deps.onSyncedWithoutFailures?.()
+        }
+
+        return { added, success: !hasFailures }
+      }, outerSignal)
     } catch (e) {
-      return this.handleSyncError(e, signal, isAlive, hasKnownItems)
-    } finally {
-      if (this.abortController === abortController) {
-        this.abortController = null
-      }
+      return this.handleSyncError(e, hasKnownItems)
     }
   }
 

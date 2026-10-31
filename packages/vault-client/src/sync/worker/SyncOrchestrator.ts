@@ -3,6 +3,7 @@ import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
@@ -66,8 +67,8 @@ export class SyncOrchestrator implements LifecycleAware {
   private pendingFlush = false
   private readonly pollGuard = new SingleFlightGuard<void>()
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
-  private pollAbortController: AbortController | null = null
-  private manifestSyncAbortController: AbortController | null = null
+  private readonly pollRun = new AbortableRun(() => this.isOperational)
+  private readonly manifestSyncRun = new AbortableRun(() => this.isOperational)
   private poller: SyncPollerLike
 
   private pollIntervalId: number | null = null
@@ -132,17 +133,11 @@ export class SyncOrchestrator implements LifecycleAware {
   }
 
   private abortPoll(): void {
-    if (this.pollAbortController) {
-      this.pollAbortController.abort()
-      this.pollAbortController = null
-    }
+    this.pollRun.abort()
   }
 
   private abortManifestSync(): void {
-    if (this.manifestSyncAbortController) {
-      this.manifestSyncAbortController.abort()
-      this.manifestSyncAbortController = null
-    }
+    this.manifestSyncRun.abort()
     this.manifestSyncManager.abort()
   }
 
@@ -368,32 +363,27 @@ export class SyncOrchestrator implements LifecycleAware {
       if (!this.canPoll(force) || this.pollGuard.isRunning) return
 
       await this.pollGuard.run(async () => {
-        const abortController = new AbortController()
-        this.pollAbortController = abortController
-        const { signal } = abortController
-
         let outcome: PollOutcome
         try {
-          if (this.cursorReloadGuard.isRunning) {
-            await this.cursorReloadGuard.waitForRunning()
-          }
-          checkAlive(signal, () => this.isOperational)
+          outcome = await this.pollRun.run(async signal => {
+            if (this.cursorReloadGuard.isRunning) {
+              await this.cursorReloadGuard.waitForRunning()
+            }
+            checkAlive(signal, () => this.isOperational)
 
-          outcome = await this.poller.executePoll(signal)
-          checkAlive(signal, () => this.isOperational)
+            const result = await this.poller.executePoll(signal)
+            checkAlive(signal, () => this.isOperational)
+            return result
+          })
         } catch (err) {
-          if (signal.aborted || isAbortError(err) || !this.isOperational) {
+          if (isAbortError(err)) {
             return
           }
           this.handlePollError(err)
           return
-        } finally {
-          if (this.pollAbortController === abortController) {
-            this.pollAbortController = null
-          }
         }
 
-        if (signal.aborted || !this.isOperational) {
+        if (!this.isOperational) {
           return
         }
 
@@ -466,22 +456,13 @@ export class SyncOrchestrator implements LifecycleAware {
         return
       }
       return await this.manifestSyncGuard.run(async () => {
-        const abortController = new AbortController()
-        this.manifestSyncAbortController = abortController
-        const { signal } = abortController
         try {
-          checkAlive(signal, () => this.isOperational)
-          await this.manifestSyncManager.sync(force, signal)
-          checkAlive(signal, () => this.isOperational)
+          await this.manifestSyncRun.run(signal => this.manifestSyncManager.sync(force, signal))
         } catch (error) {
-          if (signal.aborted || isAbortError(error) || !this.isOperational) {
+          if (isAbortError(error)) {
             return
           }
           log.warn('Manifest sync failed', error)
-        } finally {
-          if (this.manifestSyncAbortController === abortController) {
-            this.manifestSyncAbortController = null
-          }
         }
       })
     } catch (err) {
