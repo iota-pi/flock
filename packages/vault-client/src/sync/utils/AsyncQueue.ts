@@ -3,69 +3,15 @@ import { createLogger } from './logger'
 
 const log = createLogger('AsyncQueue')
 
-export type AsyncQueueWorker<T> = (item: T) => Promise<void> | void
-
-export interface AsyncQueueOptions<T = unknown> {
-  onError?: (error: unknown, item: T) => void
-}
-
 /**
- * A robust FIFO async queue that guarantees sequential item execution.
- *
- * Key features:
- * - Sequential execution: worker is invoked for one item at a time.
- * - In-flight safety: `unshift` preserves the active item at index 0 and inserts behind it,
- *   preventing race conditions where background unshifts displace the running item.
- * - Auto-shift on completion: Items remain at `queue[0]` while being processed / retried,
- *   and are removed once the worker promise settles.
- * - Deadlock-free: The drain loop safely resets processing state in a `finally` block even
- *   on unhandled rejections.
- * - Array-like inspection: Exposes `.length`, `.size`, `.isEmpty`, `[Symbol.iterator]()`,
- *   `.peek()`, `.at(index)`, and `queue[0]`.
+ * A FIFO queue that runs `worker` on one item at a time. A worker error is
+ * logged and the queue moves on to the next item.
  */
 export class AsyncQueue<T> {
   private items: T[] = []
   private isProcessing = false
-  private isCurrentItemRunning = false
-  private worker: AsyncQueueWorker<T>
-  private options?: AsyncQueueOptions<T>
 
-  constructor(worker: AsyncQueueWorker<T>, options?: AsyncQueueOptions<T>) {
-    this.worker = worker
-    this.options = options
-  }
-
-  get length(): number {
-    return this.items.length
-  }
-
-  get size(): number {
-    return this.items.length
-  }
-
-  get isEmpty(): boolean {
-    return this.items.length === 0
-  }
-
-  get isBusy(): boolean {
-    return this.isProcessing
-  }
-
-  peek(): T | undefined {
-    return this.items[0]
-  }
-
-  at(index: number): T | undefined {
-    return this.items.at(index)
-  }
-
-  get 0(): T | undefined {
-    return this.items[0]
-  }
-
-  [Symbol.iterator](): IterableIterator<T> {
-    return this.items[Symbol.iterator]()
-  }
+  constructor(private readonly worker: (item: T) => Promise<void> | void) {}
 
   push(...items: T[]): void {
     if (items.length === 0) return
@@ -73,17 +19,7 @@ export class AsyncQueue<T> {
     fireAndForget(this.drain(), 'AsyncQueue:drain')
   }
 
-  unshift(...items: T[]): void {
-    if (items.length === 0) return
-    if (this.isCurrentItemRunning) {
-      // If the head item is actively being processed, keep it at index 0 and insert new items right behind it
-      this.items.splice(1, 0, ...items)
-    } else {
-      this.items.unshift(...items)
-    }
-    fireAndForget(this.drain(), 'AsyncQueue:drain')
-  }
-
+  /** Drops the items not yet started. An item already running finishes. */
   clear(): void {
     this.items = []
   }
@@ -96,31 +32,15 @@ export class AsyncQueue<T> {
 
     try {
       while (this.items.length > 0) {
-        const item = this.items[0]
-        this.isCurrentItemRunning = true
-
+        const item = this.items.shift()!
         try {
           await this.worker(item)
         } catch (err) {
-          if (this.options?.onError) {
-            this.options.onError(err, item)
-          } else {
-            log.error('Unhandled error in queue worker:', err)
-          }
-        } finally {
-          this.isCurrentItemRunning = false
-          if (this.items.length > 0 && this.items[0] === item) {
-            this.items.shift()
-          }
+          log.error('Unhandled error in queue worker:', err)
         }
       }
-    } catch (err) {
-      log.error('Unexpected error in drain loop:', err)
     } finally {
       this.isProcessing = false
-      if (this.items.length > 0) {
-        fireAndForget(this.drain(), 'AsyncQueue:drain')
-      }
     }
   }
 }

@@ -193,12 +193,10 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
       kver,
       () => new BoundedQueue<Message>(
         this.maxPendingMessagesPerKey,
-        {
-          onEvict: () => {
-            log.warn(
-              `Pending queue for key version ${kver} exceeded max capacity (${this.maxPendingMessagesPerKey}). Evicting oldest message.`
-            )
-          },
+        () => {
+          log.warn(
+            `Pending queue for key version ${kver} exceeded max capacity (${this.maxPendingMessagesPerKey}). Evicting oldest message.`
+          )
         },
       ),
     )
