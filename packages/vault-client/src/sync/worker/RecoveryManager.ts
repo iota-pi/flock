@@ -44,11 +44,11 @@ export class RecoveryManager {
     this.eventHub = deps.eventHub
   }
 
-  isInFlight(itemId: ItemId): boolean {
+  private isInFlight(itemId: ItemId): boolean {
     return this.inFlightItemIds.has(itemId)
   }
 
-  setInFlight(itemId: ItemId, inFlight: boolean): void {
+  private setInFlight(itemId: ItemId, inFlight: boolean): void {
     if (inFlight) {
       this.inFlightItemIds.add(itemId)
     } else {
@@ -56,7 +56,7 @@ export class RecoveryManager {
     }
   }
 
-  getRecoveryCooldownUntil(itemId: ItemId): number {
+  private getRecoveryCooldownUntil(itemId: ItemId): number {
     const cooldownUntil = this.cooldownUntilByItemId.get(itemId) || 0
     if (cooldownUntil <= Date.now()) {
       this.cooldownUntilByItemId.delete(itemId)
@@ -65,11 +65,11 @@ export class RecoveryManager {
     return cooldownUntil
   }
 
-  setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
+  private setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
     this.cooldownUntilByItemId.set(itemId, cooldownUntil)
   }
 
-  clearRecoveryCooldown(itemId: ItemId): void {
+  private clearRecoveryCooldown(itemId: ItemId): void {
     this.cooldownUntilByItemId.delete(itemId)
   }
 

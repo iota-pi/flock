@@ -54,14 +54,14 @@ export class SnapshotPusher {
   private readonly apiClient: SyncApiClient
   private readonly eventHub: ClientEventHub
   private readonly getLatestCursor?: () => number
-  public readonly maxPayloadBytes: number
+  private readonly maxPayloadBytes: number
 
-  public readonly consecutiveFailures = new Map<ItemId, number>()
+  private readonly consecutiveFailures = new Map<ItemId, number>()
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
   private readonly pushRun = new AbortableRun(() => this.tracker.isOperational)
   private pendingPushRequested = false
   private readonly retryTimer = new RetryTimer()
-  public readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
+  private readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
   constructor(options: SnapshotPusherOptions) {
     this.accountId = options.accountId
@@ -125,27 +125,7 @@ export class SnapshotPusher {
     })
   }
 
-  private preparePushContext(): {
-    dirtyItemIds: ItemId[]
-    snapshotCursor: number
-  } | null {
-    if (!this.tracker.isOperational) {
-      return null
-    }
-    const dirtyItemIds = this.tracker.getDirtyItemIds()
-    if (dirtyItemIds.length === 0) {
-      return null
-    }
-
-    const snapshotCursor = this.getLatestCursor ? this.getLatestCursor() : 0
-
-    return {
-      dirtyItemIds,
-      snapshotCursor,
-    }
-  }
-
-  async handleSnapshotFailure(
+  private async handleSnapshotFailure(
     itemId: ItemId,
     tick: number,
     failureType: string,
@@ -182,7 +162,7 @@ export class SnapshotPusher {
     }
   }
 
-  handleOversizedItem(
+  private handleOversizedItem(
     itemId: ItemId,
     snapshotSize: number,
     modified: number,
@@ -307,13 +287,10 @@ export class SnapshotPusher {
   }
 
   private async processSnapshotPush(
-    context: {
-      dirtyItemIds: ItemId[]
-      snapshotCursor: number
-    },
+    dirtyItemIds: ItemId[],
+    snapshotCursor: number,
     signal?: AbortSignal,
   ): Promise<SnapshotPushOutcome> {
-    const { dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
     let success = true
@@ -401,14 +378,14 @@ export class SnapshotPusher {
 
     try {
       return await this.pushRun.run(async signal => {
-        const context = this.preparePushContext()
-        if (!context) {
+        const dirtyItemIds = this.tracker.isOperational ? this.tracker.getDirtyItemIds() : []
+        if (dirtyItemIds.length === 0) {
           failed = this.tracker.dirtyCount > 0
           return { persisted: 0, total: 0, success: !failed }
         }
 
         checkAlive(signal, () => this.tracker.isOperational)
-        const result = await this.processSnapshotPush(context, signal)
+        const result = await this.processSnapshotPush(dirtyItemIds, this.getLatestCursor?.() ?? 0, signal)
         failed = !result.success
         if (result.success && this.tracker.dirtyCount === 0) {
           this.retryStrategy.reset()

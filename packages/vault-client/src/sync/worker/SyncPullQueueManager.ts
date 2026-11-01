@@ -269,10 +269,6 @@ export class SyncPullQueueManager {
     return this.hasMoreGlobal ? this.globalPageToken : undefined
   }
 
-  private async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
-    return this.lockCoordinator.withItemLock(itemId, fn)
-  }
-
   private async processItemMessages(
     itemId: ItemId,
     messages: PullSyncMessagesResponse['messages'] | undefined,
@@ -289,7 +285,7 @@ export class SyncPullQueueManager {
       return { highestCursor: initialCursor, hasParsedMessages: false, hasParsedRemoteMessages: false }
     }
 
-    return this.withItemLock(itemId, async () => {
+    return this.lockCoordinator.withItemLock(itemId, async () => {
       let highestCursor = initialCursor
       let failure: PullFailure | undefined
       let hasParsedMessages = false

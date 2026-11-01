@@ -3,6 +3,7 @@ import { ItemId } from '@vault/shared'
 import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AsyncMutex } from '../utils/AsyncMutex'
+import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import type { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -30,18 +31,18 @@ type TrackedTimestamps = Partial<ItemSyncTimestamps>
 
 export class SnapshotTracker {
   private readonly session: SyncSessionState
-  public readonly dirtyItems = new Map<ItemId, number>()
+  private readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private readonly timestampsByItemId = new Map<ItemId, TrackedTimestamps>()
   /** Items quarantined as too large to upload, so the warning is given only once */
-  public readonly oversizedItems = new Set<ItemId>()
+  private readonly oversizedItems = new Set<ItemId>()
 
-  private debounceTimeout: ReturnType<typeof setTimeout> | null = null
-  private maxWaitTimeout: ReturnType<typeof setTimeout> | null = null
+  private readonly debounceTimer = new RetryTimer()
+  private readonly maxWaitTimer = new RetryTimer()
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
-  public readonly loadGuard = new SingleFlightGuard<void>()
+  private readonly loadGuard = new SingleFlightGuard<void>()
   private readonly persistMutex = new AsyncMutex()
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
@@ -50,7 +51,7 @@ export class SnapshotTracker {
 
   // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved localModifiedAt
   // to re-queue an edit whose snapshot never went up.
-  public readonly saveLastModifiedDebounced = debounce(
+  private readonly saveLastModifiedDebounced = debounce(
     () => fireAndForget(this.persistLastModified(), 'SnapshotTracker:persistLastModified'),
     1000,
     { maxWait: 5000 },
@@ -68,14 +69,6 @@ export class SnapshotTracker {
 
   get isShutdown(): boolean {
     return this.session.isShutdown
-  }
-
-  get debounceTimer(): ReturnType<typeof setTimeout> | null {
-    return this.debounceTimeout
-  }
-
-  get maxWaitTimer(): ReturnType<typeof setTimeout> | null {
-    return this.maxWaitTimeout
   }
 
   get isOperational(): boolean {
@@ -117,33 +110,19 @@ export class SnapshotTracker {
     if (!this.isOperational) return
     if (this.isRetryActive?.()) return
 
-    const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
-    if (this.debounceTimeout !== null) {
-      clearTimeout(this.debounceTimeout)
-    }
-
-    if (this.maxWaitTimeout === null) {
-      this.maxWaitTimeout = setTimeout(() => {
-        this.clearDebounceTimers()
-        this.onTriggerPush?.()
-      }, this.maxWaitMs)
-    }
-
-    this.debounceTimeout = setTimeout(() => {
+    const trigger = () => {
       this.clearDebounceTimers()
       this.onTriggerPush?.()
-    }, delay)
+    }
+    if (!this.maxWaitTimer.isPending) {
+      this.maxWaitTimer.schedule(this.maxWaitMs, trigger)
+    }
+    this.debounceTimer.schedule(customDelayMs ?? this.debounceDelayMs, trigger)
   }
 
   clearDebounceTimers(): void {
-    if (this.debounceTimeout !== null) {
-      clearTimeout(this.debounceTimeout)
-      this.debounceTimeout = null
-    }
-    if (this.maxWaitTimeout !== null) {
-      clearTimeout(this.maxWaitTimeout)
-      this.maxWaitTimeout = null
-    }
+    this.debounceTimer.cancel()
+    this.maxWaitTimer.cancel()
   }
 
   updateLastModifiedForDirtyItems(): void {

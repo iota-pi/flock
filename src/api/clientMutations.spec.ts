@@ -1,7 +1,6 @@
 import { getBlankGroup, getBlankItem, getBlankPerson, type Item } from '../state/items'
 import { convertItemType, createItem, deleteItems, mutateItem, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import { SyncBridge } from '../app/vault/syncBridge'
-import { setApiAuthToken } from '@vault/client'
 import { useAppStore } from '../state/store'
 import type { AccountMetadata } from '../state/metadata'
 import { ItemId } from '@vault/shared'
@@ -76,7 +75,6 @@ describe('local-first mutations', () => {
       Object.assign(metadataState, changes)
     })
 
-    setApiAuthToken('')
     useAppStore.setState({ items: {}, metadata: metadataState as AccountMetadata })
   })
 

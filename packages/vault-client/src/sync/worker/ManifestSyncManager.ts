@@ -54,8 +54,6 @@ export type SyncResult = { added: ItemId[], success: boolean }
 export class ManifestSyncManager {
   private readonly deps: ManifestSyncManagerDeps
   private readonly hydrator: ManifestHydrator
-  private readonly recoveryManager: RecoveryManager
-  private readonly apiClient: SyncApiClient
   private isShutdown = false
 
   private readonly isAlive = () => !this.isShutdown
@@ -64,11 +62,9 @@ export class ManifestSyncManager {
 
   constructor(deps: ManifestSyncManagerDeps) {
     this.deps = deps
-    this.apiClient = this.deps.apiClient
-    this.recoveryManager = this.deps.recoveryManager
     this.hydrator = new ManifestHydrator({
       accountId: this.deps.accountId,
-      apiClient: this.apiClient,
+      apiClient: this.deps.apiClient,
       docStore: this.deps.docStore,
       indexManager: this.deps.indexManager,
       snapshotManager: this.deps.snapshotManager,
@@ -106,19 +102,18 @@ export class ManifestSyncManager {
 
   private async fetchRemoteManifest(
     signal: AbortSignal,
-    isAlive: () => boolean,
     hasKnownItems: boolean,
   ): Promise<{ manifest: ManifestEntry[]; serverTime: number } | null> {
-    checkAlive(signal, isAlive)
+    checkAlive(signal, this.isAlive)
 
     try {
-      const manifestResponse = await this.apiClient.fetchManifest({ account: this.deps.accountId }, { signal })
+      const manifestResponse = await this.deps.apiClient.fetchManifest({ account: this.deps.accountId }, { signal })
       return {
         manifest: manifestResponse.manifest,
         serverTime: manifestResponse.serverTime,
       }
     } catch (e) {
-      if (signal.aborted || isAbortError(e) || !isAlive()) {
+      if (signal.aborted || isAbortError(e) || !this.isAlive()) {
         return null
       }
       if (isAuthError(e)) {
@@ -138,16 +133,16 @@ export class ManifestSyncManager {
     }
   }
 
-  private async collectLocalSyncState(signal: AbortSignal, isAlive: () => boolean) {
+  private async collectLocalSyncState(signal: AbortSignal) {
     const tombstoneItemIds = await this.deps.indexManager.listAutomergeTombstoneIds()
     const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
     const localVersionsMap = new Map(this.deps.snapshotManager.exportItemVersions())
-    checkAlive(signal, isAlive)
+    checkAlive(signal, this.isAlive)
 
     const quarantinedMap = new Map<ItemId, QuarantinedItem>()
     try {
-      const recoveryEntries = await this.recoveryManager.listRecoveryItems()
-      checkAlive(signal, isAlive)
+      const recoveryEntries = await this.deps.recoveryManager.listRecoveryItems()
+      checkAlive(signal, this.isAlive)
       for (const entry of recoveryEntries) {
         quarantinedMap.set(entry.itemId, { serverVersion: entry.serverVersion })
       }
@@ -162,12 +157,11 @@ export class ManifestSyncManager {
   private async checkGating(
     force: boolean,
     signal: AbortSignal,
-    isAlive: () => boolean,
   ): Promise<{ skip: boolean; hasKnownItems: boolean; knownItemIds: ItemId[] }> {
-    checkAlive(signal, isAlive)
+    checkAlive(signal, this.isAlive)
     const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
     const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
-    checkAlive(signal, isAlive)
+    checkAlive(signal, this.isAlive)
 
     const hasKnownItems = knownItemIds.length > 0
     const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
@@ -207,11 +201,10 @@ export class ManifestSyncManager {
   }
 
   private async executeSync(force = false, outerSignal?: AbortSignal): Promise<SyncResult> {
-    const isAlive = this.isAlive
     let hasKnownItems = false
     try {
       return await this.syncRun.run(async signal => {
-        const gating = await this.checkGating(force, signal, isAlive)
+        const gating = await this.checkGating(force, signal)
         hasKnownItems = gating.hasKnownItems
         if (gating.skip) {
           // Only a sync without failures records the time that lets later syncs be skipped
@@ -221,16 +214,16 @@ export class ManifestSyncManager {
 
         // Flushed first so the manifest includes them; otherwise they look missing and are pushed again
         await this.flushPendingSnapshotsSafely()
-        checkAlive(signal, isAlive)
+        checkAlive(signal, this.isAlive)
 
-        const remoteData = await this.fetchRemoteManifest(signal, isAlive, hasKnownItems)
+        const remoteData = await this.fetchRemoteManifest(signal, hasKnownItems)
         if (!remoteData) {
           return { added: [], success: false }
         }
-        checkAlive(signal, isAlive)
+        checkAlive(signal, this.isAlive)
 
-        const localState = await this.collectLocalSyncState(signal, isAlive)
-        checkAlive(signal, isAlive)
+        const localState = await this.collectLocalSyncState(signal)
+        checkAlive(signal, this.isAlive)
 
         // Step 1: Calculate sync deltas
         const deltas = ManifestDeltaCalculator.calculateSyncDeltas({
@@ -245,7 +238,7 @@ export class ManifestSyncManager {
 
         // Step 2: Push local updates
         await this.pushLocalUpdates(deltas)
-        checkAlive(signal, isAlive)
+        checkAlive(signal, this.isAlive)
 
         let added: ItemId[] = []
         let hasFailures = false
@@ -264,11 +257,11 @@ export class ManifestSyncManager {
           )
           added = hydrationResult.added
           hasFailures = hydrationResult.hasFailures
-          checkAlive(signal, isAlive)
+          checkAlive(signal, this.isAlive)
         }
 
         await this.migrateLegacySettings()
-        checkAlive(signal, isAlive)
+        checkAlive(signal, this.isAlive)
 
         await this.recordSyncCompletion(hasFailures)
 

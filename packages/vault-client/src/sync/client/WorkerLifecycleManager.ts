@@ -14,7 +14,7 @@ import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
-import { AbortError, delay, untilAborted } from '../utils/abort'
+import { AbortError, delay, untilAborted, withTimeout } from '../utils/abort'
 import { noopTelemetry, type SyncTelemetry } from './host'
 
 const log = createLogger('WorkerLifecycleManager')
@@ -52,6 +52,13 @@ class WorkerSession {
     this.eventChannel.port1.close()
     this.pingChannel.port1.close()
   }
+}
+
+export interface WorkerShutdownOptions {
+  clearLocalData?: boolean
+  /** Shutting down to restart the worker, so initialization stays in progress */
+  internalRestart?: boolean
+  accountId?: string
 }
 
 export interface WorkerLifecycleCallbacks {
@@ -361,7 +368,7 @@ export class WorkerLifecycleManager {
     }
   }
 
-  async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
+  async shutdown(options?: WorkerShutdownOptions) {
     const targetAccountId = this.resolveTargetAccountId(options?.accountId)
 
     if (options?.clearLocalData && targetAccountId) {
@@ -393,7 +400,7 @@ export class WorkerLifecycleManager {
     }
   }
 
-  private async _performShutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }) {
+  private async _performShutdown(options?: WorkerShutdownOptions) {
     const targetAccountId = this.resolveTargetAccountId(options?.accountId)
 
     const shouldClearLocalData = Boolean(
@@ -418,24 +425,14 @@ export class WorkerLifecycleManager {
     this.callbacks.onShutdownCleanup?.(options)
 
     if (oldSession) {
-      let shutdownTimer: ReturnType<typeof setTimeout> | undefined
       try {
-        await Promise.race([
-          oldSession.api.shutdown({
-            ...options,
-            clearLocalData: shouldClearLocalData,
-          }),
-          new Promise<void>((_, reject) => {
-            shutdownTimer = setTimeout(
-              () => reject(new Error('Sync worker shutdown timed out')),
-              SYNC_TIMEOUTS.workerShutdown,
-            )
-          }),
-        ])
+        await withTimeout(
+          SYNC_TIMEOUTS.workerShutdown,
+          signal => untilAborted(oldSession.api.shutdown({ ...options, clearLocalData: shouldClearLocalData }), signal),
+          { reason: new Error('Sync worker shutdown timed out') },
+        )
       } catch (err) {
         log.error('Failed to shut down worker cleanly:', err)
-      } finally {
-        clearTimeout(shutdownTimer)
       }
       oldSession.close()
     }

@@ -16,6 +16,7 @@ import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import { createLogger } from '../../utils/logger'
 import { errorMessage } from '../../utils/errorMessage'
+import { checkAlive } from '../../utils/abort'
 
 const log = createLogger('AutomergeDocStore')
 
@@ -89,7 +90,8 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private readonly repo: Repo
   private readonly internalEventHub: WorkerInternalEventHub
-  private storageAdapter?: DocStorageChecker | null
+  private readonly storageAdapter?: DocStorageChecker | null
+  private isShutdown = false
   public readonly codec: DocCodec
   private readonly isLocallyUnreadable: (documentId: DocumentId) => boolean
 
@@ -132,6 +134,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   async hasDataInStorage(itemId: ItemId): Promise<boolean> {
+    checkAlive(null, !this.isShutdown, 'Doc store is shut down')
     const { documentId } = this.resolveDocumentId(itemId)
     if (this.storageAdapter) {
       return this.storageAdapter.has([documentId])
@@ -308,14 +311,9 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     change: (draft: RepoDoc) => void,
     options: ChangeDocumentOptions = {},
   ): Promise<boolean> {
-    const normalizedItemId = normalizeItemId(itemId)
-    if (!normalizedItemId) {
-      return false
-    }
-
     const handle = options.createIfMissing
-      ? await this.findOrCreateHandle(normalizedItemId, options)
-      : await this.findHandle(normalizedItemId, options)
+      ? await this.findOrCreateHandle(itemId, options)
+      : await this.findHandle(itemId, options)
 
     if (!handle?.isReady()) {
       return false
@@ -335,13 +333,8 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   async getAutomergeItem(itemId: ItemId): Promise<VaultDoc | null> {
-    const normalizedItemId = normalizeItemId(itemId)
-    if (!normalizedItemId) {
-      return null
-    }
-
-    const snapshot = await this.readItemSnapshot(normalizedItemId)
-    return this.decodeSnapshot(normalizedItemId, snapshot)
+    const snapshot = await this.readItemSnapshot(itemId)
+    return this.decodeSnapshot(itemId, snapshot)
   }
 
   /**
@@ -456,6 +449,6 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   async shutdown(): Promise<void> {
-    this.storageAdapter = null
+    this.isShutdown = true
   }
 }

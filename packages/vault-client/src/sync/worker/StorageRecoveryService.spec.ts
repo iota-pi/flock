@@ -1,4 +1,4 @@
-import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
+import { StorageRecoveryService } from './StorageRecoveryService'
 import { ClientEventHub } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId } from './utils/automerge'
@@ -129,45 +129,10 @@ describe('StorageRecoveryService', () => {
     })
   })
 
-  describe('Probing, Circuits, and Resolution', () => {
-    it('probeStorageAvailability passes when testStorageAvailable succeeds', async () => {
-      await expect(service.probeStorageAvailability()).resolves.toBeUndefined()
-      expect(mockLastModifiedStore.testStorageAvailable).toHaveBeenCalledTimes(1)
-    })
-
-    it('probeStorageAvailability throws QuotaExceededRetryError when testStorageAvailable throws QuotaExceededError', async () => {
-      const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(quotaErr)
-
-      await expect(service.probeStorageAvailability()).rejects.toThrow(QuotaExceededRetryError)
-    })
-
-    it('probeStorageAvailability rethrows unexpected non-quota errors', async () => {
-      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(new Error('Disk read error'))
-
-      await expect(service.probeStorageAvailability()).rejects.toThrow('Disk read error')
-    })
-
-    it('resetStorageCircuits calls broker.unblockAllItems and adapter.resetReNegotiationCircuit', () => {
-      service.resetStorageCircuits()
-
-      expect(mockBroker.unblockAllItems).toHaveBeenCalledTimes(1)
-      expect(mockAdapter.resetReNegotiationCircuit).toHaveBeenCalledTimes(1)
-    })
-
-    it('resolveQuotaStatus resets status and emits quotaResolved', () => {
-      const emitSpy = vi.spyOn(clientEventHub, 'emit')
-      const resetSpy = vi.spyOn(storageManager, 'resetQuotaExceededStatus')
-      service.resolveQuotaStatus()
-
-      expect(resetSpy).toHaveBeenCalledTimes(1)
-      expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
-    })
-  })
-
   describe('retrySave', () => {
     it('executes full sequence on success', async () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
+      const resetSpy = vi.spyOn(storageManager, 'resetQuotaExceededStatus')
 
       const result = await service.retrySave()
 
@@ -188,6 +153,7 @@ describe('StorageRecoveryService', () => {
       expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
+      expect(resetSpy).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
 
@@ -215,6 +181,15 @@ describe('StorageRecoveryService', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('still exceeded')
+      expect(mockDocStore.saveDocToStorage).not.toHaveBeenCalled()
+    })
+
+    it('rethrows a probe failure that is not a quota error', async () => {
+      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(new Error('Disk read error'))
+
+      const result = await service.retrySave()
+
+      expect(result).toEqual({ success: false, error: 'Disk read error' })
       expect(mockDocStore.saveDocToStorage).not.toHaveBeenCalled()
     })
 

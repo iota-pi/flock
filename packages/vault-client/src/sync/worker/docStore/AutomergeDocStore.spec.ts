@@ -14,6 +14,7 @@ import type {
 import { createTestDocStore } from '../__test__/testUtils'
 import { WorkerInternalEventHub } from '../SyncEventHub'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
+import { AbortError } from '../../utils/abort'
 import {
   toAutomergeUrlFromItemId,
   toDocumentIdFromItemId,
@@ -606,6 +607,17 @@ describe('AutomergeDocStore Unit Tests', () => {
       ).rejects.toThrow('Storage disk corruption')
     })
 
+    it('refuses to check storage after shutdown', async () => {
+      const mockAdapter: DocStorageChecker = {
+        has: vi.fn().mockResolvedValue(true),
+      }
+      const store = createTestDocStore(repo, { storageAdapter: mockAdapter })
+      await store.shutdown()
+
+      await expect(store.hasDataInStorage('test-storage-item' as ItemId)).rejects.toThrow(AbortError)
+      expect(mockAdapter.has).not.toHaveBeenCalled()
+    })
+
     it('fallback: returns false when no storageAdapter is configured and repo has no storageSubsystem', async () => {
       const store = createTestDocStore(repo, { storageAdapter: null })
       const result = await store.hasDataInStorage('test-item' as ItemId)
@@ -934,11 +946,6 @@ describe('AutomergeDocStore Unit Tests', () => {
   // 6. Additional AutomergeDocStore core methods
   // =========================================================================
   describe('changeDocument, saveDocToStorage, and helpers', () => {
-    it('changeDocument returns false for invalid itemId', async () => {
-      const res = await docStore.changeDocument('' as ItemId, () => {})
-      expect(res).toBe(false)
-    })
-
     it('changeDocument returns false when document handle is missing and createIfMissing is false', async () => {
       vi.spyOn(docStore, 'hasDataInStorage').mockResolvedValue(false)
       const res = await docStore.changeDocument('missing-item' as ItemId, () => {}, { createIfMissing: false })
@@ -1062,8 +1069,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(docStore.snapshotFromHandle(mockUnready)).toBeNull()
     })
 
-    it('getAutomergeItem returns null for invalid itemId or empty snapshot', async () => {
-      expect(await docStore.getAutomergeItem('' as ItemId)).toBeNull()
+    it('getAutomergeItem returns null for a missing document', async () => {
       expect(await docStore.getAutomergeItem('missing-item' as ItemId)).toBeNull()
     })
 

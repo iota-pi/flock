@@ -46,7 +46,7 @@ export class SyncPoller {
   private readonly accountId: string
   private readonly session: SyncSessionState
   private readonly apiClient: SyncApiClient
-  public readonly consecutivePushFailures = new Map<ItemId, number>()
+  private readonly consecutivePushFailures = new Map<ItemId, number>()
   private readonly recoveryManager: RecoveryManager
   private readonly pullQueueManager: SyncPullQueueManager
   private readonly internalEventHub: WorkerInternalEventHub

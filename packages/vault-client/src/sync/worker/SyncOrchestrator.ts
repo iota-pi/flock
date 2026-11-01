@@ -62,7 +62,7 @@ export class SyncOrchestrator {
   private readonly poller: SyncPollerLike
 
   private readonly pollTimer = new RetryTimer()
-  private syncBatchTimeout: number | null = null
+  private readonly syncBatchTimer = new RetryTimer()
   private readonly pollBackoff = new RetryStrategy({
     delays: DEFAULT_POLL_BACKOFF_DELAYS,
     jitter: { factor: 0.25, maxJitterMs: 15000 },
@@ -210,17 +210,13 @@ export class SyncOrchestrator {
   flush(): void {
     if (this.isShutdown) return
     this.pollingPausedForAuth = false
-    if (this.syncBatchTimeout === null) {
-      this.syncBatchTimeout = self.setTimeout(
-        () => fireAndForget(this.flushSyncBatch(), 'SyncOrchestrator:flushSyncBatch'),
-        0
-      )
+    if (!this.syncBatchTimer.isPending) {
+      this.syncBatchTimer.schedule(0, () => fireAndForget(this.flushSyncBatch(), 'SyncOrchestrator:flushSyncBatch'))
     }
   }
 
   private async flushSyncBatch(): Promise<void> {
     try {
-      this.syncBatchTimeout = null
       if (this.pollGuard.isRunning) {
         this.pendingFlush = true
         return
@@ -262,9 +258,8 @@ export class SyncOrchestrator {
 
   stopPolling(): void {
     this.pollTimer.cancel()
-    if (this.syncBatchTimeout) {
-      self.clearTimeout(this.syncBatchTimeout)
-      this.syncBatchTimeout = null
+    if (this.syncBatchTimer.isPending) {
+      this.syncBatchTimer.cancel()
       if (!this.isShutdown) {
         this.pendingFlush = true
       }

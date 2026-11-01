@@ -650,8 +650,8 @@ describe('ItemOperations', () => {
         const mockEntries: any[] = []
         mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-        deps.recoveryManager.setRecoveryCooldown('item-5' as ItemId, Date.now() + 10000)
-        deps.recoveryManager.setInFlight('item-5' as ItemId, true)
+        deps.recoveryManager['setRecoveryCooldown']('item-5' as ItemId, Date.now() + 10000)
+        deps.recoveryManager['setInFlight']('item-5' as ItemId, true)
 
         const newItemId = await operations.recreateOversizedItem('item-5' as ItemId)
 
@@ -659,8 +659,8 @@ describe('ItemOperations', () => {
         expect(newItemId).not.toBe('item-5')
         expect(getAutomergeItemMock).toHaveBeenCalledWith('item-5')
         expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-5')
-        expect(deps.recoveryManager.isInFlight('item-5' as ItemId)).toBe(false)
-        expect(deps.recoveryManager.getRecoveryCooldownUntil('item-5' as ItemId)).toBe(0)
+        expect(deps.recoveryManager['isInFlight']('item-5' as ItemId)).toBe(false)
+        expect(deps.recoveryManager['getRecoveryCooldownUntil']('item-5' as ItemId)).toBe(0)
         expect(markDocumentDirtyMock).toHaveBeenCalledWith(newItemId)
         expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-5')
         expect(emitMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })

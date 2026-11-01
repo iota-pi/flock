@@ -1,3 +1,5 @@
+import { untilAborted, withTimeout } from './abort'
+
 const DATABASES_TIMEOUT_MS = 1500
 const PROBE_TIMEOUT_MS = 2000
 
@@ -13,17 +15,7 @@ export async function databaseExists(name: string): Promise<boolean> {
 
   if (typeof indexedDB.databases === 'function') {
     try {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const dbs = await Promise.race([
-        indexedDB.databases(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('timeout')), DATABASES_TIMEOUT_MS)
-        }),
-      ]).finally(() => {
-        if (timer !== undefined) {
-          clearTimeout(timer)
-        }
-      })
+      const dbs = await withTimeout(DATABASES_TIMEOUT_MS, signal => untilAborted(indexedDB.databases(), signal))
       if (Array.isArray(dbs)) {
         return dbs.some(db => db && db.name === name)
       }
