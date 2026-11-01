@@ -150,6 +150,15 @@ describe('SnapshotTracker', () => {
     expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(2000)
   })
 
+  it('recordSnapshotSuccess without a tick keeps the item dirty and records the version', () => {
+    tracker.markItemDirty('item-1' as ItemId)
+
+    tracker.recordSnapshotSuccess('item-1' as ItemId, 2000, undefined, 7)
+
+    expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(true)
+    expect(tracker.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
+  })
+
   it('recordOversized removes item from dirty queue and advances lastSnapshotAt', () => {
     tracker.markItemDirty('item-big' as ItemId)
     tracker.recordOversized('item-big' as ItemId, 3000)

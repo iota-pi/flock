@@ -1,4 +1,3 @@
-import type { VaultSnapshotInput } from '@vault/shared'
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
@@ -15,6 +14,7 @@ import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
+import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SnapshotPusher')
@@ -145,43 +145,6 @@ export class SnapshotPusher {
     }
   }
 
-  /**
-   * `responded` says whether the server answered. The server stores each snapshot on its own, so a
-   * response can confirm some items and not others: `results` lists the stored ones.
-   */
-  private async sendSnapshotBatch(
-    batch: VaultSnapshotInput[],
-    signal?: AbortSignal,
-  ): Promise<{
-    success: boolean
-    responded: boolean
-    persisted: number
-    results: Array<{ itemId: ItemId; version: number }>
-  }> {
-    try {
-      const response = await this.apiClient.putSnapshots(
-        {
-          account: this.accountId,
-          snapshots: batch,
-        },
-        { signal },
-      )
-
-      return {
-        success: response.success && response.persisted === batch.length,
-        responded: true,
-        persisted: response.persisted,
-        results: response.results,
-      }
-    } catch (error) {
-      if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
-        throw error
-      }
-      log.error('Failed to put snapshots', error)
-      return { success: false, responded: false, persisted: 0, results: [] }
-    }
-  }
-
   async handleSnapshotFailure(
     itemId: ItemId,
     tick: number,
@@ -264,7 +227,7 @@ export class SnapshotPusher {
       return { type: 'error' }
     }
 
-    // Failures are counted until an upload is confirmed (see finalizeSuccessfulBatch)
+    // Failures are counted until an upload is confirmed (see recordStoredSnapshots)
     const snapshot = buildResult.snapshot
 
     const snapshotSize = this.builder.estimateSize(snapshot)
@@ -295,13 +258,11 @@ export class SnapshotPusher {
     }
   }
 
-  private finalizeSuccessfulBatch(
-    batch: PreparedSnapshotItem[],
-    versionsMap: Map<ItemId, number>,
-  ): void {
-    for (const item of batch) {
+  /** Records snapshots the server stored, whichever upload sent them */
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
+    for (const item of stored) {
       this.consecutiveFailures.delete(item.snapshot.itemId)
-      const assignedVersion = versionsMap.get(item.snapshot.itemId)
+      const assignedVersion = versions.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
       // Tombstones deliberately carry no heads: the server does not hold the document state.
       // Setting the heads also clears snapshot-only and unblocks the item.
@@ -318,30 +279,31 @@ export class SnapshotPusher {
     }
   }
 
+  /** Sends a batch. `responded` says whether the server answered. */
   private async flushBatch(
     batch: PreparedSnapshotItem[],
     signal?: AbortSignal,
   ): Promise<{ success: boolean; responded: boolean; persisted: number }> {
-    const result = await this.sendSnapshotBatch(
-      batch.map(b => b.snapshot),
-      signal,
-    )
-    if (!result.responded) {
-      return result
-    }
-
-    const versionsMap = new Map(result.results.map(r => [r.itemId, r.version]))
-    const stored = batch.filter(item => versionsMap.has(item.snapshot.itemId))
-    this.finalizeSuccessfulBatch(stored, versionsMap)
-
-    // An item the server's results leave out was rejected. It counts towards quarantine, so an item
-    // the server keeps rejecting doesn't keep failing every push.
-    for (const item of batch) {
-      if (!versionsMap.has(item.snapshot.itemId)) {
-        await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
+    let result: SnapshotBatchResult<PreparedSnapshotItem>
+    try {
+      result = await uploadSnapshotBatch(batch, {
+        accountId: this.accountId,
+        apiClient: this.apiClient,
+        recorder: this,
+        signal,
+      })
+    } catch (error) {
+      if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
+        throw error
       }
+      log.error('Failed to put snapshots', error)
+      return { success: false, responded: false, persisted: 0 }
     }
-    return result
+
+    for (const item of result.rejected) {
+      await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
+    }
+    return { success: result.success, responded: true, persisted: result.persisted }
   }
 
   private async processSnapshotPush(

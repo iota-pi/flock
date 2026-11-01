@@ -13,6 +13,7 @@ import type { SnapshotPushResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import type { KeyProvider } from '../../api/Keyring'
 import type { SyncSessionState } from './SyncSessionState'
+import type { StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -20,7 +21,7 @@ export interface SnapshotManagerOptions {
   maxWaitMs?: number
 }
 
-export class SnapshotManager {
+export class SnapshotManager implements StoredSnapshotRecorder {
   private readonly tracker: SnapshotTracker
   private readonly builder: SnapshotBuilder
   private readonly pusher: SnapshotPusher
@@ -141,6 +142,10 @@ export class SnapshotManager {
 
   async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
     await this.tracker.importVersions(updates)
+  }
+
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
+    this.pusher.recordStoredSnapshots(stored, versions)
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {

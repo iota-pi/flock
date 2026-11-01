@@ -23,7 +23,7 @@ import type { ItemId } from '@vault/shared'
 import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
-import { ItemReencryptor, type StoredSnapshot } from './reencryptAllItems'
+import { ItemReencryptor } from './reencryptAllItems'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -320,7 +320,7 @@ export class SyncWorkerContext {
       recoveryManager,
       codec: this.domain.codec,
       keys,
-      onSnapshotsStored: stored => this.recordStoredSnapshots(stored, snapshotManager, broker),
+      recorder: snapshotManager,
     })
 
     const dataVersionTracker = new DataVersionTracker({
@@ -434,25 +434,6 @@ export class SyncWorkerContext {
     return () => {
       const state = this.localStorageState
       return state?.mode === 'sealed' && state.retired ? Number.POSITIVE_INFINITY : sealedDataVersion - 1
-    }
-  }
-
-  /** Records snapshots uploaded outside the snapshot pusher (by re-encryption), as the pusher does */
-  private async recordStoredSnapshots(
-    stored: StoredSnapshot[],
-    snapshotManager: SnapshotManager,
-    broker: SyncMessageBroker,
-  ): Promise<void> {
-    const versions: [ItemId, number][] = stored.flatMap(({ itemId, version }) => (
-      typeof version === 'number' ? [[itemId, version] as [ItemId, number]] : []
-    ))
-    if (versions.length > 0) {
-      await snapshotManager.importVersions(versions)
-    }
-    for (const { itemId, heads } of stored) {
-      if (heads && heads.length > 0) {
-        broker.setSyncedHeads(itemId, heads)
-      }
     }
   }
 

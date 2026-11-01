@@ -253,8 +253,9 @@ export class SnapshotTracker {
     })
   }
 
-  recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number, version?: number): void {
-    if (this.dirtyItems.get(itemId) === tick) {
+  /** Without a tick, the item stays dirty: the snapshot wasn't built for its pending edits */
+  recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number | undefined, version?: number): void {
+    if (tick !== undefined && this.dirtyItems.get(itemId) === tick) {
       this.dirtyItems.delete(itemId)
     }
     const entry = this.timestamps(itemId)

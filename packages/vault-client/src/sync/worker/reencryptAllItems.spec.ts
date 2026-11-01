@@ -39,9 +39,21 @@ function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencry
   }
 }
 
+/** Fills in what the server always returns: a successful batch stores every snapshot, at version 1 */
+async function withSnapshotResults(input: any, response: any) {
+  const resolved = await response
+  if (!resolved) {
+    return resolved
+  }
+  const persisted = resolved.persisted ?? (resolved.success ? input.snapshots.length : 0)
+  const results = resolved.results
+    ?? (persisted === input.snapshots.length ? input.snapshots.map((s: any) => ({ itemId: s.itemId, version: 1 })) : [])
+  return { ...resolved, persisted, results }
+}
+
 beforeEach(() => {
   spyOnVaultTrpc({
-    putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
+    putSnapshots: (...args: any[]) => withSnapshotResults(args[0], mockPutSnapshots(...args)),
   })
   spyOnExports(manualRecoveryStoreModule, {
     upsertManualRecoveryEntry: vi.fn().mockResolvedValue({ id: 'mock-entry' }),
@@ -161,9 +173,9 @@ describe('reencryptAllItems', () => {
     expect(upsertManualRecoveryEntry).toHaveBeenCalledTimes(2)
   })
 
-  it('reports the versions and heads of the snapshots the server stored', async () => {
-    const onSnapshotsStored = vi.fn()
-    const reencryptor = new ItemReencryptor({ ...context, keys, onSnapshotsStored })
+  it('records the versions and heads of the snapshots the server stored', async () => {
+    const recorder = { recordStoredSnapshots: vi.fn() }
+    const reencryptor = new ItemReencryptor({ ...context, keys, recorder })
     setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({
@@ -174,10 +186,38 @@ describe('reencryptAllItems', () => {
 
     await reencryptor.reencryptAllItems()
 
-    expect(onSnapshotsStored).toHaveBeenCalledWith([
-      { itemId: 'item-1', version: 4, heads: ['mock-head'] },
-      { itemId: 'item-2', version: 9, heads: ['mock-head'] },
+    expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ itemId: 'item-1', heads: ['mock-head'] }),
+        expect.objectContaining({ itemId: 'item-2', heads: ['mock-head'] }),
+      ],
+      new Map([['item-1', 4], ['item-2', 9]]),
+    )
+  })
+
+  it('counts items an attempt stored as succeeded when the batch never fully uploads', async () => {
+    const recorder = { recordStoredSnapshots: vi.fn() }
+    const reencryptor = new ItemReencryptor({ ...context, keys, recorder })
+    setApiAuthToken('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
+    mockPutSnapshots.mockResolvedValue({
+      success: true,
+      persisted: 1,
+      results: [{ itemId: 'item-2', version: 3 }],
+    })
+
+    const result = await reencryptor.reencryptAllItems()
+
+    expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
+    expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
+      [expect.objectContaining({ itemId: 'item-2' })],
+      new Map([['item-2', 3]]),
+    )
+    expect(result.succeeded).toEqual(['item-2'])
+    expect(result.failed).toEqual([
+      { itemId: 'item-1', error: expect.stringContaining('Upload unconfirmed') },
     ])
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
   })
 
   it('records failed items and quarantines to manual recovery store if server upload fails', async () => {

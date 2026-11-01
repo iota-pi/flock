@@ -1,11 +1,12 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { chunk } from 'lodash-es'
+import { chunk, partition } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { buildSnapshot, estimateSnapshotSize, type BuildSnapshotResult } from './snapshotBuilder'
 import type { DocCodec } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
+import { uploadSnapshotBatch, type StoredSnapshotRecorder } from './snapshotUpload'
 import { classifySyncError } from '../utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
@@ -18,7 +19,7 @@ import {
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { fireAndForget } from '../utils/fireAndForget'
 import { getOnlineState } from '../utils/onlineStatus'
-import type { ItemId, PutSnapshotResultItem, VaultSnapshotInput } from '@vault/shared'
+import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import type { ReencryptResult } from '../shared/types'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { KeyProvider } from '../../api/Keyring'
@@ -39,13 +40,6 @@ export interface ReencryptRunOptions {
   signal?: AbortSignal
 }
 
-/** A snapshot the server has stored, with the version it assigned and the heads it holds */
-export interface StoredSnapshot {
-  itemId: ItemId
-  version?: number
-  heads?: string[]
-}
-
 export interface ItemReencryptorOptions {
   accountId: string
   repo: Repo
@@ -59,10 +53,10 @@ export interface ItemReencryptorOptions {
   codec: DocCodec
   keys: KeyProvider
   /**
-   * Called with each batch the server stored, so the sync engine can record the new versions and
-   * heads. Otherwise the next manifest sync would take them for remote changes and fetch every item.
+   * Records the snapshots the server stored, as the snapshot pusher does. Otherwise the next manifest
+   * sync would take the new versions for remote changes and fetch every item.
    */
-  onSnapshotsStored?: (stored: StoredSnapshot[]) => Promise<void> | void
+  recorder?: StoredSnapshotRecorder
 }
 
 export class ItemReencryptor {
@@ -80,7 +74,7 @@ export class ItemReencryptor {
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
   private readonly codec: DocCodec
   private readonly keys: KeyProvider
-  private readonly onSnapshotsStored?: ItemReencryptorOptions['onSnapshotsStored']
+  private readonly recorder?: StoredSnapshotRecorder
 
   constructor(options: ItemReencryptorOptions) {
     this.accountId = options.accountId
@@ -90,7 +84,7 @@ export class ItemReencryptor {
     this.recoveryManager = options.recoveryManager
     this.codec = options.codec
     this.keys = options.keys
-    this.onSnapshotsStored = options.onSnapshotsStored
+    this.recorder = options.recorder
     this.retryStrategy = new RetryStrategy({ delays: options.retryDelays ?? DEFAULT_RETRY_DELAYS })
     this.batchRetryDelays = options.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
     this.maxBatchCount = options.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
@@ -245,21 +239,23 @@ export class ItemReencryptor {
     })
 
     for (const batch of snapshotBatches) {
-      let stored: PutSnapshotResultItem[]
+      const storedIds = new Set<ItemId>()
       try {
-        stored = await this.uploadBatchWithRetry(batch, signal)
+        await this.uploadBatchWithRetry(batch, storedIds, signal)
       } catch (err) {
         const error = this.describeUploadFailure(err, signal)
         log.error(error)
+        // The server holds the re-encrypted snapshots an earlier attempt stored
+        const [stored, unstored] = partition(batch, item => storedIds.has(item.itemId))
+        result.succeeded.push(...stored.map(item => item.itemId))
         await this.recordFailures(
-          batch.map(({ itemId }) => ({ itemId, error })),
+          unstored.map(({ itemId }) => ({ itemId, error })),
           'Re-encryption upload failed',
           result
         )
         continue
       }
       result.succeeded.push(...batch.map(item => item.itemId))
-      await this.reportStored(batch, stored)
     }
   }
 
@@ -289,27 +285,31 @@ export class ItemReencryptor {
     )
   }
 
-  /** Uploads a batch, retrying unless it's an auth error or the device has gone offline */
+  /**
+   * Uploads a batch, retrying unless it's an auth error or the device has gone offline. Each attempt
+   * resends the whole batch and adds the items the server stored to `storedIds`.
+   */
   private uploadBatchWithRetry(
     batch: ReadySnapshot[],
+    storedIds: Set<ItemId>,
     signal?: AbortSignal
-  ): Promise<PutSnapshotResultItem[]> {
-    const snapshots = batch.map(item => item.snapshot)
+  ): Promise<void> {
     return RetryStrategy.executeWithRetry(
       async () => {
-        const response = await this.apiClient.putSnapshots(
-          { account: this.accountId, snapshots },
-          { signal }
-        )
-        if (
-          !response?.success ||
-          (response.persisted !== undefined && response.persisted !== snapshots.length)
-        ) {
+        const result = await uploadSnapshotBatch(batch, {
+          accountId: this.accountId,
+          apiClient: this.apiClient,
+          recorder: this.recorder,
+          signal,
+        })
+        for (const item of result.stored) {
+          storedIds.add(item.itemId)
+        }
+        if (!result.success) {
           throw new Error(
-            `Upload unconfirmed: response success=${response?.success}, persisted=${response?.persisted}/${snapshots.length}`
+            `Upload unconfirmed: the server stored ${result.persisted}/${batch.length} snapshots`
           )
         }
-        return response.results ?? []
       },
       {
         maxAttempts: MAX_BATCH_RETRIES,
@@ -370,21 +370,6 @@ export class ItemReencryptor {
       } catch (storageErr) {
         log.error(`Failed to quarantine item ${failure.itemId}:`, storageErr)
       }
-    }
-  }
-
-  private async reportStored(batch: ReadySnapshot[], results: PutSnapshotResultItem[]): Promise<void> {
-    if (!this.onSnapshotsStored) return
-    const versions = new Map(results.map(r => [r.itemId, r.version]))
-    try {
-      await this.onSnapshotsStored(batch.map(item => ({
-        itemId: item.itemId,
-        version: versions.get(item.itemId),
-        heads: item.heads,
-      })))
-    } catch (err) {
-      // The snapshots are stored either way; the next manifest sync just fetches them again
-      log.warn('Failed to record uploaded snapshots:', err)
     }
   }
 
