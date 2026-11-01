@@ -225,14 +225,6 @@ export class SyncWorker implements SyncApi {
         case 'pollResult':
           this.syncStatusManager.handlePollResult(event.outcome)
           break
-        case 'multipleLeadersDetected':
-          log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
-          this._context?.services.repoManager.pauseBroadcastSync()
-          break
-        case 'soleLeaderRestored':
-          log.info('Sole leader restored. Resuming BroadcastChannel sync.')
-          this._context?.services.repoManager.resumeBroadcastSync()
-          break
         case 'retryingStateChange':
           this.syncStatusManager.setDegradedPull(event.isRetrying)
           break

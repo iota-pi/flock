@@ -559,7 +559,7 @@ export class SyncWorkerContext {
   }
 
   private subscribeInternalEvents({
-    adapter, snapshotManager, recoveryManager, snapshotFormatUpgrade,
+    adapter, repoManager, snapshotManager, recoveryManager, snapshotFormatUpgrade,
   }: SyncWorkerServices): void {
     // Marks items for a snapshot without debouncing, so their full state is delivered
     const snapshotNow = (...itemIds: ItemId[]) => {
@@ -575,6 +575,14 @@ export class SyncWorkerContext {
           adapter.onLeaderChange()
           fireAndForget(snapshotManager.onLeaderChange(), 'SyncWorkerContext:leaderChange')
           snapshotFormatUpgrade?.onLeaderChange()
+          break
+        case 'multipleLeadersDetected':
+          log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
+          repoManager.pauseBroadcastSync()
+          break
+        case 'soleLeaderRestored':
+          log.info('Sole leader restored. Resuming BroadcastChannel sync.')
+          repoManager.resumeBroadcastSync()
           break
         case 'decryptionFailure':
           fireAndForget(

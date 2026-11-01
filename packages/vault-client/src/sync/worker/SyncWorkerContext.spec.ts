@@ -154,6 +154,8 @@ beforeEach(() => {
       close = vi.fn().mockResolvedValue(undefined)
       getStorage = vi.fn().mockReturnValue(undefined)
       getStorageAdapter = vi.fn().mockReturnValue(undefined)
+      pauseBroadcastSync = vi.fn()
+      resumeBroadcastSync = vi.fn()
     },
   })
   spyOnExports(snapshotManagerModule, {
@@ -314,6 +316,24 @@ describe('SyncWorkerContext', () => {
     internalEventHub.emit({ type: 'leaderChange', isLeader: true })
     expect(context.services.adapter.onLeaderChange).toHaveBeenCalledTimes(1)
     expect(context.services.snapshotManager.onLeaderChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('pauses BroadcastChannel sync when multiple leaders are detected', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    internalEventHub.emit({ type: 'multipleLeadersDetected' })
+    expect(context.services.repoManager.pauseBroadcastSync).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[SyncWorkerContext] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.'
+    )
+    warnSpy.mockRestore()
+  })
+
+  it('resumes BroadcastChannel sync when the sole leader is restored', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    internalEventHub.emit({ type: 'soleLeaderRestored' })
+    expect(context.services.repoManager.resumeBroadcastSync).toHaveBeenCalledTimes(1)
+    expect(infoSpy).toHaveBeenCalledWith('[SyncWorkerContext] Sole leader restored. Resuming BroadcastChannel sync.')
+    infoSpy.mockRestore()
   })
 
   it('tells the orchestrator and snapshot manager when the online state changes', () => {

@@ -21,8 +21,6 @@ const mockContextInitialize = vi.fn().mockResolvedValue(undefined)
 const mockContextShutdown = vi.fn().mockResolvedValue(undefined)
 const mockContextClaimLeader = vi.fn()
 const mockContextRetrySave = vi.fn().mockResolvedValue({ success: true })
-const mockRepoManagerPauseBroadcastSync = vi.fn()
-const mockRepoManagerResumeBroadcastSync = vi.fn()
 const mockIndexManagerListAutomergeItemIds = vi.fn().mockResolvedValue([])
 const mockIndexManagerAddAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
 const mockRecoveryManagerResolveQuarantines = vi.fn().mockResolvedValue(undefined)
@@ -84,10 +82,6 @@ beforeEach(() => {
           }),
         },
         repo: { find: mockRepoFind, handles: {} },
-        repoManager: {
-          pauseBroadcastSync: mockRepoManagerPauseBroadcastSync,
-          resumeBroadcastSync: mockRepoManagerResumeBroadcastSync,
-        },
         indexManager: {
           listAutomergeItemIds: mockIndexManagerListAutomergeItemIds,
           addAutomergeItemIdsToIndex: mockIndexManagerAddAutomergeItemIdsToIndex,
@@ -189,32 +183,6 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
     expect(mockContextInitialize).toHaveBeenCalledTimes(1)
   })
 
-  it('pauses BroadcastChannel sync via context.services.repoManager on multipleLeadersDetected', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const worker = new SyncWorker(workerConfig)
-    await worker.initRepo('account-1', 'vault-key-1')
-
-    // Fire the internal event subscription
-    ;(worker as any).internalEventHub.emit({ type: 'multipleLeadersDetected' })
-    expect(mockRepoManagerPauseBroadcastSync).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[SyncWorker] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.'
-    )
-    warnSpy.mockRestore()
-  })
-
-  it('resumes BroadcastChannel sync via context.services.repoManager on soleLeaderRestored', async () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const worker = new SyncWorker(workerConfig)
-    await worker.initRepo('account-1', 'vault-key-1')
-
-    ;(worker as any).internalEventHub.emit({ type: 'soleLeaderRestored' })
-    expect(mockRepoManagerResumeBroadcastSync).toHaveBeenCalledTimes(1)
-    expect(infoSpy).toHaveBeenCalledWith(
-      '[SyncWorker] Sole leader restored. Resuming BroadcastChannel sync.'
-    )
-    infoSpy.mockRestore()
-  })
 })
 
 /** Replaces an item's handle, as the context's doc store does */
