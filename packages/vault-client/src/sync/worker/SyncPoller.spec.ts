@@ -50,6 +50,7 @@ describe('SyncPoller', () => {
       keys,
       lockCoordinator: noItemLocks,
       internalEventHub,
+      adapter: { receiveServerMessage: vi.fn() },
       session,
     })
     mockWal = {

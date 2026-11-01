@@ -2,6 +2,7 @@ import type { VaultDoc } from '../shared/types'
 import type { SyncDomainHooks } from './domain'
 import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
+import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { generateItemId, settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
 import { mutateDraftToMatchSnapshot } from './utils/snapshot'
@@ -47,13 +48,17 @@ function withoutUndelete(itemOrChanges: Partial<VaultDoc>): Partial<VaultDoc> {
   return rest
 }
 
+/** Gives a doc created by a recovery action the ID of the item it belongs to */
+function ensureDocId(doc: RepoDoc, itemId: ItemId): void {
+  if (typeof doc.id !== 'string' || doc.id.length === 0) {
+    doc.id = itemId
+  }
+}
+
 export class ItemOperations {
-  public readonly recoveryManager: RecoveryManager
   private readonly recreateGuard = new KeyedSingleFlightGuard<ItemId, ItemId>()
 
-  constructor(private deps: ItemOperationsDeps) {
-    this.recoveryManager = deps.recoveryManager
-  }
+  constructor(private deps: ItemOperationsDeps) {}
 
   private async applyDocumentChange(
     id: ItemId,
@@ -198,6 +203,21 @@ export class ItemOperations {
 
   // --- Document-level Recovery Operations ---
 
+  /**
+   * Finishes a recovery action once the item's doc is right: adds the item to the index, or for a
+   * deleted item removes it, then releases it from quarantine and pushes it.
+   */
+  private async releaseRecoveredItem(itemId: ItemId, index: 'add' | 'remove'): Promise<void> {
+    if (index === 'add') {
+      await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
+    } else {
+      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
+    }
+    this.deps.markDocumentDirty(itemId)
+    await this.deps.recoveryManager.unquarantine(itemId)
+    await this.deps.recoveryManager.pushRecoveryItems()
+  }
+
   async forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
     const localItem = await this.deps.docStore.getAutomergeItem(itemId)
     if (!localItem) {
@@ -213,9 +233,7 @@ export class ItemOperations {
       itemId,
       doc => {
         mutateDraftToMatchSnapshot(doc, localSnapshot)
-        if (typeof doc.id !== 'string' || doc.id.length === 0) {
-          doc.id = itemId
-        }
+        ensureDocId(doc, itemId)
       },
       { createIfMissing: true },
     )
@@ -224,12 +242,8 @@ export class ItemOperations {
       throw new Error(`Could not open the local copy of ${itemId} to overwrite the server item.`)
     }
 
-    await this.recoveryManager.unquarantine(itemId)
-
-    await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
-    this.deps.markDocumentDirty(itemId)
+    await this.releaseRecoveredItem(itemId, 'add')
     this.deps.bus?.publishSyncPing([itemId])
-    await this.recoveryManager.pushRecoveryItems()
   }
 
   async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
@@ -238,9 +252,7 @@ export class ItemOperations {
     const markedDeleted = await this.deps.docStore.changeDocument(
       itemId,
       doc => {
-        if (typeof doc.id !== 'string' || doc.id.length === 0) {
-          doc.id = itemId
-        }
+        ensureDocId(doc, itemId)
         doc.deleted = true
       },
       { createIfMissing: true },
@@ -254,11 +266,7 @@ export class ItemOperations {
       )
     }
 
-    await this.recoveryManager.unquarantine(itemId)
-
-    await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
-    this.deps.markDocumentDirty(itemId)
-    await this.recoveryManager.pushRecoveryItems()
+    await this.releaseRecoveredItem(itemId, 'remove')
   }
 
   /**
@@ -279,10 +287,7 @@ export class ItemOperations {
     }
 
     if (localItem.deleted === true) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([oldItemId])
-      this.deps.markDocumentDirty(oldItemId)
-      await this.recoveryManager.unquarantine(oldItemId)
-      await this.recoveryManager.pushRecoveryItems()
+      await this.releaseRecoveredItem(oldItemId, 'remove')
       this.deps.eventHub.emit({ type: 'itemUpdated', id: oldItemId, item: null })
       return oldItemId
     }
@@ -350,7 +355,7 @@ export class ItemOperations {
       }
     }
 
-    // 3. Mark old oversized item as deleted in Automerge document & remove from active index
+    // 3. Mark old oversized item as deleted, take it out of the index and quarantine, and push it
     const oldMarkedDeleted = await this.deps.docStore.changeDocument(
       oldItemId,
       doc => {
@@ -361,14 +366,9 @@ export class ItemOperations {
     if (!oldMarkedDeleted) {
       throw new Error(`New item ${newItemId} was created but ${oldItemId} could not be marked deleted`)
     }
-    await this.deps.indexManager.removeAutomergeItemIdsFromIndex([oldItemId])
-    this.deps.markDocumentDirty(oldItemId)
+    await this.releaseRecoveredItem(oldItemId, 'remove')
 
-    // 4. Remove old item from quarantine
-    await this.recoveryManager.unquarantine(oldItemId)
-    await this.recoveryManager.pushRecoveryItems()
-
-    // 5. Notify subscribers & ping bus
+    // 4. Notify subscribers & ping bus
     this.deps.bus?.publishSyncPing([oldItemId, newItemId])
     this.deps.eventHub.emit({ type: 'itemUpdated', id: oldItemId, item: null })
     this.deps.eventHub.emit({ type: 'itemUpdated', id: newItemId, item: newItem })

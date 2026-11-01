@@ -239,6 +239,7 @@ export class SyncWorkerContext {
       keys,
       lockCoordinator: docStore,
       internalEventHub,
+      adapter,
       session,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,

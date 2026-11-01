@@ -30,7 +30,6 @@ export class SyncMessageBroker {
   private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
-  private unsubscribeClientEvents: (() => void) | null = null
   private unsubscribeInternalEvents: (() => void) | null = null
   private readonly adapter: VaultNetworkAdapter
   private readonly clientEventHub: ClientEventHub
@@ -52,28 +51,12 @@ export class SyncMessageBroker {
         case 'messageToSend':
           fireAndForget(this.handleOutgoingMessage(event.message), 'SyncMessageBroker:handleOutgoingMessage')
           break
-        case 'messageParsed':
-          this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
-          this.adapter.receiveServerMessage(event.documentId, event.message)
-          break
         case 'pushAcknowledged':
           this.recordSyncedHeads(event.itemId, event.heads)
           break
         case 'walEntriesPruned':
           this.handleWalEntriesPruned(event.itemIds)
           break
-      }
-    })
-
-    this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
-      if (event.type === 'quotaResolved') {
-        const previouslyBlocked = Array.from(this.blockedItemIds)
-        this.unblockAllItems()
-        this.adapter.resetReNegotiationCircuit()
-        for (const itemId of previouslyBlocked) {
-          const documentId = toDocumentIdFromItemId(itemId)
-          this.adapter.triggerReNegotiation(documentId)
-        }
       }
     })
   }
@@ -199,8 +182,6 @@ export class SyncMessageBroker {
   }
 
   shutdown(): void {
-    this.unsubscribeClientEvents?.()
-    this.unsubscribeClientEvents = null
     this.unsubscribeInternalEvents?.()
     this.unsubscribeInternalEvents = null
     this.unblockAllItems()

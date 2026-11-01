@@ -114,6 +114,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       keys,
       lockCoordinator: noItemLocks,
       internalEventHub,
+      adapter,
       session,
     })
     const wal = new SyncWriteAheadLog(WAL_ACCOUNT, internalEventHub)

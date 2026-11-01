@@ -472,10 +472,6 @@ describe('ItemOperations', () => {
   })
 
   describe('recovery operations', () => {
-    it('exposes recoveryManager instance directly', () => {
-      expect(operations.recoveryManager).toBeDefined()
-    })
-
     describe('forceOverwriteRecoveryItem', () => {
       it('throws if no local item is found', async () => {
         getAutomergeItemMock.mockResolvedValue(null)
@@ -654,8 +650,8 @@ describe('ItemOperations', () => {
         const mockEntries: any[] = []
         mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-        operations.recoveryManager.setRecoveryCooldown('item-5' as ItemId, Date.now() + 10000)
-        operations.recoveryManager.setInFlight('item-5' as ItemId, true)
+        deps.recoveryManager.setRecoveryCooldown('item-5' as ItemId, Date.now() + 10000)
+        deps.recoveryManager.setInFlight('item-5' as ItemId, true)
 
         const newItemId = await operations.recreateOversizedItem('item-5' as ItemId)
 
@@ -663,8 +659,8 @@ describe('ItemOperations', () => {
         expect(newItemId).not.toBe('item-5')
         expect(getAutomergeItemMock).toHaveBeenCalledWith('item-5')
         expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-5')
-        expect(operations.recoveryManager.isInFlight('item-5' as ItemId)).toBe(false)
-        expect(operations.recoveryManager.getRecoveryCooldownUntil('item-5' as ItemId)).toBe(0)
+        expect(deps.recoveryManager.isInFlight('item-5' as ItemId)).toBe(false)
+        expect(deps.recoveryManager.getRecoveryCooldownUntil('item-5' as ItemId)).toBe(0)
         expect(markDocumentDirtyMock).toHaveBeenCalledWith(newItemId)
         expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-5')
         expect(emitMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })

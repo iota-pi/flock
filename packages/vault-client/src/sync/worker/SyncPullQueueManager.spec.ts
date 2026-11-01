@@ -1,11 +1,11 @@
 import type { Mock } from 'vitest'
-import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
+import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncSessionState } from './SyncSessionState'
 import * as automerge from './utils/automerge'
-import { toAutomergeUrlFromItemId } from './utils/automerge'
+import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from './SyncApiClient'
 import { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
@@ -110,6 +110,14 @@ describe('SyncPullQueueManager', () => {
   let cursorStore: CursorStore
   let session: SyncSessionState
   let onKeyVersionMissing: ReturnType<typeof vi.fn<(kver: string) => void>>
+  let receiveServerMessage: Mock<(documentId: DocumentId, message: Uint8Array) => void>
+
+  /** Calls `listener` with each pulled message the manager hands to the adapter */
+  function onDelivered(listener: (e: { itemId: ItemId; documentId: DocumentId; message: Uint8Array }) => void): void {
+    receiveServerMessage.mockImplementation((documentId, message) => {
+      listener({ itemId: toVaultItemIdFromAutomergeId(documentId), documentId, message })
+    })
+  }
 
   beforeEach(() => {
     mockLocalForage(createLocalForageInstance)
@@ -120,12 +128,14 @@ describe('SyncPullQueueManager', () => {
     cursorStore = new CursorStore('account-1')
     eventHub = new WorkerInternalEventHub()
     onKeyVersionMissing = vi.fn<(kver: string) => void>()
+    receiveServerMessage = vi.fn<(documentId: DocumentId, message: Uint8Array) => void>()
     session = new SyncSessionState()
     manager = new SyncPullQueueManager({
       cursorStore,
       keys,
       lockCoordinator: noItemLocks,
       internalEventHub: eventHub,
+      adapter: { receiveServerMessage },
       session,
       bus: realtimeBus.bus,
       onKeyVersionMissing,
@@ -157,7 +167,9 @@ describe('SyncPullQueueManager', () => {
 
       cursorStore = new CursorStore('account-2')
       eventHub = new WorkerInternalEventHub()
-      manager = new SyncPullQueueManager({ cursorStore, keys, lockCoordinator: noItemLocks, internalEventHub: eventHub, session })
+      manager = new SyncPullQueueManager({
+        cursorStore, keys, lockCoordinator: noItemLocks, internalEventHub: eventHub, adapter: { receiveServerMessage }, session,
+      })
       await manager.loadCursors()
       expect(manager.exportCursors()).toEqual(preLoadedCursors)
     })
@@ -209,8 +221,10 @@ describe('SyncPullQueueManager', () => {
 
     it('parses a single message', async () => {
       const onMessageParsedSpy = vi.fn()
+      const itemParsedSpy = vi.fn()
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
       eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
+        if (e.type === 'itemMessageParsed') itemParsedSpy(e.itemId)
       })
       mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
@@ -243,6 +257,7 @@ describe('SyncPullQueueManager', () => {
         expectedDocId,
         new Uint8Array([1, 2, 3]),
       )
+      expect(itemParsedSpy).toHaveBeenCalledWith('item-1')
 
       expect(manager.exportCursors()).toContainEqual(['item-1', 5])
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
@@ -256,9 +271,7 @@ describe('SyncPullQueueManager', () => {
 
     it('parses batched v1.0 messages with DataView length prefixes', async () => {
       const onMessageParsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       // Generate batched payload
       const msg1 = new Uint8Array([10, 20, 30])
@@ -487,6 +500,7 @@ describe('SyncPullQueueManager', () => {
         keys,
         lockCoordinator: noItemLocks,
         internalEventHub: new WorkerInternalEventHub(),
+        adapter: { receiveServerMessage },
         session: new SyncSessionState(),
       })
       await restarted.loadCursors()
@@ -626,8 +640,8 @@ describe('SyncPullQueueManager', () => {
       const itemId = 'item-skip' as ItemId
       const parsedSpy = vi.fn()
       const failureSpy = vi.fn()
+      onDelivered(e => parsedSpy(e.message))
       eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') parsedSpy(e.message)
         if (e.type === 'decryptionFailure') failureSpy(e.itemId)
       })
       mockDecryptBytes.mockImplementation(async (payload: { iv: string }) => {
@@ -818,9 +832,7 @@ describe('SyncPullQueueManager', () => {
 
     it('skips processing already seen messages (overlap window dedup)', async () => {
       const onMessageParsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
       mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       const batch1: PullSyncMessagesResponse[] = [
@@ -888,9 +900,7 @@ describe('SyncPullQueueManager', () => {
 
     it('advances cursor when batch consists entirely of seen messages and nextCursor is stale', async () => {
       const onMessageParsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
       mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
       // First, process messages with cursor 10 and 20 to populate seenMessageCursors
@@ -992,9 +1002,7 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Transient processing error for message 1')
         }
       })
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       const msg1 = new Uint8Array([10, 20, 30])
       const msg2 = new Uint8Array([40, 50])
@@ -1078,9 +1086,7 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Transient processing error for message 2')
         }
       })
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       const msg1 = new Uint8Array([10, 20, 30])
       const msg2 = new Uint8Array([40, 50])
@@ -1147,9 +1153,7 @@ describe('SyncPullQueueManager', () => {
           throw new Error('Persistent failure for message 2')
         }
       })
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
       const mockOnDecryptionFailure = vi.fn()
       eventHub.subscribe(e => {
         if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
@@ -1219,9 +1223,7 @@ describe('SyncPullQueueManager', () => {
       const onMessageParsedSpy = vi.fn().mockImplementation(() => {
         throw new Error('Processing failed')
       })
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
@@ -1251,9 +1253,7 @@ describe('SyncPullQueueManager', () => {
 
     it('stops processing messages and preserves cursor before failed message when a parse failure occurs mid-batch and keeps item for retry', async () => {
       const onMessageParsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       mockDecryptBytes
         .mockResolvedValueOnce(batch(new Uint8Array([1])))
@@ -1332,9 +1332,7 @@ describe('SyncPullQueueManager', () => {
 
     it('continues processing subsequent items if one item throws, then rethrows the first error', async () => {
       const onMessageParsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
 
@@ -1397,9 +1395,7 @@ describe('SyncPullQueueManager', () => {
 
     it('does not advance cursor past failed message when batch contains out-of-order cursors', async () => {
       const onMessageParsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       // cursor 2 will fail, cursor 3 would succeed if reached
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
@@ -1448,10 +1444,8 @@ describe('SyncPullQueueManager', () => {
 
     it('processes out-of-order messages in ascending cursor order', async () => {
       const processedCursors: number[] = []
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') {
-          processedCursors.push(e.message[0])
-        }
+      onDelivered(e => {
+        processedCursors.push(e.message[0])
       })
 
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
@@ -1480,9 +1474,7 @@ describe('SyncPullQueueManager', () => {
 
     it('advances cursor to earlier successful message when higher out-of-order message fails', async () => {
       const onMessageParsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') onMessageParsedSpy(e.itemId, e.documentId, e.message)
-      })
+      onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
 
       mockDecryptBytes.mockImplementation(async (encrypted: any) => {
         if (encrypted.cipher === 'fail-msg30') {
@@ -1607,9 +1599,7 @@ describe('SyncPullQueueManager', () => {
     it('does not move the global scan past messages for other items', async () => {
       await manager.loadCursors()
       const parsedSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed') parsedSpy(e.itemId)
-      })
+      onDelivered(e => parsedSpy(e.itemId))
       mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1])))
       await manager.processPullResults([], false, undefined, 100)
 
@@ -1651,9 +1641,9 @@ describe('SyncPullQueueManager', () => {
       await manager.loadCursors()
       remoteSpy = vi.fn()
       parsedSpy = vi.fn()
+      onDelivered(e => parsedSpy(e.itemId))
       eventHub.subscribe(e => {
         if (e.type === 'remoteMessagesParsed') remoteSpy(e.itemId)
-        if (e.type === 'messageParsed') parsedSpy(e.itemId)
       })
       mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
     })
@@ -2001,8 +1991,8 @@ describe('SyncPullQueueManager', () => {
       const itemId = 'item-m5-advance' as ItemId
 
       const failMessage2 = true
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed' && failMessage2 && e.message[0] === 40) {
+      onDelivered(e => {
+        if (failMessage2 && e.message[0] === 40) {
           throw new Error('Transient failure on sub-message 2')
         }
       })
@@ -2072,8 +2062,8 @@ describe('SyncPullQueueManager', () => {
       await manager.loadCursors()
       const itemId = 'item-m5-import' as ItemId
 
-      eventHub.subscribe(e => {
-        if (e.type === 'messageParsed' && e.message[0] === 40) {
+      onDelivered(e => {
+        if (e.message[0] === 40) {
           throw new Error('Transient error')
         }
       })

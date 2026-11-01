@@ -89,6 +89,7 @@ describe('AutomergeIndexManager', () => {
     expect(snapshot).toEqual({
       accountId,
       itemIds: [],
+      tombstoneIds: [],
       metadata: {},
       lastManifestSyncTime: 0,
     })

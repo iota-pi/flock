@@ -21,19 +21,20 @@ describe('PullRetryTracker', () => {
   function record(itemId: ItemId, outcome: Partial<RecordPullOutcomeParams> = {}) {
     return tracker.recordPullOutcome({
       itemId,
-      initialCursor: 0,
       highestCursor: 0,
       isNewItem: false,
-      hasKeyFailure: false,
-      hasParseFailure: false,
       hasMore: false,
       ...outcome,
     })
   }
 
-  /** Records a parse failure for a pull that started (and got no further than) `cursor` */
-  function failParse(itemId: ItemId, cursor: number, outcome: Partial<RecordPullOutcomeParams> = {}) {
-    return record(itemId, { initialCursor: cursor, highestCursor: cursor, hasParseFailure: true, ...outcome })
+  /** Records a parse failure (of the message at `failingCursor`) for a pull that got no further than `cursor` */
+  function failParse(
+    itemId: ItemId,
+    cursor: number,
+    { failingCursor, ...outcome }: Partial<RecordPullOutcomeParams> & { failingCursor?: number } = {},
+  ) {
+    return record(itemId, { highestCursor: cursor, failure: { kind: 'parseFailure', cursor: failingCursor }, ...outcome })
   }
 
   /** Records the transient parse failures one short of giving up */
@@ -45,7 +46,7 @@ describe('PullRetryTracker', () => {
 
   function blockOnMissingKey(itemId: ItemId, kver: string, cursor = 0) {
     mockHasVaultKey.mockImplementation((k: string) => k !== kver)
-    return record(itemId, { initialCursor: cursor, highestCursor: cursor, hasKeyFailure: true, blockedOnKey: kver })
+    return record(itemId, { highestCursor: cursor, failure: { kind: 'keyMissing', kver } })
   }
 
   /** Puts an item in the retry queue, waiting for a pull from `cursor` */
@@ -65,7 +66,7 @@ describe('PullRetryTracker', () => {
 
     it('keeps the cursor of a finished item without queueing it', () => {
       tracker.importCursors([[ITEM, 40]])
-      record(ITEM, { initialCursor: 40, highestCursor: 60 })
+      record(ITEM, { highestCursor: 60 })
 
       expect(tracker.getCursor(ITEM)).toBe(60)
       expect(tracker.hasState(ITEM)).toBe(false)
@@ -289,7 +290,7 @@ describe('PullRetryTracker', () => {
     })
 
     it('reports a cursor update for a new item even when a key failure kept it at 0', () => {
-      const outcome = record(ITEM, { isNewItem: true, hasKeyFailure: true, blockedOnKey: 'kver-2' })
+      const outcome = record(ITEM, { isNewItem: true, failure: { kind: 'keyMissing', kver: 'kver-2' } })
 
       expect(outcome.cursorUpdated).toBe(true) // isNewItem && highestCursor >= 0
       expect(outcome.permanentlyFailed).toBe(false)
@@ -327,7 +328,7 @@ describe('PullRetryTracker', () => {
       blockOnMissingKey(ITEM, 'some-key', 50)
 
       // The key is still missing, but the page was readable after all
-      record(ITEM, { initialCursor: 50, highestCursor: 120, hasMore: true, pageToken: 'next-page' })
+      record(ITEM, { highestCursor: 120, hasMore: true, pageToken: 'next-page' })
 
       expect(tracker.isAnyRetrying()).toBe(false)
       expect(tracker.hasImmediatePendingPulls()).toBe(true)
@@ -335,9 +336,9 @@ describe('PullRetryTracker', () => {
     })
 
     it('handles terminal success outcome (hasMore: false)', () => {
-      record(ITEM, { initialCursor: 0, highestCursor: 100, isNewItem: true, hasMore: true, pageToken: 'page-token' })
+      record(ITEM, { highestCursor: 100, isNewItem: true, hasMore: true, pageToken: 'page-token' })
 
-      const outcome = record(ITEM, { initialCursor: 100, highestCursor: 150 })
+      const outcome = record(ITEM, { highestCursor: 150 })
 
       expect(tracker.hasState(ITEM)).toBe(false)
       expect(tracker.getCursors()).toEqual([])
@@ -348,7 +349,7 @@ describe('PullRetryTracker', () => {
     it('does not report a cursor update when a pull ends where it started', () => {
       tracker.importCursors([[ITEM, 30]])
 
-      const outcome = record(ITEM, { initialCursor: 30, highestCursor: 30 })
+      const outcome = record(ITEM, { highestCursor: 30 })
 
       expect(outcome.cursorUpdated).toBe(false)
       expect(tracker.getCursor(ITEM)).toBe(30)
@@ -388,7 +389,7 @@ describe('PullRetryTracker', () => {
       expect(tracker.isAnyRetrying()).toBe(false)
 
       // The next pull from 25 processes the later messages and finishes the item
-      record(ITEM, { initialCursor: 25, highestCursor: 40 })
+      record(ITEM, { highestCursor: 40 })
       expect(tracker.hasState(ITEM)).toBe(false)
       expect(tracker.getCursor(ITEM)).toBe(40)
       expect(tracker.hasImmediatePendingPulls()).toBe(false)

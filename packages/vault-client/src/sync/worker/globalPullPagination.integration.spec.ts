@@ -102,22 +102,17 @@ describe('global pull pagination (client ↔ router)', () => {
 
     const { clientEventHub, internalEventHub } = createTestEventHubs()
     const session = new SyncSessionState({ isLeader: true })
+    const delivered: string[] = []
     const pullQueueManager = new SyncPullQueueManager({
       cursorStore: new CursorStore(ACCOUNT),
       keys,
       lockCoordinator: noItemLocks,
       internalEventHub,
+      adapter: { receiveServerMessage: (_documentId, message) => delivered.push(new TextDecoder().decode(message)) },
       session,
     })
     await pullQueueManager.loadCursors()
     pullQueueManager.addPendingItem('item-z' as ItemId)
-
-    const delivered: string[] = []
-    internalEventHub.subscribe(event => {
-      if (event.type === 'messageParsed') {
-        delivered.push(new TextDecoder().decode(event.message))
-      }
-    })
 
     const apiClient = {
       pollSyncBatch: (input: Parameters<typeof caller.pollSync>[0]) => caller.pollSync(input),

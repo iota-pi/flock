@@ -92,15 +92,16 @@ describe('Sync System Integration Test Suite', () => {
     cursorStore = new CursorStore(accountId)
     // This tab is the online leader
     session = new SyncSessionState({ isLeader: true })
+    adapter = new VaultNetworkAdapter(internalEventHub, { accountId, session })
     pullQueueManager = new SyncPullQueueManager({
       cursorStore,
       keys,
       lockCoordinator: noItemLocks,
       internalEventHub,
+      adapter,
       session,
     })
     wal = new SyncWriteAheadLog(accountId, internalEventHub)
-    adapter = new VaultNetworkAdapter(internalEventHub, { accountId, session })
 
     indexManager = {
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
@@ -181,10 +182,10 @@ describe('Sync System Integration Test Suite', () => {
   it('Scenario 2: Server advances cursor -> Client polls -> receives message and deduplicates in overlap window', async () => {
     const itemId = 'item-pull-1' as ItemId
     const parsedMessages: Uint8Array[] = []
-    internalEventHub.subscribe(e => {
-      if (e.type === 'messageParsed') {
-        parsedMessages.push(e.message)
-      }
+    const receiveServerMessage = adapter.receiveServerMessage.bind(adapter)
+    vi.spyOn(adapter, 'receiveServerMessage').mockImplementation((documentId, message) => {
+      parsedMessages.push(message)
+      receiveServerMessage(documentId, message)
     })
 
     pullQueueManager.addPendingItem(itemId)

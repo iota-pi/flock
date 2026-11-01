@@ -13,8 +13,9 @@ import type { PageToken } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
-import { PullRetryTracker } from './PullRetryTracker'
+import { PullRetryTracker, type PullFailure } from './PullRetryTracker'
 import type { WorkerInternalEventHub } from './SyncEventHub'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { BoundedMap } from '../utils/BoundedMap'
 import { BoundedSet } from '../utils/BoundedSet'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -25,10 +26,8 @@ const log = createLogger('SyncPullQueueManager')
 
 interface ProcessItemMessagesResult {
   highestCursor: number
-  hasParseFailure: boolean
-  hasKeyFailure: boolean
-  blockedOnKey?: string
-  failingCursor?: number
+  /** Why processing stopped before the last message, if it did */
+  failure?: PullFailure
   hasParsedMessages: boolean
   hasParsedRemoteMessages: boolean
 }
@@ -47,6 +46,8 @@ export interface SyncPullQueueManagerDeps {
   keys: KeyProvider
   lockCoordinator: ItemLockCoordinator
   internalEventHub: WorkerInternalEventHub
+  /** Receives each pulled sync message */
+  adapter: Pick<VaultNetworkAdapter, 'receiveServerMessage'>
   session: SyncSessionState
   /** Tells the account's other tabs which items were pulled */
   bus?: RealtimeBus
@@ -58,6 +59,7 @@ export class SyncPullQueueManager {
   private readonly keys: KeyProvider
   private readonly lockCoordinator: ItemLockCoordinator
   private readonly internalEventHub: WorkerInternalEventHub
+  private readonly adapter: Pick<VaultNetworkAdapter, 'receiveServerMessage'>
   private readonly session: SyncSessionState
   private readonly bus: RealtimeBus | null
   private readonly onKeyVersionMissing?: (kver: string) => void
@@ -82,6 +84,7 @@ export class SyncPullQueueManager {
     this.keys = deps.keys
     this.lockCoordinator = deps.lockCoordinator
     this.internalEventHub = deps.internalEventHub
+    this.adapter = deps.adapter
     this.session = deps.session
     this.bus = deps.bus ?? null
     this.onKeyVersionMissing = deps.onKeyVersionMissing
@@ -172,10 +175,10 @@ export class SyncPullQueueManager {
     this.retryTracker.addPendingItem(itemId)
   }
 
-  private notifyMessageParsed(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
-    if (!this.internalEventHub.emit({ type: 'messageParsed', itemId, documentId, message })) {
-      throw new Error(`Listener failed while processing messageParsed for item ${itemId}`)
-    }
+  /** Hands a pulled message to the adapter. If the adapter throws, the batch stops there and is retried. */
+  private deliverMessage(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
+    this.internalEventHub.emit({ type: 'itemMessageParsed', itemId })
+    this.adapter.receiveServerMessage(documentId, message)
   }
 
   private async handleMessageEntry(
@@ -208,7 +211,7 @@ export class SyncPullQueueManager {
     // expired anything older
     const success = parseBatchedMessages(
       decrypted,
-      msg => this.notifyMessageParsed(itemId, documentId, msg),
+      msg => this.deliverMessage(itemId, documentId, msg),
       {
         startIndex: this.getBatchProgress(itemId, entry.cursor),
         onMessageSuccess: index => {
@@ -283,21 +286,12 @@ export class SyncPullQueueManager {
     const sortedMessages = [...(messages || [])].sort((a, b) => a.cursor - b.cursor)
 
     if (sortedMessages.length === 0) {
-      return {
-        highestCursor: initialCursor,
-        hasParseFailure: false,
-        hasKeyFailure: false,
-        hasParsedMessages: false,
-        hasParsedRemoteMessages: false,
-      }
+      return { highestCursor: initialCursor, hasParsedMessages: false, hasParsedRemoteMessages: false }
     }
 
     return this.withItemLock(itemId, async () => {
       let highestCursor = initialCursor
-      let hasParseFailure = false
-      let hasKeyFailure = false
-      let blockedOnKey: string | undefined
-      let failingCursor: number | undefined
+      let failure: PullFailure | undefined
       let hasParsedMessages = false
       let hasParsedRemoteMessages = false
 
@@ -319,25 +313,15 @@ export class SyncPullQueueManager {
           this.clearBatchProgress(itemId, handled.cursor)
           highestCursor = Math.max(highestCursor, handled.cursor)
         } else if (handled.missingKey) {
-          hasKeyFailure = true
-          blockedOnKey = handled.kver
+          failure = { kind: 'keyMissing', kver: handled.kver }
           break
         } else {
-          hasParseFailure = true
-          failingCursor = entry.cursor
+          failure = { kind: 'parseFailure', cursor: entry.cursor }
           break
         }
       }
 
-      return {
-        highestCursor,
-        hasParseFailure,
-        hasKeyFailure,
-        blockedOnKey,
-        failingCursor,
-        hasParsedMessages,
-        hasParsedRemoteMessages,
-      }
+      return { highestCursor, failure, hasParsedMessages, hasParsedRemoteMessages }
     })
   }
 
@@ -357,24 +341,17 @@ export class SyncPullQueueManager {
       timedOutKeys
     )
 
+    const { failure } = messageResult
     let highestCursor = messageResult.highestCursor
-    if (
-      !messageResult.hasParseFailure &&
-      !messageResult.hasKeyFailure &&
-      Number.isFinite(result.nextCursor)
-    ) {
+    if (!failure && Number.isFinite(result.nextCursor)) {
       highestCursor = Math.max(highestCursor, result.nextCursor)
     }
 
     const outcome = this.retryTracker.recordPullOutcome({
       itemId,
-      initialCursor,
       highestCursor,
       isNewItem,
-      hasKeyFailure: messageResult.hasKeyFailure,
-      blockedOnKey: messageResult.blockedOnKey,
-      hasParseFailure: messageResult.hasParseFailure,
-      failingCursor: messageResult.failingCursor,
+      failure,
       hasMore,
       nextCursor: result.nextCursor,
       pageToken: result.nextPageToken,
@@ -384,19 +361,11 @@ export class SyncPullQueueManager {
       this.clearBatchProgressUpTo(itemId, highestCursor)
     }
 
-    if (
-      outcome.permanentlyFailed ||
-      (!messageResult.hasParseFailure && !messageResult.hasKeyFailure && !hasMore)
-    ) {
+    if (outcome.permanentlyFailed || (!failure && !hasMore)) {
       this.batchProgress.delete(itemId)
     }
 
-    if (
-      messageResult.hasParsedRemoteMessages &&
-      !messageResult.hasParseFailure &&
-      !messageResult.hasKeyFailure &&
-      !outcome.permanentlyFailed
-    ) {
+    if (messageResult.hasParsedRemoteMessages && !failure && !outcome.permanentlyFailed) {
       this.internalEventHub.emit({ type: 'remoteMessagesParsed', itemId })
     }
 

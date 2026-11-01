@@ -11,15 +11,18 @@ export interface ItemPullState {
   pageToken?: PageToken
 }
 
+/** Why a pull stopped before its last message */
+export type PullFailure =
+  /** A message is encrypted with key version `kver`, which this device doesn't have */
+  | { kind: 'keyMissing'; kver?: string }
+  /** The message at `cursor` couldn't be decrypted or applied */
+  | { kind: 'parseFailure'; cursor?: number }
+
 export interface RecordPullOutcomeParams {
   itemId: ItemId
-  initialCursor: number
   highestCursor: number
   isNewItem: boolean
-  hasKeyFailure: boolean
-  blockedOnKey?: string
-  hasParseFailure: boolean
-  failingCursor?: number
+  failure?: PullFailure
   hasMore: boolean
   nextCursor?: number
   pageToken?: PageToken
@@ -256,17 +259,7 @@ export class PullRetryTracker {
   }
 
   private computeTransition(state: Readonly<ItemPullState>, outcome: RecordPullOutcomeParams): PullStateTransition {
-    const {
-      initialCursor,
-      isNewItem,
-      hasKeyFailure,
-      blockedOnKey,
-      hasParseFailure,
-      failingCursor,
-      hasMore,
-      nextCursor,
-      pageToken,
-    } = outcome
+    const { isNewItem, failure, hasMore, nextCursor, pageToken } = outcome
 
     let highestCursor = outcome.highestCursor
     let pending: boolean
@@ -274,26 +267,15 @@ export class PullRetryTracker {
     let nextBlockedOnKey = state.blockedOnKey
     let nextPageToken: PageToken | undefined
     let permanentlyFailed = false
-    let advanceCursor: number | undefined
     let removeFromRetryQueue = false
-    let targetCursor = state.cursor
 
-    if (hasKeyFailure) {
+    if (failure?.kind === 'keyMissing') {
       pending = true
       nextPageToken = undefined
-      if (blockedOnKey) {
-        nextBlockedOnKey = blockedOnKey
+      if (failure.kver) {
+        nextBlockedOnKey = failure.kver
       }
-    } else if (hasMore && !hasParseFailure) {
-      // Partial success: more pages to fetch
-      pending = true
-      retryCount = 0
-      nextBlockedOnKey = undefined
-      nextPageToken = pageToken
-      if (highestCursor > targetCursor) {
-        targetCursor = highestCursor
-      }
-    } else if (hasParseFailure) {
+    } else if (failure?.kind === 'parseFailure') {
       nextPageToken = undefined
       const nextRetries = state.retryCount + 1
 
@@ -302,8 +284,8 @@ export class PullRetryTracker {
         retryCount = 0
         permanentlyFailed = true
 
-        advanceCursor = Number.isFinite(failingCursor)
-          ? (failingCursor as number)
+        const advanceCursor = Number.isFinite(failure.cursor)
+          ? (failure.cursor as number)
           : typeof nextCursor === 'number' && Number.isFinite(nextCursor)
             ? nextCursor
             : undefined
@@ -311,7 +293,6 @@ export class PullRetryTracker {
         if (typeof advanceCursor === 'number') {
           highestCursor = Math.max(highestCursor, advanceCursor)
         }
-        targetCursor = highestCursor
 
         // Messages after the failing one in this response were never processed, and the global
         // scan has usually passed them, so the item stays pending and the next per-item pull
@@ -327,31 +308,27 @@ export class PullRetryTracker {
       } else {
         pending = true
         retryCount = nextRetries
-        if (highestCursor > targetCursor) {
-          targetCursor = highestCursor
-        }
       }
+    } else if (hasMore) {
+      // Partial success: more pages to fetch
+      pending = true
+      retryCount = 0
+      nextBlockedOnKey = undefined
+      nextPageToken = pageToken
     } else {
       // Terminal success (hasMore: false, no failure)
       pending = false
       retryCount = 0
       nextBlockedOnKey = undefined
       nextPageToken = undefined
-      targetCursor = highestCursor
       removeFromRetryQueue = true
     }
 
-    let cursorUpdated = false
-    if (highestCursor > initialCursor) {
-      targetCursor = highestCursor
-      cursorUpdated = true
-    } else if (isNewItem && highestCursor >= 0) {
-      targetCursor = highestCursor
-      cursorUpdated = true
-    }
+    // The cursor only moves forward, except that a new item takes whatever cursor the pull reached
+    const cursorUpdated = highestCursor > state.cursor || (isNewItem && highestCursor >= 0)
 
     return {
-      targetCursor,
+      targetCursor: cursorUpdated ? highestCursor : state.cursor,
       pending,
       retryCount,
       blockedOnKey: nextBlockedOnKey,

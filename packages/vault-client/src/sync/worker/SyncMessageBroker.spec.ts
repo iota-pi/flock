@@ -151,23 +151,6 @@ describe('SyncMessageBroker', () => {
     expect(mockWal.append).not.toHaveBeenCalled()
   })
 
-  it('emits itemMessageParsed when message is received', async () => {
-    const mockOnItemParsed = vi.fn()
-    const receiveSpy = vi.spyOn(adapter, 'receiveServerMessage')
-    internalEventHub.subscribe(e => {
-      if (e.type === 'itemMessageParsed') {
-        mockOnItemParsed(e.itemId)
-      }
-    })
-
-    const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-1' as ItemId))
-    const msgData = new Uint8Array([1, 2, 3])
-    internalEventHub.emit({ type: 'messageParsed', itemId: 'item-1' as ItemId, documentId: docId, message: msgData })
-
-    expect(mockOnItemParsed).toHaveBeenCalledWith('item-1')
-    expect(receiveSpy).toHaveBeenCalledWith(docId, msgData)
-  })
-
   it("leaves stopping the pull queue to the context's lifecycle", () => {
     broker.shutdown()
     expect(pullQueueManager.shutdown).not.toHaveBeenCalled()
@@ -369,29 +352,7 @@ describe('SyncMessageBroker', () => {
       expect(mockWal.append).toHaveBeenCalledWith('item-snap', new Uint8Array([10, 11]))
     })
 
-    it('unblocks all items and triggers renegotiation for previously blocked items when quotaResolved is emitted', async () => {
-      session.setLeader(true)
-
-      const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
-      const resetCircuitSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
-
-      broker.blockItem('item-1' as ItemId)
-      broker.blockItem('item-2' as ItemId)
-      expect(broker.getBlockedItemIds()).toEqual(['item-1', 'item-2'])
-
-      // Storage is freed and quotaResolved event is emitted
-      clientEventHub.emit({ type: 'quotaResolved' })
-
-      expect(broker.isItemBlocked('item-1' as ItemId)).toBe(false)
-      expect(broker.isItemBlocked('item-2' as ItemId)).toBe(false)
-      expect(broker.getBlockedItemIds()).toEqual([])
-
-      expect(resetCircuitSpy).toHaveBeenCalled()
-      expect(renegSpy).toHaveBeenCalledWith(toDocumentIdFromItemId('item-1' as ItemId))
-      expect(renegSpy).toHaveBeenCalledWith(toDocumentIdFromItemId('item-2' as ItemId))
-    })
-
-    it('successfully appends sync messages to WAL after quotaResolved unblocks previously blocked items', async () => {
+    it('successfully appends sync messages to WAL after unblockAllItems unblocks previously blocked items', async () => {
       const flushSpy = vi.fn()
       internalEventHub.subscribe(e => {
         if (e.type === 'flushNeeded') flushSpy()
@@ -409,8 +370,8 @@ describe('SyncMessageBroker', () => {
       expect(mockWal.append).not.toHaveBeenCalled()
       expect(flushSpy).not.toHaveBeenCalled()
 
-      // Resolve quota
-      clientEventHub.emit({ type: 'quotaResolved' })
+      // The storage recovery service unblocks every item once storage is available
+      broker.unblockAllItems()
       expect(broker.isItemBlocked('item-blocked' as ItemId)).toBe(false)
 
       // Renegotiation message arrives and is appended to WAL

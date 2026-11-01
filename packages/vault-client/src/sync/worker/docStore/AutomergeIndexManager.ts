@@ -8,6 +8,20 @@ import { withTimeout } from '../../utils/abort'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import type { RealtimeBus } from '../realtimeBus'
 
+/** An index document with every field filled in */
+export type NormalizedIndexDocument = Required<AutomergeIndexDocument>
+
+/** Fills in an index document's missing fields, copying its arrays and metadata */
+function normalizeIndexDocument(doc: AutomergeIndexDocument | null | undefined, accountId: string): NormalizedIndexDocument {
+  return {
+    accountId: doc?.accountId || accountId,
+    itemIds: doc?.itemIds ? [...doc.itemIds] : [],
+    tombstoneIds: doc?.tombstoneIds ? [...doc.tombstoneIds] : [],
+    metadata: doc?.metadata ? { ...doc.metadata } : {},
+    lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
+  }
+}
+
 export interface MergeIndexOptions {
   /** Tombstones from either side win, rather than only the incoming ones for items not live locally */
   tombstonesWin?: boolean
@@ -98,34 +112,34 @@ export class AutomergeIndexManager {
     return true
   }
 
-  private handleRemoteIndexUpdated(itemIds: ItemId[]): void {
+  /** Tells `onIndexUpdated` about the item IDs unless they're the ones it last heard. Returns whether it did. */
+  private notifyIndexUpdated(itemIds: ItemId[]): boolean {
     if (this.areItemIdsEqual(this.lastEmittedItemIds, itemIds)) {
-      return
+      return false
     }
     this.lastEmittedItemIds = [...itemIds]
     this.onIndexUpdated?.(itemIds)
+    return true
+  }
+
+  private handleRemoteIndexUpdated(itemIds: ItemId[]): void {
+    this.notifyIndexUpdated(itemIds)
   }
 
   private handleRemoteMetadataUpdated(metadata: VaultMetadata): void {
     this.onMetadataUpdated?.(metadata)
   }
 
+  /** Reports a local index change here and to the account's other tabs */
   private emitIndexUpdated(itemIds: ItemId[]): void {
-    if (this.areItemIdsEqual(this.lastEmittedItemIds, itemIds)) {
-      return
-    }
-    this.lastEmittedItemIds = [...itemIds]
-    this.onIndexUpdated?.(itemIds)
-    if (!this.isClosed) {
+    if (this.notifyIndexUpdated(itemIds) && !this.isClosed) {
       this.bus?.publishIndexUpdated(itemIds)
     }
   }
 
-  private notifyLocalMetadataUpdated(metadata: VaultMetadata): void {
+  /** Reports a local metadata change here and to the account's other tabs */
+  private emitMetadataUpdated(metadata: VaultMetadata): void {
     this.onMetadataUpdated?.(metadata)
-  }
-
-  private broadcastMetadataUpdated(metadata: VaultMetadata): void {
     if (!this.isClosed) {
       this.bus?.publishMetadataUpdated(metadata)
     }
@@ -153,18 +167,11 @@ export class AutomergeIndexManager {
     })
   }
 
-  private async getIndexSnapshotInternal(): Promise<AutomergeIndexDocument> {
-    const doc = await this.indexStore.getIndex()
-    return {
-      accountId: doc?.accountId || this.accountId,
-      itemIds: doc?.itemIds ? [...doc.itemIds] : [],
-      ...(doc?.tombstoneIds ? { tombstoneIds: [...doc.tombstoneIds] } : {}),
-      metadata: doc?.metadata ? { ...doc.metadata } : {},
-      lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
-    }
+  private async getIndexSnapshotInternal(): Promise<NormalizedIndexDocument> {
+    return normalizeIndexDocument(await this.indexStore.getIndex(), this.accountId)
   }
 
-  async getIndexSnapshot(): Promise<AutomergeIndexDocument> {
+  async getIndexSnapshot(): Promise<NormalizedIndexDocument> {
     return this.withLock(async () => this.getIndexSnapshotInternal())
   }
 
@@ -179,8 +186,7 @@ export class AutomergeIndexManager {
       await this.indexStore.saveIndex(doc)
       this.emitIndexUpdated(doc.itemIds)
       if (backup.metadata) {
-        this.notifyLocalMetadataUpdated(doc.metadata || {})
-        this.broadcastMetadataUpdated(doc.metadata || {})
+        this.emitMetadataUpdated(doc.metadata)
       }
     })
   }
@@ -188,15 +194,8 @@ export class AutomergeIndexManager {
   async ensureIndexDocument(): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.indexStore.getIndex()
-      if (!doc || !doc.accountId) {
-        const newDoc: AutomergeIndexDocument = {
-          accountId: this.accountId,
-          itemIds: doc?.itemIds || [],
-          ...(doc?.tombstoneIds ? { tombstoneIds: [...doc.tombstoneIds] } : {}),
-          metadata: doc?.metadata || {},
-          lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
-        }
-        await this.indexStore.saveIndex(newDoc)
+      if (!doc?.accountId) {
+        await this.indexStore.saveIndex(normalizeIndexDocument(doc, this.accountId))
       }
     })
   }
@@ -209,8 +208,8 @@ export class AutomergeIndexManager {
   async addAutomergeItemIdsToIndex(itemIds: ItemId[], options?: { skipTombstoned?: boolean }): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
-      const current = new Set(doc.itemIds || [])
-      const tombstoneSet = new Set(doc.tombstoneIds || [])
+      const current = new Set(doc.itemIds)
+      const tombstoneSet = new Set(doc.tombstoneIds)
       const idsToAdd = options?.skipTombstoned ? itemIds.filter(id => !tombstoneSet.has(id)) : itemIds
       let updated = false
       for (const id of idsToAdd) {
@@ -241,9 +240,9 @@ export class AutomergeIndexManager {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       const removeSet = new Set(itemIds)
-      const current = doc.itemIds || []
+      const current = doc.itemIds
       const newItemIds = current.filter(id => !removeSet.has(id))
-      const tombstoneSet = new Set(doc.tombstoneIds || [])
+      const tombstoneSet = new Set(doc.tombstoneIds)
       let tombstoneUpdated = false
       for (const id of itemIds) {
         if (!tombstoneSet.has(id)) {
@@ -265,17 +264,17 @@ export class AutomergeIndexManager {
 
   async listAutomergeItemIds(): Promise<ItemId[]> {
     const index = await this.getIndexSnapshot()
-    return index.itemIds || []
+    return index.itemIds
   }
 
   async listAutomergeTombstoneIds(): Promise<ItemId[]> {
     const index = await this.getIndexSnapshot()
-    return index.tombstoneIds || []
+    return index.tombstoneIds
   }
 
   async getAutomergeMetadata(): Promise<VaultMetadata> {
     const index = await this.getIndexSnapshot()
-    return index.metadata || {}
+    return index.metadata
   }
 
   async updateAutomergeMetadata(changes: Partial<VaultMetadata>): Promise<VaultMetadata> {
@@ -283,9 +282,8 @@ export class AutomergeIndexManager {
       const doc = await this.getIndexSnapshotInternal()
       doc.metadata = { ...doc.metadata, ...changes }
       await this.indexStore.saveIndex(doc)
-      this.notifyLocalMetadataUpdated(doc.metadata)
-      this.broadcastMetadataUpdated(doc.metadata)
-      return doc.metadata || {}
+      this.emitMetadataUpdated(doc.metadata)
+      return doc.metadata
     })
   }
 
@@ -300,14 +298,13 @@ export class AutomergeIndexManager {
       }
       doc.metadata = metadata
       await this.indexStore.saveIndex(doc)
-      this.notifyLocalMetadataUpdated(metadata)
-      this.broadcastMetadataUpdated(metadata)
+      this.emitMetadataUpdated(metadata)
     })
   }
 
   async getLastManifestSyncTime(): Promise<number> {
     const doc = await this.getIndexSnapshot()
-    return doc.lastManifestSyncTime || 0
+    return doc.lastManifestSyncTime
   }
 
   async updateLastManifestSyncTime(time: number): Promise<void> {
