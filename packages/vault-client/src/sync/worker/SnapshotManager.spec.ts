@@ -1095,7 +1095,8 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshots).not.toHaveBeenCalled()
       expect(mockEventHub.emit).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'quotaExceeded',
+          type: 'snapshotFailed',
+          itemId: 'item-1',
           message: expect.stringContaining(`exceeds the ${MAX_ITEM_SIZE_KB} KB limit`),
         }),
       )

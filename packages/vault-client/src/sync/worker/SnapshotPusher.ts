@@ -172,7 +172,8 @@ export class SnapshotPusher {
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
       this.eventHub.emit({
-        type: 'quotaExceeded',
+        type: 'snapshotFailed',
+        itemId,
         message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
       })
       fireAndForget(

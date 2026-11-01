@@ -102,7 +102,7 @@ describe('SnapshotPusher', () => {
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
 
-  it('handles oversized item by quarantining and emitting quotaExceeded', async () => {
+  it('handles oversized item by quarantining and reporting a snapshot failure', async () => {
     mockBuilder.estimateSize.mockReturnValue(5000) // Exceeds maxPayloadBytes = 1000
 
     const result = await pusher.triggerSnapshotPush()
@@ -110,8 +110,9 @@ describe('SnapshotPusher', () => {
     expect(result).toEqual({ persisted: 0, total: 0 })
     expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
     expect(mockEventHub.emit).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'quotaExceeded' }),
+      expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
     )
+    expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
       'oversized',
@@ -126,7 +127,7 @@ describe('SnapshotPusher', () => {
     await pusher.triggerSnapshotPush()
 
     expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
-    expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
+    expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshotFailed' }))
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
   })
 
