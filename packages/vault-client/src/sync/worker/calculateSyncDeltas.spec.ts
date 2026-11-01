@@ -1,10 +1,10 @@
-import { ManifestDeltaCalculator } from './ManifestDeltaCalculator'
+import { calculateSyncDeltas } from './calculateSyncDeltas'
 import type { ItemId } from '@vault/shared'
 
-describe('ManifestDeltaCalculator', () => {
+describe('calculateSyncDeltas', () => {
   describe('calculateSyncDeltas', () => {
     it('partitions deltas correctly into missingIds, locallyTombstonedSnapshots, and upstreamIds', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-new-remote' as ItemId, version: 1, modifiedAt: 2000 },
           { itemId: 'item-server-deleted' as ItemId, version: 2, modifiedAt: 2000, isDeleted: true },
@@ -34,7 +34,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('skips a quarantined item until the server has a newer version than the one that failed', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           // Server clock far behind the quarantine time, but a newer version: fetched
           { itemId: 'item-newer' as ItemId, version: 6, modifiedAt: 100 },
@@ -64,7 +64,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('falls back to baseVersion for quarantine entries without a recorded server version', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-legacy-newer' as ItemId, version: 4, modifiedAt: 100 },
           { itemId: 'item-legacy-same' as ItemId, version: 3, modifiedAt: 999_999 },
@@ -89,7 +89,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('never skips past baseVersion when the recorded server version is older', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [{ itemId: 'item-1' as ItemId, version: 4, modifiedAt: 100 }],
         force: false,
         knownItemIds: ['item-1' as ItemId],
@@ -103,7 +103,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('does not filter quarantined items when force is true', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-quarantined-old' as ItemId, version: 5, modifiedAt: 500 },
         ],
@@ -121,7 +121,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('never resurrects locally tombstoned items with active server snapshot', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-tombstoned' as ItemId, modifiedAt: 5000 }, // active on server
         ],
@@ -140,7 +140,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('records server deleted timestamp for inactive item without fetching snapshot', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-server-del' as ItemId, version: 2, modifiedAt: 3000, isDeleted: true },
         ],
@@ -163,7 +163,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('ignores a server deletion of an inactive item it has already recorded', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-server-del' as ItemId, version: 2, modifiedAt: 3000, isDeleted: true },
         ],
@@ -186,7 +186,7 @@ describe('ManifestDeltaCalculator', () => {
 
   describe('version comparison', () => {
     it('pulls inbound when serverVersion > baseVersion even if client physical clock is far ahead', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           // Server has version 5, modifiedAt 1000
           { itemId: 'item-1' as ItemId, version: 5, modifiedAt: 1000 },
@@ -209,7 +209,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('skips sync (in-sync) when serverVersion === baseVersion and isDirty is false', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-sync' as ItemId, version: 3, modifiedAt: 1000 },
         ],
@@ -230,7 +230,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('pushes upstream when serverVersion === baseVersion and isDirty is true', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-dirty' as ItemId, version: 3, modifiedAt: 2000 },
         ],
@@ -251,7 +251,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('pushes upstream when item exists locally but is completely missing from server manifest', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [],
         force: false,
         knownItemIds: ['item-offline-created' as ItemId],
@@ -285,15 +285,15 @@ describe('ManifestDeltaCalculator', () => {
         ]),
       }
 
-      expect(ManifestDeltaCalculator.calculateSyncDeltas({ ...params, force: false }).upstreamIds).toEqual([])
+      expect(calculateSyncDeltas({ ...params, force: false }).upstreamIds).toEqual([])
       // A forced sync retries them: the one on the server is fetched, the other is pushed
-      const forced = ManifestDeltaCalculator.calculateSyncDeltas({ ...params, force: true })
+      const forced = calculateSyncDeltas({ ...params, force: true })
       expect(forced.missingIds).toEqual(['item-quarantined-dirty'])
       expect(forced.upstreamIds).toEqual(['item-quarantined-new'])
     })
 
     it('tombstones local active item when server manifest marks it deleted and records serverVersion', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-del' as ItemId, version: 7, isDeleted: true, modifiedAt: 5000 },
         ],
@@ -315,7 +315,7 @@ describe('ManifestDeltaCalculator', () => {
     })
 
     it('pushes local tombstone upstream when server still has active snapshot', () => {
-      const result = ManifestDeltaCalculator.calculateSyncDeltas({
+      const result = calculateSyncDeltas({
         manifest: [
           { itemId: 'item-tomb' as ItemId, version: 2, isDeleted: false, modifiedAt: 1000 },
         ],

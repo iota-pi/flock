@@ -13,7 +13,7 @@ import { checkAlive, isAbortError } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { isAuthError } from '../utils/errorClassifier'
 import { errorMessage } from '../utils/errorMessage'
-import { ManifestDeltaCalculator, type QuarantinedItem, type SyncDeltas } from './ManifestDeltaCalculator'
+import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
 import { ManifestHydrator } from './ManifestHydrator'
 import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
@@ -228,7 +228,7 @@ export class ManifestSyncManager {
         checkAlive(signal, this.isAlive)
 
         // Step 1: Calculate sync deltas
-        const deltas = ManifestDeltaCalculator.calculateSyncDeltas({
+        const deltas = calculateSyncDeltas({
           manifest: remoteData.manifest,
           force,
           knownItemIds: gating.knownItemIds,
@@ -296,7 +296,7 @@ export class ManifestSyncManager {
       await this.deps.snapshotTracker.importLastModified(deltas.deletedLastModifiedUpdates)
     }
 
-    if (deltas.deletedVersionUpdates && deltas.deletedVersionUpdates.length > 0) {
+    if (deltas.deletedVersionUpdates.length > 0) {
       await this.deps.snapshotTracker.importVersions(deltas.deletedVersionUpdates)
     }
 

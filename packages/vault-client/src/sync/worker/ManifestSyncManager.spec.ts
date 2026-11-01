@@ -1240,6 +1240,7 @@ describe('ManifestSyncManager', () => {
           upstreamIds: ['item-up-1' as ItemId, 'item-up-2' as ItemId],
           locallyTombstonedSnapshots: [{ id: 'item-tomb-1', deleted: true } as any],
           deletedLastModifiedUpdates: [['item-tomb-1' as ItemId, 2500]],
+          deletedVersionUpdates: [],
           knownSet: new Set(),
           tombstoneSet: new Set(),
         })
@@ -1265,6 +1266,7 @@ describe('ManifestSyncManager', () => {
             upstreamIds: [],
             locallyTombstonedSnapshots: [{ id: 'item-fail-1', deleted: true } as any],
             deletedLastModifiedUpdates: [['item-fail-1' as ItemId, 2500]],
+            deletedVersionUpdates: [],
             knownSet: new Set(),
             tombstoneSet: new Set(),
           }),

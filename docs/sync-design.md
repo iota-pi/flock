@@ -11,7 +11,7 @@ User edit → Automerge doc change → two outbound paths:
 
 Server → two inbound paths:
   1. Incremental: SyncPoller pull → SyncPullQueueManager → Automerge merge
-  2. Full state:  ManifestSyncManager → ManifestDeltaCalculator → fetch snapshots → hydrate docs
+  2. Full state:  ManifestSyncManager → calculateSyncDeltas → fetch snapshots → hydrate docs
 ```
 
 The local Automerge doc in IndexedDB is always the complete, authoritative state. The WAL, snapshots and server rows are only delivery mechanisms. The server cannot decrypt anything, so it never merges or reconciles. It only relays data.
@@ -52,7 +52,7 @@ If `processPullResults` or any I/O throws and the poll still reports `'success'`
 
 ### Monotonic versions (no clock-based reconciliation)
 
-`putSnapshots` runs an atomic `version = if_not_exists(version, 0) + 1` and returns the new version. The client stores it as `baseVersion` in its `lastModified` record. `ManifestDeltaCalculator` then decides:
+`putSnapshots` runs an atomic `version = if_not_exists(version, 0) + 1` and returns the new version. The client stores it as `baseVersion` in its `lastModified` record. `calculateSyncDeltas` then decides:
 
 | Condition | Action |
 |---|---|
