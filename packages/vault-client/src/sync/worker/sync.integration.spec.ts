@@ -92,7 +92,11 @@ describe('Sync System Integration Test Suite', () => {
     cursorStore = new CursorStore(accountId)
     // This tab is the online leader
     session = new SyncSessionState({ isLeader: true })
-    adapter = new VaultNetworkAdapter(internalEventHub, { accountId, session })
+    adapter = new VaultNetworkAdapter(internalEventHub, {
+      accountId,
+      session,
+      onMessageToSend: message => broker.send(message),
+    })
     pullQueueManager = new SyncPullQueueManager({
       cursorStore,
       keys,
@@ -118,6 +122,7 @@ describe('Sync System Integration Test Suite', () => {
       wal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
+      onPushAcknowledged: (itemId, heads) => broker.recordSyncedHeads(itemId, heads),
     })
     broker = new SyncMessageBroker({
       adapter,
@@ -125,6 +130,7 @@ describe('Sync System Integration Test Suite', () => {
       pullQueueManager,
       session,
       wal,
+      onFlushNeeded: () => {},
     })
 
     adapter.connect('client-peer' as PeerId)
@@ -300,6 +306,7 @@ describe('Sync System Integration Test Suite', () => {
       wal: newWal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
+      onPushAcknowledged: () => {},
     })
 
     const outcome = await newPoller.executePoll()

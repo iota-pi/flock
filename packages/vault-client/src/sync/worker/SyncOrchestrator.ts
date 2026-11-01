@@ -73,8 +73,6 @@ export class SyncOrchestrator {
   private readonly manifestSyncGuard = new SingleFlightGuard<void>()
   private readonly manifestSyncManager: ManifestSyncManagerLike
 
-  private unsubscribeInternalEvents: (() => void) | null = null
-
   private readonly accountId: string
   private readonly session: SyncSessionState
   private readonly clientEventHub: ClientEventHub
@@ -92,11 +90,6 @@ export class SyncOrchestrator {
     this.poller = deps.poller
     this.manifestSyncManager = deps.manifestSyncManager
     this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
-    this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
-      if (event.type === 'flushNeeded') {
-        this.flush()
-      }
-    })
   }
 
   get isOperational(): boolean {
@@ -377,10 +370,6 @@ export class SyncOrchestrator {
 
   /** Stops polling and gives up leadership. The context has already marked the session shut down. */
   async shutdown(): Promise<void> {
-    if (this.unsubscribeInternalEvents) {
-      this.unsubscribeInternalEvents()
-      this.unsubscribeInternalEvents = null
-    }
     this.setLeader(false)
     if (this.leaderElection) {
       this.leaderElection.release()

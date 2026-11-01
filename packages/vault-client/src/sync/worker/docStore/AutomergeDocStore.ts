@@ -10,7 +10,6 @@ import {
 } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
 import { findWithTimeout } from './findWithTimeout'
-import type { WorkerInternalEventHub } from '../SyncEventHub'
 import { KeyedSingleFlightGuard } from '../../utils/SingleFlightGuard'
 import { KeyedAsyncMutex } from '../../utils/AsyncMutex'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
@@ -74,7 +73,8 @@ export interface DocStorageChecker {
 
 export interface AutomergeDocStoreOptions {
   repo: Repo
-  internalEventHub: WorkerInternalEventHub
+  /** Called when a find or create puts a new handle in place of an item's old one, so its listeners can move */
+  onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
   storageAdapter?: DocStorageChecker | null
   codec: DocCodec
   /**
@@ -89,7 +89,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private readonly repo: Repo
-  private readonly internalEventHub: WorkerInternalEventHub
+  private readonly onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
   private readonly storageAdapter?: DocStorageChecker | null
   private isShutdown = false
   public readonly codec: DocCodec
@@ -97,14 +97,10 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
   constructor(options: AutomergeDocStoreOptions) {
     this.repo = options.repo
-    this.internalEventHub = options.internalEventHub
+    this.onHandleReplaced = options.onHandleReplaced
     this.storageAdapter = options.storageAdapter
     this.codec = options.codec
     this.isLocallyUnreadable = options.isLocallyUnreadable
-  }
-
-  private notifyDocHandleReplaced(itemId: ItemId, handle: DocHandle<RepoDoc>): void {
-    this.internalEventHub.emit({ type: 'docHandleReplaced', itemId, handle })
   }
 
   async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
@@ -287,7 +283,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
           )
         }
 
-        this.notifyDocHandleReplaced(itemId, handle)
+        this.onHandleReplaced?.(itemId, handle)
         return handle
       })
     )
@@ -431,7 +427,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const existing = this.getReadyHandle(documentId)
     if (existing) {
       this.applyMerge(existing, parsed ?? Automerge.load<RepoDoc>(binary))
-      this.notifyDocHandleReplaced(itemId, existing)
+      this.onHandleReplaced?.(itemId, existing)
       return existing
     }
 
@@ -444,7 +440,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const handle = this.repo.import<RepoDoc>(binary, {
       docId: documentId,
     })
-    this.notifyDocHandleReplaced(itemId, handle)
+    this.onHandleReplaced?.(itemId, handle)
     return handle
   }
 

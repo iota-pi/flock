@@ -3,8 +3,7 @@ import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import type { PollOutcome } from './SyncPoller'
 
-import type { DocumentId, Message, DocHandle } from '@automerge/automerge-repo/slim'
-import type { RepoDoc } from './docStore/AutomergeDocStore'
+import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { createLogger, type Logger } from '../utils/logger'
 
 export type ClientEvent =
@@ -43,8 +42,6 @@ export type WorkerInternalEvent =
   | { type: 'pollResult'; outcome: PollOutcome }
   | { type: 'multipleLeadersDetected' }
   | { type: 'soleLeaderRestored' }
-  | { type: 'flushNeeded' }
-  | { type: 'itemMessageParsed'; itemId: ItemId }
   | { type: 'remoteMessagesParsed'; itemId: ItemId }
   | { type: 'walAppendFailed'; itemId: ItemId; error: unknown }
   | { type: 'walEntriesPruned'; itemIds: ItemId[] }
@@ -53,11 +50,8 @@ export type WorkerInternalEvent =
   /** A record in this device's sealed storage failed to decrypt */
   | { type: 'localDecryptionFailed'; itemId: ItemId; error: unknown }
   | { type: 'retryingStateChange'; isRetrying: boolean }
-  | { type: 'pushAcknowledged'; itemId: ItemId; heads: string[] }
   | { type: 'leaderChange'; isLeader: boolean }
   | { type: 'renegotiationTriggered'; documentId: DocumentId }
-  | { type: 'messageToSend'; message: Message }
-  | { type: 'docHandleReplaced'; itemId: ItemId; handle: DocHandle<RepoDoc> }
 
 type EventListener<T> = (event: T) => void | Promise<void>
 

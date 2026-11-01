@@ -10,7 +10,7 @@ import { SyncSessionState } from './SyncSessionState'
  * End-to-end protocol tests for the simulated `vault` peer, using a real Automerge Repo.
  *
  * The server is modelled as an append-only list of sync messages. Pushes are acknowledged
- * immediately (mirroring `pushAcknowledged` → `setSyncedHeads`), and pulls deliver every
+ * immediately (mirroring `onPushAcknowledged` → `setSyncedHeads`), and pulls deliver every
  * message, including the device's own echoes, via `receiveServerMessage`.
  */
 
@@ -52,13 +52,11 @@ class Device {
         const doc = handle?.isReady() ? handle.doc() : undefined
         return doc ? Automerge.hasHeads(doc, heads) : false
       },
-    })
-    eventHub.subscribe(event => {
-      if (event.type !== 'messageToSend') return
-      const { documentId, data } = event.message
-      if (!documentId || !(data instanceof Uint8Array)) return
-      this.server.messages.push({ documentId, data })
-      this.adapter.setSyncedHeads(documentId, decodeSyncMessage(data).heads)
+      onMessageToSend: ({ documentId, data }) => {
+        if (!documentId || !(data instanceof Uint8Array)) return
+        this.server.messages.push({ documentId, data })
+        this.adapter.setSyncedHeads(documentId, decodeSyncMessage(data).heads)
+      },
     })
     this.repo = new Repo({ network: [this.adapter] })
   }

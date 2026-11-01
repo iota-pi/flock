@@ -111,6 +111,7 @@ describe('SyncPullQueueManager', () => {
   let session: SyncSessionState
   let onKeyVersionMissing: ReturnType<typeof vi.fn<(kver: string) => void>>
   let receiveServerMessage: Mock<(documentId: DocumentId, message: Uint8Array) => void>
+  let onItemMessageParsed: Mock<(itemId: ItemId) => void>
 
   /** Calls `listener` with each pulled message the manager hands to the adapter */
   function onDelivered(listener: (e: { itemId: ItemId; documentId: DocumentId; message: Uint8Array }) => void): void {
@@ -129,6 +130,7 @@ describe('SyncPullQueueManager', () => {
     eventHub = new WorkerInternalEventHub()
     onKeyVersionMissing = vi.fn<(kver: string) => void>()
     receiveServerMessage = vi.fn<(documentId: DocumentId, message: Uint8Array) => void>()
+    onItemMessageParsed = vi.fn<(itemId: ItemId) => void>()
     session = new SyncSessionState()
     manager = new SyncPullQueueManager({
       cursorStore,
@@ -139,6 +141,7 @@ describe('SyncPullQueueManager', () => {
       session,
       bus: realtimeBus.bus,
       onKeyVersionMissing,
+      onItemMessageParsed,
     })
 
     // Default mock behavior
@@ -221,11 +224,7 @@ describe('SyncPullQueueManager', () => {
 
     it('parses a single message', async () => {
       const onMessageParsedSpy = vi.fn()
-      const itemParsedSpy = vi.fn()
       onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
-      eventHub.subscribe(e => {
-        if (e.type === 'itemMessageParsed') itemParsedSpy(e.itemId)
-      })
       mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -257,7 +256,7 @@ describe('SyncPullQueueManager', () => {
         expectedDocId,
         new Uint8Array([1, 2, 3]),
       )
-      expect(itemParsedSpy).toHaveBeenCalledWith('item-1')
+      expect(onItemMessageParsed).toHaveBeenCalledWith('item-1')
 
       expect(manager.exportCursors()).toContainEqual(['item-1', 5])
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])

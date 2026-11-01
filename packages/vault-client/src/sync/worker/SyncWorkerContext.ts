@@ -2,6 +2,7 @@ import type { Repo, DocHandle, DocumentId } from '@automerge/automerge-repo/slim
 import * as Automerge from '@automerge/automerge/slim'
 
 import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
+import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
@@ -97,10 +98,12 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
   /** Whether the device is online when the session starts (default true) */
   isOnline?: boolean
   /**
-   * Called when the Automerge repo receives a new document from the network,
-   * so the Comlink layer can subscribe to change events on that handle.
+   * Called when a document arrives from the network, as a new document in the repo or a message
+   * pulled for it, so the Comlink layer can subscribe to change events on its handle
    */
   onDocumentReceived?: (itemId: ItemId) => void
+  /** Called when the doc store replaces an item's handle, so the Comlink layer can move its listener */
+  onDocHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
   /**
    * Called with every indexed document ID, including the settings document, which the
    * `indexUpdated` event sent to the app leaves out.
@@ -215,13 +218,13 @@ export class SyncWorkerContext {
 
     const docStore = new AutomergeDocStore({
       repo,
-      internalEventHub,
+      onHandleReplaced: this.config.onDocHandleReplaced,
       storageAdapter: repoManager.getStorage(),
       codec: this.domain.codec,
       isLocallyUnreadable: documentId => this.unreadableDocuments.has(documentId),
     })
 
-    // The settings are created later, so these callbacks read them from the finished services
+    // The settings, broker and orchestrator are created later, so callbacks read them from the finished services
     const indexManager = new AutomergeIndexManager({
       accountId,
       indexStore,
@@ -243,6 +246,8 @@ export class SyncWorkerContext {
       session,
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
+      onItemMessageParsed: itemId => this.notifyDocumentReceived(itemId),
+      onFlushNeeded: () => this._services?.orchestrator.flush(),
     })
     const recoveryManager = new RecoveryManager({ accountId, eventHub: clientEventHub })
 
@@ -255,6 +260,7 @@ export class SyncWorkerContext {
       wal,
       apiClient: this.apiClient,
       recoveryManager,
+      onPushAcknowledged: (itemId, heads) => this._services?.broker.recordSyncedHeads(itemId, heads),
     })
 
     const broker = new SyncMessageBroker({
@@ -263,6 +269,7 @@ export class SyncWorkerContext {
       pullQueueManager,
       session,
       wal,
+      onFlushNeeded: () => this._services?.orchestrator.flush(),
     })
 
     const snapshotManager = new SnapshotManager(
@@ -447,6 +454,9 @@ export class SyncWorkerContext {
       accountId: this.accountId,
       session: this.session,
       syncedHeadsStore,
+      // Nothing is sent before the services are finished: only the leader sends, and leadership is
+      // claimed once they start
+      onMessageToSend: message => this._services?.broker.send(message),
       headsValidator: (documentId, heads) => {
         const handle = repo?.handles[documentId] as DocHandle<unknown> | undefined
         if (!handle?.isReady()) return false
@@ -458,14 +468,15 @@ export class SyncWorkerContext {
     repo = repoManager.init(adapter, storage, {
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
-      onDocumentReceived: docId => {
-        const itemId = toVaultItemIdFromAutomergeId(docId)
-        if (itemId && !isIndexDocument(itemId)) {
-          this.config.onDocumentReceived?.(itemId)
-        }
-      },
+      onDocumentReceived: docId => this.notifyDocumentReceived(toVaultItemIdFromAutomergeId(docId)),
     })
     return { adapter, repoManager, repo }
+  }
+
+  private notifyDocumentReceived(itemId: ItemId): void {
+    if (itemId && !isIndexDocument(itemId)) {
+      this.config.onDocumentReceived?.(itemId)
+    }
   }
 
   private subscribeCrossTabDirtyItems({ realtimeBus, snapshotManager }: SyncWorkerServices): void {

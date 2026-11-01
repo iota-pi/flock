@@ -1,4 +1,5 @@
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
+import type { Mock } from 'vitest'
 
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
@@ -29,13 +30,15 @@ describe('SyncMessageBroker', () => {
   let internalEventHub: WorkerInternalEventHub
   let pullQueueManager: SyncPullQueueManager
   let mockWal: SyncWriteAheadLog
+  let onFlushNeeded: Mock<() => void>
 
   beforeEach(() => {
     vi.clearAllMocks()
+    onFlushNeeded = vi.fn()
     const hubs = createTestEventHubs()
     internalEventHub = hubs.internalEventHub
     session = new SyncSessionState()
-    adapter = new VaultNetworkAdapter(internalEventHub, { accountId: 'account-1', session })
+    adapter = new VaultNetworkAdapter(internalEventHub, { accountId: 'account-1', session, onMessageToSend: () => {} })
     pullQueueManager = {
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
@@ -56,13 +59,14 @@ describe('SyncMessageBroker', () => {
       pullQueueManager,
       session,
       wal: mockWal,
+      onFlushNeeded,
     })
   })
 
   /** Sends an incremental sync message for the item and reports whether the broker kept it out of the WAL. */
   async function dropsIncrementalSync(itemId: string): Promise<boolean> {
     const appendsBefore = vi.mocked(mockWal.append).mock.calls.length
-    internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage(itemId, [7]) })
+    broker.send(createSyncMessage(itemId, [7]))
     await Promise.resolve()
     return vi.mocked(mockWal.append).mock.calls.length === appendsBefore
   }
@@ -75,25 +79,22 @@ describe('SyncMessageBroker', () => {
   it('does not write to WAL unless this tab is the leader and the session is running', async () => {
     const msg = createSyncMessage('item123', [1, 2, 3])
 
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    broker.send(msg)
 
     session.setLeader(true)
     session.markShutdown()
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    broker.send(msg)
     await Promise.resolve()
 
     expect(mockWal.append).not.toHaveBeenCalled()
   })
 
   it('appends outgoing sync messages to WAL immediately and triggers flush', async () => {
-    const flushSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'flushNeeded') flushSpy()
-    })
+    const flushSpy = onFlushNeeded
     session.setLeader(true)
 
     const msg = createSyncMessage('item123', [1, 2, 3])
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    broker.send(msg)
     await Promise.resolve()
 
     expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
@@ -110,7 +111,7 @@ describe('SyncMessageBroker', () => {
 
     const msg = createSyncMessage('item-big', [])
     msg.data = new Uint8Array(MAX_INCREMENTAL_MESSAGE_BYTES + 1)
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    broker.send(msg)
     await Promise.resolve()
 
     expect(mockWal.append).not.toHaveBeenCalled()
@@ -126,10 +127,7 @@ describe('SyncMessageBroker', () => {
   })
 
   it('handles request type message by adding pending item and triggering flush', async () => {
-    const flushSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'flushNeeded') flushSpy()
-    })
+    const flushSpy = onFlushNeeded
     session.setLeader(true)
 
     const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-req' as ItemId))
@@ -141,7 +139,7 @@ describe('SyncMessageBroker', () => {
       data: new Uint8Array([]),
     }
 
-    internalEventHub.emit({ type: 'messageToSend', message: reqMsg })
+    broker.send(reqMsg)
 
     expect(pullQueueManager.addPendingItem).toHaveBeenCalledWith('item-req')
     expect(flushSpy).toHaveBeenCalledTimes(1)
@@ -154,11 +152,10 @@ describe('SyncMessageBroker', () => {
   })
 
   it('triggers renegotiation and notifies onWalAppendFailed when WAL append fails', async () => {
-    const flushSpy = vi.fn()
+    const flushSpy = onFlushNeeded
     const failureSpy = vi.fn()
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
     internalEventHub.subscribe(e => {
-      if (e.type === 'flushNeeded') flushSpy()
       if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
     })
     session.setLeader(true)
@@ -167,7 +164,7 @@ describe('SyncMessageBroker', () => {
     vi.mocked(mockWal.append).mockRejectedValueOnce(appendError)
 
     const msg = createSyncMessage('item123', [1, 2, 3])
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    broker.send(msg)
     await Promise.resolve()
 
     expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
@@ -188,7 +185,7 @@ describe('SyncMessageBroker', () => {
     vi.mocked(mockWal.append).mockRejectedValueOnce(quotaError)
 
     const msg = createSyncMessage('item-quota', [4, 5, 6])
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    broker.send(msg)
     await Promise.resolve()
 
     expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
@@ -227,7 +224,7 @@ describe('SyncMessageBroker', () => {
 
     // Outgoing sync message for item-1
     const msg = createSyncMessage('item-1', [1, 2, 3])
-    internalEventHub.emit({ type: 'messageToSend', message: msg })
+    broker.send(msg)
     await Promise.resolve()
 
     // WAL append should NOT be called for snapshot-only item
@@ -271,7 +268,7 @@ describe('SyncMessageBroker', () => {
     expect(await dropsIncrementalSync(itemId)).toBe(false)
   })
 
-  it('records heads on pushAcknowledged without ending snapshot-only sync', async () => {
+  it('records heads from a push without ending snapshot-only sync', async () => {
     await startSending()
     const setSyncedHeadsSpy = vi.spyOn(adapter, 'setSyncedHeads')
     const resetRenegSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
@@ -282,7 +279,7 @@ describe('SyncMessageBroker', () => {
     broker.blockItem(itemId)
     broker.fallbackToSnapshot(itemId)
 
-    internalEventHub.emit({ type: 'pushAcknowledged', itemId, heads: ['head-from-push'] })
+    broker.recordSyncedHeads(itemId, ['head-from-push'])
     expect(broker.isItemBlocked(itemId)).toBe(false)
     expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-push'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
@@ -300,12 +297,12 @@ describe('SyncMessageBroker', () => {
       // When triggerReNegotiation is called, simulate Automerge immediately emitting a full sync message
       vi.spyOn(adapter, 'triggerReNegotiation').mockImplementation(() => {
         const renegResponseMsg = createSyncMessage('item-loop', [99, 99])
-        internalEventHub.emit({ type: 'messageToSend', message: renegResponseMsg })
+        broker.send(renegResponseMsg)
         return true
       })
 
       const initialMsg = createSyncMessage('item-loop', [1, 2, 3])
-      internalEventHub.emit({ type: 'messageToSend', message: initialMsg })
+      broker.send(initialMsg)
       await Promise.resolve()
 
       // The item should now be blocked
@@ -317,7 +314,7 @@ describe('SyncMessageBroker', () => {
       expect(mockWal.append).toHaveBeenCalledWith('item-loop', new Uint8Array([1, 2, 3]))
 
       // Further messages while blocked are also dropped
-      internalEventHub.emit({ type: 'messageToSend', message: createSyncMessage('item-loop', [4, 5, 6]) })
+      broker.send(createSyncMessage('item-loop', [4, 5, 6]))
       await Promise.resolve()
       expect(mockWal.append).toHaveBeenCalledTimes(1)
     })
@@ -337,17 +334,14 @@ describe('SyncMessageBroker', () => {
 
       // Now outgoing messages can append to WAL again
       const msg = createSyncMessage('item-snap', [10, 11])
-      internalEventHub.emit({ type: 'messageToSend', message: msg })
+      broker.send(msg)
       await Promise.resolve()
 
       expect(mockWal.append).toHaveBeenCalledWith('item-snap', new Uint8Array([10, 11]))
     })
 
     it('successfully appends sync messages to WAL after unblockAllItems unblocks previously blocked items', async () => {
-      const flushSpy = vi.fn()
-      internalEventHub.subscribe(e => {
-        if (e.type === 'flushNeeded') flushSpy()
-      })
+      const flushSpy = onFlushNeeded
       session.setLeader(true)
 
       // Block item
@@ -356,7 +350,7 @@ describe('SyncMessageBroker', () => {
 
       // Message dropped while blocked
       const droppedMsg = createSyncMessage('item-blocked', [1, 2, 3])
-      internalEventHub.emit({ type: 'messageToSend', message: droppedMsg })
+      broker.send(droppedMsg)
       await Promise.resolve()
       expect(mockWal.append).not.toHaveBeenCalled()
       expect(flushSpy).not.toHaveBeenCalled()
@@ -367,7 +361,7 @@ describe('SyncMessageBroker', () => {
 
       // Renegotiation message arrives and is appended to WAL
       const recoveredMsg = createSyncMessage('item-blocked', [4, 5, 6])
-      internalEventHub.emit({ type: 'messageToSend', message: recoveredMsg })
+      broker.send(recoveredMsg)
       await Promise.resolve()
 
       expect(mockWal.append).toHaveBeenCalledWith('item-blocked', new Uint8Array([4, 5, 6]))

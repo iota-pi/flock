@@ -40,6 +40,8 @@ export interface SyncPollerDeps {
   wal: SyncWriteAheadLog
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
+  /** Receives the heads of each item the server accepted a push for */
+  onPushAcknowledged: (itemId: ItemId, heads: string[]) => void
 }
 
 export class SyncPoller {
@@ -52,6 +54,7 @@ export class SyncPoller {
   private readonly internalEventHub: WorkerInternalEventHub
   private readonly keys: KeyProvider
   private readonly wal: SyncWriteAheadLog
+  private readonly onPushAcknowledged: (itemId: ItemId, heads: string[]) => void
   /** WAL entries already checked to be sync messages, so a retried push doesn't decode them again */
   private validEntryIds = new Set<string>()
 
@@ -64,6 +67,7 @@ export class SyncPoller {
     this.wal = deps.wal
     this.apiClient = deps.apiClient
     this.recoveryManager = deps.recoveryManager
+    this.onPushAcknowledged = deps.onPushAcknowledged
   }
 
   private get isOperational(): boolean {
@@ -341,17 +345,15 @@ export class SyncPoller {
     const lastEntry = itemMessages?.[itemMessages.length - 1]
     if (!lastEntry) return
 
+    let heads: string[]
     try {
-      const decoded = decodeSyncMessage(lastEntry.data)
-      if (decoded.heads && decoded.heads.length > 0) {
-        this.internalEventHub.emit({
-          type: 'pushAcknowledged',
-          itemId: result.itemId,
-          heads: decoded.heads,
-        })
-      }
+      heads = decodeSyncMessage(lastEntry.data).heads
     } catch (err) {
       log.warn('Failed to decode acknowledged sync message', err)
+      return
+    }
+    if (heads && heads.length > 0) {
+      this.onPushAcknowledged(result.itemId, heads)
     }
   }
 

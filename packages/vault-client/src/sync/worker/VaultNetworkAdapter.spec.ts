@@ -40,16 +40,27 @@ function syncMessage(n: number): Uint8Array {
 setApiAuthToken('mock-auth-token')
 
 const sessions = new WeakMap<VaultNetworkAdapter, SyncSessionState>()
+const sendListeners = new WeakMap<VaultNetworkAdapter, (message: Message) => void>()
 
 /** An adapter with its own session state, in which this tab isn't the leader */
 function createAdapter(
   hub: WorkerInternalEventHub,
-  options: Omit<VaultNetworkAdapterOptions, 'accountId' | 'session'> = {},
+  options: Partial<Omit<VaultNetworkAdapterOptions, 'accountId' | 'session'>> = {},
 ): VaultNetworkAdapter {
   const session = new SyncSessionState()
-  const created = new VaultNetworkAdapter(hub, { accountId: 'test-account', session, ...options })
+  const created: VaultNetworkAdapter = new VaultNetworkAdapter(hub, {
+    accountId: 'test-account',
+    session,
+    onMessageToSend: message => sendListeners.get(created)?.(message),
+    ...options,
+  })
   sessions.set(created, session)
   return created
+}
+
+/** Receives the messages an adapter from `createAdapter` hands to the broker */
+function onSend(target: VaultNetworkAdapter, listener: (message: Message) => void): void {
+  sendListeners.set(target, listener)
 }
 
 /** Makes this tab the leader (sending to the vault) or a follower, and tells the adapter */
@@ -106,7 +117,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     internalEventHub = hubs.internalEventHub
     // Offline by default to avoid automatic background runs in static tests
     session = new SyncSessionState({ isOnline: false })
-    adapter = new VaultNetworkAdapter(internalEventHub, { accountId: 'test-account', session })
+    adapter = new VaultNetworkAdapter(internalEventHub, {
+      accountId: 'test-account',
+      session,
+      onMessageToSend: message => broker.send(message),
+    })
     sessions.set(adapter, session)
     const cursorStore = new CursorStore('test-account')
     pullQueueManager = new SyncPullQueueManager({
@@ -116,6 +131,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       internalEventHub,
       adapter,
       session,
+      onFlushNeeded: () => orchestrator.flush(),
     })
     const wal = new SyncWriteAheadLog(WAL_ACCOUNT, internalEventHub)
     poller = new SyncPoller({
@@ -127,6 +143,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       wal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: clientEventHub }),
+      onPushAcknowledged: (itemId, heads) => broker.recordSyncedHeads(itemId, heads),
     })
     broker = new SyncMessageBroker({
       adapter,
@@ -134,6 +151,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       pullQueueManager,
       session,
       wal,
+      onFlushNeeded: () => orchestrator.flush(),
     })
     orchestrator = new SyncOrchestrator({
       accountId: 'test-account',
@@ -655,9 +673,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     const repo = new Repo({
       network: [testAdapter],
@@ -709,9 +725,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     // Prepare a doc that was previously synced at count = 1
     let doc = Automerge.init<{ count: number }>()
@@ -904,9 +918,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setSendEnabled(testAdapter, true)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const syncMsgWithChanges = encodeSyncMessage({
       heads: [],
@@ -946,9 +958,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setSendEnabled(testAdapter, false)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const syncMsgWithChanges = encodeSyncMessage({
       heads: [],
@@ -988,9 +998,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.connect('test-peer' as PeerId)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const makeMessage = (documentId: string): Message => ({
       type: 'sync',
@@ -1019,9 +1027,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     testAdapter.disconnect() // disconnected
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const emptySyncMsg = encodeSyncMessage({
       heads: [],
@@ -1070,9 +1076,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     }
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     testAdapter.connect('test-peer' as PeerId)
 
@@ -1088,9 +1092,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     const repo = new Repo({
       network: [testAdapter],
@@ -1146,9 +1148,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setSendEnabled(testAdapter, true)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
     const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
     const doc0Deliveries = () => receiveSpy.mock.calls.filter(call => call[0] === 'doc-0')
 
@@ -1237,29 +1237,26 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     let targetDocId: DocumentId | null = null
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') {
-        const msg = e.message
-        outgoingMessages.push(msg)
-        if (
-          targetDocId &&
-          msg.documentId === targetDocId &&
-          msg.type === 'sync' &&
-          msg.data instanceof Uint8Array
-        ) {
-          const decoded = decodeSyncMessage(msg.data)
-          if (decoded.changes && decoded.changes.length > 0) {
-            // State the vault's own sync state: everything up to the received heads, with an
-            // empty bloom. Echoing the Repo's `have` would claim its bloom as the vault's, and a
-            // bloom false positive on a later change makes Automerge withhold that change.
-            const ack = encodeSyncMessage({
-              heads: decoded.heads,
-              need: [],
-              have: [{ lastSync: decoded.heads, bloom: new Uint8Array() }],
-              changes: [],
-            })
-            testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
-          }
+    onSend(testAdapter, msg => {
+      outgoingMessages.push(msg)
+      if (
+        targetDocId &&
+        msg.documentId === targetDocId &&
+        msg.type === 'sync' &&
+        msg.data instanceof Uint8Array
+      ) {
+        const decoded = decodeSyncMessage(msg.data)
+        if (decoded.changes && decoded.changes.length > 0) {
+          // State the vault's own sync state: everything up to the received heads, with an
+          // empty bloom. Echoing the Repo's `have` would claim its bloom as the vault's, and a
+          // bloom false positive on a later change makes Automerge withhold that change.
+          const ack = encodeSyncMessage({
+            heads: decoded.heads,
+            need: [],
+            have: [{ lastSync: decoded.heads, bloom: new Uint8Array() }],
+            changes: [],
+          })
+          testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
         }
       }
     })
@@ -1364,11 +1361,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') {
-        outgoingMessages.push(e.message)
-      }
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     const repo = new Repo({
       network: [testAdapter],

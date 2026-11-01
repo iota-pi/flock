@@ -52,6 +52,10 @@ export interface SyncPullQueueManagerDeps {
   /** Tells the account's other tabs which items were pulled */
   bus?: RealtimeBus
   onKeyVersionMissing?: (kver: string) => void
+  /** Called with each item a message was pulled for, before the adapter receives the message */
+  onItemMessageParsed?: (itemId: ItemId) => void
+  /** Asks the orchestrator to poll, once pulls held back for a missing key can go ahead */
+  onFlushNeeded?: () => void
 }
 
 export class SyncPullQueueManager {
@@ -63,6 +67,8 @@ export class SyncPullQueueManager {
   private readonly session: SyncSessionState
   private readonly bus: RealtimeBus | null
   private readonly onKeyVersionMissing?: (kver: string) => void
+  private readonly onItemMessageParsed?: (itemId: ItemId) => void
+  private readonly onFlushNeeded?: () => void
 
   private readonly retryTracker: PullRetryTracker
   private hasMoreGlobal = false
@@ -88,6 +94,8 @@ export class SyncPullQueueManager {
     this.session = deps.session
     this.bus = deps.bus ?? null
     this.onKeyVersionMissing = deps.onKeyVersionMissing
+    this.onItemMessageParsed = deps.onItemMessageParsed
+    this.onFlushNeeded = deps.onFlushNeeded
     this.retryTracker = new PullRetryTracker(deps.keys)
   }
 
@@ -177,7 +185,7 @@ export class SyncPullQueueManager {
 
   /** Hands a pulled message to the adapter. If the adapter throws, the batch stops there and is retried. */
   private deliverMessage(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
-    this.internalEventHub.emit({ type: 'itemMessageParsed', itemId })
+    this.onItemMessageParsed?.(itemId)
     this.adapter.receiveServerMessage(documentId, message)
   }
 
@@ -242,7 +250,7 @@ export class SyncPullQueueManager {
     if (unblockedAny) {
       const isRetrying = this.retryTracker.isAnyRetrying()
       this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-      this.internalEventHub.emit({ type: 'flushNeeded' })
+      this.onFlushNeeded?.()
     }
   }
 

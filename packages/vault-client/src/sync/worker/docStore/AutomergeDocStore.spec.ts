@@ -12,7 +12,6 @@ import type {
   RepoDoc,
 } from './AutomergeDocStore'
 import { createTestDocStore } from '../__test__/testUtils'
-import { WorkerInternalEventHub } from '../SyncEventHub'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
 import { AbortError } from '../../utils/abort'
 import {
@@ -761,20 +760,15 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(importSpy).toHaveBeenCalledWith(expect.any(Uint8Array), { docId: documentId })
     })
 
-    it('emits docHandleReplaced once on internalEventHub when creating document', async () => {
-      const hub = new WorkerInternalEventHub()
-      const replacedEvents: unknown[] = []
-      hub.subscribe(event => {
-        if (event.type === 'docHandleReplaced') replacedEvents.push(event)
-      })
-
-      const store = createTestDocStore(repo, { internalEventHub: hub })
+    it('reports the replaced handle once when creating document', async () => {
+      const onHandleReplaced = vi.fn()
+      const store = createTestDocStore(repo, { onHandleReplaced })
       vi.spyOn(store, 'hasDataInStorage').mockResolvedValue(false)
 
       const itemId = 'event-notify-item' as ItemId
       const handle = await store.findOrCreateHandle(itemId)
 
-      expect(replacedEvents).toEqual([{ type: 'docHandleReplaced', itemId, handle }])
+      expect(onHandleReplaced.mock.calls).toEqual([[itemId, handle]])
     })
 
     it('throws wrapped error if repo.import fails during creation', async () => {

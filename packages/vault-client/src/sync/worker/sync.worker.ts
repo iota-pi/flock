@@ -18,7 +18,6 @@ import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
 import { exportAllBinaries, restoreFromBinaries, type RepoDoc } from './docStore'
-import { isIndexDocument } from './utils/automerge'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../../api/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
 import { getTrackedFetch } from '../../api/trackedFetch'
@@ -237,14 +236,6 @@ export class SyncWorker implements SyncApi {
         case 'retryingStateChange':
           this.syncStatusManager.setDegradedPull(event.isRetrying)
           break
-        case 'docHandleReplaced':
-          this.subscriptions.rebind(event.itemId, event.handle)
-          break
-        case 'itemMessageParsed':
-          if (!isIndexDocument(event.itemId)) {
-            this.subscriptions.subscribe([event.itemId])
-          }
-          break
       }
     })
   }
@@ -313,6 +304,7 @@ export class SyncWorker implements SyncApi {
         isOnline: this.isOnline,
         apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
+        onDocHandleReplaced: (itemId, handle) => this.subscriptions.rebind(itemId, handle),
         onIndexUpdated: itemIds => {
           if (this._context === context) this.subscriptions.update(itemIds)
         },

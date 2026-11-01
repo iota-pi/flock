@@ -344,22 +344,6 @@ describe('SyncWorkerContext', () => {
       mockRecoveryEntries.clear()
     })
 
-    it('does not remove a manual recovery entry when itemMessageParsed is received', async () => {
-      const { ctx, ctxInternalHub } = await createContext()
-      await ctx.services.recoveryManager.quarantine(
-        'item-1' as ItemId,
-        'oversized',
-        'Snapshot size (400 KB) exceeds 350 KB limit.',
-      )
-
-      ctxInternalHub.emit({ type: 'itemMessageParsed', itemId: 'item-1' as ItemId })
-      await new Promise(resolve => setTimeout(resolve, 50))
-
-      const entries = await ctx.services.recoveryManager.listRecoveryItems()
-      expect(entries).toHaveLength(1)
-      expect(entries[0].kind).toBe('oversized')
-    })
-
     it('resolves pullDecryption quarantines when remoteMessagesParsed is received', async () => {
       const { ctx, ctxInternalHub } = await createContext()
       const resolveSpy = vi.spyOn(ctx.services.recoveryManager, 'resolveQuarantines').mockResolvedValue(undefined)

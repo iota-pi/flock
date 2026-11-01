@@ -128,6 +128,7 @@ describe('global pull pagination (client ↔ router)', () => {
       wal,
       apiClient,
       recoveryManager,
+      onPushAcknowledged: () => {},
     })
 
     const outcomes: string[] = []

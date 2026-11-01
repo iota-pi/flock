@@ -56,6 +56,8 @@ export interface VaultNetworkAdapterOptions {
   accountId: string
   /** Only the leader sends to the vault */
   session: SyncSessionState
+  /** Hands an outgoing message (a change or a pull request) to the broker, which writes it to the WAL */
+  onMessageToSend: (message: Message) => void
   /** Persists the last confirmed synced heads so they survive a restart */
   syncedHeadsStore?: SyncedHeadsStore
   /**
@@ -94,6 +96,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
    */
   private hasUnsavedSyncedHeads = false
   private readonly headsValidator: HeadsValidator | null
+  private readonly onMessageToSend: (message: Message) => void
 
   constructor(
     private readonly internalEventHub: WorkerInternalEventHub,
@@ -107,6 +110,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
     })
     this.syncedHeadsStore = options.syncedHeadsStore ?? null
     this.headsValidator = options.headsValidator ?? null
+    this.onMessageToSend = options.onMessageToSend
   }
 
   /** Saves changed synced heads (unless local data is being cleared), then disconnects */
@@ -338,7 +342,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
       return
     }
 
-    this.internalEventHub.emit({ type: 'messageToSend', message })
+    this.onMessageToSend(message)
   }
 
   /**

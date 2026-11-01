@@ -55,7 +55,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     internalEventHub = hubs.internalEventHub
     // This tab is the leader, which writes outgoing messages to the WAL
     const session = new SyncSessionState({ isLeader: true })
-    adapter = new VaultNetworkAdapter(internalEventHub, { accountId, session })
+    adapter = new VaultNetworkAdapter(internalEventHub, { accountId, session, onMessageToSend: message => broker.send(message) })
     adapter.connect('peer-1' as any)
 
     pullQueueManager = {
@@ -74,6 +74,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
       pullQueueManager,
       session,
       wal,
+      onFlushNeeded: () => {},
     })
   })
 

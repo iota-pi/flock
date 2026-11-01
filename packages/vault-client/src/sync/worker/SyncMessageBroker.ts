@@ -19,6 +19,8 @@ export interface SyncMessageBrokerDeps {
   /** Only the leader writes outgoing messages to the WAL */
   session: SyncSessionState
   wal: SyncWriteAheadLog
+  /** Asks the orchestrator to push what's in the WAL and pull pending items */
+  onFlushNeeded: () => void
 }
 
 export class SyncMessageBroker {
@@ -30,6 +32,7 @@ export class SyncMessageBroker {
   private readonly adapter: VaultNetworkAdapter
   private readonly internalEventHub: WorkerInternalEventHub
   private readonly pullQueueManager: SyncPullQueueManager
+  private readonly onFlushNeeded: () => void
 
   constructor(deps: SyncMessageBrokerDeps) {
     this.adapter = deps.adapter
@@ -37,20 +40,18 @@ export class SyncMessageBroker {
     this.pullQueueManager = deps.pullQueueManager
     this.wal = deps.wal
     this.session = deps.session
+    this.onFlushNeeded = deps.onFlushNeeded
 
     this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
-      switch (event.type) {
-        case 'messageToSend':
-          fireAndForget(this.handleOutgoingMessage(event.message), 'SyncMessageBroker:handleOutgoingMessage')
-          break
-        case 'pushAcknowledged':
-          this.recordSyncedHeads(event.itemId, event.heads)
-          break
-        case 'walEntriesPruned':
-          this.handleWalEntriesPruned(event.itemIds)
-          break
+      if (event.type === 'walEntriesPruned') {
+        this.handleWalEntriesPruned(event.itemIds)
       }
     })
+  }
+
+  /** Takes an outgoing message from the adapter: a change goes to the WAL, a request to the pull queue */
+  send(message: Message): void {
+    fireAndForget(this.handleOutgoingMessage(message), 'SyncMessageBroker:handleOutgoingMessage')
   }
 
   blockItem(itemId: ItemId): void {
@@ -79,7 +80,8 @@ export class SyncMessageBroker {
     this.recordSyncedHeads(itemId, heads)
   }
 
-  private recordSyncedHeads(itemId: ItemId, heads: string[]): void {
+  /** Records heads the server has confirmed from a push. Snapshot-only sync continues. */
+  recordSyncedHeads(itemId: ItemId, heads: string[]): void {
     const documentId = toDocumentIdFromItemId(itemId)
     this.unblockItem(itemId)
     this.adapter.setSyncedHeads(documentId, heads)
@@ -160,7 +162,7 @@ export class SyncMessageBroker {
   }
 
   flush(): void {
-    this.internalEventHub.emit({ type: 'flushNeeded' })
+    this.onFlushNeeded()
   }
 
   shutdown(): void {

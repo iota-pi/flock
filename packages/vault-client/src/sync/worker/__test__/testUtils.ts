@@ -312,11 +312,10 @@ export function createTestEventHubs(): TestEventHubs {
   }
 }
 
-/** A doc store over `repo` with its own event hub, the passthrough codec and every document readable */
+/** A doc store over `repo` with the passthrough codec and every document readable */
 export function createTestDocStore(repo: Repo, overrides?: Partial<AutomergeDocStoreOptions>): AutomergeDocStore {
   return new AutomergeDocStore({
     repo,
-    internalEventHub: new WorkerInternalEventHub(),
     codec: passthroughCodec,
     isLocallyUnreadable: () => false,
     ...overrides,

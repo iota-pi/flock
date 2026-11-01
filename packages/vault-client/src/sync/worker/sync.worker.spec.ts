@@ -9,6 +9,9 @@ import { spyOnExports } from '../../../test/moduleMocks'
 import * as comlinkModule from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
 import * as syncWorkerContext from './SyncWorkerContext'
+import type { SyncWorkerContextConfig } from './SyncWorkerContext'
+import type { DocHandle } from '@automerge/automerge-repo/slim'
+import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { SyncSessionState } from './SyncSessionState'
 
 const realtimeListeners: Array<(itemIds: string[]) => void> = []
@@ -67,6 +70,9 @@ beforeEach(() => {
   })
   spyOnExports(syncWorkerContext, {
     SyncWorkerContext: class MockSyncWorkerContext {
+      // The callbacks the worker passes, which tests call as the real context's components would
+      constructor(readonly config: SyncWorkerContextConfig) {}
+
       // Public properties accessed by SyncWorker
       accountId = 'test-account'
       session = new SyncSessionState()
@@ -211,8 +217,14 @@ describe('SyncWorker initRepo cleanup on re-init', () => {
   })
 })
 
-describe('SyncWorker docHandleReplaced / change listener rebinding', () => {
-  it('rebinds change listener from old handle to new handle when docHandleReplaced is emitted', async () => {
+/** Replaces an item's handle, as the context's doc store does */
+function replaceHandle(worker: SyncWorker, itemId: string, handle: unknown): void {
+  const config = ((worker as any)._context as { config: SyncWorkerContextConfig }).config
+  config.onDocHandleReplaced?.(itemId as ItemId, handle as DocHandle<RepoDoc>)
+}
+
+describe('SyncWorker handle replacement / change listener rebinding', () => {
+  it('rebinds change listener from old handle to new handle when the handle is replaced', async () => {
     const handleAChangeListeners: Array<() => void> = []
     const handleA = {
       documentId: 'doc-item-1',
@@ -257,7 +269,7 @@ describe('SyncWorker docHandleReplaced / change listener rebinding', () => {
 
     clientEvents.length = 0
 
-    ;(worker as any).internalEventHub.emit({ type: 'docHandleReplaced', itemId: 'item-1', handle: handleB })
+    replaceHandle(worker, 'item-1', handleB)
 
     // 1. Old handle listener must be unbound with the exact registered reference
     const registeredListenerA = (handleA.on as any).mock.calls[0][1]
@@ -286,7 +298,7 @@ describe('SyncWorker docHandleReplaced / change listener rebinding', () => {
     })
   })
 
-  it('does not bind listener when docHandleReplaced is emitted for an unsubscribed item', async () => {
+  it('does not bind listener when the handle of an unsubscribed item is replaced', async () => {
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
 
@@ -297,7 +309,7 @@ describe('SyncWorker docHandleReplaced / change listener rebinding', () => {
       doc: vi.fn().mockReturnValue({ id: 'item-unsub', name: 'Unsubscribed Item' }),
     }
 
-    ;(worker as any).internalEventHub.emit({ type: 'docHandleReplaced', itemId: 'item-unsub', handle })
+    replaceHandle(worker, 'item-unsub', handle)
 
     expect(handle.on).not.toHaveBeenCalled()
   })

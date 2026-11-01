@@ -75,6 +75,7 @@ describe('SyncPoller', () => {
       wal: mockWal,
       apiClient: new SyncApiClient(),
       recoveryManager: mockRecoveryManager,
+      onPushAcknowledged: () => {},
     })
   })
 
@@ -996,6 +997,7 @@ describe('SyncPoller', () => {
         wal: mockWal,
         apiClient: mockApiClient,
         recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
       })
 
       const outcome = await authPoller.executePoll()
@@ -1034,6 +1036,7 @@ describe('SyncPoller', () => {
         wal: mockWal,
         apiClient,
         recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
       })
 
       const outcome = await authPoller.executePoll()
@@ -1058,6 +1061,7 @@ describe('SyncPoller', () => {
         wal: mockWal,
         apiClient,
         recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
       })
 
       const outcome = await authPoller.executePoll()
