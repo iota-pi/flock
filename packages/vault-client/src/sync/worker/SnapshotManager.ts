@@ -21,15 +21,15 @@ export interface SnapshotManagerOptions {
   maxWaitMs?: number
 }
 
+/**
+ * Wires the snapshot tracker and pusher together and reacts to the session's changes. Callers read and
+ * mark dirty items through `tracker`.
+ */
 export class SnapshotManager implements StoredSnapshotRecorder {
-  private readonly tracker: SnapshotTracker
+  readonly tracker: SnapshotTracker
   private readonly builder: SnapshotBuilder
   private readonly pusher: SnapshotPusher
   private readonly session: SyncSessionState
-
-  async loadLastModified(): Promise<void> {
-    await this.tracker.loadLastModified()
-  }
 
   constructor(
     deps: {
@@ -61,6 +61,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
 
     this.pusher = new SnapshotPusher({
       accountId: deps.accountId,
+      session: deps.session,
       tracker: this.tracker,
       builder: this.builder,
       broker: deps.broker,
@@ -102,47 +103,10 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     this.pusher.cancelRetry()
   }
 
-  /** Saves the timestamps, throwing any failure */
-  async saveLastModified(): Promise<void> {
-    await this.tracker.saveLastModified()
-  }
-
-  markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
-    this.tracker.markItemDirty(itemId, customDebounceDelayMs)
-  }
-
-  deleteDirtyItem(itemId: ItemId): boolean {
-    return this.tracker.deleteDirtyItem(itemId)
-  }
-
   async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     // Saved first, and in any tab: a follower can't push, but its edits must still survive the page closing
     this.tracker.flushPendingSave()
     return this.pusher.flushPendingSnapshots()
-  }
-
-  clearOversized(itemId: ItemId): void {
-    this.tracker.clearOversized(itemId)
-  }
-
-  getDirtyItemIds(): ItemId[] {
-    return this.tracker.getDirtyItemIds()
-  }
-
-  exportLastModified(): [ItemId, number][] {
-    return this.tracker.exportLastModified()
-  }
-
-  async importLastModified(data: [ItemId, number][]): Promise<void> {
-    await this.tracker.importLastModified(data)
-  }
-
-  exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
-    return this.tracker.exportItemVersions()
-  }
-
-  async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
-    await this.tracker.importVersions(updates)
   }
 
   recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {

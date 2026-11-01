@@ -42,6 +42,7 @@ export interface BuildSnapshotOptions {
   codec: DocCodec
 }
 
+/** Throws what the lookup or encryption throws; `SnapshotBuilder.build` turns that into a result */
 export async function buildSnapshot(
   repo: Repo,
   itemId: ItemId,
@@ -78,15 +79,7 @@ export async function buildSnapshot(
     return { type: 'error', reason: 'Failed to serialize document binary' }
   }
 
-  let encryptedDoc
-  try {
-    encryptedDoc = await keys.encryptBytes(binary, itemId)
-  } catch (error) {
-    if (classifySyncError(error).isTransientVault) {
-      return { type: 'not-ready' }
-    }
-    throw error
-  }
+  const encryptedDoc = await keys.encryptBytes(binary, itemId)
 
   const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, options.codec)
   if (!itemSnapshot) {
@@ -147,10 +140,10 @@ export class SnapshotBuilder {
         log.warn('Vault is locked or uninitialized during snapshot build, waiting', error)
         return { type: 'not-ready' }
       }
-      log.error('failed to encrypt snapshot binary', error)
+      log.error('Failed to build snapshot', error)
       return {
         type: 'error',
-        reason: error instanceof Error ? error.message : 'Failed to encrypt snapshot binary',
+        reason: error instanceof Error ? error.message : 'Failed to build snapshot',
       }
     }
   }

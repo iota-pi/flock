@@ -306,8 +306,8 @@ describe('reencryptAllItems', () => {
       reason: expect.stringContaining('Corrupt document'),
     })
 
-    // Should have retried bad item 3 times
-    expect(badItemAttempts).toBe(3)
+    // A build error isn't retried; only a document or vault that isn't ready is
+    expect(badItemAttempts).toBe(1)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     const callArgs = mockPutSnapshots.mock.calls[0][0]
     expect(callArgs.snapshots).toHaveLength(2)

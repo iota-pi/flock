@@ -2,7 +2,7 @@ import { chunk } from 'lodash-es'
 
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
-import type { SnapshotManager } from './SnapshotManager'
+import type { SnapshotTracker } from './SnapshotTracker'
 import type { CryptoResult } from '../../api/crypto'
 import type { KeyProvider } from '../../api/Keyring'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
@@ -70,7 +70,7 @@ export interface ManifestHydratorDeps {
   apiClient: SyncApiClient
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
-  snapshotManager: SnapshotManager
+  snapshotTracker: SnapshotTracker
   keys: KeyProvider
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   /** `serverVersion` is the manifest version of the snapshot that failed, when known */
@@ -229,11 +229,11 @@ export class ManifestHydrator {
     }
 
     if (lastModifiedUpdates.length > 0) {
-      await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
+      await this.deps.snapshotTracker.importLastModified(lastModifiedUpdates)
     }
 
     if (versionUpdates.length > 0) {
-      await this.deps.snapshotManager.importVersions(versionUpdates)
+      await this.deps.snapshotTracker.importVersions(versionUpdates)
     }
 
     return {
@@ -347,7 +347,7 @@ export class ManifestHydrator {
     }
 
     if (hydrationResult?.hasLocalChanges) {
-      this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotTracker.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
 
     return {
@@ -386,7 +386,7 @@ export class ManifestHydrator {
     const snapshotId = snapshot.id as ItemId
     if (tombstoneSet.has(snapshotId) && snapshot.deleted !== true) {
       await this.deps.indexManager.removeAutomergeItemIdsFromIndex([snapshotId])
-      this.deps.snapshotManager.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotTracker.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       return {
         status: 'success',
         itemId,

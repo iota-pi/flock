@@ -2,7 +2,7 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 import { chunk, partition } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { buildSnapshot, estimateSnapshotSize, type BuildSnapshotResult } from './snapshotBuilder'
+import { SnapshotBuilder, estimateSnapshotSize, type BuildSnapshotResult } from './snapshotBuilder'
 import type { DocCodec } from './domain'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
@@ -61,7 +61,7 @@ export interface ItemReencryptorOptions {
 
 export class ItemReencryptor {
   private readonly accountId: string
-  private readonly repo: Repo
+  private readonly builder: SnapshotBuilder
   private readonly indexManager: AutomergeIndexManager
   private readonly apiClient: SyncApiClient
   private readonly recoveryManager: RecoveryManager
@@ -72,18 +72,14 @@ export class ItemReencryptor {
   private readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
-  private readonly codec: DocCodec
-  private readonly keys: KeyProvider
   private readonly recorder?: StoredSnapshotRecorder
 
   constructor(options: ItemReencryptorOptions) {
     this.accountId = options.accountId
-    this.repo = options.repo
+    this.builder = new SnapshotBuilder(options.repo, options.keys, options.codec)
     this.indexManager = options.indexManager
     this.apiClient = options.apiClient
     this.recoveryManager = options.recoveryManager
-    this.codec = options.codec
-    this.keys = options.keys
     this.recorder = options.recorder
     this.retryStrategy = new RetryStrategy({ delays: options.retryDelays ?? DEFAULT_RETRY_DELAYS })
     this.batchRetryDelays = options.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
@@ -265,7 +261,7 @@ export class ItemReencryptor {
   ): Promise<Exclude<BuildSnapshotResult, { type: 'not-ready' }>> {
     return RetryStrategy.executeWithRetry(
       async () => {
-        const result = await buildSnapshot(this.repo, itemId, 0, this.keys, { signal, codec: this.codec })
+        const result = await this.builder.build(itemId, 0, { signal })
         if (result.type === 'not-ready') {
           throw new Error(`Item ${itemId} document or vault was not ready`)
         }

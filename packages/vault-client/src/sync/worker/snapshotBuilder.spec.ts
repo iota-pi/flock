@@ -234,17 +234,7 @@ describe('buildSnapshot helper function', () => {
     })
   })
 
-  it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
-    mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
-    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
-    expect(result).toEqual({ type: 'not-ready' })
-
-    mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
-    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
-    expect(result).toEqual({ type: 'not-ready' })
-  })
-
-  it('propagates non-transient encryptBytes exception (caller handles it)', async () => {
+  it('propagates encryptBytes exceptions (SnapshotBuilder handles them)', async () => {
     const error = new Error('Crypto error')
     mockEncryptBytes.mockRejectedValue(error)
 
@@ -318,9 +308,13 @@ describe('SnapshotBuilder class', () => {
     expect(result.type).toBe('success')
   })
 
-  it('handles transient vault error by returning not-ready', async () => {
-    mockEncryptBytes.mockRejectedValue(new VaultNotInitializedError())
-    const result = await builder.build('item-1' as ItemId, 42)
+  it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
+    mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
+    let result = await builder.build('item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
+
+    mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
+    result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({ type: 'not-ready' })
   })
 

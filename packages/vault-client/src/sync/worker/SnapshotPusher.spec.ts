@@ -2,6 +2,7 @@ import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { SyncSessionState } from './SyncSessionState'
 import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError } from './SyncApiClient'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
@@ -25,7 +26,6 @@ describe('SnapshotPusher', () => {
     vi.clearAllMocks()
 
     mockTracker = {
-      isOperational: true,
       dirtyCount: 1,
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId]),
       getDirtyTick: vi.fn().mockReturnValue(1),
@@ -75,6 +75,7 @@ describe('SnapshotPusher', () => {
 
     pusher = new SnapshotPusher({
       accountId: 'test-acc',
+      session: new SyncSessionState({ isLeader: true }),
       tracker: mockTracker as unknown as SnapshotTracker,
       builder: mockBuilder as unknown as SnapshotBuilder,
       broker: mockBroker,
@@ -316,6 +317,7 @@ describe('SnapshotPusher', () => {
 
       pusher = new SnapshotPusher({
         accountId: 'test-acc',
+        session: new SyncSessionState({ isLeader: true }),
         tracker: mockTracker as unknown as SnapshotTracker,
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
         broker: mockBroker,

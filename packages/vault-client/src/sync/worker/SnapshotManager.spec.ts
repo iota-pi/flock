@@ -176,7 +176,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       persisted: 1,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
@@ -186,11 +186,11 @@ describe('SnapshotManager Retry Mechanism', () => {
   it('schedules retry when buildSnapshot returns null (e.g. not ready)', async () => {
     mockHandle.isReady.mockReturnValue(false)
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
 
     expect(mockPutSnapshots).not.toHaveBeenCalled()
-    expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
 
@@ -204,7 +204,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     await vi.advanceTimersByTimeAsync(2000)
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(manager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
     expect(manager['pusher'].retryAttempt).toBe(0)
   })
 
@@ -228,13 +228,13 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
     })
 
-    manager.markItemDirty('item-1' as ItemId)
-    manager.markItemDirty('item-2' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-2' as ItemId)
     await manager.flushPendingSnapshots()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(manager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-    expect(manager.getDirtyItemIds()).toContain('item-2' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
   })
@@ -245,7 +245,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       persisted: 0,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
@@ -274,7 +274,7 @@ describe('SnapshotManager Retry Mechanism', () => {
   it('stops early and retries if putSnapshots throws an exception', async () => {
     mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(manager['pusher'].retryAttempt).toBe(1)
@@ -292,7 +292,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       persisted: 0,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
     expect(manager['pusher'].retryAttempt).toBe(1)
 
@@ -316,11 +316,11 @@ describe('SnapshotManager Retry Mechanism', () => {
       total: 1,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
   })
@@ -332,13 +332,13 @@ describe('SnapshotManager Retry Mechanism', () => {
       total: 2,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
-    manager.markItemDirty('item-2' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-2' as ItemId)
     await manager.flushPendingSnapshots()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-    expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
-    expect(manager.getDirtyItemIds()).toContain('item-2' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
   })
@@ -351,13 +351,13 @@ describe('SnapshotManager Retry Mechanism', () => {
       results: [{ itemId: 'item-1', version: 7 }],
     })
 
-    manager.markItemDirty('item-1' as ItemId)
-    manager.markItemDirty('item-2' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-2' as ItemId)
     await manager.flushPendingSnapshots()
 
-    expect(manager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-    expect(manager.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
-    expect(manager.getDirtyItemIds()).toContain('item-2' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+    expect(manager.tracker.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
+    expect(manager.tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
     expect(manager['pusher']['consecutiveFailures'].get('item-2' as ItemId)).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
   })
@@ -370,12 +370,12 @@ describe('SnapshotManager Retry Mechanism', () => {
       results: [],
     })
 
-    manager.markItemDirty('item-2' as ItemId)
+    manager.tracker.markItemDirty('item-2' as ItemId)
     for (let i = 0; i < 5; i += 1) {
       await manager.flushPendingSnapshots()
     }
 
-    expect(manager.getDirtyItemIds()).not.toContain('item-2' as ItemId)
+    expect(manager.tracker.getDirtyItemIds()).not.toContain('item-2' as ItemId)
     expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith(
       'test-account',
       expect.objectContaining({ itemId: 'item-2', kind: 'snapshotFailure' }),
@@ -389,7 +389,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       persisted: 0,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
@@ -410,7 +410,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       persisted: 0,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
     expect(manager['pusher'].retryAttempt).toBe(1)
 
@@ -439,7 +439,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       persisted: 0,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
     expect(manager['pusher'].retryAttempt).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
@@ -448,7 +448,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     expect(manager['pusher'].retryAttempt).toBe(0)
     expect(manager['pusher'].isRetryActive).toBe(false)
-    expect(manager.getDirtyItemIds()).toHaveLength(0)
+    expect(manager.tracker.getDirtyItemIds()).toHaveLength(0)
   })
 
   it('does not bypass retry backoff when debounce timer sets snapshotPushPending during an in-flight failing push', async () => {
@@ -460,14 +460,14 @@ describe('SnapshotManager Retry Mechanism', () => {
         }),
     )
 
-    manager.markItemDirty('item-1' as ItemId, 5000)
+    manager.tracker.markItemDirty('item-1' as ItemId, 5000)
 
     // Advance 5000ms so the first push starts
     await vi.advanceTimersByTimeAsync(5000)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
     // While push 1 is in-flight, mark item-2 dirty with a 1000ms debounce
-    manager.markItemDirty('item-2' as ItemId, 1000)
+    manager.tracker.markItemDirty('item-2' as ItemId, 1000)
 
     // Advance 1000ms so the debounce timer fires while push 1 is still in-flight
     // This calls triggerSnapshotPush while activePushPromise is present, setting snapshotPushPending = true
@@ -497,7 +497,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     // Advance 1ms to 2000ms: retry fires and pushes both dirty items
     await vi.advanceTimersByTimeAsync(1)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-    expect(manager.getDirtyItemIds()).toHaveLength(0)
+    expect(manager.tracker.getDirtyItemIds()).toHaveLength(0)
     expect(manager['pusher'].retryAttempt).toBe(0)
     expect(manager['pusher'].isRetryActive).toBe(false)
   })
@@ -508,14 +508,14 @@ describe('SnapshotManager Retry Mechanism', () => {
       persisted: 0,
     })
 
-    manager.markItemDirty('item-1' as ItemId)
+    manager.tracker.markItemDirty('item-1' as ItemId)
     await manager.flushPendingSnapshots()
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
     expect(manager['pusher'].retryAttempt).toBe(1)
 
     // While waiting for retry, an item is marked dirty with 500ms debounce, which mustn't start its own push
-    manager.markItemDirty('item-2' as ItemId, 500)
+    manager.tracker.markItemDirty('item-2' as ItemId, 500)
 
     // Advance 500ms: no push should have occurred
     await vi.advanceTimersByTimeAsync(500)
@@ -529,7 +529,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     await vi.advanceTimersByTimeAsync(1500)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
-    expect(manager.getDirtyItemIds()).toHaveLength(0)
+    expect(manager.tracker.getDirtyItemIds()).toHaveLength(0)
     expect(manager['pusher'].isRetryActive).toBe(false)
   })
 
@@ -542,7 +542,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       // Mark 30 documents dirty
       for (let i = 1; i <= 30; i++) {
-        manager.markItemDirty(`item-${i}` as ItemId)
+        manager.tracker.markItemDirty(`item-${i}` as ItemId)
       }
 
       await manager.flushPendingSnapshots()
@@ -562,8 +562,8 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      testManager.markItemDirty('item-1' as ItemId)
-      testManager.markItemDirty('item-2' as ItemId)
+      testManager.tracker.markItemDirty('item-1' as ItemId)
+      testManager.tracker.markItemDirty('item-2' as ItemId)
       await testManager.flushPendingSnapshots()
 
       // Since each mock snapshot is ~140 bytes, two snapshots (280 bytes) will exceed 200 bytes limit.
@@ -582,12 +582,12 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      testManager.markItemDirty('item-1' as ItemId)
+      testManager.tracker.markItemDirty('item-1' as ItemId)
       await testManager.flushPendingSnapshots()
 
       // Should not be pushed, and should be removed from dirtyItems to avoid retry loops
       expect(mockPutSnapshots).not.toHaveBeenCalled()
-      expect(testManager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+      expect(testManager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
     })
   })
 
@@ -597,7 +597,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
 
       // Set some lastModified state
-      await manager.importLastModified([['item-1' as ItemId, 123456]])
+      await manager.tracker.importLastModified([['item-1' as ItemId, 123456]])
 
       // Execute shutdown
       await shutDown(manager)
@@ -609,17 +609,17 @@ describe('SnapshotManager Retry Mechanism', () => {
     it('resets in-memory state on shutdown with clearLocalData without clearing the persisted store', async () => {
       const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
 
-      await manager.importLastModified([['item-1' as ItemId, 123456]])
+      await manager.tracker.importLastModified([['item-1' as ItemId, 123456]])
       await shutDown(manager, { clearLocalData: true })
 
-      expect(manager.exportLastModified()).toHaveLength(0)
+      expect(manager.tracker.exportLastModified()).toHaveLength(0)
       expect(clearSpy).not.toHaveBeenCalled()
     })
 
     it('flushes dirty documents on shutdown without scheduling a dangling debounced save', async () => {
       const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
 
       await shutDown(manager)
 
@@ -640,14 +640,14 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       mockPutSnapshots.mockImplementation(() => uploadPromise)
 
-      manager.markItemDirty('item-1' as ItemId, 0)
+      manager.tracker.markItemDirty('item-1' as ItemId, 0)
 
       // Start the snapshot push
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
       // While upload is in flight, item-1 is modified again
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
 
       // Complete the in-flight upload
       resolveUpload!({
@@ -657,7 +657,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       // item-1 should still be dirty because it was modified after batch preparation
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
     })
 
     it('clears dirty status if item was not modified during in flight upload', async () => {
@@ -666,11 +666,11 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       await manager.flushPendingSnapshots()
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
-      expect(manager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
     })
 
     it('clears dirty status when item is re-dirtied after push begins but before its snapshot is built', async () => {
@@ -679,14 +679,14 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 2,
       })
 
-      manager.markItemDirty('item-1' as ItemId)
-      manager.markItemDirty('item-2' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-2' as ItemId)
 
       // When repo.find is called for item-1, simulate user modifying item-2 before item-2's snapshot is built
       const originalFind = mockRepo.find
       mockRepo.find = vi.fn().mockImplementation((url: string) => {
         if (url.includes('item-1')) {
-          manager.markItemDirty('item-2' as ItemId)
+          manager.tracker.markItemDirty('item-2' as ItemId)
         }
         return originalFind(url)
       })
@@ -695,8 +695,8 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       // Both item-1 and item-2 should be cleanly cleared because item-2 was built with the new tick
-      expect(manager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-      expect(manager.getDirtyItemIds()).not.toContain('item-2' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).not.toContain('item-2' as ItemId)
     })
   })
 
@@ -708,7 +708,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
       mockPutSnapshots.mockImplementation(() => uploadPromise)
 
-      manager.markItemDirty('item-1' as ItemId, 0)
+      manager.tracker.markItemDirty('item-1' as ItemId, 0)
 
       // Start the snapshot push
       await vi.advanceTimersByTimeAsync(0)
@@ -733,7 +733,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const result = await flushPromise
       expect(flushed).toBe(true)
       expect(result).toEqual({ persisted: 1, total: 1 })
-      expect(manager.getDirtyItemIds()).toHaveLength(0)
+      expect(manager.tracker.getDirtyItemIds()).toHaveLength(0)
     })
 
     it('flushes newly dirtied items after waiting for in-flight push to complete', async () => {
@@ -750,12 +750,12 @@ describe('SnapshotManager Retry Mechanism', () => {
         .mockImplementationOnce(() => uploadPromise1)
         .mockImplementationOnce(() => uploadPromise2)
 
-      manager.markItemDirty('item-1' as ItemId, 0)
+      manager.tracker.markItemDirty('item-1' as ItemId, 0)
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
 
       // While upload 1 is in-flight, mark item-2 dirty and call flushPendingSnapshots
-      manager.markItemDirty('item-2' as ItemId)
+      manager.tracker.markItemDirty('item-2' as ItemId)
       let flushed = false
       const flushPromise = manager.flushPendingSnapshots().then(res => {
         flushed = true
@@ -779,7 +779,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       expect(flushed).toBe(true)
       expect(result).toEqual({ persisted: 2, total: 2 })
-      expect(manager.getDirtyItemIds()).toHaveLength(0)
+      expect(manager.tracker.getDirtyItemIds()).toHaveLength(0)
     })
 
     it('multiple concurrent callers of flushPendingSnapshots all wait for in-flight push', async () => {
@@ -789,7 +789,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
       mockPutSnapshots.mockImplementation(() => uploadPromise)
 
-      manager.markItemDirty('item-1' as ItemId, 0)
+      manager.tracker.markItemDirty('item-1' as ItemId, 0)
       await vi.advanceTimersByTimeAsync(0)
 
       let flushed1 = false
@@ -823,7 +823,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
       mockPutSnapshots.mockImplementation(() => uploadPromise)
 
-      manager.markItemDirty('item-1' as ItemId, 0)
+      manager.tracker.markItemDirty('item-1' as ItemId, 0)
       await vi.advanceTimersByTimeAsync(0)
 
       const flushPromise = manager.flushPendingSnapshots()
@@ -834,7 +834,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const result = await flushPromise
       expect(result).toEqual({ persisted: 0, total: 1 })
       // Item remains dirty and retry is scheduled
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager['pusher'].isRetryActive).toBe(true)
     })
 
@@ -845,7 +845,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
       mockPutSnapshots.mockImplementation(() => uploadPromise)
 
-      manager.markItemDirty('item-1' as ItemId, 0)
+      manager.tracker.markItemDirty('item-1' as ItemId, 0)
       await vi.advanceTimersByTimeAsync(0)
 
       let shutdownFinished = false
@@ -867,7 +867,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     it('does not increment consecutiveBuildFailures or drop item when handle is not ready', async () => {
       mockHandle.isReady.mockReturnValue(false)
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
 
       // Run 6 push attempts
       for (let i = 0; i < 6; i++) {
@@ -875,7 +875,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       }
 
       // Should still be dirty and failures map should not have counted failures
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager['pusher']['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
     })
 
@@ -885,7 +885,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         { id: 'item-1', itemId: 'item-1', reason: 'Snapshot failure: Document data not available', createdAt: Date.now() },
       ])
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
 
       // Run 5 attempts to reach MAX_CONSECUTIVE_SNAPSHOT_FAILURES (5)
       for (let i = 1; i <= 5; i++) {
@@ -893,7 +893,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       }
 
       // Item should now be dropped from active dirty queue
-      expect(manager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
       expect(manager['pusher']['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
 
       // User notification emitted via eventHub
@@ -926,7 +926,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       const { encryptBytes } = vault
       vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Vault is locked'))
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
 
       // Run 6 push attempts while vault is locked
       for (let i = 0; i < 6; i++) {
@@ -935,7 +935,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       }
 
       // Item must remain dirty and NOT be dropped
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager['pusher']['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: 'snapshotFailed' }),
@@ -946,8 +946,8 @@ describe('SnapshotManager Retry Mechanism', () => {
     it('does not drop items or count failures when batch network send fails', async () => {
       mockPutSnapshots.mockRejectedValue(new Error('Network disconnected'))
 
-      manager.markItemDirty('item-1' as ItemId)
-      manager.markItemDirty('item-2' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-2' as ItemId)
 
       // Run 6 push attempts where network fails
       for (let i = 0; i < 6; i++) {
@@ -955,8 +955,8 @@ describe('SnapshotManager Retry Mechanism', () => {
       }
 
       // Items must remain dirty for subsequent retry and NOT be dropped
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
-      expect(manager.getDirtyItemIds()).toContain('item-2' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
       expect(manager['pusher']['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
       expect(manager['pusher']['consecutiveFailures'].has('item-2' as ItemId)).toBe(false)
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(
@@ -970,7 +970,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       await manager.flushPendingSnapshots()
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('test-account', 'item-1')
@@ -980,7 +980,7 @@ describe('SnapshotManager Retry Mechanism', () => {
   it('saves pending timestamps at once when flushed, even in a follower tab', async () => {
     const follower = createManager(context as any, lastModifiedStore, { isLeader: false })
     const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
-    follower.markItemDirty('item-1' as ItemId)
+    follower.tracker.markItemDirty('item-1' as ItemId)
     expect(saveSpy).not.toHaveBeenCalled()
 
     // As the page being hidden does
@@ -998,7 +998,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
 
       // Advance 29 seconds: should not have pushed yet
       await vi.advanceTimersByTimeAsync(29_000)
@@ -1015,14 +1015,14 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 2,
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
 
       // Advance 20 seconds
       await vi.advanceTimersByTimeAsync(20_000)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
 
       // Edit another item -> resets 30s timer
-      manager.markItemDirty('item-2' as ItemId)
+      manager.tracker.markItemDirty('item-2' as ItemId)
 
       // Advance 20 seconds (total 40s from start, but only 20s from item-2)
       await vi.advanceTimersByTimeAsync(20_000)
@@ -1041,7 +1041,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       // Simulate typing every 10 seconds for 5 minutes (300 seconds)
       for (let second = 0; second < 290; second += 10) {
-        manager.markItemDirty('item-1' as ItemId)
+        manager.tracker.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(10_000)
       }
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1057,7 +1057,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
 
       await manager.flushPendingSnapshots()
@@ -1089,7 +1089,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         },
       )
 
-      managerWithLimits.markItemDirty('item-1' as ItemId)
+      managerWithLimits.tracker.markItemDirty('item-1' as ItemId)
       await managerWithLimits.flushPendingSnapshots()
 
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1127,7 +1127,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         { maxPayloadBytes: 10, isLeader: true },
       )
 
-      managerWithLimits.markItemDirty('item-1' as ItemId)
+      managerWithLimits.tracker.markItemDirty('item-1' as ItemId)
       await managerWithLimits.flushPendingSnapshots()
 
       // First attempt logs error and upserts manual recovery
@@ -1136,7 +1136,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
 
       // Re-mark dirty (e.g. from WAL re-negotiation or local change)
-      managerWithLimits.markItemDirty('item-1' as ItemId)
+      managerWithLimits.tracker.markItemDirty('item-1' as ItemId)
       await managerWithLimits.flushPendingSnapshots()
 
       // Should NOT log error again or re-upsert manual recovery
@@ -1157,12 +1157,12 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-normal' as ItemId, { localModifiedAt: 5000, lastSnapshotAt: 2000 }],
       ])
 
-      await manager.loadLastModified()
+      await manager.tracker.loadLastModified()
 
       // Normal un-snapshotted item restored
-      expect(manager.getDirtyItemIds()).toContain('item-normal' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-normal' as ItemId)
       // Quarantined oversized item skipped, preventing startup audit recovery loops
-      expect(manager.getDirtyItemIds()).not.toContain('item-oversized' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).not.toContain('item-oversized' as ItemId)
     })
 
     it('does not treat batch as failed or trigger retry loops when an oversized item is skipped alongside normal items', async () => {
@@ -1191,15 +1191,15 @@ describe('SnapshotManager Retry Mechanism', () => {
         { maxPayloadBytes: 200, isLeader: true },
       )
 
-      testManager.markItemDirty('item-1' as ItemId)
-      testManager.markItemDirty('item-2' as ItemId)
+      testManager.tracker.markItemDirty('item-1' as ItemId)
+      testManager.tracker.markItemDirty('item-2' as ItemId)
 
       await testManager.flushPendingSnapshots()
 
       // Only item-2 pushed
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-2')
-      expect(testManager.getDirtyItemIds()).toHaveLength(0)
+      expect(testManager.tracker.getDirtyItemIds()).toHaveLength(0)
       expect(testManager['pusher'].isRetryActive).toBe(false)
       expect(testManager['pusher'].retryAttempt).toBe(0)
     })
@@ -1224,7 +1224,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         kver: '1',
       })
 
-      testManager.markItemDirty('item-1' as ItemId)
+      testManager.tracker.markItemDirty('item-1' as ItemId)
       await testManager.flushPendingSnapshots()
 
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1238,14 +1238,14 @@ describe('SnapshotManager Retry Mechanism', () => {
       })
 
       // Step 3: Marked dirty after compaction
-      testManager.markItemDirty('item-1' as ItemId)
+      testManager.tracker.markItemDirty('item-1' as ItemId)
       await testManager.flushPendingSnapshots()
 
       // Now successfully pushed and cleared from oversizedItems
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(mockPutSnapshots.mock.calls[0][0].snapshots[0].itemId).toBe('item-1')
       expect(testManager['tracker']['oversizedItems'].has('item-1' as ItemId)).toBe(false)
-      expect(testManager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+      expect(testManager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
     })
   })
 
@@ -1253,12 +1253,12 @@ describe('SnapshotManager Retry Mechanism', () => {
     it('schedules retry when there is no session token and dirty items exist', async () => {
       setApiAuthToken('')
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       const result = await manager.flushPendingSnapshots()
 
       expect(result).toEqual({ persisted: 0, total: 0 })
       expect(mockPutSnapshots).not.toHaveBeenCalled()
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager['pusher'].retryAttempt).toBe(1)
       expect(manager['pusher'].isRetryActive).toBe(true)
       expect(manager['pusher']['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
@@ -1272,10 +1272,10 @@ describe('SnapshotManager Retry Mechanism', () => {
         return { success: true, persisted: 1 }
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       await manager.flushPendingSnapshots()
 
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager['pusher'].retryAttempt).toBe(1)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
 
@@ -1285,7 +1285,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
       expect(tokensSent).toEqual(['restored-auth-token'])
-      expect(manager.getDirtyItemIds()).not.toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
       expect(manager['pusher'].retryAttempt).toBe(0)
     })
 
@@ -1303,7 +1303,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     it('does not increment consecutiveFailures or move items to manual recovery when auth token is missing repeatedly', async () => {
       setApiAuthToken('')
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       await manager.flushPendingSnapshots()
 
       // Progress through retries: 2s, 5s, 10s, 30s, 60s
@@ -1314,7 +1314,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       await vi.advanceTimersByTimeAsync(60000)
 
       expect(manager['pusher'].retryAttempt).toBe(6)
-      expect(manager.getDirtyItemIds()).toContain('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager['pusher']['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
@@ -1328,11 +1328,11 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-never-snapshotted' as ItemId, { localModifiedAt: 4000 }],
       ])
 
-      await manager.loadLastModified()
+      await manager.tracker.loadLastModified()
 
-      expect(manager.getDirtyItemIds()).toContain('item-unpushed' as ItemId)
-      expect(manager.getDirtyItemIds()).toContain('item-never-snapshotted' as ItemId)
-      expect(manager.getDirtyItemIds()).not.toContain('item-clean' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-unpushed' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toContain('item-never-snapshotted' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).not.toContain('item-clean' as ItemId)
 
       // The restored items go up once the debounce elapses
       mockPutSnapshots.mockResolvedValue({ success: true, persisted: 2 })
@@ -1347,7 +1347,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         total: 1,
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       await manager.flushPendingSnapshots()
 
       const lastSnapshotAt = getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt
@@ -1363,7 +1363,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         total: 1,
       })
 
-      manager.markItemDirty('item-1' as ItemId, 2000)
+      manager.tracker.markItemDirty('item-1' as ItemId, 2000)
 
       await vi.advanceTimersByTimeAsync(1500)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1374,8 +1374,8 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     describe('importLastModified preserves dirty state (B5 fix)', () => {
       it('merges new items into the tracked timestamps without purging existing items', async () => {
-        await manager.importLastModified([['item-1' as ItemId, 1000]])
-        await manager.importLastModified([['item-2' as ItemId, 2000]])
+        await manager.tracker.importLastModified([['item-1' as ItemId, 1000]])
+        await manager.tracker.importLastModified([['item-2' as ItemId, 2000]])
 
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(1000)
         expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(1000)
@@ -1387,10 +1387,10 @@ describe('SnapshotManager Retry Mechanism', () => {
         // item-1 has local edits (localMod: 5000 > lastSnap: 2000)
         setTimestamps(manager['tracker'], 'item-1', { lastSnapshotAt: 2000 })
         vi.setSystemTime(5000)
-        manager.markItemDirty('item-1' as ItemId)
+        manager.tracker.markItemDirty('item-1' as ItemId)
 
         // importLastModified is called with local timestamp (e.g. 5000)
-        await manager.importLastModified([['item-1' as ItemId, 5000]])
+        await manager.tracker.importLastModified([['item-1' as ItemId, 5000]])
 
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(5000)
         expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(2000)
@@ -1398,9 +1398,9 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       it('preserves undefined lastSnapshotAt for newly created unsaved offline items', async () => {
         vi.setSystemTime(5000)
-        manager.markItemDirty('item-new' as ItemId)
+        manager.tracker.markItemDirty('item-new' as ItemId)
 
-        await manager.importLastModified([['item-new' as ItemId, 5000]])
+        await manager.tracker.importLastModified([['item-new' as ItemId, 5000]])
 
         expect(getTimestamps(manager['tracker'], 'item-new').localModifiedAt).toBe(5000)
         expect(getTimestamps(manager['tracker'], 'item-new').lastSnapshotAt).toBeUndefined()
@@ -1409,7 +1409,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       it('advances lastSnapshotAt when mod is strictly newer than localModifiedAt', async () => {
         setTimestamps(manager['tracker'], 'item-1', { localModifiedAt: 2000, lastSnapshotAt: 1000 })
 
-        await manager.importLastModified([['item-1' as ItemId, 3000]])
+        await manager.tracker.importLastModified([['item-1' as ItemId, 3000]])
 
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(3000)
         expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(3000)
@@ -1420,7 +1420,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         setTimestamps(manager['tracker'], 'item-offline', { localModifiedAt: 5000, lastSnapshotAt: 1000 })
 
         // 2. ManifestSync imports updates for another item
-        await manager.importLastModified([['item-server' as ItemId, 2500]])
+        await manager.tracker.importLastModified([['item-server' as ItemId, 2500]])
 
         // Verify in-memory state before crash
         expect(getTimestamps(manager['tracker'], 'item-offline').lastSnapshotAt).toBe(1000)
@@ -1429,18 +1429,18 @@ describe('SnapshotManager Retry Mechanism', () => {
         await restartManager()
         expect(getTimestamps(manager['tracker'], 'item-offline').localModifiedAt).toBeUndefined()
 
-        await manager.loadLastModified()
+        await manager.tracker.loadLastModified()
 
         // 4. Dirty audit must successfully re-enqueue item-offline because 5000 > 1000
-        expect(manager.getDirtyItemIds()).toContain('item-offline' as ItemId)
-        expect(manager.getDirtyItemIds()).not.toContain('item-server' as ItemId)
+        expect(manager.tracker.getDirtyItemIds()).toContain('item-offline' as ItemId)
+        expect(manager.tracker.getDirtyItemIds()).not.toContain('item-server' as ItemId)
       })
     })
 
     describe('Snapshot Push Timestamp Parity (H4 fix)', () => {
       it('advances localModifiedAt to match snapshot.modified on successful push', async () => {
         vi.setSystemTime(1000)
-        manager.markItemDirty('item-1' as ItemId)
+        manager.tracker.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
 
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(1000)
@@ -1463,12 +1463,12 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(31000)
 
         // exportLastModified must export 31000 so ManifestSyncManager matches serverTime
-        expect(manager.exportLastModified()).toEqual([['item-1', 31000]])
+        expect(manager.tracker.exportLastModified()).toEqual([['item-1', 31000]])
       })
 
       it('preserves newer localModifiedAt if modified again while upload is in flight', async () => {
         vi.setSystemTime(1000)
-        manager.markItemDirty('item-1' as ItemId)
+        manager.tracker.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
 
         let resolveUpload: (val: any) => void
@@ -1484,7 +1484,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
         // While upload is in flight, user modifies item-1 again at 32000
         vi.setSystemTime(32000)
-        manager.markItemDirty('item-1' as ItemId)
+        manager.tracker.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(32000)
 
@@ -1498,20 +1498,20 @@ describe('SnapshotManager Retry Mechanism', () => {
         // lastSnapshotAt is 31000, but localModifiedAt must retain 32000
         expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(31000)
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBe(32000)
-        expect(manager.getDirtyItemIds()).toContain('item-1')
-        expect(manager.exportLastModified()).toEqual([['item-1', 32000]])
+        expect(manager.tracker.getDirtyItemIds()).toContain('item-1')
+        expect(manager.tracker.exportLastModified()).toEqual([['item-1', 32000]])
       })
 
       it('retains newer localModifiedAt and re-enqueues item if a local edit occurs during snapshot encryption (C3 fix)', async () => {
         vi.setSystemTime(1000)
-        manager.markItemDirty('item-1' as ItemId)
+        manager.tracker.markItemDirty('item-1' as ItemId)
         await vi.advanceTimersByTimeAsync(1000)
 
         const { encryptBytes } = vault
         vi.mocked(encryptBytes).mockImplementationOnce(async () => {
           // Local edit arrives at T2 (32000) while encryption is in-flight
           vi.setSystemTime(32000)
-          manager.markItemDirty('item-1' as ItemId)
+          manager.tracker.markItemDirty('item-1' as ItemId)
           // Encryption completes at T3 (33000)
           vi.setSystemTime(33000)
           return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
@@ -1528,20 +1528,20 @@ describe('SnapshotManager Retry Mechanism', () => {
         // Snapshot timestamp was captured at T1, so lastSnapshotAt must be 31000
         expect(getTimestamps(manager['tracker'], 'item-1').lastSnapshotAt).toBe(31000)
         // The edit made during encryption keeps the item dirty
-        expect(manager.getDirtyItemIds()).toContain('item-1')
+        expect(manager.tracker.getDirtyItemIds()).toContain('item-1')
 
         // Debounced flush records the edit as newer than the uploaded snapshot
         await vi.advanceTimersByTimeAsync(1000)
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBeGreaterThan(31000)
 
         // Persist timestamps and simulate restart / promotion audit
-        await manager.saveLastModified()
+        await manager.tracker.saveLastModified()
         await restartManager()
-        expect(manager.getDirtyItemIds()).not.toContain('item-1')
+        expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1')
 
-        await manager.loadLastModified()
+        await manager.tracker.loadLastModified()
         // Startup audit should detect localMod > lastSnap (31000) and re-enqueue item-1
-        expect(manager.getDirtyItemIds()).toContain('item-1')
+        expect(manager.tracker.getDirtyItemIds()).toContain('item-1')
       })
 
       it('heals legacy stored data on load where localModifiedAt < lastSnapshotAt', async () => {
@@ -1552,20 +1552,20 @@ describe('SnapshotManager Retry Mechanism', () => {
         await restartManager()
         expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBeUndefined()
 
-        await manager.loadLastModified()
+        await manager.tracker.loadLastModified()
 
         // localModifiedAt must be healed to at least lastSnapshotAt
         expect(getTimestamps(manager['tracker'], 'item-legacy').localModifiedAt).toBe(5000)
         expect(getTimestamps(manager['tracker'], 'item-legacy').lastSnapshotAt).toBe(5000)
-        expect(manager.getDirtyItemIds()).not.toContain('item-legacy')
-        expect(manager.exportLastModified()).toEqual([['item-legacy', 5000]])
+        expect(manager.tracker.getDirtyItemIds()).not.toContain('item-legacy')
+        expect(manager.tracker.exportLastModified()).toEqual([['item-legacy', 5000]])
       })
     })
 
     describe('shutdown', () => {
       it('cancels debounced timers and persists timestamps on shutdown', async () => {
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
-        manager.markItemDirty('item-dirty' as ItemId)
+        manager.tracker.markItemDirty('item-dirty' as ItemId)
 
         await shutDown(manager)
 
@@ -1579,7 +1579,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       it('cancels debounced timers and skips persisting when clearLocalData is true', async () => {
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
-        manager.markItemDirty('item-dirty' as ItemId)
+        manager.tracker.markItemDirty('item-dirty' as ItemId)
 
         await shutDown(manager, { clearLocalData: true })
 
@@ -1594,7 +1594,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         await shutDown(manager)
         const saveSpy = vi.spyOn(lastModifiedStore, 'saveTimestamps')
 
-        manager.markItemDirty('item-after-shutdown' as ItemId)
+        manager.tracker.markItemDirty('item-after-shutdown' as ItemId)
         vi.advanceTimersByTime(5000)
 
         expect(saveSpy).not.toHaveBeenCalled()
@@ -1615,7 +1615,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('prevents flushPendingSnapshots from uploading when not leader', async () => {
-      followerManager.markItemDirty('follower-item-1' as ItemId)
+      followerManager.tracker.markItemDirty('follower-item-1' as ItemId)
 
       const result = await followerManager.flushPendingSnapshots()
 
@@ -1624,7 +1624,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('does not schedule debounced push timers when marked dirty as follower', async () => {
-      followerManager.markItemDirty('follower-item-1' as ItemId)
+      followerManager.tracker.markItemDirty('follower-item-1' as ItemId)
 
       // Advance timers beyond debounce and max wait
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
@@ -1633,7 +1633,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('does not trigger push on online state change when not leader', async () => {
-      followerManager.markItemDirty('follower-item-1' as ItemId)
+      followerManager.tracker.markItemDirty('follower-item-1' as ItemId)
       setOnline(followerManager, true)
 
       await vi.advanceTimersByTimeAsync(1000)
@@ -1646,7 +1646,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         persisted: 1,
       })
 
-      followerManager.markItemDirty('follower-item-1' as ItemId)
+      followerManager.tracker.markItemDirty('follower-item-1' as ItemId)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
 
       // Promoted to leader
@@ -1661,7 +1661,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     })
 
     it('clears active debounce and retry timers when leadership is revoked', async () => {
-      manager.markItemDirty('leader-item-1' as ItemId)
+      manager.tracker.markItemDirty('leader-item-1' as ItemId)
 
       // Leadership revoked before debounce timer fires
       setLeader(manager, false)
@@ -1673,7 +1673,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('safely no-ops during simulated visibilitychange pushSnapshots on follower tab', async () => {
       // Simulate user editing in follower tab
-      followerManager.markItemDirty('doc-edit-1' as ItemId)
+      followerManager.tracker.markItemDirty('doc-edit-1' as ItemId)
 
       // Simulate tab visibility changing to hidden -> flushPendingSnapshots called
       const flushResult = await followerManager.flushPendingSnapshots()
@@ -1688,12 +1688,12 @@ describe('SnapshotManager Retry Mechanism', () => {
         ['item-clean' as ItemId, { localModifiedAt: 3000, lastSnapshotAt: 3000 }],
       ])
 
-      expect(followerManager.getDirtyItemIds()).toEqual([])
+      expect(followerManager.tracker.getDirtyItemIds()).toEqual([])
 
       await setLeader(followerManager, true)
 
-      expect(followerManager.getDirtyItemIds()).toContain('item-unpushed')
-      expect(followerManager.getDirtyItemIds()).not.toContain('item-clean')
+      expect(followerManager.tracker.getDirtyItemIds()).toContain('item-unpushed')
+      expect(followerManager.tracker.getDirtyItemIds()).not.toContain('item-clean')
     })
 
     it('pushes un-snapshotted items from previous leader after follower promotion', async () => {
@@ -1722,7 +1722,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         total: 2,
       })
 
-      followerManager.markItemDirty('follower-local-item' as ItemId)
+      followerManager.tracker.markItemDirty('follower-local-item' as ItemId)
 
       vi.spyOn(lastModifiedStore, 'loadTimestamps').mockResolvedValue([
         ['item-from-previous-leader' as ItemId, { localModifiedAt: 8000, lastSnapshotAt: 2000 }],
@@ -1730,8 +1730,8 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       await setLeader(followerManager, true)
 
-      expect(followerManager.getDirtyItemIds()).toContain('follower-local-item')
-      expect(followerManager.getDirtyItemIds()).toContain('item-from-previous-leader')
+      expect(followerManager.tracker.getDirtyItemIds()).toContain('follower-local-item')
+      expect(followerManager.tracker.getDirtyItemIds()).toContain('item-from-previous-leader')
 
       await vi.advanceTimersByTimeAsync(30_000)
 
@@ -1748,7 +1748,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       await setLeader(followerManager, true)
 
-      expect(followerManager.getDirtyItemIds()).toHaveLength(0)
+      expect(followerManager.tracker.getDirtyItemIds()).toHaveLength(0)
 
       await vi.advanceTimersByTimeAsync(30_000)
       expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -1791,7 +1791,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         })
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       const pushPromise = manager.flushPendingSnapshots()
 
       await vi.advanceTimersByTimeAsync(0)
@@ -1819,7 +1819,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         })
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       const pushPromise = manager.flushPendingSnapshots()
 
       await vi.advanceTimersByTimeAsync(0)
@@ -1844,7 +1844,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         })
       })
 
-      manager.markItemDirty('item-1' as ItemId)
+      manager.tracker.markItemDirty('item-1' as ItemId)
       const pushPromise = manager.flushPendingSnapshots()
 
       await vi.advanceTimersByTimeAsync(0)
@@ -1861,12 +1861,12 @@ describe('SnapshotManager Retry Mechanism', () => {
 
   describe('deleteDirtyItem', () => {
     it('removes the last dirty item and cancels the pending push', async () => {
-      manager.markItemDirty('item-1' as ItemId)
-      expect(manager.getDirtyItemIds()).toEqual(['item-1'])
+      manager.tracker.markItemDirty('item-1' as ItemId)
+      expect(manager.tracker.getDirtyItemIds()).toEqual(['item-1'])
 
-      const deleted = manager.deleteDirtyItem('item-1' as ItemId)
+      const deleted = manager.tracker.deleteDirtyItem('item-1' as ItemId)
       expect(deleted).toBe(true)
-      expect(manager.getDirtyItemIds()).toHaveLength(0)
+      expect(manager.tracker.getDirtyItemIds()).toHaveLength(0)
 
       // Past both the debounce and the max wait
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000)

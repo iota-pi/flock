@@ -16,11 +16,14 @@ import { SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from 
 import { fireAndForget } from '../utils/fireAndForget'
 import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
+import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotPusher')
 
 export interface SnapshotPusherOptions {
   accountId: string
+  /** Only the leader uploads snapshots, and only while online */
+  session: SyncSessionState
   tracker: SnapshotTracker
   builder: SnapshotBuilder
   broker: SyncMessageBroker
@@ -47,6 +50,7 @@ const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
 export class SnapshotPusher {
   private readonly accountId: string
+  private readonly session: SyncSessionState
   private readonly tracker: SnapshotTracker
   private readonly builder: SnapshotBuilder
   private readonly broker: SyncMessageBroker
@@ -58,13 +62,14 @@ export class SnapshotPusher {
 
   private readonly consecutiveFailures = new Map<ItemId, number>()
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
-  private readonly pushRun = new AbortableRun(() => this.tracker.isOperational)
+  private readonly pushRun = new AbortableRun(() => this.session.isOperational)
   private pendingPushRequested = false
   private readonly retryTimer = new RetryTimer()
   private readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
   constructor(options: SnapshotPusherOptions) {
     this.accountId = options.accountId
+    this.session = options.session
     this.tracker = options.tracker
     this.builder = options.builder
     this.broker = options.broker
@@ -108,7 +113,7 @@ export class SnapshotPusher {
   }
 
   scheduleRetry(): void {
-    if (!this.tracker.isOperational || this.retryTimer.isPending) {
+    if (!this.session.isOperational || this.retryTimer.isPending) {
       return
     }
 
@@ -306,7 +311,7 @@ export class SnapshotPusher {
     const flushAccumulated = async (): Promise<boolean> => {
       const batch = accumulator.drain()
       total += batch.length
-      checkAlive(signal, () => this.tracker.isOperational)
+      checkAlive(signal, () => this.session.isOperational)
       const result = await this.flushBatch(batch, signal)
       persisted += result.persisted
       if (!result.success) {
@@ -316,7 +321,7 @@ export class SnapshotPusher {
     }
 
     for (const itemId of dirtyItemIds) {
-      checkAlive(signal, () => this.tracker.isOperational)
+      checkAlive(signal, () => this.session.isOperational)
       const prepared = await this.prepareItemForPush(itemId, snapshotCursor, signal)
       if (prepared.type === 'skipped') {
         continue
@@ -350,7 +355,7 @@ export class SnapshotPusher {
 
   /** Runs a push, or coalesces onto the running one and asks for another to follow it */
   private async startPush(): Promise<SnapshotPushOutcome> {
-    if (!this.tracker.isOperational) {
+    if (!this.session.isOperational) {
       return { persisted: 0, total: 0, success: true }
     }
     this.cancelRetry()
@@ -379,13 +384,13 @@ export class SnapshotPusher {
 
     try {
       return await this.pushRun.run(async signal => {
-        const dirtyItemIds = this.tracker.isOperational ? this.tracker.getDirtyItemIds() : []
+        const dirtyItemIds = this.session.isOperational ? this.tracker.getDirtyItemIds() : []
         if (dirtyItemIds.length === 0) {
           failed = this.tracker.dirtyCount > 0
           return { persisted: 0, total: 0, success: !failed }
         }
 
-        checkAlive(signal, () => this.tracker.isOperational)
+        checkAlive(signal, () => this.session.isOperational)
         const result = await this.processSnapshotPush(dirtyItemIds, this.getLatestCursor?.() ?? 0, signal)
         failed = !result.success
         if (result.success && this.tracker.dirtyCount === 0) {
@@ -415,16 +420,16 @@ export class SnapshotPusher {
     const wasPending = this.pendingPushRequested
     this.pendingPushRequested = false
 
-    if (!success && hasDirtyDocs && this.tracker.isOperational) {
+    if (!success && hasDirtyDocs && this.session.isOperational) {
       this.scheduleRetry()
-    } else if (wasPending && hasDirtyDocs && this.tracker.isOperational) {
+    } else if (wasPending && hasDirtyDocs && this.session.isOperational) {
       fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:handlePostPushScheduling')
     }
   }
 
   async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     this.tracker.clearDebounceTimers()
-    if (!this.tracker.isOperational) {
+    if (!this.session.isOperational) {
       return { persisted: 0, total: 0 }
     }
     if (this.tracker.dirtyCount === 0 && !this.pushGuard.isRunning) {

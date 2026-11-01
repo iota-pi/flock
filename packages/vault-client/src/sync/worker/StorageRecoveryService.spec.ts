@@ -10,6 +10,7 @@ describe('StorageRecoveryService', () => {
   let mockWal: any
   let mockDocStore: any
   let mockSnapshotManager: any
+  let mockSnapshotTracker: any
   let mockLastModifiedStore: any
   let mockBroker: any
   let mockAdapter: any
@@ -25,9 +26,11 @@ describe('StorageRecoveryService', () => {
     mockDocStore = {
       saveDocToStorage: vi.fn().mockResolvedValue(true),
     }
-    mockSnapshotManager = {
+    mockSnapshotTracker = {
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
       saveLastModified: vi.fn().mockResolvedValue(undefined),
+    }
+    mockSnapshotManager = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
     }
     mockLastModifiedStore = {
@@ -53,6 +56,7 @@ describe('StorageRecoveryService', () => {
       wal: mockWal,
       docStore: mockDocStore,
       snapshotManager: mockSnapshotManager,
+      snapshotTracker: mockSnapshotTracker,
       lastModifiedStore: mockLastModifiedStore,
       broker: mockBroker,
       adapter: mockAdapter,
@@ -149,7 +153,7 @@ describe('StorageRecoveryService', () => {
       expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc1)
       expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc2)
 
-      expect(mockSnapshotManager.saveLastModified).toHaveBeenCalled()
+      expect(mockSnapshotTracker.saveLastModified).toHaveBeenCalled()
       expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
@@ -158,7 +162,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('includes blocked items from broker in dirtyIds during retrySave', async () => {
-      mockSnapshotManager.getDirtyItemIds.mockReturnValue(['item-1' as ItemId])
+      mockSnapshotTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId])
       mockBroker.getBlockedItemIds.mockReturnValue(['item-blocked' as ItemId])
 
       const result = await service.retrySave()
@@ -215,7 +219,7 @@ describe('StorageRecoveryService', () => {
 
     it('returns failure when persisting timestamps throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockSnapshotManager.saveLastModified.mockRejectedValueOnce(quotaErr)
+      mockSnapshotTracker.saveLastModified.mockRejectedValueOnce(quotaErr)
 
       const result = await service.retrySave()
 
@@ -224,7 +228,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('handles unexpected errors gracefully and returns error message', async () => {
-      mockSnapshotManager.saveLastModified.mockRejectedValueOnce(new Error('Database corrupted'))
+      mockSnapshotTracker.saveLastModified.mockRejectedValueOnce(new Error('Database corrupted'))
 
       const result = await service.retrySave()
 

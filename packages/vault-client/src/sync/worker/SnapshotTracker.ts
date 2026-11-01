@@ -67,14 +67,6 @@ export class SnapshotTracker {
     this.isRetryActive = options.isRetryActive
   }
 
-  get isShutdown(): boolean {
-    return this.session.isShutdown
-  }
-
-  get isOperational(): boolean {
-    return this.session.isOperational
-  }
-
   /** Schedules the pending uploads when this tab becomes the leader, and cancels them when it stops being one */
   onLeaderChange(): void {
     if (this.session.isShutdown) return
@@ -107,7 +99,7 @@ export class SnapshotTracker {
   }
 
   scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
-    if (!this.isOperational) return
+    if (!this.session.isOperational) return
     if (this.isRetryActive?.()) return
 
     const trigger = () => {
