@@ -265,6 +265,21 @@ describe('SnapshotTracker', () => {
     })
   })
 
+  describe('saving timestamps', () => {
+    it('saveLastModified throws a failure to save', async () => {
+      const quotaError = new DOMException('Quota exceeded', 'QuotaExceededError')
+      mockStore.saveTimestamps.mockRejectedValueOnce(quotaError)
+
+      await expect(tracker.saveLastModified()).rejects.toBe(quotaError)
+    })
+
+    it('persistLastModified logs a failure to save instead of throwing', async () => {
+      mockStore.saveTimestamps.mockRejectedValueOnce(new DOMException('Quota exceeded', 'QuotaExceededError'))
+
+      await expect(tracker.persistLastModified()).resolves.toBeUndefined()
+    })
+  })
+
   describe('persistLastModified across tabs', () => {
     it("keeps the leader's progress when a follower with older state saves", async () => {
       let stored: [ItemId, { localModifiedAt: number; lastSnapshotAt?: number; baseVersion?: number }][] = []

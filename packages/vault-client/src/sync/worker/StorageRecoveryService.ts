@@ -145,7 +145,7 @@ export class StorageRecoveryService {
       }
 
       await rethrowQuota(
-        this.deps.snapshotManager.persistLastModified(),
+        this.deps.snapshotManager.saveLastModified(),
         'Storage quota is still exceeded while saving timestamps.',
       )
       if (this.deps.session.isOnline) {

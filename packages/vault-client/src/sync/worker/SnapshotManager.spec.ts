@@ -1535,7 +1535,7 @@ describe('SnapshotManager Retry Mechanism', () => {
         expect(getTimestamps(manager['tracker'], 'item-1').localModifiedAt).toBeGreaterThan(31000)
 
         // Persist timestamps and simulate restart / promotion audit
-        await manager.persistLastModified()
+        await manager.saveLastModified()
         await restartManager()
         expect(manager.getDirtyItemIds()).not.toContain('item-1')
 

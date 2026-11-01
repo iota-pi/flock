@@ -209,26 +209,31 @@ export class SnapshotTracker {
   /**
    * Merges this tab's timestamps into the stored ones, keeping the later value of each. Every tab of
    * the account writes here, and a tab's maps can be older than the store (a follower only loads them
-   * at startup), so writing them over the store would lose the leader's progress.
+   * at startup), so writing them over the store would lose the leader's progress. Logs a failure.
    */
   async persistLastModified(): Promise<void> {
+    try {
+      await this.saveLastModified()
+    } catch (error) {
+      log.error('Failed to save lastModified timestamps', error)
+    }
+  }
+
+  /** Like `persistLastModified`, but throws a failure, for callers that must know the timestamps were saved */
+  async saveLastModified(): Promise<void> {
     await this.persistMutex.runExclusive(async () => {
-      try {
-        const merged = new Map<ItemId, ItemSyncTimestamps>(await this.lastModifiedStore.loadTimestamps() ?? [])
-        for (const [itemId, local] of this.timestampsByItemId) {
-          const stored = merged.get(itemId)
-          merged.set(itemId, {
-            localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, local.localModifiedAt ?? 0),
-            lastSnapshotAt: local.lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
-              ? undefined
-              : Math.max(stored?.lastSnapshotAt ?? 0, local.lastSnapshotAt ?? 0),
-            baseVersion: Math.max(stored?.baseVersion ?? 0, local.baseVersion ?? 0),
-          })
-        }
-        await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
-      } catch (error) {
-        log.error('Failed to save lastModified timestamps', error)
+      const merged = new Map<ItemId, ItemSyncTimestamps>(await this.lastModifiedStore.loadTimestamps() ?? [])
+      for (const [itemId, local] of this.timestampsByItemId) {
+        const stored = merged.get(itemId)
+        merged.set(itemId, {
+          localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, local.localModifiedAt ?? 0),
+          lastSnapshotAt: local.lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
+            ? undefined
+            : Math.max(stored?.lastSnapshotAt ?? 0, local.lastSnapshotAt ?? 0),
+          baseVersion: Math.max(stored?.baseVersion ?? 0, local.baseVersion ?? 0),
+        })
       }
+      await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
     })
   }
 

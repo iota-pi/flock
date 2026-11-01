@@ -121,7 +121,6 @@ describe('Sync System Integration Test Suite', () => {
     })
     broker = new SyncMessageBroker({
       adapter,
-      clientEventHub,
       internalEventHub,
       pullQueueManager,
       session,

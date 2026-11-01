@@ -259,13 +259,10 @@ export class SyncWorkerContext {
 
     const broker = new SyncMessageBroker({
       adapter,
-      clientEventHub,
       internalEventHub,
       pullQueueManager,
       session,
       wal,
-      // The storage recovery service takes the broker, so it's read once the services are built
-      onQuotaExceeded: error => this.services.storageRecoveryService.handleQuotaExceeded(error),
     })
 
     const snapshotManager = new SnapshotManager(
@@ -465,12 +462,6 @@ export class SyncWorkerContext {
         const itemId = toVaultItemIdFromAutomergeId(docId)
         if (itemId && !isIndexDocument(itemId)) {
           this.config.onDocumentReceived?.(itemId)
-        }
-      },
-      onQuotaError: error => {
-        const storageRecoveryService = this._services?.storageRecoveryService
-        if (storageRecoveryService) {
-          fireAndForget(storageRecoveryService.handleQuotaExceeded(error), 'SyncWorkerContext:onQuotaError')
         }
       },
     })

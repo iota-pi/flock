@@ -9,7 +9,7 @@ import {
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { WorkerInternalEventHub } from './SyncEventHub'
 import { SyncSessionState } from './SyncSessionState'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
@@ -39,7 +39,6 @@ function createTestSyncMessage(itemId: string, data: Uint8Array = new Uint8Array
 
 describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
   const accountId = 'flight-test-account'
-  let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
   let pullQueueManager: SyncPullQueueManager
   let wal: SyncWriteAheadLog
@@ -53,7 +52,6 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     clearAccountStoreInstancesCacheForTesting()
 
     const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     // This tab is the leader, which writes outgoing messages to the WAL
     const session = new SyncSessionState({ isLeader: true })
@@ -72,7 +70,6 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     wal = new SyncWriteAheadLog(accountId, internalEventHub)
     broker = new SyncMessageBroker({
       adapter,
-      clientEventHub,
       internalEventHub,
       pullQueueManager,
       session,

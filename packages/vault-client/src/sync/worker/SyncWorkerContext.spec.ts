@@ -165,7 +165,7 @@ beforeEach(() => {
       onLeaderChange = vi.fn().mockResolvedValue(undefined)
       onOnlineStateChange = vi.fn()
       getDirtyItemIds = vi.fn().mockReturnValue([])
-      persistLastModified = vi.fn().mockResolvedValue(undefined)
+      saveLastModified = vi.fn().mockResolvedValue(undefined)
     },
   })
   spyOnExports(syncOrchestrator, {
@@ -393,7 +393,7 @@ describe('SyncWorkerContext', () => {
     it('saves dirty documents, triggers renegotiation, persists timestamps, and emits quotaResolved on success', async () => {
       vi.spyOn(context.services.snapshotManager, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       const saveDocSpy = vi.spyOn(context.services.docStore, 'saveDocToStorage').mockResolvedValue(true)
-      const persistTimestampsSpy = vi.spyOn(context.services.snapshotManager, 'persistLastModified').mockResolvedValue(undefined)
+      const persistTimestampsSpy = vi.spyOn(context.services.snapshotManager, 'saveLastModified').mockResolvedValue(undefined)
       const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
 
       const result = await context.retrySave()

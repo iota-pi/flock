@@ -3,7 +3,6 @@ import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../utils/storageManager'
-import { isQuotaError } from '../utils/storageQuota'
 import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { KeyProvider } from '../../api/Keyring'
@@ -17,24 +16,14 @@ export interface AutomergeStorageAdapter extends StorageAdapterInterface {
 }
 
 class QuotaHandlingStorageAdapter implements AutomergeStorageAdapter {
-  constructor(
-    private delegate: AutomergeStorageAdapter,
-    private onQuotaError?: (error: unknown) => void
-  ) {}
+  constructor(private delegate: AutomergeStorageAdapter) {}
 
   async load(key: string[]): Promise<Uint8Array | undefined> {
     return runStorageOperation(() => this.delegate.load(key))
   }
 
   async save(key: string[], data: Uint8Array): Promise<void> {
-    try {
-      return await runStorageOperation(() => this.delegate.save(key, data))
-    } catch (error) {
-      if (isQuotaError(error)) {
-        this.onQuotaError?.(error)
-      }
-      throw error
-    }
+    return runStorageOperation(() => this.delegate.save(key, data))
   }
 
   async remove(key: string[]): Promise<void> {
@@ -61,7 +50,6 @@ export function getAutomergeDBName(accountId: string): string {
 export interface AutomergeRepoManagerOptions {
   onKeyVersionMissing?: (kver: string) => void
   onDocumentReceived?: (documentId: DocumentId) => void
-  onQuotaError?: (error: unknown) => void
   /** Tells the account's other tabs which items this tab sent them */
   bus?: RealtimeBus
 }
@@ -88,7 +76,7 @@ export class AutomergeRepoManager {
     }
 
     this.indexedDbAdapter = storage
-    this.quotaAdapter = new QuotaHandlingStorageAdapter(this.indexedDbAdapter, options?.onQuotaError)
+    this.quotaAdapter = new QuotaHandlingStorageAdapter(this.indexedDbAdapter)
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
       channelName: `${getVaultStorageNames().accountPrefixes.automergeBroadcastChannel}${this.accountId}`,

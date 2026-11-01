@@ -102,8 +102,9 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     this.pusher.cancelRetry()
   }
 
-  async persistLastModified(): Promise<void> {
-    await this.tracker.persistLastModified()
+  /** Saves the timestamps, throwing any failure */
+  async saveLastModified(): Promise<void> {
+    await this.tracker.saveLastModified()
   }
 
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {

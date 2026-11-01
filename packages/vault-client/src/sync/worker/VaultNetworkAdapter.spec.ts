@@ -130,7 +130,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
     broker = new SyncMessageBroker({
       adapter,
-      clientEventHub,
       internalEventHub,
       pullQueueManager,
       session,

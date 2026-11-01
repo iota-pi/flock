@@ -56,16 +56,14 @@ describe('AutomergeRepoManager', () => {
   })
 
   it('initializes Repo with QuotaHandlingStorageAdapter', () => {
-    const onQuotaError = vi.fn()
-    const repo = manager.init(mockVaultAdapter, storage, { onQuotaError }) as any
+    const repo = manager.init(mockVaultAdapter, storage) as any
 
     expect(repo).toBeDefined()
     expect(repo.storage).toBeDefined()
   })
 
-  it('delegates save through runStorageOperation and invokes onQuotaError on quota failure', async () => {
-    const onQuotaError = vi.fn()
-    const repo = manager.init(mockVaultAdapter, storage, { onQuotaError }) as any
+  it('delegates save through runStorageOperation and rethrows a quota failure', async () => {
+    const repo = manager.init(mockVaultAdapter, storage) as any
 
     const runStorageSpy = vi.spyOn(storageManager, 'runStorageOperation')
     const quotaError = new DOMException('Quota exceeded', 'QuotaExceededError')
@@ -79,7 +77,6 @@ describe('AutomergeRepoManager', () => {
     ).rejects.toThrow('Quota exceeded')
 
     expect(runStorageSpy).toHaveBeenCalled()
-    expect(onQuotaError).toHaveBeenCalledWith(quotaError)
   })
 
   it('awaits indexedDbAdapter.close() during manager.close()', async () => {

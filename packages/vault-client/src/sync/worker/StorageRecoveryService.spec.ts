@@ -27,7 +27,7 @@ describe('StorageRecoveryService', () => {
     }
     mockSnapshotManager = {
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
-      persistLastModified: vi.fn().mockResolvedValue(undefined),
+      saveLastModified: vi.fn().mockResolvedValue(undefined),
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
     }
     mockLastModifiedStore = {
@@ -149,7 +149,7 @@ describe('StorageRecoveryService', () => {
       expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc1)
       expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc2)
 
-      expect(mockSnapshotManager.persistLastModified).toHaveBeenCalled()
+      expect(mockSnapshotManager.saveLastModified).toHaveBeenCalled()
       expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
@@ -215,7 +215,7 @@ describe('StorageRecoveryService', () => {
 
     it('returns failure when persisting timestamps throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockSnapshotManager.persistLastModified.mockRejectedValueOnce(quotaErr)
+      mockSnapshotManager.saveLastModified.mockRejectedValueOnce(quotaErr)
 
       const result = await service.retrySave()
 
@@ -224,7 +224,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('handles unexpected errors gracefully and returns error message', async () => {
-      mockSnapshotManager.persistLastModified.mockRejectedValueOnce(new Error('Database corrupted'))
+      mockSnapshotManager.saveLastModified.mockRejectedValueOnce(new Error('Database corrupted'))
 
       const result = await service.retrySave()
 

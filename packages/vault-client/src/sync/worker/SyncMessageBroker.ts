@@ -1,12 +1,11 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import type { SyncSessionState } from './SyncSessionState'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { isQuotaError } from '../utils/storageQuota'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
@@ -15,14 +14,11 @@ const log = createLogger('SyncMessageBroker')
 
 export interface SyncMessageBrokerDeps {
   adapter: VaultNetworkAdapter
-  clientEventHub: ClientEventHub
   internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManager
   /** Only the leader writes outgoing messages to the WAL */
   session: SyncSessionState
   wal: SyncWriteAheadLog
-  /** Frees space after a WAL append runs out of storage. Without it, the app is told the quota was exceeded. */
-  onQuotaExceeded?: (error: unknown) => Promise<void>
 }
 
 export class SyncMessageBroker {
@@ -32,17 +28,13 @@ export class SyncMessageBroker {
   private blockedItemIds = new Set<ItemId>()
   private unsubscribeInternalEvents: (() => void) | null = null
   private readonly adapter: VaultNetworkAdapter
-  private readonly clientEventHub: ClientEventHub
   private readonly internalEventHub: WorkerInternalEventHub
   private readonly pullQueueManager: SyncPullQueueManager
-  private readonly onQuotaExceeded?: (error: unknown) => Promise<void>
 
   constructor(deps: SyncMessageBrokerDeps) {
     this.adapter = deps.adapter
-    this.clientEventHub = deps.clientEventHub
     this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
-    this.onQuotaExceeded = deps.onQuotaExceeded
     this.wal = deps.wal
     this.session = deps.session
 
@@ -165,16 +157,6 @@ export class SyncMessageBroker {
     this.blockItem(itemId)
     this.adapter.triggerReNegotiation(documentId)
     this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
-    if (isQuotaError(err)) {
-      if (this.onQuotaExceeded) {
-        fireAndForget(this.onQuotaExceeded(err), 'SyncMessageBroker:handleQuotaExceeded')
-      } else {
-        this.clientEventHub.emit({
-          type: 'quotaExceeded',
-          message: 'Storage quota exceeded. Some changes could not be saved.',
-        })
-      }
-    }
   }
 
   flush(): void {

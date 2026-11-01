@@ -2,7 +2,7 @@ import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/s
 
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { WorkerInternalEventHub } from './SyncEventHub'
 import { createTestEventHubs } from './__test__/testUtils'
 import { SyncSessionState } from './SyncSessionState'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
@@ -26,7 +26,6 @@ describe('SyncMessageBroker', () => {
   let broker: SyncMessageBroker
   let session: SyncSessionState
   let adapter: VaultNetworkAdapter
-  let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
   let pullQueueManager: SyncPullQueueManager
   let mockWal: SyncWriteAheadLog
@@ -34,7 +33,6 @@ describe('SyncMessageBroker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
     internalEventHub = hubs.internalEventHub
     session = new SyncSessionState()
     adapter = new VaultNetworkAdapter(internalEventHub, { accountId: 'account-1', session })
@@ -54,7 +52,6 @@ describe('SyncMessageBroker', () => {
 
     broker = new SyncMessageBroker({
       adapter,
-      clientEventHub,
       internalEventHub,
       pullQueueManager,
       session,
@@ -179,9 +176,8 @@ describe('SyncMessageBroker', () => {
     expect(flushSpy).not.toHaveBeenCalled()
   })
 
-  it('emits quotaExceeded event when WAL append fails with QuotaExceededError', async () => {
+  it('blocks the item when a WAL append fails with QuotaExceededError', async () => {
     const failureSpy = vi.fn()
-    const emitSpy = vi.spyOn(clientEventHub, 'emit')
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
     internalEventHub.subscribe(e => {
       if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
@@ -197,12 +193,7 @@ describe('SyncMessageBroker', () => {
 
     expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
     expect(failureSpy).toHaveBeenCalledWith('item-quota', quotaError)
-    expect(emitSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'quotaExceeded',
-        message: expect.stringContaining('quota'),
-      })
-    )
+    expect(broker.isItemBlocked('item-quota' as ItemId)).toBe(true)
   })
 
   it('flags items for snapshot-only sync without triggering renegotiation when WAL prunes entries', async () => {
