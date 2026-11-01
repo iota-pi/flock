@@ -54,7 +54,7 @@ export class SyncMessageBroker {
     fireAndForget(this.handleOutgoingMessage(message), 'SyncMessageBroker:handleOutgoingMessage')
   }
 
-  blockItem(itemId: ItemId): void {
+  private blockItem(itemId: ItemId): void {
     this.blockedItemIds.add(itemId)
   }
 
@@ -66,7 +66,7 @@ export class SyncMessageBroker {
     this.blockedItemIds.clear()
   }
 
-  isItemBlocked(itemId: ItemId): boolean {
+  private isItemBlocked(itemId: ItemId): boolean {
     return this.blockedItemIds.has(itemId)
   }
 
@@ -95,7 +95,7 @@ export class SyncMessageBroker {
   /**
    * Routes an item to snapshot-only sync until its next successful snapshot push.
    */
-  fallbackToSnapshot(itemId: ItemId): void {
+  private fallbackToSnapshot(itemId: ItemId): void {
     this.snapshotOnlyItems.add(itemId)
     this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId })
   }

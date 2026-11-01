@@ -151,13 +151,12 @@ describe('SyncEventHub', () => {
 
       hub.subscribe(listener)
       const event: WorkerInternalEvent = { type: 'multipleLeadersDetected' }
-      const result = hub.emit(event)
+      hub.emit(event)
 
-      expect(result).toBe(true)
       expect(listener).toHaveBeenCalledWith(event)
     })
 
-    it('isolates synchronous listener errors, returns false, and continues calling subsequent listeners without throwing', () => {
+    it('isolates synchronous listener errors and continues calling subsequent listeners without throwing', () => {
       const hub = new WorkerInternalEventHub()
       const failingListener = vi.fn(() => {
         throw new Error('internal error')
@@ -167,11 +166,9 @@ describe('SyncEventHub', () => {
       hub.subscribe(failingListener)
       hub.subscribe(successfulListener)
 
-      let result: boolean | undefined
       expect(() => {
-        result = hub.emit({ type: 'soleLeaderRestored' })
+        hub.emit({ type: 'soleLeaderRestored' })
       }).not.toThrow()
-      expect(result).toBe(false)
 
       expect(failingListener).toHaveBeenCalled()
       expect(successfulListener).toHaveBeenCalled()

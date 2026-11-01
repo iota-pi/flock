@@ -10,7 +10,6 @@ describe('SingleFlightGuard', () => {
     expect(result).toBe(42)
     expect(fn).toHaveBeenCalledTimes(1)
     expect(guard.isRunning).toBe(false)
-    expect(guard.currentPromise).toBeNull()
   })
 
   it('deduplicates concurrent calls, executing the task only once', async () => {
@@ -25,7 +24,6 @@ describe('SingleFlightGuard', () => {
     const call3 = guard.run(fn)
 
     expect(guard.isRunning).toBe(true)
-    expect(guard.currentPromise).toBeDefined()
     expect(fn).toHaveBeenCalledTimes(1)
 
     resolveTask('completed')
@@ -36,7 +34,6 @@ describe('SingleFlightGuard', () => {
     expect(res3).toBe('completed')
 
     expect(guard.isRunning).toBe(false)
-    expect(guard.currentPromise).toBeNull()
   })
 
   it('allows a new execution after the prior one settles', async () => {
@@ -76,7 +73,6 @@ describe('SingleFlightGuard', () => {
     await expect(call2).rejects.toThrow('Task failed')
 
     expect(guard.isRunning).toBe(false)
-    expect(guard.currentPromise).toBeNull()
 
     // Subsequent call succeeds
     const successFn = vi.fn().mockResolvedValue('ok')
@@ -91,7 +87,6 @@ describe('SingleFlightGuard', () => {
 
     await expect(guard.run(syncThrowFn)).rejects.toThrow('Immediate failure')
     expect(guard.isRunning).toBe(false)
-    expect(guard.currentPromise).toBeNull()
   })
 
   it('triggers onCoalesce callback when concurrent calls coalesce', async () => {
@@ -165,18 +160,16 @@ describe('SingleFlightGuard', () => {
   })
 
   describe('clear', () => {
-    it('resets running and currentPromise', async () => {
+    it('resets the running state', async () => {
       const guard = new SingleFlightGuard<void>()
       let resolveTask: () => void = () => {}
       const fn = () => new Promise<void>(resolve => { resolveTask = resolve })
 
       void guard.run(fn)
       expect(guard.isRunning).toBe(true)
-      expect(guard.currentPromise).not.toBeNull()
 
       guard.clear()
       expect(guard.isRunning).toBe(false)
-      expect(guard.currentPromise).toBeNull()
 
       resolveTask()
     })
@@ -239,7 +232,6 @@ describe('KeyedSingleFlightGuard', () => {
     const r1 = await guard.run('item1', fn)
     expect(r1).toBe(1)
     expect(guard.isRunning('item1')).toBe(false)
-    expect(guard.activeKeys.has('item1')).toBe(false)
 
     const r2 = await guard.run('item1', fn)
     expect(r2).toBe(2)

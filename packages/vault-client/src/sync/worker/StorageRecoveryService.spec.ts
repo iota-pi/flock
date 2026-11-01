@@ -50,7 +50,6 @@ describe('StorageRecoveryService', () => {
     }
 
     service = new StorageRecoveryService({
-      accountId: 'test-account',
       session,
       clientEventHub,
       wal: mockWal,

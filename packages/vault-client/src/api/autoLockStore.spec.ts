@@ -1,7 +1,6 @@
 import {
   readAutoLockSettings,
   writeAutoLockSettings,
-  clearAutoLockSettings,
   getAutoLockSummary,
   DEFAULT_AUTO_LOCK_SETTINGS,
 } from './autoLockStore'
@@ -28,13 +27,6 @@ describe('autoLockStore', () => {
     expect(readAutoLockSettings()).toEqual({ mode: 'inactivity', inactivityMinutes: 10 })
     expect(getAutoLockSummary({ mode: 'inactivity', inactivityMinutes: 10 })).toBe('After 10 minutes of inactivity')
     expect(getAutoLockSummary({ mode: 'inactivity', inactivityMinutes: 1 })).toBe('After 1 minute of inactivity')
-  })
-
-  it('clears auto-lock settings', () => {
-    writeAutoLockSettings({ mode: 'focus', inactivityMinutes: 5 })
-    clearAutoLockSettings()
-    expect(localStorage.getItem(getVaultStorageNames().autoLockSettingsKey)).toBeNull()
-    expect(readAutoLockSettings()).toEqual(DEFAULT_AUTO_LOCK_SETTINGS)
   })
 
   it('handles invalid JSON gracefully', () => {

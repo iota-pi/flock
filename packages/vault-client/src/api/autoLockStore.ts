@@ -38,11 +38,6 @@ export function writeAutoLockSettings(settings: AutoLockSettings): void {
   localStorage.setItem(getVaultStorageNames().autoLockSettingsKey, JSON.stringify(settings))
 }
 
-export function clearAutoLockSettings(): void {
-  if (typeof localStorage === 'undefined') return
-  localStorage.removeItem(getVaultStorageNames().autoLockSettingsKey)
-}
-
 export function getAutoLockSummary(settings = readAutoLockSettings()): string {
   switch (settings.mode) {
     case 'focus':

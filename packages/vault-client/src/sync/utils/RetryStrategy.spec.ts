@@ -47,16 +47,6 @@ describe('RetryStrategy', () => {
     expect(strategy.currentBaseDelay).toBe(2000)
   })
 
-  it('allows manual attempt setting and enforces non-negative attempt', () => {
-    const strategy = new RetryStrategy()
-    strategy.attempt = 3
-    expect(strategy.attempt).toBe(3)
-    expect(strategy.currentBaseDelay).toBe(30000)
-
-    strategy.attempt = -5
-    expect(strategy.attempt).toBe(0)
-  })
-
   it('supports custom delay array', () => {
     const strategy = new RetryStrategy({ delays: [100, 200, 500] })
     expect(strategy.nextDelay()).toBe(100)
@@ -75,29 +65,23 @@ describe('RetryStrategy', () => {
     it('has infinite attempts when maxAttempts is undefined', () => {
       const strategy = new RetryStrategy()
       expect(strategy.canRetry).toBe(true)
-      expect(strategy.isExhausted).toBe(false)
 
-      strategy.attempt = 100
+      for (let i = 0; i < 100; i += 1) strategy.increment()
       expect(strategy.canRetry).toBe(true)
-      expect(strategy.isExhausted).toBe(false)
     })
 
     it('enforces maxAttempts limit correctly', () => {
       const strategy = new RetryStrategy({ maxAttempts: 3 })
       expect(strategy.canRetry).toBe(true)
-      expect(strategy.isExhausted).toBe(false)
 
       strategy.nextDelay() // attempt 0 -> 1
       expect(strategy.canRetry).toBe(true)
-      expect(strategy.isExhausted).toBe(false)
 
       strategy.nextDelay() // attempt 1 -> 2
       expect(strategy.canRetry).toBe(true)
-      expect(strategy.isExhausted).toBe(false)
 
       strategy.nextDelay() // attempt 2 -> 3
       expect(strategy.canRetry).toBe(false)
-      expect(strategy.isExhausted).toBe(true)
     })
   })
 
@@ -180,8 +164,8 @@ describe('RetryStrategy', () => {
         delays: [60000],
         jitter: true,
       })
-      // Delay returned from currentDelay should be in [52500, 67500]
-      const delay = strategy.currentDelay
+      // Delay returned from nextDelay should be in [52500, 67500]
+      const delay = strategy.nextDelay()
       expect(delay).toBeGreaterThanOrEqual(52500)
       expect(delay).toBeLessThanOrEqual(67500)
     })

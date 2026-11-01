@@ -82,14 +82,11 @@ export class EventHub<T> {
    *   logged without aborting dispatch to subsequent listeners.
    * - Asynchronous listeners: Handlers returning a Promise run detached (fire-and-forget).
    *   Rejections are caught and logged asynchronously to prevent unhandled promise
-   *   rejections, but they do NOT block execution or affect the returned boolean.
+   *   rejections, but they do NOT block execution.
    *
    * @param event The event payload to dispatch.
-   * @returns `true` if all listeners were invoked without throwing synchronous errors;
-   *          `false` if any listener threw synchronously.
    */
-  emit(event: T): boolean {
-    let hasError = false
+  emit(event: T): void {
     for (const listener of Array.from(this.listeners)) {
       try {
         const result = listener(event)
@@ -99,11 +96,9 @@ export class EventHub<T> {
           )
         }
       } catch (err) {
-        hasError = true
         this.log.error(`Error in ${this.listenerDescription}:`, err)
       }
     }
-    return !hasError
   }
 }
 
@@ -122,10 +117,9 @@ export class ClientEventHub extends EventHub<ClientEvent> {
    * Dispatches the event locally and forwards it to the main thread via the external MessagePort if configured.
    *
    * @param event The client event to dispatch.
-   * @returns `true` if local listeners and external port transfer succeeded without synchronous error; `false` otherwise.
    */
-  override emit(event: ClientEvent): boolean {
-    const ok = super.emit(event)
+  override emit(event: ClientEvent): void {
+    super.emit(event)
 
     // Distribute to main-thread listener via MessagePort
     if (this.externalPort) {
@@ -133,10 +127,8 @@ export class ClientEventHub extends EventHub<ClientEvent> {
         this.externalPort.postMessage(event)
       } catch (err) {
         this.log.error('Error posting to external port:', err)
-        return false
       }
     }
-    return ok
   }
 }
 

@@ -71,6 +71,15 @@ describe('SyncMessageBroker', () => {
     return vi.mocked(mockWal.append).mock.calls.length === appendsBefore
   }
 
+  /** Blocks the item the way a failed WAL append does, then forgets that append */
+  async function blockByFailedAppend(itemId: string): Promise<void> {
+    session.setLeader(true)
+    vi.mocked(mockWal.append).mockRejectedValueOnce(new Error('Disk full'))
+    broker.send(createSyncMessage(itemId, [0]))
+    await Promise.resolve()
+    vi.mocked(mockWal.append).mockClear()
+  }
+
   /** Makes this tab the leader, which writes outgoing messages to the WAL */
   async function startSending(): Promise<void> {
     session.setLeader(true)
@@ -190,7 +199,7 @@ describe('SyncMessageBroker', () => {
 
     expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
     expect(failureSpy).toHaveBeenCalledWith('item-quota', quotaError)
-    expect(broker.isItemBlocked('item-quota' as ItemId)).toBe(true)
+    expect(broker.getBlockedItemIds()).toEqual(['item-quota'])
   })
 
   it('flags items for snapshot-only sync without triggering renegotiation when WAL prunes entries', async () => {
@@ -255,13 +264,13 @@ describe('SyncMessageBroker', () => {
     const itemId = 'item-snapshot' as ItemId
     const docId = toDocumentIdFromItemId(itemId)
 
-    broker.blockItem(itemId)
-    broker.fallbackToSnapshot(itemId)
-    expect(broker.isItemBlocked(itemId)).toBe(true)
+    await blockByFailedAppend(itemId)
+    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
+    expect(broker.getBlockedItemIds()).toEqual([itemId])
     expect(await dropsIncrementalSync(itemId)).toBe(true)
 
     broker.setSyncedHeads(itemId, ['head-from-snapshot'])
-    expect(broker.isItemBlocked(itemId)).toBe(false)
+    expect(broker.getBlockedItemIds()).toEqual([])
     expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-snapshot'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
     // Neither blocked nor snapshot-only any more, so incremental sync resumes
@@ -276,11 +285,11 @@ describe('SyncMessageBroker', () => {
     const itemId = 'item-pushed' as ItemId
     const docId = toDocumentIdFromItemId(itemId)
 
-    broker.blockItem(itemId)
-    broker.fallbackToSnapshot(itemId)
+    await blockByFailedAppend(itemId)
+    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
 
     broker.recordSyncedHeads(itemId, ['head-from-push'])
-    expect(broker.isItemBlocked(itemId)).toBe(false)
+    expect(broker.getBlockedItemIds()).toEqual([])
     expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-push'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
     // Unblocked but still snapshot-only, so incremental messages stay out of the WAL
@@ -306,7 +315,6 @@ describe('SyncMessageBroker', () => {
       await Promise.resolve()
 
       // The item should now be blocked
-      expect(broker.isItemBlocked('item-loop' as ItemId)).toBe(true)
       expect(broker.getBlockedItemIds()).toEqual(['item-loop'])
 
       // Only the first append was attempted; the renegotiation message was dropped because the item was blocked!
@@ -320,16 +328,12 @@ describe('SyncMessageBroker', () => {
     })
 
     it('unblocks item when setSyncedHeads is called after successful snapshot upload', async () => {
-      session.setLeader(true)
-
-      // Block the item
-      broker.blockItem('item-snap' as ItemId)
-      expect(broker.isItemBlocked('item-snap' as ItemId)).toBe(true)
+      await blockByFailedAppend('item-snap')
+      expect(broker.getBlockedItemIds()).toEqual(['item-snap'])
 
       // SnapshotManager succeeds and updates synced heads
       broker.setSyncedHeads('item-snap' as ItemId, ['head-123'])
 
-      expect(broker.isItemBlocked('item-snap' as ItemId)).toBe(false)
       expect(broker.getBlockedItemIds()).toEqual([])
 
       // Now outgoing messages can append to WAL again
@@ -342,11 +346,10 @@ describe('SyncMessageBroker', () => {
 
     it('successfully appends sync messages to WAL after unblockAllItems unblocks previously blocked items', async () => {
       const flushSpy = onFlushNeeded
-      session.setLeader(true)
 
       // Block item
-      broker.blockItem('item-blocked' as ItemId)
-      expect(broker.isItemBlocked('item-blocked' as ItemId)).toBe(true)
+      await blockByFailedAppend('item-blocked')
+      expect(broker.getBlockedItemIds()).toEqual(['item-blocked'])
 
       // Message dropped while blocked
       const droppedMsg = createSyncMessage('item-blocked', [1, 2, 3])
@@ -357,7 +360,7 @@ describe('SyncMessageBroker', () => {
 
       // The storage recovery service unblocks every item once storage is available
       broker.unblockAllItems()
-      expect(broker.isItemBlocked('item-blocked' as ItemId)).toBe(false)
+      expect(broker.getBlockedItemIds()).toEqual([])
 
       // Renegotiation message arrives and is appended to WAL
       const recoveredMsg = createSyncMessage('item-blocked', [4, 5, 6])
@@ -368,14 +371,13 @@ describe('SyncMessageBroker', () => {
       expect(flushSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('explicit unblockItem unblocks single item', () => {
-      broker.blockItem('item-x' as ItemId)
-      broker.blockItem('item-y' as ItemId)
-      expect(broker.isItemBlocked('item-x' as ItemId)).toBe(true)
+    it('explicit unblockItem unblocks single item', async () => {
+      await blockByFailedAppend('item-x')
+      await blockByFailedAppend('item-y')
+      expect(broker.getBlockedItemIds()).toEqual(['item-x', 'item-y'])
 
       broker.unblockItem('item-x' as ItemId)
-      expect(broker.isItemBlocked('item-x' as ItemId)).toBe(false)
-      expect(broker.isItemBlocked('item-y' as ItemId)).toBe(true)
+      expect(broker.getBlockedItemIds()).toEqual(['item-y'])
     })
   })
 })

@@ -100,18 +100,6 @@ export class SyncOrchestrator {
     return this.session.isShutdown
   }
 
-  get isPolling(): boolean {
-    return this.pollGuard.isRunning
-  }
-
-  get hasPendingFlush(): boolean {
-    return this.pendingFlush
-  }
-
-  get hasScheduledPoll(): boolean {
-    return this.pollTimer.isPending
-  }
-
   private canPoll(force = false): boolean {
     return this.isOperational && (force || !this.pollingPausedForAuth)
   }
@@ -164,7 +152,7 @@ export class SyncOrchestrator {
       if (this.session.isOnline) {
         this.startSyncing()
       } else {
-        this.startPolling(true)
+        this.startPolling()
       }
     } else {
       this.cursorReloadGuard.clear()
@@ -174,7 +162,7 @@ export class SyncOrchestrator {
 
   /** Polls now and starts the periodic manifest sync with an immediate run. */
   private startSyncing(): void {
-    this.startPolling(true)
+    this.startPolling()
     this.startPeriodicManifestSync()
     fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
   }
@@ -228,7 +216,8 @@ export class SyncOrchestrator {
     }
   }
 
-  startPolling(immediate?: boolean): void {
+  /** Polls now, or right after the poll in flight */
+  private startPolling(): void {
     if (this.isShutdown) return
     this.stopPolling()
 
@@ -238,18 +227,14 @@ export class SyncOrchestrator {
 
     this.pollingPausedForAuth = false
 
-    if (immediate) {
-      if (!this.pollGuard.isRunning) {
-        fireAndForget(this.executeWrappedPoll(true), 'SyncOrchestrator:executeWrappedPoll')
-      } else {
-        this.pendingFlush = true
-      }
+    if (!this.pollGuard.isRunning) {
+      fireAndForget(this.executeWrappedPoll(true), 'SyncOrchestrator:executeWrappedPoll')
     } else {
-      this.schedulePollTimer(this.pollBackoff.currentBaseDelay)
+      this.pendingFlush = true
     }
   }
 
-  stopPolling(): void {
+  private stopPolling(): void {
     this.pollTimer.cancel()
     if (this.syncBatchTimer.isPending) {
       this.syncBatchTimer.cancel()
@@ -380,7 +365,7 @@ export class SyncOrchestrator {
     await this.manifestSyncGuard.waitForRunning()
   }
 
-  startPeriodicManifestSync(): void {
+  private startPeriodicManifestSync(): void {
     if (!this.isOperational) {
       return
     }
@@ -390,21 +375,21 @@ export class SyncOrchestrator {
     }, this.manifestSyncIntervalMs) as unknown as number
   }
 
-  stopPeriodicManifestSync(): void {
+  private stopPeriodicManifestSync(): void {
     if (this.manifestSyncIntervalId !== null) {
       self.clearInterval(this.manifestSyncIntervalId)
       this.manifestSyncIntervalId = null
     }
   }
 
-  async triggerManifestSync(force = false): Promise<void> {
+  private async triggerManifestSync(): Promise<void> {
     try {
       if (!this.isOperational) {
         return
       }
       return await this.manifestSyncGuard.run(async () => {
         try {
-          await this.manifestSyncRun.run(signal => this.manifestSyncManager.sync(force, signal))
+          await this.manifestSyncRun.run(signal => this.manifestSyncManager.sync(false, signal))
         } catch (error) {
           if (isAbortError(error)) {
             return

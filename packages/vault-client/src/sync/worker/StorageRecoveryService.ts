@@ -30,7 +30,6 @@ class QuotaExceededRetryError extends Error {
 }
 
 export interface StorageRecoveryServiceDeps {
-  accountId: string
   session: SyncSessionState
   clientEventHub: ClientEventHub
   wal: SyncWriteAheadLog

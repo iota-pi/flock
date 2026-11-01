@@ -392,7 +392,6 @@ export class SyncWorkerContext {
     })
 
     const storageRecoveryService = new StorageRecoveryService({
-      accountId,
       session,
       clientEventHub,
       wal,

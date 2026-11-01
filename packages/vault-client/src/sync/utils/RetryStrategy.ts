@@ -97,10 +97,6 @@ export class RetryStrategy {
     return this.currentAttempt
   }
 
-  set attempt(val: number) {
-    this.currentAttempt = Math.max(0, val)
-  }
-
   get canRetry(): boolean {
     if (this.maxAttempts === undefined) {
       return true
@@ -108,32 +104,12 @@ export class RetryStrategy {
     return this.currentAttempt < this.maxAttempts
   }
 
-  get isExhausted(): boolean {
-    return !this.canRetry
-  }
-
   /**
    * Returns the base delay for the current attempt index (clamped to the last delay).
    */
   get currentBaseDelay(): number {
-    return this.getBaseDelay(this.currentAttempt)
-  }
-
-  /**
-   * Returns the current delay, applying jitter if configured.
-   */
-  get currentDelay(): number {
-    const base = this.currentBaseDelay
-    return this.jitterOptions ? RetryStrategy.applyJitter(base, this.jitterOptions) : base
-  }
-
-  /**
-   * Returns the base delay (without advancing or applying jitter) for a specific attempt index.
-   */
-  getBaseDelay(attemptIndex: number): number {
     if (this.delays.length === 0) return 0
-    const clampedIndex = Math.min(Math.max(0, attemptIndex), this.delays.length - 1)
-    return this.delays[clampedIndex]
+    return this.delays[Math.min(this.currentAttempt, this.delays.length - 1)]
   }
 
   /**
@@ -141,7 +117,8 @@ export class RetryStrategy {
    * and increments the attempt counter.
    */
   nextDelay(): number {
-    const delay = this.currentDelay
+    const base = this.currentBaseDelay
+    const delay = this.jitterOptions ? RetryStrategy.applyJitter(base, this.jitterOptions) : base
     this.currentAttempt += 1
     return delay
   }

@@ -24,7 +24,6 @@ export interface ChunkPushSummary {
   acknowledgedCount: number
   quarantinedCount: number
   unacknowledgedCount: number
-  totalPushed: number
 }
 
 type ChunkEntry = [ItemId, WalEntry[]][]
@@ -249,7 +248,6 @@ export class SyncPoller {
       acknowledgedCount: 0,
       quarantinedCount: 0,
       unacknowledgedCount: 0,
-      totalPushed: chunkEntry.length,
     }
 
     if (chunkEntry.length > 0) {
@@ -336,7 +334,6 @@ export class SyncPoller {
       acknowledgedCount: acknowledgedItemIds.size,
       quarantinedCount: quarantinedItemIds.size,
       unacknowledgedCount: chunkEntry.length - acknowledgedItemIds.size - quarantinedItemIds.size,
-      totalPushed: chunkEntry.length,
     }
   }
 

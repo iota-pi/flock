@@ -99,7 +99,7 @@ describe('SyncOrchestrator', () => {
     orchestrator.flush()
     await vi.advanceTimersByTimeAsync(0)
 
-    // Should not have started a second poll yet because isPolling is true
+    // Should not have started a second poll yet because a poll is in flight
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
     // Now resolve the first poll
@@ -111,29 +111,20 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
   })
 
-  it('applies symmetric jitter centered around target delay when scheduling poll timers', () => {
+  it('applies jitter to the scheduled poll delay', async () => {
+    // The lowest jitter: the 30000ms base delay less half its 7500ms jitter window
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+
     orchestrator.setLeader(true)
     setOnline(orchestrator, true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
-    // Spy on the real setTimeout, not the fake one: restoring a spy on a fake timer would bring
-    // the fake back after `useRealTimers`, and stall every later file in the worker
-    vi.useRealTimers()
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((() => 0) as unknown as typeof setTimeout)
-    const samples: number[] = []
+    await vi.advanceTimersByTimeAsync(26249)
+    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
-    for (let i = 0; i < 1000; i++) {
-      orchestrator.startPolling(false)
-      const lastCall = setTimeoutSpy.mock.calls[setTimeoutSpy.mock.calls.length - 1]
-      samples.push(lastCall[1] as number)
-    }
-
-    setTimeoutSpy.mockRestore()
-
-    const avg = samples.reduce((a, b) => a + b, 0) / samples.length
-    // Target base delay is 30000ms, jitter factor is 0.25 -> jitter window 7500ms (range: 26250 - 33750). Average should be ~30000ms.
-    expect(avg).toBeGreaterThan(28500)
-    expect(avg).toBeLessThan(31500)
-    expect(samples.some(s => s !== samples[0])).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
   })
 
   it('handles auth-failure properly and pauses polling even if flush is called during poll', async () => {
@@ -205,32 +196,6 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
   })
 
-  it('resumes polling after auth failure when startPolling is called', async () => {
-    mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
-
-    orchestrator.setLeader(true)
-    setOnline(orchestrator, true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-    // Verify polling is stopped/paused
-    await vi.advanceTimersByTimeAsync(60000)
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-
-    // User re-authenticates and startPolling is called
-    mockPoller.executePoll.mockResolvedValueOnce('success')
-    orchestrator.startPolling(true)
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
-
-    // Subsequent scheduled polling should also work
-    mockPoller.executePoll.mockResolvedValueOnce('success')
-    await vi.advanceTimersByTimeAsync(35000)
-    expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
-  })
-
   it('resumes polling after auth failure when flush is called', async () => {
     mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
 
@@ -299,16 +264,15 @@ describe('SyncOrchestrator', () => {
     // Polling is paused
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
-    // Start polling without immediate flag (e.g. standard schedule)
+    // Polling resumes when the device reconnects
     let resolvePoll2: (val: any) => void = () => {}
     const poll2Promise = new Promise(resolve => {
       resolvePoll2 = resolve
     })
     mockPoller.executePoll.mockImplementationOnce(() => poll2Promise)
-    orchestrator.startPolling(false)
-
-    // Advance timer to the scheduled poll time
-    await vi.advanceTimersByTimeAsync(35000)
+    setOnline(orchestrator, false)
+    setOnline(orchestrator, true)
+    await vi.advanceTimersByTimeAsync(0)
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
 
     // Resolve poll 2 with success
@@ -406,7 +370,6 @@ describe('SyncOrchestrator', () => {
 
     // Shut down before batch timeout fires
     await shutDown(orchestrator)
-    expect(orchestrator.hasPendingFlush).toBe(false)
 
     // Advancing timers past the batch timeout should not execute any poll
     await vi.advanceTimersByTimeAsync(1000)
@@ -423,19 +386,16 @@ describe('SyncOrchestrator', () => {
     await shutDown(orchestrator)
     await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.manifestSyncInterval * 2)
 
-    expect(orchestrator.hasScheduledPoll).toBe(false)
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(polls)
     expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(manifestSyncs)
   })
 
-  it('stops polling and periodic manifest sync exactly once when shutting down non-leader (L-7)', async () => {
-    const stopPollingSpy = vi.spyOn(orchestrator, 'stopPolling')
-    const stopPeriodicSpy = vi.spyOn(orchestrator, 'stopPeriodicManifestSync')
-
+  it('shuts down a non-leader without polling or syncing (L-7)', async () => {
     await shutDown(orchestrator)
+    await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.manifestSyncInterval * 2)
 
-    expect(stopPollingSpy).toHaveBeenCalledTimes(1)
-    expect(stopPeriodicSpy).toHaveBeenCalledTimes(1)
+    expect(mockPoller.executePoll).not.toHaveBeenCalled()
+    expect(mockManifestSyncManager.sync).not.toHaveBeenCalled()
   })
 
   it('executes poll after batch timeout delay when flush is called', async () => {
@@ -455,7 +415,7 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
   })
 
-  it('does not schedule a redundant polling timer when startPolling is called with immediate=true', async () => {
+  it('does not schedule a redundant polling timer alongside the immediate poll on promotion', async () => {
     let resolvePoll: (val: any) => void = () => {}
     const pollPromise = new Promise(resolve => {
       resolvePoll = resolve
@@ -468,7 +428,6 @@ describe('SyncOrchestrator', () => {
 
     // An immediate poll was launched, and no redundant scheduled timer should be pending
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-    expect(orchestrator.hasScheduledPoll).toBe(false)
 
     // Advance time while poll is in-flight: no redundant poll should be triggered
     await vi.advanceTimersByTimeAsync(60000)
@@ -478,10 +437,7 @@ describe('SyncOrchestrator', () => {
     resolvePoll('success')
     await vi.advanceTimersByTimeAsync(0)
 
-    // Once poll completed, it should schedule the next poll
-    expect(orchestrator.hasScheduledPoll).toBe(true)
-
-    // Advancing past scheduled poll interval executes the next poll
+    // Once poll completed, advancing past the scheduled poll interval executes the next poll
     await vi.advanceTimersByTimeAsync(40000)
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
   })
@@ -492,7 +448,6 @@ describe('SyncOrchestrator', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-    expect(orchestrator.hasScheduledPoll).toBe(true)
 
     // Trigger timer for second poll
     await vi.advanceTimersByTimeAsync(40000)
@@ -728,7 +683,7 @@ describe('SyncOrchestrator', () => {
       orchestrator.flush()
       await vi.advanceTimersByTimeAsync(0)
 
-      // Should not have started a second poll yet because isPolling is true
+      // Should not have started a second poll yet because a poll is in flight
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
       // Resolve poll with failure (server outage / error)
@@ -1049,42 +1004,11 @@ describe('SyncOrchestrator', () => {
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(2)
     })
-
-    it('returns existing in-flight promise when triggerManifestSync is called concurrently', async () => {
-      let resolveSync: (val: any) => void = () => {}
-      mockManifestSyncManager.sync.mockImplementation(
-        () => new Promise(resolve => { resolveSync = resolve })
-      )
-
-      orchestrator.setLeader(true)
-      setOnline(orchestrator, true)
-
-      const p1 = orchestrator.triggerManifestSync()
-      const p2 = orchestrator.triggerManifestSync()
-
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
-
-      let p1Resolved = false
-      let p2Resolved = false
-      p1.then(() => { p1Resolved = true })
-      p2.then(() => { p2Resolved = true })
-
-      await vi.advanceTimersByTimeAsync(0)
-      expect(p1Resolved).toBe(false)
-      expect(p2Resolved).toBe(false)
-
-      resolveSync({ added: [] })
-      await vi.advanceTimersByTimeAsync(0)
-
-      expect(p1Resolved).toBe(true)
-      expect(p2Resolved).toBe(true)
-    })
   })
 
   describe('liveness and cancellation', () => {
-    it('correctly reports isOperational and isPolling', async () => {
+    it('correctly reports isOperational', async () => {
       expect(orchestrator.isOperational).toBe(false)
-      expect(orchestrator.isPolling).toBe(false)
 
       orchestrator.setLeader(true)
       expect(orchestrator.isOperational).toBe(true)
@@ -1112,7 +1036,6 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-      expect(orchestrator.isPolling).toBe(true)
 
       // Revoke leadership while poll is in-flight
       orchestrator.setLeader(false)
@@ -1123,7 +1046,6 @@ describe('SyncOrchestrator', () => {
       resolvePoll('success')
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(orchestrator.isPolling).toBe(false)
       // Advancing timers should not schedule follower polls
       await vi.advanceTimersByTimeAsync(100000)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -1142,7 +1064,6 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-      expect(orchestrator.isPolling).toBe(true)
 
       // Go offline while poll is in-flight
       setOnline(orchestrator, false)
@@ -1153,7 +1074,6 @@ describe('SyncOrchestrator', () => {
       resolvePoll('success')
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(orchestrator.isPolling).toBe(false)
       // Advancing timers should not poll while offline
       await vi.advanceTimersByTimeAsync(100000)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
@@ -1283,7 +1203,6 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-      expect(orchestrator.hasScheduledPoll).toBe(true)
 
       // Advance timer by poll backoff delay to verify the timer executes the subsequent poll
       await vi.advanceTimersByTimeAsync(40000)
