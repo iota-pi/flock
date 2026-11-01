@@ -64,7 +64,10 @@ describe('sendPing', () => {
 
     vi.advanceTimersByTime(5000)
 
-    await expect(pingPromise).rejects.toThrow(HeartbeatTimeoutError)
+    await expect(pingPromise).rejects.toMatchObject({
+      name: 'AbortError',
+      cause: expect.any(HeartbeatTimeoutError),
+    })
     expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
   })
 
@@ -261,7 +264,8 @@ describe('syncWorkerHealth', () => {
     expect(onCrash).toHaveBeenCalledTimes(1)
     expect(mockWorker.terminate).toHaveBeenCalledTimes(1)
 
-    // Listeners on pingPort must be cleaned up immediately
+    // Listeners on pingPort must be cleaned up once the aborted ping settles
+    await vi.advanceTimersByTimeAsync(0)
     expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))
     expect(removeListenerSpy).toHaveBeenCalledWith('messageerror', expect.any(Function))
 
@@ -294,6 +298,7 @@ describe('syncWorkerHealth', () => {
 
     // Stop heartbeat while ping is in flight
     healthMonitor.stopWorkerHeartbeat()
+    await vi.advanceTimersByTimeAsync(0)
 
     // Verify listeners were cleaned up
     expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function))

@@ -1,4 +1,5 @@
 import type { SyncStatus } from '../shared/types'
+import { checkAlive, untilAborted, withTimeout } from '../utils/abort'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('syncWorkerHealth')
@@ -41,73 +42,34 @@ interface CrashDetails {
   isTimeout?: boolean
 }
 
-export const sendPing = (
+export const sendPing = async (
   port: MessagePort,
   { signal, timeoutMs }: SendPingOptions = {},
 ): Promise<void> => {
-  return new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason ?? new Error('Ping aborted'))
-      return
+  checkAlive(signal, true, 'Ping aborted')
+
+  let handleMessage!: (event: MessageEvent) => void
+  let handleMessageError!: () => void
+  const pong = new Promise<void>((resolve, reject) => {
+    handleMessage = event => {
+      if (event.data === 'pong') resolve()
     }
-
-    let settled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data === 'pong') {
-        cleanup()
-        resolve()
-      }
-    }
-
-    const handleMessageError = () => {
-      cleanup()
-      reject(new Error('MessagePort error'))
-    }
-
-    const handleAbort = () => {
-      cleanup()
-      reject(signal?.reason ?? new Error('Ping aborted'))
-    }
-
-    function cleanup() {
-      if (settled) return
-      settled = true
-
-      if (timer !== null) {
-        clearTimeout(timer)
-        timer = null
-      }
-      port.removeEventListener('message', handleMessage)
-      port.removeEventListener('messageerror', handleMessageError)
-      if (signal) {
-        signal.removeEventListener('abort', handleAbort)
-      }
-    }
-
-    if (signal) {
-      signal.addEventListener('abort', handleAbort, { once: true })
-    }
-
-    if (timeoutMs !== undefined && timeoutMs > 0) {
-      timer = setTimeout(() => {
-        cleanup()
-        reject(new HeartbeatTimeoutError())
-      }, timeoutMs)
-    }
-
-    port.addEventListener('message', handleMessage)
-    port.addEventListener('messageerror', handleMessageError)
-    port.start()
-
-    try {
-      port.postMessage('ping')
-    } catch (err) {
-      cleanup()
-      reject(err)
-    }
+    handleMessageError = () => reject(new Error('MessagePort error'))
   })
+  const untilPong = (pingSignal?: AbortSignal) => (pingSignal ? untilAborted(pong, pingSignal) : pong)
+
+  port.addEventListener('message', handleMessage)
+  port.addEventListener('messageerror', handleMessageError)
+  try {
+    port.start()
+    port.postMessage('ping')
+    await (timeoutMs !== undefined && timeoutMs > 0
+      ? withTimeout(timeoutMs, untilPong, { signal, reason: new HeartbeatTimeoutError() })
+      : untilPong(signal))
+  } finally {
+    port.removeEventListener('message', handleMessage)
+    port.removeEventListener('messageerror', handleMessageError)
+  }
 }
 
 function isExternalAbort(signal: AbortSignal): boolean {
