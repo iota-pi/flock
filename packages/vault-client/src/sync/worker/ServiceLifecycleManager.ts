@@ -1,3 +1,4 @@
+import { AbortError } from '../utils/abort'
 import { createLogger, type Logger } from '../utils/logger'
 
 export interface ServiceRegistration<TOptions = unknown> {
@@ -6,26 +7,29 @@ export interface ServiceRegistration<TOptions = unknown> {
   onStop?: (options?: TOptions) => Promise<void> | void
 }
 
-type LifecycleStatus = 'uninitialized' | 'starting' | 'running' | 'stopping' | 'stopped' | 'errored'
-
 /**
  * Manages standard initialization and teardown of dependent services.
  *
+ * A service is running from registration if it has no `onStart`, and otherwise once its `onStart`
+ * succeeds. Only running services are stopped, each once.
+ *
  * Guarantees:
  * 1. FIFO startup: services are initialized in the order they are registered.
- * 2. Automatic rollback on startup failure: if an `onStart` hook throws, already-started services
- *    are torn down in reverse order (LIFO) before the error is re-thrown.
+ * 2. Automatic rollback on startup failure: if an `onStart` hook throws, the running services are
+ *    stopped in reverse order (LIFO) before the error is re-thrown. A `stop()` waiting for the start
+ *    stops them instead, with its options.
  * 3. LIFO teardown: services are stopped in reverse order of registration.
  * 4. Teardown error isolation: failure in one service's `onStop` does not abort or skip
  *    the teardown of remaining services; each error is caught and logged.
  * 5. Idempotent shutdown: multiple calls to `stop()` are safe.
- * 6. A `stop()` during `start()` waits for it to finish, so no service starts after teardown.
+ * 6. A `stop()` during `start()` waits for it to finish, and `start()` after `stop()` throws, so no
+ *    service starts after teardown.
  */
 export class ServiceLifecycleManager<TOptions = unknown> {
   private readonly services: ServiceRegistration<TOptions>[] = []
-  private startedServices: ServiceRegistration<TOptions>[] = []
-  private status: LifecycleStatus = 'uninitialized'
+  private readonly running = new Set<ServiceRegistration<TOptions>>()
   private startPromise: Promise<void> | null = null
+  private stopPromise: Promise<void> | null = null
 
   private readonly log: Logger
 
@@ -35,90 +39,61 @@ export class ServiceLifecycleManager<TOptions = unknown> {
 
   public register(service: ServiceRegistration<TOptions>): this {
     this.services.push(service)
+    if (!service.onStart) {
+      this.running.add(service)
+    }
     return this
   }
 
-  public async start(): Promise<void> {
-    if (this.status === 'running') {
-      return
+  /** Starts the services. It may be called once, before `stop()`. */
+  public start(): Promise<void> {
+    if (this.stopPromise) {
+      return Promise.reject(new AbortError('The services were stopped before they started'))
     }
     if (this.startPromise) {
-      return this.startPromise
+      return Promise.reject(new Error('The services have already been started'))
     }
-    const startPromise = this.runStart()
-    this.startPromise = startPromise
-    try {
-      await startPromise
-    } finally {
-      if (this.startPromise === startPromise) {
-        this.startPromise = null
-      }
-    }
+    this.startPromise = this.runStart()
+    return this.startPromise
   }
 
   private async runStart(): Promise<void> {
-    this.status = 'starting'
-    this.startedServices = []
-
     for (const service of this.services) {
-      if (service.onStart) {
-        try {
-          await service.onStart()
-          this.startedServices.push(service)
-        } catch (err) {
-          this.status = 'errored'
-          this.log.error(`Error starting service "${service.name}":`, err)
-
-          // Roll back already started services in LIFO order
-          const rollbackServices = [...this.startedServices].reverse()
-          for (const startedService of rollbackServices) {
-            if (startedService.onStop) {
-              try {
-                await startedService.onStop()
-              } catch (rollbackErr) {
-                this.log.error(
-                  `Error rolling back service "${startedService.name}":`,
-                  rollbackErr
-                )
-              }
-            }
-          }
-          this.startedServices = []
-          throw err
+      if (!service.onStart) continue
+      try {
+        await service.onStart()
+      } catch (err) {
+        this.log.error(`Error starting service "${service.name}":`, err)
+        // A stop waiting for this start stops the running services itself, with its options
+        if (!this.stopPromise) {
+          await this.stopRunning()
         }
-      } else {
-        this.startedServices.push(service)
+        throw err
       }
+      this.running.add(service)
     }
-
-    this.status = 'running'
   }
 
-  public async stop(options?: TOptions): Promise<void> {
-    if (this.startPromise) {
-      // A failed start has already rolled itself back
-      await this.startPromise.catch(() => {})
-    }
-    if (this.status === 'stopping' || this.status === 'stopped') {
-      return
-    }
+  public stop(options?: TOptions): Promise<void> {
+    this.stopPromise ??= this.runStop(options)
+    return this.stopPromise
+  }
 
-    this.status = 'stopping'
+  private async runStop(options?: TOptions): Promise<void> {
+    // A start in progress finishes first, so no service starts after teardown
+    await this.startPromise?.catch(() => {})
+    await this.stopRunning(options)
+  }
 
-    // Teardown in reverse order of registration (LIFO)
-    const reversedServices = [...this.services].reverse()
-
-    for (const service of reversedServices) {
-      if (service.onStop) {
-        try {
-          await service.onStop(options)
-        } catch (err) {
-          this.log.error(`Error stopping service "${service.name}":`, err)
-        }
+  /** Stops the running services in reverse order of registration (LIFO) */
+  private async stopRunning(options?: TOptions): Promise<void> {
+    for (const service of [...this.services].reverse()) {
+      if (!this.running.delete(service)) continue
+      try {
+        await service.onStop?.(options)
+      } catch (err) {
+        this.log.error(`Error stopping service "${service.name}":`, err)
       }
     }
-
-    this.startedServices = []
-    this.status = 'stopped'
   }
 }

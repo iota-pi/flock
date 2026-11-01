@@ -509,7 +509,8 @@ export class SyncWorkerContext {
     // main thread (clearAccountLocalData in localDataCleanup.ts) after the worker has cleanly
     // closed all connections. The worker must not attempt to clear databases on shutdown.
     //
-    // Each component is stopped here and only here, once.
+    // Each component is stopped here and only here, once. A service with `onStart` is only stopped if
+    // that succeeded, so releasing a component that holds work before starting is registered apart.
     const registrations: ServiceRegistration<{ clearLocalData?: boolean }>[] = [
       { name: 'RealtimeBus', onStop: () => realtimeBus.close() },
       { name: 'RepoManager', onStop: () => repoManager.close() },
@@ -520,18 +521,13 @@ export class SyncWorkerContext {
         onStart: () => storageRecoveryService.start(),
         onStop: () => storageRecoveryService.stop(),
       },
-      {
-        name: 'IndexManager',
-        onStart: () => indexManager.ensureIndexDocument(),
-        onStop: () => indexManager.close(),
-      },
+      { name: 'IndexManager', onStop: () => indexManager.close() },
+      { name: 'IndexDocument', onStart: () => indexManager.ensureIndexDocument() },
       { name: 'RecoveryManager', onStop: () => recoveryManager.resetRecoveryState() },
       { name: 'DocStore', onStop: () => docStore.shutdown() },
-      {
-        name: 'SnapshotManager',
-        onStart: () => snapshotTracker.loadLastModified(),
-        onStop: options => snapshotManager.shutdown(options),
-      },
+      // Cross-tab pings can mark items dirty before the timestamps load, so it always stops
+      { name: 'SnapshotManager', onStop: options => snapshotManager.shutdown(options) },
+      { name: 'LastModifiedTimestamps', onStart: () => snapshotTracker.loadLastModified() },
       {
         name: 'SyncedHeads',
         onStart: async () => {
