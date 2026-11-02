@@ -1,25 +1,30 @@
-import type { VaultSnapshotInput } from '@vault/shared'
 import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { classifySyncError } from '../utils/errorClassifier'
-import { ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import { type ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
+import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
+import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
-import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
+import type { SnapshotTracker } from './SnapshotTracker'
+import { estimateSnapshotSize, type SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
+import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
+import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotPusher')
 
 export interface SnapshotPusherOptions {
   accountId: string
+  /** Only the leader uploads snapshots, and only while online */
+  session: SyncSessionState
   tracker: SnapshotTracker
   builder: SnapshotBuilder
   broker: SyncMessageBroker
@@ -35,17 +40,20 @@ interface SnapshotPushOutcome extends SnapshotPushResult {
   success: boolean
 }
 
+/**
+ * Whether an item goes in the push. `skip` leaves it out (it's no longer dirty, or it's oversized and
+ * quarantined); `fail` also marks the push failed, so it's retried.
+ */
 type ItemPreparationResult =
   | { type: 'ready'; item: PreparedSnapshotItem; size: number }
-  | { type: 'not-ready' }
-  | { type: 'error' }
-  | { type: 'oversized' }
-  | { type: 'skipped' }
+  | { type: 'skip' }
+  | { type: 'fail' }
 
 const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
 export class SnapshotPusher {
   private readonly accountId: string
+  private readonly session: SyncSessionState
   private readonly tracker: SnapshotTracker
   private readonly builder: SnapshotBuilder
   private readonly broker: SyncMessageBroker
@@ -53,17 +61,18 @@ export class SnapshotPusher {
   private readonly apiClient: SyncApiClient
   private readonly eventHub: ClientEventHub
   private readonly getLatestCursor?: () => number
-  public readonly maxPayloadBytes: number
+  private readonly maxPayloadBytes: number
 
-  public readonly consecutiveFailures = new Map<ItemId, number>()
+  private readonly consecutiveFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_SNAPSHOT_FAILURES)
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
-  private pushAbortController: AbortController | null = null
+  private readonly pushRun = new AbortableRun(() => this.session.isOperational)
   private pendingPushRequested = false
   private readonly retryTimer = new RetryTimer()
-  public readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
+  private readonly retryStrategy = new RetryStrategy({ delays: DEFAULT_RETRY_DELAYS })
 
   constructor(options: SnapshotPusherOptions) {
     this.accountId = options.accountId
+    this.session = options.session
     this.tracker = options.tracker
     this.builder = options.builder
     this.broker = options.broker
@@ -82,16 +91,8 @@ export class SnapshotPusher {
     return this.retryTimer.isPending
   }
 
-  /** Whether a push was asked for while one was running, so another follows it */
-  get snapshotPushPending(): boolean {
-    return this.pendingPushRequested
-  }
-
   abortPush(): void {
-    if (this.pushAbortController) {
-      this.pushAbortController.abort()
-      this.pushAbortController = null
-    }
+    this.pushRun.abort()
   }
 
   cancelRetry(): void {
@@ -110,7 +111,7 @@ export class SnapshotPusher {
   }
 
   scheduleRetry(): void {
-    if (!this.tracker.isOperational || this.retryTimer.isPending) {
+    if (!this.session.isOperational || this.retryTimer.isPending) {
       return
     }
 
@@ -127,78 +128,20 @@ export class SnapshotPusher {
     })
   }
 
-  private preparePushContext(): {
-    dirtyItemIds: ItemId[]
-    snapshotCursor: number
-  } | null {
-    if (!this.tracker.isOperational) {
-      return null
-    }
-    const dirtyItemIds = this.tracker.getDirtyItemIds()
-    if (dirtyItemIds.length === 0) {
-      return null
-    }
-
-    const snapshotCursor = this.getLatestCursor ? this.getLatestCursor() : 0
-
-    return {
-      dirtyItemIds,
-      snapshotCursor,
-    }
-  }
-
-  /**
-   * `responded` says whether the server answered. The server stores each snapshot on its own, so a
-   * response can confirm some items and not others: `results` lists the stored ones.
-   */
-  private async sendSnapshotBatch(
-    batch: VaultSnapshotInput[],
-    signal?: AbortSignal,
-  ): Promise<{
-    success: boolean
-    responded: boolean
-    persisted: number
-    results: Array<{ itemId: ItemId; version: number }>
-  }> {
-    try {
-      const response = await this.apiClient.putSnapshots(
-        {
-          account: this.accountId,
-          snapshots: batch,
-        },
-        { signal },
-      )
-
-      return {
-        success: response.success && response.persisted === batch.length,
-        responded: true,
-        persisted: response.persisted,
-        results: response.results,
-      }
-    } catch (error) {
-      if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
-        throw error
-      }
-      log.error('Failed to put snapshots', error)
-      return { success: false, responded: false, persisted: 0, results: [] }
-    }
-  }
-
-  async handleSnapshotFailure(
+  private async handleSnapshotFailure(
     itemId: ItemId,
     tick: number,
-    failureType: string,
+    failureType: 'build' | 'upload',
     reason?: string,
   ): Promise<void> {
-    const failures = (this.consecutiveFailures.get(itemId) ?? 0) + 1
-    if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
+    const failures = this.consecutiveFailures.recordFailure(itemId)
+    if (this.consecutiveFailures.isExhausted(failures)) {
       const detailedReason =
         reason ||
         `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`
       log.error(
         `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
       )
-      this.consecutiveFailures.delete(itemId)
       this.tracker.removeDirtyItemIfTickMatches(itemId, tick)
 
       this.eventHub.emit({
@@ -216,12 +159,10 @@ export class SnapshotPusher {
       } catch (recoveryError) {
         log.error('Failed to record manual recovery entry', recoveryError)
       }
-    } else {
-      this.consecutiveFailures.set(itemId, failures)
     }
   }
 
-  handleOversizedItem(
+  private handleOversizedItem(
     itemId: ItemId,
     snapshotSize: number,
     modified: number,
@@ -231,7 +172,8 @@ export class SnapshotPusher {
         `Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`,
       )
       this.eventHub.emit({
-        type: 'quotaExceeded',
+        type: 'snapshotFailed',
+        itemId,
         message: `Snapshot for item ${itemId} (${Math.round(snapshotSize / 1024)} KB) exceeds the ${MAX_ITEM_SIZE_KB} KB limit. Recreating the item with fresh history is required to resume sync.`,
       })
       fireAndForget(
@@ -252,24 +194,24 @@ export class SnapshotPusher {
   ): Promise<ItemPreparationResult> {
     const tick = this.tracker.getDirtyTick(itemId)
     if (tick === undefined) {
-      return { type: 'skipped' }
+      return { type: 'skip' }
     }
 
     // The build bounds its document lookup, so an unreadable document fails here rather than wedging the push
     const buildResult = await this.builder.build(itemId, snapshotCursor, { signal })
     if (buildResult.type === 'not-ready') {
-      return { type: 'not-ready' }
+      return { type: 'fail' }
     }
 
     if (buildResult.type === 'error') {
       await this.handleSnapshotFailure(itemId, tick, 'build', buildResult.reason)
-      return { type: 'error' }
+      return { type: 'fail' }
     }
 
-    // Failures are counted until an upload is confirmed (see finalizeSuccessfulBatch)
+    // Failures are counted until an upload is confirmed (see recordStoredSnapshots)
     const snapshot = buildResult.snapshot
 
-    const snapshotSize = this.builder.estimateSize(snapshot)
+    const snapshotSize = estimateSnapshotSize(snapshot)
 
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
@@ -279,13 +221,13 @@ export class SnapshotPusher {
       return {
         type: 'ready',
         item: { snapshot: tombstone, tick, heads: undefined },
-        size: this.builder.estimateSize(tombstone),
+        size: estimateSnapshotSize(tombstone),
       }
     }
 
     if (snapshotSize > this.maxPayloadBytes) {
       this.handleOversizedItem(itemId, snapshotSize, snapshot.modified)
-      return { type: 'oversized' }
+      return { type: 'skip' }
     }
 
     this.tracker.clearOversized(itemId)
@@ -297,22 +239,13 @@ export class SnapshotPusher {
     }
   }
 
-  private finalizeSuccessfulBatch(
-    batch: PreparedSnapshotItem[],
-    versionsMap: Map<ItemId, number>,
-  ): void {
-    for (const item of batch) {
-      this.consecutiveFailures.delete(item.snapshot.itemId)
-      const assignedVersion = versionsMap.get(item.snapshot.itemId)
+  /** Records snapshots the server stored, whichever upload sent them */
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
+    for (const item of stored) {
+      this.consecutiveFailures.reset(item.snapshot.itemId)
+      const assignedVersion = versions.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
-      // Tombstones deliberately carry no heads: the server does not hold the document state.
-      // Setting the heads also clears snapshot-only and unblocks the item.
-      if (item.heads && item.heads.length > 0) {
-        this.broker.setSyncedHeads(item.snapshot.itemId, item.heads)
-      } else {
-        this.broker.clearSnapshotOnlyItem(item.snapshot.itemId)
-        this.broker.unblockItem(item.snapshot.itemId)
-      }
+      this.broker.confirmSnapshot(item.snapshot.itemId, item.heads)
       fireAndForget(
         this.recoveryManager.unquarantine(item.snapshot.itemId),
         'SnapshotPusher:unquarantine',
@@ -320,55 +253,50 @@ export class SnapshotPusher {
     }
   }
 
+  /** Sends a batch. `responded` says whether the server answered. */
   private async flushBatch(
     batch: PreparedSnapshotItem[],
     signal?: AbortSignal,
   ): Promise<{ success: boolean; responded: boolean; persisted: number }> {
-    const result = await this.sendSnapshotBatch(
-      batch.map(b => b.snapshot),
-      signal,
-    )
-    if (!result.responded) {
-      return result
-    }
-
-    const versionsMap = new Map(result.results.map(r => [r.itemId, r.version]))
-    const stored = batch.filter(item => versionsMap.has(item.snapshot.itemId))
-    this.finalizeSuccessfulBatch(stored, versionsMap)
-
-    // An item the server's results leave out was rejected. It counts towards quarantine, so an item
-    // the server keeps rejecting doesn't keep failing every push.
-    for (const item of batch) {
-      if (!versionsMap.has(item.snapshot.itemId)) {
-        await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
+    let result: SnapshotBatchResult<PreparedSnapshotItem>
+    try {
+      result = await uploadSnapshotBatch(batch, {
+        accountId: this.accountId,
+        apiClient: this.apiClient,
+        recorder: this,
+        signal,
+      })
+    } catch (error) {
+      if (signal?.aborted || isAbortError(error) || classifySyncError(error).isAuth) {
+        throw error
       }
+      log.error('Failed to put snapshots', error)
+      return { success: false, responded: false, persisted: 0 }
     }
-    return result
+
+    for (const item of result.rejected) {
+      await this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'upload')
+    }
+    return { success: result.success, responded: true, persisted: result.persisted }
   }
 
   private async processSnapshotPush(
-    context: {
-      dirtyItemIds: ItemId[]
-      snapshotCursor: number
-    },
+    dirtyItemIds: ItemId[],
+    snapshotCursor: number,
     signal?: AbortSignal,
   ): Promise<SnapshotPushOutcome> {
-    const { dirtyItemIds, snapshotCursor } = context
     let persisted = 0
     let total = 0
     let success = true
     let sendFailed = false
 
-    const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({
-      maxBatchBytes: this.maxPayloadBytes,
-      calculateSize: item => this.builder.estimateSize(item.snapshot),
-    })
+    const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({ maxBatchBytes: this.maxPayloadBytes })
 
     /** Sends the accumulated batch, returning whether the server answered */
     const flushAccumulated = async (): Promise<boolean> => {
       const batch = accumulator.drain()
       total += batch.length
-      checkAlive(signal, () => this.tracker.isOperational)
+      checkAlive(signal, () => this.session.isOperational)
       const result = await this.flushBatch(batch, signal)
       persisted += result.persisted
       if (!result.success) {
@@ -378,16 +306,12 @@ export class SnapshotPusher {
     }
 
     for (const itemId of dirtyItemIds) {
-      checkAlive(signal, () => this.tracker.isOperational)
+      checkAlive(signal, () => this.session.isOperational)
       const prepared = await this.prepareItemForPush(itemId, snapshotCursor, signal)
-      if (prepared.type === 'skipped') {
-        continue
-      }
-      if (prepared.type === 'not-ready' || prepared.type === 'error') {
+      if (prepared.type === 'fail') {
         success = false
-        continue
       }
-      if (prepared.type === 'oversized') {
+      if (prepared.type !== 'ready') {
         continue
       }
 
@@ -412,7 +336,7 @@ export class SnapshotPusher {
 
   /** Runs a push, or coalesces onto the running one and asks for another to follow it */
   private async startPush(): Promise<SnapshotPushOutcome> {
-    if (!this.tracker.isOperational) {
+    if (!this.session.isOperational) {
       return { persisted: 0, total: 0, success: true }
     }
     this.cancelRetry()
@@ -437,29 +361,27 @@ export class SnapshotPusher {
   }
 
   private async executePush(onSettled: (success: boolean) => void): Promise<SnapshotPushOutcome> {
-    const abortController = new AbortController()
-    this.pushAbortController = abortController
-    const { signal } = abortController
     let failed = false
 
     try {
-      checkAlive(signal, () => this.tracker.isOperational)
-      const context = this.preparePushContext()
-      if (!context) {
-        failed = this.tracker.dirtyCount > 0
-        return { persisted: 0, total: 0, success: !failed }
-      }
+      return await this.pushRun.run(async signal => {
+        const dirtyItemIds = this.session.isOperational ? this.tracker.getDirtyItemIds() : []
+        if (dirtyItemIds.length === 0) {
+          failed = this.tracker.dirtyCount > 0
+          return { persisted: 0, total: 0, success: !failed }
+        }
 
-      checkAlive(signal, () => this.tracker.isOperational)
-      const result = await this.processSnapshotPush(context, signal)
-      failed = !result.success
-      if (result.success && this.tracker.dirtyCount === 0) {
-        this.retryStrategy.reset()
-      }
-      return result
+        checkAlive(signal, () => this.session.isOperational)
+        const result = await this.processSnapshotPush(dirtyItemIds, this.getLatestCursor?.() ?? 0, signal)
+        failed = !result.success
+        if (result.success && this.tracker.dirtyCount === 0) {
+          this.retryStrategy.reset()
+        }
+        return result
+      })
     } catch (error) {
       const classified = classifySyncError(error)
-      if (signal.aborted || classified.isAbort || !this.tracker.isOperational) {
+      if (classified.isAbort) {
         return { persisted: 0, total: 0, success: false }
       }
       failed = true
@@ -470,9 +392,6 @@ export class SnapshotPusher {
       }
       return { persisted: 0, total: 0, success: false }
     } finally {
-      if (this.pushAbortController === abortController) {
-        this.pushAbortController = null
-      }
       onSettled(!failed)
     }
   }
@@ -482,16 +401,16 @@ export class SnapshotPusher {
     const wasPending = this.pendingPushRequested
     this.pendingPushRequested = false
 
-    if (!success && hasDirtyDocs && this.tracker.isOperational) {
+    if (!success && hasDirtyDocs && this.session.isOperational) {
       this.scheduleRetry()
-    } else if (wasPending && hasDirtyDocs && this.tracker.isOperational) {
+    } else if (wasPending && hasDirtyDocs && this.session.isOperational) {
       fireAndForget(this.triggerSnapshotPush(), 'SnapshotPusher:handlePostPushScheduling')
     }
   }
 
   async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     this.tracker.clearDebounceTimers()
-    if (!this.tracker.isOperational) {
+    if (!this.session.isOperational) {
       return { persisted: 0, total: 0 }
     }
     if (this.tracker.dirtyCount === 0 && !this.pushGuard.isRunning) {
@@ -530,7 +449,6 @@ export class SnapshotPusher {
   async shutdown(): Promise<void> {
     this.abortPush()
     await this.pushGuard.waitForRunning()
-    this.cancelRetry()
     this.clear()
   }
 }

@@ -5,6 +5,8 @@ describe('syncConfig', () => {
     it('defines expected timeout values', () => {
       expect(SYNC_TIMEOUTS.docStoreFastPath).toBe(2000)
       expect(SYNC_TIMEOUTS.docStoreExtended).toBe(8000)
+      expect(SYNC_TIMEOUTS.snapshotDocLookup).toBe(SYNC_TIMEOUTS.docStoreFastPath + SYNC_TIMEOUTS.docStoreExtended)
+      expect(SYNC_TIMEOUTS.indexLock).toBe(10_000)
       expect(SYNC_TIMEOUTS.keyWait).toBe(5000)
       expect(SYNC_TIMEOUTS.hydrationKeyWait).toBe(3000)
       expect(SYNC_TIMEOUTS.tokenRefresh).toBe(10_000)

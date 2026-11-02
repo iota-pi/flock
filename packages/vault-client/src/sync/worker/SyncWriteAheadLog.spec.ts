@@ -1,14 +1,15 @@
 import { SyncWriteAheadLog, toUint8Array } from './SyncWriteAheadLog'
-import { WorkerInternalEventHub } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
+import type { Mock } from 'vitest'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
 
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createMockLocalForage,
   mockLocalForage,
 } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
 const createLocalForageInstance = (options: { name: string; storeName: string }) => {
@@ -21,7 +22,7 @@ const createLocalForageInstance = (options: { name: string; storeName: string })
 
 describe('SyncWriteAheadLog', () => {
   let wal: SyncWriteAheadLog
-  let eventHub: WorkerInternalEventHub
+  let onPruned: Mock<(itemIds: ItemId[]) => void>
 
   beforeEach(() => {
     mockLocalForage(createLocalForageInstance)
@@ -29,8 +30,8 @@ describe('SyncWriteAheadLog', () => {
     activeStoreMap.clear()
     clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()
-    eventHub = new WorkerInternalEventHub()
-    wal = new SyncWriteAheadLog('test-account', eventHub)
+    onPruned = vi.fn()
+    wal = new SyncWriteAheadLog('test-account', { onEntriesPruned: onPruned })
   })
 
   it('appends entries and reads them grouped by item', async () => {
@@ -87,7 +88,7 @@ describe('SyncWriteAheadLog', () => {
     expect(list1[0].id).toBe(id2)
   })
 
-  it('handles empty, nullish, or duplicate IDs safely on remove()', async () => {
+  it('handles empty or duplicate IDs safely on remove()', async () => {
     const id1 = await wal.append('item-1' as ItemId, new Uint8Array([1]))
     const id2 = await wal.append('item-1' as ItemId, new Uint8Array([2]))
 
@@ -96,7 +97,7 @@ describe('SyncWriteAheadLog', () => {
     expect((await wal.readAll()).get('item-1' as ItemId)).toHaveLength(2)
 
     // Duplicate IDs should be deduplicated and remove the item
-    await wal.remove([id1, id1, '', null as any, undefined as any])
+    await wal.remove([id1, id1])
     const remaining = (await wal.readAll()).get('item-1' as ItemId)!
     expect(remaining).toHaveLength(1)
     expect(remaining[0].id).toBe(id2)
@@ -116,7 +117,7 @@ describe('SyncWriteAheadLog', () => {
     const id1 = await wal.append('item-crash' as ItemId, new Uint8Array([99, 100]))
 
     // Simulate crash and fresh start on same account
-    const newWalInstance = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
+    const newWalInstance = new SyncWriteAheadLog('test-account')
     const recovered = await newWalInstance.readAll()
 
     expect(recovered.has('item-crash' as ItemId)).toBe(true)
@@ -128,7 +129,7 @@ describe('SyncWriteAheadLog', () => {
   it('prunes oldest entries when WAL exceeds MAX_ENTRIES', async () => {
     // Populate store directly with entries to simulate reaching limit
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       store.store.set(`id-${i}`, {
         id: `id-${i}`,
         itemId: 'item-bulk' as ItemId,
@@ -137,14 +138,14 @@ describe('SyncWriteAheadLog', () => {
       })
     }
 
-    expect(await store.length()).toBe(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(await store.length()).toBe(SYNC_BATCH_SIZES.walMax)
 
     // Appending a new entry should trigger size limit enforcement
     const newId = await wal.append('item-new' as ItemId, new Uint8Array([255]))
 
     // Total should now be bounded (pruned PRUNE_BATCH_SIZE oldest entries)
     const currentLength = await store.length()
-    expect(currentLength).toBeLessThanOrEqual(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(currentLength).toBeLessThanOrEqual(SYNC_BATCH_SIZES.walMax)
 
     // The newly appended item is present
     expect(store.store.has(newId)).toBe(true)
@@ -155,7 +156,7 @@ describe('SyncWriteAheadLog', () => {
 
   it('recovers from QuotaExceededError by emergency pruning and retrying write via registered recovery handler', async () => {
     const unregister = registerQuotaRecoveryHandler(async () => {
-      return wal.handleQuotaExceeded()
+      await wal.handleQuotaExceeded()
     })
     try {
       const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
@@ -244,7 +245,7 @@ describe('SyncWriteAheadLog', () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
     // Populate store directly with MAX_ENTRIES unique items
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       store.store.set(`id-unique-${i}`, {
         id: `id-unique-${i}`,
         itemId: `item-unique-${i}` as ItemId,
@@ -254,7 +255,7 @@ describe('SyncWriteAheadLog', () => {
       })
     }
 
-    expect(await store.length()).toBe(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(await store.length()).toBe(SYNC_BATCH_SIZES.walMax)
 
     // Spy on performPruneOldest to verify call count and behavior
     const pruneSpy = vi.spyOn(wal as any, 'performPruneOldest')
@@ -281,7 +282,7 @@ describe('SyncWriteAheadLog', () => {
 
     // Expected storage length: MAX_ENTRIES (2000) - PRUNE_BATCH_SIZE (100) + 5 new entries = 1905
     const finalLength = await store.length()
-    expect(finalLength).toBe(SyncWriteAheadLog.MAX_ENTRIES - 100 + 5)
+    expect(finalLength).toBe(SYNC_BATCH_SIZES.walMax - 100 + 5)
   })
 
   it('serializes concurrent pruneOldest() calls to avoid duplicate deletion', async () => {
@@ -404,11 +405,6 @@ describe('SyncWriteAheadLog', () => {
       seq: 3,
     })
 
-    const onPruned = vi.fn()
-    eventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-    })
-
     // Prune oldest 2 entries (both belong to item-A)
     await (wal as any).pruneOldest(2)
 
@@ -423,7 +419,7 @@ describe('SyncWriteAheadLog', () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
     // Populate store with MAX_ENTRIES unique items
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       store.store.set(`id-unique-${i}`, {
         id: `id-unique-${i}`,
         itemId: `item-unique-${i}` as ItemId,
@@ -432,11 +428,6 @@ describe('SyncWriteAheadLog', () => {
         seq: i,
       })
     }
-
-    const onPruned = vi.fn()
-    eventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-    })
 
     // Append 1 new entry -> triggers size limit enforcement which prunes oldest
     await wal.append('item-new' as ItemId, new Uint8Array([99]))
@@ -481,11 +472,6 @@ describe('SyncWriteAheadLog', () => {
       seq: 4,
     })
 
-    const onPruned = vi.fn()
-    eventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-    })
-
     // Prune oldest 1 entry: this is prune-1 (item-A)
     await (wal as any).pruneOldest(1)
 
@@ -528,11 +514,6 @@ describe('SyncWriteAheadLog', () => {
 
       // Simulate a1 being in-flight (active push), while a2 arrived after push started
       wal.markInFlight(['a1'])
-
-      const onPruned = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-      })
 
       // Request pruning of 1 entry
       await (wal as any).pruneOldest(1)
@@ -627,7 +608,7 @@ describe('SyncWriteAheadLog', () => {
       const id3 = await wal.append('item-restart' as ItemId, new Uint8Array([3]))
 
       // Simulate worker restart by instantiating a fresh SyncWriteAheadLog for the same account
-      const restartedWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
+      const restartedWal = new SyncWriteAheadLog('test-account')
 
       // Append 4th entry at identical millisecond timestamp
       const id4 = await restartedWal.append('item-restart' as ItemId, new Uint8Array([4]))
@@ -653,7 +634,7 @@ describe('SyncWriteAheadLog', () => {
 
       // Worker restart with clock skewed backwards
       vi.spyOn(Date, 'now').mockReturnValue(1900)
-      const restartedWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
+      const restartedWal = new SyncWriteAheadLog('test-account')
       const id2 = await restartedWal.append('item-skew' as ItemId, new Uint8Array([2]))
 
       const entriesMap = await restartedWal.readAll()

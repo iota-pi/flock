@@ -1,6 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { deleteStoredSessionToken } from './workerAuthStore'
 import { getVaultStorageNames } from './storageNames'
+import { listDatabases } from '../worker/__test__/testUtils'
 
 /** Stores a session token the way earlier builds did (localforage's object store) */
 async function storeLegacyToken(factory: IDBFactory, name: string): Promise<void> {
@@ -21,10 +22,6 @@ async function storeLegacyToken(factory: IDBFactory, name: string): Promise<void
   })
 }
 
-async function listDatabases(factory: IDBFactory): Promise<string[]> {
-  return (await factory.databases()).map(db => db.name ?? '')
-}
-
 describe('workerAuthStore', () => {
   const originalIndexedDb = (globalThis as any).indexedDB
   let factory: IDBFactory
@@ -33,6 +30,14 @@ describe('workerAuthStore', () => {
     factory = new IDBFactory()
     ;(globalThis as any).indexedDB = factory
   })
+
+  /** Deletion isn't awaited, so this waits for the request it sends */
+  async function deleteAndSettle(): Promise<void> {
+    const deleteSpy = vi.spyOn(factory, 'deleteDatabase')
+    deleteStoredSessionToken()
+    const request = deleteSpy.mock.results[0].value as IDBOpenDBRequest
+    await vi.waitFor(() => expect(request.readyState).toBe('done'))
+  }
 
   afterEach(() => {
     if (originalIndexedDb === undefined) {
@@ -47,13 +52,13 @@ describe('workerAuthStore', () => {
     await storeLegacyToken(factory, name)
     expect(await listDatabases(factory)).toEqual([name])
 
-    await deleteStoredSessionToken()
+    await deleteAndSettle()
 
     expect(await listDatabases(factory)).toEqual([])
   })
 
   it('does not create the database when there is nothing to delete', async () => {
-    await deleteStoredSessionToken()
+    await deleteAndSettle()
 
     expect(await listDatabases(factory)).toEqual([])
   })

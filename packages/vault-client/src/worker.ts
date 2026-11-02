@@ -3,8 +3,7 @@
 
 export { exposeSyncWorker, type SyncWorkerConfig } from './sync/worker/sync.worker'
 export * from './sync/worker/domain'
-export { Keyring, type ExportedKeyring, type KeyProvider } from './api/Keyring'
-export { MigrationRequiredError } from './sync/worker/DataVersionTracker'
+export type { ExportedKeyring, KeyProvider } from './api/Keyring'
 export type { MigrationRequiredReason } from './sync/shared/types'
 
 // Storage primitives for `SyncWorkerConfig.migrateLocalData`, which runs before the engine reads

@@ -4,20 +4,19 @@ import { debounce } from 'lodash-es'
 import type { PullSyncMessagesResponse } from './SyncApiClient'
 import type { KeyProvider } from '../../api/Keyring'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { publishRealtimeBusSyncPing } from './realtimeBus'
+import type { RealtimeBus } from './realtimeBus'
+import type { SyncSessionState } from './SyncSessionState'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
 import { classifySyncError } from '../utils/errorClassifier'
-import { ItemId } from '@vault/shared'
-import type { PageToken } from '@vault/shared'
-import { CursorStore } from './stores/CursorStore'
+import type { ItemId, PageToken } from '@vault/shared'
+import type { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
-import { PullRetryTracker } from './PullRetryTracker'
-import type { WorkerInternalEventHub } from './SyncEventHub'
-import { BoundedMap } from '../utils/BoundedMap'
+import { PullCursorState, type PullFailure } from './PullCursorState'
+import { BatchProgress } from './BatchProgress'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { BoundedSet } from '../utils/BoundedSet'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -25,10 +24,8 @@ const log = createLogger('SyncPullQueueManager')
 
 interface ProcessItemMessagesResult {
   highestCursor: number
-  hasParseFailure: boolean
-  hasKeyFailure: boolean
-  blockedOnKey?: string
-  failingCursor?: number
+  /** Why processing stopped before the last message, if it did */
+  failure?: PullFailure
   hasParsedMessages: boolean
   hasParsedRemoteMessages: boolean
 }
@@ -37,38 +34,75 @@ type HandledMessageEntry =
   | { parsed: true; cursor: number }
   | { parsed: false; missingKey?: boolean; kver?: string }
 
-const BATCH_PROGRESS_CACHE_MAX = 500
 const OWN_PUSH_CACHE_MAX = 1000
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.keyWait
 
-export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: boolean }> {
-  readonly lifecycleName = 'PullQueueManager'
-  private isShutdown = false
-  private account: string | null = null
+export interface SyncPullQueueManagerDeps {
+  /** The account's stored cursors */
+  cursorStore: CursorStore
+  keys: KeyProvider
+  lockCoordinator: ItemLockCoordinator
+  /** Receives each pulled sync message */
+  adapter: Pick<VaultNetworkAdapter, 'receiveServerMessage'>
+  session: SyncSessionState
+  /** Tells the account's other tabs which items were pulled */
+  bus?: RealtimeBus
+  onKeyVersionMissing?: (kver: string) => void
+  /** Called with each item a message was pulled for, before the adapter receives the message */
+  onItemMessageParsed?: (itemId: ItemId) => void
+  /** Asks the orchestrator to poll, once pulls held back for a missing key can go ahead */
+  onFlushNeeded?: () => void
+  /** Called when whether any item's pull is being retried changes */
+  onRetryingChange?: (isRetrying: boolean) => void
+  /** Called with an item once messages other devices pushed for it have been applied */
+  onRemoteMessagesParsed?: (itemId: ItemId) => void
+  /** Called with an item whose pulled messages failed to parse for good */
+  onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
+}
 
-  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown(options)
-  }
+export class SyncPullQueueManager {
+  private readonly cursorStore: CursorStore
+  private readonly keys: KeyProvider
+  private readonly lockCoordinator: ItemLockCoordinator
+  private readonly adapter: Pick<VaultNetworkAdapter, 'receiveServerMessage'>
+  private readonly session: SyncSessionState
+  private readonly bus: RealtimeBus | null
+  private readonly onKeyVersionMissing?: (kver: string) => void
+  private readonly onItemMessageParsed?: (itemId: ItemId) => void
+  private readonly onFlushNeeded?: () => void
+  private readonly onRetryingChange?: (isRetrying: boolean) => void
+  private readonly onRemoteMessagesParsed?: (itemId: ItemId) => void
+  private readonly onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
 
-  private readonly retryTracker: PullRetryTracker
+  /** Where each item's pulls, and the account-wide scan, have reached */
+  readonly cursors: PullCursorState
   private hasMoreGlobal = false
   private globalPageToken?: PageToken
 
-  /** For each item, how many messages of each partly applied batch (by cursor) have been applied */
-  private readonly batchProgress = new BoundedMap<ItemId, Map<number, number>>(BATCH_PROGRESS_CACHE_MAX)
+  private readonly batchProgress = new BatchProgress()
   // "itemId:cursor" of messages this device pushed, so their server echoes aren't mistaken for remote edits
   private readonly ownPushedMessageKeys = new BoundedSet<string>(OWN_PUSH_CACHE_MAX)
 
-  private readonly saveCursorsDebounced = debounce(() => fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors'), 1000)
+  // A pull that finishes after shutdown mustn't save, since shutdown may be clearing local data
+  private readonly saveCursorsDebounced = debounce(() => {
+    if (this.session.isShutdown) return
+    fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors')
+  }, 1000)
 
-  constructor(
-    private readonly cursorStore: CursorStore,
-    private readonly keys: KeyProvider,
-    private readonly lockCoordinator: ItemLockCoordinator,
-    private readonly internalEventHub: WorkerInternalEventHub,
-    private readonly onKeyVersionMissing?: (kver: string) => void,
-  ) {
-    this.retryTracker = new PullRetryTracker(keys)
+  constructor(deps: SyncPullQueueManagerDeps) {
+    this.cursorStore = deps.cursorStore
+    this.keys = deps.keys
+    this.lockCoordinator = deps.lockCoordinator
+    this.adapter = deps.adapter
+    this.session = deps.session
+    this.bus = deps.bus ?? null
+    this.onKeyVersionMissing = deps.onKeyVersionMissing
+    this.onItemMessageParsed = deps.onItemMessageParsed
+    this.onFlushNeeded = deps.onFlushNeeded
+    this.onRetryingChange = deps.onRetryingChange
+    this.onRemoteMessagesParsed = deps.onRemoteMessagesParsed
+    this.onDecryptionFailure = deps.onDecryptionFailure
+    this.cursors = new PullCursorState(deps.keys)
   }
 
   private makeOwnPushKey(itemId: ItemId, cursor: number): string {
@@ -79,78 +113,27 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     this.ownPushedMessageKeys.add(this.makeOwnPushKey(itemId, cursor))
   }
 
-  private getBatchProgress(itemId: ItemId, cursor: number): number {
-    return this.batchProgress.get(itemId)?.get(cursor) ?? 0
-  }
-
-  private setBatchProgress(itemId: ItemId, cursor: number, count: number): void {
-    const progress = this.batchProgress.get(itemId)
-    if (progress) {
-      progress.set(cursor, count)
-    } else {
-      this.batchProgress.set(itemId, new Map([[cursor, count]]))
-    }
-  }
-
-  private clearBatchProgress(itemId: ItemId, cursor: number): void {
-    const progress = this.batchProgress.get(itemId)
-    progress?.delete(cursor)
-    if (progress?.size === 0) {
-      this.batchProgress.delete(itemId)
-    }
-  }
-
-  private clearBatchProgressUpTo(itemId: ItemId, cursor: number): void {
-    const progress = this.batchProgress.get(itemId)
-    if (!progress) return
-    for (const entryCursor of progress.keys()) {
-      if (entryCursor <= cursor) {
-        progress.delete(entryCursor)
-      }
-    }
-    if (progress.size === 0) {
-      this.batchProgress.delete(itemId)
-    }
-  }
-
   /** Drops the per-item pull state held in memory. The persisted cursors are left alone. */
   private clearPullState(): void {
-    this.retryTracker.clear()
-    this.batchProgress.clear()
+    this.cursors.clear()
+    this.batchProgress.clearAll()
     this.ownPushedMessageKeys.clear()
   }
 
-  setAccount(account: string | null): Promise<void> {
-    this.saveCursorsDebounced.cancel()
-    this.account = account
-    this.isShutdown = false
-
-    this.clearPullState()
-    this.hasMoreGlobal = false
-    this.globalPageToken = undefined
-    this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying: false })
-
-    if (account) {
-      return this.loadCursors()
-    }
-    return Promise.resolve()
-  }
-
   async loadCursors(): Promise<void> {
-    if (this.isShutdown || !this.account) return
+    if (this.session.isShutdown) return
     try {
       const stored = await this.cursorStore.loadCursors()
       if (stored) {
-        this.retryTracker.loadState(stored)
+        this.cursors.loadState(stored)
       }
     } catch (error) {
       log.error('Failed to load cursors', error)
     }
   }
 
-  async persistCursors(): Promise<void> {
-    if (!this.account) return
-    const data = this.retryTracker.exportState()
+  private async persistCursors(): Promise<void> {
+    const data = this.cursors.exportState()
     try {
       await this.cursorStore.saveCursors(data)
     } catch (error) {
@@ -158,27 +141,20 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     }
   }
 
+  /** Saves the cursors, unless local data is being cleared. Called once, by the context's lifecycle. */
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    if (this.isShutdown) return
-    this.isShutdown = true
-
     this.saveCursorsDebounced.cancel()
     if (!options?.clearLocalData) {
       await this.persistCursors()
     }
     this.clearPullState()
     this.hasMoreGlobal = false
-    this.account = null
   }
 
-  addPendingItem(itemId: ItemId): void {
-    this.retryTracker.addPendingItem(itemId)
-  }
-
-  private notifyMessageParsed(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
-    if (!this.internalEventHub.emit({ type: 'messageParsed', itemId, documentId, message })) {
-      throw new Error(`Listener failed while processing messageParsed for item ${itemId}`)
-    }
+  /** Hands a pulled message to the adapter. If the adapter throws, the batch stops there and is retried. */
+  private deliverMessage(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
+    this.onItemMessageParsed?.(itemId)
+    this.adapter.receiveServerMessage(documentId, message)
   }
 
   private async handleMessageEntry(
@@ -211,11 +187,11 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     // expired anything older
     const success = parseBatchedMessages(
       decrypted,
-      msg => this.notifyMessageParsed(itemId, documentId, msg),
+      msg => this.deliverMessage(itemId, documentId, msg),
       {
-        startIndex: this.getBatchProgress(itemId, entry.cursor),
+        startIndex: this.batchProgress.get(itemId, entry.cursor),
         onMessageSuccess: index => {
-          this.setBatchProgress(itemId, entry.cursor, index + 1)
+          this.batchProgress.set(itemId, entry.cursor, index + 1)
         },
       }
     )
@@ -226,32 +202,19 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     return { parsed: true, cursor: entry.cursor }
   }
 
-  getCursors(): Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> {
-    return this.retryTracker.getCursors()
-  }
-
   hasImmediatePendingPulls(): boolean {
     if (this.hasMoreGlobal) {
       return true
     }
-    return this.retryTracker.hasImmediatePendingPulls()
+    return this.cursors.hasImmediatePendingPulls()
   }
 
   onKeyringUpdated(): void {
-    const unblockedAny = this.retryTracker.onKeyringUpdated()
+    const unblockedAny = this.cursors.onKeyringUpdated()
     if (unblockedAny) {
-      const isRetrying = this.retryTracker.isAnyRetrying()
-      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-      this.internalEventHub.emit({ type: 'flushNeeded' })
+      this.onRetryingChange?.(this.cursors.isAnyRetrying())
+      this.onFlushNeeded?.()
     }
-  }
-
-  getGlobalLatestCursor(): number {
-    return this.retryTracker.getGlobalLatestCursor()
-  }
-
-  getGlobalScanCursor(): number {
-    return this.retryTracker.getGlobalScanCursor()
   }
 
   /**
@@ -262,15 +225,11 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   resetPagination(): void {
     this.hasMoreGlobal = false
     this.globalPageToken = undefined
-    this.retryTracker.clearPageTokens()
+    this.cursors.clearPageTokens()
   }
 
   getGlobalPageToken(): PageToken | undefined {
     return this.hasMoreGlobal ? this.globalPageToken : undefined
-  }
-
-  private async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
-    return this.lockCoordinator.withItemLock(itemId, fn)
   }
 
   private async processItemMessages(
@@ -286,27 +245,18 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     const sortedMessages = [...(messages || [])].sort((a, b) => a.cursor - b.cursor)
 
     if (sortedMessages.length === 0) {
-      return {
-        highestCursor: initialCursor,
-        hasParseFailure: false,
-        hasKeyFailure: false,
-        hasParsedMessages: false,
-        hasParsedRemoteMessages: false,
-      }
+      return { highestCursor: initialCursor, hasParsedMessages: false, hasParsedRemoteMessages: false }
     }
 
-    return this.withItemLock(itemId, async () => {
+    return this.lockCoordinator.withItemLock(itemId, async () => {
       let highestCursor = initialCursor
-      let hasParseFailure = false
-      let hasKeyFailure = false
-      let blockedOnKey: string | undefined
-      let failingCursor: number | undefined
+      let failure: PullFailure | undefined
       let hasParsedMessages = false
       let hasParsedRemoteMessages = false
 
       for (const entry of sortedMessages) {
         if (entry.cursor <= initialCursor) {
-          this.clearBatchProgress(itemId, entry.cursor)
+          this.batchProgress.clear(itemId, entry.cursor)
           highestCursor = Math.max(highestCursor, entry.cursor)
           continue
         }
@@ -319,28 +269,18 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
             hasParsedRemoteMessages = true
           }
           this.ownPushedMessageKeys.delete(ownKey)
-          this.clearBatchProgress(itemId, handled.cursor)
+          this.batchProgress.clear(itemId, handled.cursor)
           highestCursor = Math.max(highestCursor, handled.cursor)
         } else if (handled.missingKey) {
-          hasKeyFailure = true
-          blockedOnKey = handled.kver
+          failure = { kind: 'keyMissing', kver: handled.kver }
           break
         } else {
-          hasParseFailure = true
-          failingCursor = entry.cursor
+          failure = { kind: 'parseFailure', cursor: entry.cursor }
           break
         }
       }
 
-      return {
-        highestCursor,
-        hasParseFailure,
-        hasKeyFailure,
-        blockedOnKey,
-        failingCursor,
-        hasParsedMessages,
-        hasParsedRemoteMessages,
-      }
+      return { highestCursor, failure, hasParsedMessages, hasParsedRemoteMessages }
     })
   }
 
@@ -350,8 +290,8 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
   ): Promise<{ itemId: ItemId; hasParsedMessages: boolean; cursorUpdated: boolean }> {
     const itemId = result.itemId
     const hasMore = result.hasMore === true
-    const isNewItem = !this.retryTracker.hasState(itemId)
-    const initialCursor = this.retryTracker.getCursor(itemId)
+    const isNewItem = !this.cursors.hasState(itemId)
+    const initialCursor = this.cursors.getCursor(itemId)
 
     const messageResult = await this.processItemMessages(
       itemId,
@@ -360,54 +300,39 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       timedOutKeys
     )
 
+    const { failure } = messageResult
     let highestCursor = messageResult.highestCursor
-    if (
-      !messageResult.hasParseFailure &&
-      !messageResult.hasKeyFailure &&
-      Number.isFinite(result.nextCursor)
-    ) {
+    if (!failure && Number.isFinite(result.nextCursor)) {
       highestCursor = Math.max(highestCursor, result.nextCursor)
     }
 
-    const outcome = this.retryTracker.recordPullOutcome({
+    const outcome = this.cursors.recordPullOutcome({
       itemId,
-      initialCursor,
       highestCursor,
       isNewItem,
-      hasKeyFailure: messageResult.hasKeyFailure,
-      blockedOnKey: messageResult.blockedOnKey,
-      hasParseFailure: messageResult.hasParseFailure,
-      failingCursor: messageResult.failingCursor,
+      failure,
       hasMore,
       nextCursor: result.nextCursor,
       pageToken: result.nextPageToken,
     })
 
     if (highestCursor > initialCursor) {
-      this.clearBatchProgressUpTo(itemId, highestCursor)
+      this.batchProgress.clearUpTo(itemId, highestCursor)
     }
 
-    if (
-      outcome.permanentlyFailed ||
-      (!messageResult.hasParseFailure && !messageResult.hasKeyFailure && !hasMore)
-    ) {
-      this.batchProgress.delete(itemId)
+    if (outcome.permanentlyFailed || (!failure && !hasMore)) {
+      this.batchProgress.clearItem(itemId)
     }
 
-    if (
-      messageResult.hasParsedRemoteMessages &&
-      !messageResult.hasParseFailure &&
-      !messageResult.hasKeyFailure &&
-      !outcome.permanentlyFailed
-    ) {
-      this.internalEventHub.emit({ type: 'remoteMessagesParsed', itemId })
+    if (messageResult.hasParsedRemoteMessages && !failure && !outcome.permanentlyFailed) {
+      this.onRemoteMessagesParsed?.(itemId)
     }
 
     if (outcome.permanentlyFailed) {
       const err = new Error(
-        `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
+        `Permanently failed to parse sync messages after ${PullCursorState.MAX_PULL_RETRIES} attempts`
       )
-      this.internalEventHub.emit({ type: 'decryptionFailure', itemId, error: err })
+      this.onDecryptionFailure?.(itemId, err)
     }
 
     return {
@@ -427,7 +352,7 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
     globalNextPageToken: PageToken | undefined,
     globalScannedThroughCursor: number | undefined,
   ): Promise<void> {
-    if (!this.account || this.isShutdown) return
+    if (this.session.isShutdown) return
     this.hasMoreGlobal = hasMoreGlobal
     this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
 
@@ -455,9 +380,9 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       }
 
       if (typeof globalScannedThroughCursor === 'number') {
-        const previous = this.retryTracker.getGlobalScanCursor()
-        this.retryTracker.setGlobalCursor(globalScannedThroughCursor)
-        if (this.retryTracker.getGlobalScanCursor() !== previous) {
+        const previous = this.cursors.getGlobalScanCursor()
+        this.cursors.setGlobalCursor(globalScannedThroughCursor)
+        if (this.cursors.getGlobalScanCursor() !== previous) {
           cursorsUpdated = true
         }
       }
@@ -469,32 +394,19 @@ export class SyncPullQueueManager implements LifecycleAware<{ clearLocalData?: b
       if (firstItemError) {
         throw firstItemError.error
       }
-    } catch (error) {
-      log.error('Pull sync batch failed', error)
-      throw error
     } finally {
-      const isRetrying = this.retryTracker.isAnyRetrying()
-      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
-      if (this.account && successfullyPulledItemIds.size > 0) {
-        try {
-          publishRealtimeBusSyncPing(this.account, Array.from(successfullyPulledItemIds))
-        } catch (error) {
-          log.error('publishRealtimeBusSyncPing failed', error)
-        }
+      this.onRetryingChange?.(this.cursors.isAnyRetrying())
+      if (successfullyPulledItemIds.size > 0) {
+        this.bus?.publishSyncPing(Array.from(successfullyPulledItemIds))
       }
     }
   }
 
-  exportCursors(): [ItemId, number][] {
-    return this.retryTracker.exportCursors()
-  }
-
   async importCursors(cursors: [ItemId, number][]): Promise<void> {
-    if (!this.account) return
-    this.retryTracker.importCursors(cursors)
+    this.cursors.importCursors(cursors)
     for (const [itemId, cursor] of cursors) {
-      this.clearBatchProgressUpTo(itemId, cursor)
+      this.batchProgress.clearUpTo(itemId, cursor)
     }
-    await this.cursorStore.saveCursors(this.retryTracker.exportState())
+    await this.cursorStore.saveCursors(this.cursors.exportState())
   }
 }

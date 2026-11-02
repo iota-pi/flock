@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../../utils/customFilter'
+import { DEFAULT_FILTER_CRITERIA, type FilterCriterion } from '../../utils/customFilter'
 import { getOnlineState } from '@vault/client'
 import type { AppStore } from '../store'
 

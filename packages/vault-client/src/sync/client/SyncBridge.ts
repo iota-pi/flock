@@ -5,7 +5,7 @@ import { handleSessionExpired, getVaultSession, onLateSession } from '../../api/
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { ReencryptResult, VaultDoc, VaultMetadata } from '../shared/types'
 import type { SyncApi } from '../worker/syncProtocol'
-import { WorkerLifecycleManager } from './WorkerLifecycleManager'
+import { WorkerLifecycleManager, type WorkerShutdownOptions } from './WorkerLifecycleManager'
 import { SyncEventProcessor } from './SyncEventProcessor'
 import { SyncDOMListeners } from './SyncDOMListeners'
 import { attemptSessionRecovery } from '../../api/sessionRecovery'
@@ -302,7 +302,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
     return this.lifecycleManager.initialize(accountId, options)
   }
 
-  async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean; accountId?: string }): Promise<void> {
+  async shutdown(options?: WorkerShutdownOptions): Promise<void> {
     await this.keyringUpdateGuard.waitForRunning()
     return this.lifecycleManager.shutdown(options)
   }

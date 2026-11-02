@@ -5,7 +5,7 @@ import {
   supplyMissingAttributes,
   convertItem,
   isValid,
-  Item,
+  type Item,
 } from './items'
 import { importPeople } from '../utils/importUtils'
 import type { GroupItem } from 'src/shared/schemas/items'

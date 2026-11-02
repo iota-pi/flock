@@ -1,8 +1,8 @@
 import {
   BatchGetCommand,
-  BatchGetCommandInput,
+  type BatchGetCommandInput,
   UpdateCommand,
-  UpdateCommandOutput,
+  type UpdateCommandOutput,
 } from '@aws-sdk/lib-dynamodb'
 import { chunk, type ItemId, type ManifestEntry } from '@vault/shared'
 import type { BaseData, FetchedVaultItem, ItemFormatSummary, VaultItem } from '../vaultDriver'

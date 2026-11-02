@@ -1,7 +1,7 @@
 import { decryptWithKey, type CryptoResult } from './crypto'
 import { importKeyring, Keyring, VaultNotInitializedError } from './Keyring'
 
-/** This realm's keys and session. The sync worker keeps its own `Keyring`, loaded from `exportKeyringData`. */
+/** This realm's keys (its session token lives in `runtime.ts`). The sync worker keeps its own `Keyring`, loaded from `exportKeyringData`. */
 class VaultKeyState {
   readonly keyring = new Keyring()
   /** The password-derived key that wraps the keyring, which is set whenever the keyring has keys */
@@ -9,7 +9,6 @@ class VaultKeyState {
   /** Whether the master key came from PBKDF2. On those accounts it is also data key v1 (see `initialiseVault`). */
   masterKeyIsLegacy = false
   keyHash = ''
-  session = ''
   activeAccount = ''
   /** Bumped whenever the keys are forgotten, so a request that finishes after locking can't restore a session */
   private generation = 0
@@ -58,14 +57,13 @@ class VaultKeyState {
     }
   }
 
-  /** Forgets every key and the session */
+  /** Forgets every key */
   clear() {
     this.generation += 1
     this.keyring.clear()
     this.masterKey = null
     this.masterKeyIsLegacy = false
     this.keyHash = ''
-    this.session = ''
     this.activeAccount = ''
   }
 }

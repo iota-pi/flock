@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'

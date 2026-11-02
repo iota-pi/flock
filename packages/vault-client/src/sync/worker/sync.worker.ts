@@ -4,28 +4,25 @@ import * as Automerge from '@automerge/automerge/slim'
 
 import type { InitRepoOptions, SyncApi } from './syncProtocol'
 import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
-import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
+import { ClientEventHub, type ClientEvent } from './SyncEventHub'
 
 import type { VaultDoc, VaultMetadata } from '../shared/types'
-import { subscribeRealtimeBusSyncPing, teardownRealtimeBus } from './realtimeBus'
 import { Keyring } from '../../api/Keyring'
 import { setApiAuthToken } from '../../api/runtime'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
-import type { RepoDoc } from './docStore'
-import { isIndexDocument } from './utils/automerge'
+import { exportAllBinaries, restoreFromBinaries, type RepoDoc } from './docStore'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../../api/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
 import { getTrackedFetch } from '../../api/trackedFetch'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
-import { AbortError } from '../utils/abort'
+import { AbortError, withTimeout } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 const log = createLogger('SyncWorker')
@@ -109,10 +106,8 @@ export class SyncWorker implements SyncApi {
   private ready = createReady()
   private isShutDown = false
   private clientEventHub = new ClientEventHub()
-  private internalEventHub = new WorkerInternalEventHub()
+  /** Whether the device is online, kept between sessions. Each session's state starts from it. */
   private isOnline = true
-  /** Bound to each session's client event hub, so it's created by initWorkerState */
-  private syncStatusManager!: SyncStatusManager
   private unsubscribeRealtimeBus: (() => void) | null = null
   private readonly subscriptions = new ItemSubscriptions(
     () => this.context.services.repo,
@@ -138,17 +133,14 @@ export class SyncWorker implements SyncApi {
    * Concurrent requests share one round trip.
    */
   requestAuthTokenRefresh = (): Promise<string | null> =>
-    this.tokenRefresh.run(() => new Promise<string | null>(resolve => {
-      const timeoutId = setTimeout(() => {
+    this.tokenRefresh.run(() => withTimeout(SYNC_TIMEOUTS.tokenRefresh, signal => new Promise<string | null>(resolve => {
+      signal.addEventListener('abort', () => {
         log.warn('Token refresh timed out waiting for main thread')
         this.resolveTokenRefresh(null)
-      }, SYNC_TIMEOUTS.tokenRefresh)
-      this.settleTokenRefresh = token => {
-        clearTimeout(timeoutId)
-        resolve(token)
-      }
+      }, { once: true })
+      this.settleTokenRefresh = resolve
       this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
-    }))
+    })))
 
   private resolveTokenRefresh(token: string | null): void {
     const settle = this.settleTokenRefresh
@@ -175,15 +167,10 @@ export class SyncWorker implements SyncApi {
 
   private async teardownSession(options?: { clearLocalData?: boolean }): Promise<void> {
     this.resolveTokenRefresh(null)
-    const accountId = this._context?.accountId
     this.subscriptions.clear()
-    if (this.unsubscribeRealtimeBus) {
-      this.unsubscribeRealtimeBus()
-      this.unsubscribeRealtimeBus = null
-    }
-    if (accountId) {
-      teardownRealtimeBus(accountId)
-    }
+    // The context closes its bus when it stops, but pings mustn't reach the subscriptions before then
+    this.unsubscribeRealtimeBus?.()
+    this.unsubscribeRealtimeBus = null
     await this._context?.shutdown(options)
     this._context = null
   }
@@ -194,8 +181,6 @@ export class SyncWorker implements SyncApi {
     if (globalEventPort) {
       this.clientEventHub.setExternalPort(globalEventPort)
     }
-    this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
-    this.internalEventHub = new WorkerInternalEventHub()
 
     const trackedFetch = getTrackedFetch(
       () => this.clientEventHub.emit({ type: 'startRequest' }),
@@ -204,69 +189,35 @@ export class SyncWorker implements SyncApi {
     initVaultTrpcClient(trackedFetch)
   }
 
-  private subscribeClientEvents(): void {
+  private subscribeClientEvents({ statusManager }: SyncWorkerContext): void {
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
         case 'startRequest':
-          this.syncStatusManager.startRequest()
+          statusManager.startRequest()
           break
         case 'finishRequest':
-          this.syncStatusManager.finishRequest()
+          statusManager.finishRequest()
           break
         case 'quotaExceeded':
-          this.syncStatusManager.setQuotaExceeded(true)
+          statusManager.setQuotaExceeded(true)
           break
         case 'quotaResolved':
-          this.syncStatusManager.setQuotaExceeded(false)
+          statusManager.setQuotaExceeded(false)
+          break
+        case 'snapshotFailed':
+          statusManager.setSnapshotFailed()
           break
       }
     })
   }
 
-  private subscribeInternalEvents(): void {
-    this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
-      switch (event.type) {
-        case 'pollResult':
-          this.syncStatusManager.handlePollResult(event.outcome)
-          break
-        case 'multipleLeadersDetected':
-          log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
-          this._context?.services.repoManager.pauseBroadcastSync()
-          break
-        case 'soleLeaderRestored':
-          log.info('Sole leader restored. Resuming BroadcastChannel sync.')
-          this._context?.services.repoManager.resumeBroadcastSync()
-          break
-        case 'retryingStateChange':
-          this.syncStatusManager.setDegradedPull(event.isRetrying)
-          break
-        case 'docHandleReplaced':
-          this.subscriptions.rebind(event.itemId, event.handle)
-          break
-        case 'itemMessageParsed':
-          if (!isIndexDocument(event.itemId)) {
-            this.subscriptions.subscribe([event.itemId])
-          }
-          break
-      }
-    })
-  }
-
-  private async initializeAccountSession(context: SyncWorkerContext, accountId: string): Promise<void> {
+  private async initializeAccountSession(context: SyncWorkerContext): Promise<void> {
     await context.initialize()
     // A shutdown during initialization has stopped the context, which mustn't be brought back to life
     this.assertNotShutDown()
-    const { broker, adapter, indexManager, accountSettings } = context.services
+    const { indexManager, accountSettings } = context.services
 
-    this.applyOnlineState(context, this.isOnline)
-
-    // Broker needs to be initialised before the adapter so that the adapter doesn't attempt
-    // sending messages before the broker is ready
-    await broker.setAccount(accountId)
-    this.assertNotShutDown()
-    adapter.setAccount(accountId)
-
-    const localItemIds = await indexManager.listAutomergeItemIds()
+    const localItemIds = await indexManager.listItemIds()
     this.subscriptions.update(localItemIds)
     this.clientEventHub.emit({
       type: 'indexUpdated',
@@ -280,15 +231,15 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  private setupRealtimeBus(accountId: string): void {
-    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(accountId, itemIds => {
+  private setupRealtimeBus(context: SyncWorkerContext): void {
+    this.unsubscribeRealtimeBus = context.services.realtimeBus.subscribeSyncPing(itemIds => {
       this.subscriptions.subscribe(itemIds)
       if (this._context) {
         // Pings also name deleted items, which mustn't come back. A deliberate restore reaches this
         // tab as a doc change, which re-indexes the item.
         fireAndForget(
-          this._context.services.indexManager.addAutomergeItemIdsToIndex(itemIds, { skipTombstoned: true }),
-          'SyncWorker:addAutomergeItemIdsToIndex',
+          this._context.services.indexManager.addItemIds(itemIds, { skipTombstoned: true }),
+          'SyncWorker:addItemIds',
         )
       }
     })
@@ -320,9 +271,10 @@ export class SyncWorker implements SyncApi {
       const context = new SyncWorkerContext({
         accountId,
         clientEventHub: this.clientEventHub,
-        internalEventHub: this.internalEventHub,
+        isOnline: this.isOnline,
         apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
+        onDocHandleReplaced: (itemId, handle) => this.subscriptions.rebind(itemId, handle),
         onIndexUpdated: itemIds => {
           if (this._context === context) this.subscriptions.update(itemIds)
         },
@@ -332,15 +284,13 @@ export class SyncWorker implements SyncApi {
         localKeys: this.keyring,
       })
       this._context = context
+      this.subscribeClientEvents(context)
 
-      this.subscribeClientEvents()
-      this.subscribeInternalEvents()
-
-      await this.initializeAccountSession(context, accountId)
-      this.setupRealtimeBus(accountId)
+      await this.initializeAccountSession(context)
+      this.setupRealtimeBus(context)
 
       this.clientEventHub.emit({ type: 'ready' })
-      this.syncStatusManager.reset(this.isOnline)
+      context.statusManager.reset()
 
       this.ready.resolve(context)
     } catch (err) {
@@ -353,15 +303,9 @@ export class SyncWorker implements SyncApi {
   setOnlineState = (isOnline: boolean) => {
     this.isOnline = isOnline
     return this.withContext(ctx => {
-      this.applyOnlineState(ctx, isOnline)
-      this.syncStatusManager.setOnlineState(isOnline)
+      ctx.setOnlineState(isOnline)
+      ctx.statusManager.onOnlineStateChange()
     })
-  }
-
-  /** Tells the session's polling and snapshot uploads whether the device is online */
-  private applyOnlineState(context: SyncWorkerContext, isOnline: boolean): void {
-    context.services.orchestrator.setOnlineState(isOnline)
-    context.services.snapshotManager.onOnlineStateChange(isOnline)
   }
 
   /** Sends a subscribed item's state to the app and keeps the index in step with it */
@@ -374,14 +318,14 @@ export class SyncWorker implements SyncApi {
     const item = docStore.decodeSnapshot(id, doc)
     if (item?.deleted) {
       fireAndForget(
-        indexManager.removeAutomergeItemIdsFromIndex([id]),
-        'SyncWorker:removeAutomergeItemIdsFromIndex',
+        indexManager.removeItemIds([id]),
+        'SyncWorker:removeItemIds',
       )
       this.subscriptions.unsubscribe(id)
     } else if (item) {
       fireAndForget(
-        indexManager.addAutomergeItemIdsToIndex([id]),
-        'SyncWorker:addAutomergeItemIdsToIndex',
+        indexManager.addItemIds([id]),
+        'SyncWorker:addItemIds',
       )
     }
     this.clientEventHub.emit({ type: 'itemUpdated', id, item })
@@ -406,10 +350,10 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.services.accountSettings.mutate(changes))
 
   exportAllBinaries = () =>
-    this.withContext(ctx => ctx.services.docStore.exportAllBinaries(ctx.services.indexManager))
+    this.withContext(ctx => exportAllBinaries(ctx.services.docStore, ctx.services.indexManager))
 
   restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
-    this.withContext(ctx => ctx.services.docStore.restoreFromBinaries(documents, ctx.services.indexManager))
+    this.withContext(ctx => restoreFromBinaries(ctx.services.docStore, documents, ctx.services.indexManager))
 
   flushSync = (): Promise<void> =>
     this.withContext(ctx => ctx.services.orchestrator.flush())
@@ -475,7 +419,7 @@ export class SyncWorker implements SyncApi {
 
   reencryptAllItems = () =>
     this.withContext(async ctx => {
-      const result = await ctx.services.itemReencryptor.reencryptAllItems({
+      const result = await ctx.services.itemReencryptor.run({
         onProgress: (done, total) => {
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
         },
@@ -500,10 +444,6 @@ export class SyncWorker implements SyncApi {
     this.ready.reject(new Error(NOT_INITIALIZED_MESSAGE))
     this.ready = createReady()
 
-    if (!this._context) {
-      // With no session to name an account, every account's bus is closed
-      teardownRealtimeBus()
-    }
     await this.teardownSession(options)
   }
 }

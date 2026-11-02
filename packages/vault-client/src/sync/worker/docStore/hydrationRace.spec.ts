@@ -1,14 +1,15 @@
-import { Repo, interpretAsDocumentId } from '@automerge/automerge-repo/slim'
+import type { Mock } from 'vitest'
+import { Repo, interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import { SyncPullQueueManager } from '../SyncPullQueueManager'
 import { CursorStore } from '../stores/CursorStore'
-import { WorkerInternalEventHub } from '../SyncEventHub'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
 import { packBatchedMessages } from '../utils/binaryFraming'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 import { createMockKeyProvider, createMockVault, createTestDocStore, mockLocalForage } from '../__test__/testUtils'
+import { SyncSessionState } from '../SyncSessionState'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string; archived: boolean; time: number }> }
 
@@ -41,7 +42,7 @@ describe('Document Hydration Race Condition (C4)', () => {
   let docStore: AutomergeDocStore
   let cursorStore: CursorStore
   let pullQueueManager: SyncPullQueueManager
-  let eventHub: WorkerInternalEventHub
+  let receiveServerMessage: Mock<(documentId: DocumentId, message: Uint8Array) => void>
 
   beforeEach(async () => {
     // CursorStore keeps its cursors in localforage
@@ -49,9 +50,15 @@ describe('Document Hydration Race Condition (C4)', () => {
     repo = new Repo()
     docStore = createTestDocStore(repo)
     cursorStore = new CursorStore('test-account')
-    eventHub = new WorkerInternalEventHub()
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, docStore, eventHub)
-    await pullQueueManager.setAccount('test-account')
+    receiveServerMessage = vi.fn<(documentId: DocumentId, message: Uint8Array) => void>()
+    pullQueueManager = new SyncPullQueueManager({
+      cursorStore,
+      keys,
+      lockCoordinator: docStore,
+      adapter: { receiveServerMessage },
+      session: new SyncSessionState(),
+    })
+    await pullQueueManager.loadCursors()
     mockDecryptBytes.mockReset()
     mockDecryptBytes.mockImplementation(async (entry: any) => entry._rawBytes ?? new Uint8Array())
   })
@@ -120,23 +127,21 @@ describe('Document Hydration Race Condition (C4)', () => {
     })
 
     let pullProcessed = false
-    eventHub.subscribe(e => {
-      if (e.type === 'messageParsed') {
-        const handle = repo.handles[e.documentId]
-        if (handle) {
-          const tempHandle = repo.import(Automerge.save(updatedDoc))
+    receiveServerMessage.mockImplementation(documentId => {
+      const handle = repo.handles[documentId]
+      if (handle) {
+        const tempHandle = repo.import(Automerge.save(updatedDoc))
+        try {
+          handle.merge(tempHandle)
+        } finally {
           try {
-            handle.merge(tempHandle)
-          } finally {
-            try {
-              repo.delete(tempHandle.documentId)
-            } catch {
-              // ignore cleanup error
-            }
+            repo.delete(tempHandle.documentId)
+          } catch {
+            // ignore cleanup error
           }
         }
-        pullProcessed = true
       }
+      pullProcessed = true
     })
 
     mockDecryptBytes.mockResolvedValueOnce(packBatchedMessages([syncMsg!]))
@@ -211,19 +216,17 @@ describe('Document Hydration Race Condition (C4)', () => {
       docId: interpretAsDocumentId(toAutomergeUrlFromItemId(itemId)),
     })
 
-    eventHub.subscribe(e => {
-      if (e.type === 'messageParsed') {
-        const handle = repo.handles[e.documentId]
-        if (handle) {
-          const tempHandle = repo.import(Automerge.save(docA))
+    receiveServerMessage.mockImplementation(documentId => {
+      const handle = repo.handles[documentId]
+      if (handle) {
+        const tempHandle = repo.import(Automerge.save(docA))
+        try {
+          handle.merge(tempHandle)
+        } finally {
           try {
-            handle.merge(tempHandle)
-          } finally {
-            try {
-              repo.delete(tempHandle.documentId)
-            } catch {
-              // ignore cleanup error
-            }
+            repo.delete(tempHandle.documentId)
+          } catch {
+            // ignore cleanup error
           }
         }
       }
@@ -354,7 +357,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     const hydratePromise = docStore.hydrateAutomergeDocumentBinary(itemId, snapshotBinary)
 
     // Call findOrCreateHandle concurrently
-    const findOrCreatePromise = docStore.findOrCreateHandle(itemId)
+    const findOrCreatePromise = docStore['findOrCreateHandle'](itemId)
 
     // Let hydration finish storage I/O
     resolveStorage!()

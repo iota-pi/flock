@@ -2,7 +2,7 @@ import {
   DownloadIcon,
   FrequencyIcon,
   LockIcon,
-  MuiIconType,
+  type MuiIconType,
   NotificationIcon,
   PersonIcon,
   RestoreIcon,

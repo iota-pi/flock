@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { interpretAsDocumentId, type PeerId } from '@automerge/automerge-repo/slim'
 import { setApiAuthToken } from '../../api/runtime'
 import * as Automerge from '@automerge/automerge/slim'
@@ -8,20 +9,20 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { SyncSessionState } from './SyncSessionState'
+import { ClientEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
-import { AutomergeIndexManager } from './docStore'
+import type { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createMockKeyProvider,
   createMockLocalForage,
   createMockVault,
-  createTestEventHubs,
   noItemLocks,
   mockLocalForage,
   spyOnVaultTrpc,
@@ -62,13 +63,15 @@ beforeEach(() => {
 describe('Sync System Integration Test Suite', () => {
   const accountId = 'test-integration-account'
   let clientEventHub: ClientEventHub
-  let internalEventHub: WorkerInternalEventHub
+  let onDecryptionFailure: Mock<(itemId: ItemId, error: unknown) => void>
   let indexManager: AutomergeIndexManager
   let cursorStore: CursorStore
   let pullQueueManager: SyncPullQueueManager
   let wal: SyncWriteAheadLog
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
+  let poller: SyncPoller
+  let session: SyncSessionState
 
   beforeEach(async () => {
     mockLocalForage(createLocalForageInstance)
@@ -83,41 +86,61 @@ describe('Sync System Integration Test Suite', () => {
     mockStores.clear()
     clearAccountStoreInstancesCacheForTesting()
 
-    const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
-    internalEventHub = hubs.internalEventHub
+    clientEventHub = new ClientEventHub()
+    onDecryptionFailure = vi.fn()
     cursorStore = new CursorStore(accountId)
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, internalEventHub)
-    wal = new SyncWriteAheadLog(accountId, internalEventHub)
-    adapter = new VaultNetworkAdapter(internalEventHub)
+    // This tab is the online leader
+    session = new SyncSessionState({ isLeader: true })
+    adapter = new VaultNetworkAdapter({
+      accountId,
+      session,
+      onMessageToSend: message => broker.send(message),
+    })
+    pullQueueManager = new SyncPullQueueManager({
+      cursorStore,
+      keys,
+      lockCoordinator: noItemLocks,
+      adapter,
+      session,
+      onDecryptionFailure,
+    })
+    wal = new SyncWriteAheadLog(accountId)
 
     indexManager = {
-      addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
-      removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
-      listAutomergeItemIds: vi.fn().mockResolvedValue([]),
+      addItemIds: vi.fn().mockResolvedValue(undefined),
+      removeItemIds: vi.fn().mockResolvedValue(undefined),
+      listItemIds: vi.fn().mockResolvedValue([]),
     } as unknown as AutomergeIndexManager
 
-    broker = new SyncMessageBroker({
-      adapter,
-      clientEventHub,
-      internalEventHub,
+    poller = new SyncPoller({
+      accountId,
+      session,
       pullQueueManager,
       keys,
       wal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
+      onPushAcknowledged: (itemId, heads) => broker.recordSyncedHeads(itemId, heads),
+    })
+    broker = new SyncMessageBroker({
+      adapter,
+      pullQueueManager,
+      session,
+      wal,
+      onFlushNeeded: () => {},
+      requestSnapshot: () => {},
     })
 
-    adapter.setAccount(accountId)
     adapter.connect('client-peer' as PeerId)
-    broker.setSendEnabled(true)
-    await broker.setAccount(accountId)
-    broker.setOnlineState(true)
+    await pullQueueManager.loadCursors()
   })
 
   afterEach(async () => {
     adapter.disconnect()
-    await broker.shutdown()
+    session.markShutdown()
+    broker.shutdown()
+    poller.shutdown()
+    await pullQueueManager.shutdown()
   })
 
   it('Scenario 1: Client creates item -> WAL append -> push to server succeeds -> sent WAL entries removed', async () => {
@@ -151,7 +174,7 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [],
     })
 
-    const outcome = await broker.poller.executePoll()
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
 
     // 4. Server confirmed write; WAL entry is cleaned up
@@ -162,13 +185,13 @@ describe('Sync System Integration Test Suite', () => {
   it('Scenario 2: Server advances cursor -> Client polls -> receives message and deduplicates in overlap window', async () => {
     const itemId = 'item-pull-1' as ItemId
     const parsedMessages: Uint8Array[] = []
-    internalEventHub.subscribe(e => {
-      if (e.type === 'messageParsed') {
-        parsedMessages.push(e.message)
-      }
+    const receiveServerMessage = adapter.receiveServerMessage.bind(adapter)
+    vi.spyOn(adapter, 'receiveServerMessage').mockImplementation((documentId, message) => {
+      parsedMessages.push(message)
+      receiveServerMessage(documentId, message)
     })
 
-    pullQueueManager.addPendingItem(itemId)
+    pullQueueManager.cursors.addPendingItem(itemId)
 
     // First poll receives message with cursor 10
     mockPollSyncBatch.mockResolvedValueOnce({
@@ -184,7 +207,7 @@ describe('Sync System Integration Test Suite', () => {
       ],
     })
 
-    await broker.poller.executePoll()
+    await poller.executePoll()
     expect(parsedMessages).toHaveLength(1)
 
     // Second poll with overlap window returns same message with cursor 10 -> skipped by dedup cache
@@ -201,13 +224,13 @@ describe('Sync System Integration Test Suite', () => {
       ],
     })
 
-    await broker.poller.executePoll()
+    await poller.executePoll()
     // Should still be length 1, not 2
     expect(parsedMessages).toHaveLength(1)
   })
 
   it('Scenario 3: Offline edits accumulate in WAL -> Reconnect -> WAL drains completely', async () => {
-    broker.setOnlineState(false)
+    session.setOnline(false)
 
     const item1 = 'item-offline-1' as ItemId
     const item2 = 'item-offline-2' as ItemId
@@ -247,8 +270,8 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [],
     })
 
-    broker.setOnlineState(true)
-    const outcome = await broker.poller.executePoll()
+    session.setOnline(true)
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
 
     // WAL is completely drained
@@ -261,7 +284,7 @@ describe('Sync System Integration Test Suite', () => {
     await wal.append('item-crash-recover' as ItemId, createTestSyncMessageData())
 
     // 2. Simulate worker termination and fresh instance start on same account
-    const newWal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
+    const newWal = new SyncWriteAheadLog(accountId)
     const recoveredEntries = await newWal.readAll()
     expect(recoveredEntries.has('item-crash-recover' as ItemId)).toBe(true)
 
@@ -273,16 +296,15 @@ describe('Sync System Integration Test Suite', () => {
     })
 
     const newPoller = new SyncPoller({
+      accountId,
+      session,
       pullQueueManager,
-      clientEventHub,
-      internalEventHub,
       keys,
       wal: newWal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
+      onPushAcknowledged: () => {},
     })
-    newPoller.setAccount(accountId)
-    newPoller.setOnlineState(true)
 
     const outcome = await newPoller.executePoll()
     expect(outcome).toBe('success')
@@ -294,12 +316,7 @@ describe('Sync System Integration Test Suite', () => {
 
   it('Scenario 5: Decryption failure -> retry 5 times -> quarantined to manual recovery store', async () => {
     const itemId = 'item-corrupt' as ItemId
-    const failureSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'decryptionFailure') {
-        failureSpy(e.itemId, e.error)
-      }
-    })
+    const failureSpy = onDecryptionFailure
 
     const corruptMessageResponse = {
       success: true,
@@ -317,14 +334,14 @@ describe('Sync System Integration Test Suite', () => {
     // Pull attempts 1 through 4: stays in pending pull items for retry
     for (let attempt = 1; attempt <= 4; attempt++) {
       mockPollSyncBatch.mockResolvedValueOnce(corruptMessageResponse)
-      await broker.poller.executePoll()
-      expect(pullQueueManager.getCursors().map(c => c.itemId)).toContain(itemId)
+      await poller.executePoll()
+      expect(pullQueueManager.cursors.getPendingPulls().map(c => c.itemId)).toContain(itemId)
       expect(failureSpy).not.toHaveBeenCalled()
     }
 
     // Attempt 5: permanently fails and invokes onDecryptionFailure
     mockPollSyncBatch.mockResolvedValueOnce(corruptMessageResponse)
-    await broker.poller.executePoll()
+    await poller.executePoll()
 
     expect(failureSpy).toHaveBeenCalledWith(
       itemId,
@@ -333,15 +350,15 @@ describe('Sync System Integration Test Suite', () => {
       })
     )
     // The corrupt message is skipped, and the item is pulled once more from after it
-    expect(pullQueueManager.getCursors()).toContainEqual(expect.objectContaining({ itemId, cursor: 1 }))
+    expect(pullQueueManager.cursors.getPendingPulls()).toContainEqual(expect.objectContaining({ itemId, cursor: 1 }))
 
     mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
       pushResults: [],
       pullResults: [{ itemId, hasMore: false, nextCursor: 1, messages: [] }],
     })
-    await broker.poller.executePoll()
-    expect(pullQueueManager.getCursors().map(c => c.itemId)).not.toContain(itemId)
+    await poller.executePoll()
+    expect(pullQueueManager.cursors.getPendingPulls().map(c => c.itemId)).not.toContain(itemId)
     expect(failureSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -363,22 +380,17 @@ describe('Sync System Integration Test Suite', () => {
       ],
     })
 
-    await broker.poller.executePoll()
+    await poller.executePoll()
 
     // Message is passed to adapter for CRDT processing
     expect(receiveSpy).toHaveBeenCalled()
     // CRITICAL: Must NOT unconditionally add to indexManager
-    expect(indexManager.addAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+    expect(indexManager.addItemIds).not.toHaveBeenCalled()
   })
 
   it('Scenario 7: Pulling message with missing key version does not burn retries or advance cursor, and cleanly decrypts when keyring updates', async () => {
     const itemId = 'item-rotated-key' as ItemId
-    const failureSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'decryptionFailure') {
-        failureSpy(e.itemId, e.error)
-      }
-    })
+    const failureSpy = onDecryptionFailure
 
     const { hasVaultKey, waitForKeyVersion } = vault
     // Key '2' is not yet in keyring and times out
@@ -401,13 +413,13 @@ describe('Sync System Integration Test Suite', () => {
     // Repeated polls do NOT increment retryCount or quarantine
     for (let attempt = 1; attempt <= 5; attempt++) {
       mockPollSyncBatch.mockResolvedValueOnce(keyMissingResponse)
-      await broker.poller.executePoll()
+      await poller.executePoll()
       expect(failureSpy).not.toHaveBeenCalled()
     }
 
     // Cursor must NOT have advanced past the un-decrypted message
-    expect(pullQueueManager.exportCursors()).not.toContainEqual([itemId, 40])
-    expect(pullQueueManager.exportCursors()).not.toContainEqual([itemId, 50])
+    expect(pullQueueManager.cursors.exportCursors()).not.toContainEqual([itemId, 40])
+    expect(pullQueueManager.cursors.exportCursors()).not.toContainEqual([itemId, 50])
     expect(pullQueueManager.hasImmediatePendingPulls()).toBe(false)
 
     // Key arrives via keyring update
@@ -419,10 +431,10 @@ describe('Sync System Integration Test Suite', () => {
     const receiveSpy = vi.spyOn(adapter, 'receiveMessage')
     // Next poll with key now available successfully parses and decrypts
     mockPollSyncBatch.mockResolvedValueOnce(keyMissingResponse)
-    await broker.poller.executePoll()
+    await poller.executePoll()
 
     expect(receiveSpy).toHaveBeenCalled()
-    expect(pullQueueManager.exportCursors()).toContainEqual([itemId, 50])
+    expect(pullQueueManager.cursors.exportCursors()).toContainEqual([itemId, 50])
     expect(failureSpy).not.toHaveBeenCalled()
   })
 })

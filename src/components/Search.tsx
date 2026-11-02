@@ -1,6 +1,6 @@
 import {
-  ChangeEvent,
-  Ref,
+  type ChangeEvent,
+  type Ref,
   useCallback,
   useMemo,
   useRef,
@@ -11,36 +11,36 @@ import { ThemeProvider } from '@mui/material/styles'
 import Autocomplete, { autocompleteClasses } from '@mui/material/Autocomplete'
 import Chip from '@mui/material/Chip'
 import InputAdornment from '@mui/material/InputAdornment'
-import Paper, { PaperProps } from '@mui/material/Paper'
-import {
+import Paper, { type PaperProps } from '@mui/material/Paper'
+import type {
   AutocompleteChangeReason,
   FilterOptionsState,
 } from '@mui/material/useAutocomplete'
-import { KeyOption, matchSorter } from 'match-sorter'
+import { type KeyOption, matchSorter } from 'match-sorter'
 import { upperFirst } from 'lodash-es'
 
 import {
   getBlankItem,
   getItemName,
-  Item,
+  type Item,
 } from '../state/items'
-import { getIcon, MuiIconType } from './Icons'
+import { getIcon, type MuiIconType } from './Icons'
 import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
 import { useAppStore } from '../state/store'
 import getTheme from '../theme'
 import {
   ALL_SEARCHABLE_TYPES,
-  AnySearchable,
-  AnySearchableData,
-  AnySearchableType,
+  type AnySearchable,
+  type AnySearchableData,
+  type AnySearchableType,
 } from './search/types'
 import {
   getName,
   sortSearchables,
 } from './search/utils'
-import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
+import ListBoxComponent, { type SearchListVirtualizerApi } from './search/ListBox'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 
 
 function ThemedPaper({ children, ...props }: PaperProps) {

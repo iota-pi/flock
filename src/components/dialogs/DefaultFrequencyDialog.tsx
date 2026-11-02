@@ -8,7 +8,7 @@ import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 
 import FrequencyPicker from '../FrequencyPicker'
-import { Frequency } from '../../utils/frequencies'
+import type { Frequency } from '../../utils/frequencies'
 import { PersonIcon, GroupIcon, TopicIcon } from '../Icons'
 
 

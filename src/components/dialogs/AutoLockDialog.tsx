@@ -11,12 +11,12 @@ import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
-import Select, { SelectChangeEvent } from '@mui/material/Select'
+import Select, { type SelectChangeEvent } from '@mui/material/Select'
 import Typography from '@mui/material/Typography'
 
 import {
-  AutoLockMode,
-  AutoLockSettings,
+  type AutoLockMode,
+  type AutoLockSettings,
   INACTIVITY_PRESETS,
   readAutoLockSettings,
 } from '@vault/client'

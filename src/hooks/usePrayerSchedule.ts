@@ -3,7 +3,7 @@ import { useToday } from './useToday'
 import { usePrayerScheduleInputs } from '../state/selectors'
 import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
-import { Item } from '../state/items'
+import type { Item } from '../state/items'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 
 export function usePrayerSchedule() {

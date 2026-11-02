@@ -1,4 +1,4 @@
-import { alpha, styled, Theme } from '@mui/material/styles'
+import { alpha, styled, type Theme } from '@mui/material/styles'
 import Typography from '@mui/material/Typography'
 import LinearProgress from '@mui/material/LinearProgress'
 

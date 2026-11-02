@@ -5,7 +5,7 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import MenuItem from '@mui/material/MenuItem'
 
-import { Item } from 'src/state/items'
+import type { Item } from 'src/state/items'
 import ItemFormContent from 'src/features/items/components/ItemFormContent'
 import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
 import {

@@ -1,12 +1,11 @@
 import * as Automerge from '@automerge/automerge/slim'
-import type { AutomergeUrl, DocHandle, Repo } from '@automerge/automerge-repo/slim'
+import type { Repo } from '@automerge/automerge-repo/slim'
 
-import type { VaultSnapshotInput } from '@vault/shared'
-import { normalizeItemSnapshot } from './docStore'
+import type { ItemId, VaultSnapshotInput } from '@vault/shared'
+import { findWithTimeout, normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { KeyProvider } from '../../api/Keyring'
 import type { DocCodec } from './domain'
-import { ItemId } from '@vault/shared'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
@@ -37,113 +36,6 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
   return cipherBytes + ivBytes + idBytes + BASE_OVERHEAD_BYTES
 }
 
-export interface BuildSnapshotOptions {
-  signal?: AbortSignal
-  codec: DocCodec
-}
-
-/**
- * How long a snapshot build waits for the document, matching the doc store's whole lookup budget for a
- * document it knows is stored (fast path plus extended attempt)
- */
-export const SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS = SYNC_TIMEOUTS.docStoreFastPath + SYNC_TIMEOUTS.docStoreExtended
-
-type DocLookupResult =
-  | { type: 'found'; handle: DocHandle<unknown> | undefined }
-  | { type: 'timeout' }
-
-/**
- * Looks the document up, giving up after SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS. `repo.find` can stay pending
- * forever: for a document whose local records fail to decrypt, and for one missing from storage, which no
- * peer answers for. An abort of the caller's signal is rethrown so the push stops rather than counting it
- * as this item's failure.
- */
-async function findWithTimeout(
-  repo: Repo,
-  documentUrl: AutomergeUrl,
-  signal: AbortSignal | undefined,
-): Promise<DocLookupResult> {
-  signal?.throwIfAborted()
-  const timeout = new AbortController()
-  const timeoutId = setTimeout(() => timeout.abort(), SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS)
-  const lookupSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal
-  try {
-    return { type: 'found', handle: await repo.find(documentUrl, { signal: lookupSignal }) }
-  } catch {
-    signal?.throwIfAborted()
-    if (timeout.signal.aborted) {
-      return { type: 'timeout' }
-    }
-    return { type: 'found', handle: undefined }
-  } finally {
-    clearTimeout(timeoutId)
-  }
-}
-
-export async function buildSnapshot(
-  repo: Repo,
-  itemId: ItemId,
-  snapshotCursor: number,
-  keys: KeyProvider,
-  options: BuildSnapshotOptions,
-): Promise<BuildSnapshotResult> {
-  const documentUrl = toAutomergeUrlFromItemId(itemId)
-  const lookup = await findWithTimeout(repo, documentUrl, options.signal)
-  if (lookup.type === 'timeout') {
-    return {
-      type: 'error',
-      reason: `Document lookup timed out after ${SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS}ms`,
-    }
-  }
-  const handle = lookup.handle
-  if (!handle) {
-    return { type: 'error', reason: 'Document handle not found' }
-  }
-
-  if (!handle.isReady()) {
-    return { type: 'not-ready' }
-  }
-
-  const doc = handle.doc()
-  if (!doc) {
-    return { type: 'error', reason: 'Document data not available' }
-  }
-
-  const snapshotTimestamp = Date.now()
-  const heads = Automerge.getHeads(doc)
-  const binary = Automerge.save(doc)
-  if (!binary || binary.byteLength === 0) {
-    return { type: 'error', reason: 'Failed to serialize document binary' }
-  }
-
-  let encryptedDoc
-  try {
-    encryptedDoc = await keys.encryptBytes(binary, itemId)
-  } catch (error) {
-    if (classifySyncError(error).isTransientVault) {
-      return { type: 'not-ready' }
-    }
-    throw error
-  }
-
-  const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, options.codec)
-  if (!itemSnapshot) {
-    return { type: 'error', reason: 'Failed to normalize item snapshot' }
-  }
-
-  return {
-    type: 'success',
-    snapshot: {
-      itemId,
-      snapshot: encryptedDoc,
-      snapshotCursor,
-      modified: snapshotTimestamp,
-      deleted: !!itemSnapshot.deleted || undefined,
-    },
-    heads,
-  }
-}
-
 /**
  * Strips the payload from a deleted snapshot, leaving only the metadata needed
  * for the server to record the tombstone. Used when the full document history
@@ -161,6 +53,7 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
   }
 }
 
+/** Builds an item's encrypted snapshot from its local Automerge doc */
 export class SnapshotBuilder {
   constructor(
     private readonly repo: Repo,
@@ -168,13 +61,10 @@ export class SnapshotBuilder {
     private readonly codec: DocCodec,
   ) {}
 
-  async build(
-    itemId: ItemId,
-    snapshotCursor: number,
-    options?: Omit<BuildSnapshotOptions, 'codec'>,
-  ): Promise<BuildSnapshotResult> {
+  /** Reports failures as results; only an abort of `signal` throws */
+  async build(itemId: ItemId, snapshotCursor: number, options?: { signal?: AbortSignal }): Promise<BuildSnapshotResult> {
     try {
-      return await buildSnapshot(this.repo, itemId, snapshotCursor, this.keys, { ...options, codec: this.codec })
+      return await this.buildOrThrow(itemId, snapshotCursor, options?.signal)
     } catch (error: unknown) {
       // The caller stopped; that says nothing about this item
       if (options?.signal?.aborted) {
@@ -185,16 +75,61 @@ export class SnapshotBuilder {
         log.warn('Vault is locked or uninitialized during snapshot build, waiting', error)
         return { type: 'not-ready' }
       }
-      log.error('failed to encrypt snapshot binary', error)
+      log.error('Failed to build snapshot', error)
       return {
         type: 'error',
-        reason: error instanceof Error ? error.message : 'Failed to encrypt snapshot binary',
+        reason: error instanceof Error ? error.message : 'Failed to build snapshot',
       }
     }
   }
 
-  estimateSize(snapshot: VaultSnapshotInput): number {
-    return estimateSnapshotSize(snapshot)
+  private async buildOrThrow(itemId: ItemId, snapshotCursor: number, signal?: AbortSignal): Promise<BuildSnapshotResult> {
+    const documentUrl = toAutomergeUrlFromItemId(itemId)
+    const lookup = await findWithTimeout(this.repo, documentUrl, SYNC_TIMEOUTS.snapshotDocLookup, signal)
+    if (lookup.type === 'timeout') {
+      return {
+        type: 'error',
+        reason: `Document lookup timed out after ${SYNC_TIMEOUTS.snapshotDocLookup}ms`,
+      }
+    }
+    const handle = lookup.handle
+    if (!handle) {
+      return { type: 'error', reason: 'Document handle not found' }
+    }
+
+    if (!handle.isReady()) {
+      return { type: 'not-ready' }
+    }
+
+    const doc = handle.doc()
+    if (!doc) {
+      return { type: 'error', reason: 'Document data not available' }
+    }
+
+    const snapshotTimestamp = Date.now()
+    const heads = Automerge.getHeads(doc)
+    const binary = Automerge.save(doc)
+    if (!binary || binary.byteLength === 0) {
+      return { type: 'error', reason: 'Failed to serialize document binary' }
+    }
+
+    const encryptedDoc = await this.keys.encryptBytes(binary, itemId)
+
+    const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, this.codec)
+    if (!itemSnapshot) {
+      return { type: 'error', reason: 'Failed to normalize item snapshot' }
+    }
+
+    return {
+      type: 'success',
+      snapshot: {
+        itemId,
+        snapshot: encryptedDoc,
+        snapshotCursor,
+        modified: snapshotTimestamp,
+        deleted: !!itemSnapshot.deleted || undefined,
+      },
+      heads,
+    }
   }
 }
-

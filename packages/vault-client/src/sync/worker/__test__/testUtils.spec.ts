@@ -3,7 +3,6 @@ import {
   createMockLocalForage,
   createMockLocalForagePool,
   createMockVault,
-  createTestEventHubs,
 } from './testUtils'
 
 describe('testUtils', () => {
@@ -126,21 +125,4 @@ describe('testUtils', () => {
     })
   })
 
-  describe('createTestEventHubs', () => {
-    it('instantiates clientEventHub and internalEventHub', () => {
-      const { clientEventHub, internalEventHub } = createTestEventHubs()
-      expect(clientEventHub).toBeDefined()
-      expect(internalEventHub).toBeDefined()
-
-      const clientSpy = vi.fn()
-      clientEventHub.subscribe(clientSpy)
-      clientEventHub.emit({ type: 'ready' })
-      expect(clientSpy).toHaveBeenCalledWith({ type: 'ready' })
-
-      const internalSpy = vi.fn()
-      internalEventHub.subscribe(internalSpy)
-      internalEventHub.emit({ type: 'soleLeaderRestored' })
-      expect(internalSpy).toHaveBeenCalledWith({ type: 'soleLeaderRestored' })
-    })
-  })
 })

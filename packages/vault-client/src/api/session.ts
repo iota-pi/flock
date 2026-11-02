@@ -1,8 +1,9 @@
 import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
+import { delay } from '../sync/utils/abort'
 import { createLogger } from '../sync/utils/logger'
 import { SingleFlightGuard } from '../sync/utils/SingleFlightGuard'
 import { getSession } from './AccountClient'
-import { setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
+import { getApiAuthToken, setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import { readStoredMetadata } from './storedMetadata'
 import { getHostHooks } from './vaultHost'
 import { vaultKeys } from './VaultKeyState'
@@ -20,7 +21,7 @@ export function getKeyHash(): string {
 }
 
 export function getVaultSession() {
-  return vaultKeys.session
+  return getApiAuthToken()
 }
 
 export async function establishSessionFromKeyHash(account: string, nextKeyHash: string) {
@@ -31,11 +32,10 @@ export async function establishSessionFromKeyHash(account: string, nextKeyHash: 
   }
   vaultKeys.activeAccount = account
   vaultKeys.keyHash = nextKeyHash
-  vaultKeys.session = nextSession
   setApiAuthToken(nextSession)
   setApiSessionExpiredHandler(handleSessionExpired)
   // The session is kept only in memory: this removes one an earlier build stored
-  await deleteStoredSessionToken()
+  deleteStoredSessionToken()
 }
 
 /** Tries a silent re-login, telling the host the session is lost if that fails. Concurrent calls share one attempt. */
@@ -54,7 +54,6 @@ export function handleSessionExpired(): Promise<void> {
       }
     }
 
-    vaultKeys.session = ''
     setApiAuthToken('')
     getHostHooks().onSessionLost?.(
       'Sync paused: unable to re-establish session. Please re-enter your password to resume syncing.'
@@ -80,8 +79,9 @@ export function notifyLateSession() {
 }
 
 /** Resolves (to undefined) once a login has waited long enough for the server */
-function serverWaitElapsed(): Promise<undefined> {
-  return new Promise(resolve => setTimeout(resolve, LOGIN_SERVER_WAIT_MS))
+async function serverWaitElapsed(): Promise<undefined> {
+  await delay(LOGIN_SERVER_WAIT_MS)
+  return undefined
 }
 
 /**
@@ -126,5 +126,5 @@ export function assertKeyringLoaded() {
  */
 export async function lockVaultKeys() {
   clearKeyData()
-  await deleteStoredSessionToken()
+  deleteStoredSessionToken()
 }

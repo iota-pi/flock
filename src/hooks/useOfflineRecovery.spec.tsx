@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useDataRecovery } from './useDataRecovery'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import * as syncBridgeModule from '../app/vault/syncBridge'
 import * as storeModule from '../state/store'
 import { spyOnExports } from '../utils/testUtils'

@@ -1,70 +1,62 @@
-import type { Repo } from '@automerge/automerge-repo/slim'
-import { ItemId } from '@vault/shared'
-import { LastModifiedStore } from './stores/LastModifiedStore'
+import type { ItemId } from '@vault/shared'
+import type { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder } from './snapshotBuilder'
-import type { DocCodec } from './domain'
+import type { SnapshotBuilder } from './snapshotBuilder'
 import { SnapshotPusher } from './SnapshotPusher'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { SnapshotPushResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { KeyProvider } from '../../api/Keyring'
+import type { SyncSessionState } from './SyncSessionState'
+import type { StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
   debounceDelayMs?: number
   maxWaitMs?: number
-  isLeader?: boolean
 }
 
-export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolean }> {
-  readonly lifecycleName = 'SnapshotManager'
-  private readonly tracker: SnapshotTracker
-  private readonly builder: SnapshotBuilder
+/**
+ * Wires the snapshot tracker and pusher together and reacts to the session's changes. Callers read and
+ * mark dirty items through `tracker`.
+ */
+export class SnapshotManager implements StoredSnapshotRecorder {
+  readonly tracker: SnapshotTracker
   private readonly pusher: SnapshotPusher
-
-  async onLifecycleStart(): Promise<void> {
-    await this.tracker.loadLastModified()
-  }
-
-  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown(options)
-  }
+  private readonly session: SyncSessionState
 
   constructor(
     deps: {
       accountId: string
-      repo: Repo
+      session: SyncSessionState
+      lastModifiedStore: LastModifiedStore
+      builder: SnapshotBuilder
       broker: SyncMessageBroker
       getLatestCursor?: () => number
       eventHub: ClientEventHub
       recoveryManager: RecoveryManager
       apiClient: SyncApiClient
-      codec: DocCodec
-      keys: KeyProvider
     },
-    lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
-    this.builder = new SnapshotBuilder(deps.repo, deps.keys, deps.codec)
+    this.session = deps.session
     this.tracker = new SnapshotTracker({
-      lastModifiedStore,
+      lastModifiedStore: deps.lastModifiedStore,
       recoveryManager: deps.recoveryManager,
       debounceDelayMs: options?.debounceDelayMs,
       maxWaitMs: options?.maxWaitMs,
-      isLeader: options?.isLeader,
+      session: deps.session,
       onTriggerPush: () => fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onTriggerPush'),
       isRetryActive: () => this.pusher.isRetryActive,
     })
 
     this.pusher = new SnapshotPusher({
       accountId: deps.accountId,
+      session: deps.session,
       tracker: this.tracker,
-      builder: this.builder,
+      builder: deps.builder,
       broker: deps.broker,
       recoveryManager: deps.recoveryManager,
       apiClient: deps.apiClient,
@@ -74,27 +66,22 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     })
   }
 
-  get leader(): boolean {
-    return this.tracker.leader
-  }
+  /** Called after the session's leadership changed */
+  async onLeaderChange(): Promise<void> {
+    if (this.session.isShutdown) return
+    this.tracker.onLeaderChange()
 
-  async setLeader(isLeader: boolean): Promise<void> {
-    if (this.tracker.isShutdown || this.tracker.leader === isLeader) {
-      return
-    }
-    this.tracker.setLeader(isLeader)
-
-    if (isLeader) {
+    if (this.session.isLeader) {
       await this.tracker.loadLastModified()
     } else {
       this.stopPushing()
     }
   }
 
-  onOnlineStateChange(isOnline: boolean): void {
-    this.tracker.setOnline(isOnline)
-    if (isOnline) {
-      if (this.tracker.leader && this.tracker.dirtyCount > 0) {
+  /** Called after the session's online state changed */
+  onOnlineStateChange(): void {
+    if (this.session.isOnline) {
+      if (this.session.isLeader && this.tracker.dirtyCount > 0) {
         this.pusher.resetRetry()
         fireAndForget(this.pusher.triggerSnapshotPush(), 'SnapshotManager:onOnlineStateChange')
       }
@@ -109,46 +96,14 @@ export class SnapshotManager implements LifecycleAware<{ clearLocalData?: boolea
     this.pusher.cancelRetry()
   }
 
-  async persistLastModified(): Promise<void> {
-    await this.tracker.persistLastModified()
-  }
-
-  markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
-    this.tracker.markItemDirty(itemId, customDebounceDelayMs)
-  }
-
-  deleteDirtyItem(itemId: ItemId): boolean {
-    return this.tracker.deleteDirtyItem(itemId)
-  }
-
   async flushPendingSnapshots(): Promise<SnapshotPushResult> {
     // Saved first, and in any tab: a follower can't push, but its edits must still survive the page closing
     this.tracker.flushPendingSave()
     return this.pusher.flushPendingSnapshots()
   }
 
-  clearOversized(itemId: ItemId): void {
-    this.tracker.clearOversized(itemId)
-  }
-
-  getDirtyItemIds(): ItemId[] {
-    return this.tracker.getDirtyItemIds()
-  }
-
-  exportLastModified(): [ItemId, number][] {
-    return this.tracker.exportLastModified()
-  }
-
-  async importLastModified(data: [ItemId, number][]): Promise<void> {
-    await this.tracker.importLastModified(data)
-  }
-
-  exportItemVersions(): Map<ItemId, { baseVersion: number; isDirty: boolean }> {
-    return this.tracker.exportItemVersions()
-  }
-
-  async importVersions(updates: Array<[ItemId, number]>): Promise<void> {
-    await this.tracker.importVersions(updates)
+  recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
+    this.pusher.recordStoredSnapshots(stored, versions)
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {

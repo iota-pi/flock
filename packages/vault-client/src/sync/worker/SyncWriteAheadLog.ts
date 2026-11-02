@@ -2,7 +2,6 @@ import { nanoid } from 'nanoid'
 import type { ItemId } from '@vault/shared'
 import { runStorageOperation } from '../utils/storageManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import type { WorkerInternalEventHub } from './SyncEventHub'
 import { createAccountStore } from '../shared/createAccountStore'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { LocalCipher, SealedRecord } from './localEncryption/LocalCipher'
@@ -26,12 +25,21 @@ function sortByAge<T extends WalEntrySummary>(entries: readonly T[]): T[] {
   return [...entries].sort((a, b) => (a.createdAt - b.createdAt) || ((a.seq ?? 0) - (b.seq ?? 0)))
 }
 
+/** The entry's summary fields. Entries written before `seq` existed get seq 0. */
+function toSummary(entry: WalEntrySummary): Required<WalEntrySummary> {
+  return { id: entry.id, itemId: entry.itemId, createdAt: entry.createdAt, seq: entry.seq ?? 0 }
+}
+
 /** A WAL entry as stored: in plaintext, or with `data` sealed and the descriptor left readable */
 type StoredWalEntry = Omit<WalEntry, 'data'> & { data?: unknown, sealed?: SealedRecord }
 
 export interface SyncWriteAheadLogOptions {
   /** Seals message bytes with the device storage key, in the sealed WAL store */
   cipher?: LocalCipher
+  /** Called with the items whose entries pruning removed, which only a snapshot can now deliver */
+  onEntriesPruned?: (itemIds: ItemId[]) => void
+  /** Called with items whose entries can't be read, which a snapshot delivers instead */
+  onSnapshotNeeded?: (itemIds: ItemId[]) => void
 }
 
 export function toUint8Array(data: unknown): Uint8Array {
@@ -71,10 +79,10 @@ interface SeqHighWaterMark {
 }
 
 function raiseHighWaterMark(mark: SeqHighWaterMark, entry: Pick<StoredWalEntry, 'seq' | 'createdAt'>): void {
-  if (typeof entry.seq === 'number' && entry.seq > mark.seq) {
+  if (entry.seq !== undefined && entry.seq > mark.seq) {
     mark.seq = entry.seq
   }
-  if (typeof entry.createdAt === 'number' && entry.createdAt > mark.createdAt) {
+  if (entry.createdAt > mark.createdAt) {
     mark.createdAt = entry.createdAt
   }
 }
@@ -83,22 +91,52 @@ const MAX_ENTRIES = SYNC_BATCH_SIZES.walMax
 const PRUNE_BATCH_SIZE = SYNC_BATCH_SIZES.walPrune
 
 export class SyncWriteAheadLog {
-  public static readonly MAX_ENTRIES = MAX_ENTRIES
+  private readonly storage: LocalForage
+  private readonly cipher?: LocalCipher
+  private readonly onEntriesPruned?: (itemIds: ItemId[]) => void
+  private readonly onSnapshotNeeded?: (itemIds: ItemId[]) => void
 
   private seqCounter = 0
   private lastCreatedAt = 0
   private isSeqInitialized = false
   private readonly initSeqGuard = new SingleFlightGuard<void>()
+  private readonly pruningGuard = new SingleFlightGuard<number>()
+  private readonly enforceSizeLimitGuard = new SingleFlightGuard<void>()
+
+  private readonly inFlightEntryIds = new Set<string>()
+  /**
+   * Entries whose message bytes couldn't be opened, already reported. `readAll` runs on every poll,
+   * so each one is reported once per instance rather than on every read.
+   */
+  private readonly unreadableEntryIds = new Set<string>()
+
+  public static getStorage(accountId: string): LocalForage {
+    return createAccountStore('wal-entries', accountId)
+  }
+
+  public static getSealedStorage(accountId: string): LocalForage {
+    return createAccountStore('wal-entries-sealed', accountId)
+  }
+
+  constructor(
+    public readonly accountId: string,
+    options: SyncWriteAheadLogOptions = {},
+  ) {
+    this.cipher = options.cipher
+    this.storage = options.cipher
+      ? SyncWriteAheadLog.getSealedStorage(accountId)
+      : SyncWriteAheadLog.getStorage(accountId)
+    this.onEntriesPruned = options.onEntriesPruned
+    this.onSnapshotNeeded = options.onSnapshotNeeded
+  }
 
   private async ensureSeqInitialized(): Promise<void> {
     if (this.isSeqInitialized) return
     await this.initSeqGuard.run(async () => {
       if (this.isSeqInitialized) return
       const mark: SeqHighWaterMark = { seq: 0, createdAt: 0 }
-      await this.storage.iterate<WalEntry, void>(entry => {
-        if (entry) {
-          raiseHighWaterMark(mark, entry)
-        }
+      await this.storage.iterate<StoredWalEntry, void>(entry => {
+        raiseHighWaterMark(mark, entry)
       })
       this.initializeSeq(mark)
     })
@@ -115,31 +153,6 @@ export class SyncWriteAheadLog {
     this.isSeqInitialized = true
   }
 
-  private storage: LocalForage
-  private readonly internalEventHub: WorkerInternalEventHub
-
-  public static getStorage(accountId: string): LocalForage {
-    return createAccountStore('wal-entries', accountId)
-  }
-
-  public static getSealedStorage(accountId: string): LocalForage {
-    return createAccountStore('wal-entries-sealed', accountId)
-  }
-
-  private readonly cipher?: LocalCipher
-
-  constructor(
-    public readonly accountId: string,
-    internalEventHub: WorkerInternalEventHub,
-    options: SyncWriteAheadLogOptions = {},
-  ) {
-    this.cipher = options.cipher
-    this.storage = options.cipher
-      ? SyncWriteAheadLog.getSealedStorage(accountId)
-      : SyncWriteAheadLog.getStorage(accountId)
-    this.internalEventHub = internalEventHub
-  }
-
   /** Seals the entry's message bytes, outside any storage transaction */
   private async toStored(entry: WalEntry): Promise<StoredWalEntry> {
     if (!this.cipher) return entry
@@ -147,12 +160,6 @@ export class SyncWriteAheadLog {
     const sealed = await this.cipher.seal({ store: 'wal', entryId: entry.id, itemId: entry.itemId }, data)
     return { ...descriptor, sealed }
   }
-
-  /**
-   * Entries whose message bytes couldn't be opened, already reported. `readAll` runs on every poll,
-   * so each one is reported once per instance rather than on every read.
-   */
-  private readonly unreadableEntryIds = new Set<string>()
 
   /** Reads an entry's message bytes. Returns null when they can't be opened. */
   private async openData(entry: StoredWalEntry): Promise<Uint8Array | null> {
@@ -166,7 +173,7 @@ export class SyncWriteAheadLog {
       if (!this.unreadableEntryIds.has(entry.id)) {
         this.unreadableEntryIds.add(entry.id)
         log.error(`WAL entry ${entry.id} for ${entry.itemId} could not be decrypted`, error)
-        this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId: entry.itemId })
+        this.onSnapshotNeeded?.([entry.itemId])
       }
       return null
     }
@@ -181,19 +188,13 @@ export class SyncWriteAheadLog {
     }
   }
 
-  private readonly inFlightEntryIds = new Set<string>()
-
   markInFlight(entryIds: string[]): void {
-    if (!entryIds || entryIds.length === 0) return
     for (const id of entryIds) {
-      if (typeof id === 'string' && id.length > 0) {
-        this.inFlightEntryIds.add(id)
-      }
+      this.inFlightEntryIds.add(id)
     }
   }
 
   unmarkInFlight(entryIds: string[]): void {
-    if (!entryIds || entryIds.length === 0) return
     for (const id of entryIds) {
       this.inFlightEntryIds.delete(id)
     }
@@ -210,16 +211,14 @@ export class SyncWriteAheadLog {
   private prunableEntries<T extends WalEntrySummary>(entries: readonly T[]): T[] {
     const inFlightItemIds = new Set<string>()
     for (const entry of entries) {
-      if (entry.itemId && this.inFlightEntryIds.has(entry.id)) {
+      if (this.inFlightEntryIds.has(entry.id)) {
         inFlightItemIds.add(entry.itemId)
       }
     }
     return sortByAge(entries.filter(e =>
-      !this.inFlightEntryIds.has(e.id) && !(e.itemId && inFlightItemIds.has(e.itemId))
+      !this.inFlightEntryIds.has(e.id) && !inFlightItemIds.has(e.itemId)
     ))
   }
-
-  private readonly pruningGuard = new SingleFlightGuard<number>()
 
   /**
    * Prunes oldest entries from WAL to keep size within limits or free space.
@@ -233,16 +232,8 @@ export class SyncWriteAheadLog {
   private async performPruneOldest(count: number): Promise<number> {
     try {
       const allEntries: WalEntrySummary[] = []
-
-      await this.storage.iterate<WalEntry, void>(entry => {
-        if (entry && entry.id) {
-          allEntries.push({
-            id: entry.id,
-            itemId: entry.itemId,
-            createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
-            seq: typeof entry.seq === 'number' ? entry.seq : 0,
-          })
-        }
+      await this.storage.iterate<StoredWalEntry, void>(entry => {
+        allEntries.push(toSummary(entry))
       })
 
       // Prunable entries exclude in-flight entries and any entries belonging to items that have
@@ -252,36 +243,21 @@ export class SyncWriteAheadLog {
         return 0
       }
 
-      const prunedItemIds = Array.from(
-        new Set(
-          entriesToPrune
-            .map(e => e.itemId)
-            .filter((id): id is ItemId => typeof id === 'string' && id.length > 0)
-        )
-      )
-
-      const prunedItemSet = new Set(prunedItemIds)
+      const prunedItemIds = new Set(entriesToPrune.map(e => e.itemId))
       // Remove all entries belonging to the pruned items to avoid partial change history in WAL.
       // Safety check: ensure in-flight entries are never removed even defensively.
       const toRemove = allEntries
-        .filter(e => prunedItemSet.has(e.itemId) && !this.isInFlight(e.id))
+        .filter(e => prunedItemIds.has(e.itemId) && !this.isInFlight(e.id))
         .map(e => e.id)
 
-      if (toRemove.length > 0) {
-        await this.remove(toRemove)
-      }
-
-      if (prunedItemIds.length > 0) {
-        this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: prunedItemIds })
-      }
+      await this.remove(toRemove)
+      this.onEntriesPruned?.([...prunedItemIds])
       return toRemove.length
     } catch (err) {
       log.error('Failed to prune oldest entries', err)
       return 0
     }
   }
-
-  private readonly enforceSizeLimitGuard = new SingleFlightGuard<void>()
 
   private async enforceSizeLimit(): Promise<void> {
     return this.enforceSizeLimitGuard.run(() => this.performEnforceSizeLimit())
@@ -347,7 +323,7 @@ export class SyncWriteAheadLog {
 
     // localforage's iterate callback can't await, so entries are opened once it has finished
     await this.storage.iterate<StoredWalEntry, void>(entry => {
-      if (entry && entry.id && entry.itemId && (this.cipher ? entry.sealed : entry.data)) {
+      if (this.cipher ? entry.sealed : entry.data) {
         raiseHighWaterMark(mark, entry)
         storedEntries.push(entry)
       }
@@ -364,13 +340,7 @@ export class SyncWriteAheadLog {
       const data = openedData[index]
       if (!data) return
       const list = result.get(entry.itemId) ?? []
-      list.push({
-        id: entry.id,
-        itemId: entry.itemId,
-        data,
-        createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
-        seq: typeof entry.seq === 'number' ? entry.seq : 0,
-      })
+      list.push({ ...toSummary(entry), data })
       result.set(entry.itemId, list)
     })
 
@@ -385,16 +355,13 @@ export class SyncWriteAheadLog {
    * Remove specific entries by ID after successful network send.
    */
   async remove(entryIds: string[]): Promise<void> {
-    if (!entryIds || entryIds.length === 0) return
-    const uniqueIds = Array.from(new Set(entryIds.filter((id): id is string => typeof id === 'string' && id.length > 0)))
-    if (uniqueIds.length === 0) return
-
+    const uniqueIds = new Set(entryIds)
     for (const id of uniqueIds) {
       this.inFlightEntryIds.delete(id)
       this.unreadableEntryIds.delete(id)
     }
 
-    await Promise.all(uniqueIds.map(id => runStorageOperation(() => this.storage.removeItem(id))))
+    await Promise.all([...uniqueIds].map(id => runStorageOperation(() => this.storage.removeItem(id))))
   }
 
   /**

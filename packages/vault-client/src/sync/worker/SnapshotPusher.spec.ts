@@ -1,7 +1,9 @@
 import { SnapshotPusher } from './SnapshotPusher'
-import { SnapshotTracker } from './SnapshotTracker'
-import { SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS, SnapshotBuilder } from './snapshotBuilder'
-import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import type { SnapshotTracker } from './SnapshotTracker'
+import { SnapshotBuilder } from './snapshotBuilder'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { SyncSessionState } from './SyncSessionState'
+import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError } from './SyncApiClient'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
@@ -9,6 +11,9 @@ import { passthroughCodec } from './domain'
 import * as docStoreModule from './docStore'
 import * as automergeModule from './utils/automerge'
 import * as Automerge from '@automerge/automerge/slim'
+
+/** Estimates well above the pusher's `maxPayloadBytes` of 1000 */
+const OVERSIZED_CIPHER = 'x'.repeat(5000)
 
 describe('SnapshotPusher', () => {
   let pusher: SnapshotPusher
@@ -24,7 +29,6 @@ describe('SnapshotPusher', () => {
     vi.clearAllMocks()
 
     mockTracker = {
-      isOperational: true,
       dirtyCount: 1,
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId]),
       getDirtyTick: vi.fn().mockReturnValue(1),
@@ -46,13 +50,10 @@ describe('SnapshotPusher', () => {
         },
         heads: ['head-1'],
       }),
-      estimateSize: vi.fn().mockReturnValue(200),
     }
 
     mockBroker = {
-      setSyncedHeads: vi.fn(),
-      clearSnapshotOnlyItem: vi.fn(),
-      unblockItem: vi.fn(),
+      confirmSnapshot: vi.fn(),
     }
 
     mockApiClient = {
@@ -74,6 +75,7 @@ describe('SnapshotPusher', () => {
 
     pusher = new SnapshotPusher({
       accountId: 'test-acc',
+      session: new SyncSessionState({ isLeader: true }),
       tracker: mockTracker as unknown as SnapshotTracker,
       builder: mockBuilder as unknown as SnapshotBuilder,
       broker: mockBroker,
@@ -88,29 +90,38 @@ describe('SnapshotPusher', () => {
     vi.useRealTimers()
   })
 
+  const oversizedSnapshot = () => ({
+    type: 'success',
+    snapshot: {
+      itemId: 'item-1' as ItemId,
+      snapshot: { cipher: OVERSIZED_CIPHER, iv: '123', kver: '1' },
+      snapshotCursor: 10,
+      modified: 1000,
+    },
+    heads: ['head-1'],
+  })
+
   it('pushes snapshots successfully and notifies tracker and broker', async () => {
     const result = await pusher.triggerSnapshotPush()
 
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
     expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
-    expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-1', ['head-1'])
-    // Setting the heads clears snapshot-only and unblocks the item itself
-    expect(mockBroker.clearSnapshotOnlyItem).not.toHaveBeenCalled()
-    expect(mockBroker.unblockItem).not.toHaveBeenCalled()
+    expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', ['head-1'])
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
 
-  it('handles oversized item by quarantining and emitting quotaExceeded', async () => {
-    mockBuilder.estimateSize.mockReturnValue(5000) // Exceeds maxPayloadBytes = 1000
+  it('handles oversized item by quarantining and reporting a snapshot failure', async () => {
+    mockBuilder.build.mockResolvedValue(oversizedSnapshot())
 
     const result = await pusher.triggerSnapshotPush()
 
     expect(result).toEqual({ persisted: 0, total: 0 })
     expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
     expect(mockEventHub.emit).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'quotaExceeded' }),
+      expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
     )
+    expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
     expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
       'item-1',
       'oversized',
@@ -119,13 +130,13 @@ describe('SnapshotPusher', () => {
   })
 
   it('does not warn again about an item the tracker already knows is oversized', async () => {
-    mockBuilder.estimateSize.mockReturnValue(5000)
+    mockBuilder.build.mockResolvedValue(oversizedSnapshot())
     mockTracker.recordOversized.mockReturnValue(false)
 
     await pusher.triggerSnapshotPush()
 
     expect(mockTracker.recordOversized).toHaveBeenCalledWith('item-1', 1000)
-    expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
+    expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshotFailed' }))
     expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
   })
 
@@ -134,7 +145,7 @@ describe('SnapshotPusher', () => {
       type: 'success',
       snapshot: {
         itemId: itemId as ItemId,
-        snapshot: { cipher: 'abc', iv: '123', kver: '1' },
+        snapshot: { cipher: OVERSIZED_CIPHER, iv: '123', kver: '1' },
         snapshotCursor: 10,
         modified: 1000,
         deleted: true,
@@ -143,8 +154,6 @@ describe('SnapshotPusher', () => {
     })
 
     beforeEach(() => {
-      // Only snapshots carrying a cipher are over the limit
-      mockBuilder.estimateSize.mockImplementation((s: any) => (s.snapshot ? 5000 : 200))
       mockBuilder.build.mockResolvedValue(deletedSnapshot('item-1'))
     })
 
@@ -166,11 +175,11 @@ describe('SnapshotPusher', () => {
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
-      expect(mockBroker.setSyncedHeads).not.toHaveBeenCalled()
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', undefined)
       expect(mockTracker.clearOversized).toHaveBeenCalledWith('item-1')
     })
 
-    it('batches a tombstone alongside normal snapshots and only records heads for the normal one', async () => {
+    it('batches a tombstone alongside normal snapshots and confirms each, with heads only for the normal one', async () => {
       mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockBuilder.build.mockImplementation(async (itemId: string) => {
         if (itemId === 'item-1') return deletedSnapshot('item-1')
@@ -185,9 +194,6 @@ describe('SnapshotPusher', () => {
           heads: ['head-2'],
         }
       })
-      mockBuilder.estimateSize.mockImplementation((s: any) => (s.deleted ? 200 : 300))
-      // Make item-1's full snapshot look oversized only during preparation
-      mockBuilder.estimateSize.mockImplementationOnce(() => 5000)
       mockApiClient.putSnapshots.mockResolvedValue({
         success: true,
         persisted: 2,
@@ -201,8 +207,9 @@ describe('SnapshotPusher', () => {
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots).toHaveLength(2)
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 3)
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', 2000, 1, 4)
-      expect(mockBroker.setSyncedHeads).toHaveBeenCalledTimes(1)
-      expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-2', ['head-2'])
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledTimes(2)
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', undefined)
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-2', ['head-2'])
     })
   })
 
@@ -215,14 +222,14 @@ describe('SnapshotPusher', () => {
     // 4 failures
     for (let i = 0; i < 4; i++) {
       await pusher.triggerSnapshotPush()
-      expect(pusher.consecutiveFailures.get('item-1' as ItemId)).toBe(i + 1)
+      expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(i + 1)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
     }
 
     // 5th failure triggers quarantine
     await pusher.triggerSnapshotPush()
 
-    expect(pusher.consecutiveFailures.has('item-1' as ItemId)).toBe(false)
+    expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(0)
     expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
     expect(mockEventHub.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
@@ -261,7 +268,7 @@ describe('SnapshotPusher', () => {
     await coalesced
 
     await vi.waitFor(() => expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(2))
-    expect(pusher.snapshotPushPending).toBe(false)
+    expect(pusher['pendingPushRequested']).toBe(false)
   })
 
   it('does not schedule a retry when a push is aborted', async () => {
@@ -314,6 +321,7 @@ describe('SnapshotPusher', () => {
 
       pusher = new SnapshotPusher({
         accountId: 'test-acc',
+        session: new SyncSessionState({ isLeader: true }),
         tracker: mockTracker as unknown as SnapshotTracker,
         builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
         broker: mockBroker,
@@ -331,14 +339,14 @@ describe('SnapshotPusher', () => {
         return result
       })
 
-      await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS - 1)
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup - 1)
       expect(settled).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
 
       await expect(push).resolves.toEqual({ persisted: 1, total: 1 })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-2'])
-      expect(pusher.consecutiveFailures.get('item-1' as ItemId)).toBe(1)
+      expect(pusher['consecutiveFailures']['count']('item-1' as ItemId)).toBe(1)
       // A failed item leaves the push unsuccessful, so it's retried with backoff
       expect(pusher.isRetryActive).toBe(true)
     })
@@ -346,7 +354,7 @@ describe('SnapshotPusher', () => {
     it('quarantines the item once its lookups have timed out too many times', async () => {
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const push = pusher.triggerSnapshotPush()
-        await vi.advanceTimersByTimeAsync(SNAPSHOT_DOC_LOOKUP_TIMEOUT_MS)
+        await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup)
         await push
         pusher.cancelRetry()
       }
@@ -369,7 +377,7 @@ describe('SnapshotPusher', () => {
       expect(findSignals.get('automerge:item-1')?.aborted).toBe(true)
       expect(mockRepo.find).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots).not.toHaveBeenCalled()
-      expect(pusher.consecutiveFailures.size).toBe(0)
+      expect(pusher['consecutiveFailures']['counts'].size).toBe(0)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
       expect(pusher.isRetryActive).toBe(false)
     })

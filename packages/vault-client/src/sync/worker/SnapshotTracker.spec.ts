@@ -1,17 +1,8 @@
 import { SnapshotTracker } from './SnapshotTracker'
-import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
-import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
-
-/** Sets some of an item's tracked timestamps directly */
-function setTimestamps(tracker: SnapshotTracker, itemId: string, timestamps: Partial<ItemSyncTimestamps>): void {
-  const byItemId = tracker['timestampsByItemId']
-  byItemId.set(itemId as ItemId, { ...byItemId.get(itemId as ItemId), ...timestamps })
-}
-
-/** An item's tracked timestamps, empty if it has none */
-function getTimestamps(tracker: SnapshotTracker, itemId: string): Partial<ItemSyncTimestamps> {
-  return tracker['timestampsByItemId'].get(itemId as ItemId) ?? {}
-}
+import { getTimestamps, setTimestamps } from './__test__/testUtils'
+import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import type { LastModifiedStore } from './stores/LastModifiedStore'
+import { SyncSessionState } from './SyncSessionState'
 
 describe('SnapshotTracker', () => {
   let tracker: SnapshotTracker
@@ -35,7 +26,7 @@ describe('SnapshotTracker', () => {
       recoveryManager: mockRecoveryManager,
       debounceDelayMs: 1000,
       maxWaitMs: 5000,
-      isLeader: true,
+      session: new SyncSessionState({ isLeader: true }),
       onTriggerPush: () => onTriggerPush(),
     })
   })
@@ -58,7 +49,7 @@ describe('SnapshotTracker', () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(onTriggerPush).toHaveBeenCalledTimes(1)
-    expect(tracker.debounceTimer).toBeNull()
+    expect(tracker['debounceTimer'].isPending).toBe(false)
   })
 
   it('triggers on maxWait timer even if debounce is continuously reset', async () => {
@@ -116,11 +107,11 @@ describe('SnapshotTracker', () => {
     await tracker.loadLastModified()
 
     expect(tracker.dirtyCount).toBe(1) // Only item-clean restored
-    expect(tracker.dirtyItems.has('item-clean' as ItemId)).toBe(true)
-    expect(tracker.dirtyItems.has('item-synced' as ItemId)).toBe(false)
-    expect(tracker.dirtyItems.has('item-quarantined' as ItemId)).toBe(false)
-    expect(tracker.oversizedItems.has('item-oversized' as ItemId)).toBe(true)
-    expect(tracker.oversizedItems.has('item-rate-limited' as ItemId)).toBe(false)
+    expect(tracker.getDirtyTick('item-clean' as ItemId)).toBeDefined()
+    expect(tracker.getDirtyTick('item-synced' as ItemId)).toBeUndefined()
+    expect(tracker.getDirtyTick('item-quarantined' as ItemId)).toBeUndefined()
+    expect(tracker['oversizedItems'].has('item-oversized' as ItemId)).toBe(true)
+    expect(tracker['oversizedItems'].has('item-rate-limited' as ItemId)).toBe(false)
   })
 
   it('loads once for callers that join a load in flight', async () => {
@@ -131,7 +122,7 @@ describe('SnapshotTracker', () => {
     await Promise.all([tracker.loadLastModified(), tracker.loadLastModified()])
 
     expect(mockStore.loadTimestamps).toHaveBeenCalledTimes(1)
-    expect([...tracker.oversizedItems]).toEqual(['item-oversized'])
+    expect([...tracker['oversizedItems']]).toEqual(['item-oversized'])
   })
 
   it('recordSnapshotSuccess clears matching tick and updates lastSnapshotAt', () => {
@@ -140,7 +131,7 @@ describe('SnapshotTracker', () => {
 
     tracker.recordSnapshotSuccess('item-1' as ItemId, 2000, tick)
 
-    expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
+    expect(tracker.getDirtyTick('item-1' as ItemId)).toBeUndefined()
     expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(2000)
   })
 
@@ -155,15 +146,24 @@ describe('SnapshotTracker', () => {
 
     tracker.recordSnapshotSuccess('item-1' as ItemId, 2000, oldTick)
 
-    expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(true)
+    expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
     expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(2000)
+  })
+
+  it('recordSnapshotSuccess without a tick keeps the item dirty and records the version', () => {
+    tracker.markItemDirty('item-1' as ItemId)
+
+    tracker.recordSnapshotSuccess('item-1' as ItemId, 2000, undefined, 7)
+
+    expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
+    expect(tracker.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
   })
 
   it('recordOversized removes item from dirty queue and advances lastSnapshotAt', () => {
     tracker.markItemDirty('item-big' as ItemId)
     tracker.recordOversized('item-big' as ItemId, 3000)
 
-    expect(tracker.dirtyItems.has('item-big' as ItemId)).toBe(false)
+    expect(tracker.getDirtyTick('item-big' as ItemId)).toBeUndefined()
     expect(getTimestamps(tracker, 'item-big').lastSnapshotAt).toBeGreaterThanOrEqual(3000)
   })
 
@@ -173,7 +173,7 @@ describe('SnapshotTracker', () => {
 
     tracker.clearOversized('item-big' as ItemId)
 
-    expect(tracker.oversizedItems.has('item-big' as ItemId)).toBe(false)
+    expect(tracker['oversizedItems'].has('item-big' as ItemId)).toBe(false)
     expect(tracker.recordOversized('item-big' as ItemId, 3000)).toBe(true)
   })
 
@@ -192,6 +192,7 @@ describe('SnapshotTracker', () => {
     const newTracker = new SnapshotTracker({
       lastModifiedStore: mockStore as unknown as LastModifiedStore,
       recoveryManager: mockRecoveryManager,
+      session: new SyncSessionState(),
     })
 
     await newTracker.importLastModified(exported)
@@ -212,7 +213,7 @@ describe('SnapshotTracker', () => {
       mockStore.loadTimestamps.mockResolvedValue([])
       await tracker.loadLastModified()
       expect(tracker.dirtyCount).toBe(0)
-      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
+      expect(tracker.getDirtyTick('item-1' as ItemId)).toBeUndefined()
     })
 
     it('keeps a dirty item pending upload', async () => {
@@ -224,22 +225,22 @@ describe('SnapshotTracker', () => {
 
       expect(getTimestamps(tracker, 'item-1').lastSnapshotAt).toBe(1000)
       expect(getTimestamps(tracker, 'item-1').localModifiedAt).toBe(9000)
-      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(true)
+      expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
     })
   })
 
   describe('deleteDirtyItem', () => {
     it('removes item from dirtyItems and clears timers when dirtyItems becomes empty', () => {
       tracker.markItemDirty('item-1' as ItemId)
-      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(true)
-      expect(tracker.debounceTimer).not.toBeNull()
+      expect(tracker.getDirtyTick('item-1' as ItemId)).toBeDefined()
+      expect(tracker['debounceTimer'].isPending).toBe(true)
 
       const deleted = tracker.deleteDirtyItem('item-1' as ItemId)
       expect(deleted).toBe(true)
-      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
+      expect(tracker.getDirtyTick('item-1' as ItemId)).toBeUndefined()
       expect(tracker.dirtyCount).toBe(0)
-      expect(tracker.debounceTimer).toBeNull()
-      expect(tracker.maxWaitTimer).toBeNull()
+      expect(tracker['debounceTimer'].isPending).toBe(false)
+      expect(tracker['maxWaitTimer'].isPending).toBe(false)
     })
 
     it('advances lastSnapshotAt to localModifiedAt to prevent startup audit resurrection', async () => {
@@ -256,11 +257,26 @@ describe('SnapshotTracker', () => {
       ])
       await tracker.loadLastModified()
       expect(tracker.dirtyCount).toBe(0)
-      expect(tracker.dirtyItems.has('item-1' as ItemId)).toBe(false)
+      expect(tracker.getDirtyTick('item-1' as ItemId)).toBeUndefined()
     })
 
     it('returns false when deleting an item that was not dirty', () => {
       expect(tracker.deleteDirtyItem('item-not-dirty' as ItemId)).toBe(false)
+    })
+  })
+
+  describe('saving timestamps', () => {
+    it('saveLastModified throws a failure to save', async () => {
+      const quotaError = new DOMException('Quota exceeded', 'QuotaExceededError')
+      mockStore.saveTimestamps.mockRejectedValueOnce(quotaError)
+
+      await expect(tracker.saveLastModified()).rejects.toBe(quotaError)
+    })
+
+    it('persistLastModified logs a failure to save instead of throwing', async () => {
+      mockStore.saveTimestamps.mockRejectedValueOnce(new DOMException('Quota exceeded', 'QuotaExceededError'))
+
+      await expect(tracker['persistLastModified']()).resolves.toBeUndefined()
     })
   })
 
@@ -276,7 +292,7 @@ describe('SnapshotTracker', () => {
       const makeTracker = (isLeader: boolean) => new SnapshotTracker({
         lastModifiedStore: sharedStore,
         recoveryManager: mockRecoveryManager,
-        isLeader,
+        session: new SyncSessionState({ isLeader }),
       })
       const leader = makeTracker(true)
       const follower = makeTracker(false)
@@ -284,10 +300,10 @@ describe('SnapshotTracker', () => {
       // The follower loaded before the leader uploaded these snapshots
       leader.recordSnapshotSuccess('item-1' as ItemId, 2000, 0, 5)
       leader.recordSnapshotSuccess('item-2' as ItemId, 2000, 0, 3)
-      await leader.persistLastModified()
+      await leader['persistLastModified']()
       setTimestamps(follower, 'item-1', { localModifiedAt: 1000, lastSnapshotAt: 500 })
       setTimestamps(follower, 'item-3', { localModifiedAt: 3000 })
-      await follower.persistLastModified()
+      await follower['persistLastModified']()
 
       const byId = new Map(stored)
       expect(byId.get('item-1' as ItemId)).toEqual({ localModifiedAt: 2000, lastSnapshotAt: 2000, baseVersion: 5 })

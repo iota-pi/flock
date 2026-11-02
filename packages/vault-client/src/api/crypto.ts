@@ -1,6 +1,6 @@
-import { z } from 'zod'
+import type { z } from 'zod'
 
-import { CryptoResultSchema, CURRENT_SALT_VERSION, DOC_BOUND_FORMAT } from '@vault/shared'
+import { type CryptoResultSchema, CURRENT_SALT_VERSION, DOC_BOUND_FORMAT } from '@vault/shared'
 import {
   assertKdfAcceptable,
   assertPbkdf2Acceptable,

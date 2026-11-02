@@ -1,6 +1,7 @@
 import { isAbortError } from '../../utils/abort'
 import { fireAndForget } from '../../utils/fireAndForget'
 import { RetryStrategy } from '../../utils/RetryStrategy'
+import { RetryTimer } from '../../utils/RetryTimer'
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { createLogger } from '../../utils/logger'
 
@@ -32,7 +33,7 @@ interface PresenceMessage {
 export class LeaderElection {
   private releaseLeadershipLock: (() => void) | null = null
   private abortController: AbortController | null = null
-  private retryTimeout: ReturnType<typeof setTimeout> | null = null
+  private readonly lockRetryTimer = new RetryTimer()
   private isLeader = false
   private isFallback = false
   private isReleased = false
@@ -74,14 +75,6 @@ export class LeaderElection {
 
   get fallback(): boolean {
     return this.isFallback
-  }
-
-  get yielded(): boolean {
-    return this.isYielded
-  }
-
-  get activeOtherLeaderCount(): number {
-    return this.otherLeaders.size
   }
 
   private grantLeadership(isFallback = false): void {
@@ -361,12 +354,11 @@ export class LeaderElection {
         `Failed to acquire lock (attempt ${this.lockRetry.attempt}/${this.maxLockRetries})`,
         err
       )
-      this.retryTimeout = setTimeout(() => {
-        this.retryTimeout = null
+      this.lockRetryTimer.schedule(delay, () => {
         if (!this.isReleased) {
           this.acquireLock()
         }
-      }, delay)
+      })
     } else {
       log.warn(
         `Web Locks permanently failed after ${this.lockRetry.attempt + 1} attempts. Falling back to leader mode so syncing is not blocked.`,
@@ -379,10 +371,7 @@ export class LeaderElection {
   release(): void {
     this.isReleased = true
 
-    if (this.retryTimeout !== null) {
-      clearTimeout(this.retryTimeout)
-      this.retryTimeout = null
-    }
+    this.lockRetryTimer.cancel()
 
     if (this.abortController) {
       this.abortController.abort()

@@ -1,11 +1,10 @@
-import type { Repo } from '@automerge/automerge-repo/slim'
-import { chunk } from 'lodash-es'
+import { chunk, partition } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { buildSnapshot, estimateSnapshotSize, type BuildSnapshotResult } from './snapshotBuilder'
-import type { DocCodec } from './domain'
+import { estimateSnapshotSize, type BuildSnapshotResult, type SnapshotBuilder } from './snapshotBuilder'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
+import { uploadSnapshotBatch, type StoredSnapshotRecorder } from './snapshotUpload'
 import { classifySyncError } from '../utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
@@ -17,14 +16,13 @@ import {
 } from '../utils/SizeAwareBatchAccumulator'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { fireAndForget } from '../utils/fireAndForget'
-import { getOnlineState } from '../utils/onlineStatus'
-import type { ItemId, PutSnapshotResultItem, VaultSnapshotInput } from '@vault/shared'
+import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import type { ReencryptResult } from '../shared/types'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
-import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
+import type { SyncSessionState } from './SyncSessionState'
 
-const log = createLogger('reencryptAllItems')
+const log = createLogger('ItemReencryptor')
 
 const MAX_BATCH_RETRIES = 3
 const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
@@ -33,44 +31,38 @@ const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
 type FailedItem = ReencryptResult['failed'][number]
 type ReadySnapshot = { itemId: ItemId; snapshot: VaultSnapshotInput; heads?: string[] }
 
-/** One call's options for `reencryptAllItems`. A scheduled retry runs with the same ones. */
+/** One call's options for `ItemReencryptor.run`. A scheduled retry runs with the same ones. */
 export interface ReencryptRunOptions {
   onProgress?: (done: number, total: number) => void
   signal?: AbortSignal
 }
 
-/** A snapshot the server has stored, with the version it assigned and the heads it holds */
-export interface StoredSnapshot {
-  itemId: ItemId
-  version?: number
-  heads?: string[]
-}
-
 export interface ItemReencryptorOptions {
   accountId: string
-  repo: Repo
+  builder: SnapshotBuilder
   indexManager: AutomergeIndexManager
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
+  /** Uploads stop while the session is offline */
+  session: SyncSessionState
   retryDelays?: number[]
   batchRetryDelays?: readonly number[]
   maxBatchCount?: number
   maxBatchBytes?: number
-  codec: DocCodec
-  keys: KeyProvider
   /**
-   * Called with each batch the server stored, so the sync engine can record the new versions and
-   * heads. Otherwise the next manifest sync would take them for remote changes and fetch every item.
+   * Records the snapshots the server stored, as the snapshot pusher does. Otherwise the next manifest
+   * sync would take the new versions for remote changes and fetch every item.
    */
-  onSnapshotsStored?: (stored: StoredSnapshot[]) => Promise<void> | void
+  recorder?: StoredSnapshotRecorder
 }
 
 export class ItemReencryptor {
   private readonly accountId: string
-  private readonly repo: Repo
+  private readonly builder: SnapshotBuilder
   private readonly indexManager: AutomergeIndexManager
   private readonly apiClient: SyncApiClient
   private readonly recoveryManager: RecoveryManager
+  private readonly session: SyncSessionState
   private readonly retryStrategy: RetryStrategy
   private readonly retryTimer = new RetryTimer()
   private readonly maxBatchCount: number
@@ -78,19 +70,16 @@ export class ItemReencryptor {
   private readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
-  private readonly codec: DocCodec
-  private readonly keys: KeyProvider
-  private readonly onSnapshotsStored?: ItemReencryptorOptions['onSnapshotsStored']
+  private readonly recorder?: StoredSnapshotRecorder
 
   constructor(options: ItemReencryptorOptions) {
     this.accountId = options.accountId
-    this.repo = options.repo
+    this.builder = options.builder
     this.indexManager = options.indexManager
     this.apiClient = options.apiClient
     this.recoveryManager = options.recoveryManager
-    this.codec = options.codec
-    this.keys = options.keys
-    this.onSnapshotsStored = options.onSnapshotsStored
+    this.session = options.session
+    this.recorder = options.recorder
     this.retryStrategy = new RetryStrategy({ delays: options.retryDelays ?? DEFAULT_RETRY_DELAYS })
     this.batchRetryDelays = options.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
     this.maxBatchCount = options.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
@@ -99,14 +88,6 @@ export class ItemReencryptor {
 
   get retryAttempt(): number {
     return this.retryStrategy.attempt
-  }
-
-  get isReencrypting(): boolean {
-    return this.reencryptGuard.isRunning
-  }
-
-  get isRetryScheduled(): boolean {
-    return this.retryTimer.isPending
   }
 
   cancelScheduled(): void {
@@ -124,8 +105,8 @@ export class ItemReencryptor {
 
     this.retryTimer.schedule(delayMs, () => {
       fireAndForget(
-        this.reencryptAllItems(options),
-        'reencryptAllItems:scheduledRetry',
+        this.run(options),
+        'ItemReencryptor:scheduledRetry',
         err => {
           log.warn('Scheduled retry failed:', err)
         },
@@ -139,7 +120,7 @@ export class ItemReencryptor {
    * Re-encrypts every item. Concurrent calls share one run, and each caller's signal only stops that
    * caller waiting for it.
    */
-  async reencryptAllItems(options: ReencryptRunOptions = {}): Promise<ReencryptResult> {
+  async run(options: ReencryptRunOptions = {}): Promise<ReencryptResult> {
     const { onProgress, signal } = options
     checkAlive(signal, true, 'Re-encryption aborted')
 
@@ -166,7 +147,7 @@ export class ItemReencryptor {
       throw new Error('No active session token available')
     }
 
-    const allItemIds = await this.indexManager.listAutomergeItemIds()
+    const allItemIds = await this.indexManager.listItemIds()
     const total = allItemIds.length
     const result: ReencryptResult = { succeeded: [], failed: [] }
 
@@ -203,7 +184,7 @@ export class ItemReencryptor {
   ): Promise<void> {
     checkAlive(signal, true, 'Re-encryption aborted')
 
-    if (!getOnlineState()) {
+    if (!this.session.isOnline) {
       const errMsg = 'Network is offline'
       log.warn(`Aborting: ${errMsg}`)
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
@@ -245,21 +226,23 @@ export class ItemReencryptor {
     })
 
     for (const batch of snapshotBatches) {
-      let stored: PutSnapshotResultItem[]
+      const storedIds = new Set<ItemId>()
       try {
-        stored = await this.uploadBatchWithRetry(batch, signal)
+        await this.uploadBatchWithRetry(batch, storedIds, signal)
       } catch (err) {
         const error = this.describeUploadFailure(err, signal)
         log.error(error)
+        // The server holds the re-encrypted snapshots an earlier attempt stored
+        const [stored, unstored] = partition(batch, item => storedIds.has(item.itemId))
+        result.succeeded.push(...stored.map(item => item.itemId))
         await this.recordFailures(
-          batch.map(({ itemId }) => ({ itemId, error })),
+          unstored.map(({ itemId }) => ({ itemId, error })),
           'Re-encryption upload failed',
           result
         )
         continue
       }
       result.succeeded.push(...batch.map(item => item.itemId))
-      await this.reportStored(batch, stored)
     }
   }
 
@@ -269,7 +252,7 @@ export class ItemReencryptor {
   ): Promise<Exclude<BuildSnapshotResult, { type: 'not-ready' }>> {
     return RetryStrategy.executeWithRetry(
       async () => {
-        const result = await buildSnapshot(this.repo, itemId, 0, this.keys, { signal, codec: this.codec })
+        const result = await this.builder.build(itemId, 0, { signal })
         if (result.type === 'not-ready') {
           throw new Error(`Item ${itemId} document or vault was not ready`)
         }
@@ -289,27 +272,31 @@ export class ItemReencryptor {
     )
   }
 
-  /** Uploads a batch, retrying unless it's an auth error or the device has gone offline */
+  /**
+   * Uploads a batch, retrying unless it's an auth error or the device has gone offline. Each attempt
+   * resends the whole batch and adds the items the server stored to `storedIds`.
+   */
   private uploadBatchWithRetry(
     batch: ReadySnapshot[],
+    storedIds: Set<ItemId>,
     signal?: AbortSignal
-  ): Promise<PutSnapshotResultItem[]> {
-    const snapshots = batch.map(item => item.snapshot)
+  ): Promise<void> {
     return RetryStrategy.executeWithRetry(
       async () => {
-        const response = await this.apiClient.putSnapshots(
-          { account: this.accountId, snapshots },
-          { signal }
-        )
-        if (
-          !response?.success ||
-          (response.persisted !== undefined && response.persisted !== snapshots.length)
-        ) {
+        const result = await uploadSnapshotBatch(batch, {
+          accountId: this.accountId,
+          apiClient: this.apiClient,
+          recorder: this.recorder,
+          signal,
+        })
+        for (const item of result.stored) {
+          storedIds.add(item.itemId)
+        }
+        if (!result.success) {
           throw new Error(
-            `Upload unconfirmed: response success=${response?.success}, persisted=${response?.persisted}/${snapshots.length}`
+            `Upload unconfirmed: the server stored ${result.persisted}/${batch.length} snapshots`
           )
         }
-        return response.results ?? []
       },
       {
         maxAttempts: MAX_BATCH_RETRIES,
@@ -318,7 +305,7 @@ export class ItemReencryptor {
         shouldRetry: err => {
           const classified = classifySyncError(err)
           if (classified.isAuth) return false
-          return getOnlineState() || !(classified.isNetwork || classified.isServerError)
+          return this.session.isOnline || !(classified.isNetwork || classified.isServerError)
         },
         onRetry: (err, attempt) => {
           log.warn(`Attempt ${attempt} failed to upload snapshots for batch:`, err)
@@ -370,21 +357,6 @@ export class ItemReencryptor {
       } catch (storageErr) {
         log.error(`Failed to quarantine item ${failure.itemId}:`, storageErr)
       }
-    }
-  }
-
-  private async reportStored(batch: ReadySnapshot[], results: PutSnapshotResultItem[]): Promise<void> {
-    if (!this.onSnapshotsStored) return
-    const versions = new Map(results.map(r => [r.itemId, r.version]))
-    try {
-      await this.onSnapshotsStored(batch.map(item => ({
-        itemId: item.itemId,
-        version: versions.get(item.itemId),
-        heads: item.heads,
-      })))
-    } catch (err) {
-      // The snapshots are stored either way; the next manifest sync just fetches them again
-      log.warn('Failed to record uploaded snapshots:', err)
     }
   }
 

@@ -2,7 +2,6 @@ import { runStorageOperation, type RunStorageOperationOptions } from '../../util
 import {
   createAccountStore,
   clearAccountStore,
-  getAccountDatabaseName,
 } from '../../shared/createAccountStore'
 
 export const SYNC_METADATA_STORE_NAME = 'sync-metadata'
@@ -19,10 +18,6 @@ export const SYNC_METADATA_KEYS = {
   /** The app's data version this device's local data has been migrated to (see DataVersionTracker) */
   DEVICE_DATA_VERSION: 'deviceDataVersion',
 } as const
-
-export function getSyncMetadataDBName(accountId: string): string {
-  return getAccountDatabaseName(SYNC_METADATA_STORE_NAME, accountId)
-}
 
 /**
  * Returns a cached LocalForage instance for the account's consolidated sync metadata database.

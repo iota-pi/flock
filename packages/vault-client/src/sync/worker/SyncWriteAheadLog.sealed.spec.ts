@@ -1,11 +1,10 @@
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { WorkerInternalEventHub, type WorkerInternalEvent } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
 import { clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
 import type { LocalCipher } from './localEncryption/LocalCipher'
-import { MockLocalforage, createMockLocalForage, createTestLocalCipher, mockLocalForage } from './__test__/testUtils'
+import { type MockLocalforage, createMockLocalForage, createTestLocalCipher, mockLocalForage } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
@@ -27,8 +26,8 @@ function storeFor(prefix: 'walDatabase' | 'sealedWalDatabase'): MockLocalforage 
 
 describe('SyncWriteAheadLog with a cipher', () => {
   let cipher: LocalCipher
-  let hub: WorkerInternalEventHub
-  let events: WorkerInternalEvent[]
+  let snapshotRequests: ItemId[]
+  let prunedItemIds: ItemId[]
   let wal: SyncWriteAheadLog
 
   beforeEach(async () => {
@@ -37,12 +36,13 @@ describe('SyncWriteAheadLog with a cipher', () => {
     clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()
     cipher = await createTestLocalCipher(ACCOUNT)
-    hub = new WorkerInternalEventHub()
-    events = []
-    hub.subscribe(event => {
-      events.push(event)
+    snapshotRequests = []
+    prunedItemIds = []
+    wal = new SyncWriteAheadLog(ACCOUNT, {
+      cipher,
+      onSnapshotNeeded: itemIds => snapshotRequests.push(...itemIds),
+      onEntriesPruned: itemIds => prunedItemIds.push(...itemIds),
     })
-    wal = new SyncWriteAheadLog(ACCOUNT, hub, { cipher })
   })
 
   it('writes sealed entries to the sealed store, with a readable descriptor', async () => {
@@ -79,17 +79,7 @@ describe('SyncWriteAheadLog with a cipher', () => {
     expect(Array.from(entries.keys())).toEqual(['item-1'])
     expect(entries.get('item-1' as ItemId)![0].id).toBe(goodId)
     expect(store.data.has(badId)).toBe(true)
-    expect(events).toEqual([{ type: 'snapshotFallbackRequested', itemId: 'item-2' }])
-  })
-
-  it('does not quarantine the item for an unreadable entry, since the document itself is readable', async () => {
-    const badId = await wal.append('item-2' as ItemId, MESSAGE)
-    corrupt(badId)
-
-    await wal.readAll()
-    await wal.readAll()
-
-    expect(events.some(event => event.type === 'localDecryptionFailed')).toBe(false)
+    expect(snapshotRequests).toEqual(['item-2'])
   })
 
   it('asks for a snapshot once per unreadable entry, however often it is read', async () => {
@@ -103,11 +93,8 @@ describe('SyncWriteAheadLog with a cipher', () => {
     await wal.readAll()
     const entries = await wal.readAll()
 
-    expect(events.filter(event => event.type === 'snapshotFallbackRequested')).toEqual(expect.arrayContaining([
-      { type: 'snapshotFallbackRequested', itemId: 'item-2' },
-      { type: 'snapshotFallbackRequested', itemId: 'item-3' },
-    ]))
-    expect(events).toHaveLength(2)
+    expect(snapshotRequests).toEqual(expect.arrayContaining(['item-2', 'item-3']))
+    expect(snapshotRequests).toHaveLength(2)
     expect(entries.get('item-1' as ItemId)).toEqual([expect.objectContaining({ id: goodId, data: MESSAGE })])
   })
 
@@ -120,10 +107,7 @@ describe('SyncWriteAheadLog with a cipher', () => {
 
     await wal.readAll()
 
-    expect(events).toEqual([
-      { type: 'snapshotFallbackRequested', itemId: 'item-2' },
-      { type: 'snapshotFallbackRequested', itemId: 'item-2' },
-    ])
+    expect(snapshotRequests).toEqual(['item-2', 'item-2'])
   })
 
   it('still prunes and removes unreadable entries', async () => {
@@ -137,9 +121,7 @@ describe('SyncWriteAheadLog with a cipher', () => {
     await wal.handleQuotaExceeded()
     expect(store.data.has(badId)).toBe(false)
     expect(store.data.has(otherBadId)).toBe(false)
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'walEntriesPruned' }),
-    ]))
+    expect(prunedItemIds).toEqual(expect.arrayContaining(['item-2', 'item-3']))
   })
 
   it('does not mark an unreadable entry in flight or block readable entries of the same item', async () => {
@@ -164,7 +146,7 @@ describe('SyncWriteAheadLog with a cipher', () => {
   })
 
   it('leaves the plaintext store alone', async () => {
-    const plain = new SyncWriteAheadLog(ACCOUNT, hub)
+    const plain = new SyncWriteAheadLog(ACCOUNT)
     await plain.append('item-1' as ItemId, MESSAGE)
 
     expect((await wal.readAll()).size).toBe(0)

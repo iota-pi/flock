@@ -4,10 +4,9 @@ import { type AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocSto
 import { createTestDocStore } from '../__test__/testUtils'
 import type { VaultDoc } from '../../shared/types'
 import { passthroughCodec } from '../domain'
-import { WorkerInternalEventHub } from '../SyncEventHub'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string }> }
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 
 const testRepo = new Repo()
 
@@ -155,7 +154,7 @@ describe('items operations', () => {
 
     const customDocStore = createTestDocStore(customRepo)
 
-    const handle = await customDocStore.findOrCreateHandle('known-item' as ItemId, { knownToExist: true })
+    const handle = await customDocStore['findOrCreateHandle']('known-item' as ItemId, { knownToExist: true })
 
     expect(handle).toBeUndefined()
     expect(deleteSpy).not.toHaveBeenCalled()
@@ -207,8 +206,8 @@ describe('items operations', () => {
     const customDocStore = createTestDocStore(customRepo)
 
     const [handleA, handleB] = await Promise.all([
-      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
-      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
+      customDocStore['findOrCreateHandle']('concurrent-item' as ItemId),
+      customDocStore['findOrCreateHandle']('concurrent-item' as ItemId),
     ])
 
     expect(handleA).toBeDefined()
@@ -303,7 +302,7 @@ describe('items operations', () => {
     })
     const remoteBinary = Automerge.save(remoteDoc)
 
-    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('imported-item-1', remoteBinary)
+    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('imported-item-1' as ItemId, remoteBinary)
     expect(hydrationResult).toEqual({
       hasLocalChanges: false,
       incomingHeads: Automerge.getHeads(remoteDoc),
@@ -335,7 +334,7 @@ describe('items operations', () => {
     const baseBinary = Automerge.save(baseDoc)
 
     // Load base doc into local docStore
-    await docStore.hydrateAutomergeDocumentBinary('merged-item-1', baseBinary)
+    await docStore.hydrateAutomergeDocumentBinary('merged-item-1' as ItemId, baseBinary)
 
     // 2. Make concurrent local edits in docStore
     await docStore.changeDocument('merged-item-1' as ItemId, (doc: any) => {
@@ -352,7 +351,7 @@ describe('items operations', () => {
     const remoteSnapshotBinary = Automerge.save(remoteUpdatedDoc)
 
     // 4. Hydrate the incoming snapshot into docStore
-    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('merged-item-1', remoteSnapshotBinary)
+    const hydrationResult = await docStore.hydrateAutomergeDocumentBinary('merged-item-1' as ItemId, remoteSnapshotBinary)
     expect(hydrationResult).toEqual({
       hasLocalChanges: true,
       incomingHeads: Automerge.getHeads(remoteUpdatedDoc),
@@ -387,7 +386,7 @@ describe('items operations', () => {
     const baseBinary = Automerge.save(baseDoc)
 
     // Load base doc into local docStore
-    await docStore.hydrateAutomergeDocumentBinary('ff-item-1', baseBinary)
+    await docStore.hydrateAutomergeDocumentBinary('ff-item-1' as ItemId, baseBinary)
 
     // 2. Remote makes an update on top of baseDoc (no local edits made)
     const remoteDoc = Automerge.change(Automerge.load<VaultDoc>(baseBinary), doc => {
@@ -396,7 +395,7 @@ describe('items operations', () => {
     const remoteBinary = Automerge.save(remoteDoc)
 
     // 3. Hydrate remote snapshot into docStore
-    const result = await docStore.hydrateAutomergeDocumentBinary('ff-item-1', remoteBinary)
+    const result = await docStore.hydrateAutomergeDocumentBinary('ff-item-1' as ItemId, remoteBinary)
 
     // 4. Since local had no unique edits, hasLocalChanges must be false
     expect(result.hasLocalChanges).toBe(false)
@@ -449,7 +448,7 @@ describe('items operations', () => {
     const customDocStore = createTestDocStore(customRepo)
 
     // Hydrate should NOT clobber unsynced local edits; it should perform non-destructive CRDT merge
-    const fallbackResult = await customDocStore.hydrateAutomergeDocumentBinary('timeout-item', remoteBinary)
+    const fallbackResult = await customDocStore.hydrateAutomergeDocumentBinary('timeout-item' as ItemId, remoteBinary)
     expect(fallbackResult.hasLocalChanges).toBe(true)
     expect(fallbackResult.incomingHeads).toEqual(Automerge.getHeads(remoteDoc))
 
@@ -486,7 +485,7 @@ describe('items operations', () => {
     const customDocStore = createTestDocStore(customRepo)
 
     await expect(
-      customDocStore.hydrateAutomergeDocumentBinary('timeout-corrupt', remoteBinary)
+      customDocStore.hydrateAutomergeDocumentBinary('timeout-corrupt' as ItemId, remoteBinary)
     ).rejects.toThrow('Refusing to overwrite existing storage data')
 
     // Must NOT import the remote binary over existing storage
@@ -515,7 +514,7 @@ describe('items operations', () => {
     const customDocStore = createTestDocStore(customRepo)
 
     await expect(
-      customDocStore.hydrateAutomergeDocumentBinary('error-hydrate-item', remoteBinary)
+      customDocStore.hydrateAutomergeDocumentBinary('error-hydrate-item' as ItemId, remoteBinary)
     ).rejects.toThrow('IndexedDB lock contention')
 
     // Must NOT import the remote binary over local storage when storage fails
@@ -543,18 +542,14 @@ describe('items operations', () => {
 
     const customDocStore = createTestDocStore(customRepo)
 
-    await customDocStore.hydrateAutomergeDocumentBinary('clean-new-item', remoteBinary)
+    await customDocStore.hydrateAutomergeDocumentBinary('clean-new-item' as ItemId, remoteBinary)
 
     expect(importSpy).toHaveBeenCalledWith(remoteBinary, expect.objectContaining({ docId: expect.any(String) }))
   })
 
-  it('should emit docHandleReplaced once when seedImportedDocument imports a document', async () => {
-    const hub = new WorkerInternalEventHub()
+  it('should report the replaced handle once when seedImportedDocument imports a document', async () => {
     const handleReplacedListener = vi.fn()
-    hub.subscribe(event => {
-      if (event.type === 'docHandleReplaced') handleReplacedListener(event.itemId, event.handle)
-    })
-    docStore = createTestDocStore(testRepo, { internalEventHub: hub })
+    docStore = createTestDocStore(testRepo, { onHandleReplaced: handleReplacedListener })
 
     const doc = Automerge.change(Automerge.init<VaultDoc>(), d => {
       d.id = 'seeded-item' as ItemId

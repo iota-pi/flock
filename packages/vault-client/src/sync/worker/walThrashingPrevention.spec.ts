@@ -1,24 +1,20 @@
+import type { Mock } from 'vitest'
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 import {
-  MockLocalforage,
-  createMockKeyProvider,
+  type MockLocalforage,
   createMockLocalForage,
-  createTestEventHubs,
   mockLocalForage,
 } from './__test__/testUtils'
 
-const keys = createMockKeyProvider()
-
-import { SyncPullQueueManager } from './SyncPullQueueManager'
+import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { RecoveryManager } from './RecoveryManager'
-import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { SyncSessionState } from './SyncSessionState'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 
 const mockStores = new Map<string, MockLocalforage>()
 
@@ -43,8 +39,7 @@ function createTestSyncMessage(itemId: string, data: Uint8Array = new Uint8Array
 
 describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
   const accountId = 'flight-test-account'
-  let clientEventHub: ClientEventHub
-  let internalEventHub: WorkerInternalEventHub
+  let onPruned: Mock<(itemIds: ItemId[]) => void>
   let pullQueueManager: SyncPullQueueManager
   let wal: SyncWriteAheadLog
   let adapter: VaultNetworkAdapter
@@ -56,14 +51,13 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     mockStores.clear()
     clearAccountStoreInstancesCacheForTesting()
 
-    const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
-    internalEventHub = hubs.internalEventHub
-    adapter = new VaultNetworkAdapter(internalEventHub)
+    onPruned = vi.fn()
+    // This tab is the leader, which writes outgoing messages to the WAL
+    const session = new SyncSessionState({ isLeader: true })
+    adapter = new VaultNetworkAdapter({ accountId, session, onMessageToSend: message => broker.send(message) })
     adapter.connect('peer-1' as any)
 
     pullQueueManager = {
-      setAccount: vi.fn().mockResolvedValue(undefined),
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
       importCursors: vi.fn().mockResolvedValue(undefined),
@@ -72,20 +66,21 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     } as unknown as SyncPullQueueManager
 
-    wal = new SyncWriteAheadLog(accountId, internalEventHub)
+    // Wired as the context wires them
+    wal = new SyncWriteAheadLog(accountId, {
+      onEntriesPruned: itemIds => {
+        onPruned(itemIds)
+        broker.fallbackToSnapshot(itemIds)
+      },
+    })
     broker = new SyncMessageBroker({
       adapter,
-      clientEventHub,
-      internalEventHub,
       pullQueueManager,
-      keys,
+      session,
       wal,
-      apiClient: new SyncApiClient(),
-      recoveryManager: new RecoveryManager({ accountId, eventHub: clientEventHub }),
+      onFlushNeeded: () => {},
+      requestSnapshot: () => {},
     })
-
-    broker.setSendEnabled(true)
-    await broker.setAccount(accountId)
   })
 
   async function sendIncrementalEdits(itemIds: ItemId[]): Promise<void> {
@@ -97,14 +92,11 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
   it('prevents infinite thrashing loop by flagging pruned items for snapshot-only sync without renegotiation', async () => {
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
     const walAppendSpy = vi.spyOn(wal, 'append')
-    const onPrunedSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') onPrunedSpy(e.itemIds)
-    })
+    const onPrunedSpy = onPruned
 
     // Step 1: Pre-populate WAL with MAX_ENTRIES (2000) unique items directly in storage
     const store = mockStores.get(`test-vault-wal-${accountId}:wal-entries`)!
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       const id = `entry-${i}`
       const itemId = `offline-item-${i}` as ItemId
       store.store.set(id, {
@@ -163,8 +155,8 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     expect(onPrunedSpy).not.toHaveBeenCalled()
 
     // Step 8: When the snapshot is uploaded to server upon reconnecting:
-    // broker.setSyncedHeads is called, removing the item from snapshot-only mode.
-    broker.setSyncedHeads('offline-item-5' as ItemId, ['server-head-1'])
+    // broker.confirmSnapshot is called, removing the item from snapshot-only mode.
+    broker.confirmSnapshot('offline-item-5' as ItemId, ['server-head-1'])
 
     // Now future edits to offline-item-5 can append to WAL normally
     const postSnapshotEditMsg = createTestSyncMessage('offline-item-5')
@@ -182,8 +174,8 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
 
   it('handles extensive offline edits (>2050 items) without infinite recursion or stack overflow', async () => {
     const prunedItems: ItemId[] = []
-    internalEventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') prunedItems.push(...e.itemIds)
+    onPruned.mockImplementation(itemIds => {
+      prunedItems.push(...itemIds)
     })
     const store = mockStores.get(`test-vault-wal-${accountId}:wal-entries`)!
     for (let i = 0; i < 1950; i++) {
@@ -205,7 +197,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
 
     // WAL size must stay strictly bounded under or equal to MAX_ENTRIES
     const finalLength = await store.length()
-    expect(finalLength).toBeLessThanOrEqual(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(finalLength).toBeLessThanOrEqual(SYNC_BATCH_SIZES.walMax)
     // Items that crossed threshold were safely quarantined into snapshot-only mode
     expect(new Set(prunedItems).size).toBeGreaterThanOrEqual(100)
     const walAppendSpy = vi.spyOn(wal, 'append')

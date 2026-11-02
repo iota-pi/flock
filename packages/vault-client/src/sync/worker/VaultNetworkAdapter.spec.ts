@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/automerge-repo/slim'
 import { setApiAuthToken } from '../../api/runtime'
 import * as Automerge from '@automerge/automerge/slim'
@@ -5,21 +6,24 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import {
   VaultNetworkAdapter,
+  type VaultNetworkAdapterOptions,
   CIRCUIT_BREAKER_COOLDOWN_MS,
   MAX_OUTBOUND_QUEUE_SIZE,
 } from './VaultNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
+import { SyncPoller } from './SyncPoller'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { registerQuotaReporter } from '../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { ClientEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { SyncSessionState } from './SyncSessionState'
 import type { ItemId } from '@vault/shared'
 
-import { createMockKeyProvider, createTestEventHubs, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const mockPollSyncBatch = vi.fn()
@@ -36,6 +40,36 @@ function syncMessage(n: number): Uint8Array {
 
 setApiAuthToken('mock-auth-token')
 
+const sessions = new WeakMap<VaultNetworkAdapter, SyncSessionState>()
+const sendListeners = new WeakMap<VaultNetworkAdapter, (message: Message) => void>()
+
+/** An adapter with its own session state, in which this tab isn't the leader */
+function createAdapter(
+  options: Partial<Omit<VaultNetworkAdapterOptions, 'accountId' | 'session'>> = {},
+): VaultNetworkAdapter {
+  const session = new SyncSessionState()
+  const created: VaultNetworkAdapter = new VaultNetworkAdapter({
+    accountId: 'test-account',
+    session,
+    onMessageToSend: message => sendListeners.get(created)?.(message),
+    ...options,
+  })
+  sessions.set(created, session)
+  return created
+}
+
+/** Receives the messages an adapter from `createAdapter` hands to the broker */
+function onSend(target: VaultNetworkAdapter, listener: (message: Message) => void): void {
+  sendListeners.set(target, listener)
+}
+
+/** Makes this tab the leader (sending to the vault) or a follower, and tells the adapter */
+function setSendEnabled(target: VaultNetworkAdapter, sendEnabled: boolean): void {
+  if (sessions.get(target)!.setLeader(sendEnabled)) {
+    target.onLeaderChange()
+  }
+}
+
 beforeEach(() => {
   spyOnVaultTrpc({
     pollSync: (...args: any[]) => mockPollSyncBatch(...args),
@@ -45,10 +79,19 @@ beforeEach(() => {
 describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
+  let poller: SyncPoller
   let orchestrator: SyncOrchestrator
   let clientEventHub: ClientEventHub
-  let internalEventHub: WorkerInternalEventHub
+  let onReNegotiationTriggered: Mock<(documentId: DocumentId) => void>
   let pullQueueManager: SyncPullQueueManager
+  let session: SyncSessionState
+
+  /** Changes the session's online state and tells the orchestrator, as the context does */
+  function setOnline(isOnline: boolean): void {
+    if (session.setOnline(isOnline)) {
+      orchestrator.onOnlineStateChange()
+    }
+  }
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -66,46 +109,66 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       'account-pagination',
     ]
     for (const acc of accounts) {
-      await new SyncWriteAheadLog(acc, new WorkerInternalEventHub()).clear()
+      await new SyncWriteAheadLog(acc).clear()
     }
 
-    const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
-    internalEventHub = hubs.internalEventHub
-    adapter = new VaultNetworkAdapter(internalEventHub)
+    clientEventHub = new ClientEventHub()
+    onReNegotiationTriggered = vi.fn()
+    // Offline by default to avoid automatic background runs in static tests
+    session = new SyncSessionState({ isOnline: false })
+    adapter = new VaultNetworkAdapter({
+      accountId: 'test-account',
+      session,
+      onMessageToSend: message => broker.send(message),
+      onReNegotiationTriggered,
+    })
+    sessions.set(adapter, session)
     const cursorStore = new CursorStore('test-account')
-    pullQueueManager = new SyncPullQueueManager(cursorStore, keys, noItemLocks, internalEventHub)
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, internalEventHub)
-    broker = new SyncMessageBroker({
+    pullQueueManager = new SyncPullQueueManager({
+      cursorStore,
+      keys,
+      lockCoordinator: noItemLocks,
       adapter,
-      clientEventHub,
-      internalEventHub,
+      session,
+      onFlushNeeded: () => orchestrator.flush(),
+    })
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
+    poller = new SyncPoller({
+      accountId: 'test-account',
+      session,
       pullQueueManager,
       keys,
       wal,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: clientEventHub }),
+      onPushAcknowledged: (itemId, heads) => broker.recordSyncedHeads(itemId, heads),
+    })
+    broker = new SyncMessageBroker({
+      adapter,
+      pullQueueManager,
+      session,
+      wal,
+      onFlushNeeded: () => orchestrator.flush(),
+      requestSnapshot: () => {},
     })
     orchestrator = new SyncOrchestrator({
       accountId: 'test-account',
-      broker,
+      session,
+      poller,
       clientEventHub,
-      internalEventHub,
       pullQueueManager,
-      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn() },
+      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn(), waitForIdle: vi.fn().mockResolvedValue(undefined) },
     })
 
-    // Keep offline by default to avoid automatic background runs in static tests
-    orchestrator.setOnlineState(false)
-    adapter.setAccount('test-account')
-    await broker.setAccount('test-account')
     orchestrator.setLeader(true)
+    adapter.onLeaderChange()
     adapter.connect('test-peer' as PeerId)
   })
 
   afterEach(async () => {
     adapter.disconnect()
-    await broker.shutdown()
+    session.markShutdown()
+    broker.shutdown()
     await orchestrator.shutdown()
     vi.useRealTimers()
   })
@@ -132,7 +195,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('becomes ready on the first connect()', async () => {
-    const freshAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const freshAdapter = createAdapter()
     expect(freshAdapter.isReady()).toBe(false)
 
     let resolved = false
@@ -167,9 +230,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('queues sync messages to SyncWriteAheadLog on send()', async () => {
-    const accountId = 'account-queues'
-    adapter.setAccount(accountId)
-    await broker.setAccount(accountId)
 
     const message1: Message = {
       type: 'sync',
@@ -184,7 +244,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     // Await async append
     await vi.advanceTimersByTimeAsync(50)
 
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -193,9 +253,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('stores all incoming sync messages in SyncWriteAheadLog', async () => {
-    const accountId = 'account-bounds'
-    adapter.setAccount(accountId)
-    await broker.setAccount(accountId)
 
     for (let i = 0; i < 20; i++) {
       adapter.send({
@@ -209,7 +266,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     await vi.advanceTimersByTimeAsync(100)
 
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -217,9 +274,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
-    const accountId = 'account-chunking'
-    adapter.setAccount(accountId)
-    await broker.setAccount(accountId)
 
     mockPollSyncBatch.mockImplementation(async (input: any) => ({
       success: true,
@@ -245,10 +299,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    broker.setOnlineState(true)
-    const outcome = await broker.poller.executePoll()
+    session.setOnline(true)
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
-    broker.setOnlineState(false)
+    session.setOnline(false)
 
     // It should have chunked 7 items into exactly 2 calls (first with 5 items, second with 2 items)
     expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
@@ -259,15 +313,12 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(call2.pushMessages).toHaveLength(2)
 
     // Verify all items were transactionally cleaned from WAL
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
     const batch = await wal.readAll()
     expect(batch.size).toBe(0)
   })
 
   it('safely slices successfully sent messages and retains concurrent local edits', async () => {
-    const accountId = 'account-concurrent'
-    adapter.setAccount(accountId)
-    await broker.setAccount(accountId)
 
     mockPollSyncBatch.mockImplementation(async (input: any) => {
       // Simulate concurrent local edits added while the poll request is in flight
@@ -309,13 +360,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    broker.setOnlineState(true)
-    const outcome = await broker.poller.executePoll()
+    session.setOnline(true)
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
-    broker.setOnlineState(false)
+    session.setOnline(false)
 
     // The sent message should be sliced out, leaving only the concurrent ones [20, 30]
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -326,9 +377,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('retains messages in SyncWriteAheadLog if the poll call fails', async () => {
-    const accountId = 'account-fails'
-    adapter.setAccount(accountId)
-    await broker.setAccount(accountId)
 
     mockPollSyncBatch.mockRejectedValue(new Error('Network error'))
 
@@ -343,13 +391,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    broker.setOnlineState(true)
-    const outcome = await broker.poller.executePoll()
+    session.setOnline(true)
+    const outcome = await poller.executePoll()
     expect(outcome).toBe('failure')
-    broker.setOnlineState(false)
+    session.setOnline(false)
 
     // Message must still exist in WAL due to failure
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT, new WorkerInternalEventHub())
+    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
     const batch = await wal.readAll()
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
@@ -362,10 +410,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const mockReporter = vi.fn()
     registerQuotaReporter(mockReporter)
 
-    const accountId = 'account-quota'
-    adapter.setAccount(accountId)
-    await broker.setAccount(accountId)
-    broker.setSendEnabled(true)
+    setSendEnabled(adapter, true)
 
     const wal = (broker as any).wal
     const appendSpy = vi.spyOn(wal, 'append').mockImplementation(async () => {
@@ -403,8 +448,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       changes: [],
     })
 
-    adapter.setSendEnabled(true)
-    adapter.setAccount('test')
+    setSendEnabled(adapter, true)
     adapter.loadSyncedHeads([['automerge:item-test' as DocumentId, testHeads]])
     adapter.connect('vault' as PeerId)
 
@@ -442,8 +486,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       changes: [],
     })
 
-    adapter.setSendEnabled(true)
-    adapter.setAccount('test')
+    setSendEnabled(adapter, true)
     adapter.connect('vault' as PeerId)
 
     adapter.send({
@@ -474,11 +517,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
     const staleHeads = ['1111111111111111111111111111111111111111111111111111111111111111']
     const validator = vi.fn(() => false)
-    const adapter = new VaultNetworkAdapter(new WorkerInternalEventHub(), { headsValidator: validator })
+    const adapter = createAdapter({ headsValidator: validator })
     const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
 
-    adapter.setSendEnabled(true)
-    adapter.setAccount('test')
+    setSendEnabled(adapter, true)
     adapter.loadSyncedHeads([['automerge:item-stale' as DocumentId, staleHeads]])
     adapter.connect('vault' as PeerId)
 
@@ -548,8 +590,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       changes: [],
     })
 
-    adapter.setSendEnabled(true)
-    adapter.setAccount('test')
+    setSendEnabled(adapter, true)
     adapter.connect('vault' as PeerId)
 
     adapter.send({
@@ -581,8 +622,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       changes: [],
     })
 
-    adapter.setSendEnabled(true)
-    adapter.setAccount('test')
+    setSendEnabled(adapter, true)
     adapter.connect('vault' as PeerId)
 
     const docId = 'automerge:item-test-send-disabled' as DocumentId
@@ -595,7 +635,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
 
     // Disable sending immediately before microtask runs
-    adapter.setSendEnabled(false)
+    setSendEnabled(adapter, false)
 
     // Wait for microtasks
     await Promise.resolve()
@@ -604,7 +644,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(emitSpy).not.toHaveBeenCalledWith('message', expect.anything())
 
     // Document should be unseeded so subsequent renegotiation/send succeeds
-    adapter.setSendEnabled(true)
+    setSendEnabled(adapter, true)
     adapter.send({
       type: 'sync',
       senderId: 'client' as PeerId,
@@ -618,22 +658,18 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
   it('receiveMessage does not dispatch message when peerId is undefined', () => {
     const emitSpy = vi.spyOn(adapter, 'emit')
-    const unattachedAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
+    const unattachedAdapter = createAdapter()
     // unattachedAdapter has no peerId connected
     unattachedAdapter.receiveMessage('doc1' as DocumentId, new Uint8Array([1, 2, 3]))
     expect(emitSpy).not.toHaveBeenCalled()
   })
 
   it('prevents history dumps when syncedHeads matches and allows future changes through Automerge Repo', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     const repo = new Repo({
       network: [testAdapter],
@@ -680,15 +716,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('emits offline edits on startup when document heads differ from syncedHeads', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     // Prepare a doc that was previously synced at count = 1
     let doc = Automerge.init<{ count: number }>()
@@ -720,19 +752,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('immediately triggers next poll if hasMore is true', async () => {
-    const accountId = 'account-pagination'
-    adapter.setAccount(accountId)
-    await broker.setAccount(accountId)
-
-    orchestrator = new SyncOrchestrator({
-      accountId,
-      broker,
-      clientEventHub,
-      internalEventHub,
-      pullQueueManager,
-      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn() },
-    })
-
     let pollCount = 0
     mockPollSyncBatch.mockImplementation(async input => {
       pollCount += 1
@@ -766,8 +785,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       }
     })
 
-    orchestrator.setOnlineState(true)
-    orchestrator.setLeader(true)
+    setOnline(true)
 
     // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
     await vi.advanceTimersByTimeAsync(50)
@@ -783,10 +801,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(mockPollSyncBatch).toHaveBeenCalledTimes(3)
   })
 
-  it('cleans up seededDocuments on disconnect and account change', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+  it('cleans up seededDocuments on disconnect', async () => {
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
     testAdapter.connect('vault' as PeerId)
 
     const syncMsg = encodeSyncMessage({
@@ -834,24 +851,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
     await Promise.resolve()
     expect(receiveSpy).toHaveBeenCalledTimes(2)
-
-    // Changing account also clears seeded documents
-    testAdapter.setAccount('other-account')
-    testAdapter.send({
-      type: 'sync',
-      senderId: 'client' as PeerId,
-      targetId: 'vault' as PeerId,
-      documentId: 'doc-1' as DocumentId,
-      data: syncMsg,
-    })
-    await Promise.resolve()
-    expect(receiveSpy).toHaveBeenCalledTimes(3)
   })
 
   it('cleans up seededDocuments on setSendEnabled(false) and setSendEnabled(true)', async () => {
-    const testAdapter = new VaultNetworkAdapter(new WorkerInternalEventHub())
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
     testAdapter.connect('vault' as PeerId)
 
     const syncMsg = encodeSyncMessage({
@@ -886,10 +890,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(receiveSpy).toHaveBeenCalledTimes(1)
 
     // Demote to follower: setSendEnabled(false) clears seededDocuments
-    testAdapter.setSendEnabled(false)
+    setSendEnabled(testAdapter, false)
 
     // Promote to leader: setSendEnabled(true)
-    testAdapter.setSendEnabled(true)
+    setSendEnabled(testAdapter, true)
 
     // Sending handshake again reflects ACK because seededDocuments was cleared
     testAdapter.send({
@@ -904,15 +908,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('buffers outbound sync messages with changes when disconnected and flushes on connect()', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const syncMsgWithChanges = encodeSyncMessage({
       heads: [],
@@ -946,16 +946,12 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('buffers outbound sync messages when sendEnabled is false and flushes on setSendEnabled(true)', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
+    const testAdapter = createAdapter()
     testAdapter.connect('test-peer' as PeerId)
-    testAdapter.setAccount('test-account')
-    testAdapter.setSendEnabled(false)
+    setSendEnabled(testAdapter, false)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const syncMsgWithChanges = encodeSyncMessage({
       heads: [],
@@ -977,28 +973,24 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(sentMessages).toHaveLength(0)
 
     // Enabling send flushes the buffered message
-    testAdapter.setSendEnabled(true)
+    setSendEnabled(testAdapter, true)
 
     expect(sentMessages).toHaveLength(1)
     expect(sentMessages[0].documentId).toBe('doc-buf-2')
 
     // The flush emptied the queue, so re-enabling sends nothing more
-    testAdapter.setSendEnabled(false)
-    testAdapter.setSendEnabled(true)
+    setSendEnabled(testAdapter, false)
+    setSendEnabled(testAdapter, true)
     expect(sentMessages).toHaveLength(1)
   })
 
   it('holds messages while paused and sends them, in order, with the next send after resume()', () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
     testAdapter.connect('test-peer' as PeerId)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const makeMessage = (documentId: string): Message => ({
       type: 'sync',
@@ -1021,16 +1013,12 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('drops empty negotiation messages during disconnect window without buffering', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
     testAdapter.disconnect() // disconnected
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     const emptySyncMsg = encodeSyncMessage({
       heads: [],
@@ -1056,53 +1044,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(sentMessages).toHaveLength(0)
   })
 
-  it('clears outbound queue when switching accounts or setting account to null', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('account-A')
-
-    const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
-
-    const syncMsgWithChanges = encodeSyncMessage({
-      heads: [],
-      need: [],
-      have: [],
-      changes: [new Uint8Array([1])],
-    })
-    const sendFor = (documentId: string) => testAdapter.send({
-      type: 'sync',
-      senderId: 'client' as PeerId,
-      targetId: 'vault' as PeerId,
-      documentId: documentId as DocumentId,
-      data: syncMsgWithChanges,
-    })
-
-    sendFor('doc-A')
-
-    // Switch account to account-B -> queue for account-A must be cleared
-    testAdapter.setAccount('account-B')
-    sendFor('doc-B')
-    testAdapter.connect('test-peer' as PeerId)
-    expect(sentMessages.map(m => m.documentId)).toEqual(['doc-B'])
-
-    // Buffer another message, then clear account to null -> queue must be cleared
-    testAdapter.setSendEnabled(false)
-    sendFor('doc-C')
-    testAdapter.setAccount(null)
-    testAdapter.setAccount('account-C')
-    testAdapter.setSendEnabled(true)
-    expect(sentMessages.map(m => m.documentId)).toEqual(['doc-B'])
-  })
-
   it('caps outbound queue at MAX_OUTBOUND_QUEUE_SIZE and evicts oldest messages', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
 
     const totalToSend = MAX_OUTBOUND_QUEUE_SIZE + 5
     for (let i = 0; i < totalToSend; i++) {
@@ -1122,9 +1066,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     }
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
 
     testAdapter.connect('test-peer' as PeerId)
 
@@ -1135,15 +1077,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('preserves Automerge Repo document mutations sent during disconnect window', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') outgoingMessages.push(e.message)
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     const repo = new Repo({
       network: [testAdapter],
@@ -1194,15 +1132,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('triggers re-negotiation for documents evicted from outbound queue', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
 
     const sentMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') sentMessages.push(e.message)
-    })
+    onSend(testAdapter, message => sentMessages.push(message))
     const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
     const doc0Deliveries = () => receiveSpy.mock.calls.filter(call => call[0] === 'doc-0')
 
@@ -1224,7 +1158,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await Promise.resolve()
 
     // Temporarily disable sending to accumulate outbound queue
-    testAdapter.setSendEnabled(false)
+    setSendEnabled(testAdapter, false)
 
     // Send a message for doc-0 with changes
     const syncMsgWithChange = encodeSyncMessage({
@@ -1266,7 +1200,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(doc0Deliveries()).toHaveLength(1)
 
     // Re-enable send: pending re-negotiation should flush empty sync message to client
-    testAdapter.setSendEnabled(true)
+    setSendEnabled(testAdapter, true)
 
     expect(doc0Deliveries()).toHaveLength(2)
     const emptyMsgPayload = doc0Deliveries()[1][1] as Uint8Array
@@ -1279,42 +1213,38 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(sentMessages.map(m => m.documentId)).not.toContain('doc-0')
 
     // The pending re-negotiation was consumed, so it isn't delivered again
-    testAdapter.setSendEnabled(false)
-    testAdapter.setSendEnabled(true)
+    setSendEnabled(testAdapter, false)
+    setSendEnabled(testAdapter, true)
     expect(doc0Deliveries()).toHaveLength(2)
   })
 
   it('restores clean sync with live Automerge Repo after queue eviction and re-negotiation', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    let onTestReNegotiation: (documentId: DocumentId) => void = () => {}
+    const testAdapter = createAdapter({ onReNegotiationTriggered: documentId => onTestReNegotiation(documentId) })
+    setSendEnabled(testAdapter, true)
 
     let targetDocId: DocumentId | null = null
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') {
-        const msg = e.message
-        outgoingMessages.push(msg)
-        if (
-          targetDocId &&
-          msg.documentId === targetDocId &&
-          msg.type === 'sync' &&
-          msg.data instanceof Uint8Array
-        ) {
-          const decoded = decodeSyncMessage(msg.data)
-          if (decoded.changes && decoded.changes.length > 0) {
-            // State the vault's own sync state: everything up to the received heads, with an
-            // empty bloom. Echoing the Repo's `have` would claim its bloom as the vault's, and a
-            // bloom false positive on a later change makes Automerge withhold that change.
-            const ack = encodeSyncMessage({
-              heads: decoded.heads,
-              need: [],
-              have: [{ lastSync: decoded.heads, bloom: new Uint8Array() }],
-              changes: [],
-            })
-            testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
-          }
+    onSend(testAdapter, msg => {
+      outgoingMessages.push(msg)
+      if (
+        targetDocId &&
+        msg.documentId === targetDocId &&
+        msg.type === 'sync' &&
+        msg.data instanceof Uint8Array
+      ) {
+        const decoded = decodeSyncMessage(msg.data)
+        if (decoded.changes && decoded.changes.length > 0) {
+          // State the vault's own sync state: everything up to the received heads, with an
+          // empty bloom. Echoing the Repo's `have` would claim its bloom as the vault's, and a
+          // bloom false positive on a later change makes Automerge withhold that change.
+          const ack = encodeSyncMessage({
+            heads: decoded.heads,
+            need: [],
+            have: [{ lastSync: decoded.heads, bloom: new Uint8Array() }],
+            changes: [],
+          })
+          testAdapter.receiveMessage(msg.documentId as DocumentId, ack)
         }
       }
     })
@@ -1337,11 +1267,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     outgoingMessages.length = 0
 
     // 2. Disconnect adapter temporarily so messages are queued
-    testAdapter.setSendEnabled(false)
+    setSendEnabled(testAdapter, false)
     const renegotiatedDocs: DocumentId[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'renegotiationTriggered') renegotiatedDocs.push(e.documentId)
-    })
+    onTestReNegotiation = documentId => {
+      renegotiatedDocs.push(documentId)
+    }
 
     // 3. Perform a mutation during disconnect window
     handle.change(doc => {
@@ -1377,7 +1307,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(renegotiatedDocs).toEqual([handle.documentId])
 
     // 5. Re-enable sending
-    testAdapter.setSendEnabled(true)
+    setSendEnabled(testAdapter, true)
 
     // Wait for re-negotiation sync message for handle to be produced and ACKed
     for (let i = 0; i < 20; i++) {
@@ -1414,17 +1344,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('converts offline changes on follower tab to sync messages upon promotion to leader without requiring subsequent mutation', async () => {
-    const testHub = new WorkerInternalEventHub()
-    const testAdapter = new VaultNetworkAdapter(testHub)
-    testAdapter.setSendEnabled(true)
-    testAdapter.setAccount('test-account')
+    const testAdapter = createAdapter()
+    setSendEnabled(testAdapter, true)
 
     const outgoingMessages: Message[] = []
-    testHub.subscribe(e => {
-      if (e.type === 'messageToSend') {
-        outgoingMessages.push(e.message)
-      }
-    })
+    onSend(testAdapter, message => outgoingMessages.push(message))
 
     const repo = new Repo({
       network: [testAdapter],
@@ -1451,7 +1375,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     outgoingMessages.length = 0
 
     // 2. Tab is demoted to follower
-    testAdapter.setSendEnabled(false)
+    setSendEnabled(testAdapter, false)
     await vi.advanceTimersByTimeAsync(100)
     await Promise.resolve()
 
@@ -1466,7 +1390,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(outgoingMessages).toHaveLength(0)
 
     // 4. Follower tab is promoted to leader
-    testAdapter.setSendEnabled(true)
+    setSendEnabled(testAdapter, true)
 
     // Wait for the reconnection handshake and microtasks to complete
     for (let i = 0; i < 10; i++) {
@@ -1485,10 +1409,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   })
 
   it('calls renegotiationTriggered event when triggerReNegotiation is invoked', () => {
-    const callback = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'renegotiationTriggered') callback(e.documentId)
-    })
+    const callback = onReNegotiationTriggered
     adapter.triggerReNegotiation('test-doc' as DocumentId)
     expect(callback).toHaveBeenCalledWith('test-doc')
   })
@@ -1496,10 +1417,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   describe('triggerReNegotiation circuit breaker', () => {
     it('allows renegotiations within rate limit and trips circuit breaker when exceeded', () => {
       const docId = 'doc-burst' as DocumentId
-      const callback = vi.fn()
-      internalEventHub.subscribe(e => {
-        if (e.type === 'renegotiationTriggered') callback(e.documentId)
-      })
+      const callback = onReNegotiationTriggered
 
       // First 3 calls within window should succeed
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
@@ -1533,10 +1451,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     it('resets circuit immediately via resetReNegotiationCircuit', () => {
       const docId = 'doc-reset' as DocumentId
-      const callback = vi.fn()
-      internalEventHub.subscribe(e => {
-        if (e.type === 'renegotiationTriggered') callback(e.documentId)
-      })
+      const callback = onReNegotiationTriggered
 
       adapter.triggerReNegotiation(docId)
       adapter.triggerReNegotiation(docId)
@@ -1554,10 +1469,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     it('automatically retries renegotiation when circuit breaker cooldown expires without manual invocation', () => {
       const docId = 'doc-auto-retry' as DocumentId
-      const callback = vi.fn()
-      internalEventHub.subscribe(e => {
-        if (e.type === 'renegotiationTriggered') callback(e.documentId)
-      })
+      const callback = onReNegotiationTriggered
 
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
       expect(adapter.triggerReNegotiation(docId)).toBe(true)
@@ -1585,10 +1497,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     it('de-duplicates retry timers and does not push out cooldown deadline on repeated calls while open', () => {
       const docId = 'doc-dedup-retry' as DocumentId
-      const callback = vi.fn()
-      internalEventHub.subscribe(e => {
-        if (e.type === 'renegotiationTriggered') callback(e.documentId)
-      })
+      const callback = onReNegotiationTriggered
 
       // Trip circuit at t = 0
       adapter.triggerReNegotiation(docId)
@@ -1616,10 +1525,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       const doc1 = 'doc-cancel-1' as DocumentId
       const doc2 = 'doc-cancel-2' as DocumentId
       const doc3 = 'doc-cancel-3' as DocumentId
-      const callback = vi.fn()
-      internalEventHub.subscribe(e => {
-        if (e.type === 'renegotiationTriggered') callback(e.documentId)
-      })
+      const callback = onReNegotiationTriggered
 
       const tripCircuit = (id: DocumentId) => {
         adapter.triggerReNegotiation(id)
@@ -1637,11 +1543,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       advancePastCooldown()
       expect(callback.mock.calls).toEqual([[doc2]])
 
-      // 2. Changing account clears the outbound queue, which cancels every retry
+      // 2. Resetting every circuit cancels every retry
       tripCircuit(doc2)
       tripCircuit(doc3)
       callback.mockClear()
-      adapter.setAccount('other-account')
+      adapter.resetReNegotiationCircuit()
       advancePastCooldown()
       expect(callback).not.toHaveBeenCalled()
 
@@ -1655,15 +1561,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     it('recovers evicted outbound queue document after circuit breaker cooldown expires', () => {
       const evictedDocId = 'doc-evicted-circuit' as DocumentId
-      const testHub = new WorkerInternalEventHub()
-      const testAdapter = new VaultNetworkAdapter(testHub)
-      testAdapter.setSendEnabled(true)
-      testAdapter.setAccount('test-account')
-      testAdapter.connect('test-peer' as PeerId)
       const callback = vi.fn()
-      testHub.subscribe(e => {
-        if (e.type === 'renegotiationTriggered') callback(e.documentId)
-      })
+      const testAdapter = createAdapter({ onReNegotiationTriggered: callback })
+      setSendEnabled(testAdapter, true)
+      testAdapter.connect('test-peer' as PeerId)
 
       // Consume the 3 allowed renegotiation attempts within the window for evictedDocId.
       // Sending is enabled, so they're delivered at once and none is left pending.
@@ -1673,7 +1574,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       expect(callback).toHaveBeenCalledTimes(3)
 
       // Disable sending so messages buffer into outboundQueue
-      testAdapter.setSendEnabled(false)
+      setSendEnabled(testAdapter, false)
       const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
       const evictedDeliveries = () => receiveSpy.mock.calls.filter(call => call[0] === evictedDocId)
 
@@ -1716,7 +1617,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       expect(evictedDeliveries()).toHaveLength(0)
 
       // Re-enabling sending delivers the queued renegotiation
-      testAdapter.setSendEnabled(true)
+      setSendEnabled(testAdapter, true)
       expect(evictedDeliveries()).toHaveLength(1)
       expect(decodeSyncMessage(evictedDeliveries()[0][1] as Uint8Array).heads).toEqual([])
     })
@@ -1726,7 +1627,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 describe('VaultNetworkAdapter synced heads on shutdown', () => {
   const makeAdapter = () => {
     const store = { saveSyncedHeads: vi.fn().mockResolvedValue(undefined) }
-    const adapter = new VaultNetworkAdapter(new WorkerInternalEventHub(), { syncedHeadsStore: store as any })
+    const adapter = createAdapter({ syncedHeadsStore: store as any })
     return { adapter, store }
   }
 
@@ -1734,7 +1635,7 @@ describe('VaultNetworkAdapter synced heads on shutdown', () => {
     const { adapter, store } = makeAdapter()
     adapter.setSyncedHeads('doc-1' as DocumentId, ['head-1'])
 
-    await adapter.onLifecycleStop()
+    await adapter.shutdown()
 
     expect(store.saveSyncedHeads).toHaveBeenCalledWith([['doc-1', ['head-1']]])
   })
@@ -1743,7 +1644,7 @@ describe('VaultNetworkAdapter synced heads on shutdown', () => {
     const { adapter, store } = makeAdapter()
     adapter.loadSyncedHeads([['doc-1' as DocumentId, ['old-head']]])
 
-    await adapter.onLifecycleStop()
+    await adapter.shutdown()
 
     expect(store.saveSyncedHeads).not.toHaveBeenCalled()
   })
@@ -1752,7 +1653,7 @@ describe('VaultNetworkAdapter synced heads on shutdown', () => {
     const { adapter, store } = makeAdapter()
     adapter.setSyncedHeads('doc-1' as DocumentId, ['head-1'])
 
-    await adapter.onLifecycleStop({ clearLocalData: true })
+    await adapter.shutdown({ clearLocalData: true })
 
     expect(store.saveSyncedHeads).not.toHaveBeenCalled()
   })

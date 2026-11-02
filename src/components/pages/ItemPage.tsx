@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo } from 'react'
-import { Theme } from '@mui/material/styles'
+import type { Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
-import { getItemTypeLabel, Item } from 'src/state/items'
+import { getItemTypeLabel, type Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
 import ItemList from 'src/features/items/components/ItemList'
 import {

@@ -4,7 +4,7 @@ import IconButton from '@mui/material/IconButton'
 import InputAdornment from '@mui/material/InputAdornment'
 import Tooltip from '@mui/material/Tooltip'
 
-import { Item } from 'src/state/items'
+import type { Item } from 'src/state/items'
 import DebouncedTextField, { type DebouncedTextFieldControls } from 'src/components/ui/DebouncedTextField'
 import {
   DeleteIcon,

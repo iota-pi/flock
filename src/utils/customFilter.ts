@@ -1,6 +1,6 @@
 import { isSameDay } from '.'
-import { getItemName, Item } from '../state/items'
-import { Frequency, frequencyToDays } from './frequencies'
+import { getItemName, type Item } from '../state/items'
+import { type Frequency, frequencyToDays } from './frequencies'
 import { getLastPrayedFor } from './prayer'
 import type { GroupLookupData, ItemType } from '../shared/itemTypes'
 

@@ -6,11 +6,11 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
 import Grid from '@mui/material/Grid'
 
-import { Item } from '../../state/items'
+import type { Item } from '../../state/items'
 import { storeItems } from '../../features/items/mutations/itemMutations'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
-import { Frequency } from '../../utils/frequencies'
+import type { Frequency } from '../../utils/frequencies'
 
 
 interface Props {

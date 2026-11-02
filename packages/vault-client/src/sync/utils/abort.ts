@@ -69,6 +69,26 @@ export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promi
   })
 }
 
+/**
+ * Runs `fn` with a signal that aborts after `ms` (with `reason`, when given) or with `signal`, whichever
+ * comes first. It times out with `setTimeout` rather than `AbortSignal.timeout`, which Vitest's fake
+ * timers don't drive.
+ */
+export async function withTimeout<T>(
+  ms: number,
+  fn: (signal: AbortSignal) => Promise<T>,
+  options: { signal?: AbortSignal; reason?: unknown } = {},
+): Promise<T> {
+  const timeout = new AbortController()
+  const timeoutId = setTimeout(() => timeout.abort(options.reason), ms)
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout.signal]) : timeout.signal
+  try {
+    return await fn(signal)
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 /** Resolves after `ms`, or rejects with the signal's `abortReason` as soon as it aborts */
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {

@@ -1,5 +1,5 @@
 import {
-  ReactNode,
+  type ReactNode,
   useCallback,
   useState,
   useMemo,
@@ -8,12 +8,12 @@ import Box from '@mui/material/Box'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
-import Select, { SelectChangeEvent } from '@mui/material/Select'
+import Select, { type SelectChangeEvent } from '@mui/material/Select'
 import TextField from '@mui/material/TextField'
 import Grid from '@mui/material/Grid'
 import { styled } from '@mui/material/styles'
 
-import { FREQUENCIES, FREQUENCIES_TO_LABELS, Frequency } from '../utils/frequencies'
+import { FREQUENCIES, FREQUENCIES_TO_LABELS, type Frequency } from '../utils/frequencies'
 
 
 const IconHolder = styled('div')(({ theme }) => ({

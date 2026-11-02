@@ -6,7 +6,7 @@ import type { ClientEventHub } from './SyncEventHub'
 import type { DocCodec, LegacySettingsContext, LegacySettingsSource } from './domain'
 import { reconcileAutomergeList } from './utils/crdtReconcile'
 import { isPlainObject } from './utils/objectUtils'
-import { publishRealtimeBusSyncPing } from './realtimeBus'
+import type { RealtimeBus } from './realtimeBus'
 import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
 
@@ -18,6 +18,8 @@ export interface AccountSettingsDeps {
   indexManager: AutomergeIndexManager
   eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
+  /** Tells the account's other tabs the settings document changed */
+  bus?: RealtimeBus
   syncedKeys?: readonly string[]
   legacySettings?: LegacySettingsSource
   withAuth: LegacySettingsContext['withAuth']
@@ -90,7 +92,7 @@ export class AccountSettings {
     return itemId === this.docId
   }
 
-  getMetadata(): VaultMetadata {
+  private getMetadata(): VaultMetadata {
     return { ...this.localMetadata, ...this.settings }
   }
 
@@ -99,7 +101,7 @@ export class AccountSettings {
    * be read yet, its change listener emits it once the worker subscribes to it.
    */
   async load(): Promise<void> {
-    this.localMetadata = await this.deps.indexManager.getAutomergeMetadata()
+    this.localMetadata = await this.deps.indexManager.getMetadata()
     try {
       this.settings = await this.readSettings()
     } catch (err) {
@@ -134,7 +136,7 @@ export class AccountSettings {
         await this.writeSettings(synced)
       }
       if (Object.keys(local).length > 0) {
-        await this.deps.indexManager.updateAutomergeMetadata(local)
+        await this.deps.indexManager.updateMetadata(local)
       }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'metadata', error: errorMessage(err) })
@@ -151,7 +153,7 @@ export class AccountSettings {
   async migrateLegacySettings(): Promise<void> {
     if (this.syncedKeys.size === 0) return
 
-    const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
+    const localMetadata = await this.deps.indexManager.getMetadata()
     const localLegacy = pickKeys(localMetadata, this.syncedKeys)
     const context: LegacySettingsContext = { accountId: this.deps.accountId, withAuth: this.deps.withAuth }
     const source = this.deps.legacySettings
@@ -196,9 +198,9 @@ export class AccountSettings {
       throw new Error('Failed to write the settings document')
     }
 
-    await this.deps.indexManager.addAutomergeItemIdsToIndex([this.docId])
+    await this.deps.indexManager.addItemIds([this.docId])
     this.deps.markDocumentDirty(this.docId)
-    publishRealtimeBusSyncPing(this.deps.accountId, [this.docId])
+    this.deps.bus?.publishSyncPing([this.docId])
     this.settings = await this.readSettings()
     this.emit()
   }

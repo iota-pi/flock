@@ -1,7 +1,7 @@
 import type { DataVersionStatus, ReencryptResult, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 
 export interface InitRepoOptions {
   /** Whether the account's data keys are random, so an active key version of '1' may seal local data */

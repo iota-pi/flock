@@ -1,5 +1,4 @@
 import {
-  getSyncMetadataDBName,
   getSyncMetadataStorage,
   clearSyncMetadataStorage,
   SYNC_METADATA_STORE_NAME,
@@ -10,7 +9,7 @@ import localforage from 'localforage'
 import * as storageManager from '../../utils/storageManager'
 
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createMockLocalForage,
   mockLocalForage,
 } from '../__test__/testUtils'
@@ -21,10 +20,6 @@ describe('syncMetadataStorage', () => {
     vi.clearAllMocks()
     mockLocalForage(config => createMockLocalForage(config))
     clearAccountStoreInstancesCacheForTesting()
-  })
-
-  it('generates consistent database name for account', () => {
-    expect(getSyncMetadataDBName('acc-123')).toBe('test-vault-sync-metadata-acc-123')
   })
 
   it('reuses same LocalForage instance for the same accountId', () => {

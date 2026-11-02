@@ -14,7 +14,7 @@ import {
 } from './selectors'
 import { useAppStore } from './store'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import * as itemMutationsModule from '../features/items/mutations/itemMutations'
 import { spyOnExports } from '../utils/testUtils'
 

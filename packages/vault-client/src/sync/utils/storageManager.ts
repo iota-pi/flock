@@ -8,6 +8,8 @@ type QuotaExceededListener = (message: string) => void
 const listeners = new Set<QuotaExceededListener>()
 let lastReportedTime = 0
 const REPORT_THROTTLE_MS = 10000 // 10 seconds
+const QUOTA_EXCEEDED_MESSAGE =
+  'Storage quota exceeded. Changes cannot be saved or synchronized, risking data loss. Please free up space and check your connection to sync.'
 
 export function registerQuotaReporter(reporter: QuotaExceededListener): () => void {
   listeners.add(reporter)
@@ -22,11 +24,9 @@ function reportQuotaExceeded(): void {
     return
   }
   lastReportedTime = now
-  const message =
-    'Storage quota exceeded. Changes cannot be saved or synchronized, risking data loss. Please free up space and check your connection to sync.'
   for (const listener of listeners) {
     try {
-      listener(message)
+      listener(QUOTA_EXCEEDED_MESSAGE)
     } catch (err) {
       log.error('Error in quota listener:', err)
     }
@@ -37,7 +37,7 @@ export function resetQuotaExceededStatus(): void {
   lastReportedTime = 0
 }
 
-export type QuotaRecoveryHandler = () => Promise<boolean | number | void>
+export type QuotaRecoveryHandler = () => Promise<void>
 
 let quotaRecoveryHandler: QuotaRecoveryHandler | null = null
 

@@ -2,6 +2,7 @@ import { AutomergeIndexManager, mergeIndexDocuments } from './AutomergeIndexMana
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import type { ItemId } from '@vault/shared'
+import { RealtimeBus } from '../realtimeBus'
 
 /** Yields to other tasks, so concurrent operations interleave as they would against IndexedDB */
 const storeLatency = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -82,19 +83,20 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should initialize empty snapshot if store is empty', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
     const snapshot = await manager.getIndexSnapshot()
 
     expect(snapshot).toEqual({
       accountId,
       itemIds: [],
+      tombstoneIds: [],
       metadata: {},
       lastManifestSyncTime: 0,
     })
   })
 
   it('should ensure index document is created', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
     await manager.ensureIndexDocument()
 
     expect(mockStore.saveIndex).toHaveBeenCalledTimes(1)
@@ -104,27 +106,27 @@ describe('AutomergeIndexManager', () => {
 
   it('should add item IDs and call onIndexUpdated callback', async () => {
     const onIndexUpdated = vi.fn()
-    const manager = new AutomergeIndexManager(accountId, indexStore, onIndexUpdated)
+    const manager = new AutomergeIndexManager({ accountId, indexStore, onIndexUpdated: onIndexUpdated })
 
-    await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId, 'item-2' as ItemId])
+    await manager.addItemIds(['item-1' as ItemId, 'item-2' as ItemId])
 
     expect(onIndexUpdated).toHaveBeenCalledWith(['item-1', 'item-2'])
-    const items = await manager.listAutomergeItemIds()
+    const items = await manager.listItemIds()
     expect(items).toEqual(['item-1', 'item-2'])
 
     // Adding existing item should not trigger update or duplicate
     onIndexUpdated.mockClear()
-    await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId])
+    await manager.addItemIds(['item-1' as ItemId])
     expect(onIndexUpdated).not.toHaveBeenCalled()
   })
 
   it('should remove item IDs', async () => {
     const onIndexUpdated = vi.fn()
-    const manager = new AutomergeIndexManager(accountId, indexStore, onIndexUpdated)
+    const manager = new AutomergeIndexManager({ accountId, indexStore, onIndexUpdated: onIndexUpdated })
 
-    await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId, 'item-2' as ItemId])
+    await manager.addItemIds(['item-1' as ItemId, 'item-2' as ItemId])
 
-    await manager.removeAutomergeItemIdsFromIndex(['item-1' as ItemId])
+    await manager.removeItemIds(['item-1' as ItemId])
 
     expect(onIndexUpdated).toHaveBeenLastCalledWith(['item-2'])
     const snapshot = await manager.getIndexSnapshot()
@@ -133,40 +135,40 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should track tombstone IDs when items are removed and clear them if re-added', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
-    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId, 'item-b' as ItemId])
-    await manager.removeAutomergeItemIdsFromIndex(['item-a' as ItemId])
+    await manager.addItemIds(['item-a' as ItemId, 'item-b' as ItemId])
+    await manager.removeItemIds(['item-a' as ItemId])
 
-    expect(await manager.listAutomergeTombstoneIds()).toEqual(['item-a'])
-    expect(await manager.listAutomergeItemIds()).toEqual(['item-b'])
+    expect(await manager.listTombstoneIds()).toEqual(['item-a'])
+    expect(await manager.listItemIds()).toEqual(['item-b'])
 
     // Re-adding item-a should remove it from tombstoneIds
-    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId])
-    expect(await manager.listAutomergeTombstoneIds()).toEqual([])
-    expect(await manager.listAutomergeItemIds()).toEqual(['item-b', 'item-a'])
+    await manager.addItemIds(['item-a' as ItemId])
+    expect(await manager.listTombstoneIds()).toEqual([])
+    expect(await manager.listItemIds()).toEqual(['item-b', 'item-a'])
   })
 
   it('leaves tombstoned IDs alone when adding with skipTombstoned', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
-    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId])
-    await manager.removeAutomergeItemIdsFromIndex(['item-a' as ItemId])
-    await manager.addAutomergeItemIdsToIndex(['item-a' as ItemId, 'item-new' as ItemId], { skipTombstoned: true })
+    await manager.addItemIds(['item-a' as ItemId])
+    await manager.removeItemIds(['item-a' as ItemId])
+    await manager.addItemIds(['item-a' as ItemId, 'item-new' as ItemId], { skipTombstoned: true })
 
-    expect(await manager.listAutomergeTombstoneIds()).toEqual(['item-a'])
-    expect(await manager.listAutomergeItemIds()).toEqual(['item-new'])
+    expect(await manager.listTombstoneIds()).toEqual(['item-a'])
+    expect(await manager.listItemIds()).toEqual(['item-new'])
   })
 
   it('should update metadata and notify listener', async () => {
     const onMetadataUpdated = vi.fn()
-    const manager = new AutomergeIndexManager(accountId, indexStore, undefined, onMetadataUpdated)
+    const manager = new AutomergeIndexManager({ accountId, indexStore, onMetadataUpdated: onMetadataUpdated })
 
-    await manager.updateAutomergeMetadata({ prayerGoal: 10 })
+    await manager.updateMetadata({ prayerGoal: 10 })
     expect(onMetadataUpdated).toHaveBeenCalledWith({ prayerGoal: 10 })
 
-    await manager.updateAutomergeMetadata({ name: 'Test' })
-    const metadata = await manager.getAutomergeMetadata()
+    await manager.updateMetadata({ name: 'Test' })
+    const metadata = await manager.getMetadata()
     expect(metadata).toEqual({ prayerGoal: 10, name: 'Test' })
   })
 
@@ -181,14 +183,14 @@ describe('AutomergeIndexManager', () => {
       mockStore.data = JSON.parse(JSON.stringify(doc))
     })
 
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     // Launch multiple concurrent operations simultaneously
     await Promise.all([
-      manager.addAutomergeItemIdsToIndex(['item-1' as ItemId]),
-      manager.addAutomergeItemIdsToIndex(['item-2' as ItemId]),
-      manager.updateAutomergeMetadata({ prayerGoal: 5 }),
-      manager.addAutomergeItemIdsToIndex(['item-3' as ItemId]),
+      manager.addItemIds(['item-1' as ItemId]),
+      manager.addItemIds(['item-2' as ItemId]),
+      manager.updateMetadata({ prayerGoal: 5 }),
+      manager.addItemIds(['item-3' as ItemId]),
       manager.updateLastManifestSyncTime(9999),
     ])
 
@@ -202,28 +204,28 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('should propagate errors to caller and not deadlock the queue for subsequent tasks', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     // First successful write
-    await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId])
+    await manager.addItemIds(['item-1' as ItemId])
 
     // Make saveIndex reject on the next call
     mockStore.saveIndex.mockRejectedValueOnce(new Error('Storage failure'))
 
     // The failing write should reject for the caller
-    await expect(manager.addAutomergeItemIdsToIndex(['item-fail' as ItemId])).rejects.toThrow(
+    await expect(manager.addItemIds(['item-fail' as ItemId])).rejects.toThrow(
       'Storage failure'
     )
 
     // Subsequent write should still execute normally and not be blocked
-    await manager.addAutomergeItemIdsToIndex(['item-2' as ItemId])
+    await manager.addItemIds(['item-2' as ItemId])
 
-    const itemIds = await manager.listAutomergeItemIds()
+    const itemIds = await manager.listItemIds()
     expect(itemIds).toEqual(['item-1', 'item-2'])
   })
 
   it('should update manifest sync time', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
     expect(await manager.getLastManifestSyncTime()).toBe(0)
 
     await manager.updateLastManifestSyncTime(987654)
@@ -231,10 +233,10 @@ describe('AutomergeIndexManager', () => {
   })
 
   it('merges a backup index without hiding newer items or reviving deleted ones', async () => {
-    const manager = new AutomergeIndexManager(accountId, indexStore)
-    await manager.addAutomergeItemIdsToIndex(['local-new' as ItemId, 'deleted-since' as ItemId])
-    await manager.removeAutomergeItemIdsFromIndex(['deleted-since' as ItemId])
-    await manager.updateAutomergeMetadata({ prayerGoal: 5, localOnly: true })
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
+    await manager.addItemIds(['local-new' as ItemId, 'deleted-since' as ItemId])
+    await manager.removeItemIds(['deleted-since' as ItemId])
+    await manager.updateMetadata({ prayerGoal: 5, localOnly: true })
     await manager.updateLastManifestSyncTime(4444)
 
     await manager.mergeIndex({
@@ -252,7 +254,7 @@ describe('AutomergeIndexManager', () => {
     expect(snapshot.lastManifestSyncTime).toBe(4444)
   })
 
-  it('serializes getIndexSnapshot and listAutomergeItemIds behind in-flight writes to prevent torn reads (M-6)', async () => {
+  it('serializes getIndexSnapshot and listItemIds behind in-flight writes to prevent torn reads (M-6)', async () => {
     let isWriteInProgress = false
     mockStore.saveIndex = vi.fn(async (doc: AutomergeIndexDocument) => {
       isWriteInProgress = true
@@ -261,12 +263,12 @@ describe('AutomergeIndexManager', () => {
       isWriteInProgress = false
     })
 
-    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const manager = new AutomergeIndexManager({ accountId, indexStore })
 
     // Start an in-flight write
-    const writePromise = manager.addAutomergeItemIdsToIndex(['item-concurrent' as ItemId])
+    const writePromise = manager.addItemIds(['item-concurrent' as ItemId])
 
-    // Concurrently call getIndexSnapshot and listAutomergeItemIds
+    // Concurrently call getIndexSnapshot and listItemIds
     let snapshotWriteInProgress: boolean | undefined
     let listWriteInProgress: boolean | undefined
 
@@ -276,7 +278,7 @@ describe('AutomergeIndexManager', () => {
       return snap
     })()
     const listPromise = (async () => {
-      const items = await manager.listAutomergeItemIds()
+      const items = await manager.listItemIds()
       listWriteInProgress = isWriteInProgress
       return items
     })()
@@ -328,13 +330,13 @@ describe('AutomergeIndexManager', () => {
       })
 
       // Two independent manager instances representing Tab A and Tab B pointing to the same shared IndexStore
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore })
 
       // Tab A creates Item X and Tab B creates Item Y concurrently
       await Promise.all([
-        managerA.addAutomergeItemIdsToIndex(['item-X' as ItemId]),
-        managerB.addAutomergeItemIdsToIndex(['item-Y' as ItemId]),
+        managerA.addItemIds(['item-X' as ItemId]),
+        managerB.addItemIds(['item-Y' as ItemId]),
       ])
 
       const snapshot = await managerA.getIndexSnapshot()
@@ -365,13 +367,13 @@ describe('AutomergeIndexManager', () => {
         mockStore.data = JSON.parse(JSON.stringify(doc))
       })
 
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore })
 
       // Tab A adds item-3 while Tab B removes item-1
       await Promise.all([
-        managerA.addAutomergeItemIdsToIndex(['item-3' as ItemId]),
-        managerB.removeAutomergeItemIdsFromIndex(['item-1' as ItemId]),
+        managerA.addItemIds(['item-3' as ItemId]),
+        managerB.removeItemIds(['item-1' as ItemId]),
       ])
 
       const snapshot = await managerA.getIndexSnapshot()
@@ -400,13 +402,13 @@ describe('AutomergeIndexManager', () => {
         mockStore.data = JSON.parse(JSON.stringify(doc))
       })
 
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore })
 
       // Tab A adds item-2 while Tab B updates metadata
       await Promise.all([
-        managerA.addAutomergeItemIdsToIndex(['item-2' as ItemId]),
-        managerB.updateAutomergeMetadata({ prayerGoal: 10 }),
+        managerA.addItemIds(['item-2' as ItemId]),
+        managerB.updateMetadata({ prayerGoal: 10 }),
       ])
 
       const snapshot = await managerA.getIndexSnapshot()
@@ -419,53 +421,66 @@ describe('AutomergeIndexManager', () => {
 
     it('broadcasts index updates to peer tabs via BroadcastChannel', async () => {
       const onIndexUpdatedB = vi.fn()
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore, onIndexUpdatedB)
+      const busA = new RealtimeBus(accountId)
+      const busB = new RealtimeBus(accountId)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore, bus: busA })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore, bus: busB, onIndexUpdated: onIndexUpdatedB })
 
-      await managerA.addAutomergeItemIdsToIndex(['item-broadcast-1' as ItemId])
+      await managerA.addItemIds(['item-broadcast-1' as ItemId])
 
       expect(onIndexUpdatedB).toHaveBeenCalledWith(['item-broadcast-1'])
 
       managerA.close()
       managerB.close()
+      busA.close()
+      busB.close()
     })
 
     it('broadcasts metadata updates to peer tabs via BroadcastChannel', async () => {
       const onMetadataUpdatedB = vi.fn()
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore, undefined, onMetadataUpdatedB)
+      const busA = new RealtimeBus(accountId)
+      const busB = new RealtimeBus(accountId)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore, bus: busA })
+      const managerB = new AutomergeIndexManager({
+        accountId,
+        indexStore,
+        bus: busB,
+        onMetadataUpdated: onMetadataUpdatedB,
+      })
 
-      await managerA.updateAutomergeMetadata({ prayerGoal: 25 })
+      await managerA.updateMetadata({ prayerGoal: 25 })
 
       expect(onMetadataUpdatedB).toHaveBeenCalledWith({ prayerGoal: 25 })
 
       managerA.close()
       managerB.close()
+      busA.close()
+      busB.close()
     })
 
     it('handles aborted lock request cleanly and does not deadlock queue', async () => {
-      const manager = new AutomergeIndexManager(accountId, indexStore)
+      const manager = new AutomergeIndexManager({ accountId, indexStore })
 
       // Mock request to throw an abort error once
       const abortError = new Error('Index lock request timed out after 10000ms')
       abortError.name = 'AbortError'
       vi.spyOn(mockLockManager, 'request').mockRejectedValueOnce(abortError)
 
-      await expect(manager.addAutomergeItemIdsToIndex(['item-aborted' as ItemId])).rejects.toThrow(
+      await expect(manager.addItemIds(['item-aborted' as ItemId])).rejects.toThrow(
         'Index lock request timed out'
       )
 
       // Subsequent call with working locks should succeed normally
-      await manager.addAutomergeItemIdsToIndex(['item-success' as ItemId])
+      await manager.addItemIds(['item-success' as ItemId])
       const snapshot = await manager.getIndexSnapshot()
       expect(snapshot.itemIds).toContain('item-success')
 
       manager.close()
     })
 
-    it('acquires cross-tab Web Lock for getIndexSnapshot and listAutomergeItemIds preventing concurrent reads during remote write (M-6)', async () => {
+    it('acquires cross-tab Web Lock for getIndexSnapshot and listItemIds preventing concurrent reads during remote write (M-6)', async () => {
       const lockRequestSpy = vi.spyOn(mockLockManager, 'request')
-      const manager = new AutomergeIndexManager(accountId, indexStore)
+      const manager = new AutomergeIndexManager({ accountId, indexStore })
 
       await manager.getIndexSnapshot()
 
@@ -476,7 +491,7 @@ describe('AutomergeIndexManager', () => {
       )
 
       lockRequestSpy.mockClear()
-      await manager.listAutomergeItemIds()
+      await manager.listItemIds()
 
       expect(lockRequestSpy).toHaveBeenCalledWith(
         `test-vault-index-lock-${accountId}`,
@@ -489,12 +504,12 @@ describe('AutomergeIndexManager', () => {
 
     it('stops receiving messages after close()', async () => {
       const onIndexUpdatedB = vi.fn()
-      const managerA = new AutomergeIndexManager(accountId, indexStore)
-      const managerB = new AutomergeIndexManager(accountId, indexStore, onIndexUpdatedB)
+      const managerA = new AutomergeIndexManager({ accountId, indexStore })
+      const managerB = new AutomergeIndexManager({ accountId, indexStore, onIndexUpdated: onIndexUpdatedB })
 
       managerB.close()
 
-      await managerA.addAutomergeItemIdsToIndex(['item-after-close' as ItemId])
+      await managerA.addItemIds(['item-after-close' as ItemId])
 
       expect(onIndexUpdatedB).not.toHaveBeenCalled()
 

@@ -1,12 +1,14 @@
 import { debounce } from 'lodash-es'
-import { ItemId } from '@vault/shared'
-import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
+import type { ItemId } from '@vault/shared'
+import type { LastModifiedStore, ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AsyncMutex } from '../utils/AsyncMutex'
+import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import type { RecoveryManager } from './RecoveryManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
+import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('SnapshotTracker')
 
@@ -15,7 +17,8 @@ export interface SnapshotTrackerOptions {
   recoveryManager: RecoveryManager
   debounceDelayMs?: number
   maxWaitMs?: number
-  isLeader?: boolean
+  /** Only the leader uploads snapshots, and only while online */
+  session: SyncSessionState
   onTriggerPush?: () => void
   isRetryActive?: () => boolean
 }
@@ -27,21 +30,19 @@ export interface SnapshotTrackerOptions {
 type TrackedTimestamps = Partial<ItemSyncTimestamps>
 
 export class SnapshotTracker {
-  private shutDown = false
-  private isLeader = false
-  private isOnline = true
-  public readonly dirtyItems = new Map<ItemId, number>()
+  private readonly session: SyncSessionState
+  private readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private readonly timestampsByItemId = new Map<ItemId, TrackedTimestamps>()
   /** Items quarantined as too large to upload, so the warning is given only once */
-  public readonly oversizedItems = new Set<ItemId>()
+  private readonly oversizedItems = new Set<ItemId>()
 
-  private debounceTimeout: ReturnType<typeof setTimeout> | null = null
-  private maxWaitTimeout: ReturnType<typeof setTimeout> | null = null
+  private readonly debounceTimer = new RetryTimer()
+  private readonly maxWaitTimer = new RetryTimer()
   private readonly debounceDelayMs: number
   private readonly maxWaitMs: number
 
-  public readonly loadGuard = new SingleFlightGuard<void>()
+  private readonly loadGuard = new SingleFlightGuard<void>()
   private readonly persistMutex = new AsyncMutex()
   private readonly onTriggerPush?: () => void
   private readonly isRetryActive?: () => boolean
@@ -50,7 +51,7 @@ export class SnapshotTracker {
 
   // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved localModifiedAt
   // to re-queue an edit whose snapshot never went up.
-  public readonly saveLastModifiedDebounced = debounce(
+  private readonly saveLastModifiedDebounced = debounce(
     () => fireAndForget(this.persistLastModified(), 'SnapshotTracker:persistLastModified'),
     1000,
     { maxWait: 5000 },
@@ -61,38 +62,15 @@ export class SnapshotTracker {
     this.recoveryManager = options.recoveryManager
     this.debounceDelayMs = options.debounceDelayMs ?? 30_000
     this.maxWaitMs = options.maxWaitMs ?? 5 * 60 * 1000
-    this.isLeader = options.isLeader ?? false
+    this.session = options.session
     this.onTriggerPush = options.onTriggerPush
     this.isRetryActive = options.isRetryActive
   }
 
-  get isShutdown(): boolean {
-    return this.shutDown
-  }
-
-  get debounceTimer(): ReturnType<typeof setTimeout> | null {
-    return this.debounceTimeout
-  }
-
-  get maxWaitTimer(): ReturnType<typeof setTimeout> | null {
-    return this.maxWaitTimeout
-  }
-
-  get isOperational(): boolean {
-    return !this.shutDown && this.isLeader && this.isOnline
-  }
-
-  get leader(): boolean {
-    return this.isLeader
-  }
-
-  setLeader(isLeader: boolean): void {
-    if (this.shutDown || this.isLeader === isLeader) {
-      return
-    }
-    this.isLeader = isLeader
-
-    if (isLeader) {
+  /** Schedules the pending uploads when this tab becomes the leader, and cancels them when it stops being one */
+  onLeaderChange(): void {
+    if (this.session.isShutdown) return
+    if (this.session.isLeader) {
       if (this.dirtyItems.size > 0) {
         this.scheduleDebouncedSnapshotPush()
       }
@@ -101,12 +79,8 @@ export class SnapshotTracker {
     }
   }
 
-  setOnline(isOnline: boolean): void {
-    this.isOnline = isOnline
-  }
-
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
-    if (this.shutDown || !itemId) return
+    if (this.session.isShutdown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.timestamps(itemId).localModifiedAt = Date.now()
@@ -124,40 +98,26 @@ export class SnapshotTracker {
     return entry
   }
 
-  scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
-    if (!this.isOperational) return
+  private scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
+    if (!this.session.isOperational) return
     if (this.isRetryActive?.()) return
 
-    const delay = typeof customDelayMs === 'number' ? customDelayMs : this.debounceDelayMs
-    if (this.debounceTimeout !== null) {
-      clearTimeout(this.debounceTimeout)
-    }
-
-    if (this.maxWaitTimeout === null) {
-      this.maxWaitTimeout = setTimeout(() => {
-        this.clearDebounceTimers()
-        this.onTriggerPush?.()
-      }, this.maxWaitMs)
-    }
-
-    this.debounceTimeout = setTimeout(() => {
+    const trigger = () => {
       this.clearDebounceTimers()
       this.onTriggerPush?.()
-    }, delay)
+    }
+    if (!this.maxWaitTimer.isPending) {
+      this.maxWaitTimer.schedule(this.maxWaitMs, trigger)
+    }
+    this.debounceTimer.schedule(customDelayMs ?? this.debounceDelayMs, trigger)
   }
 
   clearDebounceTimers(): void {
-    if (this.debounceTimeout !== null) {
-      clearTimeout(this.debounceTimeout)
-      this.debounceTimeout = null
-    }
-    if (this.maxWaitTimeout !== null) {
-      clearTimeout(this.maxWaitTimeout)
-      this.maxWaitTimeout = null
-    }
+    this.debounceTimer.cancel()
+    this.maxWaitTimer.cancel()
   }
 
-  updateLastModifiedForDirtyItems(): void {
+  private updateLastModifiedForDirtyItems(): void {
     const dirtyItemIds = Array.from(this.dirtyItems.keys())
     if (dirtyItemIds.length === 0) {
       return
@@ -176,15 +136,15 @@ export class SnapshotTracker {
 
   /** Loads the stored timestamps and the items quarantined as oversized */
   async loadLastModified(): Promise<void> {
-    if (this.shutDown) return
+    if (this.session.isShutdown) return
     return this.loadGuard.run(() => this.executeLoadLastModified())
   }
 
   private async executeLoadLastModified(): Promise<void> {
     try {
-      checkAlive(null, () => !this.shutDown)
+      checkAlive(null, () => !this.session.isShutdown)
       const stored = await this.lastModifiedStore.loadTimestamps()
-      checkAlive(null, () => !this.shutDown)
+      checkAlive(null, () => !this.session.isShutdown)
 
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
@@ -202,7 +162,7 @@ export class SnapshotTracker {
       const quarantinedIds = new Set<ItemId>()
       try {
         const recoveryEntries = await this.recoveryManager.listRecoveryItems()
-        checkAlive(null, () => !this.shutDown)
+        checkAlive(null, () => !this.session.isShutdown)
         for (const entry of recoveryEntries) {
           quarantinedIds.add(entry.itemId)
           if (entry.kind === 'oversized') {
@@ -214,7 +174,7 @@ export class SnapshotTracker {
         log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
       }
 
-      checkAlive(null, () => !this.shutDown)
+      checkAlive(null, () => !this.session.isShutdown)
 
       // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
       let auditCount = 0
@@ -233,7 +193,7 @@ export class SnapshotTracker {
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
-      if (isAbortError(error) || this.shutDown) return
+      if (isAbortError(error) || this.session.isShutdown) return
       log.error('Failed to load lastModified timestamps', error)
     }
   }
@@ -241,31 +201,37 @@ export class SnapshotTracker {
   /**
    * Merges this tab's timestamps into the stored ones, keeping the later value of each. Every tab of
    * the account writes here, and a tab's maps can be older than the store (a follower only loads them
-   * at startup), so writing them over the store would lose the leader's progress.
+   * at startup), so writing them over the store would lose the leader's progress. Logs a failure.
    */
-  async persistLastModified(): Promise<void> {
+  private async persistLastModified(): Promise<void> {
+    try {
+      await this.saveLastModified()
+    } catch (error) {
+      log.error('Failed to save lastModified timestamps', error)
+    }
+  }
+
+  /** Like `persistLastModified`, but throws a failure, for callers that must know the timestamps were saved */
+  async saveLastModified(): Promise<void> {
     await this.persistMutex.runExclusive(async () => {
-      try {
-        const merged = new Map<ItemId, ItemSyncTimestamps>(await this.lastModifiedStore.loadTimestamps() ?? [])
-        for (const [itemId, local] of this.timestampsByItemId) {
-          const stored = merged.get(itemId)
-          merged.set(itemId, {
-            localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, local.localModifiedAt ?? 0),
-            lastSnapshotAt: local.lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
-              ? undefined
-              : Math.max(stored?.lastSnapshotAt ?? 0, local.lastSnapshotAt ?? 0),
-            baseVersion: Math.max(stored?.baseVersion ?? 0, local.baseVersion ?? 0),
-          })
-        }
-        await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
-      } catch (error) {
-        log.error('Failed to save lastModified timestamps', error)
+      const merged = new Map<ItemId, ItemSyncTimestamps>(await this.lastModifiedStore.loadTimestamps() ?? [])
+      for (const [itemId, local] of this.timestampsByItemId) {
+        const stored = merged.get(itemId)
+        merged.set(itemId, {
+          localModifiedAt: Math.max(stored?.localModifiedAt ?? 0, local.localModifiedAt ?? 0),
+          lastSnapshotAt: local.lastSnapshotAt === undefined && stored?.lastSnapshotAt === undefined
+            ? undefined
+            : Math.max(stored?.lastSnapshotAt ?? 0, local.lastSnapshotAt ?? 0),
+          baseVersion: Math.max(stored?.baseVersion ?? 0, local.baseVersion ?? 0),
+        })
       }
+      await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
     })
   }
 
-  recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number, version?: number): void {
-    if (this.dirtyItems.get(itemId) === tick) {
+  /** Without a tick, the item stays dirty: the snapshot wasn't built for its pending edits */
+  recordSnapshotSuccess(itemId: ItemId, modified: number, tick: number | undefined, version?: number): void {
+    if (tick !== undefined && this.dirtyItems.get(itemId) === tick) {
       this.dirtyItems.delete(itemId)
     }
     const entry = this.timestamps(itemId)
@@ -305,7 +271,7 @@ export class SnapshotTracker {
   }
 
   deleteDirtyItem(itemId: ItemId): boolean {
-    if (this.shutDown || !itemId) return false
+    if (this.session.isShutdown || !itemId) return false
     const deleted = this.dirtyItems.delete(itemId)
     const entry = this.timestampsByItemId.get(itemId)
     if (entry?.localModifiedAt !== undefined && entry.localModifiedAt > (entry.lastSnapshotAt ?? 0)) {
@@ -382,11 +348,8 @@ export class SnapshotTracker {
     this.loadGuard.clear()
   }
 
+  /** Saves the timestamps, unless local data is being cleared. Called once, by the context's lifecycle. */
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
-    if (this.shutDown) return
-    this.shutDown = true
-    this.isLeader = false
-
     await this.loadGuard.waitForRunning()
     this.clearDebounceTimers()
     this.saveLastModifiedDebounced.cancel()

@@ -6,7 +6,7 @@ import CollapsibleSection from 'src/components/drawers/utils/CollapsibleSection'
 import GroupDisplay from '../../groups/components/GroupDisplay'
 import MemberDisplay from '../../groups/components/MemberDisplay'
 import { GroupIcon, PersonIcon } from 'src/components/Icons'
-import { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
 
 
 type ItemFormRelationshipsSectionProps = {

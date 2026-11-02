@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -13,8 +13,8 @@ import MenuItem from '@mui/material/MenuItem'
 import {
   CRITERIA_DISPLAY,
   CRITERIA_DISPLAY_MAP,
-  CriterionName,
-  SortCriterion,
+  type CriterionName,
+  type SortCriterion,
 } from '../../utils/customSort'
 import { RemoveIcon } from '../Icons'
 import { useSortCriteria } from '../../state/selectors'

@@ -1,7 +1,7 @@
 import {
   createRef,
-  KeyboardEvent as ReactKeyboardEvent,
-  PropsWithChildren,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PropsWithChildren,
   useCallback,
   useEffect,
   useRef,
@@ -12,13 +12,13 @@ import Container from '@mui/material/Container'
 import IconButton from '@mui/material/IconButton'
 import SwipeableDrawer from '@mui/material/SwipeableDrawer'
 import Toolbar from '@mui/material/Toolbar'
-import { CSSObject, styled, Theme } from '@mui/material/styles'
+import { type CSSObject, styled, type Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 
-import { MuiIconType, RemoveIcon } from '../Icons'
-import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
+import { type MuiIconType, RemoveIcon } from '../Icons'
+import DrawerActions, { type Props as DrawerActionsProps } from './utils/DrawerActions'
 import { usePrevious } from '../../utils'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 
 
 const noOp = () => {}

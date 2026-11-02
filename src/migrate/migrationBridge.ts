@@ -43,7 +43,6 @@ const sink: SyncStateSink = {
   updateItems: () => {},
   updateIndex: () => {},
   updateMetadata: () => {},
-  getSyncStatus: () => state.status,
   setSyncStatus: status => setState({ status }),
   getSyncWarning: () => state.warning,
   setSyncWarning: warning => setState({ warning }),

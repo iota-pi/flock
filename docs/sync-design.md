@@ -11,7 +11,7 @@ User edit → Automerge doc change → two outbound paths:
 
 Server → two inbound paths:
   1. Incremental: SyncPoller pull → SyncPullQueueManager → Automerge merge
-  2. Full state:  ManifestSyncManager → ManifestDeltaCalculator → fetch snapshots → hydrate docs
+  2. Full state:  ManifestSyncManager → calculateSyncDeltas → fetch snapshots → hydrate docs
 ```
 
 The local Automerge doc in IndexedDB is always the complete, authoritative state. The WAL, snapshots and server rows are only delivery mechanisms. The server cannot decrypt anything, so it never merges or reconciles. It only relays data.
@@ -21,9 +21,9 @@ The local Automerge doc in IndexedDB is always the complete, authoritative state
 - Outbound Automerge sync messages are appended to `SyncWriteAheadLog` (it has its own IndexedDB database). `SyncPoller` encrypts and pushes them via `pollSyncBatch`, and entries are removed once the server acknowledges them.
 - **Pruning is safe.** When the WAL exceeds `MAX_ENTRIES`, `performPruneOldest` drops old entries. Nothing is lost, because the local doc is authoritative and the next snapshot captures the full merged state.
 - **Batching happens at push time, not in storage.** `SyncPoller` packs each item's entries into one batched message (`packBatchedMessages`) when it pushes, and every WAL entry holds a single message. Older versions compacted entries into batched ones (`isBatched`, with the IDs they superseded in `replaces`) when the WAL filled or hit a quota error. Compaction is gone because it only cut the record count, wrote before it freed space, and a compacted entry was double-framed when a backup restored it. Their batched entries fail the push-time check below and are dropped like any other invalid entry, so nothing reads that format any more.
-- **Every entry is checked before it's pushed.** `SyncPoller` decodes each entry with `decodeSyncMessage` (once per entry, remembering the ones that passed). If any entry of an item isn't a sync message, it drops all of that item's entries and emits `walEntriesPruned`, so the item goes snapshot-only and gets a snapshot, as after pruning. Bad bytes would otherwise reach every other device, which would retry them up to `MAX_PULL_RETRIES` times and then give up. A drop is logged as an error, because the snapshot heals the item and the log is the only sign of whatever wrote the entry.
+- **Every entry is checked before it's pushed.** `SyncPoller` decodes each entry with `decodeSyncMessage` (once per entry, remembering the ones that passed). If any entry of an item isn't a sync message, it drops all of that item's entries and reports them as pruned, so the item goes snapshot-only and gets a snapshot, as after pruning. Bad bytes would otherwise reach every other device, which would retry them up to `MAX_PULL_RETRIES` times and then give up. A drop is logged as an error, because the snapshot heals the item and the log is the only sign of whatever wrote the entry.
 - **Pulled messages are always batches.** Every push since 2026-05-19 has been one (`BATCHED_MESSAGE_VERSION`), and the 90-day TTL has expired anything older, so `handleMessageEntry` parses every message as a batch.
-- **Quota errors prune.** `handleQuotaExceeded` prunes the oldest `walPrune` entries, as overflow does.
+- **Quota errors prune.** A write that hits the quota prunes the oldest `walPrune` entries (`handleQuotaExceeded`), as overflow does, and retries once. Only if the retry also fails is the user told, and that report does not prune again.
 - **In-flight safety.** `SyncPoller.executePoll` calls `wal.unmarkInFlight` in a `finally` block, so entries cannot get stuck in-flight.
 
 ### Poll result contract
@@ -42,7 +42,7 @@ If `processPullResults` or any I/O throws and the poll still reports `'success'`
 - **Server cursor format:** `relativeTimestampSeconds * 10_000_000 + random(0, 9_999_000)` (`syncService`). The `FlockSyncMessages` key is `syncId` (`${account}#${itemId}`) plus `cursor`, so a collision needs the same account, the same item, the same second and the same random offset (P ≈ 10⁻⁷).
 - **No lookback window.** An earlier 10s overlap (`OVERLAP_CURSOR_DELTA`) plus a client LRU of seen cursors caused every client to re-download the same batch on every poll forever. Queries are now strictly `#c > :fromCursor`. A message can still become visible after one with a higher cursor: the cursor is fixed when the push starts, the write can take seconds (including `UnprocessedItems` retries), and the account-wide pull reads the `AccountCursorIndex` GSI, which is eventually consistent. A client that reads in between advances past the late message. This is rare, and snapshots and manifest sync recover the missed change. Do not reintroduce a lookback.
 - **Page tokens are opaque.** The driver issues `nextPageToken` / `globalNextPageToken` and checks them when they come back (`validatePageToken`); the Dynamo driver wraps its `LastEvaluatedKey`. The router validates every token before storing pushed messages, so a rejected poll never leaves pushed messages the client would push again. On `BAD_REQUEST` the client drops all its page tokens (`resetPagination`) and continues from its cursors. Pagination doesn't depend on the token: a client that drops it advances its cursor to the highest message received and continues with `cursor > from`.
-- Failed pull messages are retried up to `MAX_PULL_RETRIES` (5, `PullRetryTracker`) before the item is quarantined. The failing message is then skipped, and the item stays pending so the next per-item pull continues with the messages after it (the global scan has usually passed them).
+- Failed pull messages are retried up to `MAX_PULL_RETRIES` (5, `PullCursorState`) before the item is quarantined. The failing message is then skipped, and the item stays pending so the next per-item pull continues with the messages after it (the global scan has usually passed them).
 - Restoring a backup's cursors (`importCursors`) never moves the global scan cursor. A backup's per-item cursors can run ahead of its scan and cover only some items, so no value taken from them proves other items' messages below it were applied.
 
 ## Snapshot sync
@@ -52,7 +52,7 @@ If `processPullResults` or any I/O throws and the poll still reports `'success'`
 
 ### Monotonic versions (no clock-based reconciliation)
 
-`putSnapshots` runs an atomic `version = if_not_exists(version, 0) + 1` and returns the new version. The client stores it as `baseVersion` in its `lastModified` record. `ManifestDeltaCalculator` then decides:
+`putSnapshots` runs an atomic `version = if_not_exists(version, 0) + 1` and returns the new version. The client stores it as `baseVersion` in its `lastModified` record. `calculateSyncDeltas` then decides:
 
 | Condition | Action |
 |---|---|
@@ -129,7 +129,7 @@ Items that can't be synced are quarantined in `manualRecoveryStore` and shown to
 
 - `LeaderElection` uses `navigator.locks`. Only the leader runs the `SyncOrchestrator` poll loop. Followers keep a live Repo and sync with other tabs over `EncryptedBroadcastChannelNetworkAdapter`.
 - Only tabs with `isLeader === true` send heartbeats on the presence channel. A leader that yields to a higher-priority `claim` calls `revokeLeadership(false)`, which keeps the presence channel and heartbeat timer so it can detect a crash of the new leader.
-- `multipleLeadersDetected` must fire only when there are genuinely 2+ active leaders. A follower receiving the sole leader's heartbeat does not count.
+- `onMultipleLeadersDetected` must fire only when there are genuinely 2+ active leaders. A follower receiving the sole leader's heartbeat does not count.
 
 ### Missing key version on cross-tab messages (intentional inline wait)
 
@@ -160,13 +160,17 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 
 ## Shutdown order (`ServiceLifecycleManager`)
 
+- Each session's components share one `SyncSessionState` (online, leader, shut down) and take the account in their constructor; a new account gets a new context. `SyncWorkerContext.shutdown` marks the session shut down first, so no component starts new work, then the lifecycle stops each component exactly once, in reverse registration order. Nothing else stops a component: a second stop with other options (such as without `clearLocalData`) could save state during a data clear.
+- The context's `RealtimeBus` (cross-tab sync pings, item-dirty, index and metadata messages) is registered first, so it closes last.
 - Shut down the Automerge Repo before clearing IndexedDB. Otherwise pending saves write data back into the cleared database.
 - Don't run `clearSyncMetadataStorage` (`dropInstance`) concurrently with per-store `.clear()` calls on the same database.
 - `wal.clear()` targets a different database, so it may run concurrently with the above.
 
 ## Event hub concurrency
 
-`SyncEventHub.emit` is fire-and-forget. Async listeners are not awaited, and their rejections are caught and logged. This keeps producers such as Repo network events, WAL appends and pull processing from being slowed by listener I/O. Listeners must therefore handle concurrent in-flight invocations themselves, using `SingleFlightGuard`/`KeyedSingleFlightGuard`, `AsyncMutex`/`KeyedAsyncMutex`, `ItemLockCoordinator`, `AsyncQueue` or monotonic tick counters (for example `SnapshotTracker.dirtyItemsTick`).
+`ClientEventHub.emit` is fire-and-forget. Async listeners are not awaited, and their rejections are caught and logged. This keeps producers such as item updates and request tracking from being slowed by listener I/O. Listeners must therefore handle concurrent in-flight invocations themselves, using `SingleFlightGuard`/`KeyedSingleFlightGuard`, `AsyncMutex`/`KeyedAsyncMutex`, `ItemLockCoordinator`, `AsyncQueue` or monotonic tick counters (for example `SnapshotTracker.dirtyItemsTick`).
+
+Inside the worker, components call each other through plain callbacks that `SyncWorkerContext` wires up. A callback that starts async work runs it with `fireAndForget`, so the same applies to it: the WAL, pull processing and Repo network events aren't slowed by it, and it must synchronize itself.
 
 ## Server limits
 

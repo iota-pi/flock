@@ -1,4 +1,4 @@
-import { ItemId } from './ids'
+import type { ItemId } from './ids'
 
 export class VersionConflictError extends Error {
   conflictIds: ItemId[]

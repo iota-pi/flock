@@ -63,8 +63,8 @@ describe('RecoveryManager', () => {
         type: 'recoveryItemsChanged',
         entries: mockEntries,
       })
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBeGreaterThan(Date.now())
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBeGreaterThan(Date.now())
+      expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
     })
 
     it('works when accountId is provided in constructor and called without explicit accountId', async () => {
@@ -90,7 +90,7 @@ describe('RecoveryManager', () => {
     })
 
     it('respects checkCooldown option when in cooldown', async () => {
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 10000)
+      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 10000)
 
       await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'another fail', {
         checkCooldown: true,
@@ -100,7 +100,7 @@ describe('RecoveryManager', () => {
     })
 
     it('respects in-flight protection', async () => {
-      recoveryManager.setInFlight('item-1' as ItemId, true)
+      recoveryManager['setInFlight']('item-1' as ItemId, true)
 
       await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'fail')
 
@@ -115,39 +115,26 @@ describe('RecoveryManager', () => {
         recoveryManager.quarantine('item-fail' as ItemId, 'pushFailure', 'fail')
       ).rejects.toThrow('Storage failure')
 
-      expect(recoveryManager.isInFlight('item-fail' as ItemId)).toBe(false)
+      expect(recoveryManager['isInFlight']('item-fail' as ItemId)).toBe(false)
       consoleSpy.mockRestore()
-    })
-
-    it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.quarantine('item-1' as ItemId, 'pushFailure', 'fail')
-      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
   })
 
   describe('unquarantine', () => {
     it('removes entry, clears cooldown and in-flight, and emits recoveryItemsChanged', async () => {
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 50000)
-      recoveryManager.setInFlight('item-1' as ItemId, true)
+      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 50000)
+      recoveryManager['setInFlight']('item-1' as ItemId, true)
       mockReadManualRecoveryEntries.mockResolvedValue([])
 
       await recoveryManager.unquarantine('item-1' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-1')
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBe(0)
+      expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
       expect(onEventMock).toHaveBeenCalledWith({
         type: 'recoveryItemsChanged',
         entries: [],
       })
-    })
-
-    it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.unquarantine('item-2' as ItemId)
-
-      expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
     })
   })
 
@@ -178,16 +165,16 @@ describe('RecoveryManager', () => {
       mockReadManualRecoveryCount.mockResolvedValue(2)
       mockRemoveManualRecoveryEntryIfKind.mockImplementation(async (_acc: string, id: string) => id === 'item-1')
       for (const id of ['item-1', 'item-2'] as ItemId[]) {
-        recoveryManager.setRecoveryCooldown(id, Date.now() + 50000)
-        recoveryManager.setInFlight(id, true)
+        recoveryManager['setRecoveryCooldown'](id, Date.now() + 50000)
+        recoveryManager['setInFlight'](id, true)
       }
 
       await recoveryManager.resolveQuarantines(['item-1', 'item-2'] as ItemId[], kinds)
 
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
-      expect(recoveryManager.getRecoveryCooldownUntil('item-2' as ItemId)).toBeGreaterThan(0)
-      expect(recoveryManager.isInFlight('item-2' as ItemId)).toBe(true)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBe(0)
+      expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-2' as ItemId)).toBeGreaterThan(0)
+      expect(recoveryManager['isInFlight']('item-2' as ItemId)).toBe(true)
     })
 
     it('does not emit when nothing was removed', async () => {
@@ -197,13 +184,6 @@ describe('RecoveryManager', () => {
       await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
 
       expect(onEventMock).not.toHaveBeenCalled()
-    })
-
-    it('no-ops if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.resolveQuarantines(['item-1' as ItemId], kinds)
-
-      expect(mockRemoveManualRecoveryEntryIfKind).not.toHaveBeenCalled()
     })
   })
 
@@ -225,39 +205,17 @@ describe('RecoveryManager', () => {
       expect(result).toBe(mockEntries)
       expect(mockReadManualRecoveryEntries).toHaveBeenCalledWith('account-123', undefined)
     })
-
-    it('returns empty array if accountId is missing', async () => {
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      const result = await recoveryManager.listRecoveryItems()
-      expect(result).toEqual([])
-    })
   })
 
-  describe('in-flight and cooldown helpers', () => {
-    it('manages in-flight state correctly', () => {
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
-      recoveryManager.setInFlight('item-1' as ItemId, true)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(true)
-      recoveryManager.setInFlight('item-1' as ItemId, false)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
-    })
-
-    it('manages cooldown state correctly', () => {
-      const future = Date.now() + 5000
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, future)
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(future)
-      recoveryManager.clearRecoveryCooldown('item-1' as ItemId)
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
-    })
-
-    it('resets all state on reset()', () => {
-      recoveryManager.setInFlight('item-1' as ItemId, true)
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 5000)
+  describe('resetRecoveryState', () => {
+    it('clears in-flight and cooldown state', () => {
+      recoveryManager['setInFlight']('item-1' as ItemId, true)
+      recoveryManager['setRecoveryCooldown']('item-1' as ItemId, Date.now() + 5000)
 
       recoveryManager.resetRecoveryState()
 
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
+      expect(recoveryManager['isInFlight']('item-1' as ItemId)).toBe(false)
+      expect(recoveryManager['getRecoveryCooldownUntil']('item-1' as ItemId)).toBe(0)
     })
   })
 
@@ -342,17 +300,6 @@ describe('RecoveryManager', () => {
 
       consoleSpy.mockRestore()
       vi.useRealTimers()
-    })
-
-    it('does nothing if accountId or itemId is not set', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      await recoveryManager.reportDecryptionFailure('' as ItemId, 'pullDecryption', new Error('fail'))
-      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
-
-      recoveryManager = new RecoveryManager({ accountId: null, eventHub })
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, 'pullDecryption', new Error('fail'))
-      expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
-      consoleSpy.mockRestore()
     })
   })
 })

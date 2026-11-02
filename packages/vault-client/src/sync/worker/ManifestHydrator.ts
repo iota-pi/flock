@@ -2,7 +2,7 @@ import { chunk } from 'lodash-es'
 
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
-import type { SnapshotManager } from './SnapshotManager'
+import type { SnapshotTracker } from './SnapshotTracker'
 import type { CryptoResult } from '../../api/crypto'
 import type { KeyProvider } from '../../api/Keyring'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
@@ -18,7 +18,6 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('ManifestHydrator')
 
-const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.hydrationKeyWait
 
@@ -70,14 +69,14 @@ export interface ManifestHydratorDeps {
   apiClient: SyncApiClient
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
-  snapshotManager: SnapshotManager
+  snapshotTracker: SnapshotTracker
   keys: KeyProvider
   storeItems: (items: VaultDoc[], options?: StoreItemsOptions) => Promise<void>
   /** `serverVersion` is the manifest version of the snapshot that failed, when known */
   onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   onKeyVersionMissing?: (kver: string) => void
-  isShutdown?: () => boolean
+  isShutdown: () => boolean
   hydrationConcurrency?: number
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /**
@@ -91,14 +90,14 @@ export class ManifestHydrator {
   constructor(private readonly deps: ManifestHydratorDeps) {}
 
   private isAlive(): boolean {
-    return this.deps.isShutdown ? !this.deps.isShutdown() : true
+    return !this.deps.isShutdown()
   }
 
   async fetchAndHydrateRemoteItems(
     params: FetchAndHydrateParams,
     signal?: AbortSignal,
   ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
-    const batches = chunk(params.missingIds, BATCH_SIZE)
+    const batches = chunk(params.missingIds, SYNC_BATCH_SIZES.hydrationFetch)
     const fetchedItems: FetchedItem[] = []
     let hasBatchFailures = false
 
@@ -217,7 +216,7 @@ export class ManifestHydrator {
     }
 
     if (hydratedIds.length > 0) {
-      await this.deps.indexManager.addAutomergeItemIdsToIndex(hydratedIds)
+      await this.deps.indexManager.addItemIds(hydratedIds)
     }
 
     if (snapshots.length > 0) {
@@ -229,11 +228,11 @@ export class ManifestHydrator {
     }
 
     if (lastModifiedUpdates.length > 0) {
-      await this.deps.snapshotManager.importLastModified(lastModifiedUpdates)
+      await this.deps.snapshotTracker.importLastModified(lastModifiedUpdates)
     }
 
     if (versionUpdates.length > 0) {
-      await this.deps.snapshotManager.importVersions(versionUpdates)
+      await this.deps.snapshotTracker.importVersions(versionUpdates)
     }
 
     return {
@@ -343,11 +342,11 @@ export class ManifestHydrator {
 
     const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))
     if (isDeleted) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
+      await this.deps.indexManager.removeItemIds([itemId])
     }
 
     if (hydrationResult?.hasLocalChanges) {
-      this.deps.snapshotManager.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotTracker.markItemDirty(itemId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
 
     return {
@@ -385,8 +384,8 @@ export class ManifestHydrator {
     }
     const snapshotId = snapshot.id as ItemId
     if (tombstoneSet.has(snapshotId) && snapshot.deleted !== true) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([snapshotId])
-      this.deps.snapshotManager.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      await this.deps.indexManager.removeItemIds([snapshotId])
+      this.deps.snapshotTracker.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       return {
         status: 'success',
         itemId,

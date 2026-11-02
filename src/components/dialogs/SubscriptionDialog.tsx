@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogContent from '@mui/material/DialogContent'

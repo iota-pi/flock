@@ -1,3 +1,4 @@
+import { AbortError } from '../utils/abort'
 import { ServiceLifecycleManager } from './ServiceLifecycleManager'
 
 describe('ServiceLifecycleManager', () => {
@@ -11,17 +12,20 @@ describe('ServiceLifecycleManager', () => {
     const startOrder: string[] = []
 
     lifecycle
-      .register('ServiceA', {
+      .register({
+        name: 'ServiceA',
         onStart: () => {
           startOrder.push('A')
         },
       })
-      .register('ServiceB', {
+      .register({
+        name: 'ServiceB',
         onStart: () => {
           startOrder.push('B')
         },
       })
-      .register('ServiceC', {
+      .register({
+        name: 'ServiceC',
         onStart: () => {
           startOrder.push('C')
         },
@@ -30,25 +34,26 @@ describe('ServiceLifecycleManager', () => {
     await lifecycle.start()
 
     expect(startOrder).toEqual(['A', 'B', 'C'])
-    expect(lifecycle.isRunning()).toBe(true)
-    expect(lifecycle.getStatus()).toBe('running')
   })
 
   it('stops services in LIFO order (reverse registration order)', async () => {
     const stopOrder: string[] = []
 
     lifecycle
-      .register('ServiceA', {
+      .register({
+        name: 'ServiceA',
         onStop: () => {
           stopOrder.push('A')
         },
       })
-      .register('ServiceB', {
+      .register({
+        name: 'ServiceB',
         onStop: () => {
           stopOrder.push('B')
         },
       })
-      .register('ServiceC', {
+      .register({
+        name: 'ServiceC',
         onStop: () => {
           stopOrder.push('C')
         },
@@ -58,7 +63,6 @@ describe('ServiceLifecycleManager', () => {
     await lifecycle.stop()
 
     expect(stopOrder).toEqual(['C', 'B', 'A'])
-    expect(lifecycle.getStatus()).toBe('stopped')
   })
 
   it('waits for an in-progress start before stopping, so no service starts after teardown', async () => {
@@ -66,7 +70,8 @@ describe('ServiceLifecycleManager', () => {
     let finishA: () => void = () => {}
 
     lifecycle
-      .register('ServiceA', {
+      .register({
+        name: 'ServiceA',
         onStart: () => new Promise<void>(resolve => {
           finishA = () => {
             events.push('start A')
@@ -77,7 +82,8 @@ describe('ServiceLifecycleManager', () => {
           events.push('stop A')
         },
       })
-      .register('ServiceB', {
+      .register({
+        name: 'ServiceB',
         onStart: () => {
           events.push('start B')
         },
@@ -115,18 +121,21 @@ describe('ServiceLifecycleManager', () => {
     const stopOrder: string[] = []
 
     lifecycle
-      .register('ServiceA', {
+      .register({
+        name: 'ServiceA',
         onStop: () => {
           stopOrder.push('A')
         },
       })
-      .register('ServiceB', {
+      .register({
+        name: 'ServiceB',
         onStop: () => {
           stopOrder.push('B')
           throw new Error('ServiceB teardown explosion')
         },
       })
-      .register('ServiceC', {
+      .register({
+        name: 'ServiceC',
         onStop: () => {
           stopOrder.push('C')
         },
@@ -141,7 +150,6 @@ describe('ServiceLifecycleManager', () => {
       expect.stringContaining('Error stopping service "ServiceB"'),
       expect.any(Error)
     )
-    expect(lifecycle.getStatus()).toBe('stopped')
 
     errorSpy.mockRestore()
   })
@@ -151,7 +159,8 @@ describe('ServiceLifecycleManager', () => {
     const events: string[] = []
 
     lifecycle
-      .register('ServiceA', {
+      .register({
+        name: 'ServiceA',
         onStart: () => {
           events.push('start:A')
         },
@@ -159,7 +168,8 @@ describe('ServiceLifecycleManager', () => {
           events.push('stop:A')
         },
       })
-      .register('ServiceB', {
+      .register({
+        name: 'ServiceB',
         onStart: () => {
           events.push('start:B')
           throw new Error('ServiceB failed to start')
@@ -168,7 +178,8 @@ describe('ServiceLifecycleManager', () => {
           events.push('stop:B')
         },
       })
-      .register('ServiceC', {
+      .register({
+        name: 'ServiceC',
         onStart: () => {
           events.push('start:C')
         },
@@ -181,9 +192,105 @@ describe('ServiceLifecycleManager', () => {
 
     // ServiceA was started, B failed, so A is rolled back. C was never started or stopped.
     expect(events).toEqual(['start:A', 'start:B', 'stop:A'])
-    expect(lifecycle.getStatus()).toBe('errored')
 
     errorSpy.mockRestore()
+  })
+
+  it('does not stop the services again after rolling back', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const stopA = vi.fn()
+    const stopB = vi.fn()
+    const stopPassive = vi.fn()
+
+    lifecycle
+      .register({ name: 'ServiceA', onStart: () => {}, onStop: stopA })
+      .register({ name: 'ServiceB', onStart: () => { throw new Error('ServiceB failed to start') }, onStop: stopB })
+      .register({ name: 'PassiveService', onStop: stopPassive })
+
+    await expect(lifecycle.start()).rejects.toThrow('ServiceB failed to start')
+    await lifecycle.stop({ clearLocalData: true })
+
+    expect(stopA).toHaveBeenCalledTimes(1)
+    expect(stopB).not.toHaveBeenCalled()
+    expect(stopPassive).toHaveBeenCalledTimes(1)
+
+    errorSpy.mockRestore()
+  })
+
+  it('leaves the rollback to a waiting stop, which passes its options', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const stopA = vi.fn()
+    let failB: (() => void) | undefined
+
+    lifecycle
+      .register({ name: 'ServiceA', onStart: () => {}, onStop: stopA })
+      .register({
+        name: 'ServiceB',
+        onStart: () => new Promise<void>((_resolve, reject) => {
+          failB = () => reject(new Error('ServiceB failed to start'))
+        }),
+      })
+
+    const startPromise = lifecycle.start()
+    await vi.waitFor(() => expect(failB).toBeDefined())
+    const stopPromise = lifecycle.stop({ clearLocalData: true })
+    failB?.()
+
+    await expect(startPromise).rejects.toThrow('ServiceB failed to start')
+    await stopPromise
+    expect(stopA).toHaveBeenCalledTimes(1)
+    expect(stopA).toHaveBeenCalledWith({ clearLocalData: true })
+
+    errorSpy.mockRestore()
+  })
+
+  it('stops only the services without onStart when stopped before starting, and refuses to start after', async () => {
+    const startA = vi.fn()
+    const stopA = vi.fn()
+    const stopPassive = vi.fn()
+
+    lifecycle
+      .register({ name: 'ServiceA', onStart: startA, onStop: stopA })
+      .register({ name: 'PassiveService', onStop: stopPassive })
+
+    await lifecycle.stop()
+
+    await expect(lifecycle.start()).rejects.toThrow(AbortError)
+    expect(startA).not.toHaveBeenCalled()
+    expect(stopA).not.toHaveBeenCalled()
+    expect(stopPassive).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to start twice', async () => {
+    const startA = vi.fn()
+    lifecycle.register({ name: 'ServiceA', onStart: startA })
+
+    await lifecycle.start()
+
+    await expect(lifecycle.start()).rejects.toThrow('already been started')
+    expect(startA).toHaveBeenCalledTimes(1)
+  })
+
+  it('makes a concurrent stop wait for the teardown in progress', async () => {
+    let finishStop: (() => void) | undefined
+    let stopped = false
+    lifecycle.register({
+      name: 'ServiceA',
+      onStop: () => new Promise<void>(resolve => {
+        finishStop = () => {
+          stopped = true
+          resolve()
+        }
+      }),
+    })
+
+    const firstStop = lifecycle.stop()
+    const secondStop = lifecycle.stop().then(() => stopped)
+    await vi.waitFor(() => expect(finishStop).toBeDefined())
+    finishStop?.()
+
+    await firstStop
+    expect(await secondStop).toBe(true)
   })
 
   it('is idempotent on multiple calls to stop', async () => {
@@ -200,71 +307,7 @@ describe('ServiceLifecycleManager', () => {
   it('handles services without onStart or onStop gracefully', async () => {
     lifecycle.register({ name: 'PassiveService' })
 
-    await lifecycle.start()
-    expect(lifecycle.isRunning()).toBe(true)
-
-    await lifecycle.stop()
-    expect(lifecycle.getStatus()).toBe('stopped')
-  })
-
-  it('replaces registration when registering a service with an existing name', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const firstStart = vi.fn()
-    const secondStart = vi.fn()
-
-    lifecycle.register('SameName', { onStart: firstStart })
-    lifecycle.register('SameName', { onStart: secondStart })
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already registered'))
-
-    await lifecycle.start()
-    expect(firstStart).not.toHaveBeenCalled()
-    expect(secondStart).toHaveBeenCalledTimes(1)
-
-    warnSpy.mockRestore()
-  })
-
-  it('clears registered services and resets status', async () => {
-    const startFn = vi.fn()
-    const stopFn = vi.fn()
-    lifecycle.register('ServiceA', { onStart: startFn, onStop: stopFn })
-    await lifecycle.start()
-    await lifecycle.stop()
-
-    lifecycle.clear()
-    expect(lifecycle.getStatus()).toBe('uninitialized')
-
-    // Cleared services are no longer started or stopped
-    await lifecycle.start()
-    await lifecycle.stop()
-    expect(startFn).toHaveBeenCalledTimes(1)
-    expect(stopFn).toHaveBeenCalledTimes(1)
-  })
-
-  it('supports registering LifecycleAware objects directly', async () => {
-    const events: string[] = []
-    const awareService = {
-      lifecycleName: 'AwareService',
-      onLifecycleStart: () => {
-        events.push('start:aware')
-      },
-      onLifecycleStop: (options?: { clearLocalData?: boolean }) => {
-        events.push(`stop:aware:${options?.clearLocalData}`)
-      },
-    }
-
-    lifecycle.register(awareService)
-
-    // Registered under its lifecycleName, so a same-named registration replaces it
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    lifecycle.register('AwareService', {})
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"AwareService" already registered'))
-    lifecycle.register(awareService)
-    warnSpy.mockRestore()
-
-    await lifecycle.start()
-    expect(events).toEqual(['start:aware'])
-
-    await lifecycle.stop({ clearLocalData: true })
-    expect(events).toEqual(['start:aware', 'stop:aware:true'])
+    await expect(lifecycle.start()).resolves.toBeUndefined()
+    await expect(lifecycle.stop()).resolves.toBeUndefined()
   })
 })

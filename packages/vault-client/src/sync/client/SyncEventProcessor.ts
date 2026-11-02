@@ -118,8 +118,8 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
       case 'finishRequest':
         this.sink.finishRequest()
         break
+      // The worker's statusChange events carry the status these events lead to
       case 'authFailure': {
-        this.sink.setSyncStatus('offline')
         this.setSyncWarning(event.message)
         this.telemetry.addBreadcrumb({
           category: 'auth',
@@ -132,7 +132,6 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
         this.setRecoveryEntries(event.entries)
         break
       case 'quotaExceeded': {
-        this.sink.setSyncStatus('degraded')
         this.setSyncWarning(event.message, true)
         this.sink.setQuotaExceeded(true)
         this.telemetry.addBreadcrumb({
@@ -144,9 +143,6 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
       }
       case 'quotaResolved': {
         this.sink.setQuotaExceeded(false)
-        if (this.sink.getSyncStatus() === 'degraded') {
-          this.sink.setSyncStatus('idle')
-        }
         if (this.quotaWarning !== null && this.sink.getSyncWarning() === this.quotaWarning) {
           this.sink.clearSyncWarning()
         }
@@ -154,7 +150,6 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
         break
       }
       case 'snapshotFailed': {
-        this.sink.setSyncStatus('degraded')
         this.setSyncWarning(event.message)
         break
       }

@@ -2,7 +2,6 @@ import {
   SizeAwareBatchAccumulator,
   DEFAULT_MAX_BATCH_COUNT,
   DEFAULT_MAX_BATCH_BYTES,
-  DEFAULT_MAX_PAYLOAD_LIMIT,
 } from './SizeAwareBatchAccumulator'
 
 interface TestItem {
@@ -17,166 +16,81 @@ describe('SizeAwareBatchAccumulator', () => {
     expect(accumulator.maxBatchBytes).toBe(DEFAULT_MAX_BATCH_BYTES)
     expect(accumulator.isEmpty).toBe(true)
     expect(accumulator.size).toBe(0)
-    expect(accumulator.bytes).toBe(0)
     expect(accumulator.items).toEqual([])
   })
 
-  it('accepts calculateSize directly as constructor argument', () => {
-    const calc = (item: TestItem) => item.payload.length
-    const accumulator = new SizeAwareBatchAccumulator<TestItem>(calc)
-    expect(accumulator.calculateSize).toBe(calc)
-    expect(accumulator.maxBatchCount).toBe(DEFAULT_MAX_BATCH_COUNT)
-    expect(accumulator.maxBatchBytes).toBe(DEFAULT_MAX_BATCH_BYTES)
-  })
+  it('accumulates items', () => {
+    const accumulator = new SizeAwareBatchAccumulator<TestItem>({ maxBatchCount: 5, maxBatchBytes: 1000 })
 
-  it('caps maxBatchBytes at maxPayloadLimit', () => {
-    const accumulator = new SizeAwareBatchAccumulator({
-      maxBatchBytes: 10 * 1024 * 1024,
-      maxPayloadLimit: DEFAULT_MAX_PAYLOAD_LIMIT,
-    })
-    expect(accumulator.maxBatchBytes).toBe(DEFAULT_MAX_PAYLOAD_LIMIT)
-  })
-
-  it('accumulates items and tracks byte sizes using calculateSize', () => {
-    const accumulator = new SizeAwareBatchAccumulator<TestItem>({
-      maxBatchCount: 5,
-      maxBatchBytes: 1000,
-      calculateSize: item => item.payload.length,
-    })
-
-    const item1: TestItem = { id: '1', payload: 'hello' } // 5 bytes
-    expect(accumulator.wouldExceed(item1)).toBe(false)
-    accumulator.push(item1)
+    const item1: TestItem = { id: '1', payload: 'hello' }
+    expect(accumulator.wouldExceed(5)).toBe(false)
+    accumulator.push(item1, 5)
 
     expect(accumulator.isEmpty).toBe(false)
     expect(accumulator.size).toBe(1)
-    expect(accumulator.bytes).toBe(5)
     expect(accumulator.items).toEqual([item1])
 
-    const item2: TestItem = { id: '2', payload: ' world' } // 6 bytes
-    accumulator.push(item2)
+    const item2: TestItem = { id: '2', payload: ' world' }
+    accumulator.push(item2, 6)
 
     expect(accumulator.size).toBe(2)
-    expect(accumulator.bytes).toBe(11)
     expect(accumulator.items).toEqual([item1, item2])
   })
 
-  it('supports explicit size override in wouldExceed and push', () => {
-    const accumulator = new SizeAwareBatchAccumulator<TestItem>({
-      maxBatchCount: 5,
-      maxBatchBytes: 50,
-      calculateSize: item => item.payload.length,
-    })
-
-    const item1: TestItem = { id: '1', payload: 'short' } // 5 bytes by calculation
-    // Override explicit size with 30 bytes
-    expect(accumulator.wouldExceed(item1, 30)).toBe(false)
-    accumulator.push(item1, 30)
-    expect(accumulator.bytes).toBe(30)
-
-    // Another 25 bytes would exceed 50 limit
-    expect(accumulator.wouldExceed(item1, 25)).toBe(true)
-    // But 10 bytes would not exceed
-    expect(accumulator.wouldExceed(item1, 10)).toBe(false)
-  })
-
-  it('supports number items natively without calculateSize', () => {
-    const accumulator = new SizeAwareBatchAccumulator<number>({
-      maxBatchCount: 3,
-      maxBatchBytes: 100,
-    })
-
-    expect(accumulator.wouldExceed(40)).toBe(false)
-    accumulator.push(40)
-    expect(accumulator.bytes).toBe(40)
-
-    expect(accumulator.wouldExceed(50)).toBe(false)
-    accumulator.push(50)
-    expect(accumulator.bytes).toBe(90)
-
-    expect(accumulator.wouldExceed(20)).toBe(true)
-  })
-
-  it('throws an error if no calculateSize is provided and non-number item is checked without explicit size', () => {
-    const accumulator = new SizeAwareBatchAccumulator<TestItem>()
-    const item: TestItem = { id: '1', payload: 'test' }
-
-    expect(() => accumulator.wouldExceed(item)).toThrow(
-      'SizeAwareBatchAccumulator: No calculateSize function provided and item is not a number',
-    )
-    expect(() => accumulator.push(item)).toThrow(
-      'SizeAwareBatchAccumulator: No calculateSize function provided and item is not a number',
-    )
-  })
-
   it('indicates wouldExceed when item count reaches maxBatchCount', () => {
-    const accumulator = new SizeAwareBatchAccumulator<number>({
-      maxBatchCount: 2,
-      maxBatchBytes: 1000,
-    })
+    const accumulator = new SizeAwareBatchAccumulator<number>({ maxBatchCount: 2, maxBatchBytes: 1000 })
 
-    accumulator.push(10)
+    accumulator.push(1, 10)
     expect(accumulator.wouldExceed(10)).toBe(false)
 
-    accumulator.push(10)
+    accumulator.push(2, 10)
     // Count is now 2 (maxBatchCount), so next item would exceed
     expect(accumulator.wouldExceed(10)).toBe(true)
   })
 
   it('indicates wouldExceed when byte size reaches maxBatchBytes', () => {
-    const accumulator = new SizeAwareBatchAccumulator<number>({
-      maxBatchCount: 10,
-      maxBatchBytes: 100,
-    })
+    const accumulator = new SizeAwareBatchAccumulator<number>({ maxBatchCount: 10, maxBatchBytes: 100 })
 
-    accumulator.push(80)
+    accumulator.push(1, 80)
     expect(accumulator.wouldExceed(15)).toBe(false)
     expect(accumulator.wouldExceed(25)).toBe(true)
   })
 
   it('drains items and resets state', () => {
-    const accumulator = new SizeAwareBatchAccumulator<number>({
-      maxBatchCount: 5,
-      maxBatchBytes: 100,
-    })
+    const accumulator = new SizeAwareBatchAccumulator<number>({ maxBatchCount: 5, maxBatchBytes: 100 })
 
-    accumulator.push(20)
-    accumulator.push(30)
+    accumulator.push(1, 20)
+    accumulator.push(2, 30)
     expect(accumulator.size).toBe(2)
-    expect(accumulator.bytes).toBe(50)
 
     const drained = accumulator.drain()
-    expect(drained).toEqual([20, 30])
+    expect(drained).toEqual([1, 2])
     expect(accumulator.isEmpty).toBe(true)
-    expect(accumulator.size).toBe(0)
-    expect(accumulator.bytes).toBe(0)
+    expect(accumulator.wouldExceed(100)).toBe(false)
   })
 
   it('clears items and resets state', () => {
-    const accumulator = new SizeAwareBatchAccumulator<number>({
-      maxBatchCount: 5,
-      maxBatchBytes: 100,
-    })
+    const accumulator = new SizeAwareBatchAccumulator<number>({ maxBatchCount: 5, maxBatchBytes: 100 })
 
-    accumulator.push(20)
+    accumulator.push(1, 20)
     accumulator.clear()
     expect(accumulator.isEmpty).toBe(true)
     expect(accumulator.size).toBe(0)
-    expect(accumulator.bytes).toBe(0)
+    expect(accumulator.wouldExceed(100)).toBe(false)
   })
 
-  describe('accumulateAll and static batch', () => {
+  describe('static batch', () => {
+    const payloadLength = (item: TestItem) => item.payload.length
+
     it('returns empty array when given empty input', () => {
-      const accumulator = new SizeAwareBatchAccumulator<number>()
-      expect(accumulator.accumulateAll([])).toEqual([])
-      expect(SizeAwareBatchAccumulator.batch([])).toEqual([])
+      expect(SizeAwareBatchAccumulator.batch<TestItem>([], { calculateSize: payloadLength })).toEqual([])
     })
 
     it('partitions items by maxBatchCount', () => {
-      const items = [1, 2, 3, 4, 5]
-      const batches = SizeAwareBatchAccumulator.batch(items, {
+      const batches = SizeAwareBatchAccumulator.batch([1, 2, 3, 4, 5], {
         maxBatchCount: 2,
         maxBatchBytes: 10000,
+        calculateSize: n => n,
       })
 
       expect(batches).toEqual([[1, 2], [3, 4], [5]])
@@ -193,7 +107,7 @@ describe('SizeAwareBatchAccumulator', () => {
       const batches = SizeAwareBatchAccumulator.batch(items, {
         maxBatchCount: 10,
         maxBatchBytes: 260,
-        calculateSize: item => item.payload.length,
+        calculateSize: payloadLength,
       })
 
       // batch 1: item 1 (100) + item 2 (150) = 250 <= 260
@@ -213,7 +127,7 @@ describe('SizeAwareBatchAccumulator', () => {
       const batches = SizeAwareBatchAccumulator.batch(items, {
         maxBatchCount: 10,
         maxBatchBytes: 200,
-        calculateSize: item => item.payload.length,
+        calculateSize: payloadLength,
       })
 
       expect(batches).toHaveLength(3)

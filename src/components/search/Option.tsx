@@ -3,13 +3,13 @@ import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
-import { styled, Theme } from '@mui/material/styles'
+import { styled, type Theme } from '@mui/material/styles'
 
 import { getItemTypeLabel } from 'src/state/items'
 import { useAppStore } from 'src/state/store'
 import InlineText from '../ui/InlineText'
 import { getIcon } from '../Icons'
-import { AnySearchable } from './types'
+import type { AnySearchable } from './types'
 import { getName, isSearchableStandardItem } from './utils'
 
 

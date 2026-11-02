@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { Theme } from '@mui/material/styles'
+import type { Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 
 import { useAppStore } from 'src/state/store'
@@ -10,7 +10,7 @@ import { usePrevious } from 'src/utils'
 import { usePage } from '../pages'
 import ItemDrawer from 'src/features/items/components/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 
 
 const noop = () => {}

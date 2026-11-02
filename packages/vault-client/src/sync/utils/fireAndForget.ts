@@ -1,40 +1,24 @@
 import { createLogger } from './logger'
 
 /**
- * Safely executes a promise or promise-returning function in a fire-and-forget fashion,
- * ensuring that any unhandled rejection is caught and logged with a diagnostic tag,
- * preventing unhandled promise rejections from crashing the worker or main thread.
+ * Runs a promise in a fire-and-forget fashion, ensuring that any rejection is caught and
+ * logged with a diagnostic tag, preventing unhandled promise rejections from crashing the
+ * worker or main thread.
  *
- * Can accept either an already initiated Promise or a lazy promise factory (() => Promise<unknown>),
- * catching synchronous errors thrown during invocation.
- *
- * @param promiseOrFactory The promise to execute or function returning a promise.
+ * @param promise The promise to run.
  * @param tag A descriptive diagnostic tag identifying the subsystem and call site.
  * @param onError Optional error handler callback (e.g. for custom warning or cleanup).
  */
-export function fireAndForget(
-  promiseOrFactory: Promise<unknown> | (() => Promise<unknown>) | unknown,
-  tag: string,
-  onError?: (err: unknown) => void,
-): void {
-  const handleError = (err: unknown, unhandledMessage: string) => {
-    if (onError) {
-      try {
-        onError(err)
-      } catch (handlerErr) {
-        createLogger(tag).error('Error in fireAndForget onError handler:', handlerErr)
-      }
-    } else {
-      createLogger(tag).error(unhandledMessage, err)
+export function fireAndForget(promise: Promise<unknown>, tag: string, onError?: (err: unknown) => void): void {
+  promise.catch(err => {
+    if (!onError) {
+      createLogger(tag).error('Unhandled async error:', err)
+      return
     }
-  }
-
-  try {
-    const promise = typeof promiseOrFactory === 'function' ? (promiseOrFactory as () => unknown)() : promiseOrFactory
-    if (promise && typeof (promise as Promise<unknown>).catch === 'function') {
-      (promise as Promise<unknown>).catch(err => handleError(err, 'Unhandled async error:'))
+    try {
+      onError(err)
+    } catch (handlerErr) {
+      createLogger(tag).error('Error in fireAndForget onError handler:', handlerErr)
     }
-  } catch (err) {
-    handleError(err, 'Unhandled synchronous error:')
-  }
+  })
 }

@@ -1,21 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { databaseExists } from './databaseExists'
-
-async function createDatabase(factory: IDBFactory, name: string): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const request = factory.open(name, 1)
-    request.onupgradeneeded = () => request.result.createObjectStore('documents')
-    request.onsuccess = () => {
-      request.result.close()
-      resolve()
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-async function listDatabases(factory: IDBFactory): Promise<string[]> {
-  return (await factory.databases()).map(db => db.name ?? '')
-}
+import { createDatabase, listDatabases } from '../worker/__test__/testUtils'
 
 describe('databaseExists', () => {
   const originalIndexedDb = (globalThis as any).indexedDB

@@ -2,9 +2,9 @@ import { chunk } from 'lodash-es'
 
 import type { KeyProvider } from '../../api/Keyring'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
-import { ItemId } from '@vault/shared'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
+import type { ItemId } from '@vault/shared'
+import type { SyncSessionState } from './SyncSessionState'
+import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { decodeSyncMessage } from '@automerge/automerge/slim'
 import { BATCHED_MESSAGE_VERSION, packBatchedMessages } from './utils/binaryFraming'
 import { classifySyncError } from '../utils/errorClassifier'
@@ -13,6 +13,7 @@ import { checkAlive } from '../utils/abort'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { RecoveryManager } from './RecoveryManager'
 import { createLogger } from '../utils/logger'
+import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 
 const log = createLogger('SyncPoller')
 
@@ -23,7 +24,6 @@ export interface ChunkPushSummary {
   acknowledgedCount: number
   quarantinedCount: number
   unacknowledgedCount: number
-  totalPushed: number
 }
 
 type ChunkEntry = [ItemId, WalEntry[]][]
@@ -31,66 +31,60 @@ type ChunkEntry = [ItemId, WalEntry[]][]
 const POLL_CHUNK_SIZE = SYNC_BATCH_SIZES.pollChunk
 
 export interface SyncPollerDeps {
+  accountId: string
+  session: SyncSessionState
   pullQueueManager: SyncPullQueueManager
-  clientEventHub: ClientEventHub
-  internalEventHub: WorkerInternalEventHub
   keys: KeyProvider
   wal: SyncWriteAheadLog
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
+  /** Receives the heads of each item the server accepted a push for */
+  onPushAcknowledged: (itemId: ItemId, heads: string[]) => void
+  /** Called with the items whose WAL entries were dropped, which only a snapshot can now deliver */
+  onWalEntriesPruned?: (itemIds: ItemId[]) => void
 }
 
 export class SyncPoller {
-  private account: string | null = null
-  private isOnline = true
-  private isShutdown = false
+  private readonly accountId: string
+  private readonly session: SyncSessionState
   private readonly apiClient: SyncApiClient
-  public readonly consecutivePushFailures = new Map<ItemId, number>()
+  private readonly consecutivePushFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_PUSH_FAILURES)
   private readonly recoveryManager: RecoveryManager
   private readonly pullQueueManager: SyncPullQueueManager
-  private readonly clientEventHub: ClientEventHub
-  private readonly internalEventHub: WorkerInternalEventHub
   private readonly keys: KeyProvider
   private readonly wal: SyncWriteAheadLog
+  private readonly onPushAcknowledged: (itemId: ItemId, heads: string[]) => void
+  private readonly onWalEntriesPruned?: (itemIds: ItemId[]) => void
   /** WAL entries already checked to be sync messages, so a retried push doesn't decode them again */
   private validEntryIds = new Set<string>()
 
   constructor(deps: SyncPollerDeps) {
+    this.accountId = deps.accountId
+    this.session = deps.session
     this.pullQueueManager = deps.pullQueueManager
-    this.clientEventHub = deps.clientEventHub
-    this.internalEventHub = deps.internalEventHub
     this.keys = deps.keys
     this.wal = deps.wal
     this.apiClient = deps.apiClient
     this.recoveryManager = deps.recoveryManager
+    this.onPushAcknowledged = deps.onPushAcknowledged
+    this.onWalEntriesPruned = deps.onWalEntriesPruned
   }
 
-  setAccount(account: string | null): void {
-    this.account = account
-    this.consecutivePushFailures.clear()
-    if (account) {
-      this.isShutdown = false
-    }
-  }
-
-  setOnlineState(isOnline: boolean): void {
-    this.isOnline = isOnline
-  }
-
-  get isOperational(): boolean {
-    return !this.isShutdown && this.isOnline && Boolean(this.account)
+  private get isOperational(): boolean {
+    return this.session.isOperational
   }
 
   shutdown(): void {
-    this.isShutdown = true
     this.consecutivePushFailures.clear()
   }
 
-  /** Pushes the WAL and pulls updates. Aborting `signal` cancels the poll, which then reports `'no-poll'`. */
+  /**
+   * Pushes the WAL and pulls updates. Aborting `signal` cancels the poll, which then reports `'no-poll'`.
+   * Polls go through the untracked client, so they don't show as activity in the sync status.
+   */
   async executePoll(signal: AbortSignal = new AbortController().signal): Promise<PollOutcome> {
     if (!this.isOperational) return 'no-poll'
 
-    this.clientEventHub.emit({ type: 'startRequest' })
     const inFlightWalIds: string[] = []
     try {
       let batchEntries: ChunkEntry
@@ -138,7 +132,6 @@ export class SyncPoller {
       if (inFlightWalIds.length > 0) {
         this.wal.unmarkInFlight(inFlightWalIds)
       }
-      this.clientEventHub.emit({ type: 'finishRequest' })
     }
   }
 
@@ -184,7 +177,7 @@ export class SyncPoller {
 
     if (droppedItemIds.length > 0) {
       await this.wal.remove(droppedEntryIds)
-      this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: droppedItemIds })
+      this.onWalEntriesPruned?.(droppedItemIds)
     }
   }
 
@@ -228,16 +221,16 @@ export class SyncPoller {
     // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
     // and clientLatestCursor (for global updates across all other healthy items).
     const globalPageToken = this.pullQueueManager.getGlobalPageToken()
-    const pullCursors = this.pullQueueManager.getCursors()
+    const pullCursors = this.pullQueueManager.cursors.getPendingPulls()
     const hasPageTokens = !!globalPageToken || pullCursors.some(c => c.pageToken)
     let response: PollSyncBatchResponse
     try {
       response = await this.apiClient.pollSyncBatch(
         {
-          account: this.account!,
+          account: this.accountId,
           pushMessages,
           pullCursors,
-          clientLatestCursor: this.pullQueueManager.getGlobalScanCursor(),
+          clientLatestCursor: this.pullQueueManager.cursors.getGlobalScanCursor(),
           globalPageToken,
         },
         { signal }
@@ -256,7 +249,6 @@ export class SyncPoller {
       acknowledgedCount: 0,
       quarantinedCount: 0,
       unacknowledgedCount: 0,
-      totalPushed: chunkEntry.length,
     }
 
     if (chunkEntry.length > 0) {
@@ -267,7 +259,12 @@ export class SyncPoller {
       )
     }
 
-    await this.handlePollResponse(response)
+    await this.pullQueueManager.processPullResults(
+      response.pullResults,
+      response.globalHasMore,
+      response.globalNextPageToken,
+      response.globalScannedThroughCursor,
+    )
 
     return summary
   }
@@ -285,7 +282,7 @@ export class SyncPoller {
     for (const result of results) {
       if (this.isPushResultSuccessful(result)) {
         acknowledgedItemIds.add(result.itemId)
-        this.consecutivePushFailures.delete(result.itemId)
+        this.consecutivePushFailures.reset(result.itemId)
         const ids = sentIdsByItem.get(result.itemId)
         if (ids && ids.length > 0) {
           acknowledgedIds.push(...ids)
@@ -299,15 +296,14 @@ export class SyncPoller {
 
     for (const [sentItemId, messages] of chunkEntry) {
       if (!acknowledgedItemIds.has(sentItemId)) {
-        const failures = (this.consecutivePushFailures.get(sentItemId) || 0) + 1
+        const failures = this.consecutivePushFailures.recordFailure(sentItemId)
         const errorMsg = 'Push unacknowledged by server'
 
-        if (failures >= MAX_CONSECUTIVE_PUSH_FAILURES) {
+        if (this.consecutivePushFailures.isExhausted(failures)) {
           log.error(
             `Item ${sentItemId} reached max consecutive push failures (${failures}). Quarantining to manual recovery.`
           )
           quarantinedItemIds.add(sentItemId)
-          this.consecutivePushFailures.delete(sentItemId)
           for (const m of messages) {
             if (m.id) quarantinedIds.push(m.id)
           }
@@ -321,7 +317,6 @@ export class SyncPoller {
             log.error(`Failed to quarantine item ${sentItemId}:`, qErr)
           }
         } else {
-          this.consecutivePushFailures.set(sentItemId, failures)
           log.warn(
             `Push failed for item ${sentItemId} (attempt ${failures}/${MAX_CONSECUTIVE_PUSH_FAILURES}): ${errorMsg}, preserving in WAL`
           )
@@ -331,19 +326,13 @@ export class SyncPoller {
 
     const idsToRemove = [...acknowledgedIds, ...quarantinedIds]
     if (idsToRemove.length > 0) {
-      try {
-        await this.wal.remove(idsToRemove)
-      } catch (walErr) {
-        log.error('Failed to remove acknowledged/quarantined IDs from WAL', walErr)
-        throw walErr
-      }
+      await this.wal.remove(idsToRemove)
     }
 
     return {
       acknowledgedCount: acknowledgedItemIds.size,
       quarantinedCount: quarantinedItemIds.size,
       unacknowledgedCount: chunkEntry.length - acknowledgedItemIds.size - quarantinedItemIds.size,
-      totalPushed: chunkEntry.length,
     }
   }
 
@@ -352,31 +341,15 @@ export class SyncPoller {
     const lastEntry = itemMessages?.[itemMessages.length - 1]
     if (!lastEntry) return
 
+    let heads: string[]
     try {
-      const decoded = decodeSyncMessage(lastEntry.data)
-      if (decoded.heads && decoded.heads.length > 0) {
-        this.internalEventHub.emit({
-          type: 'pushAcknowledged',
-          itemId: result.itemId,
-          heads: decoded.heads,
-        })
-      }
+      heads = decodeSyncMessage(lastEntry.data).heads
     } catch (err) {
       log.warn('Failed to decode acknowledged sync message', err)
+      return
     }
-  }
-
-  private async handlePollResponse(response: PollSyncBatchResponse): Promise<void> {
-    try {
-      await this.pullQueueManager.processPullResults(
-        response.pullResults,
-        response.globalHasMore,
-        response.globalNextPageToken,
-        response.globalScannedThroughCursor,
-      )
-    } catch (pullErr) {
-      log.error('Error processing pull results', pullErr)
-      throw pullErr
+    if (heads && heads.length > 0) {
+      this.onPushAcknowledged(result.itemId, heads)
     }
   }
 

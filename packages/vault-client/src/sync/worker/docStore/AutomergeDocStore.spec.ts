@@ -1,6 +1,6 @@
 import {
   Repo,
-  DocHandle,
+  type DocHandle,
   type Chunk,
   type StorageAdapterInterface,
   type StorageKey,
@@ -12,17 +12,13 @@ import type {
   RepoDoc,
 } from './AutomergeDocStore'
 import { createTestDocStore } from '../__test__/testUtils'
-import { AutomergeIndexManager } from './AutomergeIndexManager'
-import { IndexStore } from '../stores/IndexStore'
-import { WorkerInternalEventHub } from '../SyncEventHub'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
+import { AbortError } from '../../utils/abort'
 import {
   toAutomergeUrlFromItemId,
   toDocumentIdFromItemId,
-  ACCOUNT_INDEX_DOCUMENT_ID,
-  type BackupDocId,
 } from '../utils/automerge'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 
 function createTestItem(id: ItemId, overrides: Partial<VaultDoc> = {}): VaultDoc {
@@ -61,29 +57,20 @@ describe('AutomergeDocStore Unit Tests', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
-    await docStore.shutdown()
+    docStore.shutdown()
     await repo.shutdown()
   })
 
   // =========================================================================
   // 1. hydrateAutomergeDocumentBinary fallback merge logic (4 branches)
   // =========================================================================
-  describe('hydrateAutomergeDocumentBinary (4 branches and input guards)', () => {
-    it('returns empty result when itemId is invalid or empty string', async () => {
-      const binary = createDocBinary('valid-id' as ItemId)
-      const resEmpty = await docStore.hydrateAutomergeDocumentBinary('' as ItemId, binary)
-      expect(resEmpty).toEqual({ hasLocalChanges: false, incomingHeads: [] })
-
-      const resWhitespace = await docStore.hydrateAutomergeDocumentBinary('   ' as ItemId, binary)
-      expect(resWhitespace).toEqual({ hasLocalChanges: false, incomingHeads: [] })
-    })
-
+  describe('hydrateAutomergeDocumentBinary (4 branches and input guard)', () => {
     it('returns empty result when binary is not a Uint8Array or has zero bytes', async () => {
       // @ts-expect-error invalid binary test
-      const resNull = await docStore.hydrateAutomergeDocumentBinary('item-1', null)
+      const resNull = await docStore.hydrateAutomergeDocumentBinary('item-1' as ItemId, null)
       expect(resNull).toEqual({ hasLocalChanges: false, incomingHeads: [] })
 
-      const resEmpty = await docStore.hydrateAutomergeDocumentBinary('item-1', new Uint8Array(0))
+      const resEmpty = await docStore.hydrateAutomergeDocumentBinary('item-1' as ItemId, new Uint8Array(0))
       expect(resEmpty).toEqual({ hasLocalChanges: false, incomingHeads: [] })
     })
 
@@ -257,7 +244,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       )
 
       expect(storageAdapter.has).toHaveBeenCalledWith([toDocumentIdFromItemId(itemId)])
-      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary)
+      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary, expect.anything())
       expect(result.hasLocalChanges).toBe(false)
       const retrieved = await customStore.getAutomergeItem(itemId)
       expect(retrieved?.name).toBe('Server Copy')
@@ -350,7 +337,7 @@ describe('AutomergeDocStore Unit Tests', () => {
 
       expect(result.hasLocalChanges).toBe(false)
       expect(result.incomingHeads).toEqual(Automerge.getHeads(Automerge.load(remoteBinary)))
-      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary)
+      expect(seedSpy).toHaveBeenCalledWith(itemId, remoteBinary, expect.anything())
 
       const retrieved = await customStore.getAutomergeItem(itemId)
       expect(retrieved?.name).toBe('Brand New Item')
@@ -575,9 +562,9 @@ describe('AutomergeDocStore Unit Tests', () => {
   })
 
   // =========================================================================
-  // 3. hasDataInStorage fallback when no storage checker is available
+  // 3. hasDataInStorage and loadDocDataFromStorage
   // =========================================================================
-  describe('hasDataInStorage fallback and storage adapter checking', () => {
+  describe('hasDataInStorage and loadDocDataFromStorage', () => {
     it('uses storageAdapter.has when storageAdapter is configured', async () => {
       const mockAdapter: DocStorageChecker = {
         has: vi.fn().mockResolvedValue(true),
@@ -610,57 +597,54 @@ describe('AutomergeDocStore Unit Tests', () => {
       ).rejects.toThrow('Storage disk corruption')
     })
 
-    it('fallback: returns false when no storageAdapter is configured and repo has no storageSubsystem', async () => {
-      const store = createTestDocStore(repo, { storageAdapter: null })
-      const result = await store.hasDataInStorage('test-item' as ItemId)
-      expect(result).toBe(false)
+    it('refuses to check storage after shutdown', async () => {
+      const mockAdapter: DocStorageChecker = {
+        has: vi.fn().mockResolvedValue(true),
+      }
+      const store = createTestDocStore(repo, { storageAdapter: mockAdapter })
+      store.shutdown()
 
-      const docData = await store.loadDocDataFromStorage('test-item' as ItemId)
-      expect(docData).toBeUndefined()
+      await expect(store.hasDataInStorage('test-storage-item' as ItemId)).rejects.toThrow(AbortError)
+      expect(mockAdapter.has).not.toHaveBeenCalled()
     })
 
-    it('fallback: returns true when repo.storageSubsystem returns valid document bytes', async () => {
+    it('loadDocDataFromStorage returns undefined when the repo has no storage subsystem', async () => {
+      expect(await docStore.loadDocDataFromStorage('test-item' as ItemId)).toBeUndefined()
+    })
+
+    it('loadDocDataFromStorage returns the bytes the storage subsystem loads', async () => {
       const customRepo = new Repo()
       const rawBytes = new Uint8Array([1, 2, 3, 4])
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockResolvedValue(rawBytes),
       }
-      const store = createTestDocStore(customRepo, { storageAdapter: null })
+      const store = createTestDocStore(customRepo)
 
-      const exists = await store.hasDataInStorage('test-item' as ItemId)
-      expect(exists).toBe(true)
-
-      const loaded = await store.loadDocDataFromStorage('test-item' as ItemId)
-      expect(loaded).toEqual(rawBytes)
+      expect(await store.loadDocDataFromStorage('test-item' as ItemId)).toEqual(rawBytes)
     })
 
-    it('fallback: returns false when repo.storageSubsystem returns empty bytes or undefined', async () => {
+    it('loadDocDataFromStorage returns undefined for empty bytes or undefined', async () => {
       const customRepo = new Repo()
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockResolvedValue(new Uint8Array(0)),
       }
-      const store = createTestDocStore(customRepo, { storageAdapter: null })
-      expect(await store.hasDataInStorage('test-item' as ItemId)).toBe(false)
+      const store = createTestDocStore(customRepo)
       expect(await store.loadDocDataFromStorage('test-item' as ItemId)).toBeUndefined()
 
       customRepo.storageSubsystem!.loadDocData = vi.fn().mockResolvedValue(undefined)
-      expect(await store.hasDataInStorage('test-item' as ItemId)).toBe(false)
       expect(await store.loadDocDataFromStorage('test-item' as ItemId)).toBeUndefined()
     })
 
-    it('fallback: rethrows error when loadDocData in storageSubsystem throws', async () => {
+    it('loadDocDataFromStorage rethrows when the storage subsystem throws', async () => {
       const customRepo = new Repo()
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockRejectedValue(new Error('IndexedDB transaction aborted')),
       }
-      const store = createTestDocStore(customRepo, { storageAdapter: null })
+      const store = createTestDocStore(customRepo)
 
-      await expect(
-        store.hasDataInStorage('test-item' as ItemId)
-      ).rejects.toThrow('IndexedDB transaction aborted')
       await expect(
         store.loadDocDataFromStorage('test-item' as ItemId)
       ).rejects.toThrow('IndexedDB transaction aborted')
@@ -680,7 +664,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(repo, 'delete')
       const importSpy = vi.spyOn(repo, 'import')
 
-      const handle = await docStore.findOrCreateHandle(itemId)
+      const handle = await docStore['findOrCreateHandle'](itemId)
       expect(handle).toBe(existing)
       expect(deleteSpy).not.toHaveBeenCalled()
       expect(importSpy).not.toHaveBeenCalled()
@@ -694,7 +678,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const importSpy = vi.spyOn(customRepo, 'import')
 
       const customStore = createTestDocStore(customRepo)
-      const handle = await customStore.findOrCreateHandle(itemId, { knownToExist: true })
+      const handle = await customStore['findOrCreateHandle'](itemId, { knownToExist: true })
 
       expect(handle).toBeUndefined()
       expect(deleteSpy).not.toHaveBeenCalled()
@@ -711,7 +695,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
 
-      const handle = await customStore.findOrCreateHandle(itemId)
+      const handle = await customStore['findOrCreateHandle'](itemId)
 
       expect(handle).toBeUndefined()
       expect(deleteSpy).not.toHaveBeenCalled()
@@ -728,7 +712,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
 
-      const handle = await customStore.findOrCreateHandle(itemId)
+      const handle = await customStore['findOrCreateHandle'](itemId)
 
       expect(handle).toBeUndefined()
       expect(deleteSpy).not.toHaveBeenCalled()
@@ -745,7 +729,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockResolvedValue(false)
 
-      const handle = await customStore.findOrCreateHandle(itemId)
+      const handle = await customStore['findOrCreateHandle'](itemId)
 
       expect(handle).toBeDefined()
       expect(handle?.isReady()).toBe(true)
@@ -753,20 +737,15 @@ describe('AutomergeDocStore Unit Tests', () => {
       expect(importSpy).toHaveBeenCalledWith(expect.any(Uint8Array), { docId: documentId })
     })
 
-    it('emits docHandleReplaced once on internalEventHub when creating document', async () => {
-      const hub = new WorkerInternalEventHub()
-      const replacedEvents: unknown[] = []
-      hub.subscribe(event => {
-        if (event.type === 'docHandleReplaced') replacedEvents.push(event)
-      })
-
-      const store = createTestDocStore(repo, { internalEventHub: hub })
+    it('reports the replaced handle once when creating document', async () => {
+      const onHandleReplaced = vi.fn()
+      const store = createTestDocStore(repo, { onHandleReplaced })
       vi.spyOn(store, 'hasDataInStorage').mockResolvedValue(false)
 
       const itemId = 'event-notify-item' as ItemId
-      const handle = await store.findOrCreateHandle(itemId)
+      const handle = await store['findOrCreateHandle'](itemId)
 
-      expect(replacedEvents).toEqual([{ type: 'docHandleReplaced', itemId, handle }])
+      expect(onHandleReplaced.mock.calls).toEqual([[itemId, handle]])
     })
 
     it('throws wrapped error if repo.import fails during creation', async () => {
@@ -779,7 +758,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockResolvedValue(false)
 
-      await expect(customStore.findOrCreateHandle(itemId)).rejects.toThrow(
+      await expect(customStore['findOrCreateHandle'](itemId)).rejects.toThrow(
         `[AutomergeDocStore] Failed to import/create document for ${itemId}: WASM out of memory`
       )
     })
@@ -790,8 +769,8 @@ describe('AutomergeDocStore Unit Tests', () => {
       const importSpy = vi.spyOn(repo, 'import')
 
       const [handleA, handleB] = await Promise.all([
-        docStore.findOrCreateHandle(itemId),
-        docStore.findOrCreateHandle(itemId),
+        docStore['findOrCreateHandle'](itemId),
+        docStore['findOrCreateHandle'](itemId),
       ])
 
       expect(handleA).toBeDefined()
@@ -888,7 +867,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const itemId = 'wait-lock-item' as ItemId
 
       // When idle, resolves immediately
-      await expect(docStore.waitForItemLock(itemId)).resolves.toBeUndefined()
+      await expect(docStore['waitForItemLock'](itemId)).resolves.toBeUndefined()
 
       // When locked, waits for in-flight operation
       let resolveLock: () => void
@@ -900,7 +879,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       await new Promise(res => setTimeout(res, 0))
 
       let waitFinished = false
-      const waitPromise = docStore.waitForItemLock(itemId).then(() => {
+      const waitPromise = docStore['waitForItemLock'](itemId).then(() => {
         waitFinished = true
       })
 
@@ -915,7 +894,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       vi.spyOn(docStore, 'hasDataInStorage').mockResolvedValue(false)
 
       let releaseCreate: () => void
-      const createPromise = docStore.findOrCreateHandle(itemId).then(async handle => {
+      const createPromise = docStore['findOrCreateHandle'](itemId).then(async handle => {
         await new Promise<void>(res => { releaseCreate = res })
         return handle
       })
@@ -938,11 +917,6 @@ describe('AutomergeDocStore Unit Tests', () => {
   // 6. Additional AutomergeDocStore core methods
   // =========================================================================
   describe('changeDocument, saveDocToStorage, and helpers', () => {
-    it('changeDocument returns false for invalid itemId', async () => {
-      const res = await docStore.changeDocument('' as ItemId, () => {})
-      expect(res).toBe(false)
-    })
-
     it('changeDocument returns false when document handle is missing and createIfMissing is false', async () => {
       vi.spyOn(docStore, 'hasDataInStorage').mockResolvedValue(false)
       const res = await docStore.changeDocument('missing-item' as ItemId, () => {}, { createIfMissing: false })
@@ -1060,27 +1034,14 @@ describe('AutomergeDocStore Unit Tests', () => {
 
 
     it('snapshotFromHandle returns null for missing or non-ready handle or empty doc', () => {
-      expect(docStore.snapshotFromHandle(undefined)).toBeNull()
+      expect(docStore['snapshotFromHandle'](undefined)).toBeNull()
 
       const mockUnready = { isReady: () => false, doc: () => ({}) } as unknown as DocHandle<RepoDoc>
-      expect(docStore.snapshotFromHandle(mockUnready)).toBeNull()
+      expect(docStore['snapshotFromHandle'](mockUnready)).toBeNull()
     })
 
-    it('getAutomergeItem returns null for invalid itemId or empty snapshot', async () => {
-      expect(await docStore.getAutomergeItem('' as ItemId)).toBeNull()
+    it('getAutomergeItem returns null for a missing document', async () => {
       expect(await docStore.getAutomergeItem('missing-item' as ItemId)).toBeNull()
-    })
-
-    it('implements LifecycleAware: lifecycleName is DocStore and onLifecycleStop delegates to shutdown', async () => {
-      expect(docStore.lifecycleName).toBe('DocStore')
-
-      const customRepo = new Repo()
-      const store = createTestDocStore(customRepo)
-      const shutdownSpy = vi.spyOn(store, 'shutdown')
-
-      await store.onLifecycleStop()
-      expect(shutdownSpy).toHaveBeenCalledTimes(1)
-      await customRepo.shutdown()
     })
 
     it('shutdown does not shut down repo since repo lifecycle is owned by AutomergeRepoManager (L-8)', async () => {
@@ -1088,75 +1049,9 @@ describe('AutomergeDocStore Unit Tests', () => {
       const shutdownSpy = vi.spyOn(customRepo, 'shutdown')
       const store = createTestDocStore(customRepo)
 
-      await store.shutdown()
+      store.shutdown()
       expect(shutdownSpy).not.toHaveBeenCalled()
       await customRepo.shutdown()
-    })
-
-    it('exportAllBinaries and restoreFromBinaries correctly roundtrips documents', async () => {
-      const accountId = 'test-docstore-backup-account'
-      const indexStore = new IndexStore(accountId)
-      const indexManager = new AutomergeIndexManager(accountId, indexStore)
-
-      await indexStore.clear()
-      await indexManager.ensureIndexDocument()
-
-      const item1 = createTestItem('backup-item-1' as ItemId, { name: 'Item 1' })
-      const item2 = createTestItem('backup-item-2' as ItemId, { name: 'Item 2' })
-
-      await docStore.seedImportedDocument(item1.id, createDocBinary(item1.id, item1))
-      await docStore.seedImportedDocument(item2.id, createDocBinary(item2.id, item2))
-      await indexManager.addAutomergeItemIdsToIndex([item1.id, item2.id])
-      await indexManager.updateAutomergeMetadata({ prayerGoal: 42 })
-
-      const exported = await docStore.exportAllBinaries(indexManager)
-
-      expect(exported.skipped).toEqual([])
-      expect(exported.documents[item1.id]).toBeDefined()
-      expect(exported.documents[item2.id]).toBeDefined()
-      expect(exported.documents[ACCOUNT_INDEX_DOCUMENT_ID]).toBeDefined()
-
-      // Restore on a device without the documents
-      const restoringStore = createTestDocStore(new Repo())
-      await indexStore.clear()
-      await indexManager.ensureIndexDocument()
-
-      expect(await restoringStore.getAutomergeItem(item1.id)).toBeNull()
-
-      // Restore from binaries
-      const restoredIds = await restoringStore.restoreFromBinaries(exported.documents, indexManager)
-      expect(restoredIds).toContain(item1.id)
-      expect(restoredIds).toContain(item2.id)
-
-      const restoredItem1 = await restoringStore.getAutomergeItem(item1.id)
-      expect(restoredItem1?.name).toBe('Item 1')
-
-      const indexItemIds = await indexManager.listAutomergeItemIds()
-      expect(indexItemIds).toContain(item1.id)
-      expect(indexItemIds).toContain(item2.id)
-
-      const restoredMeta = await indexManager.getAutomergeMetadata()
-      expect(restoredMeta.prayerGoal).toBe(42)
-
-      indexManager.close()
-    })
-
-    it('exportAllBinaries tracks skipped items when documents fail to load or have empty doc', async () => {
-      const accountId = 'test-docstore-skip-account'
-      const indexStore = new IndexStore(accountId)
-      const indexManager = new AutomergeIndexManager(accountId, indexStore)
-      await indexStore.clear()
-      await indexManager.ensureIndexDocument()
-
-      await indexManager.addAutomergeItemIdsToIndex(['missing-item' as ItemId])
-
-      vi.spyOn(docStore, 'findHandle').mockResolvedValue(undefined)
-
-      const exported = await docStore.exportAllBinaries(indexManager)
-      expect(exported.skipped).toContain('missing-item')
-      expect(exported.documents['missing-item' as BackupDocId]).toBeUndefined()
-
-      indexManager.close()
     })
   })
 
@@ -1245,7 +1140,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         expect(storedDoc.name).toBe('Local Name')
         expect(storedDoc.description).toBe('Remote Desc')
       } finally {
-        await store.shutdown()
+        store.shutdown()
         await storageRepo.shutdown()
       }
     })

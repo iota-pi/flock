@@ -1,9 +1,9 @@
-import {
-  type Message,
-  type PeerId,
-  type PeerMetadata,
-  type StorageId,
-  type DocumentId,
+import type {
+  Message,
+  PeerId,
+  PeerMetadata,
+  StorageId,
+  DocumentId,
 } from '@automerge/automerge-repo/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 import { debounce } from 'lodash-es'
@@ -11,11 +11,10 @@ import { debounce } from 'lodash-es'
 import { BaseSyncNetworkAdapter } from './BaseSyncNetworkAdapter'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
-import type { WorkerInternalEventHub } from './SyncEventHub'
+import type { SyncSessionState } from './SyncSessionState'
 import { BoundedQueue } from '../utils/BoundedQueue'
 import { BoundedSet } from '../utils/BoundedSet'
 import { RetryTimer } from '../utils/RetryTimer'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 
@@ -53,6 +52,11 @@ function isEmptySyncMessage(message: Message): boolean {
 export type HeadsValidator = (documentId: DocumentId, heads: string[]) => boolean
 
 export interface VaultNetworkAdapterOptions {
+  accountId: string
+  /** Only the leader sends to the vault */
+  session: SyncSessionState
+  /** Hands an outgoing message (a change or a pull request) to the broker, which writes it to the WAL */
+  onMessageToSend: (message: Message) => void
   /** Persists the last confirmed synced heads so they survive a restart */
   syncedHeadsStore?: SyncedHeadsStore
   /**
@@ -60,6 +64,8 @@ export interface VaultNetworkAdapterOptions {
    * on the vault's behalf. Without a validator, all synced heads are trusted.
    */
   headsValidator?: HeadsValidator
+  /** Called when a document is renegotiated from scratch, which a snapshot backs up */
+  onReNegotiationTriggered?: (documentId: DocumentId) => void
 }
 
 interface RenegotiationCircuitState {
@@ -68,10 +74,9 @@ interface RenegotiationCircuitState {
   retryTimer: RetryTimer
 }
 
-export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements LifecycleAware {
-  readonly lifecycleName = 'VaultNetworkAdapter'
-  private account: string | null = null
-  private sendEnabled = false
+export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
+  private readonly accountId: string
+  private readonly session: SyncSessionState
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
   private readonly outboundQueue = new BoundedQueue<Message>(
     MAX_OUTBOUND_QUEUE_SIZE,
@@ -92,20 +97,24 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
    */
   private hasUnsavedSyncedHeads = false
   private readonly headsValidator: HeadsValidator | null
+  private readonly onMessageToSend: (message: Message) => void
+  private readonly onReNegotiationTriggered?: (documentId: DocumentId) => void
 
-  constructor(
-    private readonly internalEventHub: WorkerInternalEventHub,
-    options: VaultNetworkAdapterOptions = {},
-  ) {
+  constructor(options: VaultNetworkAdapterOptions) {
     super()
+    this.accountId = options.accountId
+    this.session = options.session
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve
     })
     this.syncedHeadsStore = options.syncedHeadsStore ?? null
     this.headsValidator = options.headsValidator ?? null
+    this.onMessageToSend = options.onMessageToSend
+    this.onReNegotiationTriggered = options.onReNegotiationTriggered
   }
 
-  async onLifecycleStop(options?: { clearLocalData?: boolean }): Promise<void> {
+  /** Saves changed synced heads (unless local data is being cleared), then disconnects */
+  async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     // disconnect() drops the heads, and a debounced save with them
     if (this.hasUnsavedSyncedHeads && !options?.clearLocalData) {
       this.saveSyncedHeadsDebounced.cancel()
@@ -146,47 +155,16 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
   protected override canSend(): boolean {
     return super.canSend()
       && this.connectionState === 'connected'
-      && Boolean(this.account)
-      && this.sendEnabled
+      && this.session.isLeader
   }
 
-  setSendEnabled(sendEnabled: boolean): void {
-    if (this.sendEnabled === sendEnabled) {
-      return
-    }
-    this.sendEnabled = sendEnabled
-
-    if (sendEnabled) {
+  /** Connects the vault peer when this tab becomes the leader, and disconnects it when it stops being one */
+  onLeaderChange(): void {
+    if (this.session.isLeader) {
       this.seededDocuments.clear()
       this.resumeSending()
     } else {
       this.disconnectPeer()
-    }
-  }
-
-  setAccount(account: string | null): void {
-    const nextAccount = account && account.length > 0 ? account : null
-    if (this.account === nextAccount) {
-      return
-    }
-
-    if (this.account) {
-      this.seededDocuments.clear()
-      this.clearSyncedHeads()
-
-      if (!nextAccount) {
-        this.disconnectPeer()
-      }
-
-      this.clearOutboundQueue()
-    }
-
-    this.account = nextAccount
-
-    if (this.account) {
-      this.resumeSending()
-    } else {
-      this.clearOutboundQueue()
     }
   }
 
@@ -319,7 +297,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       this.pendingReNegotiations.add(documentId)
     }
 
-    this.internalEventHub.emit({ type: 'renegotiationTriggered', documentId })
+    this.onReNegotiationTriggered?.(documentId)
     return true
   }
 
@@ -364,7 +342,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
       return
     }
 
-    this.internalEventHub.emit({ type: 'messageToSend', message })
+    this.onMessageToSend(message)
   }
 
   /**
@@ -465,7 +443,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     fireAndForget(this.persistSyncedHeads(), 'VaultNetworkAdapter:persistSyncedHeads')
   }, 1000)
 
-  async persistSyncedHeads(): Promise<void> {
+  private async persistSyncedHeads(): Promise<void> {
     if (!this.syncedHeadsStore) return
     const entries = Array.from(this.syncedHeads.entries())
     this.hasUnsavedSyncedHeads = false
@@ -483,16 +461,10 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter implements Lifec
     this.syncedHeads.clear()
   }
 
-  private clearOutboundQueue(): void {
-    this.outboundQueue.clear()
-    this.pendingReNegotiations.clear()
-    this.resetReNegotiationCircuit()
-  }
-
   private connectPeer(): void {
-    if (this.account && this.connectionState === 'connected' && this.sendEnabled) {
+    if (this.connectionState === 'connected' && this.session.isLeader) {
       this.dispatchPeerCandidate(VAULT_PEER_ID, {
-        storageId: `vault:${this.account}` as StorageId,
+        storageId: `vault:${this.accountId}` as StorageId,
         isEphemeral: false,
       })
     }

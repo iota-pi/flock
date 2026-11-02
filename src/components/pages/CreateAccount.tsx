@@ -1,4 +1,4 @@
-import { MouseEvent, useCallback, useState } from 'react'
+import { type MouseEvent, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useForm, useWatch } from 'react-hook-form'
 import Alert from '@mui/material/Alert'

@@ -1,4 +1,3 @@
-import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { isQuotaError } from '../utils/storageQuota'
 import {
@@ -14,15 +13,15 @@ import type { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { SyncOrchestrator } from './SyncOrchestrator'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import type { RetrySaveResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
+import type { SyncSessionState } from './SyncSessionState'
 
 const log = createLogger('StorageRecoveryService')
 
-export class QuotaExceededRetryError extends Error {
+class QuotaExceededRetryError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'QuotaExceededRetryError'
@@ -30,7 +29,7 @@ export class QuotaExceededRetryError extends Error {
 }
 
 export interface StorageRecoveryServiceDeps {
-  accountId: string
+  session: SyncSessionState
   clientEventHub: ClientEventHub
   wal: SyncWriteAheadLog
   docStore: AutomergeDocStore
@@ -41,198 +40,79 @@ export interface StorageRecoveryServiceDeps {
   orchestrator: SyncOrchestrator
 }
 
-export class StorageRecoveryService implements LifecycleAware {
-  readonly lifecycleName = 'StorageRecoveryService'
+export class StorageRecoveryService {
   private unregisterQuotaRecovery: (() => void) | null = null
   private unregisterQuotaReporter: (() => void) | null = null
 
   constructor(private readonly deps: StorageRecoveryServiceDeps) {}
 
-  onLifecycleStart(): void {
-    this.start()
-  }
-
-  onLifecycleStop(): void {
-    this.stop()
-  }
-
   /**
-   * Starts the service and registers global storage handlers.
+   * Registers the global storage handlers: a quota error prunes the WAL before its one retry, and a
+   * quota error that persists is reported to the client.
    */
   start(): void {
-    if (!this.unregisterQuotaRecovery) {
-      this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
-        return this.handleEmergencyPrune()
-      })
-    }
-
-    if (!this.unregisterQuotaReporter) {
-      this.unregisterQuotaReporter = registerQuotaReporter((msg: string) => {
-        fireAndForget(this.handleQuotaExceeded(msg), 'StorageRecoveryService:handleQuotaExceeded')
-      })
-    }
-  }
-
-  /**
-   * Stops the service and unregisters global storage handlers.
-   */
-  stop(): void {
-    if (this.unregisterQuotaRecovery) {
-      this.unregisterQuotaRecovery()
-      this.unregisterQuotaRecovery = null
-    }
-    if (this.unregisterQuotaReporter) {
-      this.unregisterQuotaReporter()
-      this.unregisterQuotaReporter = null
-    }
-  }
-
-  /**
-   * Performs emergency WAL pruning to free storage space. Returns the number of entries removed.
-   */
-  async handleEmergencyPrune(): Promise<number> {
-    try {
-      return await this.deps.wal.handleQuotaExceeded()
-    } catch (err) {
-      log.error('Error during emergency WAL pruning:', err)
-      throw err
-    }
-  }
-
-  /**
-   * Handles storage quota exceeded detection: prunes the WAL and emits a quotaExceeded event.
-   */
-  async handleQuotaExceeded(errorOrMessage?: unknown): Promise<void> {
-    log.warn('Storage quota exceeded. Pruning the WAL...', errorOrMessage)
-
-    try {
-      await this.handleEmergencyPrune()
-    } catch (pruneErr) {
-      log.error('Failed emergency WAL pruning during quota handling:', pruneErr)
-    }
-
-    const message =
-      typeof errorOrMessage === 'string'
-        ? errorOrMessage
-        : 'Storage quota exceeded. Changes cannot be saved or synchronized, risking data loss. Please free up space and check your connection to sync.'
-
-    this.deps.clientEventHub.emit({
-      type: 'quotaExceeded',
-      message,
+    this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
+      await this.deps.wal.handleQuotaExceeded()
+    })
+    this.unregisterQuotaReporter = registerQuotaReporter(message => {
+      log.warn('Storage quota exceeded')
+      this.deps.clientEventHub.emit({ type: 'quotaExceeded', message })
     })
   }
 
   /**
-   * Probes storage availability before attempting full persistence.
+   * Unregisters the global storage handlers.
    */
-  async probeStorageAvailability(): Promise<void> {
-    try {
-      await this.deps.lastModifiedStore.testStorageAvailable()
-    } catch (probeErr) {
-      if (isQuotaError(probeErr)) {
-        throw new QuotaExceededRetryError(
-          'Storage quota is still exceeded. Please free up more space on your device.'
-        )
-      }
-      throw probeErr
-    }
+  stop(): void {
+    this.unregisterQuotaRecovery?.()
+    this.unregisterQuotaReporter?.()
   }
 
   /**
-   * Resets broker and network renegotiation circuits once storage is available.
-   */
-  resetStorageCircuits(): void {
-    this.deps.broker.unblockAllItems()
-    this.deps.adapter.resetReNegotiationCircuit()
-  }
-
-  /**
-   * Persists dirty Automerge documents to local IndexedDB storage.
-   */
-  async persistDirtyDocuments(dirtyIds: ItemId[]): Promise<void> {
-    for (const itemId of dirtyIds) {
-      try {
-        await this.deps.docStore.saveDocToStorage(itemId)
-      } catch (saveErr) {
-        if (isQuotaError(saveErr)) {
-          throw new QuotaExceededRetryError('Storage quota is still exceeded while saving documents.')
-        }
-        log.warn(`Failed to save doc for item ${itemId} during retrySave`, saveErr)
-      }
-    }
-  }
-
-  /**
-   * Triggers Automerge renegotiation so sync messages are queued into the WAL.
-   */
-  triggerRenegotiations(dirtyIds: ItemId[]): void {
-    for (const itemId of dirtyIds) {
-      const documentId = toDocumentIdFromItemId(itemId)
-      this.deps.adapter.triggerReNegotiation(documentId)
-    }
-  }
-
-  /**
-   * Persists timestamps metadata.
-   */
-  async persistTimestamps(): Promise<void> {
-    try {
-      await this.deps.snapshotManager.persistLastModified()
-    } catch (tsErr) {
-      if (isQuotaError(tsErr)) {
-        throw new QuotaExceededRetryError('Storage quota is still exceeded while saving timestamps.')
-      }
-      throw tsErr
-    }
-  }
-
-  /**
-   * If online, flushes pending snapshots and triggers orchestrator sync.
-   */
-  flushPendingSyncIfOnline(): void {
-    if (this.deps.orchestrator.online) {
-      fireAndForget(
-        this.deps.snapshotManager.flushPendingSnapshots(),
-        'StorageRecoveryService:flushPendingSnapshots',
-      )
-      this.deps.orchestrator.flush()
-    }
-  }
-
-  /**
-   * Resets global quota status and notifies client.
-   */
-  resolveQuotaStatus(): void {
-    resetQuotaExceededStatus()
-    this.deps.clientEventHub.emit({ type: 'quotaResolved' })
-  }
-
-  /**
-   * Executes the full retry persistence flow:
-   * 1. probeStorageAvailability()
-   * 2. resetStorageCircuits()
-   * 3. persistDirtyDocuments(dirtyIds)
-   * 4. triggerRenegotiations(dirtyIds)
-   * 5. persistTimestamps()
-   * 6. flushPendingSyncIfOnline()
-   * 7. resolveQuotaStatus()
+   * Saves what failed to save while storage was full, once it has room again: the dirty and blocked
+   * documents, then the timestamps, and queues their sync messages into the WAL
    */
   async retrySave(): Promise<RetrySaveResult> {
     try {
-      await this.probeStorageAvailability()
+      await rethrowQuota(
+        this.deps.lastModifiedStore.testStorageAvailable(),
+        'Storage quota is still exceeded. Please free up more space on your device.',
+      )
       const blockedIds = this.deps.broker.getBlockedItemIds()
-      this.resetStorageCircuits()
+      this.deps.broker.unblockAllItems()
+      this.deps.adapter.resetReNegotiationCircuit()
 
       const dirtyIds = Array.from(
-        new Set([...this.deps.snapshotManager.getDirtyItemIds(), ...blockedIds])
+        new Set([...this.deps.snapshotManager.tracker.getDirtyItemIds(), ...blockedIds])
       )
-      await this.persistDirtyDocuments(dirtyIds)
-      this.triggerRenegotiations(dirtyIds)
+      for (const itemId of dirtyIds) {
+        try {
+          await this.deps.docStore.saveDocToStorage(itemId)
+        } catch (saveErr) {
+          if (isQuotaError(saveErr)) {
+            throw new QuotaExceededRetryError('Storage quota is still exceeded while saving documents.')
+          }
+          log.warn(`Failed to save doc for item ${itemId} during retrySave`, saveErr)
+        }
+      }
+      for (const itemId of dirtyIds) {
+        this.deps.adapter.triggerReNegotiation(toDocumentIdFromItemId(itemId))
+      }
 
-      await this.persistTimestamps()
-      this.flushPendingSyncIfOnline()
+      await rethrowQuota(
+        this.deps.snapshotManager.tracker.saveLastModified(),
+        'Storage quota is still exceeded while saving timestamps.',
+      )
+      if (this.deps.session.isOnline) {
+        fireAndForget(
+          this.deps.snapshotManager.flushPendingSnapshots(),
+          'StorageRecoveryService:flushPendingSnapshots',
+        )
+        this.deps.orchestrator.flush()
+      }
 
-      this.resolveQuotaStatus()
+      resetQuotaExceededStatus()
+      this.deps.clientEventHub.emit({ type: 'quotaResolved' })
       return { success: true }
     } catch (err) {
       if (err instanceof QuotaExceededRetryError) {
@@ -241,5 +121,14 @@ export class StorageRecoveryService implements LifecycleAware {
       log.error('Unexpected error during retrySave', err)
       return { success: false, error: errorMessage(err) || 'Failed to retry save' }
     }
+  }
+}
+
+/** Settles with `promise`, turning a quota error into a QuotaExceededRetryError with `message` */
+async function rethrowQuota(promise: Promise<unknown>, message: string): Promise<void> {
+  try {
+    await promise
+  } catch (err) {
+    throw isQuotaError(err) ? new QuotaExceededRetryError(message) : err
   }
 }

@@ -13,7 +13,6 @@ import {
 } from '../shared/manualRecoveryStore'
 import { normalizeSyncError } from '@vault/shared'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('RecoveryManager')
@@ -22,7 +21,7 @@ const log = createLogger('RecoveryManager')
 export const INBOUND_MESSAGE_RESOLVABLE_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['pullDecryption'])
 
 export interface RecoveryManagerDeps {
-  accountId: string | null
+  accountId: string
   eventHub: ClientEventHub
 }
 
@@ -34,27 +33,22 @@ export interface QuarantineOptions {
   serverVersion?: number
 }
 
-export class RecoveryManager implements LifecycleAware {
-  readonly lifecycleName = 'RecoveryManager'
-  private accountId: string | null = null
+export class RecoveryManager {
+  private readonly accountId: string
   private readonly eventHub: ClientEventHub
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
-
-  onLifecycleStop(): void {
-    this.resetRecoveryState()
-  }
 
   constructor(deps: RecoveryManagerDeps) {
     this.accountId = deps.accountId
     this.eventHub = deps.eventHub
   }
 
-  isInFlight(itemId: ItemId): boolean {
+  private isInFlight(itemId: ItemId): boolean {
     return this.inFlightItemIds.has(itemId)
   }
 
-  setInFlight(itemId: ItemId, inFlight: boolean): void {
+  private setInFlight(itemId: ItemId, inFlight: boolean): void {
     if (inFlight) {
       this.inFlightItemIds.add(itemId)
     } else {
@@ -62,7 +56,7 @@ export class RecoveryManager implements LifecycleAware {
     }
   }
 
-  getRecoveryCooldownUntil(itemId: ItemId): number {
+  private getRecoveryCooldownUntil(itemId: ItemId): number {
     const cooldownUntil = this.cooldownUntilByItemId.get(itemId) || 0
     if (cooldownUntil <= Date.now()) {
       this.cooldownUntilByItemId.delete(itemId)
@@ -71,11 +65,11 @@ export class RecoveryManager implements LifecycleAware {
     return cooldownUntil
   }
 
-  setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
+  private setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
     this.cooldownUntilByItemId.set(itemId, cooldownUntil)
   }
 
-  clearRecoveryCooldown(itemId: ItemId): void {
+  private clearRecoveryCooldown(itemId: ItemId): void {
     this.cooldownUntilByItemId.delete(itemId)
   }
 
@@ -85,7 +79,6 @@ export class RecoveryManager implements LifecycleAware {
   }
 
   async pushRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
-    if (!this.accountId) return []
     try {
       const entries = await readManualRecoveryEntries(this.accountId, options)
       this.eventHub.emit({ type: 'recoveryItemsChanged', entries })
@@ -97,7 +90,6 @@ export class RecoveryManager implements LifecycleAware {
   }
 
   async listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
-    if (!this.accountId) return []
     return await readManualRecoveryEntries(this.accountId, options)
   }
 
@@ -108,7 +100,7 @@ export class RecoveryManager implements LifecycleAware {
     options?: QuarantineOptions,
   ): Promise<void> {
     const accountId = this.accountId
-    if (!accountId || !itemId) return
+    if (!itemId) return
 
     const now = Date.now()
     if (options?.checkCooldown) {
@@ -148,7 +140,7 @@ export class RecoveryManager implements LifecycleAware {
 
   async unquarantine(itemId: ItemId): Promise<void> {
     const accountId = this.accountId
-    if (!accountId || !itemId) return
+    if (!itemId) return
 
     try {
       await removeManualRecoveryEntryByItemId(accountId, itemId)
@@ -165,7 +157,6 @@ export class RecoveryManager implements LifecycleAware {
 
   async resolveQuarantines(itemIds: ItemId[], kinds: ReadonlySet<ManualRecoveryKind>): Promise<void> {
     const accountId = this.accountId
-    if (!accountId) return
     const uniqueItemIds = Array.from(new Set(itemIds.filter(id => Boolean(id))))
     if (uniqueItemIds.length === 0) return
 
@@ -188,7 +179,7 @@ export class RecoveryManager implements LifecycleAware {
 
   async dismissEntry(entryId: string): Promise<void> {
     const accountId = this.accountId
-    if (!accountId || !entryId) return
+    if (!entryId) return
 
     await removeManualRecoveryEntryById(accountId, entryId)
     await this.pushRecoveryItems()
@@ -206,7 +197,7 @@ export class RecoveryManager implements LifecycleAware {
       error: normalizedError,
     })
 
-    if (!itemId || !this.accountId) return
+    if (!itemId) return
     try {
       await this.quarantine(itemId, kind, null, { ...options, checkCooldown: true })
     } catch (quarantineError) {

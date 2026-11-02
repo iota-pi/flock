@@ -1,190 +1,95 @@
-import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncPoller } from './SyncPoller'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { VaultNetworkAdapter } from './VaultNetworkAdapter'
+import type { SyncPullQueueManager } from './SyncPullQueueManager'
+import type { SyncSessionState } from './SyncSessionState'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
-import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
+import type { DocumentId, Message } from '@automerge/automerge-repo/slim'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
-import { isQuotaError } from '../utils/storageQuota'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
-import type { SyncApiClient } from './SyncApiClient'
-import type { LifecycleAware } from './ServiceLifecycleManager'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { RecoveryManager } from './RecoveryManager'
-import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncMessageBroker')
 
 export interface SyncMessageBrokerDeps {
   adapter: VaultNetworkAdapter
-  clientEventHub: ClientEventHub
-  internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManager
-  keys: KeyProvider
+  /** Only the leader writes outgoing messages to the WAL */
+  session: SyncSessionState
   wal: SyncWriteAheadLog
-  apiClient: SyncApiClient
-  recoveryManager: RecoveryManager
-  /** Frees space after a WAL append runs out of storage. Without it, the app is told the quota was exceeded. */
-  onQuotaExceeded?: (error: unknown) => Promise<void>
+  /** Asks the orchestrator to push what's in the WAL and pull pending items */
+  onFlushNeeded: () => void
+  /** Marks items for an immediate snapshot, which delivers what incremental sync couldn't */
+  requestSnapshot: (itemIds: ItemId[]) => void
 }
 
-export class SyncMessageBroker implements LifecycleAware {
-  readonly lifecycleName = 'SyncMessageBroker'
-  private account: string | null = null
-  private isOnline = true
-  private sendEnabled = false
-
-  async onLifecycleStop(_?: { clearLocalData?: boolean }): Promise<void> {
-    await this.shutdown()
-  }
-
-  private syncPoller: SyncPoller
+export class SyncMessageBroker {
+  private readonly session: SyncSessionState
   private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
-  private blockedItemIds = new Set<ItemId>()
-  private unsubscribeClientEvents: (() => void) | null = null
-  private unsubscribeInternalEvents: (() => void) | null = null
+  private readonly blockedItemIds = new Set<ItemId>()
   private readonly adapter: VaultNetworkAdapter
-  private readonly clientEventHub: ClientEventHub
-  private readonly internalEventHub: WorkerInternalEventHub
   private readonly pullQueueManager: SyncPullQueueManager
-  private readonly onQuotaExceeded?: (error: unknown) => Promise<void>
+  private readonly onFlushNeeded: () => void
+  private readonly requestSnapshot: (itemIds: ItemId[]) => void
 
   constructor(deps: SyncMessageBrokerDeps) {
     this.adapter = deps.adapter
-    this.clientEventHub = deps.clientEventHub
-    this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
-    this.onQuotaExceeded = deps.onQuotaExceeded
     this.wal = deps.wal
-
-    this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
-      switch (event.type) {
-        case 'messageToSend':
-          fireAndForget(this.handleOutgoingMessage(event.message), 'SyncMessageBroker:handleOutgoingMessage')
-          break
-        case 'messageParsed':
-          if (this.account) {
-            this.internalEventHub.emit({ type: 'itemMessageParsed', itemId: event.itemId })
-          }
-          this.adapter.receiveServerMessage(event.documentId, event.message)
-          break
-        case 'pushAcknowledged':
-          this.recordSyncedHeads(event.itemId, event.heads)
-          break
-        case 'walEntriesPruned':
-          this.handleWalEntriesPruned(event.itemIds)
-          break
-      }
-    })
-
-    this.syncPoller = new SyncPoller({
-      pullQueueManager: this.pullQueueManager,
-      clientEventHub: this.clientEventHub,
-      internalEventHub: this.internalEventHub,
-      keys: deps.keys,
-      wal: this.wal,
-      apiClient: deps.apiClient,
-      recoveryManager: deps.recoveryManager,
-    })
-
-    this.unsubscribeClientEvents = this.clientEventHub.subscribe(event => {
-      if (event.type === 'quotaResolved') {
-        const previouslyBlocked = Array.from(this.blockedItemIds)
-        this.unblockAllItems()
-        this.adapter.resetReNegotiationCircuit()
-        for (const itemId of previouslyBlocked) {
-          const documentId = toDocumentIdFromItemId(itemId)
-          this.adapter.triggerReNegotiation(documentId)
-        }
-      }
-    })
+    this.session = deps.session
+    this.onFlushNeeded = deps.onFlushNeeded
+    this.requestSnapshot = deps.requestSnapshot
   }
 
-  blockItem(itemId: ItemId): void {
-    this.blockedItemIds.add(itemId)
-  }
-
-  unblockItem(itemId: ItemId): void {
-    this.blockedItemIds.delete(itemId)
+  /** Takes an outgoing message from the adapter: a change goes to the WAL, a request to the pull queue */
+  send(message: Message): void {
+    fireAndForget(this.handleOutgoingMessage(message), 'SyncMessageBroker:handleOutgoingMessage')
   }
 
   unblockAllItems(): void {
     this.blockedItemIds.clear()
   }
 
-  isItemBlocked(itemId: ItemId): boolean {
-    return this.blockedItemIds.has(itemId)
-  }
-
   getBlockedItemIds(): ItemId[] {
     return Array.from(this.blockedItemIds)
   }
 
-  /** Records heads the server has confirmed from a snapshot, which also ends snapshot-only sync for the item. */
-  setSyncedHeads(itemId: ItemId, heads: string[]): void {
+  /**
+   * Records a snapshot the server stored: ends snapshot-only sync for the item, unblocks it and records
+   * its heads. Tombstones carry no heads, since the server does not hold the document state.
+   */
+  confirmSnapshot(itemId: ItemId, heads: string[] | undefined): void {
     this.snapshotOnlyItems.delete(itemId)
-    this.recordSyncedHeads(itemId, heads)
+    if (heads && heads.length > 0) {
+      this.recordSyncedHeads(itemId, heads)
+    } else {
+      this.blockedItemIds.delete(itemId)
+    }
   }
 
-  private recordSyncedHeads(itemId: ItemId, heads: string[]): void {
+  /** Records heads the server has confirmed from a push. Snapshot-only sync continues. */
+  recordSyncedHeads(itemId: ItemId, heads: string[]): void {
     const documentId = toDocumentIdFromItemId(itemId)
-    this.unblockItem(itemId)
+    this.blockedItemIds.delete(itemId)
     this.adapter.setSyncedHeads(documentId, heads)
     this.adapter.resetReNegotiationCircuit(documentId)
   }
 
-  clearSnapshotOnlyItem(itemId: ItemId): void {
-    this.snapshotOnlyItems.delete(itemId)
-  }
-
   /**
-   * Routes an item to snapshot-only sync until its next successful snapshot push.
+   * Routes items to snapshot-only sync until their next successful snapshot push, and requests that
+   * snapshot. Also called for items whose WAL entries were pruned.
    */
-  fallbackToSnapshot(itemId: ItemId): void {
-    this.snapshotOnlyItems.add(itemId)
-    this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId })
-  }
-
-  setSendEnabled(sendEnabled: boolean): void {
-    this.sendEnabled = sendEnabled
-    this.adapter.setSendEnabled(sendEnabled)
-  }
-
-  async setAccount(account: string | null): Promise<void> {
-    const nextAccount = account && account.length > 0 ? account : null
-    if (this.account === nextAccount) {
-      return
-    }
-
-    this.unblockAllItems()
-    this.snapshotOnlyItems.clear()
-    this.account = nextAccount
-
-    await this.pullQueueManager.setAccount(this.account)
-    this.syncPoller.setAccount(this.account)
-  }
-
-  private handleWalEntriesPruned(itemIds: ItemId[]): void {
+  fallbackToSnapshot(itemIds: ItemId[]): void {
     for (const itemId of itemIds) {
       this.snapshotOnlyItems.add(itemId)
     }
-  }
-
-  setOnlineState(isOnline: boolean): void {
-    if (this.isOnline === isOnline) {
-      return
-    }
-
-    this.isOnline = isOnline
-    this.syncPoller.setOnlineState(isOnline)
+    this.requestSnapshot(itemIds)
   }
 
   private async handleOutgoingMessage(message: Message): Promise<void> {
     try {
-      if (!this.sendEnabled || !this.account) {
+      if (!this.session.isLeader || this.session.isShutdown) {
         return
       }
 
@@ -196,10 +101,10 @@ export class SyncMessageBroker implements LifecycleAware {
       const itemId = toVaultItemIdFromAutomergeId(documentId)
 
       if (message.type === 'request') {
-        this.pullQueueManager.addPendingItem(itemId)
-        this.flush()
+        this.pullQueueManager.cursors.addPendingItem(itemId)
+        this.onFlushNeeded()
       } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-        if (this.isItemBlocked(itemId)) {
+        if (this.blockedItemIds.has(itemId)) {
           log.warn(`Dropping outgoing sync message for blocked item ${itemId}`)
           return
         }
@@ -214,16 +119,16 @@ export class SyncMessageBroker implements LifecycleAware {
           log.warn(
             `Sync message for item ${itemId} (${message.data.byteLength} bytes) exceeds the incremental limit; falling back to snapshot sync`
           )
-          this.fallbackToSnapshot(itemId)
+          this.fallbackToSnapshot([itemId])
           return
         }
 
         try {
           await this.wal.append(itemId, message.data)
-          this.flush()
+          this.onFlushNeeded()
         } catch (err) {
           log.error(`Failed to append sync message to WAL for item ${itemId}:`, err)
-          this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
+          this.handleWalAppendFailure(itemId, documentId as DocumentId)
         }
       }
     } catch (err) {
@@ -231,39 +136,15 @@ export class SyncMessageBroker implements LifecycleAware {
     }
   }
 
-  private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId, err: unknown): void {
-    this.blockItem(itemId)
+  private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId): void {
+    this.blockedItemIds.add(itemId)
     this.adapter.triggerReNegotiation(documentId)
-    this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
-    if (isQuotaError(err)) {
-      if (this.onQuotaExceeded) {
-        fireAndForget(this.onQuotaExceeded(err), 'SyncMessageBroker:handleQuotaExceeded')
-      } else {
-        this.clientEventHub.emit({
-          type: 'quotaExceeded',
-          message: 'Storage quota exceeded. Some changes could not be saved.',
-        })
-      }
-    }
+    this.requestSnapshot([itemId])
   }
 
-  flush(): void {
-    this.internalEventHub.emit({ type: 'flushNeeded' })
-  }
-
-  get poller(): SyncPoller {
-    return this.syncPoller
-  }
-
-  async shutdown(): Promise<void> {
-    this.unsubscribeClientEvents?.()
-    this.unsubscribeClientEvents = null
-    this.unsubscribeInternalEvents?.()
-    this.unsubscribeInternalEvents = null
-    this.unblockAllItems()
+  shutdown(): void {
+    this.blockedItemIds.clear()
     this.snapshotOnlyItems.clear()
-    this.syncPoller.shutdown()
-    await this.pullQueueManager.shutdown()
   }
 }
 

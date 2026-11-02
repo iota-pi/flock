@@ -5,12 +5,12 @@ import { ItemOperations } from './ItemOperations'
 import { RecoveryManager } from './RecoveryManager'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import type { Message, PeerId } from '@automerge/automerge-repo/slim'
-import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
+import { createFakeRealtimeBus, createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
-import * as realtimeBusModule from './realtimeBus'
 import * as broadcastChannelAdapter from '@automerge/automerge-repo-network-broadcastchannel'
 
-const mockPublishRealtimeBusSyncPing = vi.fn()
+const realtimeBus = createFakeRealtimeBus()
+const mockPublishRealtimeBusSyncPing = realtimeBus.publishSyncPing
 const mockOn = vi.fn()
 const mockSend = vi.fn()
 const mockConnect = vi.fn()
@@ -46,10 +46,6 @@ beforeEach(() => {
   spyOnExports(broadcastChannelAdapter, {
     BroadcastChannelNetworkAdapter: BroadcastChannelNetworkAdapterMock,
   })
-  spyOnExports(realtimeBusModule, {
-    publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
-    subscribeRealtimeBusSyncPing: vi.fn(),
-  })
 })
 
 describe('Cross-Tab New Item Discovery Offline (C7)', () => {
@@ -60,22 +56,23 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
 
   it('Tab 1 creates item offline: publishes realtimeBus sync ping and indexes item', async () => {
     const changeDocumentMock = vi.fn().mockResolvedValue(true)
-    const addAutomergeItemIdsToIndexMock = vi.fn().mockResolvedValue(undefined)
+    const addItemIdsMock = vi.fn().mockResolvedValue(undefined)
     const markDocumentDirtyMock = vi.fn()
     const emitMock = vi.fn()
 
     const itemOps = new ItemOperations({
       accountId: 'account-1',
+      bus: realtimeBus.bus,
       docStore: {
         changeDocument: changeDocumentMock,
         getAutomergeItem: vi.fn(),
       } as any,
       indexManager: {
-        addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,
-        listAutomergeItemIds: vi.fn().mockResolvedValue([]),
-        removeAutomergeItemIdsFromIndex: vi.fn(),
-        updateAutomergeMetadata: vi.fn(),
-        getAutomergeMetadata: vi.fn(),
+        addItemIds: addItemIdsMock,
+        listItemIds: vi.fn().mockResolvedValue([]),
+        removeItemIds: vi.fn(),
+        updateMetadata: vi.fn(),
+        getMetadata: vi.fn(),
       } as any,
       eventHub: { emit: emitMock } as any,
       markDocumentDirty: markDocumentDirtyMock,
@@ -101,13 +98,13 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
       expect.any(Function),
       { createIfMissing: true, knownToExist: false },
     )
-    expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['offline-item-123'])
+    expect(addItemIdsMock).toHaveBeenCalledWith(['offline-item-123'])
     expect(markDocumentDirtyMock).toHaveBeenCalledWith('offline-item-123')
-    expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['offline-item-123'])
+    expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['offline-item-123'])
   })
 
   it('Tab 1 transmits sync message: EncryptedBroadcastChannelNetworkAdapter notifies peer tabs via realtimeBus', async () => {
-    const adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, accountId: 'account-1' })
+    const adapter = new EncryptedBroadcastChannelNetworkAdapter({ keys, bus: realtimeBus.bus })
     const docId = toDocumentIdFromItemId('offline-item-456' as ItemId)
 
     const syncMessage: Message = {
@@ -121,7 +118,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
     adapter.send(syncMessage)
 
     await vi.waitFor(() => {
-      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith('account-1', ['offline-item-456'])
+      expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['offline-item-456'])
     })
   })
 

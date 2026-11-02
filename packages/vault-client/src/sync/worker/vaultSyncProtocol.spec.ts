@@ -3,13 +3,13 @@ import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { WorkerInternalEventHub } from './SyncEventHub'
+import { SyncSessionState } from './SyncSessionState'
 
 /**
  * End-to-end protocol tests for the simulated `vault` peer, using a real Automerge Repo.
  *
  * The server is modelled as an append-only list of sync messages. Pushes are acknowledged
- * immediately (mirroring `pushAcknowledged` → `setSyncedHeads`), and pulls deliver every
+ * immediately (mirroring `onPushAcknowledged` → `setSyncedHeads`), and pulls deliver every
  * message, including the device's own echoes, via `receiveServerMessage`.
  */
 
@@ -36,26 +36,25 @@ class FakeServer {
 
 class Device {
   readonly adapter: VaultNetworkAdapter
+  /** This device is the leader, which sends to the vault */
+  private readonly session = new SyncSessionState({ isLeader: true })
   readonly repo: Repo
   private pulled = 0
 
   constructor(private readonly server: FakeServer) {
-    const eventHub = new WorkerInternalEventHub()
-    this.adapter = new VaultNetworkAdapter(eventHub, {
+    this.adapter = new VaultNetworkAdapter({
+      accountId: 'test-account',
+      session: this.session,
       headsValidator: (documentId, heads) => {
         const handle = this.repo.handles[documentId]
         const doc = handle?.isReady() ? handle.doc() : undefined
         return doc ? Automerge.hasHeads(doc, heads) : false
       },
-    })
-    this.adapter.setSendEnabled(true)
-    this.adapter.setAccount('test-account')
-    eventHub.subscribe(event => {
-      if (event.type !== 'messageToSend') return
-      const { documentId, data } = event.message
-      if (!documentId || !(data instanceof Uint8Array)) return
-      this.server.messages.push({ documentId, data })
-      this.adapter.setSyncedHeads(documentId, decodeSyncMessage(data).heads)
+      onMessageToSend: ({ documentId, data }) => {
+        if (!documentId || !(data instanceof Uint8Array)) return
+        this.server.messages.push({ documentId, data })
+        this.adapter.setSyncedHeads(documentId, decodeSyncMessage(data).heads)
+      },
     })
     this.repo = new Repo({ network: [this.adapter] })
   }
@@ -73,8 +72,14 @@ class Device {
 
   /** Simulates a page reload: the vault peer disconnects and renegotiates every document. */
   reconnect(): void {
-    this.adapter.setSendEnabled(false)
-    this.adapter.setSendEnabled(true)
+    this.setSendEnabled(false)
+    this.setSendEnabled(true)
+  }
+
+  /** Makes the device a follower (not sending to the vault) or the leader again */
+  setSendEnabled(sendEnabled: boolean): void {
+    this.session.setLeader(sendEnabled)
+    this.adapter.onLeaderChange()
   }
 
   async shutdown(): Promise<void> {
@@ -149,7 +154,7 @@ describe('vault sync protocol', () => {
     const handle = device.repo.create<LogDoc>({ log: [] })
     await editAndPoll(device, server, handle, ['synced'])
 
-    device.adapter.setSendEnabled(false)
+    device.setSendEnabled(false)
     for (const entry of ['offline-1', 'offline-2', 'offline-3']) {
       handle.change(doc => { doc.log.push(entry) })
     }

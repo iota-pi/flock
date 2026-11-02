@@ -21,13 +21,6 @@ export class SingleFlightGuard<T = void> {
   }
 
   /**
-   * The active in-flight promise, or null if idle.
-   */
-  get currentPromise(): Promise<T> | null {
-    return this.running
-  }
-
-  /**
    * Executes an async operation, or returns the in-flight promise if one is already running.
    *
    * @param fn The async operation to execute.
@@ -95,13 +88,6 @@ export class KeyedSingleFlightGuard<K, T = void> {
    */
   isRunning(key: K): boolean {
     return this.running.has(key)
-  }
-
-  /**
-   * The set of keys currently executing operations in flight.
-   */
-  get activeKeys(): ReadonlySet<K> {
-    return new Set(this.running.keys())
   }
 
   /**

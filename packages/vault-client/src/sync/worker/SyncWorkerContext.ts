@@ -2,31 +2,36 @@ import type { Repo, DocHandle, DocumentId } from '@automerge/automerge-repo/slim
 import * as Automerge from '@automerge/automerge/slim'
 
 import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
+import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { SnapshotManager } from './SnapshotManager'
+import { SnapshotBuilder } from './snapshotBuilder'
 import { SyncOrchestrator } from './SyncOrchestrator'
+import { SyncPoller } from './SyncPoller'
 import { ManifestSyncManager } from './ManifestSyncManager'
 import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import type { ClientEventHub } from './SyncEventHub'
+import { SyncStatusManager } from './SyncStatusManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
-import { ServiceLifecycleManager, type LifecycleAware } from './ServiceLifecycleManager'
-import { SyncApiClient } from './SyncApiClient'
+import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLifecycleManager'
+import type { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
-import { ItemReencryptor, type StoredSnapshot } from './reencryptAllItems'
+import { ItemReencryptor } from './ItemReencryptor'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
-import { publishRealtimeBusItemDirty, subscribeRealtimeBusItemDirty } from './realtimeBus'
+import { RealtimeBus } from './realtimeBus'
+import { SyncSessionState } from './SyncSessionState'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
@@ -91,12 +96,15 @@ export interface SyncSessionConfig {
 export interface SyncWorkerContextConfig extends SyncSessionConfig {
   accountId: string
   clientEventHub: ClientEventHub
-  internalEventHub: WorkerInternalEventHub
+  /** Whether the device is online when the session starts (default true) */
+  isOnline?: boolean
   /**
-   * Called when the Automerge repo receives a new document from the network,
-   * so the Comlink layer can subscribe to change events on that handle.
+   * Called when a document arrives from the network, as a new document in the repo or a message
+   * pulled for it, so the Comlink layer can subscribe to change events on its handle
    */
   onDocumentReceived?: (itemId: ItemId) => void
+  /** Called when the doc store replaces an item's handle, so the Comlink layer can move its listener */
+  onDocHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
   /**
    * Called with every indexed document ID, including the settings document, which the
    * `indexUpdated` event sent to the app leaves out.
@@ -114,6 +122,7 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
 
 /** The components `initialize` builds once local storage is open */
 export interface SyncWorkerServices {
+  realtimeBus: RealtimeBus
   repo: Repo
   repoManager: AutomergeRepoManager
   adapter: VaultNetworkAdapter
@@ -127,6 +136,7 @@ export interface SyncWorkerServices {
   indexManager: AutomergeIndexManager
   recoveryManager: RecoveryManager
   pullQueueManager: SyncPullQueueManager
+  poller: SyncPoller
   snapshotManager: SnapshotManager
   orchestrator: SyncOrchestrator
   manifestSyncManager: ManifestSyncManager
@@ -141,9 +151,12 @@ export interface SyncWorkerServices {
 export class SyncWorkerContext {
   public readonly accountId: string
   public readonly clientEventHub: ClientEventHub
-  public readonly internalEventHub: WorkerInternalEventHub
   public readonly apiClient: SyncApiClient
   public readonly domain: SyncDomain
+  /** Online, leader and shutdown state, shared by every component of this session */
+  public readonly session: SyncSessionState
+  /** Works out the sync status the app shows */
+  public readonly statusManager: SyncStatusManager
   public readonly lifecycle = new ServiceLifecycleManager<{ clearLocalData?: boolean }>('SyncWorkerContext')
   /** How this session stores local data, once `initialize` has opened it */
   public localStorageState: Pick<LocalStorage, 'mode' | 'retired'> | null = null
@@ -166,10 +179,11 @@ export class SyncWorkerContext {
     this.config = config
     this.accountId = config.accountId
     this.clientEventHub = config.clientEventHub
-    this.internalEventHub = config.internalEventHub
     const domain = config.domain ?? DEFAULT_SYNC_DOMAIN
     this.domain = { ...domain, codec: withSettingsDocPassthrough(domain.codec, config.accountId) }
     this.apiClient = config.apiClient
+    this.session = new SyncSessionState({ isOnline: config.isOnline })
+    this.statusManager = new SyncStatusManager(config.clientEventHub, this.session)
   }
 
   /** The components `initialize` builds. Throws before local storage has been opened. */
@@ -186,84 +200,110 @@ export class SyncWorkerContext {
     this.sealedStorage = local.mode === 'sealed' ? local.storage : null
     const services = this.createServices(local)
     this._services = services
-    services.snapshotManager.setLeader(services.orchestrator.leader)
-    this.subscribeInternalEvents(services)
     this.subscribeCrossTabDirtyItems(services)
     this.registerLifecycleServices(services)
   }
 
   private createServices(local: LocalStorage): SyncWorkerServices {
-    const { accountId, keys, clientEventHub, internalEventHub } = this.config
+    const { accountId, keys, clientEventHub } = this.config
+    const { session } = this
+    const realtimeBus = new RealtimeBus(accountId)
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
     const cursorStore = new CursorStore(accountId)
     const lastModifiedStore = new LastModifiedStore(accountId)
     const syncedHeadsStore = new SyncedHeadsStore(accountId)
-    const wal = new SyncWriteAheadLog(accountId, internalEventHub, cipherOptions)
+    // Components created later are read from the finished services
+    const wal = new SyncWriteAheadLog(accountId, {
+      ...cipherOptions,
+      onEntriesPruned: itemIds => this._services?.broker.fallbackToSnapshot(itemIds),
+      onSnapshotNeeded: itemIds => this.requestSnapshot(itemIds),
+    })
 
-    const { adapter, repoManager, repo } = this.createNetworkAndRepo(local.storage, syncedHeadsStore)
+    const { adapter, repoManager, repo } = this.createNetworkAndRepo(local.storage, syncedHeadsStore, realtimeBus)
 
     const docStore = new AutomergeDocStore({
       repo,
-      internalEventHub,
-      storageAdapter: repoManager.getStorage(),
+      onHandleReplaced: this.config.onDocHandleReplaced,
+      storageAdapter: repoManager.storage,
       codec: this.domain.codec,
       isLocallyUnreadable: documentId => this.unreadableDocuments.has(documentId),
     })
 
-    // The settings are created later, so these callbacks read them from the finished services
-    const indexManager = new AutomergeIndexManager(
+    const indexManager = new AutomergeIndexManager({
       accountId,
       indexStore,
-      itemIds => {
+      bus: realtimeBus,
+      onIndexUpdated: itemIds => {
         this.config.onIndexUpdated?.(itemIds)
         const settingsId = this._services?.accountSettings.docId
         clientEventHub.emit({ type: 'indexUpdated', itemIds: itemIds.filter(id => id !== settingsId) })
       },
-      metadata => this._services?.accountSettings.handleLocalMetadata(metadata),
-    )
+      onMetadataUpdated: metadata => this._services?.accountSettings.handleLocalMetadata(metadata),
+    })
 
-    const pullQueueManager = new SyncPullQueueManager(
-      cursorStore,
-      keys,
-      docStore,
-      internalEventHub,
-      this.emitKeyVersionMissing,
-    )
     const recoveryManager = new RecoveryManager({ accountId, eventHub: clientEventHub })
 
-    const broker = new SyncMessageBroker({
+    const pullQueueManager = new SyncPullQueueManager({
+      cursorStore,
+      keys,
+      lockCoordinator: docStore,
       adapter,
-      clientEventHub,
-      internalEventHub,
+      session,
+      bus: realtimeBus,
+      onKeyVersionMissing: this.emitKeyVersionMissing,
+      onItemMessageParsed: itemId => this.notifyDocumentReceived(itemId),
+      onFlushNeeded: () => this._services?.orchestrator.flush(),
+      onRetryingChange: isRetrying => this.statusManager.setDegradedPull(isRetrying),
+      onRemoteMessagesParsed: itemId => fireAndForget(
+        recoveryManager.resolveQuarantines([itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
+        'SyncWorkerContext:resolveQuarantines',
+      ),
+      onDecryptionFailure: (itemId, error) => fireAndForget(
+        recoveryManager.reportDecryptionFailure(itemId, 'pullDecryption', error),
+        'SyncWorkerContext:reportDecryptionFailure',
+      ),
+    })
+
+    const poller = new SyncPoller({
+      accountId,
+      session,
       pullQueueManager,
       keys,
       wal,
       apiClient: this.apiClient,
       recoveryManager,
-      // The storage recovery service takes the broker, so it's read once the services are built
-      onQuotaExceeded: error => this.services.storageRecoveryService.handleQuotaExceeded(error),
+      onPushAcknowledged: (itemId, heads) => this._services?.broker.recordSyncedHeads(itemId, heads),
+      onWalEntriesPruned: itemIds => this._services?.broker.fallbackToSnapshot(itemIds),
     })
 
-    const snapshotManager = new SnapshotManager(
-      {
-        accountId,
-        repo,
-        broker,
-        getLatestCursor: () => pullQueueManager.getGlobalLatestCursor(),
-        eventHub: clientEventHub,
-        recoveryManager,
-        apiClient: this.apiClient,
-        codec: this.domain.codec,
-        keys,
-      },
-      lastModifiedStore
-    )
+    const broker = new SyncMessageBroker({
+      adapter,
+      pullQueueManager,
+      session,
+      wal,
+      onFlushNeeded: () => this._services?.orchestrator.flush(),
+      requestSnapshot: itemIds => this.requestSnapshot(itemIds),
+    })
+
+    const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec)
+
+    const snapshotManager = new SnapshotManager({
+      accountId,
+      session,
+      lastModifiedStore,
+      builder: snapshotBuilder,
+      broker,
+      getLatestCursor: () => pullQueueManager.cursors.getGlobalLatestCursor(),
+      eventHub: clientEventHub,
+      recoveryManager,
+      apiClient: this.apiClient,
+    })
 
     const markDocumentDirty = (id: ItemId) => {
-      snapshotManager.markItemDirty(id)
+      snapshotManager.tracker.markItemDirty(id)
       // Only the leader uploads snapshots, so tell it about edits made in this tab
-      publishRealtimeBusItemDirty(accountId, [id])
+      realtimeBus.publishItemDirty([id])
     }
 
     const itemOperations = new ItemOperations({
@@ -273,6 +313,7 @@ export class SyncWorkerContext {
       eventHub: clientEventHub,
       markDocumentDirty,
       recoveryManager,
+      bus: realtimeBus,
       hooks: this.domain.hooks,
     })
 
@@ -282,6 +323,7 @@ export class SyncWorkerContext {
       indexManager,
       eventHub: clientEventHub,
       markDocumentDirty,
+      bus: realtimeBus,
       syncedKeys: this.domain.syncedMetadataKeys,
       legacySettings: this.domain.legacySettings,
       withAuth: request => this.apiClient.executeWithAuth(request),
@@ -289,13 +331,12 @@ export class SyncWorkerContext {
 
     const itemReencryptor = new ItemReencryptor({
       accountId,
-      repo,
+      builder: snapshotBuilder,
       indexManager,
       apiClient: this.apiClient,
       recoveryManager,
-      codec: this.domain.codec,
-      keys,
-      onSnapshotsStored: stored => this.recordStoredSnapshots(stored, snapshotManager, broker),
+      session,
+      recorder: snapshotManager,
     })
 
     const dataVersionTracker = new DataVersionTracker({
@@ -308,11 +349,12 @@ export class SyncWorkerContext {
     const snapshotFormatUpgrade = this.config.upgradeSnapshotFormat
       ? new SnapshotFormatUpgrade({
         accountId,
+        session,
         onUpgraded: () => fireAndForget(
           dataVersionTracker.onSnapshotsUpgraded(),
           'SyncWorkerContext:raiseAccountDataVersion',
         ),
-        rewriteSnapshots: signal => itemReencryptor.reencryptAllItems({ signal }),
+        rewriteSnapshots: signal => itemReencryptor.run({ signal }),
       })
       : null
 
@@ -348,15 +390,31 @@ export class SyncWorkerContext {
 
     const orchestrator = new SyncOrchestrator({
       accountId,
-      broker,
+      session,
+      poller,
       clientEventHub,
-      internalEventHub,
       pullQueueManager,
       manifestSyncManager,
+      onLeaderChange: () => {
+        // The session already holds the new leadership
+        adapter.onLeaderChange()
+        fireAndForget(snapshotManager.onLeaderChange(), 'SyncWorkerContext:leaderChange')
+        snapshotFormatUpgrade?.onLeaderChange()
+      },
+      onLeaderOverlapChange: hasMultipleLeaders => {
+        if (hasMultipleLeaders) {
+          log.warn('Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.')
+          repoManager.pauseBroadcastSync()
+        } else {
+          log.info('Sole leader restored. Resuming BroadcastChannel sync.')
+          repoManager.resumeBroadcastSync()
+        }
+      },
+      onPollResult: outcome => this.statusManager.handlePollResult(outcome),
     })
 
     const storageRecoveryService = new StorageRecoveryService({
-      accountId,
+      session,
       clientEventHub,
       wal,
       docStore,
@@ -368,6 +426,7 @@ export class SyncWorkerContext {
     })
 
     return {
+      realtimeBus,
       repo,
       repoManager,
       adapter,
@@ -381,6 +440,7 @@ export class SyncWorkerContext {
       indexManager,
       recoveryManager,
       pullQueueManager,
+      poller,
       snapshotManager,
       orchestrator,
       manifestSyncManager,
@@ -407,77 +467,59 @@ export class SyncWorkerContext {
     }
   }
 
-  /** Records snapshots uploaded outside the snapshot pusher (by re-encryption), as the pusher does */
-  private async recordStoredSnapshots(
-    stored: StoredSnapshot[],
-    snapshotManager: SnapshotManager,
-    broker: SyncMessageBroker,
-  ): Promise<void> {
-    const versions: [ItemId, number][] = stored.flatMap(({ itemId, version }) => (
-      typeof version === 'number' ? [[itemId, version] as [ItemId, number]] : []
-    ))
-    if (versions.length > 0) {
-      await snapshotManager.importVersions(versions)
-    }
-    for (const { itemId, heads } of stored) {
-      if (heads && heads.length > 0) {
-        broker.setSyncedHeads(itemId, heads)
-      }
-    }
-  }
-
-  private createNetworkAndRepo(storage: LocalStorage['storage'], syncedHeadsStore: SyncedHeadsStore) {
+  private createNetworkAndRepo(
+    storage: LocalStorage['storage'],
+    syncedHeadsStore: SyncedHeadsStore,
+    realtimeBus: RealtimeBus,
+  ) {
     // The adapter is created before the repo it validates heads against, so the validator reads
     // it lazily. No handles (or synced heads) exist before the repo does.
     let repo: Repo | null = null
-    const adapter = new VaultNetworkAdapter(this.internalEventHub, {
+    const adapter = new VaultNetworkAdapter({
+      accountId: this.accountId,
+      session: this.session,
       syncedHeadsStore,
+      // Nothing is sent before the services are finished: only the leader sends, and leadership is
+      // claimed once they start
+      onMessageToSend: message => this._services?.broker.send(message),
       headsValidator: (documentId, heads) => {
         const handle = repo?.handles[documentId] as DocHandle<unknown> | undefined
         if (!handle?.isReady()) return false
         const doc = handle.doc()
         return doc ? Automerge.hasHeads(doc, heads) : false
       },
+      onReNegotiationTriggered: documentId => this.requestSnapshot([toVaultItemIdFromAutomergeId(documentId)]),
     })
-    const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys)
-    repo = repoManager.init(adapter, storage, {
+    const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys, adapter, storage, {
+      bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
-      onDocumentReceived: docId => {
-        const itemId = toVaultItemIdFromAutomergeId(docId)
-        if (itemId && !isIndexDocument(itemId)) {
-          this.config.onDocumentReceived?.(itemId)
-        }
-      },
-      onQuotaError: error => {
-        const storageRecoveryService = this._services?.storageRecoveryService
-        if (storageRecoveryService) {
-          fireAndForget(storageRecoveryService.handleQuotaExceeded(error), 'SyncWorkerContext:onQuotaError')
-        }
-      },
+      onDocumentReceived: docId => this.notifyDocumentReceived(toVaultItemIdFromAutomergeId(docId)),
     })
+    repo = repoManager.repo
     return { adapter, repoManager, repo }
   }
 
-  private subscribeCrossTabDirtyItems({ snapshotManager }: SyncWorkerServices): void {
-    const unsub = subscribeRealtimeBusItemDirty(this.accountId, itemIds => {
+  private notifyDocumentReceived(itemId: ItemId): void {
+    if (itemId && !isIndexDocument(itemId)) {
+      this.config.onDocumentReceived?.(itemId)
+    }
+  }
+
+  private subscribeCrossTabDirtyItems({ realtimeBus, snapshotManager }: SyncWorkerServices): void {
+    const unsub = realtimeBus.subscribeItemDirty(itemIds => {
       for (const itemId of itemIds) {
-        snapshotManager.markItemDirty(itemId)
+        snapshotManager.tracker.markItemDirty(itemId)
       }
     })
     this.unsubscribers.push(unsub)
   }
 
   private registerLifecycleServices(services: SyncWorkerServices): void {
-    const { syncedHeadsStore, adapter } = services
-    const syncedHeadsService: LifecycleAware = {
-      lifecycleName: 'SyncedHeads',
-      onLifecycleStart: async () => {
-        const storedHeads = await syncedHeadsStore.loadSyncedHeads()
-        if (storedHeads && storedHeads.length > 0) {
-          adapter.loadSyncedHeads(storedHeads)
-        }
-      },
-    }
+    const {
+      realtimeBus, repoManager, adapter, broker, storageRecoveryService, indexManager, recoveryManager,
+      docStore, snapshotManager, syncedHeadsStore, pullQueueManager, poller, manifestSyncManager,
+      orchestrator, itemReencryptor, snapshotFormatUpgrade,
+    } = services
 
     // Teardown runs in LIFO order (reverse registration order).
     // Startup runs in FIFO order (registration order).
@@ -486,86 +528,63 @@ export class SyncWorkerContext {
     // Note: Local storage clearing during account logout is handled exclusively by the
     // main thread (clearAccountLocalData in localDataCleanup.ts) after the worker has cleanly
     // closed all connections. The worker must not attempt to clear databases on shutdown.
-    const lifecycleServices: LifecycleAware<{ clearLocalData?: boolean }>[] = [
-      services.repoManager,
-      services.adapter,
-      services.broker,
-      services.storageRecoveryService,
-      services.indexManager,
-      services.recoveryManager,
-      services.docStore,
-      services.snapshotManager,
-      syncedHeadsService,
-      services.pullQueueManager,
-      services.manifestSyncManager,
-      services.orchestrator,
+    //
+    // Each component is stopped here and only here, once. A service with `onStart` is only stopped if
+    // that succeeded, so releasing a component that holds work before starting is registered apart.
+    const registrations: ServiceRegistration<{ clearLocalData?: boolean }>[] = [
+      { name: 'RealtimeBus', onStop: () => realtimeBus.close() },
+      { name: 'RepoManager', onStop: () => repoManager.close() },
+      { name: 'VaultNetworkAdapter', onStop: options => adapter.shutdown(options) },
+      { name: 'SyncMessageBroker', onStop: () => broker.shutdown() },
       {
-        lifecycleName: 'ItemReencryptor',
-        onLifecycleStop: () => services.itemReencryptor.cancelScheduled(),
+        name: 'StorageRecoveryService',
+        onStart: () => storageRecoveryService.start(),
+        onStop: () => storageRecoveryService.stop(),
       },
+      { name: 'IndexManager', onStop: () => indexManager.close() },
+      { name: 'IndexDocument', onStart: () => indexManager.ensureIndexDocument() },
+      { name: 'RecoveryManager', onStop: () => recoveryManager.resetRecoveryState() },
+      { name: 'DocStore', onStop: () => docStore.shutdown() },
+      // Cross-tab pings can mark items dirty before the timestamps load, so it always stops
+      { name: 'SnapshotManager', onStop: options => snapshotManager.shutdown(options) },
+      { name: 'LastModifiedTimestamps', onStart: () => snapshotManager.tracker.loadLastModified() },
+      {
+        name: 'SyncedHeads',
+        onStart: async () => {
+          const storedHeads = await syncedHeadsStore.loadSyncedHeads()
+          if (storedHeads && storedHeads.length > 0) {
+            adapter.loadSyncedHeads(storedHeads)
+          }
+        },
+      },
+      {
+        name: 'PullQueueManager',
+        onStart: () => pullQueueManager.loadCursors(),
+        onStop: options => pullQueueManager.shutdown(options),
+      },
+      { name: 'SyncPoller', onStop: () => poller.shutdown() },
+      { name: 'ManifestSyncManager', onStop: () => manifestSyncManager.shutdown() },
+      {
+        name: 'SyncOrchestrator',
+        onStart: () => orchestrator.start(),
+        onStop: () => orchestrator.shutdown(),
+      },
+      { name: 'ItemReencryptor', onStop: () => itemReencryptor.cancelScheduled() },
     ]
-    const { snapshotFormatUpgrade } = services
     if (snapshotFormatUpgrade) {
-      lifecycleServices.push({
-        lifecycleName: 'SnapshotFormatUpgrade',
-        onLifecycleStop: () => snapshotFormatUpgrade.stop(),
-      })
+      registrations.push({ name: 'SnapshotFormatUpgrade', onStop: () => snapshotFormatUpgrade.stop() })
     }
 
-    for (const svc of lifecycleServices) {
-      this.lifecycle.register({
-        name: svc.lifecycleName,
-        onStart: svc.onLifecycleStart?.bind(svc),
-        onStop: svc.onLifecycleStop?.bind(svc),
-      })
+    for (const registration of registrations) {
+      this.lifecycle.register(registration)
     }
   }
 
-  private subscribeInternalEvents({ snapshotManager, recoveryManager, snapshotFormatUpgrade }: SyncWorkerServices): void {
-    // Marks items for a snapshot without debouncing, so their full state is delivered
-    const snapshotNow = (...itemIds: ItemId[]) => {
-      for (const itemId of itemIds) {
-        snapshotManager.markItemDirty(itemId, 0)
-      }
+  /** Marks items for a snapshot without debouncing, so their full state is delivered */
+  private requestSnapshot(itemIds: ItemId[]): void {
+    for (const itemId of itemIds) {
+      this._services?.snapshotManager.tracker.markItemDirty(itemId, 0)
     }
-
-    const unsub = this.internalEventHub.subscribe(event => {
-      switch (event.type) {
-        case 'leaderChange':
-          snapshotManager.setLeader(event.isLeader)
-          snapshotFormatUpgrade?.onLeaderChange(event.isLeader)
-          break
-        case 'decryptionFailure':
-          fireAndForget(
-            recoveryManager.reportDecryptionFailure(event.itemId, 'pullDecryption', event.error),
-            'SyncWorkerContext:internalEvent:decryptionFailure',
-          )
-          break
-        case 'localDecryptionFailed':
-          fireAndForget(
-            recoveryManager.reportDecryptionFailure(event.itemId, 'localDecryption', event.error),
-            'SyncWorkerContext:internalEvent:localDecryptionFailed',
-          )
-          break
-        case 'remoteMessagesParsed':
-          fireAndForget(
-            recoveryManager.resolveQuarantines([event.itemId], INBOUND_MESSAGE_RESOLVABLE_KINDS),
-            'SyncWorkerContext:internalEvent:remoteMessagesParsed',
-          )
-          break
-        case 'renegotiationTriggered':
-          snapshotNow(toVaultItemIdFromAutomergeId(event.documentId))
-          break
-        case 'walAppendFailed':
-        case 'snapshotFallbackRequested':
-          snapshotNow(event.itemId)
-          break
-        case 'walEntriesPruned':
-          snapshotNow(...event.itemIds)
-          break
-      }
-    })
-    this.unsubscribers.push(unsub)
   }
 
   async initialize(): Promise<void> {
@@ -667,6 +686,8 @@ export class SyncWorkerContext {
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     this.isStopped = true
+    // Every component stops starting new work before any of them is stopped
+    this.session.markShutdown()
     await this.lifecycle.stop(options)
     for (const unsub of this.unsubscribers) {
       unsub()
@@ -705,7 +726,12 @@ export class SyncWorkerContext {
     if (key.length < 2 || this.unreadableDocuments.has(documentId)) return
     this.unreadableDocuments.add(documentId)
     const itemId = toVaultItemIdFromAutomergeId(documentId as DocumentId)
-    this.internalEventHub.emit({ type: 'localDecryptionFailed', itemId, error })
+    const recoveryManager = this._services?.recoveryManager
+    if (!recoveryManager) return
+    fireAndForget(
+      recoveryManager.reportDecryptionFailure(itemId, 'localDecryption', error),
+      'SyncWorkerContext:reportDecryptionFailure',
+    )
   }
 
   /**
@@ -719,7 +745,7 @@ export class SyncWorkerContext {
     // Drops the handle that never finished loading. Its chunks are removed here rather than left to
     // the Repo, which doesn't wait for that.
     repo.delete(documentId)
-    await repoManager.getStorage()?.removeRange([documentId])
+    await repoManager.storage.removeRange([documentId])
     this.unreadableDocuments.delete(documentId)
 
     // A forced sync fetches quarantined items, and there's no longer a local copy to keep
@@ -734,8 +760,8 @@ export class SyncWorkerContext {
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
     const { recoveryManager, snapshotManager } = this.services
     await recoveryManager.unquarantine(itemId)
-    snapshotManager.clearOversized(itemId)
-    snapshotManager.markItemDirty(itemId)
+    snapshotManager.tracker.clearOversized(itemId)
+    snapshotManager.tracker.markItemDirty(itemId)
     fireAndForget(
       snapshotManager.flushPendingSnapshots(),
       'SyncWorkerContext:retryRecoveryItem:flushPendingSnapshots',
@@ -747,7 +773,7 @@ export class SyncWorkerContext {
     const { itemOperations, snapshotManager } = this.services
     const newItemId = await itemOperations.recreateOversizedItem(itemId)
     // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
-    snapshotManager.clearOversized(itemId)
+    snapshotManager.tracker.clearOversized(itemId)
     fireAndForget(
       snapshotManager.flushPendingSnapshots(),
       'SyncWorkerContext:recreateOversizedItem:flushPendingSnapshots',
@@ -758,13 +784,13 @@ export class SyncWorkerContext {
   /** The sync state a backup carries: pull cursors, unpushed WAL entries and modification times */
   async exportSyncState(): Promise<BackupSyncState> {
     const { pullQueueManager, wal, snapshotManager } = this.services
-    const cursors = pullQueueManager.exportCursors()
+    const cursors = pullQueueManager.cursors.exportCursors()
     const walMap = await wal.readAll()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
       entries.map(entry => entry.data.toBase64()),
     ])
-    const lastModified = snapshotManager.exportLastModified()
+    const lastModified = snapshotManager.tracker.exportLastModified()
 
     return { cursors, pendingSync, lastModified }
   }
@@ -780,7 +806,14 @@ export class SyncWorkerContext {
         }
       }
     }
-    if (state.lastModified) await snapshotManager.importLastModified(state.lastModified)
+    if (state.lastModified) await snapshotManager.tracker.importLastModified(state.lastModified)
+  }
+
+  /** Records whether the device is online, and tells the components that react to it */
+  setOnlineState(isOnline: boolean): void {
+    if (!this.session.setOnline(isOnline) || !this._services) return
+    this._services.orchestrator.onOnlineStateChange()
+    this._services.snapshotManager.onOnlineStateChange()
   }
 
   async retrySave(): Promise<RetrySaveResult> {

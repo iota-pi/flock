@@ -1,8 +1,8 @@
 import { TRPCError } from '@trpc/server'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { syncRouter } from './sync'
-import { StoredSyncMessage } from '../../drivers/vaultDriver'
-import { ItemId } from '@vault/shared'
+import type { StoredSyncMessage } from '../../drivers/vaultDriver'
+import type { ItemId } from '@vault/shared'
 import DynamoDriver from '../../drivers/dynamo'
 
 /** A page token as the Dynamo driver issues it */

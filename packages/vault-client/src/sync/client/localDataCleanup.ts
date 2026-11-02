@@ -16,15 +16,11 @@ const log = createLogger('localDataCleanup')
  */
 export async function clearAccountLocalData(accountId: string): Promise<void> {
   if (!accountId) return
-  try {
-    await Promise.allSettled([
-      deleteDatabase(getAutomergeDBName(accountId)).catch(err => log.error('Failed to clear Automerge IndexedDB', err)),
-      deleteDatabase(getSealedAutomergeDBName(accountId)).catch(err => log.error('Failed to clear sealed Automerge IndexedDB', err)),
-      clearSyncMetadataStorage(accountId).catch(err => log.error('Failed to clear SyncMetadataStorage', err)),
-      clearWriteAheadLog(accountId).catch(err => log.error('Failed to clear SyncWriteAheadLog', err)),
-      clearManualRecoveryEntries(accountId).catch(err => log.error('Failed to clear ManualRecovery', err)),
-    ])
-  } catch (err) {
-    log.error(`Error clearing local data for account ${accountId}:`, err)
-  }
+  await Promise.all([
+    deleteDatabase(getAutomergeDBName(accountId)).catch(err => log.error('Failed to clear Automerge IndexedDB', err)),
+    deleteDatabase(getSealedAutomergeDBName(accountId)).catch(err => log.error('Failed to clear sealed Automerge IndexedDB', err)),
+    clearSyncMetadataStorage(accountId).catch(err => log.error('Failed to clear SyncMetadataStorage', err)),
+    clearWriteAheadLog(accountId).catch(err => log.error('Failed to clear SyncWriteAheadLog', err)),
+    clearManualRecoveryEntries(accountId).catch(err => log.error('Failed to clear ManualRecovery', err)),
+  ])
 }

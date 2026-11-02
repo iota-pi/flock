@@ -1,6 +1,6 @@
-import { CSSProperties, HTMLAttributes } from 'react'
+import type { CSSProperties, HTMLAttributes } from 'react'
 import OptionComponent from './Option'
-import { AnySearchable } from './types'
+import type { AnySearchable } from './types'
 
 
 interface SearchableRowSettings {

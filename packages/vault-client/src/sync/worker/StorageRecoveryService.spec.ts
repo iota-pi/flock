@@ -1,18 +1,21 @@
-import { StorageRecoveryService, QuotaExceededRetryError } from './StorageRecoveryService'
+import { StorageRecoveryService } from './StorageRecoveryService'
 import { ClientEventHub } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import * as storageManager from '../utils/storageManager'
+import { SyncSessionState } from './SyncSessionState'
 
 describe('StorageRecoveryService', () => {
   let clientEventHub: ClientEventHub
   let mockWal: any
   let mockDocStore: any
   let mockSnapshotManager: any
+  let mockSnapshotTracker: any
   let mockLastModifiedStore: any
   let mockBroker: any
   let mockAdapter: any
   let mockOrchestrator: any
+  let session: SyncSessionState
   let service: StorageRecoveryService
 
   beforeEach(() => {
@@ -23,10 +26,13 @@ describe('StorageRecoveryService', () => {
     mockDocStore = {
       saveDocToStorage: vi.fn().mockResolvedValue(true),
     }
-    mockSnapshotManager = {
+    mockSnapshotTracker = {
       getDirtyItemIds: vi.fn().mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId]),
-      persistLastModified: vi.fn().mockResolvedValue(undefined),
+      saveLastModified: vi.fn().mockResolvedValue(undefined),
+    }
+    mockSnapshotManager = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
+      tracker: mockSnapshotTracker,
     }
     mockLastModifiedStore = {
       testStorageAvailable: vi.fn().mockResolvedValue(undefined),
@@ -39,13 +45,13 @@ describe('StorageRecoveryService', () => {
       resetReNegotiationCircuit: vi.fn(),
       triggerReNegotiation: vi.fn(),
     }
+    session = new SyncSessionState()
     mockOrchestrator = {
-      online: true,
       flush: vi.fn(),
     }
 
     service = new StorageRecoveryService({
-      accountId: 'test-account',
+      session,
       clientEventHub,
       wal: mockWal,
       docStore: mockDocStore,
@@ -64,107 +70,54 @@ describe('StorageRecoveryService', () => {
     vi.restoreAllMocks()
   })
 
-  describe('Lifecycle (start / stop)', () => {
-    it('registers quota recovery handler and reporter on start, and cleans up on stop', () => {
-      const registerRecoverySpy = vi.spyOn(storageManager, 'registerQuotaRecoveryHandler')
-      const registerReporterSpy = vi.spyOn(storageManager, 'registerQuotaReporter')
+  describe('Quota handling', () => {
+    const quotaError = () => new DOMException('Quota exceeded', 'QuotaExceededError')
 
+    it('prunes the WAL once and retries a write that hits the quota, without reporting it', async () => {
+      const emitSpy = vi.spyOn(clientEventHub, 'emit')
       service.start()
 
-      expect(registerRecoverySpy).toHaveBeenCalledTimes(1)
-      expect(registerReporterSpy).toHaveBeenCalledTimes(1)
+      let attempts = 0
+      const result = await storageManager.runStorageOperation(async () => {
+        attempts += 1
+        if (attempts === 1) throw quotaError()
+        return 'saved'
+      })
 
-      service.stop()
-      // Calling stop again is idempotent
-      service.stop()
-    })
-  })
-
-  describe('Emergency Pruning & Detection', () => {
-    it('calls wal.handleQuotaExceeded in handleEmergencyPrune', async () => {
-      const reduced = await service.handleEmergencyPrune()
-      expect(reduced).toBe(5)
+      expect(result).toBe('saved')
       expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
+      expect(emitSpy).not.toHaveBeenCalled()
     })
 
-    it('updates status and emits quotaExceeded event in handleQuotaExceeded', async () => {
+    it('emits quotaExceeded without pruning again when the retry also hits the quota', async () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
+      service.start()
 
-      await service.handleQuotaExceeded('Storage limit reached')
+      await expect(storageManager.runStorageOperation(async () => { throw quotaError() })).rejects.toThrow()
 
       expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({
         type: 'quotaExceeded',
-        message: 'Storage limit reached',
+        message: expect.stringContaining('Storage quota exceeded'),
       })
     })
 
-    it('provides default message when handleQuotaExceeded is called with non-string error', async () => {
+    it('unregisters its handlers on stop', async () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
-      const quotaError = new DOMException('Quota exceeded', 'QuotaExceededError')
+      service.start()
+      service.stop()
 
-      await service.handleQuotaExceeded(quotaError)
+      await expect(storageManager.runStorageOperation(async () => { throw quotaError() })).rejects.toThrow()
 
-      expect(emitSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'quotaExceeded',
-          message: expect.stringContaining('Storage quota exceeded'),
-        })
-      )
-    })
-
-    it('still emits quotaExceeded if emergency pruning fails', async () => {
-      mockWal.handleQuotaExceeded.mockRejectedValueOnce(new Error('Pruning failed'))
-      const emitSpy = vi.spyOn(clientEventHub, 'emit')
-
-      await service.handleQuotaExceeded('Quota error')
-
-      expect(emitSpy).toHaveBeenCalledWith({
-        type: 'quotaExceeded',
-        message: 'Quota error',
-      })
-    })
-  })
-
-  describe('Probing, Circuits, and Resolution', () => {
-    it('probeStorageAvailability passes when testStorageAvailable succeeds', async () => {
-      await expect(service.probeStorageAvailability()).resolves.toBeUndefined()
-      expect(mockLastModifiedStore.testStorageAvailable).toHaveBeenCalledTimes(1)
-    })
-
-    it('probeStorageAvailability throws QuotaExceededRetryError when testStorageAvailable throws QuotaExceededError', async () => {
-      const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(quotaErr)
-
-      await expect(service.probeStorageAvailability()).rejects.toThrow(QuotaExceededRetryError)
-    })
-
-    it('probeStorageAvailability rethrows unexpected non-quota errors', async () => {
-      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(new Error('Disk read error'))
-
-      await expect(service.probeStorageAvailability()).rejects.toThrow('Disk read error')
-    })
-
-    it('resetStorageCircuits calls broker.unblockAllItems and adapter.resetReNegotiationCircuit', () => {
-      service.resetStorageCircuits()
-
-      expect(mockBroker.unblockAllItems).toHaveBeenCalledTimes(1)
-      expect(mockAdapter.resetReNegotiationCircuit).toHaveBeenCalledTimes(1)
-    })
-
-    it('resolveQuotaStatus resets status and emits quotaResolved', () => {
-      const emitSpy = vi.spyOn(clientEventHub, 'emit')
-      const resetSpy = vi.spyOn(storageManager, 'resetQuotaExceededStatus')
-      service.resolveQuotaStatus()
-
-      expect(resetSpy).toHaveBeenCalledTimes(1)
-      expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
+      expect(mockWal.handleQuotaExceeded).not.toHaveBeenCalled()
+      expect(emitSpy).not.toHaveBeenCalled()
     })
   })
 
   describe('retrySave', () => {
     it('executes full sequence on success', async () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
+      const resetSpy = vi.spyOn(storageManager, 'resetQuotaExceededStatus')
 
       const result = await service.retrySave()
 
@@ -181,15 +134,16 @@ describe('StorageRecoveryService', () => {
       expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc1)
       expect(mockAdapter.triggerReNegotiation).toHaveBeenCalledWith(doc2)
 
-      expect(mockSnapshotManager.persistLastModified).toHaveBeenCalled()
+      expect(mockSnapshotTracker.saveLastModified).toHaveBeenCalled()
       expect(mockSnapshotManager.flushPendingSnapshots).toHaveBeenCalled()
       expect(mockOrchestrator.flush).toHaveBeenCalled()
 
+      expect(resetSpy).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
 
     it('includes blocked items from broker in dirtyIds during retrySave', async () => {
-      mockSnapshotManager.getDirtyItemIds.mockReturnValue(['item-1' as ItemId])
+      mockSnapshotTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId])
       mockBroker.getBlockedItemIds.mockReturnValue(['item-blocked' as ItemId])
 
       const result = await service.retrySave()
@@ -215,6 +169,15 @@ describe('StorageRecoveryService', () => {
       expect(mockDocStore.saveDocToStorage).not.toHaveBeenCalled()
     })
 
+    it('rethrows a probe failure that is not a quota error', async () => {
+      mockLastModifiedStore.testStorageAvailable.mockRejectedValueOnce(new Error('Disk read error'))
+
+      const result = await service.retrySave()
+
+      expect(result).toEqual({ success: false, error: 'Disk read error' })
+      expect(mockDocStore.saveDocToStorage).not.toHaveBeenCalled()
+    })
+
     it('returns failure when saving documents throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
       mockDocStore.saveDocToStorage.mockRejectedValueOnce(quotaErr)
@@ -237,7 +200,7 @@ describe('StorageRecoveryService', () => {
 
     it('returns failure when persisting timestamps throws QuotaExceededError', async () => {
       const quotaErr = new DOMException('Quota exceeded', 'QuotaExceededError')
-      mockSnapshotManager.persistLastModified.mockRejectedValueOnce(quotaErr)
+      mockSnapshotTracker.saveLastModified.mockRejectedValueOnce(quotaErr)
 
       const result = await service.retrySave()
 
@@ -246,7 +209,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('handles unexpected errors gracefully and returns error message', async () => {
-      mockSnapshotManager.persistLastModified.mockRejectedValueOnce(new Error('Database corrupted'))
+      mockSnapshotTracker.saveLastModified.mockRejectedValueOnce(new Error('Database corrupted'))
 
       const result = await service.retrySave()
 
@@ -255,7 +218,7 @@ describe('StorageRecoveryService', () => {
     })
 
     it('does not flush snapshots if orchestrator is offline', async () => {
-      mockOrchestrator.online = false
+      session.setOnline(false)
 
       const result = await service.retrySave()
 
