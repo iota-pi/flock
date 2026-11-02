@@ -40,7 +40,6 @@ const ActionIconComponent = styled(ListItemIcon)(({ theme }) => ({
 }))
 
 interface BulkAction {
-  classes?: string[],
   dividerBefore?: boolean,
   icon: MuiIconType,
   id: string,
@@ -188,14 +187,11 @@ function SelectedActions() {
             {action.dividerBefore && <Divider />}
 
             <ListItemButton
-              className={action.classes?.join(' ')}
               onClick={action.onClick}
               data-cy={`action-${action.id}`}
               dense
             >
-              <ActionIconComponent
-                className={(action.classes || []).join(' ')}
-              >
+              <ActionIconComponent>
                 <action.icon />
               </ActionIconComponent>
 

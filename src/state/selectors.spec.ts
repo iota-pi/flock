@@ -3,8 +3,8 @@ import { act, renderHook } from '@testing-library/react'
 import type { Item } from './items'
 import {
   useItem,
-  useItemIds,
   useItemsByIds,
+  useItemsOfType,
   useLoggedIn,
   usePracticalFilterCount,
   usePrayerScheduleInputs,
@@ -109,13 +109,13 @@ describe('state selectors', () => {
     expect(result.current.map((item: Item) => item.id)).toEqual(['person-1', 'group-1', 'topic-1'])
   })
 
-  it('useItemIds filters by type', () => {
-    const { result } = renderHook(() => useItemIds('person'))
-    expect(result.current).toEqual(['person-1'])
+  it('useItemsOfType filters by type', () => {
+    const { result } = renderHook(() => useItemsOfType('person'))
+    expect(result.current.map(item => item.id)).toEqual(['person-1'])
   })
 
-  it('useItemIds keeps stable typed list when unrelated item changes', () => {
-    const { result, rerender } = renderHook(() => useItemIds('group'))
+  it('useItemsOfType keeps stable typed list when unrelated item changes', () => {
+    const { result, rerender } = renderHook(() => useItemsOfType('group'))
     const firstResult = result.current
 
     act(() => {
@@ -129,7 +129,7 @@ describe('state selectors', () => {
     })
 
     expect(result.current).toBe(firstResult)
-    expect(result.current).toEqual(['group-1'])
+    expect(result.current.map(item => item.id)).toEqual(['group-1'])
   })
 
   it('useItem returns the selected item by id', () => {

@@ -4,10 +4,6 @@ import type { ItemId } from '@vault/shared'
 
 export const APP_NAME = 'Flock'
 
-export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | undefined> {
-  return x !== undefined && x !== null
-}
-
 export function generateNoteId() {
   return nanoid(10) as ItemId
 }

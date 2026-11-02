@@ -8,7 +8,6 @@ import * as sessionModule from '../app/vault/session'
 import * as clientModule from '@vault/client'
 import * as itemMutationsModule from '../features/items/mutations/itemMutations'
 import * as selectorsModule from '../state/selectors'
-import * as useAuthModule from './useAuth'
 import * as storeModule from '../state/store'
 import * as syncBridgeModule from '../app/vault/syncBridge'
 import { spyOnExports } from '../utils/testUtils'
@@ -66,9 +65,6 @@ beforeEach(() => {
   })
   spyOnExports(selectorsModule, {
     useMetadata: (_key: string, defaultValue?: unknown) => [defaultValue, vi.fn()],
-  })
-  spyOnExports(useAuthModule, {
-    useAuth: () => ({ account: 'acct-1', loggedIn: true, initializing: false }),
   })
   spyOnExports(storeModule, {
     useAppStore: Object.assign(

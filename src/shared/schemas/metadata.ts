@@ -36,25 +36,3 @@ export const SYNCED_METADATA_KEYS = [
   'autoSnoozeWhenCompleted',
   'completedMigrations',
 ] as const satisfies readonly (keyof z.infer<typeof accountMetadataSchema>)[]
-
-/** Settings the server stored in plaintext before the settings document, plus the timestamp used to merge them */
-export const LEGACY_SYNCABLE_METADATA_KEYS = [
-  ...SYNCED_METADATA_KEYS,
-  'updatedAt',
-] as const satisfies readonly (keyof z.infer<typeof accountMetadataSchema>)[]
-
-type LegacySyncableMetadataKey = (typeof LEGACY_SYNCABLE_METADATA_KEYS)[number]
-export type LegacySyncableMetadata = Pick<z.infer<typeof accountMetadataSchema>, LegacySyncableMetadataKey>
-
-export function extractLegacySyncableMetadata(
-  metadata: Record<string, unknown> | undefined,
-): LegacySyncableMetadata {
-  if (!metadata || typeof metadata !== 'object') return {}
-  const result: LegacySyncableMetadata = {}
-  for (const key of LEGACY_SYNCABLE_METADATA_KEYS) {
-    if (metadata[key] !== undefined) {
-      result[key] = metadata[key] as never
-    }
-  }
-  return result
-}

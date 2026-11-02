@@ -64,7 +64,6 @@ interface Props<T> {
   inputRef?: Ref<HTMLInputElement>,
   label?: string,
   placeholder?: string,
-  maxChips?: number,
   noItemsText?: string,
   onClear?: () => void,
   onCreate?: (item: Item) => void,
@@ -79,7 +78,6 @@ interface Props<T> {
   showSelectedChips?: boolean,
   showSelectedOptions?: boolean,
   showOptionCheckboxes?: boolean,
-  keepPopperOpenOnSelect?: boolean,
   types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
 
@@ -94,7 +92,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   inputRef,
   label,
   placeholder,
-  maxChips,
   noItemsText = 'No items found',
   onClear,
   onCreate,
@@ -364,11 +361,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             return null
           }
 
-          const visibleOptions = maxChips
-            ? selectedOptions.slice(0, maxChips)
-            : selectedOptions
-
-          const chips = visibleOptions.map((option, index) => {
+          return selectedOptions.map((option, index) => {
             const { key, ...props } = getItemProps({ index })
             return (
               <Chip
@@ -379,17 +372,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               />
             )
           })
-
-          if (maxChips && selectedOptions.length > maxChips) {
-            chips.push(
-              <Chip
-                key="more"
-                label={`+${selectedOptions.length - maxChips}`}
-              />
-            )
-          }
-
-          return chips
         }}
         value={selectedSearchables}
       />

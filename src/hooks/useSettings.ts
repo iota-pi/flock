@@ -135,7 +135,6 @@ export default function useSettings(items: Item[]) {
       handleExport: backupActions.handleExport,
       handleLock,
       handleRemoveAccountFromDevice,
-      handleSignOut: handleRemoveAccountFromDevice,
       handleSubscribe: subscriptionActions.handleSubscribe,
       handleToggleDarkMode: themeActions.handleToggleDarkMode,
       handleToggleBiometrics,

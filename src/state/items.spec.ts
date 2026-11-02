@@ -2,10 +2,8 @@ import {
   getBlankPerson,
   getBlankGroup,
   getBlankItem,
-  supplyMissingAttributes,
   convertItem,
   isValid,
-  type Item,
 } from './items'
 import { importPeople } from '../utils/importUtils'
 import type { GroupItem } from 'src/shared/schemas/items'
@@ -36,28 +34,6 @@ describe('items helpers', () => {
     expect(g.type).toBe('group')
     const t = getBlankItem('topic')
     expect(t.type).toBe('topic')
-  })
-
-  it('supplyMissingAttributes fills defaults', () => {
-    const partial = { id: 'x', type: 'person' } as unknown as Item
-    const full = supplyMissingAttributes(partial)
-    expect(full.name).toBeDefined()
-    expect(full.prayerFrequency).toBeDefined()
-    expect(full.id).toBe('x')
-  })
-
-  it('supplyMissingAttributes keeps defaults for undefined values', () => {
-    const partial = {
-      id: 'x',
-      type: 'person',
-      notes: undefined,
-      prayedFor: undefined,
-    } as unknown as Item
-
-    const full = supplyMissingAttributes(partial)
-
-    expect(full.notes).toEqual([])
-    expect(full.prayedFor).toEqual([])
   })
 
   it('convertItem changes type and preserves id', () => {

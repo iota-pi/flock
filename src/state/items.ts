@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { mergeWith } from 'lodash-es'
 
 import { generateItemId, type ItemId } from '@vault/shared'
 import type { ItemType } from '../shared/itemTypes'
@@ -17,24 +16,6 @@ import {
 
 
 export type Item = StandardItem | ErrorItem
-
-function mergeItemWithDefaults<T extends object>(defaults: T, candidate: unknown): T {
-  if (!candidate || typeof candidate !== 'object') {
-    return defaults
-  }
-
-  return mergeWith({}, defaults, candidate, (currentValue, nextValue) => {
-    if (nextValue === undefined) {
-      return currentValue
-    }
-
-    if (Array.isArray(nextValue)) {
-      return nextValue
-    }
-
-    return undefined
-  }) as T
-}
 
 export function isItem(item: Item): item is StandardItem {
   return (ITEM_TYPES as readonly string[]).includes(item.type)
@@ -140,20 +121,6 @@ export function compareItems(a: Item, b: Item) {
 
 export function filterArchived<T extends Item>(items: T[]): T[] {
   return items.filter(item => item.archived !== true)
-}
-
-export function supplyMissingAttributes<T extends Item>(item: T): T {
-  if (item.type === ERROR_ITEM_TYPE) {
-    return item
-  }
-
-  try {
-    const blank = getBlankItem(item.type, false)
-    const filled = mergeItemWithDefaults(blank, item)
-    return filled as T
-  } catch (_) {
-    return item
-  }
 }
 
 export function convertItem<T extends Item, S extends StandardItem>(item: T, newType: S['type']): S {

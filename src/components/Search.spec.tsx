@@ -168,20 +168,18 @@ describe('Search Component', () => {
     expect(createdItem.name).toBe('NewUser')
   })
 
-  it('renders selected chips with max chip overflow', () => {
+  it('renders a chip for each selected item', () => {
     const selected = [items[0], items[1], items[2]]
     vi.mocked(useItemsByIds).mockReturnValue(selected)
     renderWithTheme(
       <Search
         selectedItemIds={selected.map(item => item.id)}
         showSelectedChips
-        maxChips={2}
       />
     )
 
     expect(screen.getByText('Alice')).toBeTruthy()
     expect(screen.getByText('Bob')).toBeTruthy()
-    expect(screen.getByText('+1')).toBeTruthy()
-    expect(screen.queryByText('Group A')).toBeNull()
+    expect(screen.getByText('Group A')).toBeTruthy()
   })
 })

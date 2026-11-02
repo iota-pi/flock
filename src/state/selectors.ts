@@ -106,23 +106,6 @@ function useMetadataValue<K extends MetadataKey>(
   return useDeepMemo(resolvedValue)
 }
 
-export function useItemIds(itemType?: Item['type']): string[] {
-  const visibleItems = useVisibleItems()
-
-  const nextIds = useMemo(
-    () => {
-      const filtered = itemType
-        ? visibleItems.filter(item => item.type === itemType)
-        : visibleItems
-
-      return filtered.map(item => item.id as string)
-    },
-    [itemType, visibleItems],
-  )
-
-  return useDeepMemo(nextIds)
-}
-
 export const useItem = (id: ItemId) => {
   const item = useAppStore(state => state.items[id as string])
 

@@ -1,22 +1,8 @@
 import { renderHook } from '@testing-library/react'
-import { isDefined, generateNoteId, formatDate, isSameDay, useStableArray } from './index'
+import { generateNoteId, formatDate, isSameDay, useStableArray } from './index'
 import { generateItemId } from '@vault/shared'
 
 describe('utils/index', () => {
-  describe('isDefined', () => {
-    it('returns true for defined values', () => {
-      expect(isDefined(0)).toBe(true)
-      expect(isDefined('')).toBe(true)
-      expect(isDefined(false)).toBe(true)
-      expect(isDefined({})).toBe(true)
-    })
-
-    it('returns false for null or undefined', () => {
-      expect(isDefined(null)).toBe(false)
-      expect(isDefined(undefined)).toBe(false)
-    })
-  })
-
   describe('generateItemId', () => {
     it('returns a 21-character URL-safe nanoid string', () => {
       const id = generateItemId()
