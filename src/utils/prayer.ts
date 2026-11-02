@@ -1,6 +1,6 @@
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
 import { isSameDay } from './index'
-import { compareItems, filterArchived, Item } from '../state/items'
+import { compareItems, filterArchived, type Item } from '../state/items'
 import type { GroupItem } from '../shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 

@@ -1,5 +1,5 @@
 import {
-  DocumentId,
+  type DocumentId,
   documentIdToBinary,
   stringifyAutomergeUrl,
   type AutomergeUrl,
@@ -7,7 +7,7 @@ import {
   type DocHandle,
 } from '@automerge/automerge-repo/slim'
 import type { $brand } from 'zod'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import { isPlainObject } from './objectUtils'
 
 export type IndexDocId = string & $brand<'IndexDocId'>

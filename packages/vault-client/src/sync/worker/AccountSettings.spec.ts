@@ -22,8 +22,8 @@ function createIndexManager(initial: VaultMetadata = {}) {
     get metadata() {
       return metadata
     },
-    getAutomergeMetadata: vi.fn(async () => ({ ...metadata })),
-    updateAutomergeMetadata: vi.fn(async (changes: VaultMetadata) => {
+    getMetadata: vi.fn(async () => ({ ...metadata })),
+    updateMetadata: vi.fn(async (changes: VaultMetadata) => {
       metadata = { ...metadata, ...changes }
       manager.onMetadataUpdated(metadata)
       return metadata
@@ -32,7 +32,7 @@ function createIndexManager(initial: VaultMetadata = {}) {
       metadata = Object.fromEntries(Object.entries(metadata).filter(([key]) => !keys.includes(key)))
       manager.onMetadataUpdated(metadata)
     }),
-    addAutomergeItemIdsToIndex: vi.fn(async (ids: ItemId[]) => {
+    addItemIds: vi.fn(async (ids: ItemId[]) => {
       for (const id of ids) itemIds.add(id)
     }),
   }
@@ -169,7 +169,7 @@ describe('AccountSettings', () => {
   it('reports a failed write and re-emits the current metadata', async () => {
     const settings = createSettings({ local: { sortCriteria: [] } })
     await settings.load()
-    indexManager.updateAutomergeMetadata.mockRejectedValueOnce(new Error('Storage failure'))
+    indexManager.updateMetadata.mockRejectedValueOnce(new Error('Storage failure'))
 
     await settings.mutate({ sortCriteria: [{ type: 'name', reverse: false }] })
 

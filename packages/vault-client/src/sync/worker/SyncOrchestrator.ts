@@ -1,7 +1,7 @@
 import { LeaderElection, type LeaderElectionCallbacks } from './utils/LeaderElection'
 import type { PollOutcome } from './SyncPoller'
 import type { SyncSessionState } from './SyncSessionState'
-import { ClientEventHub } from './SyncEventHub'
+import type { ClientEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'

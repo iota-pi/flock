@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import Divider from '@mui/material/Divider'
 import { styled } from '@mui/material/styles'
 import Typography from '@mui/material/Typography'
@@ -9,7 +9,7 @@ import Switch from '@mui/material/Switch'
 import Tooltip from '@mui/material/Tooltip'
 
 import SettingsItem from '../../SettingsItem'
-import { SettingsActionId, settingsConfig, SettingsValueRenderer } from './settingsConfig'
+import { type SettingsActionId, settingsConfig, type SettingsValueRenderer } from './settingsConfig'
 
 type SettingsValues = {
   darkMode: boolean | null

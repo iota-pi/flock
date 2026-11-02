@@ -2,10 +2,10 @@ import { useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 
-import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
+import BaseDrawer, { type BaseDrawerProps } from './BaseDrawer'
 import LargeIcon from '../ui/LargeIcon'
 import { usePage } from '../pages'
-import { PublicPageId, ProtectedPageId } from '../pages/types'
+import type { PublicPageId, ProtectedPageId } from '../pages/types'
 import InlineText from '../ui/InlineText'
 
 

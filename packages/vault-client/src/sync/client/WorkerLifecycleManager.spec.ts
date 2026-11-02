@@ -1,4 +1,4 @@
-import { WorkerLifecycleManager, WorkerLifecycleCallbacks } from './WorkerLifecycleManager'
+import { WorkerLifecycleManager, type WorkerLifecycleCallbacks } from './WorkerLifecycleManager'
 import * as localDataCleanup from './localDataCleanup'
 import * as vaultModule from '../../api/vault'
 import * as sessionModule from '../../api/session'

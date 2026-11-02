@@ -1,9 +1,9 @@
-import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
+import { Navigate, useLocation, useMatches, type RouteObject } from 'react-router'
 import { useLoggedIn } from 'src/state/selectors'
 import { useAppStore } from 'src/state/store'
 import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
-import { Page, ProtectedPageId } from './types'
+import type { Page, ProtectedPageId } from './types'
 import ErrorPage from './ErrorPage'
 import AsyncBoundary, { LoadingSpinner } from '../ui/AsyncBoundary'
 

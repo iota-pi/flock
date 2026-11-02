@@ -8,11 +8,11 @@ import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
-import { styled, Theme } from '@mui/material/styles'
+import { styled, type Theme } from '@mui/material/styles'
 import {
   ArchiveIcon,
   FilterIcon,
-  MuiIconType,
+  type MuiIconType,
   MoreOptionsIcon,
   SortIcon,
   UnarchiveIcon,

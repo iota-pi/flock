@@ -139,7 +139,7 @@ export class ManifestSyncManager {
   }
 
   private async collectLocalSyncState(signal: AbortSignal) {
-    const tombstoneItemIds = await this.deps.indexManager.listAutomergeTombstoneIds()
+    const tombstoneItemIds = await this.deps.indexManager.listTombstoneIds()
     const localLastModifiedMap = new Map(this.deps.snapshotManager.tracker.exportLastModified())
     const localVersionsMap = new Map(this.deps.snapshotManager.tracker.exportItemVersions())
     checkAlive(signal, this.isAlive)
@@ -164,7 +164,7 @@ export class ManifestSyncManager {
     signal: AbortSignal,
   ): Promise<{ skip: boolean; hasKnownItems: boolean; knownItemIds: ItemId[] }> {
     checkAlive(signal, this.isAlive)
-    const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
+    const knownItemIds = await this.deps.indexManager.listItemIds()
     const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
     checkAlive(signal, this.isAlive)
 

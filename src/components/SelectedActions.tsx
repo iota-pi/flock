@@ -13,12 +13,12 @@ import {
   DeleteIcon,
   FrequencyIcon,
   GroupIcon,
-  MuiIconType,
+  type MuiIconType,
   RemoveIcon,
   UnarchiveIcon,
 } from './Icons'
 import { useItemsByIds } from '../state/selectors'
-import { Item } from '../state/items'
+import type { Item } from '../state/items'
 import { usePrevious } from '../utils'
 import { deleteItems, storeItems } from '../features/items/mutations/itemMutations'
 import { useAppStore } from '../state/store'

@@ -4,7 +4,7 @@ import { createTestDocStore } from '../__test__/testUtils'
 import { exportAllBinaries, restoreFromBinaries } from './backup'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
-import { ACCOUNT_INDEX_DOCUMENT_ID, BackupDocId } from '../utils/automerge'
+import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
 import type { VaultDoc } from '../../shared/types'
 import type { ItemId } from '@vault/shared'
 
@@ -48,10 +48,10 @@ describe('backup operations', () => {
       },
       { createIfMissing: true }
     )
-    await indexManager.addAutomergeItemIdsToIndex([item.id])
+    await indexManager.addItemIds([item.id])
 
     // Update metadata before backup
-    await indexManager.updateAutomergeMetadata({ prayerGoal: 42 })
+    await indexManager.updateMetadata({ prayerGoal: 42 })
 
     // Export binaries
     const exported = await exportAllBinaries(docStore, indexManager)
@@ -67,7 +67,7 @@ describe('backup operations', () => {
     const retrievedBefore = await docStore.getAutomergeItem(item.id)
     expect(retrievedBefore).toBeNull()
 
-    const metadataBefore = await indexManager.getAutomergeMetadata()
+    const metadataBefore = await indexManager.getMetadata()
     expect(metadataBefore.prayerGoal).toBeUndefined()
 
     // Restore from binaries
@@ -78,11 +78,11 @@ describe('backup operations', () => {
     const retrievedAfter = await docStore.getAutomergeItem(item.id)
     expect(retrievedAfter).toEqual(item)
 
-    const itemIds = await indexManager.listAutomergeItemIds()
+    const itemIds = await indexManager.listItemIds()
     expect(itemIds).toContain(item.id)
 
     // Verify metadata restored
-    const metadataAfter = await indexManager.getAutomergeMetadata()
+    const metadataAfter = await indexManager.getMetadata()
     expect(metadataAfter.prayerGoal).toBe(42)
   })
 
@@ -94,7 +94,7 @@ describe('backup operations', () => {
         doc.id = id
         doc.name = id
       }, { createIfMissing: true })
-      await indexManager.addAutomergeItemIdsToIndex([id])
+      await indexManager.addItemIds([id])
     }
 
     await createItem(backedUp)
@@ -103,7 +103,7 @@ describe('backup operations', () => {
 
     await restoreFromBinaries(docStore, exported.documents, indexManager)
 
-    const itemIds = await indexManager.listAutomergeItemIds()
+    const itemIds = await indexManager.listItemIds()
     expect(itemIds).toContain(backedUp)
     expect(itemIds).toContain(newer)
   })
@@ -114,23 +114,23 @@ describe('backup operations', () => {
       doc.id = id
       doc.name = 'Deleted later'
     }, { createIfMissing: true })
-    await indexManager.addAutomergeItemIdsToIndex([id])
+    await indexManager.addItemIds([id])
     const exported = await exportAllBinaries(docStore, indexManager)
 
     await docStore.changeDocument(id, doc => {
       doc.deleted = true
     }, { knownToExist: true })
-    await indexManager.removeAutomergeItemIdsFromIndex([id])
+    await indexManager.removeItemIds([id])
 
     await restoreFromBinaries(docStore, exported.documents, indexManager)
 
-    expect(await indexManager.listAutomergeItemIds()).not.toContain(id)
-    expect(await indexManager.listAutomergeTombstoneIds()).toContain(id)
+    expect(await indexManager.listItemIds()).not.toContain(id)
+    expect(await indexManager.listTombstoneIds()).toContain(id)
   })
 
   it('should track skipped items when documents fail to load', async () => {
     // Add missing item to index
-    await indexManager.addAutomergeItemIdsToIndex(['missing-item' as ItemId])
+    await indexManager.addItemIds(['missing-item' as ItemId])
 
     vi.spyOn(docStore, 'findHandle').mockResolvedValue(undefined)
 

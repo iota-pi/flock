@@ -1,7 +1,7 @@
-import { ReactNode, useCallback } from 'react'
+import { type ReactNode, useCallback } from 'react'
 import { useSwipeable } from 'react-swipeable'
 import Box from '@mui/material/Box'
-import { SxProps, Theme } from '@mui/material/styles'
+import type { SxProps, Theme } from '@mui/material/styles'
 
 
 type SwipeEvent = {

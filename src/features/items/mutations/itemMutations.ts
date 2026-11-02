@@ -3,7 +3,7 @@ import type { ItemType } from 'src/shared/itemTypes'
 import {
   ERROR_ITEM_TYPE,
   ITEM_TYPES,
-  GroupItem,
+  type GroupItem,
   groupItemSchema,
   personItemSchema,
   topicItemSchema,

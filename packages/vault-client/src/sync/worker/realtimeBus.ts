@@ -1,4 +1,4 @@
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { VaultMetadata } from '../shared/types'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { createLogger } from '../utils/logger'

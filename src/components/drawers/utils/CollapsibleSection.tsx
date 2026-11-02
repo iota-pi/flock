@@ -1,5 +1,5 @@
 import {
-  ReactNode,
+  type ReactNode,
   useCallback,
   useState,
 } from 'react'
@@ -12,7 +12,7 @@ import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
 import { styled } from '@mui/material/styles'
 
-import { ExpandIcon, MuiIconType } from '../../Icons'
+import { ExpandIcon, type MuiIconType } from '../../Icons'
 
 const StyledAccordion = styled(Accordion)(({ theme }) => ({
   '& .MuiAccordion-root': {

@@ -1,4 +1,4 @@
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import { RealtimeBus, getIndexChannelName, getSyncPingChannelName } from './realtimeBus'
 
 class MockBroadcastChannel {

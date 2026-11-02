@@ -1,14 +1,17 @@
-import { z } from 'zod'
+import type { z } from 'zod'
 
-import type { ItemId, KdfParams, ManifestEntry, PageToken } from '@vault/shared'
-import type { FailedLoginRecord } from '../loginThrottle'
-import {
+import type {
+  ItemId,
+  KdfParams,
+  ManifestEntry,
+  PageToken,
   VaultSessionRecordSchema,
   VaultAccountSchema,
   VaultAccountWithAuthSchema,
   VaultItemSchema,
   StoredSyncMessageSchema,
 } from '@vault/shared'
+import type { FailedLoginRecord } from '../loginThrottle'
 
 export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
 export type VaultAccount = z.infer<typeof VaultAccountSchema>

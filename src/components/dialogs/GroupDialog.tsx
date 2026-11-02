@@ -6,10 +6,10 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
 import Grid from '@mui/material/Grid'
 
-import { Item } from '../../state/items'
+import type { Item } from '../../state/items'
 import Search from '../Search'
 import { storeItems } from '../../features/items/mutations/itemMutations'
-import { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
 
 
 interface Props {

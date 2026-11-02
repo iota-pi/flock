@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import SearchableRow, { PropsAndOption } from './Row'
+import SearchableRow, { type PropsAndOption } from './Row'
 
 const FALLBACK_RENDER_COUNT = 20
 

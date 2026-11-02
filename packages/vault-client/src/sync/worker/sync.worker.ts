@@ -12,7 +12,7 @@ import { setApiAuthToken } from '../../api/runtime'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
@@ -217,7 +217,7 @@ export class SyncWorker implements SyncApi {
     this.assertNotShutDown()
     const { indexManager, accountSettings } = context.services
 
-    const localItemIds = await indexManager.listAutomergeItemIds()
+    const localItemIds = await indexManager.listItemIds()
     this.subscriptions.update(localItemIds)
     this.clientEventHub.emit({
       type: 'indexUpdated',
@@ -238,8 +238,8 @@ export class SyncWorker implements SyncApi {
         // Pings also name deleted items, which mustn't come back. A deliberate restore reaches this
         // tab as a doc change, which re-indexes the item.
         fireAndForget(
-          this._context.services.indexManager.addAutomergeItemIdsToIndex(itemIds, { skipTombstoned: true }),
-          'SyncWorker:addAutomergeItemIdsToIndex',
+          this._context.services.indexManager.addItemIds(itemIds, { skipTombstoned: true }),
+          'SyncWorker:addItemIds',
         )
       }
     })
@@ -318,14 +318,14 @@ export class SyncWorker implements SyncApi {
     const item = docStore.decodeSnapshot(id, doc)
     if (item?.deleted) {
       fireAndForget(
-        indexManager.removeAutomergeItemIdsFromIndex([id]),
-        'SyncWorker:removeAutomergeItemIdsFromIndex',
+        indexManager.removeItemIds([id]),
+        'SyncWorker:removeItemIds',
       )
       this.subscriptions.unsubscribe(id)
     } else if (item) {
       fireAndForget(
-        indexManager.addAutomergeItemIdsToIndex([id]),
-        'SyncWorker:addAutomergeItemIdsToIndex',
+        indexManager.addItemIds([id]),
+        'SyncWorker:addItemIds',
       )
     }
     this.clientEventHub.emit({ type: 'itemUpdated', id, item })

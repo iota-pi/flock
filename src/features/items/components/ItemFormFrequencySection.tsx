@@ -6,7 +6,7 @@ import FrequencyControls from 'src/components/FrequencyControls'
 import CollapsibleSection from 'src/components/drawers/utils/CollapsibleSection'
 import { FrequencyIcon } from 'src/components/Icons'
 import { getLastPrayedFor } from 'src/utils/prayer'
-import { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
 import { useGroupLookupMap } from 'src/state/selectors'
 
 

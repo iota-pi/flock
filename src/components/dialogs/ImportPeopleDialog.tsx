@@ -9,7 +9,7 @@ import Box from '@mui/material/Box'
 import { DropzoneArea } from 'mui2-file-dropzone'
 import { parse } from 'csv-parse/browser/esm/sync'
 
-import { Item } from '../../state/items'
+import type { Item } from '../../state/items'
 import { UploadIcon } from '../Icons'
 import { importPeople } from 'src/utils/importUtils'
 

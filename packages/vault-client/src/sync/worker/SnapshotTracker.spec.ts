@@ -1,7 +1,7 @@
 import { SnapshotTracker } from './SnapshotTracker'
 import { getTimestamps, setTimestamps } from './__test__/testUtils'
-import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
-import { LastModifiedStore } from './stores/LastModifiedStore'
+import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import type { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncSessionState } from './SyncSessionState'
 
 describe('SnapshotTracker', () => {

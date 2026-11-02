@@ -1,9 +1,9 @@
-import {
-  type Message,
-  type PeerId,
-  type PeerMetadata,
-  type StorageId,
-  type DocumentId,
+import type {
+  Message,
+  PeerId,
+  PeerMetadata,
+  StorageId,
+  DocumentId,
 } from '@automerge/automerge-repo/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 import { debounce } from 'lodash-es'

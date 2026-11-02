@@ -43,6 +43,8 @@ export const SYNC_BATCH_SIZES = {
   reencryptChunk: 10,
   /** Maximum number of pending item updates to buffer before flushing to store */
   itemUpdateBatchMax: 50,
+  /** Number of remote snapshots to fetch per request when hydrating the manifest */
+  hydrationFetch: 50,
   /** Maximum number of items to hydrate concurrently in Automerge WASM */
   hydrationConcurrency: 10,
 } as const

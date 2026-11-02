@@ -7,7 +7,7 @@ import { SyncSessionState } from './SyncSessionState'
 import * as automerge from './utils/automerge'
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from './SyncApiClient'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
 import type { ItemPullState } from './PullCursorState'
 import type { BatchProgress } from './BatchProgress'
@@ -15,7 +15,7 @@ import { SYNC_METADATA_KEYS } from './stores/syncMetadataStorage'
 import { packBatchedMessages } from './utils/binaryFraming'
 
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createFakeRealtimeBus,
   createMockLocalForage,
   createMockKeyProvider,

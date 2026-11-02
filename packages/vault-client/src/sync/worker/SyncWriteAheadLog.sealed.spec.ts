@@ -4,7 +4,7 @@ import { clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { clearWriteAheadLog } from '../shared/writeAheadLogStorage'
 import type { LocalCipher } from './localEncryption/LocalCipher'
-import { MockLocalforage, createMockLocalForage, createTestLocalCipher, mockLocalForage } from './__test__/testUtils'
+import { type MockLocalforage, createMockLocalForage, createTestLocalCipher, mockLocalForage } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 
 const activeStoreMap = new Map<string, MockLocalforage>()

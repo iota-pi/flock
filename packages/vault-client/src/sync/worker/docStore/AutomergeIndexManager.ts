@@ -205,7 +205,7 @@ export class AutomergeIndexManager {
    * when the IDs don't come from a live local doc (such as another tab's sync ping, which can name
    * deleted items); a tombstoned ID is then left as it is.
    */
-  async addAutomergeItemIdsToIndex(itemIds: ItemId[], options?: { skipTombstoned?: boolean }): Promise<void> {
+  async addItemIds(itemIds: ItemId[], options?: { skipTombstoned?: boolean }): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       const current = new Set(doc.itemIds)
@@ -236,7 +236,7 @@ export class AutomergeIndexManager {
     })
   }
 
-  async removeAutomergeItemIdsFromIndex(itemIds: ItemId[]): Promise<void> {
+  async removeItemIds(itemIds: ItemId[]): Promise<void> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       const removeSet = new Set(itemIds)
@@ -262,22 +262,22 @@ export class AutomergeIndexManager {
     })
   }
 
-  async listAutomergeItemIds(): Promise<ItemId[]> {
+  async listItemIds(): Promise<ItemId[]> {
     const index = await this.getIndexSnapshot()
     return index.itemIds
   }
 
-  async listAutomergeTombstoneIds(): Promise<ItemId[]> {
+  async listTombstoneIds(): Promise<ItemId[]> {
     const index = await this.getIndexSnapshot()
     return index.tombstoneIds
   }
 
-  async getAutomergeMetadata(): Promise<VaultMetadata> {
+  async getMetadata(): Promise<VaultMetadata> {
     const index = await this.getIndexSnapshot()
     return index.metadata
   }
 
-  async updateAutomergeMetadata(changes: Partial<VaultMetadata>): Promise<VaultMetadata> {
+  async updateMetadata(changes: Partial<VaultMetadata>): Promise<VaultMetadata> {
     return this.withLock(async () => {
       const doc = await this.getIndexSnapshotInternal()
       doc.metadata = { ...doc.metadata, ...changes }

@@ -35,7 +35,7 @@ export async function establishSessionFromKeyHash(account: string, nextKeyHash: 
   setApiAuthToken(nextSession)
   setApiSessionExpiredHandler(handleSessionExpired)
   // The session is kept only in memory: this removes one an earlier build stored
-  await deleteStoredSessionToken()
+  deleteStoredSessionToken()
 }
 
 /** Tries a silent re-login, telling the host the session is lost if that fails. Concurrent calls share one attempt. */
@@ -126,5 +126,5 @@ export function assertKeyringLoaded() {
  */
 export async function lockVaultKeys() {
   clearKeyData()
-  await deleteStoredSessionToken()
+  deleteStoredSessionToken()
 }

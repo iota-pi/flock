@@ -9,7 +9,7 @@ import localforage from 'localforage'
 import * as storageManager from '../../utils/storageManager'
 
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createMockLocalForage,
   mockLocalForage,
 } from '../__test__/testUtils'

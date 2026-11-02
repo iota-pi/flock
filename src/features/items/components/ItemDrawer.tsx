@@ -15,10 +15,10 @@ import {
   getItemName,
   getItemTypeLabel,
   isValid,
-  Item,
+  type Item,
 } from 'src/state/items'
 import { useItem } from 'src/state/selectors'
-import BaseDrawer, { BaseDrawerProps } from 'src/components/drawers/BaseDrawer'
+import BaseDrawer, { type BaseDrawerProps } from 'src/components/drawers/BaseDrawer'
 import ConfirmationDialog from 'src/components/dialogs/ConfirmationDialog'
 import InlineText from 'src/components/ui/InlineText'
 import { isSameDay } from 'src/utils'
@@ -34,7 +34,7 @@ import { getLastPrayedFor } from 'src/utils/prayer'
 import { convertItemType, deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/schemas/items'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { ItemType } from 'src/shared/itemTypes'
 import { useAppStore } from 'src/state/store'
 

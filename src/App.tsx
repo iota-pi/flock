@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet } from 'react-router'
-import { Theme, styled } from '@mui/material/styles'
+import { type Theme, styled } from '@mui/material/styles'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'

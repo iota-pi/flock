@@ -1,12 +1,12 @@
 import type { Mock } from 'vitest'
 import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createMockLocalForage,
   mockLocalForage,
 } from './__test__/testUtils'
 
-import { SyncPullQueueManager } from './SyncPullQueueManager'
+import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { SyncSessionState } from './SyncSessionState'
@@ -155,8 +155,8 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
     expect(onPrunedSpy).not.toHaveBeenCalled()
 
     // Step 8: When the snapshot is uploaded to server upon reconnecting:
-    // broker.setSyncedHeads is called, removing the item from snapshot-only mode.
-    broker.setSyncedHeads('offline-item-5' as ItemId, ['server-head-1'])
+    // broker.confirmSnapshot is called, removing the item from snapshot-only mode.
+    broker.confirmSnapshot('offline-item-5' as ItemId, ['server-head-1'])
 
     // Now future edits to offline-item-5 can append to WAL normally
     const postSnapshotEditMsg = createTestSyncMessage('offline-item-5')

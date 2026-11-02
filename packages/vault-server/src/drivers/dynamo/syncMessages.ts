@@ -1,6 +1,6 @@
 import {
   BatchWriteCommand,
-  BatchWriteCommandInput,
+  type BatchWriteCommandInput,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb'
 import { chunk, type ItemId, type PageToken } from '@vault/shared'

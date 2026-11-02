@@ -1,4 +1,4 @@
-import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl, type DocumentId } from '@automerge/automerge-repo/slim'
+import { type Repo, type DocHandle, interpretAsDocumentId, type AutomergeUrl, type DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '@vault/shared'
 import type { VaultDoc, VaultMetadata } from '../../shared/types'

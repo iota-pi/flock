@@ -1,7 +1,7 @@
 import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from '@automerge/automerge-repo/slim'
 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
-import { VaultNetworkAdapter } from './VaultNetworkAdapter'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../utils/storageManager'
 import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import { getVaultStorageNames } from '../shared/storageNames'

@@ -1,6 +1,6 @@
-import { type CSSProperties, ReactNode, useState } from 'react'
+import { type CSSProperties, type ReactNode, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Item } from 'src/state/items'
+import type { Item } from 'src/state/items'
 import { ItemListItem } from './ItemListItem'
 import type { GroupLookupData } from 'src/shared/itemTypes'
 import type { ItemId } from '@vault/shared'

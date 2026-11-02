@@ -8,7 +8,7 @@ import {
 } from './createAccountStore'
 
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createMockLocalForage,
   mockLocalForage,
 } from '../worker/__test__/testUtils'

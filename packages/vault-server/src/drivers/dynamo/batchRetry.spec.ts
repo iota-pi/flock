@@ -1,4 +1,4 @@
-import { BatchGetCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb'
+import type { BatchGetCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb'
 import type { ItemId } from '@vault/shared'
 import DynamoDriver from './driver'
 import { BATCH_MAX_RETRIES, sendBatchWithRetry } from './batchRetry'

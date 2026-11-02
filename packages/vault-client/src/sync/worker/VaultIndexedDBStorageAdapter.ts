@@ -1,4 +1,4 @@
-import { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge-repo/slim'
+import type { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge-repo/slim'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('VaultIndexedDBStorageAdapter')

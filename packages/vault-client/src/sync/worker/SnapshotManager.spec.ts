@@ -1,4 +1,4 @@
-import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { SnapshotManager, type SnapshotManagerOptions } from './SnapshotManager'
 import { SyncSessionState } from './SyncSessionState'
 import { RecoveryManager } from './RecoveryManager'
@@ -78,9 +78,7 @@ function isLeader(target: SnapshotManager): boolean {
 
 function createMockBroker() {
   return {
-    setSyncedHeads: vi.fn(),
-    clearSnapshotOnlyItem: vi.fn(),
-    unblockItem: vi.fn(),
+    confirmSnapshot: vi.fn(),
   } as any
 }
 

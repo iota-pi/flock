@@ -1,5 +1,5 @@
 import * as Automerge from '@automerge/automerge/slim'
-import { ItemId, ItemIdSchema } from '@vault/shared'
+import { type ItemId, ItemIdSchema } from '@vault/shared'
 import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
@@ -17,7 +17,7 @@ export async function exportAllBinaries(
   const exported: Partial<Record<BackupDocId, string>> = {}
   const skipped: ItemId[] = []
 
-  for (const itemId of await indexManager.listAutomergeItemIds()) {
+  for (const itemId of await indexManager.listItemIds()) {
     const handle = await docStore.findHandle(itemId, { knownToExist: true })
     if (!handle?.isReady()) {
       log.warn(`Skipping item ${itemId}: document could not be loaded in time`)
@@ -87,9 +87,9 @@ export async function restoreFromBinaries(
     }
   }
 
-  await indexManager.addAutomergeItemIdsToIndex(activeItemIds)
+  await indexManager.addItemIds(activeItemIds)
   if (deletedItemIds.length > 0) {
-    await indexManager.removeAutomergeItemIdsFromIndex(deletedItemIds)
+    await indexManager.removeItemIds(deletedItemIds)
   }
   return restoredItemIds
 }

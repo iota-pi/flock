@@ -1,12 +1,12 @@
 import {
-  DynamoDBDocumentClient,
-  PutCommand,
-  PutCommandOutput,
+  type DynamoDBDocumentClient,
+  type PutCommand,
+  type PutCommandOutput,
   QueryCommand,
-  QueryCommandInput,
-  QueryCommandOutput,
-  UpdateCommand,
-  UpdateCommandOutput,
+  type QueryCommandInput,
+  type QueryCommandOutput,
+  type UpdateCommand,
+  type UpdateCommandOutput,
 } from '@aws-sdk/lib-dynamodb'
 import { isConditionalCheckFailure } from './dynamoErrors'
 import type { VaultTableNames } from './config'

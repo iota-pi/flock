@@ -1,7 +1,7 @@
 import type { VaultDoc } from '../shared/types'
 import type { SyncDomainHooks } from './domain'
-import { ClientEventHub } from './SyncEventHub'
-import { AutomergeDocStore, AutomergeIndexManager } from './docStore'
+import type { ClientEventHub } from './SyncEventHub'
+import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { generateItemId, settingsDocId, type ItemId } from '@vault/shared'
 import { MAX_ITEM_CONTENT_BYTES, MAX_ITEM_CONTENT_KB } from '@vault/shared'
@@ -110,7 +110,7 @@ export class ItemOperations {
       const result = await this.applyDocumentChange(id, changes, { knownToExist: true })
       if (result === 'applied') {
         if (changes.deleted === true) {
-          await this.deps.indexManager.removeAutomergeItemIdsFromIndex([id])
+          await this.deps.indexManager.removeItemIds([id])
         }
         this.deps.markDocumentDirty(id)
       } else if (result === 'refusedDeleted') {
@@ -135,7 +135,7 @@ export class ItemOperations {
     if (result !== 'applied') {
       throw new DocumentCreateRefusedError(`Failed to create document ${item.id}`)
     }
-    await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
+    await this.deps.indexManager.addItemIds([item.id])
     this.deps.markDocumentDirty(item.id)
     this.deps.bus?.publishSyncPing([item.id])
   }
@@ -154,7 +154,7 @@ export class ItemOperations {
     const failedItems: VaultDoc[] = []
     const succeededActiveIds: ItemId[] = []
     const succeededDeletedIds: ItemId[] = []
-    const existingIds = new Set(await this.deps.indexManager.listAutomergeItemIds())
+    const existingIds = new Set(await this.deps.indexManager.listItemIds())
 
     for (const item of items) {
       try {
@@ -181,11 +181,11 @@ export class ItemOperations {
     }
 
     if (succeededDeletedIds.length > 0) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex(succeededDeletedIds)
+      await this.deps.indexManager.removeItemIds(succeededDeletedIds)
     }
 
     if (succeededActiveIds.length > 0) {
-      await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededActiveIds)
+      await this.deps.indexManager.addItemIds(succeededActiveIds)
       this.deps.bus?.publishSyncPing(succeededActiveIds)
     }
 
@@ -209,9 +209,9 @@ export class ItemOperations {
    */
   private async releaseRecoveredItem(itemId: ItemId, index: 'add' | 'remove'): Promise<void> {
     if (index === 'add') {
-      await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
+      await this.deps.indexManager.addItemIds([itemId])
     } else {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
+      await this.deps.indexManager.removeItemIds([itemId])
     }
     this.deps.markDocumentDirty(itemId)
     await this.deps.recoveryManager.unquarantine(itemId)
@@ -337,7 +337,7 @@ export class ItemOperations {
     const remapReferences = this.deps.hooks?.remapReferences
     if (remapReferences) {
       try {
-        const activeItemIds = await this.deps.indexManager.listAutomergeItemIds()
+        const activeItemIds = await this.deps.indexManager.listItemIds()
         for (const id of activeItemIds) {
           if (id === oldItemId || id === newItemId) continue
           const candidate = await this.deps.docStore.getAutomergeItem(id)

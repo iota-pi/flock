@@ -16,7 +16,7 @@ import { ItemOperations } from './ItemOperations'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS, RecoveryManager } from './RecoveryManager'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { ClientEventHub } from './SyncEventHub'
+import type { ClientEventHub } from './SyncEventHub'
 import { SyncStatusManager } from './SyncStatusManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
@@ -24,7 +24,7 @@ import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId, isIndexDocument } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLifecycleManager'
-import { SyncApiClient } from './SyncApiClient'
+import type { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
 import { ItemReencryptor } from './ItemReencryptor'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
@@ -335,6 +335,7 @@ export class SyncWorkerContext {
       indexManager,
       apiClient: this.apiClient,
       recoveryManager,
+      session,
       recorder: snapshotManager,
     })
 

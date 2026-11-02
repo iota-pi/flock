@@ -1,6 +1,6 @@
 import { debounce } from 'lodash-es'
-import { ItemId } from '@vault/shared'
-import { LastModifiedStore, type ItemSyncTimestamps } from './stores/LastModifiedStore'
+import type { ItemId } from '@vault/shared'
+import type { LastModifiedStore, ItemSyncTimestamps } from './stores/LastModifiedStore'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AsyncMutex } from '../utils/AsyncMutex'
 import { RetryTimer } from '../utils/RetryTimer'

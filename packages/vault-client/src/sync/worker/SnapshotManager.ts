@@ -1,4 +1,4 @@
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { ClientEventHub } from './SyncEventHub'

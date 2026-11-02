@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useMemo } from 'react'
+import { type ChangeEvent, useCallback, useMemo } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
@@ -8,16 +8,16 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 
 import {
   FILTER_CRITERIA_DISPLAY_MAP,
-  FilterCriterionType,
-  FilterCriterion,
+  type FilterCriterionType,
+  type FilterCriterion,
   getBaseValue,
   FILTER_OPERATORS_MAP,
-  FilterOperatorName,
+  type FilterOperatorName,
 } from 'src/utils/customFilter'
 import { RemoveIcon } from '../../Icons'
 import FrequencyPicker from '../../FrequencyPicker'
 import DateLocalization from '../../ui/DateLocalization'
-import { Frequency } from 'src/utils/frequencies'
+import type { Frequency } from 'src/utils/frequencies'
 import { useItemsOfType } from 'src/state/selectors'
 import type { GroupItem } from 'src/shared/schemas/items'
 import { getItemName } from 'src/state/items'

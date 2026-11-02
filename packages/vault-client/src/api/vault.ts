@@ -292,7 +292,7 @@ export async function clearVaultDeviceData(account?: string) {
   clearKeyData()
   clearBiometricData()
   clearCachedKeyring()
-  await deleteStoredSessionToken()
+  deleteStoredSessionToken()
   clearStoredMetadata()
 }
 

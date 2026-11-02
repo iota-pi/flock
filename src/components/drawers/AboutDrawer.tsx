@@ -1,7 +1,7 @@
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 
-import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
+import BaseDrawer, { type BaseDrawerProps } from './BaseDrawer'
 
 function AboutDrawer({
   onClose,

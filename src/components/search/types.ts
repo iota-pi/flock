@@ -1,4 +1,4 @@
-import { Item } from '../../state/items'
+import type { Item } from '../../state/items'
 
 interface SearchableItem<T extends Item = Item> {
   create?: false,

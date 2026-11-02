@@ -3,7 +3,7 @@ import { convertItemType, createItem, deleteItems, mutateItem, setMetadata, stor
 import { SyncBridge } from '../app/vault/syncBridge'
 import { useAppStore } from '../state/store'
 import type { AccountMetadata } from '../state/metadata'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import * as syncBridgeModule from '../app/vault/syncBridge'
 import * as utilModule from './util'
 import * as storeModule from '../state/store'

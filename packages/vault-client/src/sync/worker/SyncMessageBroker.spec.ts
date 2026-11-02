@@ -4,7 +4,7 @@ import type { Mock } from 'vitest'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { SyncSessionState } from './SyncSessionState'
-import { SyncPullQueueManager } from './SyncPullQueueManager'
+import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
@@ -120,7 +120,7 @@ describe('SyncMessageBroker', () => {
     expect(await dropsIncrementalSync('item-big')).toBe(true)
     expect(mockWal.append).not.toHaveBeenCalled()
 
-    broker.setSyncedHeads('item-big' as ItemId, ['heads'])
+    broker.confirmSnapshot('item-big' as ItemId, ['heads'])
     expect(await dropsIncrementalSync('item-big')).toBe(false)
     warnSpy.mockRestore()
   })
@@ -215,21 +215,21 @@ describe('SyncMessageBroker', () => {
     expect(requestSnapshot).not.toHaveBeenCalled()
   })
 
-  it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeads or clearSnapshotOnlyItem', async () => {
+  it('clears snapshot-only flag when a snapshot is confirmed, with or without heads', async () => {
     await startSending()
     broker.fallbackToSnapshot(['item-1' as ItemId, 'item-2' as ItemId])
     expect(await dropsIncrementalSync('item-1')).toBe(true)
     expect(await dropsIncrementalSync('item-2')).toBe(true)
 
-    broker.setSyncedHeads('item-1' as ItemId, ['head-1'])
+    broker.confirmSnapshot('item-1' as ItemId, ['head-1'])
     expect(await dropsIncrementalSync('item-1')).toBe(false)
     expect(await dropsIncrementalSync('item-2')).toBe(true)
 
-    broker.clearSnapshotOnlyItem('item-2' as ItemId)
+    broker.confirmSnapshot('item-2' as ItemId, undefined)
     expect(await dropsIncrementalSync('item-2')).toBe(false)
   })
 
-  it('setSyncedHeads unblocks the item, ends snapshot-only sync and records heads with the adapter', async () => {
+  it('confirmSnapshot unblocks the item, ends snapshot-only sync and records heads with the adapter', async () => {
     await startSending()
     const setSyncedHeadsSpy = vi.spyOn(adapter, 'setSyncedHeads')
     const resetRenegSpy = vi.spyOn(adapter, 'resetReNegotiationCircuit')
@@ -242,7 +242,7 @@ describe('SyncMessageBroker', () => {
     expect(broker.getBlockedItemIds()).toEqual([itemId])
     expect(await dropsIncrementalSync(itemId)).toBe(true)
 
-    broker.setSyncedHeads(itemId, ['head-from-snapshot'])
+    broker.confirmSnapshot(itemId, ['head-from-snapshot'])
     expect(broker.getBlockedItemIds()).toEqual([])
     expect(setSyncedHeadsSpy).toHaveBeenCalledWith(docId, ['head-from-snapshot'])
     expect(resetRenegSpy).toHaveBeenCalledWith(docId)
@@ -300,12 +300,12 @@ describe('SyncMessageBroker', () => {
       expect(mockWal.append).toHaveBeenCalledTimes(1)
     })
 
-    it('unblocks item when setSyncedHeads is called after successful snapshot upload', async () => {
+    it('unblocks item when confirmSnapshot is called after successful snapshot upload', async () => {
       await blockByFailedAppend('item-snap')
       expect(broker.getBlockedItemIds()).toEqual(['item-snap'])
 
       // SnapshotManager succeeds and updates synced heads
-      broker.setSyncedHeads('item-snap' as ItemId, ['head-123'])
+      broker.confirmSnapshot('item-snap' as ItemId, ['head-123'])
 
       expect(broker.getBlockedItemIds()).toEqual([])
 
@@ -344,12 +344,12 @@ describe('SyncMessageBroker', () => {
       expect(flushSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('explicit unblockItem unblocks single item', async () => {
+    it('confirming a tombstone snapshot unblocks a single item', async () => {
       await blockByFailedAppend('item-x')
       await blockByFailedAppend('item-y')
       expect(broker.getBlockedItemIds()).toEqual(['item-x', 'item-y'])
 
-      broker.unblockItem('item-x' as ItemId)
+      broker.confirmSnapshot('item-x' as ItemId, undefined)
       expect(broker.getBlockedItemIds()).toEqual(['item-y'])
     })
   })

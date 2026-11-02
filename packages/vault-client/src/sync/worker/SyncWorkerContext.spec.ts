@@ -126,8 +126,8 @@ beforeEach(() => {
     },
     AutomergeIndexManager: class MockAutomergeIndexManager {
       ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
-      addAutomergeItemIdsToIndex = vi.fn()
-      getAutomergeMetadata = vi.fn().mockResolvedValue({})
+      addItemIds = vi.fn()
+      getMetadata = vi.fn().mockResolvedValue({})
       close = vi.fn()
     },
   })

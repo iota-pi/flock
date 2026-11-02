@@ -1,5 +1,5 @@
-import { z } from 'zod'
-import { FlockAccountFieldsSchema, WebPushSubscriptionSchema } from '../shared/schemas/notifications'
+import type { z } from 'zod'
+import type { FlockAccountFieldsSchema, WebPushSubscriptionSchema } from '../shared/schemas/notifications'
 
 export type WebPushSubscription = z.infer<typeof WebPushSubscriptionSchema>
 

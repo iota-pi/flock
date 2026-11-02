@@ -1,4 +1,4 @@
-import { ItemOperations, ItemOperationsDeps } from './ItemOperations'
+import { ItemOperations, type ItemOperationsDeps } from './ItemOperations'
 import { RecoveryManager } from './RecoveryManager'
 import type { VaultDoc } from '../shared/types'
 import { passthroughCodec } from './domain'
@@ -31,8 +31,8 @@ describe('ItemOperations', () => {
   let operations: ItemOperations
   let emitMock: any
   let changeDocumentMock: any
-  let addAutomergeItemIdsToIndexMock: any
-  let removeAutomergeItemIdsFromIndexMock: any
+  let addItemIdsMock: any
+  let removeItemIdsMock: any
   let markDocumentDirtyMock: any
   let getAutomergeItemMock: any
 
@@ -46,8 +46,8 @@ describe('ItemOperations', () => {
     mockUpsertManualRecoveryEntry.mockResolvedValue(undefined)
     emitMock = vi.fn()
     changeDocumentMock = vi.fn()
-    addAutomergeItemIdsToIndexMock = vi.fn()
-    removeAutomergeItemIdsFromIndexMock = vi.fn().mockResolvedValue(undefined)
+    addItemIdsMock = vi.fn()
+    removeItemIdsMock = vi.fn().mockResolvedValue(undefined)
     markDocumentDirtyMock = vi.fn()
     getAutomergeItemMock = vi.fn()
 
@@ -60,9 +60,9 @@ describe('ItemOperations', () => {
         codec: { ...passthroughCodec, isCorrupt: (doc: VaultDoc) => doc.type === 'error' },
       } as any,
       indexManager: {
-        addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,
-        listAutomergeItemIds: vi.fn().mockResolvedValue([]),
-        removeAutomergeItemIdsFromIndex: removeAutomergeItemIdsFromIndexMock,
+        addItemIds: addItemIdsMock,
+        listItemIds: vi.fn().mockResolvedValue([]),
+        removeItemIds: removeItemIdsMock,
       } as any,
       eventHub: {
         emit: emitMock,
@@ -92,7 +92,7 @@ describe('ItemOperations', () => {
 
       await operations.createItem(testItem)
 
-      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-1'])
+      expect(addItemIdsMock).toHaveBeenCalledWith(['item-1'])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
       expect(emitMock).not.toHaveBeenCalled()
@@ -104,7 +104,7 @@ describe('ItemOperations', () => {
 
       await operations.createItem(testItem)
 
-      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(addItemIdsMock).not.toHaveBeenCalled()
       expect(markDocumentDirtyMock).not.toHaveBeenCalled()
       expect(emitMock).toHaveBeenCalledWith({
         type: 'mutationFailed',
@@ -233,8 +233,8 @@ describe('ItemOperations', () => {
 
       expect(docs[itemId]).toEqual({ id: itemId, text: 'old', deleted: true })
       expect(markDocumentDirtyMock).not.toHaveBeenCalled()
-      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
-      expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+      expect(addItemIdsMock).not.toHaveBeenCalled()
+      expect(removeItemIdsMock).not.toHaveBeenCalled()
       expect(emitMock.mock.calls.map(([event]: any[]) => event)).toEqual([
         { type: 'mutationFailed', mutationType: 'edit', error: `Cannot edit deleted item ${itemId}` },
         { type: 'itemUpdated', id: itemId, item: null },
@@ -260,7 +260,7 @@ describe('ItemOperations', () => {
 
       expect(docs[itemId]).toEqual({ id: itemId, text: 'new' })
       expect('deleted' in docs[itemId]).toBe(false)
-      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(addItemIdsMock).not.toHaveBeenCalled()
       expect(markDocumentDirtyMock).toHaveBeenCalledWith(itemId)
       expect(emitMock).not.toHaveBeenCalled()
     })
@@ -272,7 +272,7 @@ describe('ItemOperations', () => {
       await operations.mutateItem(itemId, { deleted: true } as Partial<VaultDoc>)
 
       expect(docs[itemId]).toEqual({ id: itemId, text: 'old', deleted: true })
-      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith([itemId])
+      expect(removeItemIdsMock).toHaveBeenCalledWith([itemId])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith(itemId)
     })
   })
@@ -292,7 +292,7 @@ describe('ItemOperations', () => {
 
       expect(docs['item-del']).toEqual({ id: 'item-del', text: 'old', deleted: true })
       expect(docs['item-live']).toEqual({ id: 'item-live', text: 'new' })
-      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-live'])
+      expect(addItemIdsMock).toHaveBeenCalledWith(['item-live'])
       expect(markDocumentDirtyMock).toHaveBeenCalledTimes(1)
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-live')
       expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-del', item: null })
@@ -307,7 +307,7 @@ describe('ItemOperations', () => {
       await operations.storeItems([{ id: 'item-del' as ItemId, deleted: true } as VaultDoc], { markDirty: false })
 
       expect(docs['item-del']).toEqual({ id: 'item-del', deleted: true })
-      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-del'])
+      expect(removeItemIdsMock).toHaveBeenCalledWith(['item-del'])
       expect(emitMock).not.toHaveBeenCalled()
     })
 
@@ -318,7 +318,7 @@ describe('ItemOperations', () => {
       await operations.storeItems([{ id: 'item-new' as ItemId, text: 'imported' } as unknown as VaultDoc])
 
       expect(docs['item-new']).toEqual({ id: 'item-new', text: 'imported' })
-      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-new'])
+      expect(addItemIdsMock).toHaveBeenCalledWith(['item-new'])
     })
 
     it('handles successful items and thrown exceptions gracefully', async () => {
@@ -335,7 +335,7 @@ describe('ItemOperations', () => {
 
       await operations.storeItems(items)
 
-      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-1'])
+      expect(addItemIdsMock).toHaveBeenCalledWith(['item-1'])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
       expect(getAutomergeItemMock).toHaveBeenCalledWith('item-2')
       expect(emitMock).toHaveBeenCalledWith({
@@ -354,8 +354,8 @@ describe('ItemOperations', () => {
 
       await operations.storeItems(items)
 
-      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-del-1'])
-      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(removeItemIdsMock).toHaveBeenCalledWith(['item-del-1'])
+      expect(addItemIdsMock).not.toHaveBeenCalled()
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-del-1')
     })
 
@@ -369,8 +369,8 @@ describe('ItemOperations', () => {
 
       await operations.storeItems(items, { markDirty: false })
 
-      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-del-1'])
-      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-active'])
+      expect(removeItemIdsMock).toHaveBeenCalledWith(['item-del-1'])
+      expect(addItemIdsMock).toHaveBeenCalledWith(['item-active'])
       expect(markDocumentDirtyMock).not.toHaveBeenCalled()
     })
 
@@ -384,8 +384,8 @@ describe('ItemOperations', () => {
 
       await operations.storeItems(items)
 
-      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-deleted'])
-      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-active'])
+      expect(removeItemIdsMock).toHaveBeenCalledWith(['item-deleted'])
+      expect(addItemIdsMock).toHaveBeenCalledWith(['item-active'])
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-active'])
       expect(markDocumentDirtyMock).toHaveBeenCalledTimes(2)
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-active')
@@ -402,8 +402,8 @@ describe('ItemOperations', () => {
 
       await operations.storeItems(items)
 
-      expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
-      expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+      expect(removeItemIdsMock).not.toHaveBeenCalled()
+      expect(addItemIdsMock).not.toHaveBeenCalled()
       expect(markDocumentDirtyMock).not.toHaveBeenCalled()
       expect(getAutomergeItemMock).toHaveBeenCalledWith('item-del-fail')
       expect(emitMock).toHaveBeenCalledWith({
@@ -425,8 +425,8 @@ describe('ItemOperations', () => {
       expect(typeof newItemId).toBe('string')
       expect(newItemId).not.toBe('item-1')
       expect(getAutomergeItemMock).toHaveBeenCalledWith('item-1')
-      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith([newItemId])
-      expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-1'])
+      expect(addItemIdsMock).toHaveBeenCalledWith([newItemId])
+      expect(removeItemIdsMock).toHaveBeenCalledWith(['item-1'])
       expect(markDocumentDirtyMock).toHaveBeenCalledWith(newItemId)
       expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
       expect(emitMock).toHaveBeenCalledWith({
@@ -527,7 +527,7 @@ describe('ItemOperations', () => {
           expect.any(Function),
           { createIfMissing: true }
         )
-        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-3'])
+        expect(addItemIdsMock).toHaveBeenCalledWith(['item-3'])
         expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-3')
         expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-3'])
 
@@ -563,7 +563,7 @@ describe('ItemOperations', () => {
         ).rejects.toThrow('Could not open the local copy of item-3')
 
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
-        expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
+        expect(addItemIdsMock).not.toHaveBeenCalled()
         expect(markDocumentDirtyMock).not.toHaveBeenCalled()
         expect(mockPublishRealtimeBusSyncPing).not.toHaveBeenCalled()
       })
@@ -588,7 +588,7 @@ describe('ItemOperations', () => {
           { createIfMissing: true }
         )
         expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-4')
-        expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-4'])
+        expect(removeItemIdsMock).toHaveBeenCalledWith(['item-4'])
         expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-4')
 
         expect(capturedDoc).toEqual({
@@ -616,7 +616,7 @@ describe('ItemOperations', () => {
         ).rejects.toThrow('Replace it from the server first')
 
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
-        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(removeItemIdsMock).not.toHaveBeenCalled()
         expect(markDocumentDirtyMock).not.toHaveBeenCalled()
         expect(emitMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recoveryItemsChanged' }))
       })
@@ -646,7 +646,7 @@ describe('ItemOperations', () => {
           if (id === 'group-1') return { id: 'group-1', type: 'group', members: ['item-5', 'other-item'] }
           return null
         })
-        deps.indexManager.listAutomergeItemIds = vi.fn().mockResolvedValue(['group-1'])
+        deps.indexManager.listItemIds = vi.fn().mockResolvedValue(['group-1'])
         const mockEntries: any[] = []
         mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
@@ -690,7 +690,7 @@ describe('ItemOperations', () => {
         await expect(operations.recreateOversizedItem('item-5' as ItemId)).rejects.toThrow('Creation failed')
 
         expect(changeDocumentMock).not.toHaveBeenCalledWith('item-5', expect.anything(), expect.anything())
-        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(removeItemIdsMock).not.toHaveBeenCalled()
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       })
 
@@ -701,7 +701,7 @@ describe('ItemOperations', () => {
         await expect(operations.recreateOversizedItem('item-1' as ItemId)).rejects.toThrow('Failed to recreate')
 
         expect(changeDocumentMock).not.toHaveBeenCalledWith('item-1', expect.anything(), expect.anything())
-        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(removeItemIdsMock).not.toHaveBeenCalled()
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
         expect(markDocumentDirtyMock).not.toHaveBeenCalledWith('item-1')
       })
@@ -709,7 +709,7 @@ describe('ItemOperations', () => {
       it('retires the new document and leaves the old item untouched when indexing fails', async () => {
         getAutomergeItemMock.mockResolvedValue({ id: 'item-1', type: 'note', text: 'hello' })
         changeDocumentMock.mockResolvedValue(true)
-        addAutomergeItemIdsToIndexMock.mockRejectedValue(new Error('Index failed'))
+        addItemIdsMock.mockRejectedValue(new Error('Index failed'))
 
         await expect(operations.recreateOversizedItem('item-1' as ItemId)).rejects.toThrow('Index failed')
 
@@ -718,7 +718,7 @@ describe('ItemOperations', () => {
         expect(newId).not.toBe('item-1')
         expect(changeDocumentMock).toHaveBeenCalledTimes(2)
         expect(changeDocumentMock).toHaveBeenLastCalledWith(newId, expect.any(Function), { knownToExist: true })
-        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(removeItemIdsMock).not.toHaveBeenCalled()
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       })
 
@@ -729,8 +729,8 @@ describe('ItemOperations', () => {
 
         expect(result).toBe('item-1')
         expect(changeDocumentMock).not.toHaveBeenCalled()
-        expect(addAutomergeItemIdsToIndexMock).not.toHaveBeenCalled()
-        expect(removeAutomergeItemIdsFromIndexMock).toHaveBeenCalledWith(['item-1'])
+        expect(addItemIdsMock).not.toHaveBeenCalled()
+        expect(removeItemIdsMock).toHaveBeenCalledWith(['item-1'])
         expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
         expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-1', 'item-1')
         expect(emitMock).toHaveBeenCalledWith({ type: 'itemUpdated', id: 'item-1', item: null })
@@ -746,8 +746,8 @@ describe('ItemOperations', () => {
         ])
 
         expect(first).toBe(second)
-        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledTimes(1)
-        expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith([first])
+        expect(addItemIdsMock).toHaveBeenCalledTimes(1)
+        expect(addItemIdsMock).toHaveBeenCalledWith([first])
       })
 
       it('does not remove the old item from the index when it cannot be marked deleted', async () => {
@@ -758,7 +758,7 @@ describe('ItemOperations', () => {
           'could not be marked deleted',
         )
 
-        expect(removeAutomergeItemIdsFromIndexMock).not.toHaveBeenCalled()
+        expect(removeItemIdsMock).not.toHaveBeenCalled()
         expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
       })
     })

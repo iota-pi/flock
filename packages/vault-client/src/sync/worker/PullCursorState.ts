@@ -1,6 +1,5 @@
 import type { KeyProvider } from '../../api/Keyring'
-import { ItemId } from '@vault/shared'
-import type { PageToken } from '@vault/shared'
+import type { ItemId, PageToken } from '@vault/shared'
 import type { PersistedSyncCursors } from './stores/CursorStore'
 
 export interface ItemPullState {

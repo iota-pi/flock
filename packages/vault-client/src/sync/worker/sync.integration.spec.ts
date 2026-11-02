@@ -12,14 +12,14 @@ import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { SyncSessionState } from './SyncSessionState'
 import { ClientEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
-import { AutomergeIndexManager } from './docStore'
+import type { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 
 import {
-  MockLocalforage,
+  type MockLocalforage,
   createMockKeyProvider,
   createMockLocalForage,
   createMockVault,
@@ -107,9 +107,9 @@ describe('Sync System Integration Test Suite', () => {
     wal = new SyncWriteAheadLog(accountId)
 
     indexManager = {
-      addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
-      removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
-      listAutomergeItemIds: vi.fn().mockResolvedValue([]),
+      addItemIds: vi.fn().mockResolvedValue(undefined),
+      removeItemIds: vi.fn().mockResolvedValue(undefined),
+      listItemIds: vi.fn().mockResolvedValue([]),
     } as unknown as AutomergeIndexManager
 
     poller = new SyncPoller({
@@ -385,7 +385,7 @@ describe('Sync System Integration Test Suite', () => {
     // Message is passed to adapter for CRDT processing
     expect(receiveSpy).toHaveBeenCalled()
     // CRITICAL: Must NOT unconditionally add to indexManager
-    expect(indexManager.addAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+    expect(indexManager.addItemIds).not.toHaveBeenCalled()
   })
 
   it('Scenario 7: Pulling message with missing key version does not burn retries or advance cursor, and cleanly decrypts when keyring updates', async () => {

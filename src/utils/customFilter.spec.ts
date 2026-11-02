@@ -6,7 +6,7 @@ import {
   isPracticalFilterCriterion,
 } from './customFilter'
 import { getBlankPerson } from '../state/items'
-import { Frequency } from './frequencies'
+import type { Frequency } from './frequencies'
 
 
 describe('customFilter', () => {

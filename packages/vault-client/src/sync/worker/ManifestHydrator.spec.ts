@@ -46,8 +46,8 @@ describe('ManifestHydrator', () => {
       hydrateAutomergeDocumentBinary: vi.fn(),
     }
     mockIndexManager = {
-      addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
-      removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
+      addItemIds: vi.fn().mockResolvedValue(undefined),
+      removeItemIds: vi.fn().mockResolvedValue(undefined),
     }
     mockSnapshotTracker = {
       importLastModified: vi.fn().mockResolvedValue(undefined),
@@ -66,6 +66,7 @@ describe('ManifestHydrator', () => {
       snapshotTracker: mockSnapshotTracker,
       keys,
       storeItems: storeItemsSpy,
+      isShutdown: () => false,
       onDecryptionFailure: onDecryptionFailureSpy,
       onItemSnapshotHydrated: onItemSnapshotHydratedSpy,
     })
@@ -231,6 +232,7 @@ describe('ManifestHydrator', () => {
         snapshotTracker: mockSnapshotTracker,
         keys,
         storeItems: storeItemsSpy,
+        isShutdown: () => false,
         onDecryptionFailure: onDecryptionFailureSpy,
         decodeLegacyItem,
       })
@@ -292,6 +294,7 @@ describe('ManifestHydrator', () => {
         snapshotTracker: mockSnapshotTracker,
         keys,
         storeItems: storeItemsSpy,
+        isShutdown: () => false,
         onKeyVersionMissing,
         decodeLegacyItem,
       })
@@ -330,6 +333,7 @@ describe('ManifestHydrator', () => {
         snapshotTracker: mockSnapshotTracker,
         keys,
         storeItems: storeItemsSpy,
+        isShutdown: () => false,
         onDecryptionFailure: onDecryptionFailureSpy,
         onMigrationRequired,
       })
@@ -373,7 +377,7 @@ describe('ManifestHydrator', () => {
       )
 
       expect(result).toEqual({ status: 'success', itemId: 'item-legacy', versionUpdate: ['item-legacy', 4] })
-      expect(mockIndexManager.removeAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-legacy'])
+      expect(mockIndexManager.removeItemIds).toHaveBeenCalledWith(['item-legacy'])
       expect(mockSnapshotTracker.markItemDirty).toHaveBeenCalledWith('item-legacy', expect.any(Number))
     })
   })
@@ -483,6 +487,7 @@ describe('ManifestHydrator', () => {
         snapshotTracker: mockSnapshotTracker,
         keys,
         storeItems: storeItemsSpy,
+        isShutdown: () => false,
         hydrationConcurrency: concurrencyLimit,
       })
 

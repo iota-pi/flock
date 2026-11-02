@@ -7,7 +7,7 @@ import {
   pushSyncBatch,
 } from './syncService'
 import { InvalidPageTokenError } from '../errors'
-import { mapWithConcurrency, ItemId } from '@vault/shared'
+import { mapWithConcurrency, type ItemId } from '@vault/shared'
 import type { SyncRepository, PollSyncInput } from './syncService'
 
 describe('SyncService', () => {

@@ -5,13 +5,13 @@ import Typography from '@mui/material/Typography'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
-import Select, { SelectChangeEvent } from '@mui/material/Select'
+import Select, { type SelectChangeEvent } from '@mui/material/Select'
 
-import { Item } from '../state/items'
+import type { Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
 import {
   Due,
-  FrequencyOrDays,
+  type FrequencyOrDays,
   frequencyToDays,
   isDue,
 } from '../utils/frequencies'

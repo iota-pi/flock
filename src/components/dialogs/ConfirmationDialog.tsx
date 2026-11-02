@@ -1,5 +1,5 @@
-import { PropsWithChildren } from 'react'
-import Button, { ButtonProps } from '@mui/material/Button'
+import type { PropsWithChildren } from 'react'
+import Button, { type ButtonProps } from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'

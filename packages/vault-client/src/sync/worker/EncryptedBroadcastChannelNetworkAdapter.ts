@@ -1,8 +1,8 @@
-import {
-  type DocumentId,
-  type Message,
-  type PeerId,
-  type PeerMetadata,
+import type {
+  DocumentId,
+  Message,
+  PeerId,
+  PeerMetadata,
 } from '@automerge/automerge-repo/slim'
 import {
   BroadcastChannelNetworkAdapter,

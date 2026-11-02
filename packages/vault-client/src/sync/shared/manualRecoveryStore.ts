@@ -1,6 +1,6 @@
 import { runStorageOperation } from '../utils/storageManager'
 import { KeyedAsyncMutex } from '../utils/AsyncMutex'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import { createAccountStore } from './createAccountStore'
 
 const STORE_NAME = 'manual-recovery-items'

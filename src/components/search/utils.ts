@@ -1,5 +1,5 @@
 import { compareItems, getItemName } from 'src/state/items'
-import { AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
+import { type AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
 
 
 export function isSearchableStandardItem(s: AnySearchable): s is AnySearchable & { create?: false, data: object } {

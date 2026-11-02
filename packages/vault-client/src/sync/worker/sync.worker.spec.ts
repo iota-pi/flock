@@ -22,8 +22,8 @@ const mockContextInitialize = vi.fn().mockResolvedValue(undefined)
 const mockContextShutdown = vi.fn().mockResolvedValue(undefined)
 const mockContextClaimLeader = vi.fn()
 const mockContextRetrySave = vi.fn().mockResolvedValue({ success: true })
-const mockIndexManagerListAutomergeItemIds = vi.fn().mockResolvedValue([])
-const mockIndexManagerAddAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
+const mockIndexManagerListItemIds = vi.fn().mockResolvedValue([])
+const mockIndexManagerAddItemIds = vi.fn().mockResolvedValue(undefined)
 const mockRecoveryManagerResolveQuarantines = vi.fn().mockResolvedValue(undefined)
 const mockRecoveryManagerUnquarantine = vi.fn().mockResolvedValue(undefined)
 const mockItemOperationsMutateItem = vi.fn().mockResolvedValue(undefined)
@@ -87,9 +87,9 @@ beforeEach(() => {
         },
         repo: { find: mockRepoFind, handles: {} },
         indexManager: {
-          listAutomergeItemIds: mockIndexManagerListAutomergeItemIds,
-          addAutomergeItemIdsToIndex: mockIndexManagerAddAutomergeItemIdsToIndex,
-          removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
+          listItemIds: mockIndexManagerListItemIds,
+          addItemIds: mockIndexManagerAddItemIds,
+          removeItemIds: vi.fn().mockResolvedValue(undefined),
         },
         accountSettings: {
           isSettingsDoc: (id: string) => id === 'settings-test-account',
@@ -154,7 +154,7 @@ beforeEach(() => {
 describe('SyncWorker initRepo cleanup on re-init', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockIndexManagerListAutomergeItemIds.mockResolvedValue([])
+    mockIndexManagerListItemIds.mockResolvedValue([])
     mockContextInitialize.mockResolvedValue(undefined)
     mockContextShutdown.mockResolvedValue(undefined)
   })
@@ -295,7 +295,7 @@ describe('SyncWorker handle replacement / change listener rebinding', () => {
     }
     mockRepoFind.mockResolvedValue(handle)
     mockAccountSettingsHandleSettingsDoc.mockClear()
-    mockIndexManagerAddAutomergeItemIdsToIndex.mockClear()
+    mockIndexManagerAddItemIds.mockClear()
 
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
@@ -307,13 +307,13 @@ describe('SyncWorker handle replacement / change listener rebinding', () => {
 
     expect(mockAccountSettingsHandleSettingsDoc).toHaveBeenCalledWith({ prayerGoal: 4 })
     expect(clientEvents.filter(evt => evt.type === 'itemUpdated')).toEqual([])
-    expect(mockIndexManagerAddAutomergeItemIdsToIndex).not.toHaveBeenCalled()
+    expect(mockIndexManagerAddItemIds).not.toHaveBeenCalled()
   })
 
   it('keeps the settings document out of the initial index sent to the app but still subscribes to it', async () => {
     const handle = { documentId: 'doc', on: vi.fn(), off: vi.fn(), doc: vi.fn().mockReturnValue(null) }
     mockRepoFind.mockResolvedValue(handle)
-    mockIndexManagerListAutomergeItemIds.mockResolvedValueOnce(['item-1', 'settings-test-account'])
+    mockIndexManagerListItemIds.mockResolvedValueOnce(['item-1', 'settings-test-account'])
 
     const worker = new SyncWorker(workerConfig)
     const clientEvents: any[] = []
@@ -414,7 +414,7 @@ describe('SyncWorker quota status', () => {
 describe('SyncWorker shutdown during initialization', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockIndexManagerListAutomergeItemIds.mockResolvedValue([])
+    mockIndexManagerListItemIds.mockResolvedValue([])
     mockContextShutdown.mockResolvedValue(undefined)
   })
 
@@ -431,7 +431,7 @@ describe('SyncWorker shutdown during initialization', () => {
 
     await expect(initPromise).rejects.toThrow('shut down during initialization')
     await shutdownPromise
-    expect(mockIndexManagerListAutomergeItemIds).not.toHaveBeenCalled()
+    expect(mockIndexManagerListItemIds).not.toHaveBeenCalled()
   })
 
   it("doesn't leave an unhandled rejection when initRepo fails with nothing waiting", async () => {
@@ -483,7 +483,7 @@ describe('worker error reporting', () => {
 describe('SyncWorker readiness and queueing before initialization', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockIndexManagerListAutomergeItemIds.mockResolvedValue([])
+    mockIndexManagerListItemIds.mockResolvedValue([])
     mockContextInitialize.mockResolvedValue(undefined)
     mockContextShutdown.mockResolvedValue(undefined)
     mockItemOperationsMutateItem.mockResolvedValue(undefined)
@@ -714,7 +714,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
 
       const ctx = (worker as any)._context
       // Pings can name deleted items, so they must not take IDs out of the tombstones
-      expect(ctx.services.indexManager.addAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-1'], { skipTombstoned: true })
+      expect(ctx.services.indexManager.addItemIds).toHaveBeenCalledWith(['item-1'], { skipTombstoned: true })
       expect(mockRecoveryManagerResolveQuarantines).not.toHaveBeenCalled()
       expect(mockRecoveryManagerUnquarantine).not.toHaveBeenCalled()
     })

@@ -2,7 +2,7 @@ import type { SnapshotPushResult } from './syncProtocol'
 import type { SyncApiClient } from './SyncApiClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { classifySyncError } from '../utils/errorClassifier'
-import { ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import { type ItemId, MAX_ITEM_SIZE_BYTES, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -12,8 +12,8 @@ import { RetryTimer } from '../utils/RetryTimer'
 import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
-import { SnapshotTracker } from './SnapshotTracker'
-import { estimateSnapshotSize, SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
+import type { SnapshotTracker } from './SnapshotTracker'
+import { estimateSnapshotSize, type SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
@@ -40,12 +40,14 @@ interface SnapshotPushOutcome extends SnapshotPushResult {
   success: boolean
 }
 
+/**
+ * Whether an item goes in the push. `skip` leaves it out (it's no longer dirty, or it's oversized and
+ * quarantined); `fail` also marks the push failed, so it's retried.
+ */
 type ItemPreparationResult =
   | { type: 'ready'; item: PreparedSnapshotItem; size: number }
-  | { type: 'not-ready' }
-  | { type: 'error' }
-  | { type: 'oversized' }
-  | { type: 'skipped' }
+  | { type: 'skip' }
+  | { type: 'fail' }
 
 const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 
@@ -129,7 +131,7 @@ export class SnapshotPusher {
   private async handleSnapshotFailure(
     itemId: ItemId,
     tick: number,
-    failureType: string,
+    failureType: 'build' | 'upload',
     reason?: string,
   ): Promise<void> {
     const failures = this.consecutiveFailures.recordFailure(itemId)
@@ -192,18 +194,18 @@ export class SnapshotPusher {
   ): Promise<ItemPreparationResult> {
     const tick = this.tracker.getDirtyTick(itemId)
     if (tick === undefined) {
-      return { type: 'skipped' }
+      return { type: 'skip' }
     }
 
     // The build bounds its document lookup, so an unreadable document fails here rather than wedging the push
     const buildResult = await this.builder.build(itemId, snapshotCursor, { signal })
     if (buildResult.type === 'not-ready') {
-      return { type: 'not-ready' }
+      return { type: 'fail' }
     }
 
     if (buildResult.type === 'error') {
       await this.handleSnapshotFailure(itemId, tick, 'build', buildResult.reason)
-      return { type: 'error' }
+      return { type: 'fail' }
     }
 
     // Failures are counted until an upload is confirmed (see recordStoredSnapshots)
@@ -225,7 +227,7 @@ export class SnapshotPusher {
 
     if (snapshotSize > this.maxPayloadBytes) {
       this.handleOversizedItem(itemId, snapshotSize, snapshot.modified)
-      return { type: 'oversized' }
+      return { type: 'skip' }
     }
 
     this.tracker.clearOversized(itemId)
@@ -243,14 +245,7 @@ export class SnapshotPusher {
       this.consecutiveFailures.reset(item.snapshot.itemId)
       const assignedVersion = versions.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
-      // Tombstones deliberately carry no heads: the server does not hold the document state.
-      // Setting the heads also clears snapshot-only and unblocks the item.
-      if (item.heads && item.heads.length > 0) {
-        this.broker.setSyncedHeads(item.snapshot.itemId, item.heads)
-      } else {
-        this.broker.clearSnapshotOnlyItem(item.snapshot.itemId)
-        this.broker.unblockItem(item.snapshot.itemId)
-      }
+      this.broker.confirmSnapshot(item.snapshot.itemId, item.heads)
       fireAndForget(
         this.recoveryManager.unquarantine(item.snapshot.itemId),
         'SnapshotPusher:unquarantine',
@@ -313,14 +308,10 @@ export class SnapshotPusher {
     for (const itemId of dirtyItemIds) {
       checkAlive(signal, () => this.session.isOperational)
       const prepared = await this.prepareItemForPush(itemId, snapshotCursor, signal)
-      if (prepared.type === 'skipped') {
-        continue
-      }
-      if (prepared.type === 'not-ready' || prepared.type === 'error') {
+      if (prepared.type === 'fail') {
         success = false
-        continue
       }
-      if (prepared.type === 'oversized') {
+      if (prepared.type !== 'ready') {
         continue
       }
 

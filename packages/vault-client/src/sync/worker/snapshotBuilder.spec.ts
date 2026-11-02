@@ -1,4 +1,4 @@
-import { ItemId, type VaultSnapshotInput } from '@vault/shared'
+import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import {
   estimateSnapshotSize,
   SnapshotBuilder,

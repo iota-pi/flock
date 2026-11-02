@@ -1,9 +1,9 @@
-import { SyncPullQueueManager } from './SyncPullQueueManager'
+import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import type { SyncSessionState } from './SyncSessionState'
-import { VaultNetworkAdapter } from './VaultNetworkAdapter'
+import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
-import { type DocumentId, type Message } from '@automerge/automerge-repo/slim'
+import type { DocumentId, Message } from '@automerge/automerge-repo/slim'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -27,7 +27,7 @@ export class SyncMessageBroker {
   private readonly session: SyncSessionState
   private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
-  private blockedItemIds = new Set<ItemId>()
+  private readonly blockedItemIds = new Set<ItemId>()
   private readonly adapter: VaultNetworkAdapter
   private readonly pullQueueManager: SyncPullQueueManager
   private readonly onFlushNeeded: () => void
@@ -47,42 +47,33 @@ export class SyncMessageBroker {
     fireAndForget(this.handleOutgoingMessage(message), 'SyncMessageBroker:handleOutgoingMessage')
   }
 
-  private blockItem(itemId: ItemId): void {
-    this.blockedItemIds.add(itemId)
-  }
-
-  unblockItem(itemId: ItemId): void {
-    this.blockedItemIds.delete(itemId)
-  }
-
   unblockAllItems(): void {
     this.blockedItemIds.clear()
-  }
-
-  private isItemBlocked(itemId: ItemId): boolean {
-    return this.blockedItemIds.has(itemId)
   }
 
   getBlockedItemIds(): ItemId[] {
     return Array.from(this.blockedItemIds)
   }
 
-  /** Records heads the server has confirmed from a snapshot, which also ends snapshot-only sync for the item. */
-  setSyncedHeads(itemId: ItemId, heads: string[]): void {
+  /**
+   * Records a snapshot the server stored: ends snapshot-only sync for the item, unblocks it and records
+   * its heads. Tombstones carry no heads, since the server does not hold the document state.
+   */
+  confirmSnapshot(itemId: ItemId, heads: string[] | undefined): void {
     this.snapshotOnlyItems.delete(itemId)
-    this.recordSyncedHeads(itemId, heads)
+    if (heads && heads.length > 0) {
+      this.recordSyncedHeads(itemId, heads)
+    } else {
+      this.blockedItemIds.delete(itemId)
+    }
   }
 
   /** Records heads the server has confirmed from a push. Snapshot-only sync continues. */
   recordSyncedHeads(itemId: ItemId, heads: string[]): void {
     const documentId = toDocumentIdFromItemId(itemId)
-    this.unblockItem(itemId)
+    this.blockedItemIds.delete(itemId)
     this.adapter.setSyncedHeads(documentId, heads)
     this.adapter.resetReNegotiationCircuit(documentId)
-  }
-
-  clearSnapshotOnlyItem(itemId: ItemId): void {
-    this.snapshotOnlyItems.delete(itemId)
   }
 
   /**
@@ -111,9 +102,9 @@ export class SyncMessageBroker {
 
       if (message.type === 'request') {
         this.pullQueueManager.cursors.addPendingItem(itemId)
-        this.flush()
+        this.onFlushNeeded()
       } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-        if (this.isItemBlocked(itemId)) {
+        if (this.blockedItemIds.has(itemId)) {
           log.warn(`Dropping outgoing sync message for blocked item ${itemId}`)
           return
         }
@@ -134,7 +125,7 @@ export class SyncMessageBroker {
 
         try {
           await this.wal.append(itemId, message.data)
-          this.flush()
+          this.onFlushNeeded()
         } catch (err) {
           log.error(`Failed to append sync message to WAL for item ${itemId}:`, err)
           this.handleWalAppendFailure(itemId, documentId as DocumentId)
@@ -146,17 +137,13 @@ export class SyncMessageBroker {
   }
 
   private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId): void {
-    this.blockItem(itemId)
+    this.blockedItemIds.add(itemId)
     this.adapter.triggerReNegotiation(documentId)
     this.requestSnapshot([itemId])
   }
 
-  flush(): void {
-    this.onFlushNeeded()
-  }
-
   shutdown(): void {
-    this.unblockAllItems()
+    this.blockedItemIds.clear()
     this.snapshotOnlyItems.clear()
   }
 }

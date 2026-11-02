@@ -221,7 +221,6 @@ export class WorkerLifecycleManager {
     let session: WorkerSession | null = null
     try {
       const vaultKey = await exportKeyringData()
-      if (!vaultKey) throw new Error('Vault key not found in storage')
       this.throwIfInitAborted(accountId, signal)
 
       session = this.startSession()
@@ -277,6 +276,8 @@ export class WorkerLifecycleManager {
       }),
       signal,
     )
+    // The bridge only forwards tokens once the session is ready, so this delivers one refreshed while
+    // initRepo was running
     const authToken = getVaultSession()
     if (authToken) {
       await untilAborted(api.updateAuthToken(authToken), signal)
@@ -432,7 +433,7 @@ export class WorkerLifecycleManager {
       try {
         await withTimeout(
           SYNC_TIMEOUTS.workerShutdown,
-          signal => untilAborted(oldSession.api.shutdown({ ...options, clearLocalData: shouldClearLocalData }), signal),
+          signal => untilAborted(oldSession.api.shutdown({ clearLocalData: shouldClearLocalData }), signal),
           { reason: new Error('Sync worker shutdown timed out') },
         )
       } catch (err) {

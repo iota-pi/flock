@@ -1,4 +1,4 @@
-import { ClientEventHub } from './SyncEventHub'
+import type { ClientEventHub } from './SyncEventHub'
 import type { SyncStatus } from '../shared/types'
 import type { PollOutcome } from './SyncPoller'
 import type { SyncSessionState } from './SyncSessionState'

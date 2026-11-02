@@ -1,6 +1,6 @@
 import { PullCursorState } from './PullCursorState'
 import type { RecordPullOutcomeParams } from './PullCursorState'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 
 const mockVault = createMockVault()

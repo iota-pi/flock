@@ -1,5 +1,5 @@
 import { ERROR_ITEM_TYPE, ITEM_TYPES } from 'src/shared/schemas/items'
-import { compareIds, getItemName, Item } from '../state/items'
+import { compareIds, getItemName, type Item } from '../state/items'
 import { getLastPrayedFor } from './prayer'
 
 

@@ -56,7 +56,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
 
   it('Tab 1 creates item offline: publishes realtimeBus sync ping and indexes item', async () => {
     const changeDocumentMock = vi.fn().mockResolvedValue(true)
-    const addAutomergeItemIdsToIndexMock = vi.fn().mockResolvedValue(undefined)
+    const addItemIdsMock = vi.fn().mockResolvedValue(undefined)
     const markDocumentDirtyMock = vi.fn()
     const emitMock = vi.fn()
 
@@ -68,11 +68,11 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
         getAutomergeItem: vi.fn(),
       } as any,
       indexManager: {
-        addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,
-        listAutomergeItemIds: vi.fn().mockResolvedValue([]),
-        removeAutomergeItemIdsFromIndex: vi.fn(),
-        updateAutomergeMetadata: vi.fn(),
-        getAutomergeMetadata: vi.fn(),
+        addItemIds: addItemIdsMock,
+        listItemIds: vi.fn().mockResolvedValue([]),
+        removeItemIds: vi.fn(),
+        updateMetadata: vi.fn(),
+        getMetadata: vi.fn(),
       } as any,
       eventHub: { emit: emitMock } as any,
       markDocumentDirty: markDocumentDirtyMock,
@@ -98,7 +98,7 @@ describe('Cross-Tab New Item Discovery Offline (C7)', () => {
       expect.any(Function),
       { createIfMissing: true, knownToExist: false },
     )
-    expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['offline-item-123'])
+    expect(addItemIdsMock).toHaveBeenCalledWith(['offline-item-123'])
     expect(markDocumentDirtyMock).toHaveBeenCalledWith('offline-item-123')
     expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['offline-item-123'])
   })

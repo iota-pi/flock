@@ -1,6 +1,6 @@
 import {
   Repo,
-  DocHandle,
+  type DocHandle,
   type Chunk,
   type StorageAdapterInterface,
   type StorageKey,
@@ -18,7 +18,7 @@ import {
   toAutomergeUrlFromItemId,
   toDocumentIdFromItemId,
 } from '../utils/automerge'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 
 function createTestItem(id: ItemId, overrides: Partial<VaultDoc> = {}): VaultDoc {

@@ -3,7 +3,7 @@ import {
   sortSearchables,
   getName,
 } from './utils'
-import { AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
+import { type AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
 import * as itemsModule from '../../state/items'
 import { spyOnExports } from '../../utils/testUtils'
 

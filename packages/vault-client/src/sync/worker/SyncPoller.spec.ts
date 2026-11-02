@@ -6,7 +6,7 @@ import { createMockKeyProvider, createMockVault, noItemLocks, spyOnVaultTrpc } f
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
-import { ItemId } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
 import { encodeSyncMessage } from '@automerge/automerge/slim'
 import { packBatchedMessages } from './utils/binaryFraming'

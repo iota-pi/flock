@@ -38,7 +38,7 @@ beforeEach(() => {
     changePassword: vi.fn().mockResolvedValue(undefined),
   })
   spyOnExports(workerAuthStoreModule, {
-    deleteStoredSessionToken: vi.fn().mockResolvedValue(undefined),
+    deleteStoredSessionToken: vi.fn(),
   })
 })
 

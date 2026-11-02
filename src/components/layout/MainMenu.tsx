@@ -6,7 +6,7 @@ import Toolbar from '@mui/material/Toolbar'
 import { styled } from '@mui/material/styles'
 
 import { pages, usePage } from '../pages'
-import { ProtectedPageId } from '../pages/types'
+import type { ProtectedPageId } from '../pages/types'
 import { ContractMenuIcon, ExpandMenuIcon } from '../Icons'
 import { useAppStore } from 'src/state/store'
 import { MainMenuItem } from './MainMenuItem'

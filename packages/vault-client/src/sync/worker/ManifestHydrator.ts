@@ -18,7 +18,6 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('ManifestHydrator')
 
-const BATCH_SIZE = 50
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
 const KEY_WAIT_TIMEOUT_MS = SYNC_TIMEOUTS.hydrationKeyWait
 
@@ -77,7 +76,7 @@ export interface ManifestHydratorDeps {
   onDecryptionFailure?: (itemId: ItemId, error: unknown, serverVersion?: number) => void
   onItemSnapshotHydrated?: (itemId: ItemId, heads: string[]) => void
   onKeyVersionMissing?: (kver: string) => void
-  isShutdown?: () => boolean
+  isShutdown: () => boolean
   hydrationConcurrency?: number
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /**
@@ -91,14 +90,14 @@ export class ManifestHydrator {
   constructor(private readonly deps: ManifestHydratorDeps) {}
 
   private isAlive(): boolean {
-    return this.deps.isShutdown ? !this.deps.isShutdown() : true
+    return !this.deps.isShutdown()
   }
 
   async fetchAndHydrateRemoteItems(
     params: FetchAndHydrateParams,
     signal?: AbortSignal,
   ): Promise<{ added: ItemId[]; hasFailures: boolean }> {
-    const batches = chunk(params.missingIds, BATCH_SIZE)
+    const batches = chunk(params.missingIds, SYNC_BATCH_SIZES.hydrationFetch)
     const fetchedItems: FetchedItem[] = []
     let hasBatchFailures = false
 
@@ -217,7 +216,7 @@ export class ManifestHydrator {
     }
 
     if (hydratedIds.length > 0) {
-      await this.deps.indexManager.addAutomergeItemIdsToIndex(hydratedIds)
+      await this.deps.indexManager.addItemIds(hydratedIds)
     }
 
     if (snapshots.length > 0) {
@@ -343,7 +342,7 @@ export class ManifestHydrator {
 
     const isDeleted = Boolean(hydrationResult?.isDeleted || tombstoneSet.has(itemId))
     if (isDeleted) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([itemId])
+      await this.deps.indexManager.removeItemIds([itemId])
     }
 
     if (hydrationResult?.hasLocalChanges) {
@@ -385,7 +384,7 @@ export class ManifestHydrator {
     }
     const snapshotId = snapshot.id as ItemId
     if (tombstoneSet.has(snapshotId) && snapshot.deleted !== true) {
-      await this.deps.indexManager.removeAutomergeItemIdsFromIndex([snapshotId])
+      await this.deps.indexManager.removeItemIds([snapshotId])
       this.deps.snapshotTracker.markItemDirty(snapshotId, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
       return {
         status: 'success',

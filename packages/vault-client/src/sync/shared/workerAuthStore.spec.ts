@@ -31,6 +31,14 @@ describe('workerAuthStore', () => {
     ;(globalThis as any).indexedDB = factory
   })
 
+  /** Deletion isn't awaited, so this waits for the request it sends */
+  async function deleteAndSettle(): Promise<void> {
+    const deleteSpy = vi.spyOn(factory, 'deleteDatabase')
+    deleteStoredSessionToken()
+    const request = deleteSpy.mock.results[0].value as IDBOpenDBRequest
+    await vi.waitFor(() => expect(request.readyState).toBe('done'))
+  }
+
   afterEach(() => {
     if (originalIndexedDb === undefined) {
       delete (globalThis as any).indexedDB
@@ -44,13 +52,13 @@ describe('workerAuthStore', () => {
     await storeLegacyToken(factory, name)
     expect(await listDatabases(factory)).toEqual([name])
 
-    await deleteStoredSessionToken()
+    await deleteAndSettle()
 
     expect(await listDatabases(factory)).toEqual([])
   })
 
   it('does not create the database when there is nothing to delete', async () => {
-    await deleteStoredSessionToken()
+    await deleteAndSettle()
 
     expect(await listDatabases(factory)).toEqual([])
   })

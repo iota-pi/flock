@@ -4,7 +4,7 @@ import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import Typography from '@mui/material/Typography'
 
-import { Item } from 'src/state/items'
+import type { Item } from 'src/state/items'
 import {
   EditIcon,
   getIcon,

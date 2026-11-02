@@ -1,9 +1,9 @@
 import { SnapshotPusher } from './SnapshotPusher'
-import { SnapshotTracker } from './SnapshotTracker'
+import type { SnapshotTracker } from './SnapshotTracker'
 import { SnapshotBuilder } from './snapshotBuilder'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { SyncSessionState } from './SyncSessionState'
-import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
+import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { AuthError } from './SyncApiClient'
 import { createMockKeyProvider, createMockVault } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
@@ -53,9 +53,7 @@ describe('SnapshotPusher', () => {
     }
 
     mockBroker = {
-      setSyncedHeads: vi.fn(),
-      clearSnapshotOnlyItem: vi.fn(),
-      unblockItem: vi.fn(),
+      confirmSnapshot: vi.fn(),
     }
 
     mockApiClient = {
@@ -109,10 +107,7 @@ describe('SnapshotPusher', () => {
     expect(result).toEqual({ persisted: 1, total: 1 })
     expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
     expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
-    expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-1', ['head-1'])
-    // Setting the heads clears snapshot-only and unblocks the item itself
-    expect(mockBroker.clearSnapshotOnlyItem).not.toHaveBeenCalled()
-    expect(mockBroker.unblockItem).not.toHaveBeenCalled()
+    expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', ['head-1'])
     expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
   })
 
@@ -180,11 +175,11 @@ describe('SnapshotPusher', () => {
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'quotaExceeded' }))
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 2)
       expect(mockRecoveryManager.unquarantine).toHaveBeenCalledWith('item-1')
-      expect(mockBroker.setSyncedHeads).not.toHaveBeenCalled()
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', undefined)
       expect(mockTracker.clearOversized).toHaveBeenCalledWith('item-1')
     })
 
-    it('batches a tombstone alongside normal snapshots and only records heads for the normal one', async () => {
+    it('batches a tombstone alongside normal snapshots and confirms each, with heads only for the normal one', async () => {
       mockTracker.getDirtyItemIds.mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockBuilder.build.mockImplementation(async (itemId: string) => {
         if (itemId === 'item-1') return deletedSnapshot('item-1')
@@ -212,8 +207,9 @@ describe('SnapshotPusher', () => {
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots).toHaveLength(2)
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-1', 1000, 1, 3)
       expect(mockTracker.recordSnapshotSuccess).toHaveBeenCalledWith('item-2', 2000, 1, 4)
-      expect(mockBroker.setSyncedHeads).toHaveBeenCalledTimes(1)
-      expect(mockBroker.setSyncedHeads).toHaveBeenCalledWith('item-2', ['head-2'])
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledTimes(2)
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-1', undefined)
+      expect(mockBroker.confirmSnapshot).toHaveBeenCalledWith('item-2', ['head-2'])
     })
   })
 

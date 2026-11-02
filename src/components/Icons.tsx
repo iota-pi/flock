@@ -1,4 +1,4 @@
-import SvgIcon, { SvgIconProps, SvgIconTypeMap } from '@mui/material/SvgIcon'
+import SvgIcon, { type SvgIconProps, type SvgIconTypeMap } from '@mui/material/SvgIcon'
 import type { OverridableComponent } from '@mui/material/OverridableComponent'
 
 import AddIcon from '@mui/icons-material/Add'
@@ -42,7 +42,7 @@ import SyncIcon from '@mui/icons-material/Sync'
 
 import { FaPrayingHands } from 'react-icons/fa'
 
-import { Item } from '../state/items'
+import type { Item } from '../state/items'
 
 const PrayerIcon = (props: SvgIconProps) => (
   <SvgIcon component={FaPrayingHands} viewBox="0 0 640 512" {...props} />
