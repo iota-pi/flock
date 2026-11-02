@@ -1,13 +1,8 @@
 import type { Mock } from 'vitest'
-import {
-  SyncOrchestrator,
-  type SyncOrchestratorDeps,
-  type SyncPullQueueManagerLike,
-  type LeaderElectionLike,
-} from './SyncOrchestrator'
+import { SyncOrchestrator, type SyncOrchestratorDeps } from './SyncOrchestrator'
 import { SyncSessionState } from './SyncSessionState'
 import { ClientEventHub } from './SyncEventHub'
-import type { LeaderElectionCallbacks } from './utils/LeaderElection'
+import type { LeaderElection, LeaderElectionCallbacks } from './utils/LeaderElection'
 import type { PollOutcome } from './SyncPoller'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
@@ -538,7 +533,7 @@ describe('SyncOrchestrator', () => {
   })
 
   it('delegates claimLeader to leaderElection.claimLeadership', async () => {
-    const mockLeaderElection: LeaderElectionLike = {
+    const mockLeaderElection: Pick<LeaderElection, 'acquire' | 'release' | 'claimLeadership'> = {
       acquire: vi.fn().mockResolvedValue(undefined),
       release: vi.fn(),
       claimLeadership: vi.fn(),
@@ -566,7 +561,7 @@ describe('SyncOrchestrator', () => {
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      const customPullQueueManager: SyncPullQueueManagerLike = {
+      const customPullQueueManager: SyncOrchestratorDeps['pullQueueManager'] = {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
         hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       }
@@ -624,7 +619,7 @@ describe('SyncOrchestrator', () => {
       const reloadPromise = new Promise<void>(resolve => {
         resolveReload = resolve
       })
-      const customPullQueueManager: SyncPullQueueManagerLike = {
+      const customPullQueueManager: SyncOrchestratorDeps['pullQueueManager'] = {
         loadCursors: vi.fn().mockImplementation(() => reloadPromise),
         hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
       }

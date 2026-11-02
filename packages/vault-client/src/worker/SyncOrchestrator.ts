@@ -1,5 +1,7 @@
 import { LeaderElection, type LeaderElectionCallbacks } from './utils/LeaderElection'
-import type { PollOutcome } from './SyncPoller'
+import type { PollOutcome, SyncPoller } from './SyncPoller'
+import type { SyncPullQueueManager } from './SyncPullQueueManager'
+import type { ManifestSyncManager } from './ManifestSyncManager'
 import type { SyncSessionState } from './SyncSessionState'
 import type { ClientEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
@@ -9,41 +11,21 @@ import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { classifySyncError } from '../utils/errorClassifier'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { ItemId } from '@vault/shared'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('SyncOrchestrator')
 
-export interface LeaderElectionLike {
-  acquire: () => Promise<void>
-  release: () => void
-  claimLeadership: () => void
-}
-
-export interface SyncPollerLike {
-  executePoll: (signal: AbortSignal) => Promise<PollOutcome>
-}
-
-export interface SyncPullQueueManagerLike {
-  loadCursors: () => Promise<void>
-  hasImmediatePendingPulls: () => boolean
-}
-
-export interface ManifestSyncManagerLike {
-  sync: (force?: boolean) => Promise<{ added: ItemId[] }>
-  abort: () => void
-  waitForIdle: () => Promise<void>
-}
+type LeaderElectionLike = Pick<LeaderElection, 'acquire' | 'release' | 'claimLeadership'>
 
 export interface SyncOrchestratorDeps {
   accountId: string
   /** The orchestrator records leadership here, as leader election grants and revokes it */
   session: SyncSessionState
-  poller: SyncPollerLike
+  poller: Pick<SyncPoller, 'executePoll'>
   clientEventHub: ClientEventHub
-  pullQueueManager: SyncPullQueueManagerLike
-  manifestSyncManager: ManifestSyncManagerLike
+  pullQueueManager: Pick<SyncPullQueueManager, 'loadCursors' | 'hasImmediatePendingPulls'>
+  manifestSyncManager: Pick<ManifestSyncManager, 'sync' | 'abort' | 'waitForIdle'>
   manifestSyncIntervalMs?: number
   createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
   /** Called once the session holds new leadership */
