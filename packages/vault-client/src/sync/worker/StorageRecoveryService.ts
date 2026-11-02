@@ -47,69 +47,25 @@ export class StorageRecoveryService {
   constructor(private readonly deps: StorageRecoveryServiceDeps) {}
 
   /**
-   * Starts the service and registers global storage handlers.
+   * Registers the global storage handlers: a quota error prunes the WAL before its one retry, and a
+   * quota error that persists is reported to the client.
    */
   start(): void {
-    if (!this.unregisterQuotaRecovery) {
-      this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
-        return this.handleEmergencyPrune()
-      })
-    }
-
-    if (!this.unregisterQuotaReporter) {
-      this.unregisterQuotaReporter = registerQuotaReporter((msg: string) => {
-        fireAndForget(this.handleQuotaExceeded(msg), 'StorageRecoveryService:handleQuotaExceeded')
-      })
-    }
+    this.unregisterQuotaRecovery = registerQuotaRecoveryHandler(async () => {
+      await this.deps.wal.handleQuotaExceeded()
+    })
+    this.unregisterQuotaReporter = registerQuotaReporter(message => {
+      log.warn('Storage quota exceeded')
+      this.deps.clientEventHub.emit({ type: 'quotaExceeded', message })
+    })
   }
 
   /**
-   * Stops the service and unregisters global storage handlers.
+   * Unregisters the global storage handlers.
    */
   stop(): void {
-    if (this.unregisterQuotaRecovery) {
-      this.unregisterQuotaRecovery()
-      this.unregisterQuotaRecovery = null
-    }
-    if (this.unregisterQuotaReporter) {
-      this.unregisterQuotaReporter()
-      this.unregisterQuotaReporter = null
-    }
-  }
-
-  /**
-   * Performs emergency WAL pruning to free storage space. Returns the number of entries removed.
-   */
-  async handleEmergencyPrune(): Promise<number> {
-    try {
-      return await this.deps.wal.handleQuotaExceeded()
-    } catch (err) {
-      log.error('Error during emergency WAL pruning:', err)
-      throw err
-    }
-  }
-
-  /**
-   * Handles storage quota exceeded detection: prunes the WAL and emits a quotaExceeded event.
-   */
-  async handleQuotaExceeded(errorOrMessage?: unknown): Promise<void> {
-    log.warn('Storage quota exceeded. Pruning the WAL...', errorOrMessage)
-
-    try {
-      await this.handleEmergencyPrune()
-    } catch (pruneErr) {
-      log.error('Failed emergency WAL pruning during quota handling:', pruneErr)
-    }
-
-    const message =
-      typeof errorOrMessage === 'string'
-        ? errorOrMessage
-        : 'Storage quota exceeded. Changes cannot be saved or synchronized, risking data loss. Please free up space and check your connection to sync.'
-
-    this.deps.clientEventHub.emit({
-      type: 'quotaExceeded',
-      message,
-    })
+    this.unregisterQuotaRecovery?.()
+    this.unregisterQuotaReporter?.()
   }
 
   /**

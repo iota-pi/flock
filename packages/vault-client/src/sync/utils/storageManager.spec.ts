@@ -38,7 +38,7 @@ describe('storageManager', () => {
     const unregisterReporter = registerQuotaReporter(reporter)
 
     let attempts = 0
-    const recoveryHandler = vi.fn().mockResolvedValue(true)
+    const recoveryHandler = vi.fn().mockResolvedValue(undefined)
     const unregisterRecovery = registerQuotaRecoveryHandler(recoveryHandler)
 
     const result = await runStorageOperation(async () => {
@@ -63,7 +63,7 @@ describe('storageManager', () => {
     const reporter = vi.fn()
     const unregisterReporter = registerQuotaReporter(reporter)
 
-    const recoveryHandler = vi.fn().mockResolvedValue(true)
+    const recoveryHandler = vi.fn().mockResolvedValue(undefined)
     const unregisterRecovery = registerQuotaRecoveryHandler(recoveryHandler)
 
     await expect(
@@ -83,7 +83,7 @@ describe('storageManager', () => {
     const reporter = vi.fn()
     const unregisterReporter = registerQuotaReporter(reporter)
 
-    const recoveryHandler = vi.fn().mockResolvedValue(true)
+    const recoveryHandler = vi.fn().mockResolvedValue(undefined)
     const unregisterRecovery = registerQuotaRecoveryHandler(recoveryHandler)
 
     await expect(

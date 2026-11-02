@@ -155,7 +155,7 @@ describe('SyncWriteAheadLog', () => {
 
   it('recovers from QuotaExceededError by emergency pruning and retrying write via registered recovery handler', async () => {
     const unregister = registerQuotaRecoveryHandler(async () => {
-      return wal.handleQuotaExceeded()
+      await wal.handleQuotaExceeded()
     })
     try {
       const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!

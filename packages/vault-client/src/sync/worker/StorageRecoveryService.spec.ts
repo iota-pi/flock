@@ -70,65 +70,47 @@ describe('StorageRecoveryService', () => {
     vi.restoreAllMocks()
   })
 
-  describe('Lifecycle (start / stop)', () => {
-    it('registers quota recovery handler and reporter on start, and cleans up on stop', () => {
-      const registerRecoverySpy = vi.spyOn(storageManager, 'registerQuotaRecoveryHandler')
-      const registerReporterSpy = vi.spyOn(storageManager, 'registerQuotaReporter')
+  describe('Quota handling', () => {
+    const quotaError = () => new DOMException('Quota exceeded', 'QuotaExceededError')
 
+    it('prunes the WAL once and retries a write that hits the quota, without reporting it', async () => {
+      const emitSpy = vi.spyOn(clientEventHub, 'emit')
       service.start()
 
-      expect(registerRecoverySpy).toHaveBeenCalledTimes(1)
-      expect(registerReporterSpy).toHaveBeenCalledTimes(1)
+      let attempts = 0
+      const result = await storageManager.runStorageOperation(async () => {
+        attempts += 1
+        if (attempts === 1) throw quotaError()
+        return 'saved'
+      })
 
-      service.stop()
-      // Calling stop again is idempotent
-      service.stop()
-    })
-  })
-
-  describe('Emergency Pruning & Detection', () => {
-    it('calls wal.handleQuotaExceeded in handleEmergencyPrune', async () => {
-      const reduced = await service.handleEmergencyPrune()
-      expect(reduced).toBe(5)
+      expect(result).toBe('saved')
       expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
+      expect(emitSpy).not.toHaveBeenCalled()
     })
 
-    it('updates status and emits quotaExceeded event in handleQuotaExceeded', async () => {
+    it('emits quotaExceeded without pruning again when the retry also hits the quota', async () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
+      service.start()
 
-      await service.handleQuotaExceeded('Storage limit reached')
+      await expect(storageManager.runStorageOperation(async () => { throw quotaError() })).rejects.toThrow()
 
       expect(mockWal.handleQuotaExceeded).toHaveBeenCalledTimes(1)
       expect(emitSpy).toHaveBeenCalledWith({
         type: 'quotaExceeded',
-        message: 'Storage limit reached',
+        message: expect.stringContaining('Storage quota exceeded'),
       })
     })
 
-    it('provides default message when handleQuotaExceeded is called with non-string error', async () => {
+    it('unregisters its handlers on stop', async () => {
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
-      const quotaError = new DOMException('Quota exceeded', 'QuotaExceededError')
+      service.start()
+      service.stop()
 
-      await service.handleQuotaExceeded(quotaError)
+      await expect(storageManager.runStorageOperation(async () => { throw quotaError() })).rejects.toThrow()
 
-      expect(emitSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'quotaExceeded',
-          message: expect.stringContaining('Storage quota exceeded'),
-        })
-      )
-    })
-
-    it('still emits quotaExceeded if emergency pruning fails', async () => {
-      mockWal.handleQuotaExceeded.mockRejectedValueOnce(new Error('Pruning failed'))
-      const emitSpy = vi.spyOn(clientEventHub, 'emit')
-
-      await service.handleQuotaExceeded('Quota error')
-
-      expect(emitSpy).toHaveBeenCalledWith({
-        type: 'quotaExceeded',
-        message: 'Quota error',
-      })
+      expect(mockWal.handleQuotaExceeded).not.toHaveBeenCalled()
+      expect(emitSpy).not.toHaveBeenCalled()
     })
   })
 
