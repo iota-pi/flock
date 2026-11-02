@@ -17,6 +17,13 @@ import {
 
 export type Item = StandardItem | ErrorItem
 
+/** The order lists show item types in */
+export const ITEM_TYPE_ORDER: readonly Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
+
+export function compareItemTypes(a: Item['type'], b: Item['type']) {
+  return ITEM_TYPE_ORDER.indexOf(a) - ITEM_TYPE_ORDER.indexOf(b)
+}
+
 export function isItem(item: Item): item is StandardItem {
   return (ITEM_TYPES as readonly string[]).includes(item.type)
 }
@@ -113,8 +120,7 @@ export function compareItems(a: Item, b: Item) {
   if (a.archived !== b.archived) {
     return +(a.archived) - +(b.archived)
   } else if (a.type !== b.type) {
-    const typeOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
-    return typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type)
+    return compareItemTypes(a.type, b.type)
   }
   return compareNames(a as BaseItem, b as BaseItem) || compareIds(a, b)
 }

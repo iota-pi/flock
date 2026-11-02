@@ -1,5 +1,4 @@
-import { ERROR_ITEM_TYPE, ITEM_TYPES } from 'src/shared/schemas/items'
-import { compareIds, getItemName, type Item } from '../state/items'
+import { compareIds, compareItemTypes, getItemName, type Item } from '../state/items'
 import { getLastPrayedFor } from './prayer'
 
 
@@ -43,16 +42,13 @@ const AUTOMATIC_CRITERIA: SortCriterion[] = [
   { type: 'type', reverse: false },
 ]
 
-const typeSortOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
-const typeOrderByName = new Map(typeSortOrder.map((itemType, index) => [itemType, index]))
-
 const criterionComparators: Record<CriterionName, (a: Item, b: Item) => number> = {
   archived: (a, b) => +a.archived - +b.archived,
   created: (a, b) => b.created - a.created,
   description: (a, b) => a.description.localeCompare(b.description),
   lastPrayedFor: (a, b) => getLastPrayedFor(b) - getLastPrayedFor(a),
   name: (a, b) => getItemName(a).localeCompare(getItemName(b)),
-  type: (a, b) => (typeOrderByName.get(a.type) || 0) - (typeOrderByName.get(b.type) || 0),
+  type: (a, b) => compareItemTypes(a.type, b.type),
 }
 
 

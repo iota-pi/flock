@@ -29,6 +29,3 @@ export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> 
   topic: true,
   error: true,
 }
-export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
-  ['person', 'group', 'topic', 'error']
-)
