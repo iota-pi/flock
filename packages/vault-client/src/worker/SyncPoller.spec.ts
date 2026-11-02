@@ -1,0 +1,1157 @@
+import type { Mock } from 'vitest'
+import { SyncPoller } from './SyncPoller'
+import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
+import { SyncApiClient, AuthError, type PullSyncMessagesResponse } from './SyncApiClient'
+import { createMockKeyProvider, createMockVault, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
+import { SyncPullQueueManager } from './SyncPullQueueManager'
+import { CursorStore } from './stores/CursorStore'
+import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
+import type { ItemId } from '@vault/shared'
+import type { RecoveryManager } from './RecoveryManager'
+import { encodeSyncMessage } from '@automerge/automerge/slim'
+import { packBatchedMessages } from './utils/binaryFraming'
+import { SyncSessionState } from './SyncSessionState'
+
+const mockPollSyncBatch = vi.fn()
+const encryptBytes = vi.fn().mockResolvedValue({
+  iv: 'iv',
+  cipher: 'cipher',
+  kver: 'kver',
+})
+const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes })
+
+/** A sync message, which the poller checks every WAL entry it pushes is, carrying `n` as its change if given */
+function syncMessage(n?: number): Uint8Array {
+  return encodeSyncMessage({ heads: [], need: [], have: [], changes: n === undefined ? [] : [new Uint8Array([n])] })
+}
+
+beforeEach(() => {
+  spyOnVaultTrpc({
+    pollSync: (...args: any[]) => mockPollSyncBatch(...args),
+  })
+})
+
+describe('SyncPoller', () => {
+  let poller: SyncPoller
+  let session: SyncSessionState
+  let onWalEntriesPruned: Mock<(itemIds: ItemId[]) => void>
+  let pullQueueManager: SyncPullQueueManager
+  let mockWal: SyncWriteAheadLog
+  let mockRecoveryManager: RecoveryManager
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setApiAuthToken('mock-token')
+    onWalEntriesPruned = vi.fn()
+    // Only the leader polls
+    session = new SyncSessionState({ isLeader: true })
+    pullQueueManager = new SyncPullQueueManager({
+      cursorStore: new CursorStore('test-account'),
+      keys,
+      lockCoordinator: noItemLocks,
+      adapter: { receiveServerMessage: vi.fn() },
+      session,
+    })
+    mockWal = {
+      append: vi.fn().mockResolvedValue('id-1'),
+      readAll: vi.fn().mockResolvedValue(new Map()),
+      remove: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+      markInFlight: vi.fn(),
+      unmarkInFlight: vi.fn(),
+    } as unknown as SyncWriteAheadLog
+    mockRecoveryManager = {
+      quarantine: vi.fn().mockResolvedValue(undefined),
+      unquarantine: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RecoveryManager
+
+    poller = new SyncPoller({
+      accountId: 'test-account',
+      session,
+      pullQueueManager,
+      keys,
+      wal: mockWal,
+      apiClient: new SyncApiClient(),
+      recoveryManager: mockRecoveryManager,
+      onPushAcknowledged: () => {},
+      onWalEntriesPruned,
+    })
+  })
+
+  it('returns no-poll when offline or not the leader', async () => {
+    session.setOnline(false)
+    expect(await poller.executePoll()).toBe('no-poll')
+
+    session.setOnline(true)
+    session.setLeader(false)
+    expect(await poller.executePoll()).toBe('no-poll')
+    expect(mockPollSyncBatch).not.toHaveBeenCalled()
+  })
+
+  it('returns success on successful empty poll batch', async () => {
+    mockPollSyncBatch.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [],
+    })
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+  })
+
+  it('sends both lagging pullCursors and global clientLatestCursor in empty poll', async () => {
+    vi.spyOn(pullQueueManager.cursors, 'getPendingPulls').mockReturnValue([
+      { itemId: 'item-2' as ItemId, cursor: 50 },
+    ])
+    vi.spyOn(pullQueueManager.cursors, 'getGlobalScanCursor').mockReturnValue(2000000)
+    vi.spyOn(pullQueueManager.cursors, 'getGlobalLatestCursor').mockReturnValue(9000000)
+
+    mockPollSyncBatch.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      hasMore: false,
+      globalHasMore: false,
+      pullResults: [
+        {
+          itemId: 'item-2',
+          messages: [],
+          hasMore: false,
+        },
+        {
+          itemId: 'item-1',
+          messages: [],
+          hasMore: false,
+        },
+      ],
+    })
+
+    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+
+    expect(mockPollSyncBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pullCursors: [{ itemId: 'item-2', cursor: 50 }],
+        clientLatestCursor: 2000000,
+      }),
+      expect.anything()
+    )
+
+    expect(processPullResultsSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: 'item-2' }),
+        expect.objectContaining({ itemId: 'item-1' }),
+      ]),
+      false,
+      undefined,
+      undefined,
+    )
+  })
+
+  it('forwards response.globalHasMore and globalNextPageToken to processPullResults', async () => {
+    const sampleKey = 'global-page-token'
+    mockPollSyncBatch.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [
+        {
+          success: true,
+          itemId: 'item-1' as ItemId,
+          hasMore: false,
+          messages: [],
+        },
+      ],
+      hasMore: true,
+      globalHasMore: true,
+      globalNextPageToken: sampleKey,
+    })
+
+    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+
+    expect(processPullResultsSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: 'item-1' }),
+      ]),
+      true,
+      sampleKey,
+      undefined,
+    )
+  })
+
+  it('prefers globalHasMore over hasMore and forwards the global scan cursor', async () => {
+    mockPollSyncBatch.mockResolvedValueOnce({
+      success: true,
+      pushResults: [],
+      pullResults: [],
+      hasMore: true,
+      globalHasMore: false,
+      globalScannedThroughCursor: 4321,
+    })
+
+    const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+    await poller.executePoll()
+
+    expect(processPullResultsSpy).toHaveBeenCalledWith([], false, undefined, 4321)
+  })
+
+  it('restarts pagination when the server rejects a page token', async () => {
+    await pullQueueManager.loadCursors()
+    const sampleKey = 'global-page-token'
+    await pullQueueManager.processPullResults([], true, sampleKey, 100)
+    expect(pullQueueManager.getGlobalPageToken()).toEqual(sampleKey)
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockPollSyncBatch.mockRejectedValueOnce(
+      Object.assign(new Error('bad page token'), { data: { httpStatus: 400 } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(mockPollSyncBatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ globalPageToken: sampleKey }),
+      expect.anything(),
+    )
+    expect(pullQueueManager.getGlobalPageToken()).toBeUndefined()
+
+    mockPollSyncBatch.mockResolvedValueOnce({ success: true, pushResults: [], pullResults: [] })
+    expect(await poller.executePoll()).toBe('success')
+    expect(mockPollSyncBatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ globalPageToken: undefined, clientLatestCursor: 100 }),
+      expect.anything(),
+    )
+    errorSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  it('drops item page tokens when the server rejects one', async () => {
+    await pullQueueManager.loadCursors()
+    await pullQueueManager.processPullResults([{
+      success: true,
+      itemId: 'item-1' as ItemId,
+      hasMore: true,
+      nextCursor: 0,
+      nextPageToken: 'item-page-token',
+      messages: [],
+    }], false, undefined, undefined)
+    expect(pullQueueManager.cursors.getPendingPulls()).toEqual([expect.objectContaining({ pageToken: 'item-page-token' })])
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockPollSyncBatch.mockRejectedValueOnce(
+      Object.assign(new Error('bad page token'), { data: { httpStatus: 400 } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(pullQueueManager.cursors.getPendingPulls()).toEqual([expect.objectContaining({ itemId: 'item-1', pageToken: undefined })])
+    errorSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  it.each([408, 429])('keeps pagination when the server answers %i', async status => {
+    await pullQueueManager.loadCursors()
+    await pullQueueManager.processPullResults([], true, 'global-page-token', 100)
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockPollSyncBatch.mockRejectedValueOnce(
+      Object.assign(new Error('try again later'), { data: { httpStatus: status } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(pullQueueManager.getGlobalPageToken()).toEqual('global-page-token')
+    errorSpy.mockRestore()
+  })
+
+  it('keeps global pagination state on transient failures', async () => {
+    await pullQueueManager.loadCursors()
+    const sampleKey = 'global-page-token'
+    await pullQueueManager.processPullResults([], true, sampleKey, 100)
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockPollSyncBatch.mockRejectedValueOnce(
+      Object.assign(new Error('unavailable'), { data: { httpStatus: 503 } }),
+    )
+
+    expect(await poller.executePoll()).toBe('failure')
+    expect(pullQueueManager.getGlobalPageToken()).toEqual(sampleKey)
+    errorSpy.mockRestore()
+  })
+
+  describe('with a real write-ahead log', () => {
+    let wal: SyncWriteAheadLog
+
+    beforeEach(async () => {
+      wal = new SyncWriteAheadLog('test-account')
+      await wal.clear()
+      poller = new SyncPoller({
+        accountId: 'test-account',
+        session,
+        pullQueueManager,
+        keys,
+        wal,
+        apiClient: new SyncApiClient(),
+        recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
+        onWalEntriesPruned,
+      })
+    })
+
+    it('pushes items in chunks of 5 and removes every pushed entry from the WAL', async () => {
+      mockPollSyncBatch.mockImplementation(async (input: any) => ({
+        success: true,
+        pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
+          itemId: m.itemId,
+          cursor: idx,
+        })),
+        pullResults: [],
+      }))
+
+      for (let i = 1; i <= 7; i += 1) {
+        await wal.append(`item-${i}` as ItemId, syncMessage(i))
+      }
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+
+      // 7 items go in exactly 2 calls (first with 5 items, second with 2 items)
+      expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
+      expect(mockPollSyncBatch.mock.calls[0][0].pushMessages).toHaveLength(5)
+      expect(mockPollSyncBatch.mock.calls[1][0].pushMessages).toHaveLength(2)
+
+      const batch = await wal.readAll()
+      expect(batch.size).toBe(0)
+    })
+
+    it('removes only the pushed entries, keeping local edits appended while the poll was in flight', async () => {
+      mockPollSyncBatch.mockImplementation(async (input: any) => {
+        // Local edits written while the poll request is in flight
+        await wal.append('item-1' as ItemId, syncMessage(20))
+        await wal.append('item-1' as ItemId, syncMessage(30))
+
+        return {
+          success: true,
+          pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
+            itemId: m.itemId,
+            cursor: idx + 1,
+          })),
+          pullResults: [],
+        }
+      })
+
+      await wal.append('item-1' as ItemId, syncMessage(10))
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+
+      // The pushed entry is removed, leaving only the concurrent ones [20, 30]
+      const batch = await wal.readAll()
+      const item1 = batch.get('item-1' as ItemId)
+      expect(item1).toBeDefined()
+      expect(item1).toHaveLength(2)
+      expect(item1![0].data).toEqual(syncMessage(20))
+      expect(item1![1].data).toEqual(syncMessage(30))
+    })
+
+    it('keeps the entries in the WAL if the poll call fails', async () => {
+      mockPollSyncBatch.mockRejectedValue(new Error('Network error'))
+
+      await wal.append('item-1' as ItemId, syncMessage(100))
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+
+      const batch = await wal.readAll()
+      const item1 = batch.get('item-1' as ItemId)
+      expect(item1).toBeDefined()
+      expect(item1).toHaveLength(1)
+      expect(item1![0].data).toEqual(syncMessage(100))
+    })
+  })
+
+  it('sends cursors and removes sent IDs from WAL with every chunk in multi-chunk batch', async () => {
+    // 6 items will produce 2 chunks of size 5 and 1
+    const walMap = new Map<ItemId, WalEntry[]>()
+    for (let i = 0; i < 6; i++) {
+      walMap.set(`item-${i}` as ItemId, [
+        { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: syncMessage(), createdAt: i },
+      ])
+    }
+    vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+    // Add a pending item to pullQueueManager to verify cursors are populated
+    pullQueueManager.cursors.addPendingItem('pending-item-1' as ItemId)
+
+    mockPollSyncBatch
+      .mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-0', cursor: 0 },
+          { itemId: 'item-1', cursor: 1 },
+          { itemId: 'item-2', cursor: 2 },
+          { itemId: 'item-3', cursor: 3 },
+          { itemId: 'item-4', cursor: 4 },
+        ],
+        pullResults: [],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-5', cursor: 5 },
+        ],
+        pullResults: [],
+      })
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
+
+    // First chunk
+    expect(mockPollSyncBatch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
+        clientLatestCursor: 0,
+      }),
+      expect.objectContaining({
+        signal: expect.any(Object),
+      }),
+    )
+
+    // Second chunk - should also carry cursors
+    expect(mockPollSyncBatch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
+        clientLatestCursor: 0,
+      }),
+      expect.objectContaining({
+        signal: expect.any(Object),
+      }),
+    )
+
+    // Removed sent IDs from WAL
+    expect(mockWal.remove).toHaveBeenCalledTimes(2)
+    expect(mockWal.remove).toHaveBeenNthCalledWith(1, ['msg-0', 'msg-1', 'msg-2', 'msg-3', 'msg-4'])
+    expect(mockWal.remove).toHaveBeenNthCalledWith(2, ['msg-5'])
+  })
+
+  describe('WAL entries that are not sync messages', () => {
+    it('drops every entry of the item, requests a snapshot and pushes the other items', async () => {
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+        ['item-bad' as ItemId, [
+          { id: 'bad-1', itemId: 'item-bad' as ItemId, data: syncMessage(), createdAt: 1 },
+          { id: 'bad-2', itemId: 'item-bad' as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: 2 },
+        ]],
+        ['item-good' as ItemId, [{ id: 'good', itemId: 'item-good' as ItemId, data: syncMessage(), createdAt: 3 }]],
+      ]))
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [{ itemId: 'item-good', cursor: 1 }],
+        pullResults: [],
+      })
+
+      expect(await poller.executePoll()).toBe('success')
+
+      expect(mockWal.remove).toHaveBeenNthCalledWith(1, ['bad-1', 'bad-2'])
+      expect(onWalEntriesPruned).toHaveBeenCalledWith(['item-bad'])
+      expect(mockWal.markInFlight).toHaveBeenCalledWith(['good'])
+      expect(mockPollSyncBatch).toHaveBeenCalledWith(
+        expect.objectContaining({ pushMessages: [expect.objectContaining({ itemId: 'item-good' })] }),
+        expect.anything(),
+      )
+    })
+
+    it('drops a batched entry left by WAL compaction in older versions', async () => {
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+        ['item-1' as ItemId, [
+          { id: 'batched', itemId: 'item-1' as ItemId, data: packBatchedMessages([syncMessage(), syncMessage()]), createdAt: 1 },
+        ]],
+      ]))
+      mockPollSyncBatch.mockResolvedValueOnce({ success: true, pushResults: [], pullResults: [] })
+
+      await poller.executePoll()
+
+      expect(mockWal.remove).toHaveBeenCalledWith(['batched'])
+      expect(mockPollSyncBatch).toHaveBeenCalledWith(expect.objectContaining({ pushMessages: [] }), expect.anything())
+    })
+
+    it('fails the poll without pushing when the entries cannot be removed', async () => {
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+        ['item-1' as ItemId, [{ id: 'bad', itemId: 'item-1' as ItemId, data: new Uint8Array([1]), createdAt: 1 }]],
+      ]))
+      vi.mocked(mockWal.remove).mockRejectedValueOnce(new Error('storage failed'))
+
+      expect(await poller.executePoll()).toBe('failure')
+      expect(mockPollSyncBatch).not.toHaveBeenCalled()
+    })
+  })
+
+  it('binds each pushed message to its item and sends the ciphertext format', async () => {
+    vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
+      ['item-a' as ItemId, [{ id: 'msg-a', itemId: 'item-a' as ItemId, data: syncMessage(), createdAt: 1 }]],
+    ]))
+    vi.mocked(encryptBytes).mockResolvedValueOnce({ iv: 'iv-a', cipher: 'cipher-a', kver: '2', format: 2 })
+    mockPollSyncBatch.mockResolvedValueOnce({
+      success: true,
+      pushResults: [{ itemId: 'item-a', cursor: 1 }],
+      pullResults: [],
+    })
+
+    await poller.executePoll()
+
+    expect(encryptBytes).toHaveBeenCalledWith(expect.any(Uint8Array), 'item-a')
+    expect(mockPollSyncBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pushMessages: [{
+          itemId: 'item-a',
+          encryptedMessage: { iv: 'iv-a', cipher: 'cipher-a', kver: '2', format: 2, version: '1.0' },
+        }],
+      }),
+      expect.anything(),
+    )
+  })
+
+  describe('isAuthError classification', () => {
+    it('identifies 401 and 403 httpStatus on error data as auth failure', async () => {
+      mockPollSyncBatch.mockRejectedValueOnce({
+        data: { httpStatus: 401 },
+      })
+      expect(await poller.executePoll()).toBe('auth-failure')
+
+      mockPollSyncBatch.mockRejectedValueOnce({
+        shape: { data: { httpStatus: 403 } },
+      })
+      expect(await poller.executePoll()).toBe('auth-failure')
+    })
+
+    it('identifies UNAUTHORIZED and FORBIDDEN error codes as auth failure', async () => {
+      mockPollSyncBatch.mockRejectedValueOnce({
+        data: { code: 'UNAUTHORIZED' },
+      })
+      expect(await poller.executePoll()).toBe('auth-failure')
+
+      mockPollSyncBatch.mockRejectedValueOnce({
+        code: 'FORBIDDEN',
+      })
+      expect(await poller.executePoll()).toBe('auth-failure')
+    })
+
+    it('identifies status on cause or error as auth failure', async () => {
+      mockPollSyncBatch.mockRejectedValueOnce({
+        cause: { status: 401 },
+      })
+      expect(await poller.executePoll()).toBe('auth-failure')
+
+      mockPollSyncBatch.mockRejectedValueOnce({
+        status: 403,
+      })
+      expect(await poller.executePoll()).toBe('auth-failure')
+    })
+
+    it('identifies UnauthorizedError / ForbiddenError names as auth failure', async () => {
+      const err = new Error('Auth required')
+      err.name = 'UnauthorizedError'
+      mockPollSyncBatch.mockRejectedValueOnce(err)
+      expect(await poller.executePoll()).toBe('auth-failure')
+    })
+
+    it('treats generic errors containing unauthorized text as regular failure if no structured auth metadata', async () => {
+      mockPollSyncBatch.mockRejectedValueOnce(new Error('Network proxy error: unauthorized gateway access'))
+      expect(await poller.executePoll()).toBe('failure')
+    })
+
+    it('treats standard network/generic errors as failure', async () => {
+      mockPollSyncBatch.mockRejectedValueOnce(new Error('Connection timeout'))
+      expect(await poller.executePoll()).toBe('failure')
+    })
+  })
+
+  describe('poison pill and error isolation', () => {
+    it('removes WAL items even if processPullResults throws an error', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [{ itemId: 'item-1', cursor: 1 }],
+        pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+    })
+
+    it('returns failure when processPullResults throws during empty poll', async () => {
+      vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+    })
+
+    it('processes the other items but returns failure when one item throws', async () => {
+      await pullQueueManager.loadCursors()
+      pullQueueManager.cursors.addPendingItem('item-bad' as ItemId)
+      pullQueueManager.cursors.addPendingItem('item-good' as ItemId)
+
+      const internals = pullQueueManager as unknown as {
+        processSinglePullResult: (result: PullSyncMessagesResponse, ...rest: unknown[]) => Promise<unknown>
+      }
+      const realProcess = internals.processSinglePullResult.bind(pullQueueManager)
+      const processSpy = vi.spyOn(internals, 'processSinglePullResult').mockImplementation(
+        async (result, ...rest) => {
+          if (result.itemId === 'item-bad') throw new Error('unexpected item failure')
+          return realProcess(result, ...rest)
+        },
+      )
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [
+          { success: true, itemId: 'item-bad', messages: [], hasMore: false, nextCursor: 10 },
+          { success: true, itemId: 'item-good', messages: [], hasMore: false, nextCursor: 20 },
+        ],
+      })
+
+      expect(await poller.executePoll()).toBe('failure')
+      expect(processSpy).toHaveBeenCalledTimes(2)
+      expect(pullQueueManager.cursors.getPendingPulls()).toContainEqual(expect.objectContaining({ itemId: 'item-bad' }))
+      expect(pullQueueManager.cursors.getPendingPulls()).not.toContainEqual(expect.objectContaining({ itemId: 'item-good' }))
+      expect(pullQueueManager.cursors.exportCursors()).toContainEqual(['item-good', 20])
+      errorSpy.mockRestore()
+    })
+  })
+
+  describe('shutdown and in-flight cancellation', () => {
+    it('returns no-poll and skips network calls once the session has shut down', async () => {
+      session.markShutdown()
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('no-poll')
+      expect(mockPollSyncBatch).not.toHaveBeenCalled()
+    })
+
+    it('discards response and skips writes to WAL and cursors if shutdown happens while network request is in-flight', async () => {
+      let resolveNetwork: (val: any) => void = () => {}
+      let networkStarted = false
+      mockPollSyncBatch.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            networkStarted = true
+            resolveNetwork = resolve
+          })
+      )
+
+      const pullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults')
+
+      const pollPromise = poller.executePoll()
+
+      // Wait until network request has actually started
+      await vi.waitFor(() => {
+        expect(networkStarted).toBe(true)
+      })
+
+      // Poller is in-flight; trigger shutdown (e.g. user logout)
+      session.markShutdown()
+
+      // Network request completes after shutdown
+      resolveNetwork({
+        success: true,
+        pushResults: [{ itemId: 'item-1', cursor: 1 }],
+        pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
+      })
+
+      const outcome = await pollPromise
+      expect(outcome).toBe('no-poll')
+
+      // Must NOT have written to stores
+      expect(pullResultsSpy).not.toHaveBeenCalled()
+      expect(mockWal.remove).not.toHaveBeenCalled()
+    })
+
+    it('passes the abort signal it is given to pollSyncBatch and handles abort cleanly', async () => {
+      let signalCaptured: AbortSignal | undefined
+      mockPollSyncBatch.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
+        signalCaptured = options?.signal
+        return new Promise((_, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('AbortError')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      })
+
+      const controller = new AbortController()
+      const pollPromise = poller.executePoll(controller.signal)
+
+      await vi.waitFor(() => {
+        expect(signalCaptured).toBeDefined()
+      })
+
+      expect(signalCaptured?.aborted).toBe(false)
+
+      controller.abort()
+      expect(signalCaptured?.aborted).toBe(true)
+
+      const outcome = await pollPromise
+      expect(outcome).toBe('no-poll')
+      expect(mockWal.remove).not.toHaveBeenCalled()
+    })
+
+    it('stops multi-chunk loop immediately if shutdown occurs after the first chunk', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      for (let i = 0; i < 6; i++) {
+        walMap.set(`item-${i}` as ItemId, [
+          { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: syncMessage(), createdAt: i },
+        ])
+      }
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatch.mockImplementation(async () => {
+        // Shut down poller during chunk 1 processing
+        session.markShutdown()
+        return {
+          success: true,
+          pushResults: [],
+          pullResults: [],
+        }
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('no-poll')
+
+      // Only chunk 1 was attempted; chunk 2 was aborted/skipped
+      expect(mockPollSyncBatch).toHaveBeenCalledTimes(1)
+      // WAL removal should have been suppressed because of shutdown
+      expect(mockWal.remove).not.toHaveBeenCalled()
+    })
+
+    it('aborting the signal cancels an in-flight poll without disabling future polls', async () => {
+      let signalCaptured: AbortSignal | undefined
+      mockPollSyncBatch.mockImplementationOnce((_input: any, options: { signal?: AbortSignal }) => {
+        signalCaptured = options?.signal
+        return new Promise((_, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const err = new Error('AbortError')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      })
+
+      const controller = new AbortController()
+      const pollPromise = poller.executePoll(controller.signal)
+
+      await vi.waitFor(() => {
+        expect(signalCaptured).toBeDefined()
+      })
+
+      expect(signalCaptured?.aborted).toBe(false)
+
+      controller.abort()
+      expect(signalCaptured?.aborted).toBe(true)
+
+      const outcome = await pollPromise
+      expect(outcome).toBe('no-poll')
+
+      // Later polls still run
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+
+      const nextOutcome = await poller.executePoll()
+      expect(nextOutcome).toBe('success')
+    })
+
+    it('checkAlive aborts poll before network dispatch if poller goes offline during preparation', async () => {
+      // Mock packBatchedMessages / encryptBytes to take time or trigger offline before network call
+      session.setOnline(false)
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('no-poll')
+      expect(mockPollSyncBatch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('pushResults inspection and selective WAL removal', () => {
+    it('removes only WAL entries for items explicitly acknowledged as successful when some items fail', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 10 },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledTimes(1)
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+      expect(mockWal.remove).not.toHaveBeenCalledWith(expect.arrayContaining(['msg-2']))
+      expect(poller['consecutivePushFailures']['count']('item-2' as ItemId)).toBe(1)
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(0)
+    })
+
+    it('removes only WAL entries for items present in pushResults when an item is omitted', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 10 },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledTimes(1)
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+      expect(poller['consecutivePushFailures']['count']('item-2' as ItemId)).toBe(1)
+    })
+
+    it('does not remove any WAL entries when pushResults is empty', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+      expect(mockWal.remove).not.toHaveBeenCalled()
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(1)
+      expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
+    })
+
+    it('removes all batched WAL entries for an acknowledged item', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1a', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+        { id: 'msg-1b', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 2 },
+        { id: 'msg-1c', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 3 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 25 },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1a', 'msg-1b', 'msg-1c'])
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(0)
+    })
+
+    it('does not remove WAL entries when item has invalid or missing cursor without explicit success', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: NaN },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+      expect(mockWal.remove).not.toHaveBeenCalled()
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(1)
+      expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
+    })
+
+    it('records successful push cursors as own messages before processing pull results', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      const recordSpy = vi.spyOn(pullQueueManager, 'recordOwnPushedMessage')
+      const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 123 },
+        ],
+        pullResults: [],
+      })
+
+      await poller.executePoll()
+
+      expect(recordSpy).toHaveBeenCalledTimes(1)
+      expect(recordSpy).toHaveBeenCalledWith('item-1', 123)
+      expect(recordSpy.mock.invocationCallOrder[0]).toBeLessThan(processPullResultsSpy.mock.invocationCallOrder[0])
+    })
+
+    it('processes pullResults without backoff on partial push failure in multi-item chunk (Option B)', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      walMap.set('item-2' as ItemId, [
+        { id: 'msg-2', itemId: 'item-2' as ItemId, data: syncMessage(), createdAt: 2 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      const processPullResultsSpy = vi.spyOn(pullQueueManager, 'processPullResults').mockResolvedValueOnce(undefined as any)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 10 },
+        ],
+        hasMore: false,
+        globalHasMore: false,
+        pullResults: [
+          {
+            itemId: 'item-pull-1',
+            messages: [],
+            hasMore: false,
+          },
+        ],
+      })
+
+      const outcome = await poller.executePoll()
+      // Partial success returns 'success' so healthy items and pulls are not blocked
+      expect(outcome).toBe('success')
+
+      // Acknowledged item is removed from WAL
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+      expect(mockWal.remove).not.toHaveBeenCalledWith(expect.arrayContaining(['msg-2']))
+
+      // Pull results from this batch are still processed
+      expect(processPullResultsSpy).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ itemId: 'item-pull-1' }),
+        ]),
+        false,
+        undefined,
+        undefined,
+      )
+
+      // Item 2 failure count incremented
+      expect(poller['consecutivePushFailures']['count']('item-2' as ItemId)).toBe(1)
+    })
+
+    it('quarantines item and removes from WAL after reaching MAX_CONSECUTIVE_PUSH_FAILURES', async () => {
+      const itemId = 'item-bad' as ItemId
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set(itemId, [
+        { id: 'msg-bad', itemId, data: syncMessage(), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValue(walMap)
+
+      // Pre-seed with 4 failures
+      for (let i = 0; i < 4; i += 1) poller['consecutivePushFailures'].recordFailure(itemId)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      // Quarantined items are cleared from WAL and considered handled (returns 'success')
+      expect(outcome).toBe('success')
+
+      // Recovery manager was asked to quarantine the item
+      expect(mockRecoveryManager.quarantine).toHaveBeenCalledWith(
+        itemId,
+        'pushFailure',
+        expect.stringContaining('Push failed after 5 consecutive attempts: Push unacknowledged by server')
+      )
+
+      // Quarantined item's entries are removed from WAL
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-bad'])
+
+      // Failure count cleared after quarantine
+      expect(poller['consecutivePushFailures']['count'](itemId)).toBe(0)
+    })
+
+    it('resets consecutivePushFailures when item subsequently succeeds', async () => {
+      const itemId = 'item-flaky' as ItemId
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set(itemId, [
+        { id: 'msg-flaky', itemId, data: syncMessage(), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValue(walMap)
+
+      // Pre-seed with 3 failures
+      for (let i = 0; i < 3; i += 1) poller['consecutivePushFailures'].recordFailure(itemId)
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId, cursor: 50 },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-flaky'])
+      expect(poller['consecutivePushFailures']['count'](itemId)).toBe(0)
+      expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
+    })
+
+    it('returns failure when wal.remove throws during push acknowledgment', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: syncMessage(), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+      vi.mocked(mockWal.remove).mockRejectedValueOnce(new Error('IndexedDB transaction failed'))
+
+      mockPollSyncBatch.mockResolvedValueOnce({
+        success: true,
+        pushResults: [
+          { itemId: 'item-1', cursor: 1 },
+        ],
+        pullResults: [],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+      expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
+    })
+  })
+
+  describe('Auth and SyncApiClient integration', () => {
+    it('returns auth-failure when apiClient reports no auth token', async () => {
+      const mockApiClient = {
+        pollSyncBatch: vi.fn().mockRejectedValue(new AuthError('No active session token available')),
+      } as unknown as SyncApiClient
+
+      const authPoller = new SyncPoller({
+        accountId: 'test-account',
+        session,
+        pullQueueManager,
+        keys,
+        wal: mockWal,
+        apiClient: mockApiClient,
+        recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
+      })
+
+      const outcome = await authPoller.executePoll()
+      expect(outcome).toBe('auth-failure')
+      expect(mockApiClient.pollSyncBatch).toHaveBeenCalled()
+    })
+
+    it('recovers transparently and succeeds when initial poll fails with 401 but refresh succeeds', async () => {
+      const refreshAuthToken = vi.fn().mockImplementation(async () => {
+        setApiAuthToken('refreshed-session-token')
+        return 'refreshed-session-token'
+      })
+      const apiClient = new SyncApiClient({ refreshAuthToken })
+
+      const tokensSent: string[] = []
+      mockPollSyncBatch
+        .mockImplementationOnce(async () => {
+          tokensSent.push(getApiAuthToken())
+          throw { httpStatus: 401, message: 'Session expired' }
+        })
+        .mockImplementationOnce(async () => {
+          tokensSent.push(getApiAuthToken())
+          return {
+            success: true,
+            pushResults: [],
+            pullResults: [],
+          }
+        })
+
+      const authPoller = new SyncPoller({
+        accountId: 'test-account',
+        session,
+        pullQueueManager,
+        keys,
+        wal: mockWal,
+        apiClient,
+        recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
+      })
+
+      const outcome = await authPoller.executePoll()
+      expect(outcome).toBe('success')
+      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+      expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
+      expect(tokensSent).toEqual(['mock-token', 'refreshed-session-token'])
+    })
+
+    it('returns auth-failure when poll fails with 401 and token cannot be refreshed', async () => {
+      const refreshAuthToken = vi.fn().mockResolvedValue(null)
+      const apiClient = new SyncApiClient({ refreshAuthToken })
+
+      mockPollSyncBatch.mockRejectedValue({ httpStatus: 401, message: 'Unauthorized' })
+
+      const authPoller = new SyncPoller({
+        accountId: 'test-account',
+        session,
+        pullQueueManager,
+        keys,
+        wal: mockWal,
+        apiClient,
+        recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
+      })
+
+      const outcome = await authPoller.executePoll()
+      expect(outcome).toBe('auth-failure')
+      expect(refreshAuthToken).toHaveBeenCalledTimes(1)
+    })
+  })
+})

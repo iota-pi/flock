@@ -8,12 +8,14 @@ import {
   hasBiometricData,
   subscribeBiometrics,
   isWebAuthnPrfSupported,
+  createLogger,
+} from '@vault/client'
+import {
+  getAutoLockSummary,
   readAutoLockSettings,
   writeAutoLockSettings,
-  getAutoLockSummary,
-  createLogger,
   type AutoLockSettings,
-} from '@vault/client'
+} from '../app/vault/autoLockStore'
 import { lockVault, removeVaultFromDevice } from '../app/vault/session'
 import { useMetadata } from '../state/selectors'
 import { useAppStore } from '../state/store'

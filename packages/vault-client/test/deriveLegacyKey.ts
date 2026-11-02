@@ -1,4 +1,4 @@
-import type { DeriveLegacyKey } from '../src/api/crypto'
+import type { DeriveLegacyKey } from '../src/keys/crypto'
 
 /** PBKDF2-SHA256, as apps provide it through `VaultHostHooks.deriveLegacyKey` */
 export const deriveLegacyKey: DeriveLegacyKey = async ({ password, salt, iterations }) => {

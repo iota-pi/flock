@@ -32,14 +32,27 @@ const vaultPackageZones = [
     message: '@vault/server must not depend on the client.',
   },
   {
-    target: './packages/vault-client/src/api',
-    from: ['./packages/vault-client/src/sync/client', './packages/vault-client/src/sync/worker'],
-    message: 'The sync engine builds on api/, not the reverse. Move what both need to sync/utils or sync/shared.',
+    target: './packages/vault-client/src/keys',
+    from: ['./packages/vault-client/src/client', './packages/vault-client/src/worker'],
+    message: 'The sync engine builds on keys/, not the reverse. Move what both need to utils/ or shared/.',
   },
   {
-    target: './packages/vault-client/src/sync/worker',
-    from: './packages/vault-client/src/sync/client',
-    message: 'The sync worker must not import main-thread code. Move what both need to sync/utils or sync/shared.',
+    target: './packages/vault-client/src/worker',
+    from: './packages/vault-client/src/client',
+    message: 'The sync worker must not import main-thread code. Move what both need to utils/ or shared/.',
+  },
+]
+
+// Specs may borrow worker test utilities, so this zone only applies to source files
+const vaultClientNeutralZones = [
+  {
+    target: ['./packages/vault-client/src/utils', './packages/vault-client/src/shared'],
+    from: [
+      './packages/vault-client/src/keys',
+      './packages/vault-client/src/client',
+      './packages/vault-client/src/worker',
+    ],
+    message: 'utils/ and shared/ are neutral: both sides import them, so they must not import keys/, client/ or worker/.',
   },
 ]
 
@@ -144,6 +157,7 @@ export default defineConfig([
     files: ['packages/vault-client/src/**/*.ts'],
     ignores: ['**/*.spec.ts', '**/__test__/**'],
     rules: {
+      'import-x/no-restricted-paths': ['error', { zones: [...vaultPackageZones, ...vaultClientNeutralZones] }],
       'no-restricted-imports': [
         'error',
         {

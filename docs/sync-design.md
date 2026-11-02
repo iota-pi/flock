@@ -1,6 +1,6 @@
 # Sync Design Notes
 
-Background and rationale for the sync system (`packages/vault-client/src/sync/`, `packages/vault-server/src/services/`). [AGENTS.md](../AGENTS.md) lists the rules. This file explains why they exist. Read the relevant section before changing or reviewing sync behaviour.
+Background and rationale for the sync system (`packages/vault-client/src/{worker,client,shared,utils}/`, `packages/vault-server/src/services/`). [AGENTS.md](../AGENTS.md) lists the rules. This file explains why they exist. Read the relevant section before changing or reviewing sync behaviour.
 
 ## Data flow
 
@@ -155,7 +155,7 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
   - **Decrypt failures:** a record that fails to decrypt is never treated as missing. The document is quarantined as `localDecryption`, and if the DSK itself can't be opened, sync stops and the app is asked (`onLocalDataUnavailable`). Nothing is ever reset automatically.
 - Older layouts: the worker config's `migrateLocalData(accountId)` hook runs at the start of `SyncWorkerContext.initialize()`, before any store is read, under the `localDataMigrationLock` Web Lock so tabs take turns. A failure fails initialization, because starting would create an empty index that a later migration would keep over the old one. Flock passes this hook only in its migration app (`src/migrate/legacy/localData.ts`). It imports Flock's per-store databases, the consolidated store's earlier keys and old value shapes, and deduplicates manual recovery entries (its own `manualRecoveryMigrated` key).
 - Data levels: with `minDataVersion` set, `initialize()` first checks `deviceDataVersion`. Below the minimum, a device with an index, or with data the app's `hasLegacyLocalData` hook finds, doesn't start: the worker emits `migrationRequired` instead. This check has to come first, because starting records the current level for a device with no index. Likewise, a server row without a snapshot, when the app has no `decodeLegacyItem` hook, is skipped rather than quarantined and reported as `migrationRequired` (see "Backwards compatibility" in `docs/vault-extraction.md`).
-- All storage names come from `VaultStorageNames` (`packages/vault-client/src/sync/shared/storageNames.ts`). Renaming one orphans the data stored under the old name.
+- All storage names come from `VaultStorageNames` (`packages/vault-client/src/shared/storageNames.ts`). Renaming one orphans the data stored under the old name.
 - Logout or reset: `clearAccountLocalData` → `clearSyncMetadataStorage` drops the whole metadata database. The store-level `.clear()` only clears its own key.
 
 ## Shutdown order (`ServiceLifecycleManager`)
@@ -181,5 +181,5 @@ Inside the worker, components call each other through plain callbacks that `Sync
 
 ## Other recovery
 
-- Worker health (`syncWorkerHealth.ts`) sends a 15s ping and treats a 30s silence as a timeout. A crashed worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3) times.
+- Worker health (`SyncWorkerHealthMonitor.ts`) sends a 15s ping and treats a 30s silence as a timeout. A crashed worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3) times.
 - `ManifestSyncManager` reconciles daily, and also every 7 days when forced.

@@ -11,53 +11,44 @@ export {
   importData,
   loginVault,
   upgradeKeyDerivation,
-} from './api/vault'
-export { lockVaultKeys } from './api/session'
-export { enableBiometrics, unlockWithBiometrics, StaleBiometricKeyError } from './api/biometrics'
+} from './keys/vault'
+export { lockVaultKeys } from './keys/session'
+export { enableBiometrics, unlockWithBiometrics, StaleBiometricKeyError } from './keys/biometrics'
 export {
   clearBiometricData,
   readBiometricData,
   hasBiometricData,
   subscribeBiometrics,
-} from './api/biometricStore'
-export { isWebAuthnPrfSupported } from './api/webauthn'
-export { readStoredMetadata } from './api/storedMetadata'
-export { configureVaultHost, type VaultHostHooks } from './api/vaultHost'
-export type { KeyProvider } from './api/Keyring'
-export { createAccount, getSecurityParams } from './api/AccountClient'
-export type { VaultBroadcastEvent } from './api/vaultEvents'
+} from './keys/biometricStore'
+export { isWebAuthnPrfSupported } from './keys/webauthn'
+export { readStoredMetadata } from './keys/storedMetadata'
+export { configureVaultHost, type VaultHostHooks } from './keys/vaultHost'
+export type { KeyProvider } from './keys/Keyring'
+export { createAccount, getSecurityParams } from './keys/AccountClient'
+export type { VaultBroadcastEvent } from './keys/vaultEvents'
 export {
   UnsupportedKeyDerivationError,
   type CryptoResult,
   type DeriveLegacyKey,
-} from './api/crypto'
-export type { KdfParams } from './api/kdf'
-export {
-  type AutoLockMode,
-  type AutoLockSettings,
-  INACTIVITY_PRESETS,
-  getAutoLockSummary,
-  readAutoLockSettings,
-  writeAutoLockSettings,
-} from './api/autoLockStore'
-export { reencryptAllItems, resumePendingReencryption, type ReencryptionTarget } from './api/reencrypt'
-export { assertSuccess } from './api/clientUtils'
-export { hasApiAuthToken } from './api/runtime'
-export { ApiHttpError, getTrackedFetch } from './api/trackedFetch'
-export { configureVaultEndpoint, createVaultLinks, initVaultTrpcClient } from './api/vaultTrpcClient'
+} from './keys/crypto'
+export type { KdfParams } from './keys/kdf'
+export { reencryptAllItems, resumePendingReencryption, type ReencryptionTarget } from './keys/reencrypt'
+export { hasApiAuthToken } from './keys/runtime'
+export { ApiHttpError, getTrackedFetch } from './keys/trackedFetch'
+export { configureVaultEndpoint, createVaultLinks, initVaultTrpcClient } from './keys/vaultTrpcClient'
 
-export { createSyncBridge, type SyncBridgeOptions, type SyncBridgeService } from './sync/client/SyncBridge'
-export type { SyncStateSink, SyncTelemetry } from './sync/client/host'
+export { createSyncBridge, type SyncBridgeOptions, type SyncBridgeService } from './client/SyncBridge'
+export type { SyncStateSink, SyncTelemetry } from './client/host'
 export type {
   DataVersionStatus,
   MigrationRequiredReason,
   SyncStatus,
   VaultDoc,
   VaultMetadata,
-} from './sync/shared/types'
-export { BackupSyncStateSchema, type BackupSyncState } from './sync/shared/backupSyncState'
-export type { ManualRecoveryEntry, ManualRecoveryKind } from './sync/shared/manualRecoveryStore'
-export { getOnlineState } from './sync/utils/onlineStatus'
-export { ensurePersistentStorage } from './sync/utils/storageQuota'
-export { fireAndForget } from './sync/utils/fireAndForget'
-export { createLogger, type Logger } from './sync/utils/logger'
+} from './shared/types'
+export { BackupSyncStateSchema, type BackupSyncState } from './shared/backupSyncState'
+export type { ManualRecoveryEntry, ManualRecoveryKind } from './shared/manualRecoveryStore'
+export { getOnlineState } from './utils/onlineStatus'
+export { ensurePersistentStorage } from './utils/storageQuota'
+export { fireAndForget } from './utils/fireAndForget'
+export { createLogger, type Logger } from './utils/logger'

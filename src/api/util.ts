@@ -7,3 +7,9 @@ export function getAccountId() {
   }
   return account
 }
+
+export function assertSuccess(response: { success: boolean }, operation: string): void {
+  if (!response.success) {
+    throw new Error(`API ${operation} operation failed`)
+  }
+}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { readAutoLockSettings } from '@vault/client'
+import { readAutoLockSettings } from '../app/vault/autoLockStore'
 import { lockVault } from '../app/vault/session'
 import { useLoggedIn } from '../state/selectors'
 

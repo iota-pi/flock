@@ -8,10 +8,10 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./worker": "./src/worker.ts",
-    "./storageNames": "./src/sync/shared/storageNames.ts",
+    "./worker": "./src/worker/index.ts",
+    "./storageNames": "./src/shared/storageNames.ts",
     "./kdfWorker": "./src/kdfWorker.ts",
-    "./databaseExists": "./src/sync/utils/databaseExists.ts"
+    "./databaseExists": "./src/utils/databaseExists.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

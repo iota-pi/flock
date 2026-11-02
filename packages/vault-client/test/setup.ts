@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
-import { configureVaultStorageNames, createVaultStorageNames } from '../src/sync/shared/storageNames'
+import { configureVaultStorageNames, createVaultStorageNames } from '../src/shared/storageNames'
 import { enableTestKeyDerivation } from '@vault/shared'
-import { clearAccountStoreInstancesCacheForTesting } from '../src/sync/shared/createAccountStore'
-import { clearQuotaRecoveryHandlerForTesting, resetQuotaExceededStatus } from '../src/sync/utils/storageManager'
+import { clearAccountStoreInstancesCacheForTesting } from '../src/shared/createAccountStore'
+import { clearQuotaRecoveryHandlerForTesting, resetQuotaExceededStatus } from '../src/utils/storageManager'
 
 // Packages that specs spy on (see moduleMocks.ts). Test files share module state, so these
 // mocks are the only module mocks: specs use `vi.spyOn` instead of `vi.mock`.

@@ -1,13 +1,12 @@
 import { FLOCK_STORAGE_NAMES } from './storageNames'
 
 describe('FLOCK_STORAGE_NAMES', () => {
-  // Renaming any of these loses users' local documents, WAL, cached keyring or settings
+  // Renaming any of these loses users' local documents, WAL or cached keyring
   it('never changes', () => {
     expect(FLOCK_STORAGE_NAMES).toEqual({
       vaultMetadataKey: 'FlockVaultMeta',
       keyringCacheKey: 'FlockKeyringCache',
       biometricDataKey: 'FlockBiometricData',
-      autoLockSettingsKey: 'FlockAutoLockSettings',
       vaultEventsChannel: 'flock-vault-events',
       authDatabase: 'FlockVaultDB',
       webAuthnRpName: 'Flock',

@@ -1,0 +1,202 @@
+import type { ItemId } from '@vault/shared'
+import type { ClientEventHub } from './SyncEventHub'
+import {
+  type ManualRecoveryEntry,
+  type ManualRecoveryKind,
+  type ReadManualRecoveryOptions,
+  readManualRecoveryEntries,
+  readManualRecoveryCount,
+  removeManualRecoveryEntryById,
+  removeManualRecoveryEntryByItemId,
+  removeManualRecoveryEntryIfKind,
+  upsertManualRecoveryEntry,
+} from '../shared/manualRecoveryStore'
+import { normalizeSyncError } from '@vault/shared'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('RecoveryManager')
+
+// Quarantines that a fresh, successfully parsed remote message proves were transient
+export const INBOUND_MESSAGE_RESOLVABLE_KINDS: ReadonlySet<ManualRecoveryKind> = new Set(['pullDecryption'])
+
+export interface RecoveryManagerDeps {
+  accountId: string
+  eventHub: ClientEventHub
+}
+
+export interface QuarantineOptions {
+  checkCooldown?: boolean
+  cooldownMs?: number
+  failedBranches?: string[]
+  /** The server version that failed, recorded so manifest sync waits for a newer one */
+  serverVersion?: number
+}
+
+export class RecoveryManager {
+  private inFlightItemIds = new Set<ItemId>()
+  private cooldownUntilByItemId = new Map<ItemId, number>()
+
+  constructor(private readonly deps: RecoveryManagerDeps) {}
+
+  private isInFlight(itemId: ItemId): boolean {
+    return this.inFlightItemIds.has(itemId)
+  }
+
+  private setInFlight(itemId: ItemId, inFlight: boolean): void {
+    if (inFlight) {
+      this.inFlightItemIds.add(itemId)
+    } else {
+      this.inFlightItemIds.delete(itemId)
+    }
+  }
+
+  private getRecoveryCooldownUntil(itemId: ItemId): number {
+    const cooldownUntil = this.cooldownUntilByItemId.get(itemId) || 0
+    if (cooldownUntil <= Date.now()) {
+      this.cooldownUntilByItemId.delete(itemId)
+      return 0
+    }
+    return cooldownUntil
+  }
+
+  private setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
+    this.cooldownUntilByItemId.set(itemId, cooldownUntil)
+  }
+
+  private clearRecoveryCooldown(itemId: ItemId): void {
+    this.cooldownUntilByItemId.delete(itemId)
+  }
+
+  resetRecoveryState(): void {
+    this.inFlightItemIds.clear()
+    this.cooldownUntilByItemId.clear()
+  }
+
+  async pushRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
+    try {
+      const entries = await readManualRecoveryEntries(this.deps.accountId, options)
+      this.deps.eventHub.emit({ type: 'recoveryItemsChanged', entries })
+      return entries
+    } catch (error) {
+      log.error('Failed to push recovery entries change', error)
+      return []
+    }
+  }
+
+  async listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
+    return await readManualRecoveryEntries(this.deps.accountId, options)
+  }
+
+  async quarantine(
+    itemId: ItemId,
+    kind: ManualRecoveryKind,
+    error?: unknown,
+    options?: QuarantineOptions,
+  ): Promise<void> {
+    const accountId = this.deps.accountId
+    if (!itemId) return
+
+    const now = Date.now()
+    if (options?.checkCooldown) {
+      if (this.isInFlight(itemId) || this.getRecoveryCooldownUntil(itemId) > now) {
+        return
+      }
+    } else if (this.isInFlight(itemId)) {
+      return
+    }
+
+    this.setInFlight(itemId, true)
+    try {
+      let reason: string
+      if (options?.failedBranches && options.failedBranches.length > 0) {
+        reason = `Corrupted branches: ${options.failedBranches.join(', ')}`
+      } else if (typeof error === 'string') {
+        reason = error
+      } else if (error) {
+        const normalized = normalizeSyncError(error)
+        reason = normalized.message || 'Automated recovery is unavailable for this revision'
+      } else {
+        reason = 'Automated recovery is unavailable for this revision'
+      }
+
+      await upsertManualRecoveryEntry(accountId, { itemId, reason, kind, serverVersion: options?.serverVersion })
+      await this.pushRecoveryItems()
+
+      const cooldownMs = options?.cooldownMs ?? SYNC_TIMEOUTS.recoveryCooldown
+      this.setRecoveryCooldown(itemId, Date.now() + cooldownMs)
+    } catch (err) {
+      log.error(`Failed to quarantine item ${itemId}:`, err)
+      throw err
+    } finally {
+      this.setInFlight(itemId, false)
+    }
+  }
+
+  async unquarantine(itemId: ItemId): Promise<void> {
+    const accountId = this.deps.accountId
+    if (!itemId) return
+
+    try {
+      await removeManualRecoveryEntryByItemId(accountId, itemId)
+    } catch (error) {
+      log.error(`Failed to remove manual recovery entry for item ${itemId}:`, error)
+      throw error
+    }
+
+    this.clearRecoveryCooldown(itemId)
+    this.setInFlight(itemId, false)
+
+    await this.pushRecoveryItems()
+  }
+
+  async resolveQuarantines(itemIds: ItemId[], kinds: ReadonlySet<ManualRecoveryKind>): Promise<void> {
+    const accountId = this.deps.accountId
+    const uniqueItemIds = Array.from(new Set(itemIds.filter(id => Boolean(id))))
+    if (uniqueItemIds.length === 0) return
+
+    if (await readManualRecoveryCount(accountId) === 0) return
+
+    let removedAny = false
+    for (const itemId of uniqueItemIds) {
+      const removed = await removeManualRecoveryEntryIfKind(accountId, itemId, kinds)
+      if (removed) {
+        removedAny = true
+        this.clearRecoveryCooldown(itemId)
+        this.setInFlight(itemId, false)
+      }
+    }
+
+    if (removedAny) {
+      await this.pushRecoveryItems()
+    }
+  }
+
+  async dismissEntry(entryId: string): Promise<void> {
+    const accountId = this.deps.accountId
+    if (!entryId) return
+
+    await removeManualRecoveryEntryById(accountId, entryId)
+    await this.pushRecoveryItems()
+  }
+
+  async reportDecryptionFailure(
+    itemId: ItemId,
+    kind: 'pullDecryption' | 'snapshotDecryption' | 'localDecryption',
+    error: unknown,
+    options?: Pick<QuarantineOptions, 'failedBranches' | 'serverVersion'>,
+  ): Promise<void> {
+    const normalizedError = normalizeSyncError(error)
+    log.error('Failed to decrypt item', {
+      itemId,
+      error: normalizedError,
+    })
+
+    if (!itemId) return
+    try {
+      await this.quarantine(itemId, kind, null, { ...options, checkCooldown: true })
+    } catch (quarantineError) {
+      log.error('Failed to record manual recovery entry', quarantineError)
+    }
+  }
+}
