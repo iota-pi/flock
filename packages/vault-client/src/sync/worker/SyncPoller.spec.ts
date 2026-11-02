@@ -100,11 +100,11 @@ describe('SyncPoller', () => {
   })
 
   it('sends both lagging pullCursors and global clientLatestCursor in empty poll', async () => {
-    vi.spyOn(pullQueueManager, 'getCursors').mockReturnValue([
+    vi.spyOn(pullQueueManager.cursors, 'getPendingPulls').mockReturnValue([
       { itemId: 'item-2' as ItemId, cursor: 50 },
     ])
-    vi.spyOn(pullQueueManager, 'getGlobalScanCursor').mockReturnValue(2000000)
-    vi.spyOn(pullQueueManager, 'getGlobalLatestCursor').mockReturnValue(9000000)
+    vi.spyOn(pullQueueManager.cursors, 'getGlobalScanCursor').mockReturnValue(2000000)
+    vi.spyOn(pullQueueManager.cursors, 'getGlobalLatestCursor').mockReturnValue(9000000)
 
     mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
@@ -238,7 +238,7 @@ describe('SyncPoller', () => {
       nextPageToken: 'item-page-token',
       messages: [],
     }], false, undefined, undefined)
-    expect(pullQueueManager.getCursors()).toEqual([expect.objectContaining({ pageToken: 'item-page-token' })])
+    expect(pullQueueManager.cursors.getPendingPulls()).toEqual([expect.objectContaining({ pageToken: 'item-page-token' })])
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -247,7 +247,7 @@ describe('SyncPoller', () => {
     )
 
     expect(await poller.executePoll()).toBe('failure')
-    expect(pullQueueManager.getCursors()).toEqual([expect.objectContaining({ itemId: 'item-1', pageToken: undefined })])
+    expect(pullQueueManager.cursors.getPendingPulls()).toEqual([expect.objectContaining({ itemId: 'item-1', pageToken: undefined })])
     errorSpy.mockRestore()
     warnSpy.mockRestore()
   })
@@ -292,7 +292,7 @@ describe('SyncPoller', () => {
     vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
     // Add a pending item to pullQueueManager to verify cursors are populated
-    pullQueueManager.addPendingItem('pending-item-1' as ItemId)
+    pullQueueManager.cursors.addPendingItem('pending-item-1' as ItemId)
 
     mockPollSyncBatch
       .mockResolvedValueOnce({
@@ -515,8 +515,8 @@ describe('SyncPoller', () => {
 
     it('processes the other items but returns failure when one item throws', async () => {
       await pullQueueManager.loadCursors()
-      pullQueueManager.addPendingItem('item-bad' as ItemId)
-      pullQueueManager.addPendingItem('item-good' as ItemId)
+      pullQueueManager.cursors.addPendingItem('item-bad' as ItemId)
+      pullQueueManager.cursors.addPendingItem('item-good' as ItemId)
 
       const internals = pullQueueManager as unknown as {
         processSinglePullResult: (result: PullSyncMessagesResponse, ...rest: unknown[]) => Promise<unknown>
@@ -541,9 +541,9 @@ describe('SyncPoller', () => {
 
       expect(await poller.executePoll()).toBe('failure')
       expect(processSpy).toHaveBeenCalledTimes(2)
-      expect(pullQueueManager.getCursors()).toContainEqual(expect.objectContaining({ itemId: 'item-bad' }))
-      expect(pullQueueManager.getCursors()).not.toContainEqual(expect.objectContaining({ itemId: 'item-good' }))
-      expect(pullQueueManager.exportCursors()).toContainEqual(['item-good', 20])
+      expect(pullQueueManager.cursors.getPendingPulls()).toContainEqual(expect.objectContaining({ itemId: 'item-bad' }))
+      expect(pullQueueManager.cursors.getPendingPulls()).not.toContainEqual(expect.objectContaining({ itemId: 'item-good' }))
+      expect(pullQueueManager.cursors.exportCursors()).toContainEqual(['item-good', 20])
       errorSpy.mockRestore()
     })
   })

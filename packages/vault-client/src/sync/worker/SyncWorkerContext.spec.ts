@@ -135,7 +135,7 @@ beforeEach(() => {
     SyncPullQueueManager: class MockSyncPullQueueManager {
       constructor(readonly deps: SyncPullQueueManagerDeps) {}
       setLockCoordinator = vi.fn()
-      getGlobalLatestCursor = vi.fn().mockReturnValue(0)
+      cursors = { getGlobalLatestCursor: vi.fn().mockReturnValue(0), exportCursors: vi.fn().mockReturnValue([]) }
       loadCursors = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
     },
@@ -469,7 +469,7 @@ describe('SyncWorkerContext', () => {
   describe('sync state backup', () => {
     it('exports cursors, unpushed WAL entries and modification times', async () => {
       const { pullQueueManager, wal, snapshotManager: { tracker: snapshotTracker } } = context.services as any
-      pullQueueManager.exportCursors = vi.fn().mockReturnValue([['item-1', 5]])
+      pullQueueManager.cursors.exportCursors = vi.fn().mockReturnValue([['item-1', 5]])
       wal.readAll.mockResolvedValue(new Map([['item-1', [{ data: new Uint8Array([1, 2, 3]) }]]]))
       snapshotTracker.exportLastModified = vi.fn().mockReturnValue([['item-1', 1000]])
 

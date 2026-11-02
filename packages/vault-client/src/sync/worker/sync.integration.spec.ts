@@ -191,7 +191,7 @@ describe('Sync System Integration Test Suite', () => {
       receiveServerMessage(documentId, message)
     })
 
-    pullQueueManager.addPendingItem(itemId)
+    pullQueueManager.cursors.addPendingItem(itemId)
 
     // First poll receives message with cursor 10
     mockPollSyncBatch.mockResolvedValueOnce({
@@ -335,7 +335,7 @@ describe('Sync System Integration Test Suite', () => {
     for (let attempt = 1; attempt <= 4; attempt++) {
       mockPollSyncBatch.mockResolvedValueOnce(corruptMessageResponse)
       await poller.executePoll()
-      expect(pullQueueManager.getCursors().map(c => c.itemId)).toContain(itemId)
+      expect(pullQueueManager.cursors.getPendingPulls().map(c => c.itemId)).toContain(itemId)
       expect(failureSpy).not.toHaveBeenCalled()
     }
 
@@ -350,7 +350,7 @@ describe('Sync System Integration Test Suite', () => {
       })
     )
     // The corrupt message is skipped, and the item is pulled once more from after it
-    expect(pullQueueManager.getCursors()).toContainEqual(expect.objectContaining({ itemId, cursor: 1 }))
+    expect(pullQueueManager.cursors.getPendingPulls()).toContainEqual(expect.objectContaining({ itemId, cursor: 1 }))
 
     mockPollSyncBatch.mockResolvedValueOnce({
       success: true,
@@ -358,7 +358,7 @@ describe('Sync System Integration Test Suite', () => {
       pullResults: [{ itemId, hasMore: false, nextCursor: 1, messages: [] }],
     })
     await poller.executePoll()
-    expect(pullQueueManager.getCursors().map(c => c.itemId)).not.toContain(itemId)
+    expect(pullQueueManager.cursors.getPendingPulls().map(c => c.itemId)).not.toContain(itemId)
     expect(failureSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -418,8 +418,8 @@ describe('Sync System Integration Test Suite', () => {
     }
 
     // Cursor must NOT have advanced past the un-decrypted message
-    expect(pullQueueManager.exportCursors()).not.toContainEqual([itemId, 40])
-    expect(pullQueueManager.exportCursors()).not.toContainEqual([itemId, 50])
+    expect(pullQueueManager.cursors.exportCursors()).not.toContainEqual([itemId, 40])
+    expect(pullQueueManager.cursors.exportCursors()).not.toContainEqual([itemId, 50])
     expect(pullQueueManager.hasImmediatePendingPulls()).toBe(false)
 
     // Key arrives via keyring update
@@ -434,7 +434,7 @@ describe('Sync System Integration Test Suite', () => {
     await poller.executePoll()
 
     expect(receiveSpy).toHaveBeenCalled()
-    expect(pullQueueManager.exportCursors()).toContainEqual([itemId, 50])
+    expect(pullQueueManager.cursors.exportCursors()).toContainEqual([itemId, 50])
     expect(failureSpy).not.toHaveBeenCalled()
   })
 })

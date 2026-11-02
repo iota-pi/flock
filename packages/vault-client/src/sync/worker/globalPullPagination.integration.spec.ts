@@ -111,7 +111,7 @@ describe('global pull pagination (client ↔ router)', () => {
       session,
     })
     await pullQueueManager.loadCursors()
-    pullQueueManager.addPendingItem('item-z' as ItemId)
+    pullQueueManager.cursors.addPendingItem('item-z' as ItemId)
 
     const apiClient = {
       pollSyncBatch: (input: Parameters<typeof caller.pollSync>[0]) => caller.pollSync(input),
@@ -137,6 +137,6 @@ describe('global pull pagination (client ↔ router)', () => {
     expect(outcomes.every(outcome => outcome === 'success')).toBe(true)
     expect(pullQueueManager.hasImmediatePendingPulls()).toBe(false)
     expect([...delivered].sort()).toEqual(rows.map(r => r.encryptedMessage.cipher).sort())
-    expect(pullQueueManager.getGlobalScanCursor()).toBe(1000)
+    expect(pullQueueManager.cursors.getGlobalScanCursor()).toBe(1000)
   })
 })

@@ -52,7 +52,11 @@ function createDefaultState(cursor: number): ItemPullState {
   return { cursor, pending: false, retryCount: 0 }
 }
 
-export class PullRetryTracker {
+/**
+ * The account's pull position: the global scan cursor, each item's cursor, and the items waiting
+ * for a per-item pull (pending, paginating, retrying a failed message or blocked on a missing key).
+ */
+export class PullCursorState {
   public static readonly MAX_PULL_RETRIES = 5
 
   private globalCursor = 0
@@ -128,7 +132,8 @@ export class PullRetryTracker {
     return unblockedAny
   }
 
-  getCursors(): Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> {
+  /** The items to pull individually on the next poll, skipping those blocked on a missing key */
+  getPendingPulls(): Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> {
     const cursors: Array<{ itemId: ItemId; cursor: number; pageToken?: PageToken }> = []
 
     for (const [itemId, state] of this.retryQueue.entries()) {
@@ -279,7 +284,7 @@ export class PullRetryTracker {
       nextPageToken = undefined
       const nextRetries = state.retryCount + 1
 
-      if (nextRetries >= PullRetryTracker.MAX_PULL_RETRIES) {
+      if (nextRetries >= PullCursorState.MAX_PULL_RETRIES) {
         // Retries exhausted: skip past the failing message
         retryCount = 0
         permanentlyFailed = true

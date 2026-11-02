@@ -221,7 +221,7 @@ export class SyncPoller {
     // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
     // and clientLatestCursor (for global updates across all other healthy items).
     const globalPageToken = this.pullQueueManager.getGlobalPageToken()
-    const pullCursors = this.pullQueueManager.getCursors()
+    const pullCursors = this.pullQueueManager.cursors.getPendingPulls()
     const hasPageTokens = !!globalPageToken || pullCursors.some(c => c.pageToken)
     let response: PollSyncBatchResponse
     try {
@@ -230,7 +230,7 @@ export class SyncPoller {
           account: this.accountId,
           pushMessages,
           pullCursors,
-          clientLatestCursor: this.pullQueueManager.getGlobalScanCursor(),
+          clientLatestCursor: this.pullQueueManager.cursors.getGlobalScanCursor(),
           globalPageToken,
         },
         { signal }

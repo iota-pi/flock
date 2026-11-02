@@ -110,7 +110,7 @@ export class SyncMessageBroker {
       const itemId = toVaultItemIdFromAutomergeId(documentId)
 
       if (message.type === 'request') {
-        this.pullQueueManager.addPendingItem(itemId)
+        this.pullQueueManager.cursors.addPendingItem(itemId)
         this.flush()
       } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
         if (this.isItemBlocked(itemId)) {

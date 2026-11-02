@@ -37,10 +37,7 @@ describe('SyncMessageBroker', () => {
     session = new SyncSessionState()
     adapter = new VaultNetworkAdapter({ accountId: 'account-1', session, onMessageToSend: () => {} })
     pullQueueManager = {
-      addPendingItem: vi.fn(),
-      exportCursors: vi.fn().mockReturnValue([]),
-      importCursors: vi.fn().mockResolvedValue(undefined),
-      hasPendingPulls: vi.fn().mockReturnValue(false),
+      cursors: { addPendingItem: vi.fn() },
       shutdown: vi.fn().mockResolvedValue(undefined),
     } as unknown as SyncPullQueueManager
     mockWal = {
@@ -143,7 +140,7 @@ describe('SyncMessageBroker', () => {
 
     broker.send(reqMsg)
 
-    expect(pullQueueManager.addPendingItem).toHaveBeenCalledWith('item-req')
+    expect(pullQueueManager.cursors.addPendingItem).toHaveBeenCalledWith('item-req')
     expect(flushSpy).toHaveBeenCalledTimes(1)
     expect(mockWal.append).not.toHaveBeenCalled()
   })

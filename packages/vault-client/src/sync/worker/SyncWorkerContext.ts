@@ -294,7 +294,7 @@ export class SyncWorkerContext {
       lastModifiedStore,
       builder: snapshotBuilder,
       broker,
-      getLatestCursor: () => pullQueueManager.getGlobalLatestCursor(),
+      getLatestCursor: () => pullQueueManager.cursors.getGlobalLatestCursor(),
       eventHub: clientEventHub,
       recoveryManager,
       apiClient: this.apiClient,
@@ -783,7 +783,7 @@ export class SyncWorkerContext {
   /** The sync state a backup carries: pull cursors, unpushed WAL entries and modification times */
   async exportSyncState(): Promise<BackupSyncState> {
     const { pullQueueManager, wal, snapshotManager } = this.services
-    const cursors = pullQueueManager.exportCursors()
+    const cursors = pullQueueManager.cursors.exportCursors()
     const walMap = await wal.readAll()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
