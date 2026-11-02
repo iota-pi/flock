@@ -39,7 +39,7 @@ import {
   sortSearchables,
 } from './search/utils'
 import ListBoxComponent, { type SearchListVirtualizerApi } from './search/ListBox'
-import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
+import { ERROR_ITEM_TYPE, ITEM_TYPES } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 
 
@@ -84,6 +84,15 @@ interface Props<T> {
 const DARK_THEME = getTheme(true)
 const EMPTY_ITEM_IDS: ItemId[] = []
 
+function toSearchable(item: Item): AnySearchable {
+  return {
+    data: item,
+    id: item.id,
+    name: getItemName(item),
+    type: item.type,
+  }
+}
+
 function Search<T extends AnySearchableData = AnySearchableData>({
   dataCy,
   forceDarkTheme = false,
@@ -122,33 +131,8 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     types,
   })
 
-  const selectedSearchables = useMemo(
-    () => selectedItems.map(
-      (item): AnySearchable => ({
-        data: item,
-        id: item.id,
-        name: getItemName(item),
-        type: item.type,
-      }),
-    ),
-    [selectedItems],
-  )
-
-  const options = useMemo<AnySearchable[]>(
-    () => {
-      const results: AnySearchable[] = []
-      results.push(
-        ...items.map((item): AnySearchable => ({
-          type: item.type,
-          id: item.id,
-          data: item,
-          name: getItemName(item),
-        })),
-      )
-      return results
-    },
-    [items],
-  )
+  const selectedSearchables = useMemo(() => selectedItems.map(toSearchable), [selectedItems])
+  const options = useMemo(() => items.map(toSearchable), [items])
 
   const matchSorterKeys = useMemo(
     () => {
@@ -167,51 +151,29 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 
   const filterFunc = useCallback(
     (allOptions: AnySearchable[], state: FilterOptionsState<AnySearchable>) => {
-      const filtered = (
-        state.inputValue.trim()
-          ? matchSorter(
-            allOptions,
-            state.inputValue.trim(),
-            {
-              baseSort: (a, b) => sortSearchables(a.item, b.item),
-              keys: matchSorterKeys,
-              threshold: matchSorter.rankings.MATCHES,
-            },
-          )
-          : allOptions
+      const query = state.inputValue.trim()
+      if (!query) {
+        return allOptions
+      }
+
+      const filtered = matchSorter(
+        allOptions,
+        query,
+        {
+          baseSort: (a, b) => sortSearchables(a.item, b.item),
+          keys: matchSorterKeys,
+          threshold: matchSorter.rankings.MATCHES,
+        },
       )
 
-      if (onCreate && state.inputValue.trim()) {
-        filtered.push(
-          {
-            create: true,
-            default: {
-              type: 'person',
-              name: upperFirst(state.inputValue.trim()),
-            },
-            dividerBefore: true,
-            id: 'add-person',
-            type: 'person',
-          },
-          {
-            create: true,
-            default: {
-              type: 'group',
-              name: upperFirst(state.inputValue.trim()),
-            },
-            id: 'add-group',
-            type: 'group',
-          },
-          {
-            create: true,
-            default: {
-              type: 'topic',
-              name: upperFirst(state.inputValue.trim()),
-            },
-            id: 'add-topic',
-            type: 'topic',
-          },
-        )
+      if (onCreate) {
+        filtered.push(...ITEM_TYPES.map((type, index): AnySearchable => ({
+          create: true,
+          default: { type, name: upperFirst(query) },
+          dividerBefore: index === 0,
+          id: `add-${type}`,
+          type,
+        })))
       }
 
       return filtered
@@ -245,11 +207,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         }
       }
       if (onRemove && reason === 'removeOption') {
-        const deletedItems = selectedSearchables.filter(item => !value.find(i => i.id === item.id))
-        if (deletedItems.length && deletedItems[0].data) {
-          onRemove(deletedItems[0].data as T)
+        const removed = selectedSearchables.find(item => !value.some(i => i.id === item.id))
+        if (removed) {
+          onRemove(removed.data as T)
         } else {
-          console.warn(`No data found for deleted item ${deletedItems[0]}`)
+          console.warn('Could not find the removed option among the selected items')
         }
       }
       if (onClear && reason === 'clear') {
