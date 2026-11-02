@@ -1,78 +1,10 @@
-import {
-  EventHub,
-  ClientEventHub,
-  type ClientEvent,
-} from './SyncEventHub'
+import { ClientEventHub, type ClientEvent } from './SyncEventHub'
 
 describe('SyncEventHub', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-  })
-
-  describe('EventHub<T>', () => {
-    it('notifies registered listeners upon emit', () => {
-      const hub = new EventHub<string>()
-      const listener = vi.fn()
-
-      hub.subscribe(listener)
-      hub.emit('hello')
-
-      expect(listener).toHaveBeenCalledWith('hello')
-      expect(listener).toHaveBeenCalledTimes(1)
-    })
-
-    it('unsubscribes listeners when cleanup function is invoked', () => {
-      const hub = new EventHub<string>()
-      const listener = vi.fn()
-
-      const unsubscribe = hub.subscribe(listener)
-      hub.emit('first')
-      expect(listener).toHaveBeenCalledWith('first')
-
-      unsubscribe()
-      hub.emit('second')
-      expect(listener).toHaveBeenCalledTimes(1)
-    })
-
-    it('isolates synchronous listener errors and continues calling subsequent listeners', () => {
-      const hub = new EventHub<string>('TestHub', 'test listener')
-      const failingListener = vi.fn(() => {
-        throw new Error('boom')
-      })
-      const successfulListener = vi.fn()
-
-      hub.subscribe(failingListener)
-      hub.subscribe(successfulListener)
-
-      hub.emit('event')
-
-      expect(failingListener).toHaveBeenCalledWith('event')
-      expect(successfulListener).toHaveBeenCalledWith('event')
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[TestHub] Error in test listener:',
-        expect.any(Error)
-      )
-    })
-
-    it('catches and logs rejected promises from async listeners', async () => {
-      const hub = new EventHub<string>('AsyncHub', 'async listener')
-      const rejectionError = new Error('async failure')
-      const asyncListener = vi.fn(async () => {
-        throw rejectionError
-      })
-
-      hub.subscribe(asyncListener)
-      hub.emit('event')
-
-      await vi.waitFor(() => {
-        expect(consoleErrorSpy).toHaveBeenCalledWith(
-          '[AsyncHub] Error in async listener:',
-          rejectionError
-        )
-      })
-    })
   })
 
   describe('ClientEventHub', () => {
@@ -85,6 +17,50 @@ describe('SyncEventHub', () => {
       hub.emit(event)
 
       expect(listener).toHaveBeenCalledWith(event)
+    })
+
+    it('unsubscribes listeners when cleanup function is invoked', () => {
+      const hub = new ClientEventHub()
+      const listener = vi.fn()
+
+      const unsubscribe = hub.subscribe(listener)
+      hub.emit({ type: 'ready' })
+      unsubscribe()
+      hub.emit({ type: 'ready' })
+
+      expect(listener).toHaveBeenCalledTimes(1)
+    })
+
+    it('isolates synchronous listener errors and continues calling subsequent listeners', () => {
+      const hub = new ClientEventHub()
+      const failingListener = vi.fn(() => {
+        throw new Error('boom')
+      })
+      const successfulListener = vi.fn()
+
+      hub.subscribe(failingListener)
+      hub.subscribe(successfulListener)
+      hub.emit({ type: 'ready' })
+
+      expect(failingListener).toHaveBeenCalled()
+      expect(successfulListener).toHaveBeenCalled()
+    })
+
+    it('catches and logs rejected promises from async listeners', async () => {
+      const hub = new ClientEventHub()
+      const rejectionError = new Error('async failure')
+      hub.subscribe(async () => {
+        throw rejectionError
+      })
+
+      hub.emit({ type: 'ready' })
+
+      await vi.waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          '[ClientEventHub] Error in local listener:',
+          rejectionError
+        )
+      })
     })
 
     it('forwards events to externalPort when set', () => {

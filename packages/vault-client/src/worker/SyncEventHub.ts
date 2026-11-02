@@ -1,7 +1,7 @@
 import type { MigrationRequiredReason, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import { createLogger, type Logger } from '../utils/logger'
+import { createLogger } from '../utils/logger'
 
 export type ClientEvent =
   | { type: 'ready' }
@@ -35,29 +35,28 @@ export type ClientEvent =
     }
   }
 
-type EventListener<T> = (event: T) => void | Promise<void>
+type ClientEventListener = (event: ClientEvent) => void | Promise<void>
 
-export class EventHub<T> {
-  protected listeners = new Set<EventListener<T>>()
-  protected readonly hubName: string
-  protected readonly listenerDescription: string
-  protected readonly log: Logger
+const log = createLogger('ClientEventHub')
 
-  constructor(hubName = 'EventHub', listenerDescription = 'listener') {
-    this.hubName = hubName
-    this.listenerDescription = listenerDescription
-    this.log = createLogger(hubName)
-  }
+export class ClientEventHub {
+  private readonly listeners = new Set<ClientEventListener>()
+  private externalPort: MessagePort | null = null
 
-  subscribe(listener: EventListener<T>): () => void {
+  subscribe(listener: ClientEventListener): () => void {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
     }
   }
 
+  setExternalPort(port: MessagePort | null): void {
+    this.externalPort = port
+  }
+
   /**
-   * Synchronously dispatches an event to all registered listeners.
+   * Synchronously dispatches an event to all registered listeners, then forwards it to the
+   * main thread via the external MessagePort if one is set.
    *
    * Error handling & execution semantics:
    * - Listener isolation: Synchronous errors thrown by a listener are caught and
@@ -66,49 +65,26 @@ export class EventHub<T> {
    *   Rejections are caught and logged asynchronously to prevent unhandled promise
    *   rejections, but they do NOT block execution.
    *
-   * @param event The event payload to dispatch.
+   * @param event The client event to dispatch.
    */
-  emit(event: T): void {
+  emit(event: ClientEvent): void {
     for (const listener of Array.from(this.listeners)) {
       try {
         const result = listener(event)
         if (result instanceof Promise) {
-          result.catch(err =>
-            this.log.error(`Error in ${this.listenerDescription}:`, err)
-          )
+          result.catch(err => log.error('Error in local listener:', err))
         }
       } catch (err) {
-        this.log.error(`Error in ${this.listenerDescription}:`, err)
+        log.error('Error in local listener:', err)
       }
     }
-  }
-}
-
-export class ClientEventHub extends EventHub<ClientEvent> {
-  private externalPort: MessagePort | null = null
-
-  constructor() {
-    super('ClientEventHub', 'local listener')
-  }
-
-  setExternalPort(port: MessagePort | null): void {
-    this.externalPort = port
-  }
-
-  /**
-   * Dispatches the event locally and forwards it to the main thread via the external MessagePort if configured.
-   *
-   * @param event The client event to dispatch.
-   */
-  override emit(event: ClientEvent): void {
-    super.emit(event)
 
     // Distribute to main-thread listener via MessagePort
     if (this.externalPort) {
       try {
         this.externalPort.postMessage(event)
       } catch (err) {
-        this.log.error('Error posting to external port:', err)
+        log.error('Error posting to external port:', err)
       }
     }
   }
