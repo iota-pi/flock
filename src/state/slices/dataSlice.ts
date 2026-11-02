@@ -27,24 +27,44 @@ export type DataSlice = DataState & DataActions
 let fallbackTimeoutId: ReturnType<typeof setTimeout> | null = null
 const READY_TIMEOUT_MS = 5000
 
+function clearFallbackTimeout() {
+  if (fallbackTimeoutId) {
+    clearTimeout(fallbackTimeoutId)
+    fallbackTimeoutId = null
+  }
+}
+
+/** The state that finishes initializing, once every indexed item has been processed */
+function readyIfComplete(itemIds: ItemId[], processedItemIds: Set<string>): Partial<DataState> | null {
+  if (!itemIds.every(id => processedItemIds.has(id))) {
+    return null
+  }
+
+  clearFallbackTimeout()
+  return { dataStatus: 'ready', processedItemIds: new Set() }
+}
+
+function getInitialState(): DataState {
+  return {
+    dataStatus: 'initializing',
+    items: {},
+    itemIds: [],
+    metadata: {},
+    processedItemIds: new Set<string>(),
+    hasReceivedIndex: false,
+  }
+}
+
 export const createDataSlice: StateCreator<
   AppStore,
   [],
   [],
   DataSlice
 > = (set, get) => ({
-  dataStatus: 'initializing',
-  items: {},
-  itemIds: [],
-  metadata: {},
-  processedItemIds: new Set<string>(),
-  hasReceivedIndex: false,
+  ...getInitialState(),
 
   setReady: () => {
-    if (fallbackTimeoutId) {
-      clearTimeout(fallbackTimeoutId)
-      fallbackTimeoutId = null
-    }
+    clearFallbackTimeout()
     set(state => {
       if (state.dataStatus === 'ready') return {}
       return { dataStatus: 'ready', processedItemIds: new Set() }
@@ -53,16 +73,12 @@ export const createDataSlice: StateCreator<
 
   updateItemsFromServer: updates =>
     set(state => {
+      const initializing = state.dataStatus === 'initializing'
       const nextItems = { ...state.items }
-      let nextProcessed = state.processedItemIds
-      let nextStatus = state.dataStatus
-
-      if (nextStatus === 'initializing') {
-        nextProcessed = new Set(state.processedItemIds)
-      }
+      const nextProcessed = initializing ? new Set(state.processedItemIds) : state.processedItemIds
 
       for (const update of updates) {
-        if (nextStatus === 'initializing') {
+        if (initializing) {
           nextProcessed.add(update.id)
         }
 
@@ -73,48 +89,21 @@ export const createDataSlice: StateCreator<
         }
       }
 
-      if (nextStatus === 'initializing' && state.hasReceivedIndex) {
-        const isReady = state.itemIds.every(id => nextProcessed.has(id))
-        if (isReady) {
-          nextStatus = 'ready'
-          nextProcessed = new Set() // free memory
-          if (fallbackTimeoutId) {
-            clearTimeout(fallbackTimeoutId)
-            fallbackTimeoutId = null
-          }
-        }
-      }
-
       return {
         items: nextItems,
-        dataStatus: nextStatus,
         processedItemIds: nextProcessed,
+        ...(initializing && state.hasReceivedIndex ? readyIfComplete(state.itemIds, nextProcessed) : null),
       }
     }),
 
   updateIndexFromServer: itemIds => {
-    set(state => {
-      const nextState: Partial<DataState> = {
-        itemIds,
-        hasReceivedIndex: true,
-      }
+    set(state => ({
+      itemIds,
+      hasReceivedIndex: true,
+      ...(state.dataStatus === 'initializing' ? readyIfComplete(itemIds, state.processedItemIds) : null),
+    }))
 
-      if (state.dataStatus === 'initializing') {
-        const isReady = itemIds.every(id => state.processedItemIds.has(id))
-        if (isReady) {
-          if (fallbackTimeoutId) {
-            clearTimeout(fallbackTimeoutId)
-            fallbackTimeoutId = null
-          }
-          nextState.dataStatus = 'ready'
-          nextState.processedItemIds = new Set()
-        }
-      }
-      return nextState
-    })
-
-    const currentState = get()
-    if (currentState.dataStatus === 'initializing' && !fallbackTimeoutId && itemIds.length > 0) {
+    if (get().dataStatus === 'initializing' && !fallbackTimeoutId && itemIds.length > 0) {
       fallbackTimeoutId = setTimeout(() => {
         get().setReady()
       }, READY_TIMEOUT_MS)
@@ -147,17 +136,7 @@ export const createDataSlice: StateCreator<
     }),
 
   reset: () => {
-    if (fallbackTimeoutId) {
-      clearTimeout(fallbackTimeoutId)
-      fallbackTimeoutId = null
-    }
-    set({
-      dataStatus: 'initializing',
-      items: {},
-      itemIds: [],
-      metadata: {},
-      processedItemIds: new Set<string>(),
-      hasReceivedIndex: false,
-    })
+    clearFallbackTimeout()
+    set(getInitialState())
   },
 })
