@@ -18,6 +18,7 @@ import type { SyncPullQueueManagerDeps } from './SyncPullQueueManager'
 import type { SyncMessageBrokerDeps } from './SyncMessageBroker'
 import type { VaultNetworkAdapterOptions } from './VaultNetworkAdapter'
 import type { SyncOrchestratorDeps } from './SyncOrchestrator'
+import type { ItemRecoveryServiceDeps } from './ItemRecoveryService'
 import { Keyring } from '../../api/Keyring'
 import { generateVaultKey } from '../../api/crypto'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -433,71 +434,6 @@ describe('SyncWorkerContext', () => {
     })
   })
 
-  describe('recovery items', () => {
-    it('releases a quarantined item and pushes its snapshot again', async () => {
-      const unquarantine = vi.spyOn(context.services.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
-      const { snapshotManager } = context.services as any
-      const snapshotTracker = snapshotManager.tracker
-      snapshotTracker.clearOversized = vi.fn()
-
-      await context.retryRecoveryItem('item-1' as ItemId)
-
-      expect(unquarantine).toHaveBeenCalledWith('item-1')
-      expect(snapshotTracker.clearOversized).toHaveBeenCalledWith('item-1')
-      expect(snapshotTracker.markItemDirty).toHaveBeenCalledWith('item-1')
-      expect(snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
-    })
-
-    it('recreates an oversized item and pushes the old one as a tombstone', async () => {
-      const { snapshotManager } = context.services as any
-      const snapshotTracker = snapshotManager.tracker
-      snapshotTracker.clearOversized = vi.fn()
-      const itemOperations = context.services.itemOperations as any
-      itemOperations.recreateOversizedItem = vi.fn().mockResolvedValue('item-new')
-
-      const newItemId = await context.recreateOversizedItem('item-old' as ItemId)
-
-      expect(newItemId).toBe('item-new')
-      expect(itemOperations.recreateOversizedItem).toHaveBeenCalledWith('item-old')
-      expect(snapshotTracker.clearOversized).toHaveBeenCalledWith('item-old')
-      expect(snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
-    })
-  })
-
-  describe('sync state backup', () => {
-    it('exports cursors, unpushed WAL entries and modification times', async () => {
-      const { pullQueueManager, wal, snapshotManager: { tracker: snapshotTracker } } = context.services as any
-      pullQueueManager.cursors.exportCursors = vi.fn().mockReturnValue([['item-1', 5]])
-      wal.readAll.mockResolvedValue(new Map([['item-1', [{ data: new Uint8Array([1, 2, 3]) }]]]))
-      snapshotTracker.exportLastModified = vi.fn().mockReturnValue([['item-1', 1000]])
-
-      const state = await context.exportSyncState()
-
-      expect(state).toEqual({
-        cursors: [['item-1', 5]],
-        pendingSync: [['item-1', [new Uint8Array([1, 2, 3]).toBase64()]]],
-        lastModified: [['item-1', 1000]],
-      })
-    })
-
-    it('restores the state it exported', async () => {
-      const { pullQueueManager, wal, snapshotManager: { tracker: snapshotTracker } } = context.services as any
-      pullQueueManager.importCursors = vi.fn().mockResolvedValue(undefined)
-      snapshotTracker.importLastModified = vi.fn().mockResolvedValue(undefined)
-      const message = new Uint8Array([4, 5, 6])
-
-      await context.restoreSyncState({
-        cursors: [['item-1' as ItemId, 5]],
-        pendingSync: [['item-1' as ItemId, [message.toBase64()]]],
-        lastModified: [['item-1' as ItemId, 1000]],
-      })
-
-      expect(pullQueueManager.importCursors).toHaveBeenCalledWith([['item-1', 5]])
-      expect(wal.append).toHaveBeenCalledWith('item-1', message)
-      expect(snapshotTracker.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
-    })
-  })
-
   it('wires manifestSyncManager into orchestrator on construction', () => {
     expect((context.services.orchestrator as any).deps.manifestSyncManager).toBe(context.services.manifestSyncManager)
   })
@@ -742,34 +678,15 @@ describe('SyncWorkerContext', () => {
       expect(reportSpy).not.toHaveBeenCalled()
     })
 
-    it('replaces an unreadable document with the server\'s copy', async () => {
+    it('stops reporting a document unreadable once its local copy is discarded', async () => {
       const { ctx, onOpenFailure } = await createContextWithOpenFailures()
       vi.spyOn(ctx.services.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
-      const unquarantine = vi.spyOn(ctx.services.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
-      const removeRange = vi.spyOn(ctx.services.repoManager.storage, 'removeRange')
-      ctx.services.repo = { delete: vi.fn() } as any
-      const itemId = 'item-unreadable' as ItemId
-      const documentId = toDocumentIdFromItemId(itemId)
+      const documentId = toDocumentIdFromItemId('item-unreadable' as ItemId)
       onOpenFailure([documentId, 'snapshot', 'heads-1'], new Error('bad tag'))
 
-      await ctx.replaceFromServer(itemId)
+      depsOf<ItemRecoveryServiceDeps>(ctx.services.itemRecoveryService).onLocalCopyDiscarded(documentId)
 
-      expect(ctx.services.repo.delete).toHaveBeenCalledWith(documentId)
-      expect(removeRange).toHaveBeenCalledWith([documentId])
-      expect(ctx.services.manifestSyncManager.sync).toHaveBeenCalledWith(true)
-      expect(unquarantine).toHaveBeenCalledWith(itemId)
       expect(isLocallyUnreadable(ctx, documentId)).toBe(false)
-    })
-
-    it('keeps the item quarantined when the server has no copy to replace it with', async () => {
-      const { ctx } = await createContextWithOpenFailures()
-      const unquarantine = vi.spyOn(ctx.services.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
-      ctx.services.repo = { delete: vi.fn() } as any
-      vi.mocked(ctx.services.docStore.hasDataInStorage).mockResolvedValueOnce(false)
-
-      await expect(ctx.replaceFromServer('item-gone' as ItemId)).rejects.toThrow(/could not be downloaded/)
-
-      expect(unquarantine).not.toHaveBeenCalled()
     })
   })
 

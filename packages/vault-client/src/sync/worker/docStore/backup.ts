@@ -3,6 +3,10 @@ import { type ItemId, ItemIdSchema } from '@vault/shared'
 import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
+import type { SyncPullQueueManager } from '../SyncPullQueueManager'
+import type { SyncWriteAheadLog } from '../SyncWriteAheadLog'
+import type { SnapshotManager } from '../SnapshotManager'
+import type { BackupSyncState } from '../../shared/backupSyncState'
 import { createLogger } from '../../utils/logger'
 
 const log = createLogger('backup')
@@ -92,4 +96,39 @@ export async function restoreFromBinaries(
     await indexManager.removeItemIds(deletedItemIds)
   }
   return restoredItemIds
+}
+
+/** The sync state a backup carries: pull cursors, unpushed WAL entries and modification times */
+export async function exportSyncState(
+  pullQueueManager: SyncPullQueueManager,
+  wal: SyncWriteAheadLog,
+  snapshotManager: SnapshotManager,
+): Promise<BackupSyncState> {
+  const cursors = pullQueueManager.cursors.exportCursors()
+  const walMap = await wal.readAll()
+  const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
+    itemId,
+    entries.map(entry => entry.data.toBase64()),
+  ])
+  const lastModified = snapshotManager.tracker.exportLastModified()
+
+  return { cursors, pendingSync, lastModified }
+}
+
+/** Restores the sync state `exportSyncState` exported */
+export async function restoreSyncState(
+  pullQueueManager: SyncPullQueueManager,
+  wal: SyncWriteAheadLog,
+  snapshotManager: SnapshotManager,
+  state: Partial<BackupSyncState>,
+): Promise<void> {
+  if (state.cursors) await pullQueueManager.importCursors(state.cursors)
+  if (state.pendingSync) {
+    for (const [itemId, base64Msgs] of state.pendingSync) {
+      for (const msg of base64Msgs) {
+        await wal.append(itemId, Uint8Array.fromBase64(msg))
+      }
+    }
+  }
+  if (state.lastModified) await snapshotManager.tracker.importLastModified(state.lastModified)
 }

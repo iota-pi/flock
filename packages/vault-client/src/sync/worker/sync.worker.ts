@@ -16,7 +16,7 @@ import type { ItemId } from '@vault/shared'
 import { SyncWorkerContext, type SyncSessionConfig } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { ItemSubscriptions } from './ItemSubscriptions'
-import { exportAllBinaries, restoreFromBinaries, type RepoDoc } from './docStore'
+import { exportAllBinaries, exportSyncState, restoreFromBinaries, restoreSyncState, type RepoDoc } from './docStore'
 import { configureVaultEndpoint, initVaultTrpcClient } from '../../api/vaultTrpcClient'
 import { configureVaultStorageNames, type VaultStorageNames } from '../shared/storageNames'
 import { getTrackedFetch } from '../../api/trackedFetch'
@@ -380,10 +380,10 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.services.dataVersionTracker.checkStatus())
 
   replaceFromServer = (itemId: ItemId) =>
-    this.withContext(ctx => ctx.replaceFromServer(itemId))
+    this.withContext(ctx => ctx.services.itemRecoveryService.replaceFromServer(itemId))
 
   retryRecoveryItem = (itemId: ItemId) =>
-    this.withContext(ctx => ctx.retryRecoveryItem(itemId))
+    this.withContext(ctx => ctx.services.itemRecoveryService.retryRecoveryItem(itemId))
 
   forceOverwriteRecoveryItem = (itemId: ItemId) =>
     this.withContext(ctx => ctx.services.itemOperations.forceOverwriteRecoveryItem(itemId))
@@ -392,7 +392,7 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => ctx.services.itemOperations.forceDeleteRecoveryItem(itemId))
 
   recreateOversizedItem = (itemId: ItemId): Promise<ItemId> =>
-    this.withContext(ctx => ctx.recreateOversizedItem(itemId))
+    this.withContext(ctx => ctx.services.itemRecoveryService.recreateOversizedItem(itemId))
 
   dismissRecoveryItem = (entryId: string) =>
     this.withContext(ctx => ctx.services.recoveryManager.dismissEntry(entryId))
@@ -430,10 +430,12 @@ export class SyncWorker implements SyncApi {
     })
 
   exportSyncState = (): Promise<BackupSyncState> =>
-    this.withContext(ctx => ctx.exportSyncState())
+    this.withContext(({ services }) =>
+      exportSyncState(services.pullQueueManager, services.wal, services.snapshotManager))
 
   restoreSyncState = (state: Partial<BackupSyncState>) =>
-    this.withContext(ctx => ctx.restoreSyncState(state))
+    this.withContext(({ services }) =>
+      restoreSyncState(services.pullQueueManager, services.wal, services.snapshotManager, state))
 
   claimLeader = () =>
     this.withContext(ctx => ctx.claimLeader())

@@ -1,7 +1,7 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import { createTestDocStore } from '../__test__/testUtils'
-import { exportAllBinaries, restoreFromBinaries } from './backup'
+import { exportAllBinaries, exportSyncState, restoreFromBinaries, restoreSyncState } from './backup'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
@@ -137,5 +137,60 @@ describe('backup operations', () => {
     const exported = await exportAllBinaries(docStore, indexManager)
     expect(exported.skipped).toContain('missing-item')
     expect(exported.documents['missing-item' as BackupDocId]).toBeUndefined()
+  })
+})
+
+describe('sync state backup', () => {
+  let pullQueueManager: any
+  let wal: any
+  let snapshotManager: any
+
+  beforeEach(() => {
+    pullQueueManager = {
+      cursors: { exportCursors: vi.fn().mockReturnValue([['item-1', 5]]) },
+      importCursors: vi.fn().mockResolvedValue(undefined),
+    }
+    wal = {
+      readAll: vi.fn().mockResolvedValue(new Map([['item-1', [{ data: new Uint8Array([1, 2, 3]) }]]])),
+      append: vi.fn().mockResolvedValue(undefined),
+    }
+    snapshotManager = {
+      tracker: {
+        exportLastModified: vi.fn().mockReturnValue([['item-1', 1000]]),
+        importLastModified: vi.fn().mockResolvedValue(undefined),
+      },
+    }
+  })
+
+  it('exports cursors, unpushed WAL entries and modification times', async () => {
+    const state = await exportSyncState(pullQueueManager, wal, snapshotManager)
+
+    expect(state).toEqual({
+      cursors: [['item-1', 5]],
+      pendingSync: [['item-1', [new Uint8Array([1, 2, 3]).toBase64()]]],
+      lastModified: [['item-1', 1000]],
+    })
+  })
+
+  it('restores the state it exported', async () => {
+    const message = new Uint8Array([4, 5, 6])
+
+    await restoreSyncState(pullQueueManager, wal, snapshotManager, {
+      cursors: [['item-1' as ItemId, 5]],
+      pendingSync: [['item-1' as ItemId, [message.toBase64()]]],
+      lastModified: [['item-1' as ItemId, 1000]],
+    })
+
+    expect(pullQueueManager.importCursors).toHaveBeenCalledWith([['item-1', 5]])
+    expect(wal.append).toHaveBeenCalledWith('item-1', message)
+    expect(snapshotManager.tracker.importLastModified).toHaveBeenCalledWith([['item-1', 1000]])
+  })
+
+  it('leaves out the parts a backup does not carry', async () => {
+    await restoreSyncState(pullQueueManager, wal, snapshotManager, {})
+
+    expect(pullQueueManager.importCursors).not.toHaveBeenCalled()
+    expect(wal.append).not.toHaveBeenCalled()
+    expect(snapshotManager.tracker.importLastModified).not.toHaveBeenCalled()
   })
 })

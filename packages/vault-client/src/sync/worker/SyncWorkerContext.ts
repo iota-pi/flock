@@ -26,6 +26,7 @@ import type { ItemId } from '@vault/shared'
 import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLifecycleManager'
 import type { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
+import { ItemRecoveryService } from './ItemRecoveryService'
 import { ItemReencryptor } from './ItemReencryptor'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
@@ -41,7 +42,6 @@ import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from 
 import type { KeyProvider, LocalKeyWrapper } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 import type { RetrySaveResult } from './syncProtocol'
-import type { BackupSyncState } from '../shared/backupSyncState'
 
 const log = createLogger('SyncWorkerContext')
 
@@ -142,6 +142,7 @@ export interface SyncWorkerServices {
   manifestSyncManager: ManifestSyncManager
   itemOperations: ItemOperations
   storageRecoveryService: StorageRecoveryService
+  itemRecoveryService: ItemRecoveryService
   itemReencryptor: ItemReencryptor
   accountSettings: AccountSettings
   snapshotFormatUpgrade: SnapshotFormatUpgrade | null
@@ -425,6 +426,16 @@ export class SyncWorkerContext {
       orchestrator,
     })
 
+    const itemRecoveryService = new ItemRecoveryService({
+      repoManager,
+      docStore,
+      recoveryManager,
+      snapshotManager,
+      manifestSyncManager,
+      itemOperations,
+      onLocalCopyDiscarded: documentId => this.unreadableDocuments.delete(documentId),
+    })
+
     return {
       realtimeBus,
       repo,
@@ -446,6 +457,7 @@ export class SyncWorkerContext {
       manifestSyncManager,
       itemOperations,
       storageRecoveryService,
+      itemRecoveryService,
       itemReencryptor,
       accountSettings,
       snapshotFormatUpgrade,
@@ -718,7 +730,7 @@ export class SyncWorkerContext {
 
   /**
    * Records a document whose sealed chunks failed to decrypt, and quarantines it once. The data is
-   * left in place: it's replaced only when the user chooses to (see `replaceFromServer`).
+   * left in place: it's replaced only when the user chooses to (see `ItemRecoveryService.replaceFromServer`).
    */
   private handleOpenFailure(key: string[], error: unknown): void {
     const [documentId] = key
@@ -732,81 +744,6 @@ export class SyncWorkerContext {
       recoveryManager.reportDecryptionFailure(itemId, 'localDecryption', error),
       'SyncWorkerContext:reportDecryptionFailure',
     )
-  }
-
-  /**
-   * Replaces an item whose local copy can't be decrypted with the server's copy. Changes this device
-   * hadn't pushed are lost, so the app asks first. The item stays quarantined if the server has no
-   * copy to replace it with.
-   */
-  async replaceFromServer(itemId: ItemId): Promise<void> {
-    const { repo, repoManager, manifestSyncManager, docStore, recoveryManager } = this.services
-    const documentId = toDocumentIdFromItemId(itemId)
-    // Drops the handle that never finished loading. Its chunks are removed here rather than left to
-    // the Repo, which doesn't wait for that.
-    repo.delete(documentId)
-    await repoManager.storage.removeRange([documentId])
-    this.unreadableDocuments.delete(documentId)
-
-    // A forced sync fetches quarantined items, and there's no longer a local copy to keep
-    const result = await manifestSyncManager.sync(true)
-    if (!result.success || !(await docStore.hasDataInStorage(itemId))) {
-      throw new Error(`The server's copy of ${itemId} could not be downloaded. Try again once sync has finished.`)
-    }
-    await recoveryManager.unquarantine(itemId)
-  }
-
-  /** Releases a quarantined item and pushes its snapshot again */
-  async retryRecoveryItem(itemId: ItemId): Promise<void> {
-    const { recoveryManager, snapshotManager } = this.services
-    await recoveryManager.unquarantine(itemId)
-    snapshotManager.tracker.clearOversized(itemId)
-    snapshotManager.tracker.markItemDirty(itemId)
-    fireAndForget(
-      snapshotManager.flushPendingSnapshots(),
-      'SyncWorkerContext:retryRecoveryItem:flushPendingSnapshots',
-    )
-  }
-
-  /** Copies an oversized item to a new ID and deletes the old one. Returns the new item's ID. */
-  async recreateOversizedItem(itemId: ItemId): Promise<ItemId> {
-    const { itemOperations, snapshotManager } = this.services
-    const newItemId = await itemOperations.recreateOversizedItem(itemId)
-    // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
-    snapshotManager.tracker.clearOversized(itemId)
-    fireAndForget(
-      snapshotManager.flushPendingSnapshots(),
-      'SyncWorkerContext:recreateOversizedItem:flushPendingSnapshots',
-    )
-    return newItemId
-  }
-
-  /** The sync state a backup carries: pull cursors, unpushed WAL entries and modification times */
-  async exportSyncState(): Promise<BackupSyncState> {
-    const { pullQueueManager, wal, snapshotManager } = this.services
-    const cursors = pullQueueManager.cursors.exportCursors()
-    const walMap = await wal.readAll()
-    const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
-      itemId,
-      entries.map(entry => entry.data.toBase64()),
-    ])
-    const lastModified = snapshotManager.tracker.exportLastModified()
-
-    return { cursors, pendingSync, lastModified }
-  }
-
-  /** Restores the sync state `exportSyncState` exported */
-  async restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
-    const { pullQueueManager, wal, snapshotManager } = this.services
-    if (state.cursors) await pullQueueManager.importCursors(state.cursors)
-    if (state.pendingSync) {
-      for (const [itemId, base64Msgs] of state.pendingSync) {
-        for (const msg of base64Msgs) {
-          await wal.append(itemId, Uint8Array.fromBase64(msg))
-        }
-      }
-    }
-    if (state.lastModified) await snapshotManager.tracker.importLastModified(state.lastModified)
   }
 
   /** Records whether the device is online, and tells the components that react to it */
