@@ -3,8 +3,8 @@ import {
   writeAutoLockSettings,
   getAutoLockSummary,
   DEFAULT_AUTO_LOCK_SETTINGS,
+  AUTO_LOCK_SETTINGS_KEY,
 } from './autoLockStore'
-import { getVaultStorageNames } from '../sync/shared/storageNames'
 
 describe('autoLockStore', () => {
   beforeEach(() => {
@@ -29,8 +29,13 @@ describe('autoLockStore', () => {
     expect(getAutoLockSummary({ mode: 'inactivity', inactivityMinutes: 1 })).toBe('After 1 minute of inactivity')
   })
 
+  // Renaming the key resets every user's auto-lock setting
+  it('keeps its storage key', () => {
+    expect(AUTO_LOCK_SETTINGS_KEY).toBe('FlockAutoLockSettings')
+  })
+
   it('handles invalid JSON gracefully', () => {
-    localStorage.setItem(getVaultStorageNames().autoLockSettingsKey, 'invalid-json')
+    localStorage.setItem(AUTO_LOCK_SETTINGS_KEY, 'invalid-json')
     expect(readAutoLockSettings()).toEqual(DEFAULT_AUTO_LOCK_SETTINGS)
   })
 })

@@ -1,4 +1,5 @@
-import { getVaultStorageNames } from '../sync/shared/storageNames'
+// Flock has always stored the settings under this key. Changing it resets every user's auto-lock setting.
+export const AUTO_LOCK_SETTINGS_KEY = 'FlockAutoLockSettings'
 
 export type AutoLockMode = 'focus' | 'inactivity' | 'never'
 
@@ -17,7 +18,7 @@ export const DEFAULT_AUTO_LOCK_SETTINGS: AutoLockSettings = {
 export function readAutoLockSettings(): AutoLockSettings {
   if (typeof localStorage === 'undefined') return DEFAULT_AUTO_LOCK_SETTINGS
   try {
-    const raw = localStorage.getItem(getVaultStorageNames().autoLockSettingsKey)
+    const raw = localStorage.getItem(AUTO_LOCK_SETTINGS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<AutoLockSettings>
       if (parsed?.mode && ['focus', 'inactivity', 'never'].includes(parsed.mode)) {
@@ -35,7 +36,7 @@ export function readAutoLockSettings(): AutoLockSettings {
 
 export function writeAutoLockSettings(settings: AutoLockSettings): void {
   if (typeof localStorage === 'undefined') return
-  localStorage.setItem(getVaultStorageNames().autoLockSettingsKey, JSON.stringify(settings))
+  localStorage.setItem(AUTO_LOCK_SETTINGS_KEY, JSON.stringify(settings))
 }
 
 export function getAutoLockSummary(settings = readAutoLockSettings()): string {

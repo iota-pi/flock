@@ -3,7 +3,7 @@ import { lazy } from 'src/utils/lazy'
 import type { Frequency } from 'src/utils/frequencies'
 import type { Item } from 'src/state/items'
 import type { BackupPayloadV2 } from 'src/types/backup'
-import type { AutoLockSettings } from '@vault/client'
+import type { AutoLockSettings } from 'src/app/vault/autoLockStore'
 
 const GoalDialog = lazy(() => import('../../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../../dialogs/RestoreBackupDialog'))

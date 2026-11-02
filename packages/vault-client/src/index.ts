@@ -32,16 +32,7 @@ export {
   type DeriveLegacyKey,
 } from './api/crypto'
 export type { KdfParams } from './api/kdf'
-export {
-  type AutoLockMode,
-  type AutoLockSettings,
-  INACTIVITY_PRESETS,
-  getAutoLockSummary,
-  readAutoLockSettings,
-  writeAutoLockSettings,
-} from './api/autoLockStore'
 export { reencryptAllItems, resumePendingReencryption, type ReencryptionTarget } from './api/reencrypt'
-export { assertSuccess } from './api/clientUtils'
 export { hasApiAuthToken } from './api/runtime'
 export { ApiHttpError, getTrackedFetch } from './api/trackedFetch'
 export { configureVaultEndpoint, createVaultLinks, initVaultTrpcClient } from './api/vaultTrpcClient'
