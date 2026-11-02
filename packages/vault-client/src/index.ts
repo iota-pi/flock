@@ -51,4 +51,3 @@ export type { ManualRecoveryEntry, ManualRecoveryKind } from './shared/manualRec
 export { getOnlineState } from './utils/onlineStatus'
 export { ensurePersistentStorage } from './utils/storageQuota'
 export { fireAndForget } from './utils/fireAndForget'
-export { createLogger, type Logger } from './utils/logger'

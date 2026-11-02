@@ -1,6 +1,6 @@
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
 import { useAppStore } from '../state/store'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('appUpdate')
 

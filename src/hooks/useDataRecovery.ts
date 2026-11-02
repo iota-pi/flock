@@ -3,6 +3,9 @@ import type { ManualRecoveryEntry } from '@vault/client'
 import { useAppStore } from '../state/store'
 import { SyncBridge } from '../app/vault/syncBridge'
 import type { ItemId } from '@vault/shared'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('useDataRecovery')
 
 
 export function useDataRecovery() {
@@ -12,7 +15,7 @@ export function useDataRecovery() {
 
   useEffect(() => {
     // Fetch initial list
-    void SyncBridge.listRecoveryItems().catch(console.error)
+    void SyncBridge.listRecoveryItems().catch(log.error)
 
     // Subscribe to live updates from SyncBridge
     const unsubscribe = SyncBridge.subscribeRecoveryItems(entries => {

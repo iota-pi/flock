@@ -9,7 +9,10 @@ import { initAppSentry } from './app/sentry'
 import { registerSW } from 'virtual:pwa-register'
 import { registerAppUpdates } from './app/appUpdate'
 import { hasApiAuthToken } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import ThemedApp from './ThemedApp'
+
+const log = createLogger('App')
 
 initAppSentry({ app: 'main' })
 
@@ -28,7 +31,7 @@ function initializeApp() {
       window.syncBridge = import('./app/vault/syncBridge').then(mod => mod.SyncBridge)
     }
   } catch (error) {
-    console.error('Failed to initialize application core:', error)
+    log.error('Failed to initialize application core:', error)
     const rootElement = document.getElementById('root')
     if (rootElement) {
       rootElement.innerText = 'Failed to initialize application core. Please refresh the page.'

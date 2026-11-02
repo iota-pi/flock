@@ -1,5 +1,5 @@
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
-import { isSameDay } from './index'
+import { getStartOfDay, isSameDay } from './index'
 import { compareItems, filterArchived, type Item } from '../state/items'
 import type { GroupItem } from '../shared/schemas/items'
 import type { ItemId } from '@vault/shared'
@@ -14,109 +14,84 @@ type PrayerCandidate = {
   stableOrder: number
 }
 
+/** The candidates that share a group, in the order they're picked */
 type PrayerBucket = {
-  groupId: ItemId
   groupShiftQuantum: number
-  selectedCount: number
-  cursor: number
   candidates: PrayerCandidate[]
+  selectedCount: number
 }
 
-type PrayerBucketHeapEntry = {
-  groupId: ItemId
+/** A bucket's next candidate and when it's effectively due */
+type HeapEntry = {
+  bucket: PrayerBucket
   effectiveNext: number
   stableOrder: number
 }
 
-function comparePrayerBucketHeapEntries(
-  left: PrayerBucketHeapEntry,
-  right: PrayerBucketHeapEntry,
-): number {
-  if (left.effectiveNext !== right.effectiveNext) {
-    return left.effectiveNext - right.effectiveNext
-  }
-
-  return left.stableOrder - right.stableOrder
+function isBefore(left: HeapEntry, right: HeapEntry): boolean {
+  return left.effectiveNext < right.effectiveNext
+    || (left.effectiveNext === right.effectiveNext && left.stableOrder < right.stableOrder)
 }
 
-function swapHeapEntries(
-  heap: PrayerBucketHeapEntry[],
-  leftIndex: number,
-  rightIndex: number,
-): void {
-  const temporary = heap[leftIndex]
-  heap[leftIndex] = heap[rightIndex]
-  heap[rightIndex] = temporary
+function swap(heap: HeapEntry[], i: number, j: number): void {
+  const temporary = heap[i]
+  heap[i] = heap[j]
+  heap[j] = temporary
 }
 
-function siftHeapUp(heap: PrayerBucketHeapEntry[], startIndex: number): void {
-  let index = startIndex
+// Bucket heads sit in a binary min-heap, so building the schedule stays O(n log n) however many buckets there are
 
-  while (index > 0) {
-    const parentIndex = Math.floor((index - 1) / 2)
-    if (comparePrayerBucketHeapEntries(heap[index], heap[parentIndex]) >= 0) {
-      break
-    }
-
-    swapHeapEntries(heap, index, parentIndex)
-    index = parentIndex
-  }
-}
-
-function siftHeapDown(heap: PrayerBucketHeapEntry[], startIndex: number): void {
-  let index = startIndex
-
-  while (index < heap.length) {
-    const leftChildIndex = (index * 2) + 1
-    const rightChildIndex = leftChildIndex + 1
-
-    let smallestIndex = index
-    if (
-      leftChildIndex < heap.length
-      && comparePrayerBucketHeapEntries(heap[leftChildIndex], heap[smallestIndex]) < 0
-    ) {
-      smallestIndex = leftChildIndex
-    }
-
-    if (
-      rightChildIndex < heap.length
-      && comparePrayerBucketHeapEntries(heap[rightChildIndex], heap[smallestIndex]) < 0
-    ) {
-      smallestIndex = rightChildIndex
-    }
-
-    if (smallestIndex === index) {
-      break
-    }
-
-    swapHeapEntries(heap, index, smallestIndex)
-    index = smallestIndex
-  }
-}
-
-function pushPrayerBucketEntry(heap: PrayerBucketHeapEntry[], entry: PrayerBucketHeapEntry): void {
+function pushEntry(heap: HeapEntry[], entry: HeapEntry): void {
   heap.push(entry)
-  siftHeapUp(heap, heap.length - 1)
+  let index = heap.length - 1
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2)
+    if (!isBefore(heap[index], heap[parent])) {
+      break
+    }
+    swap(heap, index, parent)
+    index = parent
+  }
 }
 
-function popPrayerBucketEntry(heap: PrayerBucketHeapEntry[]): PrayerBucketHeapEntry | undefined {
-  if (heap.length === 0) {
-    return undefined
-  }
-
-  if (heap.length === 1) {
-    return heap.pop()
-  }
-
+function popEntry(heap: HeapEntry[]): HeapEntry {
   const top = heap[0]
-  const tail = heap.pop()
-  if (!tail) {
+  const last = heap.pop()!
+  if (heap.length === 0) {
     return top
   }
 
-  heap[0] = tail
-  siftHeapDown(heap, 0)
-  return top
+  heap[0] = last
+  let index = 0
+  for (;;) {
+    const left = (index * 2) + 1
+    const right = left + 1
+    let smallest = index
+    if (left < heap.length && isBefore(heap[left], heap[smallest])) {
+      smallest = left
+    }
+    if (right < heap.length && isBefore(heap[right], heap[smallest])) {
+      smallest = right
+    }
+    if (smallest === index) {
+      return top
+    }
+    swap(heap, index, smallest)
+    index = smallest
+  }
+}
+
+function getHeadEntry(bucket: PrayerBucket, now: number): HeapEntry | null {
+  const candidate = bucket.candidates[bucket.selectedCount]
+  if (!candidate) {
+    return null
+  }
+
+  return {
+    bucket,
+    effectiveNext: Math.max(candidate.next, now) + bucket.selectedCount * bucket.groupShiftQuantum,
+    stableOrder: candidate.stableOrder,
+  }
 }
 
 function getActiveMemberCount(group: GroupItem, activeIdSet: Set<ItemId>): number {
@@ -136,22 +111,6 @@ function shouldPreferGroup(current: GroupItem, best: GroupItem, activeIdSet: Set
   }
 
   return false
-}
-
-function getBucketHeadEntry(bucket: PrayerBucket, now: number): PrayerBucketHeapEntry | null {
-  const candidate = bucket.candidates[bucket.cursor]
-  if (!candidate) {
-    return null
-  }
-
-  const shift = bucket.selectedCount * bucket.groupShiftQuantum
-  const effectiveBase = Math.max(candidate.next, now)
-
-  return {
-    groupId: bucket.groupId,
-    effectiveNext: effectiveBase + shift,
-    stableOrder: candidate.stableOrder,
-  }
 }
 
 function getGroups(items: Item[]): GroupItem[] {
@@ -175,7 +134,7 @@ export function buildPrayerFreqMap(items: Item[]): Map<ItemId, number> {
   for (const g of groups) {
     if (g.memberPrayerFrequency && g.memberPrayerFrequency !== 'none') {
       const groupDays = frequencyToDays(g.memberPrayerFrequency)
-      const activeMemberCount = g.members.filter(memberId => activeIdSet.has(memberId)).length
+      const activeMemberCount = getActiveMemberCount(g, activeIdSet)
       const effectiveGroupDays = (
         g.memberPrayerTarget === 'one'
           ? groupDays * activeMemberCount
@@ -219,9 +178,7 @@ export function getLastPrayedFor(
     return prayedFor[prayedFor.length - 1] || 0
   }
 
-  const startOfToday = new Date()
-  startOfToday.setHours(0, 0, 0, 0)
-  const startOfTodayMs = startOfToday.getTime()
+  const startOfTodayMs = getStartOfDay().getTime()
   const endOfTodayMs = startOfTodayMs + ONE_DAY_IN_MS
 
   for (let index = prayedFor.length - 1; index >= 0; index -= 1) {
@@ -232,6 +189,20 @@ export function getLastPrayedFor(
   }
 
   return 0
+}
+
+/** Whether the item was last prayed for on the same day as `today` */
+export function isPrayedForToday(item: Item, today = new Date()): boolean {
+  return isSameDay(today, new Date(getLastPrayedFor(item)))
+}
+
+/** The item's prayer times with today's removed if it was prayed for today, or with now added if not */
+export function togglePrayedForToday(item: Item): number[] {
+  if (isPrayedForToday(item)) {
+    const startOfToday = getStartOfDay().getTime()
+    return item.prayedFor.filter(time => time < startOfToday)
+  }
+  return [...item.prayedFor, Date.now()]
 }
 
 export function getPrayerSchedule(items: Item[]): ItemId[] {
@@ -283,62 +254,39 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
     }
   })
 
-  const schedule: ItemId[] = []
   const now = Date.now()
-
-  const bucketByGroupId = new Map<ItemId, PrayerBucket>()
+  const buckets = new Map<ItemId, PrayerBucket>()
   for (const candidate of candidates) {
-    const existing = bucketByGroupId.get(candidate.groupId)
-    if (existing) {
-      existing.candidates.push(candidate)
-      continue
+    const bucket = buckets.get(candidate.groupId)
+    if (bucket) {
+      bucket.candidates.push(candidate)
+    } else {
+      buckets.set(candidate.groupId, {
+        groupShiftQuantum: candidate.groupShiftQuantum,
+        candidates: [candidate],
+        selectedCount: 0,
+      })
     }
-
-    bucketByGroupId.set(candidate.groupId, {
-      groupId: candidate.groupId,
-      groupShiftQuantum: candidate.groupShiftQuantum,
-      selectedCount: 0,
-      cursor: 0,
-      candidates: [candidate],
-    })
   }
 
-  const bucketHeap: PrayerBucketHeapEntry[] = []
-  for (const bucket of bucketByGroupId.values()) {
+  const heap: HeapEntry[] = []
+  for (const bucket of buckets.values()) {
     bucket.candidates.sort((left, right) => (
       (left.next - right.next)
       || (left.stableOrder - right.stableOrder)
     ))
-
-    const headEntry = getBucketHeadEntry(bucket, now)
-    if (headEntry) {
-      pushPrayerBucketEntry(bucketHeap, headEntry)
-    }
+    pushEntry(heap, getHeadEntry(bucket, now)!)
   }
 
-  while (bucketHeap.length > 0) {
-    const topBucketEntry = popPrayerBucketEntry(bucketHeap)
-    if (!topBucketEntry) {
-      break
-    }
-
-    const bucket = bucketByGroupId.get(topBucketEntry.groupId)
-    if (!bucket) {
-      continue
-    }
-
-    const topCandidate = bucket.candidates[bucket.cursor]
-    if (!topCandidate) {
-      continue
-    }
-
-    schedule.push(topCandidate.id)
-    bucket.cursor += 1
+  const schedule: ItemId[] = []
+  while (heap.length > 0) {
+    const { bucket } = popEntry(heap)
+    schedule.push(bucket.candidates[bucket.selectedCount].id)
     bucket.selectedCount += 1
 
-    const nextHeadEntry = getBucketHeadEntry(bucket, now)
-    if (nextHeadEntry) {
-      pushPrayerBucketEntry(bucketHeap, nextHeadEntry)
+    const nextEntry = getHeadEntry(bucket, now)
+    if (nextEntry) {
+      pushEntry(heap, nextEntry)
     }
   }
 
@@ -369,31 +317,25 @@ export function isPrayerCompletedForToday(
     return false
   }
 
-  const isPrayedForToday = (item: Item): boolean =>
-    isSameDay(today, new Date(getLastPrayedFor(item)))
+  const prayedToday = (item: Item) => isPrayedForToday(item, today)
 
-  const completed = unarchived.filter(isPrayedForToday).length
+  const completed = unarchived.filter(prayedToday).length
   if (completed === 0) {
     return false
   }
 
-  const naturalGoal = getNaturalPrayerGoal(unarchived)
-  const goal = prayerGoal ?? naturalGoal
+  const goal = prayerGoal ?? getNaturalPrayerGoal(unarchived)
 
   const scheduleIds = getPrayerSchedule(unarchived)
   if (scheduleIds.length === 0) {
     return false
   }
 
+  // The schedule only holds ids from unarchived, so every lookup finds its item
   const itemMap = new Map(unarchived.map(item => [item.id, item]))
-  const effectiveGoal = Math.max(1, goal)
-  const visibleSchedule = scheduleIds
-    .slice(0, effectiveGoal)
-    .map(id => itemMap.get(id))
-    .filter((item): item is Item => !!item)
-
-  const allVisiblePrayed =
-    visibleSchedule.length > 0 && visibleSchedule.every(isPrayedForToday)
+  const allVisiblePrayed = scheduleIds
+    .slice(0, Math.max(1, goal))
+    .every(id => prayedToday(itemMap.get(id)!))
 
   return allVisiblePrayed || (goal > 0 && completed >= goal)
 }

@@ -1,12 +1,7 @@
 import { useSyncExternalStore } from 'react'
+import { getStartOfDay } from '../utils'
 
 const CHECK_INTERVAL_MS = 1000
-
-export function getStartOfDay(date = new Date()): Date {
-  const result = new Date(date)
-  result.setHours(0, 0, 0, 0)
-  return result
-}
 
 // Shared state for all subscribers
 let currentToday = getStartOfDay()

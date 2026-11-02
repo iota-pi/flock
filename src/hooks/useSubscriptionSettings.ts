@@ -2,6 +2,9 @@ import { useCallback } from 'react'
 import type { BaseToastMessage } from '../state/slices/toastSlice'
 import { useAppStore } from '../state/store'
 import { subscribe, unsubscribe } from '../utils/pushNotifications'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('useSubscriptionSettings')
 
 type SetMessage = (payload: BaseToastMessage) => void
 
@@ -31,7 +34,7 @@ export default function useSubscriptionSettings({
       return true
     } catch (error) {
       setMessage({ message: 'Failed to update notification', severity: 'error' })
-      console.error('Notification update failed', error)
+      log.error('Notification update failed', error)
       return false
     }
   }, [account, setMessage])

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { readAutoLockSettings } from '../app/vault/autoLockStore'
+import { readAutoLockSettings, subscribeAutoLockSettings } from '../app/vault/autoLockStore'
 import { lockVault } from '../app/vault/session'
 import { useLoggedIn } from '../state/selectors'
 
@@ -75,19 +75,15 @@ export default function useAutoLock(): void {
 
     let cleanup = setupLockListeners()
 
-    const handleSettingsChanged = () => {
+    const unsubscribe = subscribeAutoLockSettings(() => {
       cleanup()
       cleanup = setupLockListeners()
-    }
-
-    window.addEventListener('flock-autolock-changed', handleSettingsChanged)
-    window.addEventListener('storage', handleSettingsChanged)
+    })
 
     return () => {
       isMounted = false
       cleanup()
-      window.removeEventListener('flock-autolock-changed', handleSettingsChanged)
-      window.removeEventListener('storage', handleSettingsChanged)
+      unsubscribe()
     }
   }, [loggedIn, performLock])
 }

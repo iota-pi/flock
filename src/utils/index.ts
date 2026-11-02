@@ -4,16 +4,18 @@ import type { ItemId } from '@vault/shared'
 
 export const APP_NAME = 'Flock'
 
-export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | undefined> {
-  return x !== undefined && x !== null
-}
-
 export function generateNoteId() {
   return nanoid(10) as ItemId
 }
 
 export function formatDate(date: Date) {
   return date.toLocaleDateString()
+}
+
+export function getStartOfDay(date = new Date()): Date {
+  const result = new Date(date)
+  result.setHours(0, 0, 0, 0)
+  return result
 }
 
 export function isSameDay(d1: Date, d2: Date) {

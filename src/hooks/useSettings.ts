@@ -8,10 +8,11 @@ import {
   hasBiometricData,
   subscribeBiometrics,
   isWebAuthnPrfSupported,
-  createLogger,
 } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import {
   getAutoLockSummary,
+  markManualLock,
   readAutoLockSettings,
   writeAutoLockSettings,
   type AutoLockSettings,
@@ -73,16 +74,13 @@ export default function useSettings(items: Item[]) {
   const saveAutoLockSettings = useCallback((settings: AutoLockSettings) => {
     writeAutoLockSettings(settings)
     setAutoLockSettings(settings)
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('flock-autolock-changed'))
-    }
     setMessage({ message: 'Auto-lock settings saved' })
   }, [setMessage])
 
   // Actions
   const handleLock = useCallback(
     async () => {
-      sessionStorage.setItem('flock-manual-lock', 'true')
+      markManualLock()
       await lockVault()
       setMessage({ message: 'App locked' })
     },
@@ -135,7 +133,6 @@ export default function useSettings(items: Item[]) {
       handleExport: backupActions.handleExport,
       handleLock,
       handleRemoveAccountFromDevice,
-      handleSignOut: handleRemoveAccountFromDevice,
       handleSubscribe: subscriptionActions.handleSubscribe,
       handleToggleDarkMode: themeActions.handleToggleDarkMode,
       handleToggleBiometrics,

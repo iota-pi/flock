@@ -1,20 +1,11 @@
 import { memo, useCallback, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
-import ListItemIcon from '@mui/material/ListItemIcon'
-import ListItemText from '@mui/material/ListItemText'
-import MenuItem from '@mui/material/MenuItem'
 
 import type { Item } from 'src/state/items'
 import ItemFormContent from 'src/features/items/components/ItemFormContent'
 import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
-import {
-  ArchiveIcon,
-  PrayerIcon,
-  UnarchiveIcon,
-} from '../../Icons'
-import { isSameDay } from 'src/utils'
-import { getLastPrayedFor } from 'src/utils/prayer'
+import { ArchiveMenuItem, MarkPrayedMenuItem } from 'src/features/items/components/ItemMenuItems'
 import SwipeableCarousel from '../../ui/SwipeableCarousel'
 import { useAppStore } from 'src/state/store'
 
@@ -37,9 +28,6 @@ function PrayerActiveView({
   const setDrawer = useAppStore(state => state.setDrawer)
   const activeItem = items[activeIndex]
 
-  const activeItemArchived = activeItem.archived
-  const activeItemPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(activeItem)))
-
   const handleOpenEditDrawer = useCallback(
     () => {
       setDrawer({
@@ -51,56 +39,6 @@ function PrayerActiveView({
       })
     },
     [activeItem.id, setDrawer],
-  )
-
-  const markPrayedMenuItem = useMemo(
-    () => (
-      <MenuItem
-        data-cy="mark-prayed"
-        key="mark-prayed"
-        disabled={activeItem.isNew}
-        onClick={() => {
-          onItemChange((prev: Item) => {
-            let prayedFor = prev.prayedFor
-            if (activeItemPrayedToday) {
-              const startOfDay = new Date()
-              startOfDay.setHours(0, 0, 0, 0)
-              prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
-            } else {
-              prayedFor = [...prayedFor, new Date().getTime()]
-            }
-            return { ...prev, prayedFor }
-          })
-        }}
-      >
-        <ListItemIcon>
-          <PrayerIcon />
-        </ListItemIcon>
-        <ListItemText>
-          {activeItemPrayedToday ? 'Unmark Prayed' : 'Mark as Prayed Today'}
-        </ListItemText>
-      </MenuItem>
-    ),
-    [activeItem.isNew, activeItemPrayedToday, onItemChange],
-  )
-
-  const archiveMenuItem = useMemo(
-    () => (
-      <MenuItem
-        data-cy="archive"
-        key="archive"
-        disabled={activeItem.isNew}
-        onClick={() => {
-          onItemChange({ archived: !activeItemArchived })
-        }}
-      >
-        <ListItemIcon>
-          {activeItemArchived ? <UnarchiveIcon /> : <ArchiveIcon />}
-        </ListItemIcon>
-        <ListItemText>{activeItemArchived ? 'Unarchive' : 'Archive'}</ListItemText>
-      </MenuItem>
-    ),
-    [activeItem.isNew, activeItemArchived, onItemChange],
   )
 
   const formSlides = useMemo(
@@ -136,8 +74,8 @@ function PrayerActiveView({
         item={activeItem}
         menuButtonDataCy="active-item-menu-button"
         menuItems={[
-          markPrayedMenuItem,
-          archiveMenuItem,
+          <MarkPrayedMenuItem key="mark-prayed" item={activeItem} onChange={onItemChange} />,
+          <ArchiveMenuItem key="archive" item={activeItem} onChange={onItemChange} />,
         ]}
         onEdit={handleOpenEditDrawer}
       />

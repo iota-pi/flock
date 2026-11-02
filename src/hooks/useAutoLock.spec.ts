@@ -87,14 +87,13 @@ describe('useAutoLock hook', () => {
     expect(lockVaultSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('reacts dynamically to custom settings change event', () => {
+  it('reacts when the settings change', () => {
     autoLockStore.writeAutoLockSettings({ mode: 'never', inactivityMinutes: 5 })
     renderHook(() => useAutoLock())
 
     // Switch to focus mode
-    autoLockStore.writeAutoLockSettings({ mode: 'focus', inactivityMinutes: 5 })
     act(() => {
-      window.dispatchEvent(new CustomEvent('flock-autolock-changed'))
+      autoLockStore.writeAutoLockSettings({ mode: 'focus', inactivityMinutes: 5 })
     })
 
     Object.defineProperty(document, 'visibilityState', {

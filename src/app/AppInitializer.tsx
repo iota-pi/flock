@@ -7,10 +7,13 @@ import useAccountLevelCheck from './vault/useAccountLevelCheck'
 import { prefetchSyncWorker } from './vault/prefetchSyncWorker'
 import { failCypressTestOnRequestError, isCypress } from './vault/cypress'
 import { ensurePersistentStorage, getTrackedFetch, initVaultTrpcClient } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { useNavigate } from 'react-router'
 import { refreshPushSubscription, syncReminderTimezone } from '../utils/pushNotifications'
 import { useAutoClearPrayerNotifications } from '../hooks/useAutoClearPrayerNotifications'
+
+const log = createLogger('AppInitializer')
 
 export default function AppInitializer() {
   const loggedIn = useLoggedIn()
@@ -27,7 +30,7 @@ export default function AppInitializer() {
     initTrpcClient(trackedFetch)
     initVaultTrpcClient(trackedFetch)
     void ensurePersistentStorage()
-    void loadAccount().catch(console.error)
+    void loadAccount().catch(log.error)
   }, [setFatalError])
 
   useEffect(() => {
@@ -38,8 +41,8 @@ export default function AppInitializer() {
 
   useEffect(() => {
     if (loggedIn && account) {
-      void syncReminderTimezone(account).catch(console.error)
-      void refreshPushSubscription(account).catch(console.error)
+      void syncReminderTimezone(account).catch(log.error)
+      void refreshPushSubscription(account).catch(log.error)
     }
   }, [loggedIn, account])
 

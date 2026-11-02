@@ -21,22 +21,21 @@ import { useItem } from 'src/state/selectors'
 import BaseDrawer, { type BaseDrawerProps } from 'src/components/drawers/BaseDrawer'
 import ConfirmationDialog from 'src/components/dialogs/ConfirmationDialog'
 import InlineText from 'src/components/ui/InlineText'
-import { isSameDay } from 'src/utils'
 import {
-  ArchiveIcon,
   DeleteIcon,
   getIcon,
   getIconType,
-  PrayerIcon,
-  UnarchiveIcon,
 } from 'src/components/Icons'
-import { getLastPrayedFor } from 'src/utils/prayer'
 import { convertItemType, deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
+import { ArchiveMenuItem, MarkPrayedMenuItem } from './ItemMenuItems'
 import { ITEM_TYPES } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 import type { ItemType } from 'src/shared/itemTypes'
 import { useAppStore } from 'src/state/store'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('ItemDrawer')
 
 
 const ItemFormContent = lazy(() => import('./ItemFormContent'))
@@ -56,7 +55,7 @@ function ItemDrawer({
   onClose,
   open,
 }: Props) {
-  const storeItem = useItem(itemId ?? '' as ItemId)
+  const resolvedItem = useItem(itemId ?? '' as ItemId) ?? null
   const setMessage = useAppStore(state => state.setMessage)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [hasEdited, setHasEdited] = useState(false)
@@ -68,13 +67,6 @@ function ItemDrawer({
     setHasEdited(false)
   }
 
-  const resolvedItem = useMemo((): Item | null => {
-    if (storeItem) {
-      return storeItem
-    }
-    return null
-  }, [storeItem])
-
   const handleChange = useCallback(
     (data: Partial<Item> | ((prev: Item) => Item)) => {
       if (!itemId || !resolvedItem) return
@@ -82,12 +74,12 @@ function ItemDrawer({
       setHasEdited(true)
       const changes = typeof data === 'function' ? data(resolvedItem) : data
 
-      mutateItem(itemId, changes).catch(error => console.error(error))
+      mutateItem(itemId, changes).catch(log.error)
     },
     [itemId, resolvedItem],
   )
 
-  const isNew = (resolvedItem as Item & { isNew?: boolean } | null)?.isNew ?? false
+  const isNew = resolvedItem?.isNew ?? false
 
   const cleanupAndClose = useCallback(
     () => {
@@ -97,7 +89,7 @@ function ItemDrawer({
         // If the user edited the item, assume it's valid and don't delete it
         // even if a race condition temporarily makes it appear invalid.
         if (!hasEdited && itemToCheck && !isValid(itemToCheck)) {
-          deleteItems(itemId).catch(error => console.error(error))
+          deleteItems(itemId).catch(log.error)
         }
       }
 
@@ -109,35 +101,12 @@ function ItemDrawer({
   const handleDelete = useCallback(
     () => {
       if (itemId !== null) {
-        deleteItems(itemId).catch(error => console.error(error))
+        deleteItems(itemId).catch(log.error)
       }
       setShowConfirmDelete(false)
       onClose()
     },
     [itemId, onClose],
-  )
-
-  const archived = resolvedItem?.archived ?? false
-  const lastPrayer = resolvedItem ? getLastPrayedFor(resolvedItem) : 0
-  const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
-
-  const archiveMenuItem = useMemo(
-    () => (
-      <MenuItem
-        data-cy="archive"
-        key="archive"
-        disabled={isNew}
-        onClick={() => {
-          handleChange({ archived: !archived })
-        }}
-      >
-        <ListItemIcon>
-          {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
-        </ListItemIcon>
-        <ListItemText>{archived ? 'Unarchive' : 'Archive'}</ListItemText>
-      </MenuItem>
-    ),
-    [archived, handleChange, isNew],
   )
 
   const handleConvertType = useCallback(
@@ -175,37 +144,6 @@ function ItemDrawer({
     [handleConvertType, resolvedItem?.type],
   )
 
-  const markPrayedMenuItem = useMemo(
-    () => (
-      <MenuItem
-        data-cy="mark-prayed"
-        key="mark-prayed"
-        disabled={isNew}
-        onClick={() => {
-          handleChange(prev => {
-            let prayedFor = prev.prayedFor
-            if (isPrayedForToday) {
-              const startOfDay = new Date()
-              startOfDay.setHours(0, 0, 0, 0)
-              prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
-            } else {
-              prayedFor = [...prayedFor, new Date().getTime()]
-            }
-            return { ...prev, prayedFor }
-          })
-        }}
-      >
-        <ListItemIcon>
-          <PrayerIcon />
-        </ListItemIcon>
-        <ListItemText>
-          {isPrayedForToday ? 'Unmark Prayed' : 'Mark as Prayed Today'}
-        </ListItemText>
-      </MenuItem>
-    ),
-    [handleChange, isNew, isPrayedForToday],
-  )
-
   const deleteMenuItem = useMemo(
     () => (
       <MenuItem
@@ -232,15 +170,15 @@ function ItemDrawer({
         item={resolvedItem}
         menuButtonDataCy="item-menu-button"
         menuItems={[
-          markPrayedMenuItem,
+          <MarkPrayedMenuItem key="mark-prayed" item={resolvedItem} onChange={handleChange} />,
           ...(!fromPrayerPage ? changeTypeMenuItems : []),
-          archiveMenuItem,
+          <ArchiveMenuItem key="archive" item={resolvedItem} onChange={handleChange} />,
           deleteMenuItem,
         ]}
         showEditButton={false}
       />
     ) : undefined,
-    [archiveMenuItem, changeTypeMenuItems, deleteMenuItem, fromPrayerPage, markPrayedMenuItem, resolvedItem],
+    [changeTypeMenuItems, deleteMenuItem, fromPrayerPage, handleChange, resolvedItem],
   )
 
   return (

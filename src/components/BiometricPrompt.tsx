@@ -5,8 +5,11 @@ import Button from '@mui/material/Button'
 import Snackbar from '@mui/material/Snackbar'
 
 import { enableBiometrics, hasBiometricData, isWebAuthnPrfSupported } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { useAppStore } from '../state/store'
 import { getBiometricLabel } from '../utils/biometricLabel'
+
+const log = createLogger('BiometricPrompt')
 
 const PROMPT_DISMISSED_KEY = 'flock_biometric_prompt_dismissed'
 
@@ -59,7 +62,7 @@ export default function BiometricPrompt() {
         message: `${biometricLabel} unlock enabled successfully!`,
       })
     } catch (err) {
-      console.error('Failed to enable biometrics from prompt:', err)
+      log.error('Failed to enable biometrics from prompt:', err)
       setMessage({
         severity: 'error',
         message: `Failed to enable ${biometricLabel} unlock.`,

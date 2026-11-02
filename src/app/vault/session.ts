@@ -1,7 +1,10 @@
 import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { useAppStore } from '../../state/store'
 import { unsubscribe as unsubscribeFromNotifications } from '../../utils/pushNotifications'
 import { SyncBridge } from './syncBridge'
+
+const log = createLogger('session')
 
 export async function loadAccount() {
   const { updateAuth } = useAppStore.getState()
@@ -35,7 +38,7 @@ export async function removeVaultFromDevice() {
     try {
       await unsubscribeFromNotifications(account)
     } catch (error) {
-      console.error('Failed to unsubscribe from notifications', error)
+      log.error('Failed to unsubscribe from notifications', error)
     }
   }
   await clearVaultDeviceData(account || undefined)

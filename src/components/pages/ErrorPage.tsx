@@ -4,6 +4,9 @@ import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Typography from '@mui/material/Typography'
 import { styled } from '@mui/material/styles'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('ErrorPage')
 
 
 const Root = styled('div')({
@@ -22,7 +25,7 @@ const MainContainer = styled(Container)(({ theme }) => ({
 
 export default function ErrorPage() {
   const error = useRouteError()
-  console.error(error)
+  log.error(error)
 
   let errorMessage = 'An unexpected error has occurred.'
   if (isRouteErrorResponse(error)) {

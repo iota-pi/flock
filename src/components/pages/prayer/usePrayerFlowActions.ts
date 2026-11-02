@@ -9,6 +9,9 @@ import type { FlowState } from 'src/state/slices/prayerFlowSlice'
 import { SyncBridge } from 'src/app/vault/syncBridge'
 import { useAppStore } from 'src/state/store'
 import { useMetadata } from 'src/state/selectors'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('usePrayerFlowActions')
 
 export type PrayerFlowActions = {
   handleBack: () => void
@@ -175,7 +178,7 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
       }
       finish(completed + (prayerUpdate.addedPrayer ? 1 : 0))
       void SyncBridge.flushSync().catch(err => {
-        console.error('Failed to trigger forceSync after finishing prayer schedule:', err)
+        log.error('Failed to trigger forceSync after finishing prayer schedule:', err)
       })
       void clearReminderNotifications().catch(() => {})
       return

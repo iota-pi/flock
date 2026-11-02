@@ -6,6 +6,9 @@ import { isPrayerCompletedForToday } from '../utils/prayer'
 import { clearReminderNotifications } from '../utils/pushNotifications'
 import { snoozeReminders } from '../api/notificationClient'
 import { formatDate } from '../utils'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('useAutoClearPrayerNotifications')
 
 export function useAutoClearPrayerNotifications(): void {
   const loggedIn = useLoggedIn()
@@ -33,7 +36,7 @@ export function useAutoClearPrayerNotifications(): void {
     if (autoSnoozeWhenCompleted && lastSnoozedDateRef.current !== todayStr) {
       lastSnoozedDateRef.current = todayStr
       void snoozeReminders(account).catch(err => {
-        console.warn('Failed to auto-snooze reminders after prayer completion:', err)
+        log.warn('Failed to auto-snooze reminders after prayer completion:', err)
       })
     }
   }, [

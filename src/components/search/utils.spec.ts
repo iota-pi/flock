@@ -3,7 +3,7 @@ import {
   sortSearchables,
   getName,
 } from './utils'
-import { type AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
+import type { AnySearchable } from './types'
 import * as itemsModule from '../../state/items'
 import { spyOnExports } from '../../utils/testUtils'
 
@@ -38,32 +38,23 @@ describe('search/utils.ts', () => {
       expect(isSearchableStandardItem(item)).toBe(true)
     })
 
-    it('should return false for other types', () => {
-      // Assuming 'create' or other types exist in AnySearchable union
-      const item = { type: 'other' } as unknown as AnySearchable // Force to test predicate
+    it('should return false for create options', () => {
+      const item = { type: 'person', create: true, default: { type: 'person' } } as unknown as AnySearchable
       expect(isSearchableStandardItem(item)).toBe(false)
     })
   })
 
-  // SEARCHABLE_BASE_SORT_ORDER is used in sortSearchables.
-  // We need to know the order to test it: likely ['person', 'group', ...]
-  // Let's assume standard order or rely on the imported constant in the source.
-  // Ideally, valid mock data follows the real types.
-
   describe('sortSearchables', () => {
     it('should sort by type index first', () => {
-      // Mock types based on SEARCHABLE_BASE_SORT_ORDER which usually starts with 'person'
-      // We can't know the exact order without seeing types.ts, but we know logic uses indexOf.
-      // If 'person' is index 0 and 'group' is index 1.
-      const a = { type: SEARCHABLE_BASE_SORT_ORDER[0], id: '2' } as AnySearchable
-      const b = { type: SEARCHABLE_BASE_SORT_ORDER[1], id: '1' } as AnySearchable
+      const a = { type: 'person', id: '2' } as AnySearchable
+      const b = { type: 'group', id: '1' } as AnySearchable
 
       const result = sortSearchables(a, b)
       expect(result).toBeLessThan(0) // a comes before b
     })
 
     it('should sort by compareItems if types are same standard items', () => {
-      const type = SEARCHABLE_BASE_SORT_ORDER[0]
+      const type = 'person'
       // using mocked compareItems which compares 'name'
       const a = { type, id: '1', data: { name: 'Alice' } } as AnySearchable
       const b = { type, id: '2', data: { name: 'Bob' } } as AnySearchable
@@ -73,12 +64,8 @@ describe('search/utils.ts', () => {
     })
 
     it('should sort by id if types are same but not standard items (fallback)', () => {
-      // Mock a type that isn't person/group if possible, or force logic
-
-      const itemA = { type: 'custom', id: 'A' } as unknown as AnySearchable
-      const itemB = { type: 'custom', id: 'B' } as unknown as AnySearchable
-
-      // Force isSearchableStandardItem to false for these by using unknown type
+      const itemA = { type: 'person', id: 'A', create: true } as unknown as AnySearchable
+      const itemB = { type: 'person', id: 'B', create: true } as unknown as AnySearchable
 
       expect(sortSearchables(itemA, itemB)).toBeLessThan(0) // A < B
       expect(sortSearchables(itemB, itemA)).toBeGreaterThan(0) // B > A

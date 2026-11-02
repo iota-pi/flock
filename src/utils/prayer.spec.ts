@@ -4,6 +4,7 @@ import {
   getPrayerSchedule,
   getNaturalPrayerGoal,
   isPrayerCompletedForToday,
+  togglePrayedForToday,
 } from './prayer'
 import type { Item } from '../state/items'
 import type { GroupItem } from 'src/shared/schemas/items'
@@ -266,6 +267,24 @@ describe('prayer utilities', () => {
     expect(schedule.slice(0, 2)).toContain('c1')
     expect(schedule[2]).toBe('p2')
     expect(schedule[3]).toBe('p3')
+  })
+
+  describe('togglePrayedForToday', () => {
+    it('adds a prayer for now when the item was not prayed for today', () => {
+      const yesterday = subDays(new Date(), 1).getTime()
+      const prayedFor = togglePrayedForToday(makePerson('p1', 'daily', [yesterday]))
+
+      expect(prayedFor).toHaveLength(2)
+      expect(prayedFor[0]).toBe(yesterday)
+      expect(prayedFor[1]).toBeGreaterThan(yesterday)
+    })
+
+    it("removes today's prayers when the item was prayed for today", () => {
+      const yesterday = subDays(new Date(), 1).getTime()
+      const prayedFor = togglePrayedForToday(makePerson('p1', 'daily', [yesterday, Date.now()]))
+
+      expect(prayedFor).toEqual([yesterday])
+    })
   })
 
   describe('isPrayerCompletedForToday', () => {

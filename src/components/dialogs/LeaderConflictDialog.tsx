@@ -11,7 +11,7 @@ import Typography from '@mui/material/Typography'
 
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from '../../app/vault/syncBridge'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('LeaderConflictDialog')
 

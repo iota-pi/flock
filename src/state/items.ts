@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { mergeWith } from 'lodash-es'
 
 import { generateItemId, type ItemId } from '@vault/shared'
 import type { ItemType } from '../shared/itemTypes'
@@ -18,22 +17,11 @@ import {
 
 export type Item = StandardItem | ErrorItem
 
-function mergeItemWithDefaults<T extends object>(defaults: T, candidate: unknown): T {
-  if (!candidate || typeof candidate !== 'object') {
-    return defaults
-  }
+/** The order lists show item types in */
+export const ITEM_TYPE_ORDER: readonly Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
 
-  return mergeWith({}, defaults, candidate, (currentValue, nextValue) => {
-    if (nextValue === undefined) {
-      return currentValue
-    }
-
-    if (Array.isArray(nextValue)) {
-      return nextValue
-    }
-
-    return undefined
-  }) as T
+export function compareItemTypes(a: Item['type'], b: Item['type']) {
+  return ITEM_TYPE_ORDER.indexOf(a) - ITEM_TYPE_ORDER.indexOf(b)
 }
 
 export function isItem(item: Item): item is StandardItem {
@@ -132,28 +120,13 @@ export function compareItems(a: Item, b: Item) {
   if (a.archived !== b.archived) {
     return +(a.archived) - +(b.archived)
   } else if (a.type !== b.type) {
-    const typeOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
-    return typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type)
+    return compareItemTypes(a.type, b.type)
   }
   return compareNames(a as BaseItem, b as BaseItem) || compareIds(a, b)
 }
 
 export function filterArchived<T extends Item>(items: T[]): T[] {
   return items.filter(item => item.archived !== true)
-}
-
-export function supplyMissingAttributes<T extends Item>(item: T): T {
-  if (item.type === ERROR_ITEM_TYPE) {
-    return item
-  }
-
-  try {
-    const blank = getBlankItem(item.type, false)
-    const filled = mergeItemWithDefaults(blank, item)
-    return filled as T
-  } catch (_) {
-    return item
-  }
 }
 
 export function convertItem<T extends Item, S extends StandardItem>(item: T, newType: S['type']): S {

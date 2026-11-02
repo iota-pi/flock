@@ -8,7 +8,8 @@ import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 
-import { createLogger, reencryptAllItems } from '@vault/client'
+import { reencryptAllItems } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { SyncBridge } from 'src/app/vault/syncBridge'
 import { useAppStore } from 'src/state/store'
 

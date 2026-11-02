@@ -1,21 +1,17 @@
-import { compareItems, getItemName } from 'src/state/items'
-import { type AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
+import { compareItems, compareItemTypes, getItemName } from 'src/state/items'
+import type { AnySearchable } from './types'
 
 
 export function isSearchableStandardItem(s: AnySearchable): s is AnySearchable & { create?: false, data: object } {
-  return s.type === 'person' || s.type === 'group' || s.type === 'topic' || s.type === 'error'
+  return !s.create
 }
 
 export function sortSearchables(a: AnySearchable, b: AnySearchable): number {
-  const typeIndexA = SEARCHABLE_BASE_SORT_ORDER.indexOf(a.type)
-  const typeIndexB = SEARCHABLE_BASE_SORT_ORDER.indexOf(b.type)
-  if (typeIndexA - typeIndexB) {
-    return typeIndexA - typeIndexB
-  }
-  if (isSearchableStandardItem(a) && isSearchableStandardItem(b)) {
-    return compareItems(a.data, b.data)
-  }
-  return +(a.id > b.id) - +(a.id < b.id)
+  return (
+    compareItemTypes(a.type, b.type)
+    || (isSearchableStandardItem(a) && isSearchableStandardItem(b) ? compareItems(a.data, b.data) : 0)
+    || +(a.id > b.id) - +(a.id < b.id)
+  )
 }
 
 export function getName(option: AnySearchable) {

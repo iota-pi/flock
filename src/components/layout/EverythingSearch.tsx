@@ -9,6 +9,9 @@ import Search from '../Search'
 import { useAppStore } from '../../state/store'
 import { createItem } from '../../features/items/mutations/itemMutations'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('EverythingSearch')
 
 
 interface Props {
@@ -49,7 +52,7 @@ function EverythingSearch({
       void createItem(type, overrides).then(createdItem => {
         setDrawer({ item: createdItem.id })
       }).catch(error => {
-        console.error(error)
+        log.error(error)
       })
     },
     [setDrawer],

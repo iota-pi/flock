@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { createLogger, getSecurityParams } from '@vault/client'
+import { getSecurityParams } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from '../../migrate/detection'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { lockVault } from './session'

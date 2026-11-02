@@ -1,27 +1,25 @@
 import { convertItem, getBlankItem, type Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
+import type { z } from 'zod'
 import {
-  ERROR_ITEM_TYPE,
   ITEM_TYPES,
   type GroupItem,
-  groupItemSchema,
-  personItemSchema,
-  topicItemSchema,
+  standardItemSchema,
 } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 import type { AccountMetadata } from 'src/state/metadata'
 import { useAppStore } from 'src/state/store'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'
 import { SyncBridge } from 'src/app/vault/syncBridge'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('itemMutations')
 
-const stripItemWriteSchema = personItemSchema.strip()
-  .or(groupItemSchema.strip())
-  .or(topicItemSchema.strip())
-
-const stripMetadataWriteSchema = accountMetadataSchema.strip()
+function formatIssues(error: z.ZodError): string {
+  return error.issues
+    .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+    .join('; ')
+}
 
 function normalizeItemsInput(items: Item | Item[]): Item[] {
   const incoming = Array.isArray(items) ? items : [items]
@@ -35,17 +33,13 @@ function normalizeItemsInput(items: Item | Item[]): Item[] {
       throw new Error('Invalid item: missing id')
     }
 
-    if (item.type === ERROR_ITEM_TYPE || !ITEM_TYPES.includes(item.type)) {
+    if (!(ITEM_TYPES as readonly string[]).includes(item.type)) {
       throw new Error(`Invalid item: unsupported type ${String(item.type)}`)
     }
 
-    const parsed = stripItemWriteSchema.safeParse(item)
+    const parsed = standardItemSchema.safeParse(item)
     if (!parsed.success) {
-      const issues = parsed.error.issues
-        .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
-        .join('; ')
-
-      throw new Error(`Invalid item payload for ${item.id}: ${issues}`)
+      throw new Error(`Invalid item payload for ${item.id}: ${formatIssues(parsed.error)}`)
     }
 
     deduped.set(item.id, item)
@@ -68,18 +62,10 @@ function normalizeItemIds(itemIds: ItemId | ItemId[]): ItemId[] {
   return Array.from(new Set(normalized))
 }
 
-function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-    throw new Error('Invalid metadata payload')
-  }
-
-  const parsed = stripMetadataWriteSchema.safeParse(metadata)
+function validateMetadata(metadata: AccountMetadata): AccountMetadata {
+  const parsed = accountMetadataSchema.safeParse(metadata)
   if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
-      .join('; ')
-
-    throw new Error(`Invalid metadata payload: ${issues}`)
+    throw new Error(`Invalid metadata payload: ${formatIssues(parsed.error)}`)
   }
 
   return metadata
@@ -298,7 +284,7 @@ export async function setMetadata(
   metadata: AccountMetadata | ((previous: AccountMetadata) => AccountMetadata),
 ): Promise<AccountMetadata> {
   const currentMetadata = useAppStore.getState().metadata
-  const nextMetadata = sanitizeMetadata(
+  const nextMetadata = validateMetadata(
     typeof metadata === 'function'
       ? metadata({ ...currentMetadata })
       : metadata,

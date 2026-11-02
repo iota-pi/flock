@@ -16,6 +16,9 @@ import { styled } from '@mui/material/styles'
 import { checkSubscription } from '../../utils/pushNotifications'
 import { useAppStore } from 'src/state/store'
 import { useMetadata } from 'src/state/selectors'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('SubscriptionDialog')
 
 interface Props {
   onClose: () => void,
@@ -92,7 +95,7 @@ function SubscriptionDialog({
           setEnabled(false)
           setHour(8)
         }
-      }).catch(console.error)
+      }).catch(log.error)
       return () => { cancelled = true }
     },
     [account, open],

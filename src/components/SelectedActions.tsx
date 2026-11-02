@@ -23,6 +23,9 @@ import { usePrevious } from '../utils'
 import { deleteItems, storeItems } from '../features/items/mutations/itemMutations'
 import { useAppStore } from '../state/store'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('SelectedActions')
 
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
@@ -40,7 +43,6 @@ const ActionIconComponent = styled(ListItemIcon)(({ theme }) => ({
 }))
 
 interface BulkAction {
-  classes?: string[],
   dividerBefore?: boolean,
   icon: MuiIconType,
   id: string,
@@ -90,7 +92,7 @@ function SelectedActions() {
       const standardIds = selectedStandardItems.map(item => item.id)
 
       if (standardIds.length > 0) {
-        void deleteItems(standardIds).catch(error => console.error(error))
+        void deleteItems(standardIds).catch(log.error)
       }
       setShowConfirm(false)
     },
@@ -115,7 +117,7 @@ function SelectedActions() {
   const actions = useMemo<BulkAction[]>(
     () => {
       const result: BulkAction[] = []
-      if (workingStandardItems.find(item => item.type === 'person' || item.type === 'topic')) {
+      if (workingStandardItems.some(item => item.type === 'person' || item.type === 'topic')) {
         result.push({
           id: 'group',
           icon: GroupIcon,
@@ -131,7 +133,7 @@ function SelectedActions() {
           onClick: handleShowFrequency,
         })
 
-        if (workingStandardItems.find(item => !item.archived)) {
+        if (workingStandardItems.some(item => !item.archived)) {
           result.push({
             id: 'archive',
             icon: ArchiveIcon,
@@ -139,7 +141,7 @@ function SelectedActions() {
             onClick: handleArchive,
           })
         }
-        if (workingStandardItems.find(item => item.archived)) {
+        if (workingStandardItems.some(item => item.archived)) {
           result.push({
             id: 'unarchive',
             icon: UnarchiveIcon,
@@ -188,14 +190,11 @@ function SelectedActions() {
             {action.dividerBefore && <Divider />}
 
             <ListItemButton
-              className={action.classes?.join(' ')}
               onClick={action.onClick}
               data-cy={`action-${action.id}`}
               dense
             >
-              <ActionIconComponent
-                className={(action.classes || []).join(' ')}
-              >
+              <ActionIconComponent>
                 <action.icon />
               </ActionIconComponent>
 

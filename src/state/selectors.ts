@@ -106,23 +106,6 @@ function useMetadataValue<K extends MetadataKey>(
   return useDeepMemo(resolvedValue)
 }
 
-export function useItemIds(itemType?: Item['type']): string[] {
-  const visibleItems = useVisibleItems()
-
-  const nextIds = useMemo(
-    () => {
-      const filtered = itemType
-        ? visibleItems.filter(item => item.type === itemType)
-        : visibleItems
-
-      return filtered.map(item => item.id as string)
-    },
-    [itemType, visibleItems],
-  )
-
-  return useDeepMemo(nextIds)
-}
-
 export const useItem = (id: ItemId) => {
   const item = useAppStore(state => state.items[id as string])
 
@@ -278,18 +261,15 @@ export function useGroupLookupMap(): ReadonlyMap<ItemId, GroupLookupData> {
           continue
         }
 
-        const group = item as GroupItem
-        const members = Array.isArray(group.members) ? group.members : []
-
-        for (const memberId of members) {
-          const existing = lookup.get(memberId as ItemId)
+        for (const memberId of item.members) {
+          const existing = lookup.get(memberId)
           if (existing) {
-            existing.groupNames.push(group.name || '')
-            existing.groupIds.push(group.id as ItemId)
+            existing.groupNames.push(item.name)
+            existing.groupIds.push(item.id)
           } else {
-            lookup.set(memberId as ItemId, {
-              groupNames: [group.name || ''],
-              groupIds: [group.id as ItemId],
+            lookup.set(memberId, {
+              groupNames: [item.name],
+              groupIds: [item.id],
             })
           }
         }

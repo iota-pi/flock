@@ -11,8 +11,8 @@ import type { Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
 import {
   Due,
-  type FrequencyOrDays,
   frequencyToDays,
+  type Frequency,
   isDue,
 } from '../utils/frequencies'
 import { FrequencyIcon, PrayerIcon } from './Icons'
@@ -80,7 +80,7 @@ function FrequencyControls(props: Props) {
   const partOfGroupIds = isGroup ? [] : ((props as MemberItemProps).partOfGroups)
   const partOfGroups = useItemsByIds<GroupItem>(partOfGroupIds)
   const inheritedFrequency = useMemo(() => {
-    let frequency: FrequencyOrDays = 'none'
+    let frequency: Frequency = 'none'
     let group: GroupItem | null = null
     for (const g of partOfGroups) {
       if (g.memberPrayerFrequency && g.memberPrayerFrequency !== 'none') {

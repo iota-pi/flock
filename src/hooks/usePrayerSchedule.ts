@@ -1,8 +1,13 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useToday } from './useToday'
 import { usePrayerScheduleInputs } from '../state/selectors'
-import { isSameDay, useStableArray } from '../utils'
-import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
+import { useStableArray } from '../utils'
+import {
+  getNaturalPrayerGoal,
+  getPrayerSchedule,
+  isPrayedForToday as isItemPrayedForToday,
+  togglePrayedForToday,
+} from '../utils/prayer'
 import type { Item } from '../state/items'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 
@@ -29,7 +34,7 @@ export function usePrayerSchedule() {
   }
 
   const isPrayedForToday = useCallback(
-    (item: Item): boolean => isSameDay(today, new Date(getLastPrayedFor(item))),
+    (item: Item): boolean => isItemPrayedForToday(item, today),
     [today],
   )
 
@@ -67,16 +72,9 @@ export function usePrayerSchedule() {
 
   const recordPrayerFor = useCallback(
     (item: Item, toggle = false) => {
-      let prayedFor = item.prayedFor
-      if (isPrayedForToday(item)) {
-        if (toggle) {
-          const startOfDay = new Date()
-          startOfDay.setHours(0, 0, 0, 0)
-          prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
-        }
-      } else {
-        prayedFor = [...prayedFor, new Date().getTime()]
-      }
+      const prayedFor = toggle || !isPrayedForToday(item)
+        ? togglePrayedForToday(item)
+        : item.prayedFor
 
       void mutateItem(item.id, { prayedFor })
     },

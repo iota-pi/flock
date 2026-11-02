@@ -9,6 +9,9 @@ import { useAppStore } from 'src/state/store'
 import type { GroupItem } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 import { RemoveIcon } from 'src/components/Icons'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('GroupDisplay')
 
 interface Props {
   editable?: boolean,
@@ -33,7 +36,7 @@ function GroupDisplay({
       const members = [...group.members, itemId]
 
       void mutateItem(group.id, { members }).catch(error => {
-        console.error(error)
+        log.error(error)
       })
     },
     [itemId],
@@ -44,7 +47,7 @@ function GroupDisplay({
       const members = group.members.filter(m => m !== itemId)
 
       void mutateItem(group.id, { members }).catch(error => {
-        console.error(error)
+        log.error(error)
       })
     },
     [itemId],

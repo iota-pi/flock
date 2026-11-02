@@ -1,7 +1,29 @@
 import type { AccountMetadata } from '../../state/metadata'
-import { extractLegacySyncableMetadata } from '../../shared/schemas/metadata'
+import { SYNCED_METADATA_KEYS } from '../../shared/schemas/metadata'
 import type { LegacySettingsSource } from '@vault/client/worker'
 import { createTrpcClient, type AppTrpcClient } from '../../api/trpcClient'
+
+/** Settings the server stored in plaintext before the settings document, plus the timestamp used to merge them */
+const LEGACY_SYNCABLE_METADATA_KEYS = [
+  ...SYNCED_METADATA_KEYS,
+  'updatedAt',
+] as const satisfies readonly (keyof AccountMetadata)[]
+
+type LegacySyncableMetadataKey = (typeof LEGACY_SYNCABLE_METADATA_KEYS)[number]
+type LegacySyncableMetadata = Pick<AccountMetadata, LegacySyncableMetadataKey>
+
+function extractLegacySyncableMetadata(
+  metadata: Record<string, unknown> | undefined,
+): LegacySyncableMetadata {
+  if (!metadata || typeof metadata !== 'object') return {}
+  const result: LegacySyncableMetadata = {}
+  for (const key of LEGACY_SYNCABLE_METADATA_KEYS) {
+    if (metadata[key] !== undefined) {
+      result[key] = metadata[key] as never
+    }
+  }
+  return result
+}
 
 /**
  * Merges the settings a device kept locally with the plaintext copy on the server, as Flock did

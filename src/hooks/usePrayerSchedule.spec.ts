@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react'
 import { usePrayerSchedule } from './usePrayerSchedule'
 
 import { usePrayerScheduleInputs } from '../state/selectors'
-import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
+import { getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { useToday } from './useToday'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import type { Item } from 'src/state/items'
@@ -18,7 +18,6 @@ beforeEach(() => {
     usePrayerScheduleInputs: vi.fn(),
   })
   spyOnExports(prayerModule, {
-    getLastPrayedFor: vi.fn(),
     getNaturalPrayerGoal: vi.fn(),
     getPrayerSchedule: vi.fn(),
   })
@@ -42,7 +41,6 @@ describe('usePrayerSchedule', () => {
 
     vi.mocked(getNaturalPrayerGoal).mockReturnValue(5)
     vi.mocked(getPrayerSchedule).mockReturnValue([])
-    vi.mocked(getLastPrayedFor).mockReturnValue(0)
   })
 
   it('initializes with default values', () => {
@@ -57,7 +55,7 @@ describe('usePrayerSchedule', () => {
 
   it('calculates visibleSchedule based on goal', () => {
     const ids = ['1', '2', '3', '4', '5'] as ItemId[]
-    const items = ids.map(id => ({ id, name: `Item ${id}` } as Item))
+    const items = ids.map(id => ({ id, name: `Item ${id}`, prayedFor: [] } as unknown as Item))
 
     vi.mocked(usePrayerScheduleInputs).mockReturnValue({
       items,
@@ -74,7 +72,6 @@ describe('usePrayerSchedule', () => {
 
   it('recordPrayerFor updates local state', () => {
     const item = { id: '1', type: 'person', name: 'Alice', prayedFor: [] }
-    vi.mocked(getLastPrayedFor).mockReturnValue(0)
 
     const { result } = renderHook(() => usePrayerSchedule())
 
@@ -94,15 +91,11 @@ describe('usePrayerSchedule', () => {
     const today = new Date('2024-01-01T12:00:00')
     vi.mocked(useToday).mockReturnValue(today)
 
-    const item = { id: '1' }
-
-    vi.mocked(getLastPrayedFor).mockReturnValue(today.getTime())
+    const prayedToday = { id: '1', prayedFor: [today.getTime()] }
+    const prayedYesterday = { id: '2', prayedFor: [today.getTime() - 86400000] }
 
     const { result } = renderHook(() => usePrayerSchedule())
-    expect(result.current.isPrayedForToday(item as any)).toBe(true)
-
-    vi.mocked(getLastPrayedFor).mockReturnValue(today.getTime() - 86400000)
-
-    expect(result.current.isPrayedForToday(item as any)).toBe(false)
+    expect(result.current.isPrayedForToday(prayedToday as any)).toBe(true)
+    expect(result.current.isPrayedForToday(prayedYesterday as any)).toBe(false)
   })
 })

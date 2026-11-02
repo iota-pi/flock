@@ -10,6 +10,9 @@ import type { Item } from '../../state/items'
 import Search from '../Search'
 import { storeItems } from '../../features/items/mutations/itemMutations'
 import type { GroupItem } from 'src/shared/schemas/items'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('GroupDialog')
 
 
 interface Props {
@@ -79,7 +82,7 @@ function GroupDialog({
           onClose()
         })
         .catch(error => {
-          console.error(error)
+          log.error(error)
         })
     },
     [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds],

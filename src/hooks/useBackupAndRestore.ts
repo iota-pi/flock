@@ -3,7 +3,8 @@ import {
   setMetadata,
   storeItems,
 } from '../features/items/mutations/itemMutations'
-import { createLogger, exportData } from '@vault/client'
+import { exportData } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import type { BackupPayloadV2 } from '../types/backup'
 import type { BackupSyncState } from '@vault/client'
 import type { Item } from '../state/items'

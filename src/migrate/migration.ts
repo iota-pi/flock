@@ -7,8 +7,8 @@ import {
   reencryptAllItems,
   upgradeKeyDerivation,
   type DataVersionStatus,
-  createLogger,
 } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import {
   MIGRATION_CHANNEL,
   MIN_ACCOUNT_DATA_VERSION,

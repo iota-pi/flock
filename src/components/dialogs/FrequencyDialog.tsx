@@ -11,6 +11,9 @@ import { storeItems } from '../../features/items/mutations/itemMutations'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
 import type { Frequency } from '../../utils/frequencies'
+import { createLogger } from 'src/utils/logger'
+
+const log = createLogger('FrequencyDialog')
 
 
 interface Props {
@@ -42,7 +45,7 @@ function FrequencyDialog({
           onClose()
         })
         .catch(error => {
-          console.error(error)
+          log.error(error)
         })
     },
     [frequency, items, onClose],
