@@ -114,7 +114,7 @@ function SelectedActions() {
   const actions = useMemo<BulkAction[]>(
     () => {
       const result: BulkAction[] = []
-      if (workingStandardItems.find(item => item.type === 'person' || item.type === 'topic')) {
+      if (workingStandardItems.some(item => item.type === 'person' || item.type === 'topic')) {
         result.push({
           id: 'group',
           icon: GroupIcon,
@@ -130,7 +130,7 @@ function SelectedActions() {
           onClick: handleShowFrequency,
         })
 
-        if (workingStandardItems.find(item => !item.archived)) {
+        if (workingStandardItems.some(item => !item.archived)) {
           result.push({
             id: 'archive',
             icon: ArchiveIcon,
@@ -138,7 +138,7 @@ function SelectedActions() {
             onClick: handleArchive,
           })
         }
-        if (workingStandardItems.find(item => item.archived)) {
+        if (workingStandardItems.some(item => item.archived)) {
           result.push({
             id: 'unarchive',
             icon: UnarchiveIcon,

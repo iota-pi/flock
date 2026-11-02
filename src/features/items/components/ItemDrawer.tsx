@@ -52,7 +52,7 @@ function ItemDrawer({
   onClose,
   open,
 }: Props) {
-  const storeItem = useItem(itemId ?? '' as ItemId)
+  const resolvedItem = useItem(itemId ?? '' as ItemId) ?? null
   const setMessage = useAppStore(state => state.setMessage)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [hasEdited, setHasEdited] = useState(false)
@@ -63,13 +63,6 @@ function ItemDrawer({
     setPrevItemId(itemId)
     setHasEdited(false)
   }
-
-  const resolvedItem = useMemo((): Item | null => {
-    if (storeItem) {
-      return storeItem
-    }
-    return null
-  }, [storeItem])
 
   const handleChange = useCallback(
     (data: Partial<Item> | ((prev: Item) => Item)) => {
@@ -83,7 +76,7 @@ function ItemDrawer({
     [itemId, resolvedItem],
   )
 
-  const isNew = (resolvedItem as Item & { isNew?: boolean } | null)?.isNew ?? false
+  const isNew = resolvedItem?.isNew ?? false
 
   const cleanupAndClose = useCallback(
     () => {

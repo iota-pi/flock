@@ -25,14 +25,12 @@ export const FREQUENCIES_TO_LABELS: Record<BaseFrequency, string> = {
 }
 export const FREQUENCIES = Object.keys(FREQUENCIES_TO_DAYS) as BaseFrequency[]
 
-export type FrequencyOrDays = Frequency | number
-
-export function frequencyToDays(frequency: FrequencyOrDays) {
+export function frequencyToDays(frequency: Frequency) {
   if (typeof frequency === 'number') return frequency
   return FREQUENCIES_TO_DAYS[frequency]
 }
 
-export function frequencyToMilliseconds(frequency: FrequencyOrDays) {
+export function frequencyToMilliseconds(frequency: Frequency) {
   return frequencyToDays(frequency) * ONE_DAY
 }
 
@@ -42,18 +40,18 @@ export enum Due {
   overdue,
 }
 
-export function timeTillDue(lastDate: Date, desiredFrequency: FrequencyOrDays) {
+export function timeTillDue(lastDate: Date, desiredFrequency: Frequency) {
   const dueDate = new Date(lastDate.getTime() + frequencyToMilliseconds(desiredFrequency))
   return dueDate.getTime() - new Date().getTime()
 }
 
-export function isDue(lastDate: Date, desiredFrequency: FrequencyOrDays): Due {
-  const remiainingTime = timeTillDue(lastDate, desiredFrequency)
+export function isDue(lastDate: Date, desiredFrequency: Frequency): Due {
+  const remainingTime = timeTillDue(lastDate, desiredFrequency)
   const threshold = Math.ceil(frequencyToDays(desiredFrequency) / DUE_WINDOW_IN_DAYS) * ONE_DAY
-  if (remiainingTime < -threshold) {
+  if (remainingTime < -threshold) {
     return Due.overdue
   }
-  if (remiainingTime <= (desiredFrequency === 'daily' ? 0 : threshold)) {
+  if (remainingTime <= (desiredFrequency === 'daily' ? 0 : threshold)) {
     return Due.due
   }
   return Due.fine
