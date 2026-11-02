@@ -41,6 +41,9 @@ import {
 import ListBoxComponent, { type SearchListVirtualizerApi } from './search/ListBox'
 import { ERROR_ITEM_TYPE, ITEM_TYPES } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('Search')
 
 
 function ThemedPaper({ children, ...props }: PaperProps) {
@@ -211,7 +214,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         if (removed) {
           onRemove(removed.data as T)
         } else {
-          console.warn('Could not find the removed option among the selected items')
+          log.warn('Could not find the removed option among the selected items')
         }
       }
       if (onClear && reason === 'clear') {

@@ -5,6 +5,9 @@ import {
   getReminderSettings,
 } from '../api/notificationClient'
 import env from '../env'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('pushNotifications')
 
 function fromBase64Url(base64Url: string) {
   const padding = '='.repeat((4 - (base64Url.length % 4)) % 4)
@@ -173,7 +176,7 @@ export async function syncReminderTimezone(account: string): Promise<boolean> {
     }
     return false
   } catch (error) {
-    console.error('Failed to sync reminder timezone', error)
+    log.error('Failed to sync reminder timezone', error)
     return false
   }
 }
@@ -204,6 +207,6 @@ export async function clearReminderNotifications(): Promise<void> {
       }
     }
   } catch (error) {
-    console.error('Failed to clear reminder notifications:', error)
+    log.error('Failed to clear reminder notifications:', error)
   }
 }

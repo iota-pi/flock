@@ -21,11 +21,13 @@ import {
   VisibilityIcon,
   VisibilityOffIcon,
 } from '../Icons'
-import { createVaultAccount } from '@vault/client'
+import { createVaultAccount, createLogger } from '@vault/client'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
 import { useAppStore } from 'src/state/store'
+
+const log = createLogger('CreateAccount')
 
 
 const Root = styled('div')({
@@ -111,7 +113,7 @@ function CreateAccountPage() {
           setError('An error occured while creating your account.')
         }
       } catch (e) {
-        console.error(e)
+        log.error(e)
         setError('An error occured while creating your account.')
       }
       setWaiting(false)

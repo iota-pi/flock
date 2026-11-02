@@ -15,6 +15,9 @@ import { deleteItems } from '../../features/items/mutations/itemMutations'
 import ConfirmationDialog from './ConfirmationDialog'
 import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryKind } from '@vault/client'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('DataRecoveryDialog')
 
 
 interface Props {
@@ -64,7 +67,7 @@ function DataRecoveryDialog({ onClose, open }: Props) {
       await deleteItems(quarantinedItemToDelete)
       setQuarantinedItemToDelete(null)
     } catch (error) {
-      console.error('Failed to delete quarantined item:', error)
+      log.error('Failed to delete quarantined item:', error)
     } finally {
       setIsDeleting(false)
     }

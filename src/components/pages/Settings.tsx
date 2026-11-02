@@ -14,6 +14,9 @@ import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
 import { useVisibleItems } from 'src/state/selectors'
 import ConfirmationDialog from '../dialogs/ConfirmationDialog'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('Settings')
 
 
 function SettingsPage() {
@@ -37,7 +40,7 @@ function SettingsPage() {
         const json = await actions.handleExport()
         download(json, 'flock.backup.json')
       } catch (err) {
-        console.error('Export failed', err)
+        log.error('Export failed', err)
       }
     },
     [actions],

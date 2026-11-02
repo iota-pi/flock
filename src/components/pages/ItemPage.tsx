@@ -17,6 +17,9 @@ import { createItem } from 'src/features/items/mutations/itemMutations'
 import { filterItems } from 'src/utils/customFilter'
 import { sortItems } from 'src/utils/customSort'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('ItemPage')
 
 
 interface Props {
@@ -81,7 +84,7 @@ function ItemPage({
       }).then(createdItem => {
         setDrawer({ item: createdItem.id })
       }).catch(error => {
-        console.error(error)
+        log.error(error)
       })
     },
     [defaultFrequencies, itemType, setDrawer],

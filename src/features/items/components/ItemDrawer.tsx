@@ -33,6 +33,9 @@ import { ITEM_TYPES } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 import type { ItemType } from 'src/shared/itemTypes'
 import { useAppStore } from 'src/state/store'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('ItemDrawer')
 
 
 const ItemFormContent = lazy(() => import('./ItemFormContent'))
@@ -71,7 +74,7 @@ function ItemDrawer({
       setHasEdited(true)
       const changes = typeof data === 'function' ? data(resolvedItem) : data
 
-      mutateItem(itemId, changes).catch(error => console.error(error))
+      mutateItem(itemId, changes).catch(log.error)
     },
     [itemId, resolvedItem],
   )
@@ -86,7 +89,7 @@ function ItemDrawer({
         // If the user edited the item, assume it's valid and don't delete it
         // even if a race condition temporarily makes it appear invalid.
         if (!hasEdited && itemToCheck && !isValid(itemToCheck)) {
-          deleteItems(itemId).catch(error => console.error(error))
+          deleteItems(itemId).catch(log.error)
         }
       }
 
@@ -98,7 +101,7 @@ function ItemDrawer({
   const handleDelete = useCallback(
     () => {
       if (itemId !== null) {
-        deleteItems(itemId).catch(error => console.error(error))
+        deleteItems(itemId).catch(log.error)
       }
       setShowConfirmDelete(false)
       onClose()

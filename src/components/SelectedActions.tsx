@@ -23,6 +23,9 @@ import { usePrevious } from '../utils'
 import { deleteItems, storeItems } from '../features/items/mutations/itemMutations'
 import { useAppStore } from '../state/store'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
+import { createLogger } from '@vault/client'
+
+const log = createLogger('SelectedActions')
 
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
@@ -89,7 +92,7 @@ function SelectedActions() {
       const standardIds = selectedStandardItems.map(item => item.id)
 
       if (standardIds.length > 0) {
-        void deleteItems(standardIds).catch(error => console.error(error))
+        void deleteItems(standardIds).catch(log.error)
       }
       setShowConfirm(false)
     },
