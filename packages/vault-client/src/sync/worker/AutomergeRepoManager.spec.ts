@@ -45,32 +45,26 @@ beforeEach(() => {
 
 describe('AutomergeRepoManager', () => {
   let manager: AutomergeRepoManager
-  let mockVaultAdapter: VaultNetworkAdapter
   let storage: VaultIndexedDBStorageAdapter
+  let repo: any
 
   beforeEach(() => {
     vi.clearAllMocks()
-    manager = new AutomergeRepoManager('account-1', createMockKeyProvider())
-    mockVaultAdapter = {} as VaultNetworkAdapter
     storage = new VaultIndexedDBStorageAdapter('test-db')
+    manager = new AutomergeRepoManager('account-1', createMockKeyProvider(), {} as VaultNetworkAdapter, storage)
+    repo = manager.repo
   })
 
-  it('initializes Repo with QuotaHandlingStorageAdapter', () => {
-    const repo = manager.init(mockVaultAdapter, storage) as any
-
-    expect(repo).toBeDefined()
-    expect(repo.storage).toBeDefined()
+  it('builds the Repo on the quota-handling storage', () => {
+    expect(repo.storage).toBe(manager.storage)
   })
 
   it('delegates save through runStorageOperation and rethrows a quota failure', async () => {
-    const repo = manager.init(mockVaultAdapter, storage) as any
-
     const runStorageSpy = vi.spyOn(storageManager, 'runStorageOperation')
     const quotaError = new DOMException('Quota exceeded', 'QuotaExceededError')
 
     // Simulate underlying adapter throwing QuotaExceededError
-    // @ts-expect-error accessing private adapter
-    vi.spyOn(manager.indexedDbAdapter, 'save').mockRejectedValueOnce(quotaError)
+    vi.spyOn(storage, 'save').mockRejectedValueOnce(quotaError)
 
     await expect(
       repo.storage.save(['doc-1'], new Uint8Array([1, 2, 3]))
@@ -80,41 +74,29 @@ describe('AutomergeRepoManager', () => {
   })
 
   it('awaits indexedDbAdapter.close() during manager.close()', async () => {
-    manager.init(mockVaultAdapter, storage)
-    // @ts-expect-error accessing private adapter
-    const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close')
+    const adapterCloseSpy = vi.spyOn(storage, 'close')
 
     await manager.close()
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
 
   it('delegates has through runStorageOperation', async () => {
-    const repo = manager.init(mockVaultAdapter, storage) as any
     const runStorageSpy = vi.spyOn(storageManager, 'runStorageOperation')
 
-    // @ts-expect-error accessing private adapter
-    vi.spyOn(manager.indexedDbAdapter, 'has').mockResolvedValueOnce(true)
+    vi.spyOn(storage, 'has').mockResolvedValueOnce(true)
 
     const result = await repo.storage.has(['doc-1'])
     expect(result).toBe(true)
     expect(runStorageSpy).toHaveBeenCalled()
   })
 
-  it('exposes wrapped storage via getters', () => {
-    manager.init(mockVaultAdapter, storage)
-    expect(manager.getStorage()).toBeDefined()
-    expect(typeof manager.getStorage()?.has).toBe('function')
-  })
-
   it('shuts down repo and closes adapter without clearing storage on close', async () => {
-    const repo = manager.init(mockVaultAdapter, storage) as any
     const callOrder: string[] = []
 
     const repoShutdownSpy = vi.spyOn(repo, 'shutdown').mockImplementation(async () => {
       callOrder.push('repo.shutdown')
     })
-    // @ts-expect-error accessing private adapter
-    const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close').mockImplementation(async () => {
+    const adapterCloseSpy = vi.spyOn(storage, 'close').mockImplementation(async () => {
       callOrder.push('adapter.close')
     })
 
@@ -126,12 +108,20 @@ describe('AutomergeRepoManager', () => {
   })
 
   it('closes the adapter when clearLocalData is omitted', async () => {
-    manager.init(mockVaultAdapter, storage)
-    // @ts-expect-error accessing private adapter
-    const adapterCloseSpy = vi.spyOn(manager.indexedDbAdapter, 'close').mockResolvedValue(undefined)
+    const adapterCloseSpy = vi.spyOn(storage, 'close').mockResolvedValue(undefined)
 
     await manager.close()
 
+    expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes only once', async () => {
+    const adapterCloseSpy = vi.spyOn(storage, 'close')
+
+    await manager.close()
+    await manager.close()
+
+    expect(repo.shutdown).toHaveBeenCalledTimes(1)
     expect(adapterCloseSpy).toHaveBeenCalledTimes(1)
   })
 })

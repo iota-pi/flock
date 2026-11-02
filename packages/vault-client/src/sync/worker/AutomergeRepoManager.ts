@@ -54,95 +54,72 @@ export interface AutomergeRepoManagerOptions {
   bus?: RealtimeBus
 }
 
+/** Owns the account's Repo and the storage it's built on, which it closes on stop */
 export class AutomergeRepoManager {
-  private repo: Repo | null = null
-  private indexedDbAdapter: VaultIndexedDBStorageAdapter | null = null
-  private quotaAdapter: QuotaHandlingStorageAdapter | null = null
-  private broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter | null = null
+  readonly repo: Repo
+  /** The Repo's storage, with quota failures handled */
+  readonly storage: AutomergeStorageAdapter
+  private readonly broadcastAdapter: EncryptedBroadcastChannelNetworkAdapter
+  private isClosed = false
 
   constructor(
     private readonly accountId: string,
-    private readonly keys: KeyProvider,
-  ) {}
-
-  /** Creates the Repo on `storage`, which this manager then owns and closes on stop */
-  init(
+    keys: KeyProvider,
     vaultNetworkAdapter: VaultNetworkAdapter,
-    storage: VaultIndexedDBStorageAdapter,
+    private readonly indexedDbAdapter: VaultIndexedDBStorageAdapter,
     options?: AutomergeRepoManagerOptions,
-  ): Repo {
-    if (this.repo) {
-      throw new Error(`Automerge repo for account ${this.accountId} has already been initialized`)
-    }
-
-    this.indexedDbAdapter = storage
-    this.quotaAdapter = new QuotaHandlingStorageAdapter(this.indexedDbAdapter)
+  ) {
+    this.storage = new QuotaHandlingStorageAdapter(indexedDbAdapter)
 
     this.broadcastAdapter = new EncryptedBroadcastChannelNetworkAdapter({
-      channelName: `${getVaultStorageNames().accountPrefixes.automergeBroadcastChannel}${this.accountId}`,
+      channelName: `${getVaultStorageNames().accountPrefixes.automergeBroadcastChannel}${accountId}`,
       bus: options?.bus,
-      keys: this.keys,
+      keys,
       onKeyVersionMissing: options?.onKeyVersionMissing,
       onDocumentReceived: options?.onDocumentReceived,
     })
 
     this.repo = new Repo({
-      storage: this.quotaAdapter,
+      storage: this.storage,
       network: [
         this.broadcastAdapter,
         vaultNetworkAdapter,
       ],
     })
-
-    return this.repo
-  }
-
-  getStorage(): AutomergeStorageAdapter | null {
-    return this.quotaAdapter
   }
 
   pauseBroadcastSync(): void {
-    if (this.broadcastAdapter) {
-      this.broadcastAdapter.pause()
-    }
+    this.broadcastAdapter.pause()
   }
 
   resumeBroadcastSync(): void {
-    if (this.broadcastAdapter) {
-      this.broadcastAdapter.resume()
-    }
+    this.broadcastAdapter.resume()
   }
 
   async close(): Promise<void> {
-    if (this.broadcastAdapter) {
-      try {
-        this.broadcastAdapter.disconnect()
-      } catch (err) {
-        log.error(`Error disconnecting broadcast adapter for ${this.accountId}:`, err)
-      }
-      this.broadcastAdapter = null
+    if (this.isClosed) return
+    this.isClosed = true
+
+    try {
+      this.broadcastAdapter.disconnect()
+    } catch (err) {
+      log.error(`Error disconnecting broadcast adapter for ${this.accountId}:`, err)
     }
 
-    if (this.repo) {
-      try {
-        await this.repo.shutdown()
-      } catch (err) {
-        log.error(`Error shutting down repo for ${this.accountId}:`, err)
-      }
-      this.repo = null
+    try {
+      await this.repo.shutdown()
+    } catch (err) {
+      log.error(`Error shutting down repo for ${this.accountId}:`, err)
     }
 
     // Note: Do not clear storage through the adapter on close. Database deletion
     // during logout is handled by the main thread (deleteDatabase in clearAccountLocalData)
     // after the worker has cleanly closed its open connections. Calling indexedDbAdapter.clear()
     // via an open connection creates versionchange conflicts and blocks deleteDatabase.
-    if (this.indexedDbAdapter) {
-      try {
-        await this.indexedDbAdapter.close()
-      } catch (err) {
-        log.error(`Error closing IndexedDB connection for ${this.accountId}:`, err)
-      }
-      this.indexedDbAdapter = null
+    try {
+      await this.indexedDbAdapter.close()
+    } catch (err) {
+      log.error(`Error closing IndexedDB connection for ${this.accountId}:`, err)
     }
   }
 }

@@ -57,29 +57,20 @@ describe('AutomergeDocStore Unit Tests', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
-    await docStore.shutdown()
+    docStore.shutdown()
     await repo.shutdown()
   })
 
   // =========================================================================
   // 1. hydrateAutomergeDocumentBinary fallback merge logic (4 branches)
   // =========================================================================
-  describe('hydrateAutomergeDocumentBinary (4 branches and input guards)', () => {
-    it('returns empty result when itemId is invalid or empty string', async () => {
-      const binary = createDocBinary('valid-id' as ItemId)
-      const resEmpty = await docStore.hydrateAutomergeDocumentBinary('' as ItemId, binary)
-      expect(resEmpty).toEqual({ hasLocalChanges: false, incomingHeads: [] })
-
-      const resWhitespace = await docStore.hydrateAutomergeDocumentBinary('   ' as ItemId, binary)
-      expect(resWhitespace).toEqual({ hasLocalChanges: false, incomingHeads: [] })
-    })
-
+  describe('hydrateAutomergeDocumentBinary (4 branches and input guard)', () => {
     it('returns empty result when binary is not a Uint8Array or has zero bytes', async () => {
       // @ts-expect-error invalid binary test
-      const resNull = await docStore.hydrateAutomergeDocumentBinary('item-1', null)
+      const resNull = await docStore.hydrateAutomergeDocumentBinary('item-1' as ItemId, null)
       expect(resNull).toEqual({ hasLocalChanges: false, incomingHeads: [] })
 
-      const resEmpty = await docStore.hydrateAutomergeDocumentBinary('item-1', new Uint8Array(0))
+      const resEmpty = await docStore.hydrateAutomergeDocumentBinary('item-1' as ItemId, new Uint8Array(0))
       expect(resEmpty).toEqual({ hasLocalChanges: false, incomingHeads: [] })
     })
 
@@ -571,9 +562,9 @@ describe('AutomergeDocStore Unit Tests', () => {
   })
 
   // =========================================================================
-  // 3. hasDataInStorage fallback when no storage checker is available
+  // 3. hasDataInStorage and loadDocDataFromStorage
   // =========================================================================
-  describe('hasDataInStorage fallback and storage adapter checking', () => {
+  describe('hasDataInStorage and loadDocDataFromStorage', () => {
     it('uses storageAdapter.has when storageAdapter is configured', async () => {
       const mockAdapter: DocStorageChecker = {
         has: vi.fn().mockResolvedValue(true),
@@ -611,63 +602,49 @@ describe('AutomergeDocStore Unit Tests', () => {
         has: vi.fn().mockResolvedValue(true),
       }
       const store = createTestDocStore(repo, { storageAdapter: mockAdapter })
-      await store.shutdown()
+      store.shutdown()
 
       await expect(store.hasDataInStorage('test-storage-item' as ItemId)).rejects.toThrow(AbortError)
       expect(mockAdapter.has).not.toHaveBeenCalled()
     })
 
-    it('fallback: returns false when no storageAdapter is configured and repo has no storageSubsystem', async () => {
-      const store = createTestDocStore(repo, { storageAdapter: null })
-      const result = await store.hasDataInStorage('test-item' as ItemId)
-      expect(result).toBe(false)
-
-      const docData = await store.loadDocDataFromStorage('test-item' as ItemId)
-      expect(docData).toBeUndefined()
+    it('loadDocDataFromStorage returns undefined when the repo has no storage subsystem', async () => {
+      expect(await docStore.loadDocDataFromStorage('test-item' as ItemId)).toBeUndefined()
     })
 
-    it('fallback: returns true when repo.storageSubsystem returns valid document bytes', async () => {
+    it('loadDocDataFromStorage returns the bytes the storage subsystem loads', async () => {
       const customRepo = new Repo()
       const rawBytes = new Uint8Array([1, 2, 3, 4])
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockResolvedValue(rawBytes),
       }
-      const store = createTestDocStore(customRepo, { storageAdapter: null })
+      const store = createTestDocStore(customRepo)
 
-      const exists = await store.hasDataInStorage('test-item' as ItemId)
-      expect(exists).toBe(true)
-
-      const loaded = await store.loadDocDataFromStorage('test-item' as ItemId)
-      expect(loaded).toEqual(rawBytes)
+      expect(await store.loadDocDataFromStorage('test-item' as ItemId)).toEqual(rawBytes)
     })
 
-    it('fallback: returns false when repo.storageSubsystem returns empty bytes or undefined', async () => {
+    it('loadDocDataFromStorage returns undefined for empty bytes or undefined', async () => {
       const customRepo = new Repo()
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockResolvedValue(new Uint8Array(0)),
       }
-      const store = createTestDocStore(customRepo, { storageAdapter: null })
-      expect(await store.hasDataInStorage('test-item' as ItemId)).toBe(false)
+      const store = createTestDocStore(customRepo)
       expect(await store.loadDocDataFromStorage('test-item' as ItemId)).toBeUndefined()
 
       customRepo.storageSubsystem!.loadDocData = vi.fn().mockResolvedValue(undefined)
-      expect(await store.hasDataInStorage('test-item' as ItemId)).toBe(false)
       expect(await store.loadDocDataFromStorage('test-item' as ItemId)).toBeUndefined()
     })
 
-    it('fallback: rethrows error when loadDocData in storageSubsystem throws', async () => {
+    it('loadDocDataFromStorage rethrows when the storage subsystem throws', async () => {
       const customRepo = new Repo()
       // @ts-expect-error mocking storageSubsystem
       customRepo.storageSubsystem = {
         loadDocData: vi.fn().mockRejectedValue(new Error('IndexedDB transaction aborted')),
       }
-      const store = createTestDocStore(customRepo, { storageAdapter: null })
+      const store = createTestDocStore(customRepo)
 
-      await expect(
-        store.hasDataInStorage('test-item' as ItemId)
-      ).rejects.toThrow('IndexedDB transaction aborted')
       await expect(
         store.loadDocDataFromStorage('test-item' as ItemId)
       ).rejects.toThrow('IndexedDB transaction aborted')
@@ -1072,7 +1049,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const shutdownSpy = vi.spyOn(customRepo, 'shutdown')
       const store = createTestDocStore(customRepo)
 
-      await store.shutdown()
+      store.shutdown()
       expect(shutdownSpy).not.toHaveBeenCalled()
       await customRepo.shutdown()
     })
@@ -1163,7 +1140,7 @@ describe('AutomergeDocStore Unit Tests', () => {
         expect(storedDoc.name).toBe('Local Name')
         expect(storedDoc.description).toBe('Remote Desc')
       } finally {
-        await store.shutdown()
+        store.shutdown()
         await storageRepo.shutdown()
       }
     })

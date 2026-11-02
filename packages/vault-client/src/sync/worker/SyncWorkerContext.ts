@@ -225,7 +225,7 @@ export class SyncWorkerContext {
     const docStore = new AutomergeDocStore({
       repo,
       onHandleReplaced: this.config.onDocHandleReplaced,
-      storageAdapter: repoManager.getStorage(),
+      storageAdapter: repoManager.storage,
       codec: this.domain.codec,
       isLocallyUnreadable: documentId => this.unreadableDocuments.has(documentId),
     })
@@ -489,12 +489,12 @@ export class SyncWorkerContext {
       },
       onReNegotiationTriggered: documentId => this.requestSnapshot([toVaultItemIdFromAutomergeId(documentId)]),
     })
-    const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys)
-    repo = repoManager.init(adapter, storage, {
+    const repoManager = new AutomergeRepoManager(this.accountId, this.config.keys, adapter, storage, {
       bus: realtimeBus,
       onKeyVersionMissing: this.emitKeyVersionMissing,
       onDocumentReceived: docId => this.notifyDocumentReceived(toVaultItemIdFromAutomergeId(docId)),
     })
+    repo = repoManager.repo
     return { adapter, repoManager, repo }
   }
 
@@ -744,7 +744,7 @@ export class SyncWorkerContext {
     // Drops the handle that never finished loading. Its chunks are removed here rather than left to
     // the Repo, which doesn't wait for that.
     repo.delete(documentId)
-    await repoManager.getStorage()?.removeRange([documentId])
+    await repoManager.storage.removeRange([documentId])
     this.unreadableDocuments.delete(documentId)
 
     // A forced sync fetches quarantined items, and there's no longer a local copy to keep

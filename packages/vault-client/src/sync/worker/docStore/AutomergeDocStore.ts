@@ -1,6 +1,6 @@
 import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl, type DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import { ItemId, ItemIdSchema } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { VaultDoc, VaultMetadata } from '../../shared/types'
 import type { DocCodec } from '../domain'
 import {
@@ -41,11 +41,6 @@ export type AutomergeIndexDocument = {
   lastManifestSyncTime?: number
 }
 
-function normalizeItemId(raw: unknown): ItemId | null {
-  const result = ItemIdSchema.safeParse(raw)
-  return result.success ? result.data : null
-}
-
 /**
  * Decodes a document snapshot with the app's codec, filling in a missing `id`.
  * Returns null for empty documents.
@@ -75,7 +70,7 @@ export interface AutomergeDocStoreOptions {
   repo: Repo
   /** Called when a find or create puts a new handle in place of an item's old one, so its listeners can move */
   onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
-  storageAdapter?: DocStorageChecker | null
+  storageAdapter: DocStorageChecker
   codec: DocCodec
   /**
    * Whether a document's sealed local records failed to decrypt. Its handle never finishes loading
@@ -90,7 +85,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   private itemMutex = new KeyedAsyncMutex<ItemId>()
   private readonly repo: Repo
   private readonly onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
-  private readonly storageAdapter?: DocStorageChecker | null
+  private readonly storageAdapter: DocStorageChecker
   private isShutdown = false
   public readonly codec: DocCodec
   private readonly isLocallyUnreadable: (documentId: DocumentId) => boolean
@@ -132,12 +127,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   async hasDataInStorage(itemId: ItemId): Promise<boolean> {
     checkAlive(null, !this.isShutdown, 'Doc store is shut down')
     const { documentId } = this.resolveDocumentId(itemId)
-    if (this.storageAdapter) {
-      return this.storageAdapter.has([documentId])
-    }
-
-    const data = await this.loadDocDataFromStorage(itemId)
-    return !!data
+    return this.storageAdapter.has([documentId])
   }
 
   async saveDocToStorage(itemId: ItemId): Promise<boolean> {
@@ -342,20 +332,19 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   async hydrateAutomergeDocumentBinary(
-    itemId: string,
+    itemId: ItemId,
     binary: Uint8Array,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<HydrateDocumentResult> {
-    const normalizedItemId = normalizeItemId(itemId)
-    if (!normalizedItemId || !(binary instanceof Uint8Array) || binary.byteLength === 0) {
+    if (!(binary instanceof Uint8Array) || binary.byteLength === 0) {
       return { hasLocalChanges: false, incomingHeads: [] }
     }
 
-    return this.withItemLock(normalizedItemId, async () => {
+    return this.withItemLock(itemId, async () => {
       const incomingDoc = Automerge.load<RepoDoc>(binary)
       const incomingHeads = Automerge.getHeads(incomingDoc)
 
-      const existingHandle = await this.findHandleInternal(normalizedItemId, options)
+      const existingHandle = await this.findHandleInternal(itemId, options)
       if (existingHandle?.isReady()) {
         this.applyMerge(existingHandle, incomingDoc)
         return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
@@ -363,14 +352,14 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
       // Document handle was not available or not ready within timeout.
       // Check whether document exists in storage to avoid clobbering local edits.
-      const localBinary = await this.loadDocDataFromStorage(normalizedItemId)
+      const localBinary = await this.loadDocDataFromStorage(itemId)
       // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
       // replace an unreadable copy from the server, say), so ask storage rather than trusting the
       // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
-      const existsInStorage = !!localBinary || await this.hasDataInStorage(normalizedItemId)
+      const existsInStorage = !!localBinary || await this.hasDataInStorage(itemId)
 
       // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
-      const { documentId } = this.resolveDocumentId(normalizedItemId)
+      const { documentId } = this.resolveDocumentId(itemId)
       const inMemoryHandle = this.getReadyHandle(documentId)
       if (inMemoryHandle) {
         this.applyMerge(inMemoryHandle, incomingDoc)
@@ -383,7 +372,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         if (localBinary) {
           try {
             const mergedDoc = Automerge.merge(Automerge.load<RepoDoc>(localBinary), incomingDoc)
-            await this.seedImportedDocument(normalizedItemId, Automerge.save(mergedDoc))
+            await this.seedImportedDocument(itemId, Automerge.save(mergedDoc))
             return this.buildHydrateResult(mergedDoc, incomingHeads)
           } catch (mergeError) {
             mergeFailure = mergeError
@@ -391,14 +380,14 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         }
 
         throw new Error(
-          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${normalizedItemId}: ` +
+          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}: ` +
           `its handle didn't load in time and the fallback merge failed`,
           { cause: mergeFailure },
         )
       }
 
       // Genuinely new document - safe to seed
-      const handle = await this.seedImportedDocument(normalizedItemId, binary, incomingDoc)
+      const handle = await this.seedImportedDocument(itemId, binary, incomingDoc)
       return this.buildHydrateResult(handle.doc(), incomingHeads)
     })
   }
@@ -444,7 +433,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     return handle
   }
 
-  async shutdown(): Promise<void> {
+  shutdown(): void {
     this.isShutdown = true
   }
 }

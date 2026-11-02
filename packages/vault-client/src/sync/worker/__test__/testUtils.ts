@@ -3,12 +3,11 @@ import localforage from 'localforage'
 import { Keyring, type KeyProvider } from '../../../api/Keyring'
 import { generateVaultKey } from '../../../api/crypto'
 import { LocalCipher } from '../localEncryption/LocalCipher'
-import type { Repo } from '@automerge/automerge-repo/slim'
+import type { DocumentId, Repo } from '@automerge/automerge-repo/slim'
 import { AutomergeDocStore, type AutomergeDocStoreOptions, type ItemLockCoordinator } from '../docStore/AutomergeDocStore'
 import { passthroughCodec } from '../domain'
 import * as vaultTrpcClientModule from '../../../api/vaultTrpcClient'
 import { spyOnExports } from '../../../../test/moduleMocks'
-import type { IDBFactory } from 'fake-indexeddb'
 import type { ItemId } from '@vault/shared'
 import type { SnapshotTracker } from '../SnapshotTracker'
 import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
@@ -296,10 +295,19 @@ export function createMockKeyProvider(
   }
 }
 
-/** A doc store over `repo` with the passthrough codec and every document readable */
+/**
+ * A doc store over `repo` with the passthrough codec and every document readable. Unless overridden,
+ * a document is in storage when the repo's storage subsystem (real or mocked) loads bytes for it.
+ */
 export function createTestDocStore(repo: Repo, overrides?: Partial<AutomergeDocStoreOptions>): AutomergeDocStore {
   return new AutomergeDocStore({
     repo,
+    storageAdapter: {
+      has: async ([documentId]) => {
+        const data = await repo.storageSubsystem?.loadDocData(documentId as DocumentId)
+        return !!data && data.length > 0
+      },
+    },
     codec: passthroughCodec,
     isLocallyUnreadable: () => false,
     ...overrides,

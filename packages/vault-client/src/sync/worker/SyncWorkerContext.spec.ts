@@ -163,11 +163,9 @@ beforeEach(() => {
   })
   spyOnExports(automergeRepoManager, {
     AutomergeRepoManager: class MockAutomergeRepoManager {
-      init = vi.fn().mockReturnValue({} /* mock Repo */)
-      clearLocalData = vi.fn().mockResolvedValue(undefined)
+      repo = {} /* mock Repo */
+      storage = { has: vi.fn().mockResolvedValue(false), removeRange: vi.fn().mockResolvedValue(undefined) }
       close = vi.fn().mockResolvedValue(undefined)
-      getStorage = vi.fn().mockReturnValue(undefined)
-      getStorageAdapter = vi.fn().mockReturnValue(undefined)
       pauseBroadcastSync = vi.fn()
       resumeBroadcastSync = vi.fn()
     },
@@ -748,8 +746,7 @@ describe('SyncWorkerContext', () => {
       const { ctx, onOpenFailure } = await createContextWithOpenFailures()
       vi.spyOn(ctx.services.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
       const unquarantine = vi.spyOn(ctx.services.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
-      const removeRange = vi.fn().mockResolvedValue(undefined)
-      vi.mocked(ctx.services.repoManager.getStorage).mockReturnValue({ removeRange } as any)
+      const removeRange = vi.spyOn(ctx.services.repoManager.storage, 'removeRange')
       ctx.services.repo = { delete: vi.fn() } as any
       const itemId = 'item-unreadable' as ItemId
       const documentId = toDocumentIdFromItemId(itemId)
