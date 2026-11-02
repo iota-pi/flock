@@ -2,7 +2,6 @@ import { nanoid } from 'nanoid'
 import type { ItemId } from '@vault/shared'
 import { runStorageOperation } from '../utils/storageManager'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import type { WorkerInternalEventHub } from './SyncEventHub'
 import { createAccountStore } from '../shared/createAccountStore'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { LocalCipher, SealedRecord } from './localEncryption/LocalCipher'
@@ -37,6 +36,10 @@ type StoredWalEntry = Omit<WalEntry, 'data'> & { data?: unknown, sealed?: Sealed
 export interface SyncWriteAheadLogOptions {
   /** Seals message bytes with the device storage key, in the sealed WAL store */
   cipher?: LocalCipher
+  /** Called with the items whose entries pruning removed, which only a snapshot can now deliver */
+  onEntriesPruned?: (itemIds: ItemId[]) => void
+  /** Called with items whose entries can't be read, which a snapshot delivers instead */
+  onSnapshotNeeded?: (itemIds: ItemId[]) => void
 }
 
 export function toUint8Array(data: unknown): Uint8Array {
@@ -91,8 +94,9 @@ export class SyncWriteAheadLog {
   public static readonly MAX_ENTRIES = MAX_ENTRIES
 
   private readonly storage: LocalForage
-  private readonly internalEventHub: WorkerInternalEventHub
   private readonly cipher?: LocalCipher
+  private readonly onEntriesPruned?: (itemIds: ItemId[]) => void
+  private readonly onSnapshotNeeded?: (itemIds: ItemId[]) => void
 
   private seqCounter = 0
   private lastCreatedAt = 0
@@ -118,14 +122,14 @@ export class SyncWriteAheadLog {
 
   constructor(
     public readonly accountId: string,
-    internalEventHub: WorkerInternalEventHub,
     options: SyncWriteAheadLogOptions = {},
   ) {
     this.cipher = options.cipher
     this.storage = options.cipher
       ? SyncWriteAheadLog.getSealedStorage(accountId)
       : SyncWriteAheadLog.getStorage(accountId)
-    this.internalEventHub = internalEventHub
+    this.onEntriesPruned = options.onEntriesPruned
+    this.onSnapshotNeeded = options.onSnapshotNeeded
   }
 
   private async ensureSeqInitialized(): Promise<void> {
@@ -171,7 +175,7 @@ export class SyncWriteAheadLog {
       if (!this.unreadableEntryIds.has(entry.id)) {
         this.unreadableEntryIds.add(entry.id)
         log.error(`WAL entry ${entry.id} for ${entry.itemId} could not be decrypted`, error)
-        this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId: entry.itemId })
+        this.onSnapshotNeeded?.([entry.itemId])
       }
       return null
     }
@@ -249,7 +253,7 @@ export class SyncWriteAheadLog {
         .map(e => e.id)
 
       await this.remove(toRemove)
-      this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [...prunedItemIds] })
+      this.onEntriesPruned?.([...prunedItemIds])
       return toRemove.length
     } catch (err) {
       log.error('Failed to prune oldest entries', err)

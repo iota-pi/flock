@@ -1,7 +1,7 @@
 import { LeaderElection, type LeaderElectionCallbacks } from './utils/LeaderElection'
 import type { PollOutcome } from './SyncPoller'
 import type { SyncSessionState } from './SyncSessionState'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { ClientEventHub } from './SyncEventHub'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_POLL_BACKOFF_DELAYS } from '../utils/RetryStrategy'
@@ -42,11 +42,16 @@ export interface SyncOrchestratorDeps {
   session: SyncSessionState
   poller: SyncPollerLike
   clientEventHub: ClientEventHub
-  internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManagerLike
   manifestSyncManager: ManifestSyncManagerLike
   manifestSyncIntervalMs?: number
   createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
+  /** Called once the session holds new leadership */
+  onLeaderChange?: (isLeader: boolean) => void
+  /** Called when another tab also claims leadership, and when this tab is the only leader again */
+  onLeaderOverlapChange?: (hasMultipleLeaders: boolean) => void
+  /** Receives each poll's outcome */
+  onPollResult?: (outcome: PollOutcome) => void
 }
 
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
@@ -75,17 +80,21 @@ export class SyncOrchestrator {
   private readonly accountId: string
   private readonly session: SyncSessionState
   private readonly clientEventHub: ClientEventHub
-  private readonly internalEventHub: WorkerInternalEventHub
   private readonly pullQueueManager: SyncPullQueueManagerLike
   private readonly createLeaderElection?: SyncOrchestratorDeps['createLeaderElection']
+  private readonly onLeaderChange?: (isLeader: boolean) => void
+  private readonly onLeaderOverlapChange?: (hasMultipleLeaders: boolean) => void
+  private readonly onPollResult?: (outcome: PollOutcome) => void
 
   constructor(deps: SyncOrchestratorDeps) {
     this.accountId = deps.accountId
     this.session = deps.session
     this.clientEventHub = deps.clientEventHub
-    this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
     this.createLeaderElection = deps.createLeaderElection
+    this.onLeaderChange = deps.onLeaderChange
+    this.onLeaderOverlapChange = deps.onLeaderOverlapChange
+    this.onPollResult = deps.onPollResult
     this.poller = deps.poller
     this.manifestSyncManager = deps.manifestSyncManager
     this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
@@ -116,10 +125,10 @@ export class SyncOrchestrator {
         this.setLeader(false)
       },
       onMultipleLeadersDetected: () => {
-        this.internalEventHub.emit({ type: 'multipleLeadersDetected' })
+        this.onLeaderOverlapChange?.(true)
       },
       onSoleLeaderRestored: () => {
-        this.internalEventHub.emit({ type: 'soleLeaderRestored' })
+        this.onLeaderOverlapChange?.(false)
       },
       onLeaderConflict: (isConflict: boolean) => {
         this.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
@@ -139,7 +148,7 @@ export class SyncOrchestrator {
     if (!this.session.setLeader(isLeader)) {
       return
     }
-    this.internalEventHub.emit({ type: 'leaderChange', isLeader })
+    this.onLeaderChange?.(isLeader)
 
     if (isLeader) {
       fireAndForget(this.cursorReloadGuard.run(() => this.reloadCursors()), 'SyncOrchestrator:reloadCursors')
@@ -259,13 +268,13 @@ export class SyncOrchestrator {
       this.pollingPausedForAuth = false
     }
 
-    this.internalEventHub.emit({ type: 'pollResult', outcome })
-
     const pollNow = outcome !== 'failure' && (
       wasFlushPending
       || (outcome === 'success' && this.pullQueueManager.hasImmediatePendingPulls())
     )
     this.schedulePollTimer(pollNow ? 0 : this.pollBackoff.currentBaseDelay)
+    // Reported once the next poll is scheduled, so a failing receiver can't stop polling
+    this.onPollResult?.(outcome)
   }
 
   private handlePollError(error: unknown): void {
@@ -289,7 +298,7 @@ export class SyncOrchestrator {
       type: 'authFailure',
       message: 'Sync paused: your session has expired. Please sign in again.',
     })
-    this.internalEventHub.emit({ type: 'pollResult', outcome: 'auth-failure' })
+    this.onPollResult?.('auth-failure')
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {

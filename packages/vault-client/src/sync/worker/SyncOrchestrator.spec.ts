@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import {
   SyncOrchestrator,
   type SyncOrchestratorDeps,
@@ -5,9 +6,9 @@ import {
   type LeaderElectionLike,
 } from './SyncOrchestrator'
 import { SyncSessionState } from './SyncSessionState'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createTestEventHubs } from './__test__/testUtils'
+import { ClientEventHub } from './SyncEventHub'
 import type { LeaderElectionCallbacks } from './utils/LeaderElection'
+import type { PollOutcome } from './SyncPoller'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 const sessions = new WeakMap<SyncOrchestrator, SyncSessionState>()
@@ -42,7 +43,7 @@ describe('SyncOrchestrator', () => {
   let mockPoller: any
   let mockPullQueueManager: any
   let clientEventHub: ClientEventHub
-  let internalEventHub: WorkerInternalEventHub
+  let onPollResult: Mock<(outcome: PollOutcome) => void>
   let mockManifestSyncManager: any
 
   beforeEach(() => {
@@ -64,17 +65,16 @@ describe('SyncOrchestrator', () => {
       hasImmediatePendingPulls: vi.fn().mockReturnValue(false),
     }
 
-    const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
-    internalEventHub = hubs.internalEventHub
+    clientEventHub = new ClientEventHub()
+    onPollResult = vi.fn()
 
     orchestrator = createOrchestrator({
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      internalEventHub,
       pullQueueManager: mockPullQueueManager,
       manifestSyncManager: mockManifestSyncManager,
+      onPollResult,
     })
   })
 
@@ -147,8 +147,6 @@ describe('SyncOrchestrator', () => {
 
     const authFailureSpy = vi.fn()
     clientEventHub.subscribe(authFailureSpy)
-    const internalPollResultSpy = vi.fn()
-    internalEventHub.subscribe(internalPollResultSpy)
 
     // Resolve with auth-failure
     resolvePoll('auth-failure')
@@ -158,9 +156,7 @@ describe('SyncOrchestrator', () => {
     expect(authFailureSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'authFailure', message: expect.stringContaining('session has expired') })
     )
-    expect(internalPollResultSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'pollResult', outcome: 'auth-failure' })
-    )
+    expect(onPollResult).toHaveBeenCalledWith('auth-failure')
 
     // Polling should be paused, so advancing timers should not trigger another poll despite flush
     await vi.advanceTimersByTimeAsync(1000)
@@ -182,15 +178,11 @@ describe('SyncOrchestrator', () => {
     // Call flush while poll is in-flight
     orchestrator.flush()
 
-    const internalPollResultSpy = vi.fn()
-    internalEventHub.subscribe(internalPollResultSpy)
 
     resolvePoll('success')
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(internalPollResultSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'pollResult', outcome: 'success' })
-    )
+    expect(onPollResult).toHaveBeenCalledWith('success')
 
     // Immediate flush execution
     await vi.advanceTimersByTimeAsync(10)
@@ -459,18 +451,17 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
   })
 
-  it('forwards multipleLeadersDetected and soleLeaderRestored events to internalEventHub', async () => {
-    const internalListener = vi.fn()
-    internalEventHub.subscribe(internalListener)
+  it('reports when several tabs lead and when this one leads alone again', async () => {
+    const onLeaderOverlapChange = vi.fn()
 
     let capturedCallbacks!: LeaderElectionCallbacks
     const customOrchestrator = createOrchestrator({
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      internalEventHub,
       pullQueueManager: mockPullQueueManager,
       manifestSyncManager: mockManifestSyncManager,
+      onLeaderOverlapChange,
       createLeaderElection: (_accountId, callbacks) => {
         capturedCallbacks = callbacks
         return {
@@ -485,11 +476,11 @@ describe('SyncOrchestrator', () => {
 
     // Trigger onMultipleLeadersDetected callback
     capturedCallbacks.onMultipleLeadersDetected?.()
-    expect(internalListener).toHaveBeenCalledWith({ type: 'multipleLeadersDetected' })
+    expect(onLeaderOverlapChange).toHaveBeenLastCalledWith(true)
 
     // Trigger onSoleLeaderRestored callback
     capturedCallbacks.onSoleLeaderRestored?.()
-    expect(internalListener).toHaveBeenCalledWith({ type: 'soleLeaderRestored' })
+    expect(onLeaderOverlapChange).toHaveBeenLastCalledWith(false)
 
     await shutDown(customOrchestrator)
   })
@@ -503,7 +494,6 @@ describe('SyncOrchestrator', () => {
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      internalEventHub,
       pullQueueManager: mockPullQueueManager,
       manifestSyncManager: mockManifestSyncManager,
       createLeaderElection: (_accountId, callbacks) => {
@@ -538,7 +528,6 @@ describe('SyncOrchestrator', () => {
       accountId: 'account-1',
       poller: mockPoller,
       clientEventHub,
-      internalEventHub,
       pullQueueManager: mockPullQueueManager,
       manifestSyncManager: mockManifestSyncManager,
       createLeaderElection: () => mockLeaderElection,
@@ -567,7 +556,6 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        internalEventHub,
         pullQueueManager: customPullQueueManager,
         manifestSyncManager: mockManifestSyncManager,
       })
@@ -626,7 +614,6 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        internalEventHub,
         pullQueueManager: customPullQueueManager,
         manifestSyncManager: mockManifestSyncManager,
       })
@@ -648,10 +635,15 @@ describe('SyncOrchestrator', () => {
     })
   })
 
-  it('emits leaderChange on internalEventHub when leadership is granted and revoked', async () => {
+  it('reports leadership changes when leadership is granted and revoked', async () => {
     const leaderChangeListener = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'leaderChange') leaderChangeListener(e.isLeader)
+    orchestrator = createOrchestrator({
+      accountId: 'account-1',
+      poller: mockPoller,
+      clientEventHub,
+      pullQueueManager: mockPullQueueManager,
+      manifestSyncManager: mockManifestSyncManager,
+      onLeaderChange: leaderChangeListener,
     })
 
     expect(isLeader(orchestrator)).toBe(false)
@@ -848,7 +840,6 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        internalEventHub,
         pullQueueManager: mockPullQueueManager,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 5000,
@@ -874,7 +865,6 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        internalEventHub,
         pullQueueManager: mockPullQueueManager,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 10000,
@@ -900,7 +890,6 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        internalEventHub,
         pullQueueManager: mockPullQueueManager,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 5000,
@@ -926,7 +915,6 @@ describe('SyncOrchestrator', () => {
         accountId: 'account-1',
         poller: mockPoller,
         clientEventHub,
-        internalEventHub,
         pullQueueManager: mockPullQueueManager,
         manifestSyncManager: mockManifestSyncManager,
         manifestSyncIntervalMs: 5000,
@@ -1091,8 +1079,6 @@ describe('SyncOrchestrator', () => {
 
   describe('executeWrappedPoll error handling and scheduling (SRP)', () => {
     it('handles thrown error in executePoll by delegating to handlePollError and increasing backoff', async () => {
-      const internalPollResultSpy = vi.fn()
-      internalEventHub.subscribe(internalPollResultSpy)
 
       mockPoller.executePoll.mockRejectedValueOnce(new Error('Network error'))
 
@@ -1101,9 +1087,7 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-      expect(internalPollResultSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'pollResult', outcome: 'failure' })
-      )
+      expect(onPollResult).toHaveBeenCalledWith('failure')
 
       // Next poll should be delayed by backoff
       await vi.advanceTimersByTimeAsync(10)
@@ -1117,8 +1101,6 @@ describe('SyncOrchestrator', () => {
     it('detects auth error thrown in executePoll and pauses polling via handlePollError', async () => {
       const authFailureSpy = vi.fn()
       clientEventHub.subscribe(authFailureSpy)
-      const internalPollResultSpy = vi.fn()
-      internalEventHub.subscribe(internalPollResultSpy)
 
       mockPoller.executePoll.mockRejectedValueOnce({ status: 401, message: 'Unauthorized' })
 
@@ -1130,9 +1112,7 @@ describe('SyncOrchestrator', () => {
       expect(authFailureSpy).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'authFailure', message: expect.stringContaining('session has expired') })
       )
-      expect(internalPollResultSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'pollResult', outcome: 'auth-failure' })
-      )
+      expect(onPollResult).toHaveBeenCalledWith('auth-failure')
 
       // Polling should be stopped/paused
       await vi.advanceTimersByTimeAsync(100000)
@@ -1140,8 +1120,6 @@ describe('SyncOrchestrator', () => {
     })
 
     it('ignores AbortError thrown in executePoll without emitting failure or altering backoff', async () => {
-      const internalPollResultSpy = vi.fn()
-      internalEventHub.subscribe(internalPollResultSpy)
 
       const abortError = new Error('Aborted')
       abortError.name = 'AbortError'
@@ -1152,18 +1130,14 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
-      expect(internalPollResultSpy).not.toHaveBeenCalledWith(
-        expect.objectContaining({ outcome: 'failure' })
-      )
+      expect(onPollResult).not.toHaveBeenCalledWith('failure')
     })
 
-    it('continues scheduling next poll timer when internalEventHub listener throws synchronously on pollResult', async () => {
+    it('continues scheduling next poll timer when the poll result receiver throws', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-      internalEventHub.subscribe(event => {
-        if (event.type === 'pollResult') {
-          throw new Error('listener failure')
-        }
+      onPollResult.mockImplementation(() => {
+        throw new Error('listener failure')
       })
 
       orchestrator.setLeader(true)

@@ -14,7 +14,6 @@ import { CursorStore } from './stores/CursorStore'
 import { parseBatchedMessages } from './utils/messageParser'
 import type { ItemLockCoordinator } from './docStore'
 import { PullRetryTracker, type PullFailure } from './PullRetryTracker'
-import type { WorkerInternalEventHub } from './SyncEventHub'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { BoundedMap } from '../utils/BoundedMap'
 import { BoundedSet } from '../utils/BoundedSet'
@@ -45,7 +44,6 @@ export interface SyncPullQueueManagerDeps {
   cursorStore: CursorStore
   keys: KeyProvider
   lockCoordinator: ItemLockCoordinator
-  internalEventHub: WorkerInternalEventHub
   /** Receives each pulled sync message */
   adapter: Pick<VaultNetworkAdapter, 'receiveServerMessage'>
   session: SyncSessionState
@@ -56,19 +54,27 @@ export interface SyncPullQueueManagerDeps {
   onItemMessageParsed?: (itemId: ItemId) => void
   /** Asks the orchestrator to poll, once pulls held back for a missing key can go ahead */
   onFlushNeeded?: () => void
+  /** Called when whether any item's pull is being retried changes */
+  onRetryingChange?: (isRetrying: boolean) => void
+  /** Called with an item once messages other devices pushed for it have been applied */
+  onRemoteMessagesParsed?: (itemId: ItemId) => void
+  /** Called with an item whose pulled messages failed to parse for good */
+  onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
 }
 
 export class SyncPullQueueManager {
   private readonly cursorStore: CursorStore
   private readonly keys: KeyProvider
   private readonly lockCoordinator: ItemLockCoordinator
-  private readonly internalEventHub: WorkerInternalEventHub
   private readonly adapter: Pick<VaultNetworkAdapter, 'receiveServerMessage'>
   private readonly session: SyncSessionState
   private readonly bus: RealtimeBus | null
   private readonly onKeyVersionMissing?: (kver: string) => void
   private readonly onItemMessageParsed?: (itemId: ItemId) => void
   private readonly onFlushNeeded?: () => void
+  private readonly onRetryingChange?: (isRetrying: boolean) => void
+  private readonly onRemoteMessagesParsed?: (itemId: ItemId) => void
+  private readonly onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
 
   private readonly retryTracker: PullRetryTracker
   private hasMoreGlobal = false
@@ -89,13 +95,15 @@ export class SyncPullQueueManager {
     this.cursorStore = deps.cursorStore
     this.keys = deps.keys
     this.lockCoordinator = deps.lockCoordinator
-    this.internalEventHub = deps.internalEventHub
     this.adapter = deps.adapter
     this.session = deps.session
     this.bus = deps.bus ?? null
     this.onKeyVersionMissing = deps.onKeyVersionMissing
     this.onItemMessageParsed = deps.onItemMessageParsed
     this.onFlushNeeded = deps.onFlushNeeded
+    this.onRetryingChange = deps.onRetryingChange
+    this.onRemoteMessagesParsed = deps.onRemoteMessagesParsed
+    this.onDecryptionFailure = deps.onDecryptionFailure
     this.retryTracker = new PullRetryTracker(deps.keys)
   }
 
@@ -248,8 +256,7 @@ export class SyncPullQueueManager {
   onKeyringUpdated(): void {
     const unblockedAny = this.retryTracker.onKeyringUpdated()
     if (unblockedAny) {
-      const isRetrying = this.retryTracker.isAnyRetrying()
-      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
+      this.onRetryingChange?.(this.retryTracker.isAnyRetrying())
       this.onFlushNeeded?.()
     }
   }
@@ -370,14 +377,14 @@ export class SyncPullQueueManager {
     }
 
     if (messageResult.hasParsedRemoteMessages && !failure && !outcome.permanentlyFailed) {
-      this.internalEventHub.emit({ type: 'remoteMessagesParsed', itemId })
+      this.onRemoteMessagesParsed?.(itemId)
     }
 
     if (outcome.permanentlyFailed) {
       const err = new Error(
         `Permanently failed to parse sync messages after ${PullRetryTracker.MAX_PULL_RETRIES} attempts`
       )
-      this.internalEventHub.emit({ type: 'decryptionFailure', itemId, error: err })
+      this.onDecryptionFailure?.(itemId, err)
     }
 
     return {
@@ -440,8 +447,7 @@ export class SyncPullQueueManager {
         throw firstItemError.error
       }
     } finally {
-      const isRetrying = this.retryTracker.isAnyRetrying()
-      this.internalEventHub.emit({ type: 'retryingStateChange', isRetrying })
+      this.onRetryingChange?.(this.retryTracker.isAnyRetrying())
       if (successfullyPulledItemIds.size > 0) {
         this.bus?.publishSyncPing(Array.from(successfullyPulledItemIds))
       }

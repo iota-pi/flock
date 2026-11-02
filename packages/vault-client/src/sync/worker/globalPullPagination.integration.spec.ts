@@ -4,7 +4,8 @@ import { hashSessionToken, SESSION_EXPIRY_MS, syncRouter } from '@vault/server'
 import { SyncPoller } from './SyncPoller'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
-import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, noItemLocks } from './__test__/testUtils'
+import { ClientEventHub } from './SyncEventHub'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { SyncApiClient } from './SyncApiClient'
 import { RecoveryManager } from './RecoveryManager'
@@ -100,14 +101,12 @@ describe('global pull pagination (client ↔ router)', () => {
     const vault = createInMemoryVault(rows)
     const caller = syncRouter.createCaller({ authToken: 'session-token', vault } as never)
 
-    const { clientEventHub, internalEventHub } = createTestEventHubs()
     const session = new SyncSessionState({ isLeader: true })
     const delivered: string[] = []
     const pullQueueManager = new SyncPullQueueManager({
       cursorStore: new CursorStore(ACCOUNT),
       keys,
       lockCoordinator: noItemLocks,
-      internalEventHub,
       adapter: { receiveServerMessage: (_documentId, message) => delivered.push(new TextDecoder().decode(message)) },
       session,
     })
@@ -117,13 +116,12 @@ describe('global pull pagination (client ↔ router)', () => {
     const apiClient = {
       pollSyncBatch: (input: Parameters<typeof caller.pollSync>[0]) => caller.pollSync(input),
     } as unknown as SyncApiClient
-    const wal = new SyncWriteAheadLog(ACCOUNT, internalEventHub)
-    const recoveryManager = new RecoveryManager({ accountId: ACCOUNT, eventHub: clientEventHub })
+    const wal = new SyncWriteAheadLog(ACCOUNT)
+    const recoveryManager = new RecoveryManager({ accountId: ACCOUNT, eventHub: new ClientEventHub() })
     const poller = new SyncPoller({
       accountId: ACCOUNT,
       session,
       pullQueueManager,
-      internalEventHub,
       keys,
       wal,
       apiClient,

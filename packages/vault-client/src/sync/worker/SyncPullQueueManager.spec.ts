@@ -24,7 +24,6 @@ import {
 } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
-import { WorkerInternalEventHub } from './SyncEventHub'
 import * as storageManagerModule from '../utils/storageManager'
 
 // Mock localforage
@@ -106,7 +105,9 @@ function hasPendingPulls(manager: SyncPullQueueManager): boolean {
 
 describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
-  let eventHub: WorkerInternalEventHub
+  let onRetryingChange: Mock<(isRetrying: boolean) => void>
+  let onRemoteMessagesParsed: Mock<(itemId: ItemId) => void>
+  let onDecryptionFailure: Mock<(itemId: ItemId, error: unknown) => void>
   let cursorStore: CursorStore
   let session: SyncSessionState
   let onKeyVersionMissing: ReturnType<typeof vi.fn<(kver: string) => void>>
@@ -127,7 +128,9 @@ describe('SyncPullQueueManager', () => {
     clearAccountStoreInstancesCacheForTesting()
     activeStore = null
     cursorStore = new CursorStore('account-1')
-    eventHub = new WorkerInternalEventHub()
+    onRetryingChange = vi.fn()
+    onRemoteMessagesParsed = vi.fn()
+    onDecryptionFailure = vi.fn()
     onKeyVersionMissing = vi.fn<(kver: string) => void>()
     receiveServerMessage = vi.fn<(documentId: DocumentId, message: Uint8Array) => void>()
     onItemMessageParsed = vi.fn<(itemId: ItemId) => void>()
@@ -136,12 +139,14 @@ describe('SyncPullQueueManager', () => {
       cursorStore,
       keys,
       lockCoordinator: noItemLocks,
-      internalEventHub: eventHub,
       adapter: { receiveServerMessage },
       session,
       bus: realtimeBus.bus,
       onKeyVersionMissing,
       onItemMessageParsed,
+      onRetryingChange,
+      onRemoteMessagesParsed,
+      onDecryptionFailure,
     })
 
     // Default mock behavior
@@ -169,9 +174,8 @@ describe('SyncPullQueueManager', () => {
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
 
       cursorStore = new CursorStore('account-2')
-      eventHub = new WorkerInternalEventHub()
       manager = new SyncPullQueueManager({
-        cursorStore, keys, lockCoordinator: noItemLocks, internalEventHub: eventHub, adapter: { receiveServerMessage }, session,
+        cursorStore, keys, lockCoordinator: noItemLocks, adapter: { receiveServerMessage }, session,
       })
       await manager.loadCursors()
       expect(manager.exportCursors()).toEqual(preLoadedCursors)
@@ -498,7 +502,6 @@ describe('SyncPullQueueManager', () => {
         cursorStore,
         keys,
         lockCoordinator: noItemLocks,
-        internalEventHub: new WorkerInternalEventHub(),
         adapter: { receiveServerMessage },
         session: new SyncSessionState(),
       })
@@ -557,10 +560,6 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('keeps item in pending pull queue on parse failure for attempts 1-4', async () => {
-      const mockOnDecryptionFailure = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
-      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -585,17 +584,13 @@ describe('SyncPullQueueManager', () => {
       // Attempts 1 to 4
       for (let attempt = 1; attempt <= 4; attempt++) {
         await processItemResults(manager, pullResults)
-        expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+        expect(onDecryptionFailure).not.toHaveBeenCalled()
         expect(hasPendingPulls(manager)).toBe(true)
         expect(manager.getCursors()).toContainEqual({ itemId: 'item-fail', cursor: 0 })
       }
     })
 
     it('removes item from queue and triggers onDecryptionFailure on 5th consecutive failure', async () => {
-      const mockOnDecryptionFailure = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
-      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -622,8 +617,8 @@ describe('SyncPullQueueManager', () => {
         await processItemResults(manager, pullResults)
       }
 
-      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
-      expect(mockOnDecryptionFailure).toHaveBeenCalledWith(
+      expect(onDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(onDecryptionFailure).toHaveBeenCalledWith(
         'item-fail-5',
         expect.objectContaining({
           message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
@@ -640,9 +635,7 @@ describe('SyncPullQueueManager', () => {
       const parsedSpy = vi.fn()
       const failureSpy = vi.fn()
       onDelivered(e => parsedSpy(e.message))
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') failureSpy(e.itemId)
-      })
+      onDecryptionFailure.mockImplementation(itemId => failureSpy(itemId))
       mockDecryptBytes.mockImplementation(async (payload: { iv: string }) => {
         if (payload.iv === 'iv-bad') throw new Error('Decryption failed')
         return batch(new Uint8Array([Number(payload.iv.slice(3))]))
@@ -685,10 +678,6 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('advances cursor past corrupted message on 5th failure and prevents infinite retry loop on subsequent polls', async () => {
-      const mockOnDecryptionFailure = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
-      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -715,29 +704,25 @@ describe('SyncPullQueueManager', () => {
         await processItemResults(manager, pullResults)
         expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 0])
         expect(hasPendingPulls(manager)).toBe(true)
-        expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+        expect(onDecryptionFailure).not.toHaveBeenCalled()
       }
 
       // Attempt 5: permanently fails, invokes onDecryptionFailure, advances cursor to 10, and
       // stays pending to pull what follows the skipped message
       await processItemResults(manager, pullResults)
-      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(onDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
       expect(hasPendingPulls(manager)).toBe(true)
 
       // Subsequent poll (attempt 6) receives the same corrupted message (e.g. via overlap window query)
       // The message is recognized as seen/skipped and does NOT re-trigger the 5-retry failure cycle
       await processItemResults(manager, pullResults)
-      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(onDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(hasPendingPulls(manager)).toBe(false)
       expect(manager.exportCursors()).toContainEqual(['item-infinite-loop', 10])
     })
 
     it('falls back to nextCursor when message cursor is omitted on 5th failure', async () => {
-      const mockOnDecryptionFailure = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
-      })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -761,16 +746,12 @@ describe('SyncPullQueueManager', () => {
         await processItemResults(manager, pullResults)
       }
 
-      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(onDecryptionFailure).toHaveBeenCalledTimes(1)
       expect(manager.exportCursors()).toContainEqual(['item-no-msg-cursor', 25])
       expect(manager.getCursors()).toEqual([{ itemId: 'item-no-msg-cursor', cursor: 25, pageToken: undefined }])
     })
 
     it('resets retry counter on successful message parse', async () => {
-      const mockOnDecryptionFailure = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
-      })
 
       const failResults: PullSyncMessagesResponse[] = [
         {
@@ -825,7 +806,7 @@ describe('SyncPullQueueManager', () => {
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed again'))
       for (let attempt = 1; attempt <= 4; attempt++) {
         await processItemResults(manager, failResults)
-        expect(mockOnDecryptionFailure).not.toHaveBeenCalled()
+        expect(onDecryptionFailure).not.toHaveBeenCalled()
       }
     })
 
@@ -1153,10 +1134,6 @@ describe('SyncPullQueueManager', () => {
         }
       })
       onDelivered(e => onMessageParsedSpy(e.itemId, e.documentId, e.message))
-      const mockOnDecryptionFailure = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') mockOnDecryptionFailure(e.itemId, e.error)
-      })
 
       const msg1 = new Uint8Array([10, 20, 30])
       const msg2 = new Uint8Array([40, 50])
@@ -1207,8 +1184,8 @@ describe('SyncPullQueueManager', () => {
       const msg1Calls = onMessageParsedSpy.mock.calls.filter(call => call[2] === msg1 || (call[2] && call[2][0] === 10))
       expect(msg1Calls).toHaveLength(1)
 
-      expect(mockOnDecryptionFailure).toHaveBeenCalledTimes(1)
-      expect(mockOnDecryptionFailure).toHaveBeenCalledWith(
+      expect(onDecryptionFailure).toHaveBeenCalledTimes(1)
+      expect(onDecryptionFailure).toHaveBeenCalledWith(
         'item-5-retries',
         expect.objectContaining({
           message: expect.stringContaining('Permanently failed to parse sync messages after 5 attempts'),
@@ -1641,9 +1618,7 @@ describe('SyncPullQueueManager', () => {
       remoteSpy = vi.fn()
       parsedSpy = vi.fn()
       onDelivered(e => parsedSpy(e.itemId))
-      eventHub.subscribe(e => {
-        if (e.type === 'remoteMessagesParsed') remoteSpy(e.itemId)
-      })
+      onRemoteMessagesParsed.mockImplementation(itemId => remoteSpy(itemId))
       mockDecryptBytes.mockResolvedValue(batch(new Uint8Array([1, 2, 3])))
     })
 
@@ -1808,10 +1783,6 @@ describe('SyncPullQueueManager', () => {
 
     it('does not advance cursor, mark seen, or burn retries when key version times out', async () => {
       await manager.loadCursors()
-      const onDecryptionFailureSpy = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'decryptionFailure') onDecryptionFailureSpy(e.itemId, e.error)
-      })
 
       // Key '2' is missing and times out
       mockHasVaultKey.mockImplementation((kver?: string) => kver !== '2')
@@ -1846,7 +1817,7 @@ describe('SyncPullQueueManager', () => {
       expect(manager.exportCursors()).not.toContainEqual(['item-timeout', 100])
       expect(manager.exportCursors()).not.toContainEqual(['item-timeout', 120])
       // onDecryptionFailure must NEVER be called for missing key
-      expect(onDecryptionFailureSpy).not.toHaveBeenCalled()
+      expect(onDecryptionFailure).not.toHaveBeenCalled()
       // hasImmediatePendingPulls must be false so orchestrator does not burn 0ms polls
       expect(manager.hasImmediatePendingPulls()).toBe(false)
       // getCursors must skip this item so it does not hammer the server without the key
@@ -1955,7 +1926,6 @@ describe('SyncPullQueueManager', () => {
       await manager.loadCursors()
       mockDecryptBytes.mockResolvedValueOnce(batch(new Uint8Array([1, 2, 3])))
 
-      const emitSpy = vi.spyOn(eventHub, 'emit')
       ;(manager as any).saveCursorsDebounced = vi.fn().mockImplementation(() => {
         throw new Error('Save cursors failed')
       })
@@ -1980,7 +1950,7 @@ describe('SyncPullQueueManager', () => {
       ]
 
       await expect(processItemResults(manager, pullResults)).rejects.toThrow('Save cursors failed')
-      expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'retryingStateChange' }))
+      expect(onRetryingChange).toHaveBeenCalled()
     })
   })
 

@@ -13,6 +13,7 @@ import type { SyncWorkerContextConfig } from './SyncWorkerContext'
 import type { DocHandle } from '@automerge/automerge-repo/slim'
 import type { RepoDoc } from './docStore/AutomergeDocStore'
 import { SyncSessionState } from './SyncSessionState'
+import { SyncStatusManager } from './SyncStatusManager'
 
 const realtimeListeners: Array<(itemIds: string[]) => void> = []
 
@@ -69,11 +70,14 @@ beforeEach(() => {
   spyOnExports(syncWorkerContext, {
     SyncWorkerContext: class MockSyncWorkerContext {
       // The callbacks the worker passes, which tests call as the real context's components would
-      constructor(readonly config: SyncWorkerContextConfig) {}
+      constructor(readonly config: SyncWorkerContextConfig) {
+        this.statusManager = new SyncStatusManager(config.clientEventHub, this.session)
+      }
 
       // Public properties accessed by SyncWorker
       accountId = 'test-account'
       session = new SyncSessionState()
+      statusManager: SyncStatusManager
       services = {
         realtimeBus: {
           subscribeSyncPing: vi.fn((listener: (itemIds: string[]) => void) => {
@@ -397,7 +401,7 @@ describe('SyncWorker quota status', () => {
   it('updates quota status once per quotaExceeded / quotaResolved client event', async () => {
     const worker = new SyncWorker(workerConfig)
     await worker.initRepo('account-1', 'vault-key-1')
-    const setQuotaExceeded = vi.spyOn((worker as any).syncStatusManager, 'setQuotaExceeded')
+    const setQuotaExceeded = vi.spyOn((worker as any)._context.statusManager, 'setQuotaExceeded')
 
     ;(worker as any).clientEventHub.emit({ type: 'quotaExceeded', message: 'Storage limit reached' })
     expect(setQuotaExceeded.mock.calls).toEqual([[true]])

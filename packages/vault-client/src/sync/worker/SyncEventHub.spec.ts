@@ -1,9 +1,7 @@
 import {
   EventHub,
   ClientEventHub,
-  WorkerInternalEventHub,
   type ClientEvent,
-  type WorkerInternalEvent,
 } from './SyncEventHub'
 
 describe('SyncEventHub', () => {
@@ -144,55 +142,4 @@ describe('SyncEventHub', () => {
     })
   })
 
-  describe('WorkerInternalEventHub', () => {
-    it('notifies internal listeners of worker events', () => {
-      const hub = new WorkerInternalEventHub()
-      const listener = vi.fn()
-
-      hub.subscribe(listener)
-      const event: WorkerInternalEvent = { type: 'multipleLeadersDetected' }
-      hub.emit(event)
-
-      expect(listener).toHaveBeenCalledWith(event)
-    })
-
-    it('isolates synchronous listener errors and continues calling subsequent listeners without throwing', () => {
-      const hub = new WorkerInternalEventHub()
-      const failingListener = vi.fn(() => {
-        throw new Error('internal error')
-      })
-      const successfulListener = vi.fn()
-
-      hub.subscribe(failingListener)
-      hub.subscribe(successfulListener)
-
-      expect(() => {
-        hub.emit({ type: 'soleLeaderRestored' })
-      }).not.toThrow()
-
-      expect(failingListener).toHaveBeenCalled()
-      expect(successfulListener).toHaveBeenCalled()
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[WorkerInternalEventHub] Error in listener:',
-        expect.any(Error)
-      )
-    })
-
-    it('catches and logs rejected promises from async listeners without throwing', async () => {
-      const hub = new WorkerInternalEventHub()
-      const rejectionError = new Error('async internal failure')
-      hub.subscribe(async () => {
-        throw rejectionError
-      })
-
-      expect(() => hub.emit({ type: 'soleLeaderRestored' })).not.toThrow()
-
-      await vi.waitFor(() => {
-        expect(consoleErrorSpy).toHaveBeenCalledWith(
-          '[WorkerInternalEventHub] Error in listener:',
-          rejectionError
-        )
-      })
-    })
-  })
 })

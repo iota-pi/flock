@@ -3,7 +3,6 @@ import * as Automerge from '@automerge/automerge/slim'
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { WorkerInternalEventHub } from './SyncEventHub'
 import { SyncSessionState } from './SyncSessionState'
 
 /**
@@ -43,8 +42,7 @@ class Device {
   private pulled = 0
 
   constructor(private readonly server: FakeServer) {
-    const eventHub = new WorkerInternalEventHub()
-    this.adapter = new VaultNetworkAdapter(eventHub, {
+    this.adapter = new VaultNetworkAdapter({
       accountId: 'test-account',
       session: this.session,
       headsValidator: (documentId, heads) => {

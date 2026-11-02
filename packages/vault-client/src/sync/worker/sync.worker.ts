@@ -4,13 +4,12 @@ import * as Automerge from '@automerge/automerge/slim'
 
 import type { InitRepoOptions, SyncApi } from './syncProtocol'
 import type { ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
-import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
+import { ClientEventHub, type ClientEvent } from './SyncEventHub'
 
 import type { VaultDoc, VaultMetadata } from '../shared/types'
 import { Keyring } from '../../api/Keyring'
 import { setApiAuthToken } from '../../api/runtime'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
-import { SyncStatusManager } from './SyncStatusManager'
 import { resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import { ItemId } from '@vault/shared'
@@ -107,11 +106,8 @@ export class SyncWorker implements SyncApi {
   private ready = createReady()
   private isShutDown = false
   private clientEventHub = new ClientEventHub()
-  private internalEventHub = new WorkerInternalEventHub()
   /** Whether the device is online, kept between sessions. Each session's state starts from it. */
   private isOnline = true
-  /** Bound to each session's client event hub and state, so it's created with the session */
-  private syncStatusManager!: SyncStatusManager
   private unsubscribeRealtimeBus: (() => void) | null = null
   private readonly subscriptions = new ItemSubscriptions(
     () => this.context.services.repo,
@@ -188,7 +184,6 @@ export class SyncWorker implements SyncApi {
     if (globalEventPort) {
       this.clientEventHub.setExternalPort(globalEventPort)
     }
-    this.internalEventHub = new WorkerInternalEventHub()
 
     const trackedFetch = getTrackedFetch(
       () => this.clientEventHub.emit({ type: 'startRequest' }),
@@ -197,36 +192,23 @@ export class SyncWorker implements SyncApi {
     initVaultTrpcClient(trackedFetch)
   }
 
-  private subscribeClientEvents(): void {
+  private subscribeClientEvents({ statusManager }: SyncWorkerContext): void {
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
         case 'startRequest':
-          this.syncStatusManager.startRequest()
+          statusManager.startRequest()
           break
         case 'finishRequest':
-          this.syncStatusManager.finishRequest()
+          statusManager.finishRequest()
           break
         case 'quotaExceeded':
-          this.syncStatusManager.setQuotaExceeded(true)
+          statusManager.setQuotaExceeded(true)
           break
         case 'quotaResolved':
-          this.syncStatusManager.setQuotaExceeded(false)
+          statusManager.setQuotaExceeded(false)
           break
         case 'snapshotFailed':
-          this.syncStatusManager.setSnapshotFailed()
-          break
-      }
-    })
-  }
-
-  private subscribeInternalEvents(): void {
-    this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
-      switch (event.type) {
-        case 'pollResult':
-          this.syncStatusManager.handlePollResult(event.outcome)
-          break
-        case 'retryingStateChange':
-          this.syncStatusManager.setDegradedPull(event.isRetrying)
+          statusManager.setSnapshotFailed()
           break
       }
     })
@@ -292,7 +274,6 @@ export class SyncWorker implements SyncApi {
       const context = new SyncWorkerContext({
         accountId,
         clientEventHub: this.clientEventHub,
-        internalEventHub: this.internalEventHub,
         isOnline: this.isOnline,
         apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
@@ -306,16 +287,13 @@ export class SyncWorker implements SyncApi {
         localKeys: this.keyring,
       })
       this._context = context
-      this.syncStatusManager = new SyncStatusManager(this.clientEventHub, context.session)
-
-      this.subscribeClientEvents()
-      this.subscribeInternalEvents()
+      this.subscribeClientEvents(context)
 
       await this.initializeAccountSession(context)
       this.setupRealtimeBus(context)
 
       this.clientEventHub.emit({ type: 'ready' })
-      this.syncStatusManager.reset()
+      context.statusManager.reset()
 
       this.ready.resolve(context)
     } catch (err) {
@@ -329,7 +307,7 @@ export class SyncWorker implements SyncApi {
     this.isOnline = isOnline
     return this.withContext(ctx => {
       ctx.setOnlineState(isOnline)
-      this.syncStatusManager.onOnlineStateChange()
+      ctx.statusManager.onOnlineStateChange()
     })
   }
 

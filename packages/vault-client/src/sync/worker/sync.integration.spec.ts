@@ -1,3 +1,4 @@
+import type { Mock } from 'vitest'
 import { interpretAsDocumentId, type PeerId } from '@automerge/automerge-repo/slim'
 import { setApiAuthToken } from '../../api/runtime'
 import * as Automerge from '@automerge/automerge/slim'
@@ -9,7 +10,7 @@ import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { SyncSessionState } from './SyncSessionState'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+import { ClientEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
 import { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
@@ -22,7 +23,6 @@ import {
   createMockKeyProvider,
   createMockLocalForage,
   createMockVault,
-  createTestEventHubs,
   noItemLocks,
   mockLocalForage,
   spyOnVaultTrpc,
@@ -63,7 +63,7 @@ beforeEach(() => {
 describe('Sync System Integration Test Suite', () => {
   const accountId = 'test-integration-account'
   let clientEventHub: ClientEventHub
-  let internalEventHub: WorkerInternalEventHub
+  let onDecryptionFailure: Mock<(itemId: ItemId, error: unknown) => void>
   let indexManager: AutomergeIndexManager
   let cursorStore: CursorStore
   let pullQueueManager: SyncPullQueueManager
@@ -86,13 +86,12 @@ describe('Sync System Integration Test Suite', () => {
     mockStores.clear()
     clearAccountStoreInstancesCacheForTesting()
 
-    const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
-    internalEventHub = hubs.internalEventHub
+    clientEventHub = new ClientEventHub()
+    onDecryptionFailure = vi.fn()
     cursorStore = new CursorStore(accountId)
     // This tab is the online leader
     session = new SyncSessionState({ isLeader: true })
-    adapter = new VaultNetworkAdapter(internalEventHub, {
+    adapter = new VaultNetworkAdapter({
       accountId,
       session,
       onMessageToSend: message => broker.send(message),
@@ -101,11 +100,11 @@ describe('Sync System Integration Test Suite', () => {
       cursorStore,
       keys,
       lockCoordinator: noItemLocks,
-      internalEventHub,
       adapter,
       session,
+      onDecryptionFailure,
     })
-    wal = new SyncWriteAheadLog(accountId, internalEventHub)
+    wal = new SyncWriteAheadLog(accountId)
 
     indexManager = {
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
@@ -117,7 +116,6 @@ describe('Sync System Integration Test Suite', () => {
       accountId,
       session,
       pullQueueManager,
-      internalEventHub,
       keys,
       wal,
       apiClient: new SyncApiClient(),
@@ -126,11 +124,11 @@ describe('Sync System Integration Test Suite', () => {
     })
     broker = new SyncMessageBroker({
       adapter,
-      internalEventHub,
       pullQueueManager,
       session,
       wal,
       onFlushNeeded: () => {},
+      requestSnapshot: () => {},
     })
 
     adapter.connect('client-peer' as PeerId)
@@ -286,7 +284,7 @@ describe('Sync System Integration Test Suite', () => {
     await wal.append('item-crash-recover' as ItemId, createTestSyncMessageData())
 
     // 2. Simulate worker termination and fresh instance start on same account
-    const newWal = new SyncWriteAheadLog(accountId, new WorkerInternalEventHub())
+    const newWal = new SyncWriteAheadLog(accountId)
     const recoveredEntries = await newWal.readAll()
     expect(recoveredEntries.has('item-crash-recover' as ItemId)).toBe(true)
 
@@ -301,7 +299,6 @@ describe('Sync System Integration Test Suite', () => {
       accountId,
       session,
       pullQueueManager,
-      internalEventHub,
       keys,
       wal: newWal,
       apiClient: new SyncApiClient(),
@@ -319,12 +316,7 @@ describe('Sync System Integration Test Suite', () => {
 
   it('Scenario 5: Decryption failure -> retry 5 times -> quarantined to manual recovery store', async () => {
     const itemId = 'item-corrupt' as ItemId
-    const failureSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'decryptionFailure') {
-        failureSpy(e.itemId, e.error)
-      }
-    })
+    const failureSpy = onDecryptionFailure
 
     const corruptMessageResponse = {
       success: true,
@@ -398,12 +390,7 @@ describe('Sync System Integration Test Suite', () => {
 
   it('Scenario 7: Pulling message with missing key version does not burn retries or advance cursor, and cleanly decrypts when keyring updates', async () => {
     const itemId = 'item-rotated-key' as ItemId
-    const failureSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'decryptionFailure') {
-        failureSpy(e.itemId, e.error)
-      }
-    })
+    const failureSpy = onDecryptionFailure
 
     const { hasVaultKey, waitForKeyVersion } = vault
     // Key '2' is not yet in keyring and times out

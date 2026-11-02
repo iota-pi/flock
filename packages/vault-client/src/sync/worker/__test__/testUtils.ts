@@ -1,6 +1,5 @@
 import type { Mock } from 'vitest'
 import localforage from 'localforage'
-import { ClientEventHub, WorkerInternalEventHub } from '../SyncEventHub'
 import { Keyring, type KeyProvider } from '../../../api/Keyring'
 import { generateVaultKey } from '../../../api/crypto'
 import { LocalCipher } from '../localEncryption/LocalCipher'
@@ -294,21 +293,6 @@ export function createMockKeyProvider(
     waitForKey: (kver, timeoutMs) => vault.waitForKeyVersion(kver, timeoutMs),
     encryptBytes: (bytes, docId) => vault.encryptBytes(bytes, docId),
     decryptBytes: (data, docId) => vault.decryptBytes(data, docId),
-  }
-}
-
-export interface TestEventHubs {
-  clientEventHub: ClientEventHub
-  internalEventHub: WorkerInternalEventHub
-}
-
-/**
- * Instantiates both a fresh ClientEventHub and WorkerInternalEventHub for testing.
- */
-export function createTestEventHubs(): TestEventHubs {
-  return {
-    clientEventHub: new ClientEventHub(),
-    internalEventHub: new WorkerInternalEventHub(),
   }
 }
 

@@ -3,7 +3,6 @@ import { chunk } from 'lodash-es'
 import type { KeyProvider } from '../../api/Keyring'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from '@vault/shared'
-import type { WorkerInternalEventHub } from './SyncEventHub'
 import type { SyncSessionState } from './SyncSessionState'
 import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import { decodeSyncMessage } from '@automerge/automerge/slim'
@@ -35,13 +34,14 @@ export interface SyncPollerDeps {
   accountId: string
   session: SyncSessionState
   pullQueueManager: SyncPullQueueManager
-  internalEventHub: WorkerInternalEventHub
   keys: KeyProvider
   wal: SyncWriteAheadLog
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
   /** Receives the heads of each item the server accepted a push for */
   onPushAcknowledged: (itemId: ItemId, heads: string[]) => void
+  /** Called with the items whose WAL entries were dropped, which only a snapshot can now deliver */
+  onWalEntriesPruned?: (itemIds: ItemId[]) => void
 }
 
 export class SyncPoller {
@@ -51,10 +51,10 @@ export class SyncPoller {
   private readonly consecutivePushFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_PUSH_FAILURES)
   private readonly recoveryManager: RecoveryManager
   private readonly pullQueueManager: SyncPullQueueManager
-  private readonly internalEventHub: WorkerInternalEventHub
   private readonly keys: KeyProvider
   private readonly wal: SyncWriteAheadLog
   private readonly onPushAcknowledged: (itemId: ItemId, heads: string[]) => void
+  private readonly onWalEntriesPruned?: (itemIds: ItemId[]) => void
   /** WAL entries already checked to be sync messages, so a retried push doesn't decode them again */
   private validEntryIds = new Set<string>()
 
@@ -62,12 +62,12 @@ export class SyncPoller {
     this.accountId = deps.accountId
     this.session = deps.session
     this.pullQueueManager = deps.pullQueueManager
-    this.internalEventHub = deps.internalEventHub
     this.keys = deps.keys
     this.wal = deps.wal
     this.apiClient = deps.apiClient
     this.recoveryManager = deps.recoveryManager
     this.onPushAcknowledged = deps.onPushAcknowledged
+    this.onWalEntriesPruned = deps.onWalEntriesPruned
   }
 
   private get isOperational(): boolean {
@@ -177,7 +177,7 @@ export class SyncPoller {
 
     if (droppedItemIds.length > 0) {
       await this.wal.remove(droppedEntryIds)
-      this.internalEventHub.emit({ type: 'walEntriesPruned', itemIds: droppedItemIds })
+      this.onWalEntriesPruned?.(droppedItemIds)
     }
   }
 

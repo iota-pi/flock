@@ -3,8 +3,6 @@ import type { Mock } from 'vitest'
 
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { WorkerInternalEventHub } from './SyncEventHub'
-import { createTestEventHubs } from './__test__/testUtils'
 import { SyncSessionState } from './SyncSessionState'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
@@ -27,18 +25,17 @@ describe('SyncMessageBroker', () => {
   let broker: SyncMessageBroker
   let session: SyncSessionState
   let adapter: VaultNetworkAdapter
-  let internalEventHub: WorkerInternalEventHub
   let pullQueueManager: SyncPullQueueManager
   let mockWal: SyncWriteAheadLog
   let onFlushNeeded: Mock<() => void>
+  let requestSnapshot: Mock<(itemIds: ItemId[]) => void>
 
   beforeEach(() => {
     vi.clearAllMocks()
     onFlushNeeded = vi.fn()
-    const hubs = createTestEventHubs()
-    internalEventHub = hubs.internalEventHub
+    requestSnapshot = vi.fn()
     session = new SyncSessionState()
-    adapter = new VaultNetworkAdapter(internalEventHub, { accountId: 'account-1', session, onMessageToSend: () => {} })
+    adapter = new VaultNetworkAdapter({ accountId: 'account-1', session, onMessageToSend: () => {} })
     pullQueueManager = {
       addPendingItem: vi.fn(),
       exportCursors: vi.fn().mockReturnValue([]),
@@ -55,11 +52,11 @@ describe('SyncMessageBroker', () => {
 
     broker = new SyncMessageBroker({
       adapter,
-      internalEventHub,
       pullQueueManager,
       session,
       wal: mockWal,
       onFlushNeeded,
+      requestSnapshot,
     })
   })
 
@@ -112,10 +109,6 @@ describe('SyncMessageBroker', () => {
 
   it('falls back to snapshot sync instead of appending oversized messages to the WAL', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const fallbackSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'snapshotFallbackRequested') fallbackSpy(e.itemId)
-    })
     session.setLeader(true)
 
     const msg = createSyncMessage('item-big', [])
@@ -124,7 +117,7 @@ describe('SyncMessageBroker', () => {
     await Promise.resolve()
 
     expect(mockWal.append).not.toHaveBeenCalled()
-    expect(fallbackSpy).toHaveBeenCalledWith('item-big')
+    expect(requestSnapshot).toHaveBeenCalledWith(['item-big'])
 
     // Subsequent incremental messages are dropped until a snapshot succeeds
     expect(await dropsIncrementalSync('item-big')).toBe(true)
@@ -160,13 +153,9 @@ describe('SyncMessageBroker', () => {
     expect(pullQueueManager.shutdown).not.toHaveBeenCalled()
   })
 
-  it('triggers renegotiation and notifies onWalAppendFailed when WAL append fails', async () => {
+  it('triggers renegotiation and requests a snapshot when WAL append fails', async () => {
     const flushSpy = onFlushNeeded
-    const failureSpy = vi.fn()
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
-    internalEventHub.subscribe(e => {
-      if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
-    })
     session.setLeader(true)
 
     const appendError = new Error('Disk full')
@@ -178,16 +167,12 @@ describe('SyncMessageBroker', () => {
 
     expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
     expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
-    expect(failureSpy).toHaveBeenCalledWith('item123', appendError)
+    expect(requestSnapshot).toHaveBeenCalledWith(['item123'])
     expect(flushSpy).not.toHaveBeenCalled()
   })
 
   it('blocks the item when a WAL append fails with QuotaExceededError', async () => {
-    const failureSpy = vi.fn()
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
-    internalEventHub.subscribe(e => {
-      if (e.type === 'walAppendFailed') failureSpy(e.itemId, e.error)
-    })
     session.setLeader(true)
 
     const quotaError = new DOMException('Storage quota exceeded', 'QuotaExceededError')
@@ -198,38 +183,29 @@ describe('SyncMessageBroker', () => {
     await Promise.resolve()
 
     expect(renegSpy).toHaveBeenCalledWith(msg.documentId)
-    expect(failureSpy).toHaveBeenCalledWith('item-quota', quotaError)
+    expect(requestSnapshot).toHaveBeenCalledWith(['item-quota'])
     expect(broker.getBlockedItemIds()).toEqual(['item-quota'])
   })
 
-  it('flags items for snapshot-only sync without triggering renegotiation when WAL prunes entries', async () => {
-    const prunedSpy = vi.fn()
+  it('flags items for snapshot-only sync and requests snapshots without triggering renegotiation', async () => {
     const renegSpy = vi.spyOn(adapter, 'triggerReNegotiation')
-    internalEventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') prunedSpy(e.itemIds)
-    })
     await startSending()
 
-    // Simulate WAL notifying of pruned items
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId, 'item-2' as ItemId] })
+    // As when the WAL prunes the items' entries
+    broker.fallbackToSnapshot(['item-1' as ItemId, 'item-2' as ItemId])
 
     expect(renegSpy).not.toHaveBeenCalled()
-    expect(prunedSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
+    expect(requestSnapshot).toHaveBeenCalledWith(['item-1', 'item-2'])
     expect(await dropsIncrementalSync('item-1')).toBe(true)
     expect(await dropsIncrementalSync('item-2')).toBe(true)
     expect(await dropsIncrementalSync('item-3')).toBe(false)
   })
 
-  it('drops outgoing sync messages for snapshot-only items without re-emitting walEntriesPruned', async () => {
-    const prunedSpy = vi.fn()
-    internalEventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') prunedSpy(e.itemIds)
-    })
+  it('drops outgoing sync messages for snapshot-only items without requesting another snapshot', async () => {
     session.setLeader(true)
 
-    // Mark item-1 as snapshot-only (via pruned callback)
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId] })
-    prunedSpy.mockClear()
+    broker.fallbackToSnapshot(['item-1' as ItemId])
+    requestSnapshot.mockClear()
 
     // Outgoing sync message for item-1
     const msg = createSyncMessage('item-1', [1, 2, 3])
@@ -238,13 +214,13 @@ describe('SyncMessageBroker', () => {
 
     // WAL append should NOT be called for snapshot-only item
     expect(mockWal.append).not.toHaveBeenCalled()
-    // It should NOT re-emit walEntriesPruned to avoid spurious downstream invocations
-    expect(prunedSpy).not.toHaveBeenCalled()
+    // It should NOT request another snapshot, to avoid spurious downstream invocations
+    expect(requestSnapshot).not.toHaveBeenCalled()
   })
 
   it('clears snapshot-only flag when snapshot is confirmed via setSyncedHeads or clearSnapshotOnlyItem', async () => {
     await startSending()
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['item-1' as ItemId, 'item-2' as ItemId] })
+    broker.fallbackToSnapshot(['item-1' as ItemId, 'item-2' as ItemId])
     expect(await dropsIncrementalSync('item-1')).toBe(true)
     expect(await dropsIncrementalSync('item-2')).toBe(true)
 
@@ -265,7 +241,7 @@ describe('SyncMessageBroker', () => {
     const docId = toDocumentIdFromItemId(itemId)
 
     await blockByFailedAppend(itemId)
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
+    broker.fallbackToSnapshot([itemId])
     expect(broker.getBlockedItemIds()).toEqual([itemId])
     expect(await dropsIncrementalSync(itemId)).toBe(true)
 
@@ -286,7 +262,7 @@ describe('SyncMessageBroker', () => {
     const docId = toDocumentIdFromItemId(itemId)
 
     await blockByFailedAppend(itemId)
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: [itemId] })
+    broker.fallbackToSnapshot([itemId])
 
     broker.recordSyncedHeads(itemId, ['head-from-push'])
     expect(broker.getBlockedItemIds()).toEqual([])

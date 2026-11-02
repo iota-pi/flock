@@ -1,8 +1,8 @@
 import { SyncWorkerContext } from './SyncWorkerContext'
 import { SyncApiClient } from './SyncApiClient'
 import { INBOUND_MESSAGE_RESOLVABLE_KINDS } from './RecoveryManager'
-import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { createFakeRealtimeBus, createMockKeyProvider, createTestEventHubs, type FakeRealtimeBus } from './__test__/testUtils'
+import { ClientEventHub } from './SyncEventHub'
+import { createFakeRealtimeBus, createMockKeyProvider, type FakeRealtimeBus } from './__test__/testUtils'
 import { spyOnExports } from '../../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
 import type { DocumentId } from '@automerge/automerge-repo/slim'
@@ -13,6 +13,11 @@ import { AbortError } from '../utils/abort'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
+import type { SyncWriteAheadLogOptions } from './SyncWriteAheadLog'
+import type { SyncPullQueueManagerDeps } from './SyncPullQueueManager'
+import type { SyncMessageBrokerDeps } from './SyncMessageBroker'
+import type { VaultNetworkAdapterOptions } from './VaultNetworkAdapter'
+import type { SyncOrchestratorDeps } from './SyncOrchestrator'
 import { Keyring } from '../../api/Keyring'
 import { generateVaultKey } from '../../api/crypto'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -60,6 +65,11 @@ let realtimeBus: FakeRealtimeBus
 
 const mockReadDeviceDataVersion = vi.fn(async () => 0)
 
+/** The dependencies the context gave one of the mocked components */
+function depsOf<T>(component: unknown): T {
+  return (component as { deps: T }).deps
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -99,7 +109,7 @@ beforeEach(() => {
   spyOnExports(syncWriteAheadLog, {
     SyncWriteAheadLog: class MockSyncWriteAheadLog {
       static getSealedStorage = () => ({ length: mockSealedWalLength })
-      constructor(readonly accountId: string, readonly hub?: unknown, readonly options: { cipher?: unknown } = {}) {}
+      constructor(readonly accountId: string, readonly deps: SyncWriteAheadLogOptions = {}) {}
       clear = vi.fn().mockResolvedValue(undefined)
       handleQuotaExceeded = vi.fn().mockResolvedValue(1)
       append = vi.fn().mockResolvedValue(undefined)
@@ -123,6 +133,7 @@ beforeEach(() => {
   })
   spyOnExports(syncPullQueueManager, {
     SyncPullQueueManager: class MockSyncPullQueueManager {
+      constructor(readonly deps: SyncPullQueueManagerDeps) {}
       setLockCoordinator = vi.fn()
       getGlobalLatestCursor = vi.fn().mockReturnValue(0)
       loadCursors = vi.fn().mockResolvedValue(undefined)
@@ -131,6 +142,8 @@ beforeEach(() => {
   })
   spyOnExports(syncMessageBroker, {
     SyncMessageBroker: class MockSyncMessageBroker {
+      constructor(readonly deps: SyncMessageBrokerDeps) {}
+      fallbackToSnapshot = vi.fn()
       unblockAllItems = vi.fn()
       getBlockedItemIds = vi.fn().mockReturnValue([])
       poller = { executePoll: vi.fn().mockResolvedValue('success') }
@@ -139,6 +152,7 @@ beforeEach(() => {
   })
   spyOnExports(vaultNetworkAdapter, {
     VaultNetworkAdapter: class MockVaultNetworkAdapter {
+      constructor(readonly deps: VaultNetworkAdapterOptions) {}
       triggerReNegotiation = vi.fn()
       setSyncedHeads = vi.fn()
       loadSyncedHeads = vi.fn()
@@ -178,7 +192,7 @@ beforeEach(() => {
       start = vi.fn().mockResolvedValue(undefined)
       shutdown = vi.fn().mockResolvedValue(undefined)
       onOnlineStateChange = vi.fn()
-      constructor(readonly deps: { manifestSyncManager: unknown }) {}
+      constructor(readonly deps: SyncOrchestratorDeps) {}
       claimLeader = vi.fn()
       flush = vi.fn()
     },
@@ -225,40 +239,47 @@ beforeEach(() => {
 
 describe('SyncWorkerContext', () => {
   let context: SyncWorkerContext
-  let internalEventHub: WorkerInternalEventHub
   let clientEventHub: ClientEventHub
 
   beforeEach(async () => {
     vi.clearAllMocks()
     mockHasIndex.mockResolvedValue(false)
-    const hubs = createTestEventHubs()
-    clientEventHub = hubs.clientEventHub
-    internalEventHub = hubs.internalEventHub
+    clientEventHub = new ClientEventHub()
 
     context = new SyncWorkerContext({
       accountId: 'test-account',
       keys: createMockKeyProvider(),
       clientEventHub,
-      internalEventHub,
       apiClient: new SyncApiClient(),
     })
     await context.initialize()
   })
 
   it('marks item dirty in SnapshotManager when adapter triggers re-negotiation', () => {
-    internalEventHub.emit({ type: 'renegotiationTriggered', documentId: 'test-doc-id' as DocumentId })
+    depsOf<VaultNetworkAdapterOptions>(context.services.adapter).onReNegotiationTriggered!('test-doc-id' as DocumentId)
     expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('test-doc-id' as ItemId, 0)
   })
 
-  it('marks item dirty in SnapshotManager when broker reports WAL append failure', () => {
-    internalEventHub.emit({ type: 'walAppendFailed', itemId: 'test-item-id' as ItemId, error: new Error('WAL write failed') })
+  it('marks items dirty in SnapshotManager when the broker or WAL requests a snapshot', () => {
+    depsOf<SyncMessageBrokerDeps>(context.services.broker).requestSnapshot(['test-item-id' as ItemId])
+    depsOf<SyncWriteAheadLogOptions>(context.services.wal).onSnapshotNeeded!(['unreadable-item' as ItemId])
     expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
+    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('unreadable-item' as ItemId, 0)
   })
 
-  it('marks items dirty in SnapshotManager when WAL entries are pruned', () => {
-    internalEventHub.emit({ type: 'walEntriesPruned', itemIds: ['pruned-item-1' as ItemId, 'pruned-item-2' as ItemId] })
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('pruned-item-1' as ItemId, 0)
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('pruned-item-2' as ItemId, 0)
+  it('routes items whose WAL entries are pruned to snapshot-only sync', () => {
+    const itemIds = ['pruned-item-1', 'pruned-item-2'] as ItemId[]
+    depsOf<SyncWriteAheadLogOptions>(context.services.wal).onEntriesPruned!(itemIds)
+    expect(context.services.broker.fallbackToSnapshot).toHaveBeenCalledWith(itemIds)
+  })
+
+  it('reports poll results and pull retries to the status manager', () => {
+    const pollSpy = vi.spyOn(context.statusManager, 'handlePollResult')
+    const degradedSpy = vi.spyOn(context.statusManager, 'setDegradedPull')
+    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onPollResult!('failure')
+    depsOf<SyncPullQueueManagerDeps>(context.services.pullQueueManager).onRetryingChange!(true)
+    expect(pollSpy).toHaveBeenCalledWith('failure')
+    expect(degradedSpy).toHaveBeenCalledWith(true)
   })
 
   it('forwards clearLocalData options to pullQueueManager and snapshotManager on shutdown without clearing storage directly', async () => {
@@ -316,14 +337,14 @@ describe('SyncWorkerContext', () => {
   })
 
   it('tells the adapter and snapshot manager about leaderChange', () => {
-    internalEventHub.emit({ type: 'leaderChange', isLeader: true })
+    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
     expect(context.services.adapter.onLeaderChange).toHaveBeenCalledTimes(1)
     expect(context.services.snapshotManager.onLeaderChange).toHaveBeenCalledTimes(1)
   })
 
   it('pauses BroadcastChannel sync when multiple leaders are detected', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    internalEventHub.emit({ type: 'multipleLeadersDetected' })
+    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderOverlapChange!(true)
     expect(context.services.repoManager.pauseBroadcastSync).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(
       '[SyncWorkerContext] Multiple leaders detected. Pausing BroadcastChannel sync to prevent feedback loop.'
@@ -333,7 +354,7 @@ describe('SyncWorkerContext', () => {
 
   it('resumes BroadcastChannel sync when the sole leader is restored', () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-    internalEventHub.emit({ type: 'soleLeaderRestored' })
+    depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderOverlapChange!(false)
     expect(context.services.repoManager.resumeBroadcastSync).toHaveBeenCalledTimes(1)
     expect(infoSpy).toHaveBeenCalledWith('[SyncWorkerContext] Sole leader restored. Resuming BroadcastChannel sync.')
     infoSpy.mockRestore()
@@ -351,37 +372,35 @@ describe('SyncWorkerContext', () => {
 
   describe('manual recovery event handling', () => {
     async function createContext() {
-      const { clientEventHub: ctxClientHub, internalEventHub: ctxInternalHub } = createTestEventHubs()
       const ctx = new SyncWorkerContext({
         accountId: 'test-account',
         keys: createMockKeyProvider(),
-        clientEventHub: ctxClientHub,
-        internalEventHub: ctxInternalHub,
+        clientEventHub: new ClientEventHub(),
         apiClient: new SyncApiClient(),
       })
       await ctx.initialize()
-      return { ctx, ctxInternalHub }
+      return { ctx, pullDeps: depsOf<SyncPullQueueManagerDeps>(ctx.services.pullQueueManager) }
     }
 
     beforeEach(() => {
       mockRecoveryEntries.clear()
     })
 
-    it('resolves pullDecryption quarantines when remoteMessagesParsed is received', async () => {
-      const { ctx, ctxInternalHub } = await createContext()
+    it('resolves pullDecryption quarantines once remote messages are parsed', async () => {
+      const { ctx, pullDeps } = await createContext()
       const resolveSpy = vi.spyOn(ctx.services.recoveryManager, 'resolveQuarantines').mockResolvedValue(undefined)
 
-      ctxInternalHub.emit({ type: 'remoteMessagesParsed', itemId: 'item-1' as ItemId })
+      pullDeps.onRemoteMessagesParsed!('item-1' as ItemId)
 
       expect(resolveSpy).toHaveBeenCalledWith(['item-1'], INBOUND_MESSAGE_RESOLVABLE_KINDS)
     })
 
-    it('reports decryptionFailure events as pullDecryption', async () => {
-      const { ctx, ctxInternalHub } = await createContext()
+    it('reports pull decryption failures as pullDecryption', async () => {
+      const { ctx, pullDeps } = await createContext()
       const reportSpy = vi.spyOn(ctx.services.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
       const error = new Error('bad')
 
-      ctxInternalHub.emit({ type: 'decryptionFailure', itemId: 'item-1' as ItemId, error })
+      pullDeps.onDecryptionFailure!('item-1' as ItemId, error)
 
       expect(reportSpy).toHaveBeenCalledWith('item-1', 'pullDecryption', error)
     })
@@ -508,7 +527,6 @@ describe('SyncWorkerContext', () => {
       accountId: 'test-account-lifecycle',
       keys: createMockKeyProvider(),
       clientEventHub,
-      internalEventHub,
       apiClient: new SyncApiClient(),
     })
     const startSpy = vi.spyOn(ctx.lifecycle, 'start')
@@ -529,7 +547,6 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         localKeys,
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
         randomDataKeys: true,
@@ -572,7 +589,7 @@ describe('SyncWorkerContext', () => {
       await ctx.initialize()
 
       expect((ctx.services.indexStore as any).options.cipher).toBe(cipher)
-      expect((ctx.services.wal as any).options.cipher).toBe(cipher)
+      expect((ctx.services.wal as any).deps.cipher).toBe(cipher)
       expect(ctx.localStorageState).toEqual({ mode: 'sealed', retired: true })
     })
 
@@ -608,7 +625,6 @@ describe('SyncWorkerContext', () => {
         accountId: 'test-account-level',
         keys: createMockKeyProvider(),
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
         sealedDataVersion: 3,
@@ -648,7 +664,6 @@ describe('SyncWorkerContext', () => {
         keys: createMockKeyProvider(),
         localKeys: keyring,
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
       })
@@ -703,7 +718,6 @@ describe('SyncWorkerContext', () => {
         accountId: 'test-account-unreadable',
         keys: createMockKeyProvider(),
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         upgradeLocalEncryption: true,
       })
@@ -781,7 +795,6 @@ describe('SyncWorkerContext', () => {
         accountId: 'test-account-migrate',
         keys: createMockKeyProvider(),
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         migrateLocalData,
       })
@@ -898,7 +911,6 @@ describe('SyncWorkerContext', () => {
         accountId: 'test-account-gated',
         keys: createMockKeyProvider(),
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         minDataVersion: 1,
         hasLegacyLocalData: options.hasLegacyLocalData,
@@ -915,7 +927,6 @@ describe('SyncWorkerContext', () => {
         accountId: 'test-account-gated',
         keys: createMockKeyProvider(),
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         minDataVersion: 1,
         migrateLocalData: migrate,
@@ -963,7 +974,6 @@ describe('SyncWorkerContext', () => {
         accountId: 'test-account-ungated',
         keys: createMockKeyProvider(),
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
       })
       await ctx.initialize()
@@ -981,7 +991,6 @@ describe('SyncWorkerContext', () => {
         accountId: 'test-account-upgrade',
         keys: createMockKeyProvider(),
         clientEventHub,
-        internalEventHub,
         apiClient: new SyncApiClient(),
         upgradeSnapshotFormat: true,
       })
@@ -995,7 +1004,6 @@ describe('SyncWorkerContext', () => {
       accountId: 'test-account-lifecycle',
       keys: createMockKeyProvider(),
       clientEventHub,
-      internalEventHub,
       apiClient: new SyncApiClient(),
     })
     const registerSpy = vi.spyOn(ctx.lifecycle, 'register')
@@ -1029,7 +1037,6 @@ describe('SyncWorkerContext', () => {
       accountId: 'test-account-api-client',
       keys: createMockKeyProvider(),
       clientEventHub,
-      internalEventHub,
       apiClient,
     })
 

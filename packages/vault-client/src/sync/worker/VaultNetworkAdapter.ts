@@ -11,7 +11,6 @@ import { debounce } from 'lodash-es'
 import { BaseSyncNetworkAdapter } from './BaseSyncNetworkAdapter'
 import type { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { areHeadsEqual } from './utils/automerge'
-import type { WorkerInternalEventHub } from './SyncEventHub'
 import type { SyncSessionState } from './SyncSessionState'
 import { BoundedQueue } from '../utils/BoundedQueue'
 import { BoundedSet } from '../utils/BoundedSet'
@@ -65,6 +64,8 @@ export interface VaultNetworkAdapterOptions {
    * on the vault's behalf. Without a validator, all synced heads are trusted.
    */
   headsValidator?: HeadsValidator
+  /** Called when a document is renegotiated from scratch, which a snapshot backs up */
+  onReNegotiationTriggered?: (documentId: DocumentId) => void
 }
 
 interface RenegotiationCircuitState {
@@ -97,11 +98,9 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   private hasUnsavedSyncedHeads = false
   private readonly headsValidator: HeadsValidator | null
   private readonly onMessageToSend: (message: Message) => void
+  private readonly onReNegotiationTriggered?: (documentId: DocumentId) => void
 
-  constructor(
-    private readonly internalEventHub: WorkerInternalEventHub,
-    options: VaultNetworkAdapterOptions,
-  ) {
+  constructor(options: VaultNetworkAdapterOptions) {
     super()
     this.accountId = options.accountId
     this.session = options.session
@@ -111,6 +110,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
     this.syncedHeadsStore = options.syncedHeadsStore ?? null
     this.headsValidator = options.headsValidator ?? null
     this.onMessageToSend = options.onMessageToSend
+    this.onReNegotiationTriggered = options.onReNegotiationTriggered
   }
 
   /** Saves changed synced heads (unless local data is being cleared), then disconnects */
@@ -297,7 +297,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
       this.pendingReNegotiations.add(documentId)
     }
 
-    this.internalEventHub.emit({ type: 'renegotiationTriggered', documentId })
+    this.onReNegotiationTriggered?.(documentId)
     return true
   }
 

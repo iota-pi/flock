@@ -1,6 +1,6 @@
 import { SyncWriteAheadLog, toUint8Array } from './SyncWriteAheadLog'
-import { WorkerInternalEventHub } from './SyncEventHub'
 import type { ItemId } from '@vault/shared'
+import type { Mock } from 'vitest'
 import { registerQuotaRecoveryHandler, clearQuotaRecoveryHandlerForTesting } from '../utils/storageManager'
 
 import {
@@ -21,7 +21,7 @@ const createLocalForageInstance = (options: { name: string; storeName: string })
 
 describe('SyncWriteAheadLog', () => {
   let wal: SyncWriteAheadLog
-  let eventHub: WorkerInternalEventHub
+  let onPruned: Mock<(itemIds: ItemId[]) => void>
 
   beforeEach(() => {
     mockLocalForage(createLocalForageInstance)
@@ -29,8 +29,8 @@ describe('SyncWriteAheadLog', () => {
     activeStoreMap.clear()
     clearAccountStoreInstancesCacheForTesting()
     clearQuotaRecoveryHandlerForTesting()
-    eventHub = new WorkerInternalEventHub()
-    wal = new SyncWriteAheadLog('test-account', eventHub)
+    onPruned = vi.fn()
+    wal = new SyncWriteAheadLog('test-account', { onEntriesPruned: onPruned })
   })
 
   it('appends entries and reads them grouped by item', async () => {
@@ -116,7 +116,7 @@ describe('SyncWriteAheadLog', () => {
     const id1 = await wal.append('item-crash' as ItemId, new Uint8Array([99, 100]))
 
     // Simulate crash and fresh start on same account
-    const newWalInstance = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
+    const newWalInstance = new SyncWriteAheadLog('test-account')
     const recovered = await newWalInstance.readAll()
 
     expect(recovered.has('item-crash' as ItemId)).toBe(true)
@@ -404,11 +404,6 @@ describe('SyncWriteAheadLog', () => {
       seq: 3,
     })
 
-    const onPruned = vi.fn()
-    eventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-    })
-
     // Prune oldest 2 entries (both belong to item-A)
     await (wal as any).pruneOldest(2)
 
@@ -432,11 +427,6 @@ describe('SyncWriteAheadLog', () => {
         seq: i,
       })
     }
-
-    const onPruned = vi.fn()
-    eventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-    })
 
     // Append 1 new entry -> triggers size limit enforcement which prunes oldest
     await wal.append('item-new' as ItemId, new Uint8Array([99]))
@@ -481,11 +471,6 @@ describe('SyncWriteAheadLog', () => {
       seq: 4,
     })
 
-    const onPruned = vi.fn()
-    eventHub.subscribe(e => {
-      if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-    })
-
     // Prune oldest 1 entry: this is prune-1 (item-A)
     await (wal as any).pruneOldest(1)
 
@@ -528,11 +513,6 @@ describe('SyncWriteAheadLog', () => {
 
       // Simulate a1 being in-flight (active push), while a2 arrived after push started
       wal.markInFlight(['a1'])
-
-      const onPruned = vi.fn()
-      eventHub.subscribe(e => {
-        if (e.type === 'walEntriesPruned') onPruned(e.itemIds)
-      })
 
       // Request pruning of 1 entry
       await (wal as any).pruneOldest(1)
@@ -627,7 +607,7 @@ describe('SyncWriteAheadLog', () => {
       const id3 = await wal.append('item-restart' as ItemId, new Uint8Array([3]))
 
       // Simulate worker restart by instantiating a fresh SyncWriteAheadLog for the same account
-      const restartedWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
+      const restartedWal = new SyncWriteAheadLog('test-account')
 
       // Append 4th entry at identical millisecond timestamp
       const id4 = await restartedWal.append('item-restart' as ItemId, new Uint8Array([4]))
@@ -653,7 +633,7 @@ describe('SyncWriteAheadLog', () => {
 
       // Worker restart with clock skewed backwards
       vi.spyOn(Date, 'now').mockReturnValue(1900)
-      const restartedWal = new SyncWriteAheadLog('test-account', new WorkerInternalEventHub())
+      const restartedWal = new SyncWriteAheadLog('test-account')
       const id2 = await restartedWal.append('item-skew' as ItemId, new Uint8Array([2]))
 
       const entriesMap = await restartedWal.readAll()

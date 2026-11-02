@@ -2,7 +2,6 @@ import type { StorageKey } from '@automerge/automerge-repo/slim'
 import { VaultIndexedDBStorageAdapter } from '../VaultIndexedDBStorageAdapter'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { SyncWriteAheadLog } from '../SyncWriteAheadLog'
-import { WorkerInternalEventHub } from '../SyncEventHub'
 import { IndexStore } from '../stores/IndexStore'
 import { mergeIndexDocuments } from '../docStore/AutomergeIndexManager'
 import { getAccountDatabaseName } from '../../shared/createAccountStore'
@@ -95,12 +94,11 @@ export class LocalEncryptionUpgrade {
   /** Copies the plaintext WAL, which may hold changes no snapshot carries yet */
   private async copyWal(): Promise<void> {
     const { accountId, cipher } = this.deps
-    // Runs before the session's components exist, so nothing listens for the WAL's events yet
-    const eventHub = new WorkerInternalEventHub()
-    const byItem = await new SyncWriteAheadLog(accountId, eventHub).readAll()
+    // Runs before the session's components exist, so nothing listens for the WAL's callbacks yet
+    const byItem = await new SyncWriteAheadLog(accountId).readAll()
     const entries = Array.from(byItem.values()).flat()
     if (entries.length === 0) return
-    await new SyncWriteAheadLog(accountId, eventHub, { cipher }).importEntries(entries)
+    await new SyncWriteAheadLog(accountId, { cipher }).importEntries(entries)
   }
 
   /**

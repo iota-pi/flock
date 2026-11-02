@@ -1,9 +1,6 @@
 import type { MigrationRequiredReason, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import type { PollOutcome } from './SyncPoller'
-
-import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { createLogger, type Logger } from '../utils/logger'
 
 export type ClientEvent =
@@ -37,21 +34,6 @@ export type ClientEvent =
       name?: string
     }
   }
-
-export type WorkerInternalEvent =
-  | { type: 'pollResult'; outcome: PollOutcome }
-  | { type: 'multipleLeadersDetected' }
-  | { type: 'soleLeaderRestored' }
-  | { type: 'remoteMessagesParsed'; itemId: ItemId }
-  | { type: 'walAppendFailed'; itemId: ItemId; error: unknown }
-  | { type: 'walEntriesPruned'; itemIds: ItemId[] }
-  | { type: 'snapshotFallbackRequested'; itemId: ItemId }
-  | { type: 'decryptionFailure'; itemId: ItemId; error: unknown }
-  /** A record in this device's sealed storage failed to decrypt */
-  | { type: 'localDecryptionFailed'; itemId: ItemId; error: unknown }
-  | { type: 'retryingStateChange'; isRetrying: boolean }
-  | { type: 'leaderChange'; isLeader: boolean }
-  | { type: 'renegotiationTriggered'; documentId: DocumentId }
 
 type EventListener<T> = (event: T) => void | Promise<void>
 
@@ -131,10 +113,3 @@ export class ClientEventHub extends EventHub<ClientEvent> {
     }
   }
 }
-
-export class WorkerInternalEventHub extends EventHub<WorkerInternalEvent> {
-  constructor() {
-    super('WorkerInternalEventHub', 'listener')
-  }
-}
-

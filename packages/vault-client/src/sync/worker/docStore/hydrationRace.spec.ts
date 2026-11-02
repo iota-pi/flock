@@ -4,7 +4,6 @@ import * as Automerge from '@automerge/automerge/slim'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import { SyncPullQueueManager } from '../SyncPullQueueManager'
 import { CursorStore } from '../stores/CursorStore'
-import { WorkerInternalEventHub } from '../SyncEventHub'
 import { toAutomergeUrlFromItemId } from '../utils/automerge'
 import { packBatchedMessages } from '../utils/binaryFraming'
 import { ItemId } from '@vault/shared'
@@ -43,7 +42,6 @@ describe('Document Hydration Race Condition (C4)', () => {
   let docStore: AutomergeDocStore
   let cursorStore: CursorStore
   let pullQueueManager: SyncPullQueueManager
-  let eventHub: WorkerInternalEventHub
   let receiveServerMessage: Mock<(documentId: DocumentId, message: Uint8Array) => void>
 
   beforeEach(async () => {
@@ -52,13 +50,11 @@ describe('Document Hydration Race Condition (C4)', () => {
     repo = new Repo()
     docStore = createTestDocStore(repo)
     cursorStore = new CursorStore('test-account')
-    eventHub = new WorkerInternalEventHub()
     receiveServerMessage = vi.fn<(documentId: DocumentId, message: Uint8Array) => void>()
     pullQueueManager = new SyncPullQueueManager({
       cursorStore,
       keys,
       lockCoordinator: docStore,
-      internalEventHub: eventHub,
       adapter: { receiveServerMessage },
       session: new SyncSessionState(),
     })

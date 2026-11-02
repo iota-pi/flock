@@ -1,8 +1,8 @@
+import type { Mock } from 'vitest'
 import { SyncPoller } from './SyncPoller'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
 import { SyncApiClient, AuthError, type PullSyncMessagesResponse } from './SyncApiClient'
-import { WorkerInternalEventHub } from './SyncEventHub'
-import { createMockKeyProvider, createMockVault, createTestEventHubs, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
 import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
@@ -34,7 +34,7 @@ beforeEach(() => {
 describe('SyncPoller', () => {
   let poller: SyncPoller
   let session: SyncSessionState
-  let internalEventHub: WorkerInternalEventHub
+  let onWalEntriesPruned: Mock<(itemIds: ItemId[]) => void>
   let pullQueueManager: SyncPullQueueManager
   let mockWal: SyncWriteAheadLog
   let mockRecoveryManager: RecoveryManager
@@ -42,14 +42,13 @@ describe('SyncPoller', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setApiAuthToken('mock-token')
-    internalEventHub = createTestEventHubs().internalEventHub
+    onWalEntriesPruned = vi.fn()
     // Only the leader polls
     session = new SyncSessionState({ isLeader: true })
     pullQueueManager = new SyncPullQueueManager({
       cursorStore: new CursorStore('test-account'),
       keys,
       lockCoordinator: noItemLocks,
-      internalEventHub,
       adapter: { receiveServerMessage: vi.fn() },
       session,
     })
@@ -70,12 +69,12 @@ describe('SyncPoller', () => {
       accountId: 'test-account',
       session,
       pullQueueManager,
-      internalEventHub,
       keys,
       wal: mockWal,
       apiClient: new SyncApiClient(),
       recoveryManager: mockRecoveryManager,
       onPushAcknowledged: () => {},
+      onWalEntriesPruned,
     })
   })
 
@@ -351,8 +350,6 @@ describe('SyncPoller', () => {
 
   describe('WAL entries that are not sync messages', () => {
     it('drops every entry of the item, requests a snapshot and pushes the other items', async () => {
-      const internalEvents: unknown[] = []
-      internalEventHub.subscribe(event => void internalEvents.push(event))
       vi.mocked(mockWal.readAll).mockResolvedValueOnce(new Map([
         ['item-bad' as ItemId, [
           { id: 'bad-1', itemId: 'item-bad' as ItemId, data: syncMessage(), createdAt: 1 },
@@ -369,7 +366,7 @@ describe('SyncPoller', () => {
       expect(await poller.executePoll()).toBe('success')
 
       expect(mockWal.remove).toHaveBeenNthCalledWith(1, ['bad-1', 'bad-2'])
-      expect(internalEvents).toContainEqual({ type: 'walEntriesPruned', itemIds: ['item-bad'] })
+      expect(onWalEntriesPruned).toHaveBeenCalledWith(['item-bad'])
       expect(mockWal.markInFlight).toHaveBeenCalledWith(['good'])
       expect(mockPollSyncBatch).toHaveBeenCalledWith(
         expect.objectContaining({ pushMessages: [expect.objectContaining({ itemId: 'item-good' })] }),
@@ -992,7 +989,6 @@ describe('SyncPoller', () => {
         accountId: 'test-account',
         session,
         pullQueueManager,
-        internalEventHub,
         keys,
         wal: mockWal,
         apiClient: mockApiClient,
@@ -1031,7 +1027,6 @@ describe('SyncPoller', () => {
         accountId: 'test-account',
         session,
         pullQueueManager,
-        internalEventHub,
         keys,
         wal: mockWal,
         apiClient,
@@ -1056,7 +1051,6 @@ describe('SyncPoller', () => {
         accountId: 'test-account',
         session,
         pullQueueManager,
-        internalEventHub,
         keys,
         wal: mockWal,
         apiClient,

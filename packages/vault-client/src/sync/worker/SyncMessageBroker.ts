@@ -1,6 +1,5 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import type { SyncSessionState } from './SyncSessionState'
-import { WorkerInternalEventHub } from './SyncEventHub'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ItemId } from '@vault/shared'
 import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
@@ -14,13 +13,14 @@ const log = createLogger('SyncMessageBroker')
 
 export interface SyncMessageBrokerDeps {
   adapter: VaultNetworkAdapter
-  internalEventHub: WorkerInternalEventHub
   pullQueueManager: SyncPullQueueManager
   /** Only the leader writes outgoing messages to the WAL */
   session: SyncSessionState
   wal: SyncWriteAheadLog
   /** Asks the orchestrator to push what's in the WAL and pull pending items */
   onFlushNeeded: () => void
+  /** Marks items for an immediate snapshot, which delivers what incremental sync couldn't */
+  requestSnapshot: (itemIds: ItemId[]) => void
 }
 
 export class SyncMessageBroker {
@@ -28,25 +28,18 @@ export class SyncMessageBroker {
   private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private blockedItemIds = new Set<ItemId>()
-  private unsubscribeInternalEvents: (() => void) | null = null
   private readonly adapter: VaultNetworkAdapter
-  private readonly internalEventHub: WorkerInternalEventHub
   private readonly pullQueueManager: SyncPullQueueManager
   private readonly onFlushNeeded: () => void
+  private readonly requestSnapshot: (itemIds: ItemId[]) => void
 
   constructor(deps: SyncMessageBrokerDeps) {
     this.adapter = deps.adapter
-    this.internalEventHub = deps.internalEventHub
     this.pullQueueManager = deps.pullQueueManager
     this.wal = deps.wal
     this.session = deps.session
     this.onFlushNeeded = deps.onFlushNeeded
-
-    this.unsubscribeInternalEvents = this.internalEventHub.subscribe(event => {
-      if (event.type === 'walEntriesPruned') {
-        this.handleWalEntriesPruned(event.itemIds)
-      }
-    })
+    this.requestSnapshot = deps.requestSnapshot
   }
 
   /** Takes an outgoing message from the adapter: a change goes to the WAL, a request to the pull queue */
@@ -93,17 +86,14 @@ export class SyncMessageBroker {
   }
 
   /**
-   * Routes an item to snapshot-only sync until its next successful snapshot push.
+   * Routes items to snapshot-only sync until their next successful snapshot push, and requests that
+   * snapshot. Also called for items whose WAL entries were pruned.
    */
-  private fallbackToSnapshot(itemId: ItemId): void {
-    this.snapshotOnlyItems.add(itemId)
-    this.internalEventHub.emit({ type: 'snapshotFallbackRequested', itemId })
-  }
-
-  private handleWalEntriesPruned(itemIds: ItemId[]): void {
+  fallbackToSnapshot(itemIds: ItemId[]): void {
     for (const itemId of itemIds) {
       this.snapshotOnlyItems.add(itemId)
     }
+    this.requestSnapshot(itemIds)
   }
 
   private async handleOutgoingMessage(message: Message): Promise<void> {
@@ -138,7 +128,7 @@ export class SyncMessageBroker {
           log.warn(
             `Sync message for item ${itemId} (${message.data.byteLength} bytes) exceeds the incremental limit; falling back to snapshot sync`
           )
-          this.fallbackToSnapshot(itemId)
+          this.fallbackToSnapshot([itemId])
           return
         }
 
@@ -147,7 +137,7 @@ export class SyncMessageBroker {
           this.flush()
         } catch (err) {
           log.error(`Failed to append sync message to WAL for item ${itemId}:`, err)
-          this.handleWalAppendFailure(itemId, documentId as DocumentId, err)
+          this.handleWalAppendFailure(itemId, documentId as DocumentId)
         }
       }
     } catch (err) {
@@ -155,10 +145,10 @@ export class SyncMessageBroker {
     }
   }
 
-  private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId, err: unknown): void {
+  private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId): void {
     this.blockItem(itemId)
     this.adapter.triggerReNegotiation(documentId)
-    this.internalEventHub.emit({ type: 'walAppendFailed', itemId, error: err })
+    this.requestSnapshot([itemId])
   }
 
   flush(): void {
@@ -166,8 +156,6 @@ export class SyncMessageBroker {
   }
 
   shutdown(): void {
-    this.unsubscribeInternalEvents?.()
-    this.unsubscribeInternalEvents = null
     this.unblockAllItems()
     this.snapshotOnlyItems.clear()
   }
