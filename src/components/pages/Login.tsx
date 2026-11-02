@@ -90,6 +90,54 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 }))
 
 
+type SecurityParams = { salt: string; iterations?: number; saltVersion?: number; kdf?: KdfParams }
+
+type SecurityParamsResult =
+  | { kind: 'migrate' }
+  | { kind: 'found', params: SecurityParams, reachedServer: boolean }
+  | { kind: 'missing', error: unknown }
+
+/**
+ * Finds the account's login parameters. With them cached, a slow server doesn't hold up logging in.
+ * Without them, the login can't go ahead unless the request succeeds, so it's retried.
+ */
+async function resolveSecurityParams(account: string): Promise<SecurityParamsResult> {
+  const cached = readStoredMetadata()
+  const cachedParams = cached?.salt && cached.account === account
+    ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion, kdf: cached.kdf }
+    : null
+  try {
+    const paramsRequest = getSecurityParams(account, { retry: !cachedParams })
+    paramsRequest.catch(() => undefined)
+    const params = cachedParams
+      ? await Promise.race([
+        paramsRequest,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => reject(new Error('The server is slow to respond')), CACHED_PARAMS_WAIT_MS)
+        }),
+      ])
+      : await paramsRequest
+    // An account below the minimum level holds data this app no longer reads. One still on
+    // PBKDF2 always goes: only the migration app derives PBKDF2 keys.
+    if (!params.kdf || (params.dataVersion < MIN_ACCOUNT_DATA_VERSION && !isMigrationDeferred(account))) {
+      return { kind: 'migrate' }
+    }
+    return { kind: 'found', params, reachedServer: true }
+  } catch (error) {
+    log.warn('getSecurityParams failed (offline or network error), checking cached metadata:', error)
+    return cachedParams
+      ? { kind: 'found', params: cachedParams, reachedServer: false }
+      : { kind: 'missing', error }
+  }
+}
+
+function getMissingParamsMessage(error: unknown): string {
+  if (isNotFoundError(error)) return ACCOUNT_NOT_FOUND
+  if (isRateLimitedError(error)) return TOO_MANY_ATTEMPTS
+  return SERVER_UNREACHABLE
+}
+
+
 function LoginPage() {
   const setUi = useAppStore(state => state.setUi)
   const navigate = useNavigate()
@@ -142,111 +190,87 @@ function LoginPage() {
     [navigate],
   )
 
+  const navigateToNextRoute = useCallback(
+    () => navigate(resolveRedirectRoute(
+      location.state as RedirectRouteState | null,
+      ROUTES.prayer.path,
+      location.pathname,
+    )),
+    [location.state, location.pathname, navigate],
+  )
+
+  const failLogin = useCallback(
+    (message: string) => {
+      updateAuth({ account: '' })
+      setError(message)
+    },
+    [updateAuth],
+  )
+
   const handleClickLogin = useCallback(
     async () => {
       setLoading(true)
       setError('')
       updateAuth({ account: accountInput })
-      let securityParams: { salt: string; iterations?: number; saltVersion?: number; kdf?: KdfParams }
-      let reachedServer = false
-      let paramsError: unknown
-      const cached = readStoredMetadata()
-      const cachedParams = cached?.salt && cached.account === accountInput
-        ? { salt: cached.salt, iterations: cached.iterations, saltVersion: cached.saltVersion, kdf: cached.kdf }
-        : null
-      try {
-        // With the parameters cached, a slow server doesn't hold up logging in. Without them, the
-        // login can't go ahead unless this request succeeds, so it's retried.
-        const paramsRequest = getSecurityParams(accountInput, { retry: !cachedParams })
-        paramsRequest.catch(() => undefined)
-        const params = cachedParams
-          ? await Promise.race([
-            paramsRequest,
-            new Promise<never>((_resolve, reject) => {
-              setTimeout(() => reject(new Error('The server is slow to respond')), CACHED_PARAMS_WAIT_MS)
-            }),
-          ])
-          : await paramsRequest
-        // An account below the minimum level holds data this app no longer reads. One still on
-        // PBKDF2 always goes: only the migration app derives PBKDF2 keys.
-        if (!params.kdf || (params.dataVersion < MIN_ACCOUNT_DATA_VERSION && !isMigrationDeferred(accountInput))) {
-          goToMigration(accountInput)
-          return
-        }
-        securityParams = params
-        reachedServer = true
-      } catch (err) {
-        log.warn('getSecurityParams failed (offline or network error), checking cached metadata:', err)
-        paramsError = err
-        securityParams = cachedParams ?? { salt: '', iterations: undefined, saltVersion: undefined }
+
+      const result = await resolveSecurityParams(accountInput)
+      if (result.kind === 'migrate') {
+        goToMigration(accountInput)
+        return
+      }
+      if (result.kind === 'missing') {
+        failLogin(getMissingParamsMessage(result.error))
+        setLoading(false)
+        return
       }
 
-      if (securityParams.salt.length) {
-        try {
-          const { keyDerivationUpgraded, biometricsCleared } = await whileLoggingIn(async () => {
-            const result = await loginVault({
-              account: accountInput,
-              password,
-              salt: securityParams.salt,
-              kdf: securityParams.kdf,
-              iterations: securityParams.iterations,
-              saltVersion: securityParams.saltVersion,
-            })
-            updateAuth({ loggedIn: true })
-            return result
+      const { params, reachedServer } = result
+      try {
+        const { keyDerivationUpgraded, biometricsCleared } = await whileLoggingIn(async () => {
+          const loginResult = await loginVault({
+            account: accountInput,
+            password,
+            salt: params.salt,
+            kdf: params.kdf,
+            iterations: params.iterations,
+            saltVersion: params.saltVersion,
           })
-          setUi({ justCreatedAccount: false })
-          if (keyDerivationUpgraded) {
-            let message = 'We upgraded the encryption on your account, so your other devices will ask you to log in again.'
-            if (biometricsCleared) {
-              message += ` ${biometricLabel} unlock was turned off on this device; you can re-enable it in Settings.`
-            }
-            setMessage({ severity: 'info', message })
+          updateAuth({ loggedIn: true })
+          return loginResult
+        })
+        setUi({ justCreatedAccount: false })
+        if (keyDerivationUpgraded) {
+          let message = 'We upgraded the encryption on your account, so your other devices will ask you to log in again.'
+          if (biometricsCleared) {
+            message += ` ${biometricLabel} unlock was turned off on this device; you can re-enable it in Settings.`
           }
+          setMessage({ severity: 'info', message })
+        }
 
-          const nextRoute = resolveRedirectRoute(
-            location.state as RedirectRouteState | null,
-            ROUTES.prayer.path,
-            location.pathname,
-          )
-
-          navigate(nextRoute)
-        } catch (error) {
-          if (error instanceof UnsupportedKeyDerivationError) {
-            // Cached key derivation parameters this app no longer accepts (PBKDF2, a legacy salt).
-            // Only the migration app reads them, and it needs the server, so without the server
-            // there's nothing to send the user to yet.
-            if (!reachedServer) {
-              updateAuth({ account: '' })
-              setError(ACCOUNT_UPDATE_NEEDS_SERVER)
-              return
-            }
+        navigateToNextRoute()
+      } catch (error) {
+        if (error instanceof UnsupportedKeyDerivationError) {
+          // Cached key derivation parameters this app no longer accepts (PBKDF2, a legacy salt).
+          // Only the migration app reads them, and it needs the server, so without the server
+          // there's nothing to send the user to yet.
+          if (reachedServer) {
             goToMigration(accountInput)
-            return
+          } else {
+            failLogin(ACCOUNT_UPDATE_NEEDS_SERVER)
           }
-          updateAuth({ account: '' })
-          if (isRateLimitedError(error)) {
-            setError(TOO_MANY_ATTEMPTS)
-            return
-          }
-          log.error('Error during vault initialization:', error)
-          setError(error instanceof Error ? error.message : 'Login failed.')
-        } finally {
-          setLoading(false)
+          return
         }
-      } else {
-        updateAuth({ account: '' })
-        if (isNotFoundError(paramsError)) {
-          setError(ACCOUNT_NOT_FOUND)
-        } else if (isRateLimitedError(paramsError)) {
-          setError(TOO_MANY_ATTEMPTS)
-        } else {
-          setError(SERVER_UNREACHABLE)
+        if (isRateLimitedError(error)) {
+          failLogin(TOO_MANY_ATTEMPTS)
+          return
         }
+        log.error('Error during vault initialization:', error)
+        failLogin(error instanceof Error ? error.message : 'Login failed.')
+      } finally {
         setLoading(false)
       }
     },
-    [accountInput, biometricLabel, location.state, location.pathname, navigate, password, setMessage, setUi, updateAuth],
+    [accountInput, biometricLabel, failLogin, navigateToNextRoute, password, setMessage, setUi, updateAuth],
   )
   const handleClickBiometricUnlock = useCallback(
     async () => {
@@ -259,14 +283,7 @@ function LoginPage() {
           updateAuth({ loggedIn: true })
         })
         setUi({ justCreatedAccount: false })
-
-        const nextRoute = resolveRedirectRoute(
-          location.state as RedirectRouteState | null,
-          ROUTES.prayer.path,
-          location.pathname,
-        )
-
-        navigate(nextRoute)
+        navigateToNextRoute()
       } catch (err: unknown) {
         log.error('Biometric unlock failed', err)
         setShowPasswordForm(true)
@@ -284,36 +301,38 @@ function LoginPage() {
         setLoading(false)
       }
     },
-    [accountInput, biometricLabel, location.state, location.pathname, navigate, setUi, updateAuth],
+    [accountInput, biometricLabel, navigateToNextRoute, setUi, updateAuth],
   )
 
   useEffect(() => {
-    if (hasBiometricData() && accountInput && !justCreatedAccount && !hasAutoPromptedRef.current) {
-      if (wasManuallyLocked) {
-        hasAutoPromptedRef.current = true
-        return
-      }
+    if (!hasBiometricData() || !accountInput || justCreatedAccount || hasAutoPromptedRef.current) {
+      return
+    }
+    if (wasManuallyLocked) {
+      hasAutoPromptedRef.current = true
+      return
+    }
 
-      if (document.visibilityState === 'hidden') {
-        const handleVisibilityChange = () => {
-          if (document.visibilityState === 'visible' && !hasAutoPromptedRef.current) {
-            hasAutoPromptedRef.current = true
-            document.removeEventListener('visibilitychange', handleVisibilityChange)
-            queueMicrotask(() => {
-              void handleClickBiometricUnlock()
-            })
-          }
-        }
-        document.addEventListener('visibilitychange', handleVisibilityChange)
-        return () => {
-          document.removeEventListener('visibilitychange', handleVisibilityChange)
-        }
-      } else {
-        hasAutoPromptedRef.current = true
-        queueMicrotask(() => {
-          void handleClickBiometricUnlock()
-        })
+    const prompt = () => {
+      hasAutoPromptedRef.current = true
+      queueMicrotask(() => {
+        void handleClickBiometricUnlock()
+      })
+    }
+    if (document.visibilityState !== 'hidden') {
+      prompt()
+      return
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !hasAutoPromptedRef.current) {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+        prompt()
       }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [accountInput, justCreatedAccount, handleClickBiometricUnlock, wasManuallyLocked])
 
