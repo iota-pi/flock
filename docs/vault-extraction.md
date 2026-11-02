@@ -253,6 +253,7 @@ Follow-ups (done; the paths and entry points above are from before them):
   - `@vault/server` (`src/index.ts`): the tRPC context and routers, services, the driver interface (`VaultDriver`), credential checks and errors. Apps pass their driver to `createVaultContext({ vault })`.
   - `@vault/server/dynamo`: the DynamoDB driver.
 - `api/vault/` was flattened into the client's `api/`, with `index.ts` renamed `api/vault.ts`.
+- The client's layout was flattened, since the package boundary made the `sync/` level redundant: `sync/{worker,client,shared,utils}/` moved up to `src/`, and `api/` became `keys/`, because it holds crypto, the keyring, KDF, sessions and biometrics more than API calls. The worker entry moved from `src/worker.ts` to `src/worker/index.ts`. Lint now also keeps `utils/` and `shared/` from importing `keys/`, `client/` or `worker/`.
 - `@vault/server` is a peer dependency of `@vault/client` (and a dev dependency, for the integration spec that runs the real sync router). The client's source may only import its types, and lint enforces this, so at runtime the client never loads server code. Apps install both packages anyway.
 - `@vault/client/testing` is gone. A test-utilities entry would make vitest a dependency of the published package, so Flock's `legacy/localData.spec.ts` keeps its own in-memory localforage fake.
 
