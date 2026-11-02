@@ -92,7 +92,7 @@ export class AccountSettings {
     return itemId === this.docId
   }
 
-  getMetadata(): VaultMetadata {
+  private getMetadata(): VaultMetadata {
     return { ...this.localMetadata, ...this.settings }
   }
 

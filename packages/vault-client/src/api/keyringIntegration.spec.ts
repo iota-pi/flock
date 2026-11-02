@@ -111,8 +111,8 @@ describe('Vault Keyring Integration', () => {
     const workerKeyring = new Keyring()
     await workerKeyring.load(exported)
 
-    expect(workerKeyring.getKey('1')).toBeDefined()
-    expect(workerKeyring.getKey()).toBeDefined()
+    expect(workerKeyring['getKey']('1')).toBeDefined()
+    expect(workerKeyring['getKey']()).toBeDefined()
     const encrypted = await keyring.encrypt('hello worker')
     await expect(workerKeyring.decrypt(encrypted)).resolves.toBe('hello worker')
   })

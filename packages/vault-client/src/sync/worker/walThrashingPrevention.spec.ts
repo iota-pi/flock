@@ -14,6 +14,7 @@ import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 
 const mockStores = new Map<string, MockLocalforage>()
 
@@ -95,7 +96,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
 
     // Step 1: Pre-populate WAL with MAX_ENTRIES (2000) unique items directly in storage
     const store = mockStores.get(`test-vault-wal-${accountId}:wal-entries`)!
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       const id = `entry-${i}`
       const itemId = `offline-item-${i}` as ItemId
       store.store.set(id, {
@@ -196,7 +197,7 @@ describe('WAL Thrashing Prevention (>2000 Offline Items)', () => {
 
     // WAL size must stay strictly bounded under or equal to MAX_ENTRIES
     const finalLength = await store.length()
-    expect(finalLength).toBeLessThanOrEqual(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(finalLength).toBeLessThanOrEqual(SYNC_BATCH_SIZES.walMax)
     // Items that crossed threshold were safely quarantined into snapshot-only mode
     expect(new Set(prunedItems).size).toBeGreaterThanOrEqual(100)
     const walAppendSpy = vi.spyOn(wal, 'append')

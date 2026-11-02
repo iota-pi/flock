@@ -22,10 +22,6 @@ export class SyncStatusManager {
     private readonly session: SyncSessionState,
   ) {}
 
-  public getStatus(): SyncStatus {
-    return this.status
-  }
-
   public reset() {
     this.lastPollOutcome = null
     this.isQuotaExceeded = false

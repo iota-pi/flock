@@ -281,7 +281,7 @@ export class ManifestSyncManager {
     }
   }
 
-  async pushLocalUpdates(deltas: SyncDeltas): Promise<void> {
+  private async pushLocalUpdates(deltas: SyncDeltas): Promise<void> {
     if (deltas.locallyTombstonedSnapshots.length > 0) {
       try {
         await this.deps.storeItems(deltas.locallyTombstonedSnapshots, { markDirty: false })

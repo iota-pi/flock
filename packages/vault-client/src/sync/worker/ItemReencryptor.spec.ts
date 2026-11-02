@@ -643,7 +643,7 @@ describe('ItemReencryptor.run', () => {
         /Re-encryption aborted: network error/
       )
 
-      expect(itemReencryptor.isRetryScheduled).toBe(true)
+      expect(itemReencryptor['retryTimer'].isPending).toBe(true)
       expect(itemReencryptor.retryAttempt).toBe(1)
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
 
@@ -754,7 +754,7 @@ describe('ItemReencryptor.run', () => {
         /Re-encryption aborted: server error/
       )
 
-      expect(itemReencryptor.isRetryScheduled).toBe(true)
+      expect(itemReencryptor['retryTimer'].isPending).toBe(true)
       expect(itemReencryptor.retryAttempt).toBe(1)
       expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
 
@@ -835,7 +835,7 @@ describe('ItemReencryptor class', () => {
 
     r1.cancelScheduled()
     expect(r1.retryAttempt).toBe(0)
-    expect(r1.isRetryScheduled).toBe(false)
+    expect(r1['retryTimer'].isPending).toBe(false)
     expect(r2.retryAttempt).toBe(1)
     r2.cancelScheduled()
   })
@@ -978,7 +978,7 @@ describe('concurrency and retry race safety (H11)', () => {
     const onProgress2 = vi.fn()
 
     const p1 = itemReencryptor.run({ onProgress: onProgress1 })
-    expect(itemReencryptor.isReencrypting).toBe(true)
+    expect(itemReencryptor['reencryptGuard'].isRunning).toBe(true)
 
     const p2 = itemReencryptor.run({ onProgress: onProgress2 })
 
@@ -992,7 +992,7 @@ describe('concurrency and retry race safety (H11)', () => {
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(onProgress1).toHaveBeenCalledWith(2, 2)
     expect(onProgress2).toHaveBeenCalledWith(2, 2)
-    expect(itemReencryptor.isReencrypting).toBe(false)
+    expect(itemReencryptor['reencryptGuard'].isRunning).toBe(false)
   })
 
   it('coalesces a scheduled retry execution and a concurrent manual invocation without corrupting state', async () => {
@@ -1012,7 +1012,7 @@ describe('concurrency and retry race safety (H11)', () => {
     // Advance timers so the scheduled retry fires its fireAndForget(run)
     vi.runOnlyPendingTimers()
 
-    expect(itemReencryptor.isReencrypting).toBe(true)
+    expect(itemReencryptor['reencryptGuard'].isRunning).toBe(true)
 
     // Now, manual invocation happens while the scheduled retry is executing in background
     const manualPromise = itemReencryptor.run({ onProgress: manualProgress })
@@ -1026,7 +1026,7 @@ describe('concurrency and retry race safety (H11)', () => {
     expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
     expect(retryProgress).toHaveBeenCalledWith(2, 2)
     expect(manualProgress).toHaveBeenCalledWith(2, 2)
-    expect(itemReencryptor.isReencrypting).toBe(false)
+    expect(itemReencryptor['reencryptGuard'].isRunning).toBe(false)
   })
 
   it('cancels pending scheduled retry timeout when run is invoked manually', async () => {
@@ -1078,13 +1078,13 @@ describe('concurrency and retry race safety (H11)', () => {
     await expect(p2).rejects.toThrow('Caller 2 cancelled')
 
     // Caller 1 is still running
-    expect(itemReencryptor.isReencrypting).toBe(true)
+    expect(itemReencryptor['reencryptGuard'].isRunning).toBe(true)
 
     // Complete the in-flight upload
     resolveUpload!({ success: true })
 
     const res1 = await p1
     expect(res1).toEqual({ succeeded: ['item-1', 'item-2'], failed: [] })
-    expect(itemReencryptor.isReencrypting).toBe(false)
+    expect(itemReencryptor['reencryptGuard'].isRunning).toBe(false)
   })
 })

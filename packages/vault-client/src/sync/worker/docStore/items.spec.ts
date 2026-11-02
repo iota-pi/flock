@@ -154,7 +154,7 @@ describe('items operations', () => {
 
     const customDocStore = createTestDocStore(customRepo)
 
-    const handle = await customDocStore.findOrCreateHandle('known-item' as ItemId, { knownToExist: true })
+    const handle = await customDocStore['findOrCreateHandle']('known-item' as ItemId, { knownToExist: true })
 
     expect(handle).toBeUndefined()
     expect(deleteSpy).not.toHaveBeenCalled()
@@ -206,8 +206,8 @@ describe('items operations', () => {
     const customDocStore = createTestDocStore(customRepo)
 
     const [handleA, handleB] = await Promise.all([
-      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
-      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
+      customDocStore['findOrCreateHandle']('concurrent-item' as ItemId),
+      customDocStore['findOrCreateHandle']('concurrent-item' as ItemId),
     ])
 
     expect(handleA).toBeDefined()

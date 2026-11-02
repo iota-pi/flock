@@ -15,10 +15,6 @@ export class AbortableRun {
     this.isAlive = isAlive
   }
 
-  get isRunning(): boolean {
-    return this.controller !== null
-  }
-
   /**
    * Runs `fn` with a fresh signal, which also aborts with `outerSignal` when one is given.
    * Starting a run while another is in progress replaces it as the one `abort` stops.

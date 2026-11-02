@@ -89,11 +89,6 @@ export class SnapshotPusher {
     return this.retryTimer.isPending
   }
 
-  /** Whether a push was asked for while one was running, so another follows it */
-  get snapshotPushPending(): boolean {
-    return this.pendingPushRequested
-  }
-
   abortPush(): void {
     this.pushRun.abort()
   }
@@ -300,10 +295,7 @@ export class SnapshotPusher {
     let success = true
     let sendFailed = false
 
-    const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({
-      maxBatchBytes: this.maxPayloadBytes,
-      calculateSize: item => estimateSnapshotSize(item.snapshot),
-    })
+    const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({ maxBatchBytes: this.maxPayloadBytes })
 
     /** Sends the accumulated batch, returning whether the server answered */
     const flushAccumulated = async (): Promise<boolean> => {

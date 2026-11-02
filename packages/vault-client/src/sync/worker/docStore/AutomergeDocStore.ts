@@ -107,7 +107,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     return this.itemMutex.runExclusive(itemId, fn)
   }
 
-  async waitForItemLock(itemId: ItemId): Promise<void> {
+  private async waitForItemLock(itemId: ItemId): Promise<void> {
     return this.itemMutex.waitForIdle(itemId)
   }
 
@@ -221,7 +221,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     return this.getReadyHandle(documentId)
   }
 
-  async findOrCreateHandle(
+  private async findOrCreateHandle(
     itemId: ItemId,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
@@ -289,7 +289,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     )
   }
 
-  snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
+  private snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
     if (!handle) {
       return null
     }

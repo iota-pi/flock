@@ -8,13 +8,8 @@ export class ConsecutiveFailureCounter<K> {
   constructor(readonly limit: number) {}
 
   /** The key's current run of failures */
-  count(key: K): number {
+  private count(key: K): number {
     return this.counts.get(key) ?? 0
-  }
-
-  /** How many keys have failed at least once since their last reset */
-  get size(): number {
-    return this.counts.size
   }
 
   /**

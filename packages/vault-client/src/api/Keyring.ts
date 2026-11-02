@@ -89,7 +89,7 @@ export class Keyring implements KeyProvider, LocalKeyWrapper {
   }
 
   /** Returns the key with this version, or the active key */
-  getKey(kver?: string): CryptoKey {
+  private getKey(kver?: string): CryptoKey {
     if (!kver) {
       const key = this.keys.get(this.active)
       if (!key) {

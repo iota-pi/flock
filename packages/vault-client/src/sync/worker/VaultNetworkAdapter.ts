@@ -443,7 +443,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
     fireAndForget(this.persistSyncedHeads(), 'VaultNetworkAdapter:persistSyncedHeads')
   }, 1000)
 
-  async persistSyncedHeads(): Promise<void> {
+  private async persistSyncedHeads(): Promise<void> {
     if (!this.syncedHeadsStore) return
     const entries = Array.from(this.syncedHeads.entries())
     this.hasUnsavedSyncedHeads = false

@@ -76,14 +76,6 @@ export class LeaderElection {
     return this.isFallback
   }
 
-  get yielded(): boolean {
-    return this.isYielded
-  }
-
-  get activeOtherLeaderCount(): number {
-    return this.otherLeaders.size
-  }
-
   private grantLeadership(isFallback = false): void {
     if (!this.isLeader) {
       this.isLeader = true

@@ -98,7 +98,7 @@ export class SnapshotTracker {
     return entry
   }
 
-  scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
+  private scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
     if (!this.session.isOperational) return
     if (this.isRetryActive?.()) return
 
@@ -117,7 +117,7 @@ export class SnapshotTracker {
     this.maxWaitTimer.cancel()
   }
 
-  updateLastModifiedForDirtyItems(): void {
+  private updateLastModifiedForDirtyItems(): void {
     const dirtyItemIds = Array.from(this.dirtyItems.keys())
     if (dirtyItemIds.length === 0) {
       return
@@ -203,7 +203,7 @@ export class SnapshotTracker {
    * the account writes here, and a tab's maps can be older than the store (a follower only loads them
    * at startup), so writing them over the store would lose the leader's progress. Logs a failure.
    */
-  async persistLastModified(): Promise<void> {
+  private async persistLastModified(): Promise<void> {
     try {
       await this.saveLastModified()
     } catch (error) {

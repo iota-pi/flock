@@ -91,8 +91,6 @@ const MAX_ENTRIES = SYNC_BATCH_SIZES.walMax
 const PRUNE_BATCH_SIZE = SYNC_BATCH_SIZES.walPrune
 
 export class SyncWriteAheadLog {
-  public static readonly MAX_ENTRIES = MAX_ENTRIES
-
   private readonly storage: LocalForage
   private readonly cipher?: LocalCipher
   private readonly onEntriesPruned?: (itemIds: ItemId[]) => void

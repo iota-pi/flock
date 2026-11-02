@@ -7,28 +7,27 @@ describe('ConsecutiveFailureCounter', () => {
     expect(counter.recordFailure('a')).toBe(1)
     expect(counter.recordFailure('b')).toBe(1)
     expect(counter.recordFailure('a')).toBe(2)
-    expect(counter.count('a')).toBe(2)
-    expect(counter.size).toBe(2)
 
     const failures = counter.recordFailure('a')
     expect(failures).toBe(3)
     expect(counter.isExhausted(failures)).toBe(true)
-    expect(counter.count('a')).toBe(0)
-    expect(counter.count('b')).toBe(1)
 
     expect(counter.recordFailure('a')).toBe(1)
+    expect(counter.recordFailure('b')).toBe(2)
   })
 
   it('reset and clear drop counts', () => {
     const counter = new ConsecutiveFailureCounter<string>(5)
     counter.recordFailure('a')
     counter.recordFailure('b')
+    counter.recordFailure('c')
 
     counter.reset('a')
-    expect(counter.count('a')).toBe(0)
-    expect(counter.isExhausted(counter.count('b'))).toBe(false)
+    expect(counter.recordFailure('a')).toBe(1)
+    expect(counter.isExhausted(counter.recordFailure('b'))).toBe(false)
 
     counter.clear()
-    expect(counter.size).toBe(0)
+    expect(counter.recordFailure('b')).toBe(1)
+    expect(counter.recordFailure('c')).toBe(1)
   })
 })

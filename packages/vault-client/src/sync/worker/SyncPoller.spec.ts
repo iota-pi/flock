@@ -724,8 +724,8 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).toHaveBeenCalledTimes(1)
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
       expect(mockWal.remove).not.toHaveBeenCalledWith(expect.arrayContaining(['msg-2']))
-      expect(poller['consecutivePushFailures'].count('item-2' as ItemId)).toBe(1)
-      expect(poller['consecutivePushFailures'].count('item-1' as ItemId)).toBe(0)
+      expect(poller['consecutivePushFailures']['count']('item-2' as ItemId)).toBe(1)
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(0)
     })
 
     it('removes only WAL entries for items present in pushResults when an item is omitted', async () => {
@@ -750,7 +750,7 @@ describe('SyncPoller', () => {
       expect(outcome).toBe('success')
       expect(mockWal.remove).toHaveBeenCalledTimes(1)
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
-      expect(poller['consecutivePushFailures'].count('item-2' as ItemId)).toBe(1)
+      expect(poller['consecutivePushFailures']['count']('item-2' as ItemId)).toBe(1)
     })
 
     it('does not remove any WAL entries when pushResults is empty', async () => {
@@ -769,7 +769,7 @@ describe('SyncPoller', () => {
       const outcome = await poller.executePoll()
       expect(outcome).toBe('failure')
       expect(mockWal.remove).not.toHaveBeenCalled()
-      expect(poller['consecutivePushFailures'].count('item-1' as ItemId)).toBe(1)
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(1)
       expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
     })
 
@@ -793,7 +793,7 @@ describe('SyncPoller', () => {
       const outcome = await poller.executePoll()
       expect(outcome).toBe('success')
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-1a', 'msg-1b', 'msg-1c'])
-      expect(poller['consecutivePushFailures'].count('item-1' as ItemId)).toBe(0)
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(0)
     })
 
     it('does not remove WAL entries when item has invalid or missing cursor without explicit success', async () => {
@@ -814,7 +814,7 @@ describe('SyncPoller', () => {
       const outcome = await poller.executePoll()
       expect(outcome).toBe('failure')
       expect(mockWal.remove).not.toHaveBeenCalled()
-      expect(poller['consecutivePushFailures'].count('item-1' as ItemId)).toBe(1)
+      expect(poller['consecutivePushFailures']['count']('item-1' as ItemId)).toBe(1)
       expect(mockWal.unmarkInFlight).toHaveBeenCalledWith(['msg-1'])
     })
 
@@ -893,7 +893,7 @@ describe('SyncPoller', () => {
       )
 
       // Item 2 failure count incremented
-      expect(poller['consecutivePushFailures'].count('item-2' as ItemId)).toBe(1)
+      expect(poller['consecutivePushFailures']['count']('item-2' as ItemId)).toBe(1)
     })
 
     it('quarantines item and removes from WAL after reaching MAX_CONSECUTIVE_PUSH_FAILURES', async () => {
@@ -928,7 +928,7 @@ describe('SyncPoller', () => {
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-bad'])
 
       // Failure count cleared after quarantine
-      expect(poller['consecutivePushFailures'].count(itemId)).toBe(0)
+      expect(poller['consecutivePushFailures']['count'](itemId)).toBe(0)
     })
 
     it('resets consecutivePushFailures when item subsequently succeeds', async () => {
@@ -953,7 +953,7 @@ describe('SyncPoller', () => {
       const outcome = await poller.executePoll()
       expect(outcome).toBe('success')
       expect(mockWal.remove).toHaveBeenCalledWith(['msg-flaky'])
-      expect(poller['consecutivePushFailures'].count(itemId)).toBe(0)
+      expect(poller['consecutivePushFailures']['count'](itemId)).toBe(0)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
     })
 

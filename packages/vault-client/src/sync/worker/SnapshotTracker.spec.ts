@@ -276,7 +276,7 @@ describe('SnapshotTracker', () => {
     it('persistLastModified logs a failure to save instead of throwing', async () => {
       mockStore.saveTimestamps.mockRejectedValueOnce(new DOMException('Quota exceeded', 'QuotaExceededError'))
 
-      await expect(tracker.persistLastModified()).resolves.toBeUndefined()
+      await expect(tracker['persistLastModified']()).resolves.toBeUndefined()
     })
   })
 
@@ -300,10 +300,10 @@ describe('SnapshotTracker', () => {
       // The follower loaded before the leader uploaded these snapshots
       leader.recordSnapshotSuccess('item-1' as ItemId, 2000, 0, 5)
       leader.recordSnapshotSuccess('item-2' as ItemId, 2000, 0, 3)
-      await leader.persistLastModified()
+      await leader['persistLastModified']()
       setTimestamps(follower, 'item-1', { localModifiedAt: 1000, lastSnapshotAt: 500 })
       setTimestamps(follower, 'item-3', { localModifiedAt: 3000 })
-      await follower.persistLastModified()
+      await follower['persistLastModified']()
 
       const byId = new Map(stored)
       expect(byId.get('item-1' as ItemId)).toEqual({ localModifiedAt: 2000, lastSnapshotAt: 2000, baseVersion: 5 })

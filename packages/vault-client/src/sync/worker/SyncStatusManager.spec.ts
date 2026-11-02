@@ -27,16 +27,16 @@ describe('SyncStatusManager', () => {
   })
 
   it('initializes with offline status and resets cleanly', () => {
-    expect(statusManager.getStatus()).toBe('offline')
+    expect(statusManager['status']).toBe('offline')
 
     statusManager.reset()
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['idle'])
 
     session.setOnline(false)
 
     statusManager.reset()
-    expect(statusManager.getStatus()).toBe('offline')
+    expect(statusManager['status']).toBe('offline')
     expect(emittedStatuses).toEqual(['idle', 'offline'])
   })
 
@@ -45,11 +45,11 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     setOnline(false)
-    expect(statusManager.getStatus()).toBe('offline')
+    expect(statusManager['status']).toBe('offline')
     expect(emittedStatuses).toEqual(['offline'])
 
     setOnline(true)
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['offline', 'idle'])
   })
 
@@ -58,18 +58,18 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.startRequest()
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
     expect(emittedStatuses).toEqual(['syncing'])
 
     statusManager.startRequest()
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
     expect(emittedStatuses).toEqual(['syncing']) // No duplicate emission
 
     statusManager.finishRequest()
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
 
     statusManager.finishRequest()
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['syncing', 'idle'])
   })
 
@@ -78,29 +78,29 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.startRequest()
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
     expect(emittedStatuses).toEqual(['syncing'])
 
     // When reset() is called with in-flight requests outstanding:
     statusManager.reset()
     // activeRequests is preserved and status remains syncing
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
     // No spurious status change emitted
     expect(emittedStatuses).toEqual(['syncing'])
 
     // A second request starts (e.g. after reconnect)
     statusManager.startRequest()
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
 
     // The first in-flight request completes
     statusManager.finishRequest()
     // Should NOT transition to idle because second request is still in flight
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
     expect(emittedStatuses).toEqual(['syncing'])
 
     // The second request completes
     statusManager.finishRequest()
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['syncing', 'idle'])
   })
 
@@ -109,20 +109,20 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.startRequest()
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
 
     // Reset with offline state
     session.setOnline(false)
     statusManager.reset()
-    expect(statusManager.getStatus()).toBe('offline')
+    expect(statusManager['status']).toBe('offline')
 
     // Reconnecting while request is still pending restores syncing status
     setOnline(true)
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
 
     // Request completes
     statusManager.finishRequest()
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
   })
 
   it('transitions to degraded on poll failure and recovers on success', () => {
@@ -130,22 +130,22 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.handlePollResult('failure')
-    expect(statusManager.getStatus()).toBe('degraded')
+    expect(statusManager['status']).toBe('degraded')
     expect(emittedStatuses).toEqual(['degraded'])
 
     // When a request starts during degraded state, it shows syncing
     statusManager.startRequest()
-    expect(statusManager.getStatus()).toBe('syncing')
+    expect(statusManager['status']).toBe('syncing')
     expect(emittedStatuses).toEqual(['degraded', 'syncing'])
 
     // When request finishes, it returns to degraded because last poll was a failure
     statusManager.finishRequest()
-    expect(statusManager.getStatus()).toBe('degraded')
+    expect(statusManager['status']).toBe('degraded')
     expect(emittedStatuses).toEqual(['degraded', 'syncing', 'degraded'])
 
     // On poll success, it recovers to idle
     statusManager.handlePollResult('success')
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['degraded', 'syncing', 'degraded', 'idle'])
   })
 
@@ -154,11 +154,11 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.setQuotaExceeded(true)
-    expect(statusManager.getStatus()).toBe('degraded')
+    expect(statusManager['status']).toBe('degraded')
     expect(emittedStatuses).toEqual(['degraded'])
 
     statusManager.setQuotaExceeded(false)
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['degraded', 'idle'])
   })
 
@@ -167,11 +167,11 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.setDegradedPull(true)
-    expect(statusManager.getStatus()).toBe('degraded')
+    expect(statusManager['status']).toBe('degraded')
     expect(emittedStatuses).toEqual(['degraded'])
 
     statusManager.setDegradedPull(false)
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['degraded', 'idle'])
   })
 
@@ -180,11 +180,11 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.handlePollResult('auth-failure')
-    expect(statusManager.getStatus()).toBe('offline')
+    expect(statusManager['status']).toBe('offline')
     expect(emittedStatuses).toEqual(['offline'])
 
     statusManager.handlePollResult('success')
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['offline', 'idle'])
   })
 
@@ -193,7 +193,7 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.handlePollResult('no-poll')
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual([])
   })
 
@@ -202,10 +202,10 @@ describe('SyncStatusManager', () => {
     emittedStatuses = []
 
     statusManager.setSnapshotFailed()
-    expect(statusManager.getStatus()).toBe('degraded')
+    expect(statusManager['status']).toBe('degraded')
 
     statusManager.handlePollResult('success')
-    expect(statusManager.getStatus()).toBe('idle')
+    expect(statusManager['status']).toBe('idle')
     expect(emittedStatuses).toEqual(['degraded', 'idle'])
   })
 })

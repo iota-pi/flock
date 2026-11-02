@@ -9,6 +9,7 @@ import {
   mockLocalForage,
 } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
+import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 
 const activeStoreMap = new Map<string, MockLocalforage>()
 const createLocalForageInstance = (options: { name: string; storeName: string }) => {
@@ -128,7 +129,7 @@ describe('SyncWriteAheadLog', () => {
   it('prunes oldest entries when WAL exceeds MAX_ENTRIES', async () => {
     // Populate store directly with entries to simulate reaching limit
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       store.store.set(`id-${i}`, {
         id: `id-${i}`,
         itemId: 'item-bulk' as ItemId,
@@ -137,14 +138,14 @@ describe('SyncWriteAheadLog', () => {
       })
     }
 
-    expect(await store.length()).toBe(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(await store.length()).toBe(SYNC_BATCH_SIZES.walMax)
 
     // Appending a new entry should trigger size limit enforcement
     const newId = await wal.append('item-new' as ItemId, new Uint8Array([255]))
 
     // Total should now be bounded (pruned PRUNE_BATCH_SIZE oldest entries)
     const currentLength = await store.length()
-    expect(currentLength).toBeLessThanOrEqual(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(currentLength).toBeLessThanOrEqual(SYNC_BATCH_SIZES.walMax)
 
     // The newly appended item is present
     expect(store.store.has(newId)).toBe(true)
@@ -244,7 +245,7 @@ describe('SyncWriteAheadLog', () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
     // Populate store directly with MAX_ENTRIES unique items
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       store.store.set(`id-unique-${i}`, {
         id: `id-unique-${i}`,
         itemId: `item-unique-${i}` as ItemId,
@@ -254,7 +255,7 @@ describe('SyncWriteAheadLog', () => {
       })
     }
 
-    expect(await store.length()).toBe(SyncWriteAheadLog.MAX_ENTRIES)
+    expect(await store.length()).toBe(SYNC_BATCH_SIZES.walMax)
 
     // Spy on performPruneOldest to verify call count and behavior
     const pruneSpy = vi.spyOn(wal as any, 'performPruneOldest')
@@ -281,7 +282,7 @@ describe('SyncWriteAheadLog', () => {
 
     // Expected storage length: MAX_ENTRIES (2000) - PRUNE_BATCH_SIZE (100) + 5 new entries = 1905
     const finalLength = await store.length()
-    expect(finalLength).toBe(SyncWriteAheadLog.MAX_ENTRIES - 100 + 5)
+    expect(finalLength).toBe(SYNC_BATCH_SIZES.walMax - 100 + 5)
   })
 
   it('serializes concurrent pruneOldest() calls to avoid duplicate deletion', async () => {
@@ -418,7 +419,7 @@ describe('SyncWriteAheadLog', () => {
     const store = activeStoreMap.get('test-vault-wal-test-account:wal-entries')!
 
     // Populate store with MAX_ENTRIES unique items
-    for (let i = 0; i < SyncWriteAheadLog.MAX_ENTRIES; i++) {
+    for (let i = 0; i < SYNC_BATCH_SIZES.walMax; i++) {
       store.store.set(`id-unique-${i}`, {
         id: `id-unique-${i}`,
         itemId: `item-unique-${i}` as ItemId,

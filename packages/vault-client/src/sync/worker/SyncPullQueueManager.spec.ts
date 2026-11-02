@@ -501,7 +501,7 @@ describe('SyncPullQueueManager', () => {
         sampleGlobalKey,
         100,
       )
-      await manager.persistCursors()
+      await manager['persistCursors']()
 
       const restarted = new SyncPullQueueManager({
         cursorStore,
@@ -1522,7 +1522,7 @@ describe('SyncPullQueueManager', () => {
       activeStore!.setItem.mockRejectedValueOnce(error)
 
       // Trigger immediate persist instead of debounced
-      await expect(manager.persistCursors()).resolves.toBeUndefined()
+      await expect(manager['persistCursors']()).resolves.toBeUndefined()
       expect(mockReportQuotaExceeded).toHaveBeenCalled()
     })
 

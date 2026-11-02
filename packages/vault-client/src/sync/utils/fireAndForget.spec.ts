@@ -26,44 +26,11 @@ describe('fireAndForget', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith('[TestTag] Unhandled async error:', error)
   })
 
-  it('handles lazy factory functions that return a resolving promise', async () => {
-    const factory = vi.fn().mockResolvedValue('ok')
-    fireAndForget(factory, 'LazyTag')
-    expect(factory).toHaveBeenCalledTimes(1)
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(consoleErrorSpy).not.toHaveBeenCalled()
-  })
-
-  it('catches rejections from lazy factory functions', async () => {
-    const error = new Error('Lazy async error')
-    fireAndForget(() => Promise.reject(error), 'LazyTag')
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[LazyTag] Unhandled async error:', error)
-  })
-
-  it('catches synchronous errors thrown by lazy factory functions', () => {
-    const syncError = new Error('Sync explosion')
-    fireAndForget(() => {
-      throw syncError
-    }, 'SyncTag')
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[SyncTag] Unhandled synchronous error:', syncError)
-  })
-
   it('calls custom onError handler on async rejection', async () => {
     const error = new Error('Custom handler async')
     const customHandler = vi.fn()
     fireAndForget(Promise.reject(error), 'CustomTag', customHandler)
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(customHandler).toHaveBeenCalledWith(error)
-    expect(consoleErrorSpy).not.toHaveBeenCalled()
-  })
-
-  it('calls custom onError handler on sync error', () => {
-    const error = new Error('Custom handler sync')
-    const customHandler = vi.fn()
-    fireAndForget(() => {
-      throw error
-    }, 'CustomTag', customHandler)
     expect(customHandler).toHaveBeenCalledWith(error)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })

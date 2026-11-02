@@ -413,8 +413,8 @@ describe('LeaderElection', () => {
       expect(onMultipleLeadersDetected2).toHaveBeenCalled()
     })
 
-    expect(election1.activeOtherLeaderCount).toBe(1)
-    expect(election2.activeOtherLeaderCount).toBe(1)
+    expect(election1['otherLeaders'].size).toBe(1)
+    expect(election2['otherLeaders'].size).toBe(1)
 
     // Tab 2 releases
     election2.release()
@@ -424,7 +424,7 @@ describe('LeaderElection', () => {
       expect(onSoleLeaderRestored1).toHaveBeenCalled()
     })
 
-    expect(election1.activeOtherLeaderCount).toBe(0)
+    expect(election1['otherLeaders'].size).toBe(0)
 
     election1.release()
   })
@@ -457,7 +457,7 @@ describe('LeaderElection', () => {
     await vi.waitFor(() => {
       expect(onMultipleLeadersDetected).toHaveBeenCalled()
     })
-    expect(election1.activeOtherLeaderCount).toBe(1)
+    expect(election1['otherLeaders'].size).toBe(1)
 
     // Wait for presenceTimeoutMs to expire without any more heartbeats from other-leader-abc
     await vi.waitFor(
@@ -467,7 +467,7 @@ describe('LeaderElection', () => {
       { timeout: 300 }
     )
 
-    expect(election1.activeOtherLeaderCount).toBe(0)
+    expect(election1['otherLeaders'].size).toBe(0)
 
     election1.release()
     peerPresenceChannel.close()
@@ -500,7 +500,7 @@ describe('LeaderElection', () => {
     })
 
     // Follower knows about sole leader, but should NOT fire multipleLeadersDetected
-    await vi.waitFor(() => expect(followerElection.activeOtherLeaderCount).toBe(1))
+    await vi.waitFor(() => expect(followerElection['otherLeaders'].size).toBe(1))
     expect(onMultipleLeadersDetected).not.toHaveBeenCalled()
 
     // When a second leader sends a heartbeat, multipleLeadersDetected MUST fire
@@ -513,7 +513,7 @@ describe('LeaderElection', () => {
     await vi.waitFor(() => {
       expect(onMultipleLeadersDetected).toHaveBeenCalledTimes(1)
     })
-    expect(followerElection.activeOtherLeaderCount).toBe(2)
+    expect(followerElection['otherLeaders'].size).toBe(2)
 
     // When both release, sole leader status is restored
     peerChannel.postMessage({
@@ -565,7 +565,7 @@ describe('LeaderElection', () => {
 
     // election2 yields to older election1
     await vi.waitFor(() => {
-      expect(election2.yielded).toBe(true)
+      expect(election2['isYielded']).toBe(true)
       expect(election2.leader).toBe(false)
     })
 
@@ -603,7 +603,7 @@ describe('LeaderElection', () => {
       vi.setSystemTime(100)
       await election1.acquire()
       expect(election1.leader).toBe(true)
-      expect(election1.yielded).toBe(false)
+      expect(election1['isYielded']).toBe(false)
 
       const election2 = new LeaderElection(
         'acc-1',
@@ -623,13 +623,13 @@ describe('LeaderElection', () => {
       await vi.waitFor(() => {
         expect(onConflict2).toHaveBeenCalledWith(true)
         expect(onLeaderRevoked2).toHaveBeenCalled()
-        expect(election2.yielded).toBe(true)
+        expect(election2['isYielded']).toBe(true)
         expect(election2.leader).toBe(false)
       })
 
       // Tab 1 remains active leader without conflict
       expect(election1.leader).toBe(true)
-      expect(election1.yielded).toBe(false)
+      expect(election1['isYielded']).toBe(false)
       expect(onConflict1).not.toHaveBeenCalledWith(true)
 
       election1.release()
@@ -669,7 +669,7 @@ describe('LeaderElection', () => {
       await election2.acquire()
 
       await vi.waitFor(() => {
-        expect(election2.yielded).toBe(true)
+        expect(election2['isYielded']).toBe(true)
       })
 
       // Tab 2 claims leadership
@@ -678,14 +678,14 @@ describe('LeaderElection', () => {
 
       // Tab 2 becomes leader and clears conflict
       expect(election2.leader).toBe(true)
-      expect(election2.yielded).toBe(false)
+      expect(election2['isYielded']).toBe(false)
       expect(onLeaderGranted2).toHaveBeenCalled()
       expect(onConflict2).toHaveBeenCalledWith(false)
 
       // Tab 1 receives claim and yields
       await vi.waitFor(() => {
         expect(election1.leader).toBe(false)
-        expect(election1.yielded).toBe(true)
+        expect(election1['isYielded']).toBe(true)
         expect(onConflict1).toHaveBeenCalledWith(true)
       })
 
@@ -724,7 +724,7 @@ describe('LeaderElection', () => {
       await election2.acquire()
 
       await vi.waitFor(() => {
-        expect(election2.yielded).toBe(true)
+        expect(election2['isYielded']).toBe(true)
       })
 
       onLeaderGranted2.mockClear()
@@ -736,7 +736,7 @@ describe('LeaderElection', () => {
       // Tab 2 automatically un-yields and reclaims leadership
       await vi.waitFor(() => {
         expect(election2.leader).toBe(true)
-        expect(election2.yielded).toBe(false)
+        expect(election2['isYielded']).toBe(false)
         expect(onLeaderGranted2).toHaveBeenCalled()
         expect(onConflict2).toHaveBeenCalledWith(false)
       })
@@ -793,7 +793,7 @@ describe('LeaderElection', () => {
       await electionTrue.acquire()
       expect(electionTrue.leader).toBe(true)
       expect(electionTrue.fallback).toBe(false)
-      expect(electionTrue.yielded).toBe(false)
+      expect(electionTrue['isYielded']).toBe(false)
 
       // Tab B is created in fallback mode after retries fail
       const electionFallback = new LeaderElection(
@@ -812,7 +812,7 @@ describe('LeaderElection', () => {
       // Tab B must yield immediately and trigger onLeaderConflict(true)
       await vi.waitFor(() => {
         expect(electionFallback.leader).toBe(false)
-        expect(electionFallback.yielded).toBe(true)
+        expect(electionFallback['isYielded']).toBe(true)
         expect(onConflictFallback).toHaveBeenCalledWith(true)
         expect(onRevokedFallback).toHaveBeenCalled()
       })
@@ -820,7 +820,7 @@ describe('LeaderElection', () => {
       // Tab A (true leader) remains active leader
       expect(electionTrue.leader).toBe(true)
       expect(electionTrue.fallback).toBe(false)
-      expect(electionTrue.yielded).toBe(false)
+      expect(electionTrue['isYielded']).toBe(false)
       expect(onConflictTrue).not.toHaveBeenCalledWith(true)
 
       // When Tab A releases, Tab B should auto-recover as fallback leader
@@ -830,7 +830,7 @@ describe('LeaderElection', () => {
       await vi.waitFor(() => {
         expect(electionFallback.leader).toBe(true)
         expect(electionFallback.fallback).toBe(true)
-        expect(electionFallback.yielded).toBe(false)
+        expect(electionFallback['isYielded']).toBe(false)
         expect(onConflictFallback).toHaveBeenCalledWith(false)
       })
 
@@ -889,13 +889,13 @@ describe('LeaderElection', () => {
       // Even though fallback leader is older (T=100 vs T=500), it MUST yield to the true leader
       await vi.waitFor(() => {
         expect(electionFallback.leader).toBe(false)
-        expect(electionFallback.yielded).toBe(true)
+        expect(electionFallback['isYielded']).toBe(true)
         expect(onConflictFallback).toHaveBeenCalledWith(true)
         expect(onRevokedFallback).toHaveBeenCalled()
       })
 
       expect(electionTrue.leader).toBe(true)
-      expect(electionTrue.yielded).toBe(false)
+      expect(electionTrue['isYielded']).toBe(false)
 
       electionFallback.release()
       electionTrue.release()
@@ -952,7 +952,7 @@ describe('LeaderElection', () => {
       // True leader yields to claim
       await vi.waitFor(() => {
         expect(electionTrue.leader).toBe(false)
-        expect(electionTrue.yielded).toBe(true)
+        expect(electionTrue['isYielded']).toBe(true)
       })
 
       // When claimer releases, true leader should un-yield and preserve isFallback: false
@@ -960,7 +960,7 @@ describe('LeaderElection', () => {
 
       await vi.waitFor(() => {
         expect(electionTrue.leader).toBe(true)
-        expect(electionTrue.yielded).toBe(false)
+        expect(electionTrue['isYielded']).toBe(false)
         expect(electionTrue.fallback).toBe(false)
       })
 
@@ -996,7 +996,7 @@ describe('LeaderElection', () => {
 
       // Tab 2 yields to older Tab 1
       await vi.waitFor(() => {
-        expect(election2.yielded).toBe(true)
+        expect(election2['isYielded']).toBe(true)
       })
 
       // Tab 3 acquires at T=250
@@ -1014,7 +1014,7 @@ describe('LeaderElection', () => {
 
       // Tab 3 also yields to older Tab 1
       await vi.waitFor(() => {
-        expect(election3.yielded).toBe(true)
+        expect(election3['isYielded']).toBe(true)
       })
 
       // Advance time and timers past presenceTimeoutMs (100ms) to T=360
@@ -1028,13 +1028,13 @@ describe('LeaderElection', () => {
       // Tab 2 (createdAt=200) was older than Tab 3 (createdAt=250).
       // Tab 2 auto-recovers on release and retains createdAt=200
       expect(election2.leader).toBe(true)
-      expect(election2.yielded).toBe(false)
+      expect(election2['isYielded']).toBe(false)
       expect((election2 as any).createdAt).toBe(200)
 
       // When Tab 2 sends a heartbeat, Tab 3 (createdAt=250) receives it and yields to Tab 2
       ;(election2 as any).sendHeartbeat()
       expect(election3.leader).toBe(false)
-      expect(election3.yielded).toBe(true)
+      expect(election3['isYielded']).toBe(true)
       expect((election3 as any).createdAt).toBe(250)
 
       election2.release()

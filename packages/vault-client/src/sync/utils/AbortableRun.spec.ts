@@ -8,13 +8,11 @@ describe('AbortableRun', () => {
 
     const result = await run.run(async signal => {
       seen = signal
-      expect(run.isRunning).toBe(true)
       return 42
     })
 
     expect(result).toBe(42)
     expect(seen!.aborted).toBe(false)
-    expect(run.isRunning).toBe(false)
   })
 
   it('does not start fn when not alive', async () => {
@@ -23,7 +21,6 @@ describe('AbortableRun', () => {
 
     await expect(run.run(fn)).rejects.toBeInstanceOf(AbortError)
     expect(fn).not.toHaveBeenCalled()
-    expect(run.isRunning).toBe(false)
   })
 
   it('aborts the running signal and clears it', async () => {
@@ -40,7 +37,6 @@ describe('AbortableRun', () => {
     await started
     run.abort()
 
-    expect(run.isRunning).toBe(false)
     await expect(promise).rejects.toBeInstanceOf(AbortError)
   })
 
@@ -93,12 +89,10 @@ describe('AbortableRun', () => {
 
     finishFirst()
     await first
-    expect(run.isRunning).toBe(true)
 
     run.abort()
     expect(secondSignal!.aborted).toBe(true)
     finishSecond()
     await second
-    expect(run.isRunning).toBe(false)
   })
 })

@@ -357,7 +357,7 @@ describe('Document Hydration Race Condition (C4)', () => {
     const hydratePromise = docStore.hydrateAutomergeDocumentBinary(itemId, snapshotBinary)
 
     // Call findOrCreateHandle concurrently
-    const findOrCreatePromise = docStore.findOrCreateHandle(itemId)
+    const findOrCreatePromise = docStore['findOrCreateHandle'](itemId)
 
     // Let hydration finish storage I/O
     resolveStorage!()

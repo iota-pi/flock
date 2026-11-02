@@ -1237,7 +1237,7 @@ describe('ManifestSyncManager', () => {
   describe('discrete steps unit tests', () => {
     describe('pushLocalUpdates', () => {
       it('stores local tombstones, imports timestamps, and marks upstream dirty when passed SyncDeltas', async () => {
-        await manifestSyncManager.pushLocalUpdates({
+        await manifestSyncManager['pushLocalUpdates']({
           missingIds: [],
           upstreamIds: ['item-up-1' as ItemId, 'item-up-2' as ItemId],
           locallyTombstonedSnapshots: [{ id: 'item-tomb-1', deleted: true } as any],
@@ -1263,7 +1263,7 @@ describe('ManifestSyncManager', () => {
         storeItemsSpy.mockRejectedValueOnce(new Error('Storage failure'))
 
         await expect(
-          manifestSyncManager.pushLocalUpdates({
+          manifestSyncManager['pushLocalUpdates']({
             missingIds: [],
             upstreamIds: [],
             locallyTombstonedSnapshots: [{ id: 'item-fail-1', deleted: true } as any],

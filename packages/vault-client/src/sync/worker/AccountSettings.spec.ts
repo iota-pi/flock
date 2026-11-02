@@ -111,7 +111,7 @@ describe('AccountSettings', () => {
     expect(indexManager.itemIds.has(settings.docId)).toBe(true)
     expect(markDocumentDirty).toHaveBeenCalledWith(settings.docId)
     expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith([settings.docId])
-    expect(settings.getMetadata()).toEqual({ prayerGoal: 5, sortCriteria: [{ type: 'name', reverse: true }] })
+    expect(settings['getMetadata']()).toEqual({ prayerGoal: 5, sortCriteria: [{ type: 'name', reverse: true }] })
   })
 
   it('skips writes that would not change the settings document', async () => {

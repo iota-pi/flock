@@ -16,8 +16,8 @@ describe('Keyring', () => {
     const keyring = new Keyring()
     expect(keyring.hasKey()).toBe(false)
     expect(keyring.hasKey('1')).toBe(false)
-    expect(() => keyring.getKey()).toThrow(VaultNotInitializedError)
-    expect(() => keyring.getKey('1')).toThrow('Vault key version 1 not found in keyring')
+    expect(() => keyring['getKey']()).toThrow(VaultNotInitializedError)
+    expect(() => keyring['getKey']('1')).toThrow('Vault key version 1 not found in keyring')
   })
 
   it('encrypts with the active key and decrypts with the version a ciphertext names', async () => {

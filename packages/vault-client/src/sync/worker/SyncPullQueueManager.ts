@@ -133,7 +133,7 @@ export class SyncPullQueueManager {
     }
   }
 
-  async persistCursors(): Promise<void> {
+  private async persistCursors(): Promise<void> {
     const data = this.cursors.exportState()
     try {
       await this.cursorStore.saveCursors(data)

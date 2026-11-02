@@ -86,14 +86,6 @@ export class ItemReencryptor {
     return this.retryStrategy.attempt
   }
 
-  get isReencrypting(): boolean {
-    return this.reencryptGuard.isRunning
-  }
-
-  get isRetryScheduled(): boolean {
-    return this.retryTimer.isPending
-  }
-
   cancelScheduled(): void {
     this.retryTimer.cancel()
     this.retryStrategy.reset()

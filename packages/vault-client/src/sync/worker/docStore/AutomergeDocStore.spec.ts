@@ -687,7 +687,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(repo, 'delete')
       const importSpy = vi.spyOn(repo, 'import')
 
-      const handle = await docStore.findOrCreateHandle(itemId)
+      const handle = await docStore['findOrCreateHandle'](itemId)
       expect(handle).toBe(existing)
       expect(deleteSpy).not.toHaveBeenCalled()
       expect(importSpy).not.toHaveBeenCalled()
@@ -701,7 +701,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const importSpy = vi.spyOn(customRepo, 'import')
 
       const customStore = createTestDocStore(customRepo)
-      const handle = await customStore.findOrCreateHandle(itemId, { knownToExist: true })
+      const handle = await customStore['findOrCreateHandle'](itemId, { knownToExist: true })
 
       expect(handle).toBeUndefined()
       expect(deleteSpy).not.toHaveBeenCalled()
@@ -718,7 +718,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
 
-      const handle = await customStore.findOrCreateHandle(itemId)
+      const handle = await customStore['findOrCreateHandle'](itemId)
 
       expect(handle).toBeUndefined()
       expect(deleteSpy).not.toHaveBeenCalled()
@@ -735,7 +735,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const deleteSpy = vi.spyOn(customRepo, 'delete')
       const importSpy = vi.spyOn(customRepo, 'import')
 
-      const handle = await customStore.findOrCreateHandle(itemId)
+      const handle = await customStore['findOrCreateHandle'](itemId)
 
       expect(handle).toBeUndefined()
       expect(deleteSpy).not.toHaveBeenCalled()
@@ -752,7 +752,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockResolvedValue(false)
 
-      const handle = await customStore.findOrCreateHandle(itemId)
+      const handle = await customStore['findOrCreateHandle'](itemId)
 
       expect(handle).toBeDefined()
       expect(handle?.isReady()).toBe(true)
@@ -766,7 +766,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       vi.spyOn(store, 'hasDataInStorage').mockResolvedValue(false)
 
       const itemId = 'event-notify-item' as ItemId
-      const handle = await store.findOrCreateHandle(itemId)
+      const handle = await store['findOrCreateHandle'](itemId)
 
       expect(onHandleReplaced.mock.calls).toEqual([[itemId, handle]])
     })
@@ -781,7 +781,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const customStore = createTestDocStore(customRepo)
       vi.spyOn(customStore, 'hasDataInStorage').mockResolvedValue(false)
 
-      await expect(customStore.findOrCreateHandle(itemId)).rejects.toThrow(
+      await expect(customStore['findOrCreateHandle'](itemId)).rejects.toThrow(
         `[AutomergeDocStore] Failed to import/create document for ${itemId}: WASM out of memory`
       )
     })
@@ -792,8 +792,8 @@ describe('AutomergeDocStore Unit Tests', () => {
       const importSpy = vi.spyOn(repo, 'import')
 
       const [handleA, handleB] = await Promise.all([
-        docStore.findOrCreateHandle(itemId),
-        docStore.findOrCreateHandle(itemId),
+        docStore['findOrCreateHandle'](itemId),
+        docStore['findOrCreateHandle'](itemId),
       ])
 
       expect(handleA).toBeDefined()
@@ -890,7 +890,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       const itemId = 'wait-lock-item' as ItemId
 
       // When idle, resolves immediately
-      await expect(docStore.waitForItemLock(itemId)).resolves.toBeUndefined()
+      await expect(docStore['waitForItemLock'](itemId)).resolves.toBeUndefined()
 
       // When locked, waits for in-flight operation
       let resolveLock: () => void
@@ -902,7 +902,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       await new Promise(res => setTimeout(res, 0))
 
       let waitFinished = false
-      const waitPromise = docStore.waitForItemLock(itemId).then(() => {
+      const waitPromise = docStore['waitForItemLock'](itemId).then(() => {
         waitFinished = true
       })
 
@@ -917,7 +917,7 @@ describe('AutomergeDocStore Unit Tests', () => {
       vi.spyOn(docStore, 'hasDataInStorage').mockResolvedValue(false)
 
       let releaseCreate: () => void
-      const createPromise = docStore.findOrCreateHandle(itemId).then(async handle => {
+      const createPromise = docStore['findOrCreateHandle'](itemId).then(async handle => {
         await new Promise<void>(res => { releaseCreate = res })
         return handle
       })
@@ -1057,10 +1057,10 @@ describe('AutomergeDocStore Unit Tests', () => {
 
 
     it('snapshotFromHandle returns null for missing or non-ready handle or empty doc', () => {
-      expect(docStore.snapshotFromHandle(undefined)).toBeNull()
+      expect(docStore['snapshotFromHandle'](undefined)).toBeNull()
 
       const mockUnready = { isReady: () => false, doc: () => ({}) } as unknown as DocHandle<RepoDoc>
-      expect(docStore.snapshotFromHandle(mockUnready)).toBeNull()
+      expect(docStore['snapshotFromHandle'](mockUnready)).toBeNull()
     })
 
     it('getAutomergeItem returns null for a missing document', async () => {
