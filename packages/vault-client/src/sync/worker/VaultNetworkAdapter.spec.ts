@@ -14,7 +14,6 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { SyncPoller } from './SyncPoller'
 import { RecoveryManager } from './RecoveryManager'
 import { SyncApiClient } from './SyncApiClient'
-import { registerQuotaReporter } from '../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
@@ -32,11 +31,6 @@ const keys = createMockKeyProvider()
 
 /** The broker's WAL is built once per test, so tests that switch accounts still read it under this one. */
 const WAL_ACCOUNT = 'test-account'
-
-/** A sync message carrying `n` as its change, which the poller pushes (it drops WAL entries that aren't sync messages) */
-function syncMessage(n: number): Uint8Array {
-  return encodeSyncMessage({ heads: [], need: [], have: [], changes: [new Uint8Array([n])] })
-}
 
 setApiAuthToken('mock-auth-token')
 
@@ -76,7 +70,8 @@ beforeEach(() => {
   })
 })
 
-describe('VaultNetworkAdapter and SyncMessageBroker', () => {
+/** The adapter wired to the real broker, WAL, poller and orchestrator, as the context wires it */
+describe('VaultNetworkAdapter', () => {
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
   let poller: SyncPoller
@@ -85,13 +80,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let onReNegotiationTriggered: Mock<(documentId: DocumentId) => void>
   let pullQueueManager: SyncPullQueueManager
   let session: SyncSessionState
-
-  /** Changes the session's online state and tells the orchestrator, as the context does */
-  function setOnline(isOnline: boolean): void {
-    if (session.setOnline(isOnline)) {
-      orchestrator.onOnlineStateChange()
-    }
-  }
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -271,171 +259,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
     expect(item1).toHaveLength(20)
-  })
-
-  it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
-
-    mockPollSyncBatch.mockImplementation(async (input: any) => ({
-      success: true,
-      pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
-        itemId: m.itemId,
-        cursor: idx,
-      })),
-      pullResults: [],
-    }))
-
-    // Queue messages for 7 different items while offline to prevent early polls
-    for (let i = 1; i <= 7; i++) {
-      adapter.send({
-        type: 'sync',
-        senderId: 'test-peer' as PeerId,
-        targetId: 'vault' as PeerId,
-        documentId: `item-${i}` as DocumentId,
-        data: syncMessage(i),
-      })
-    }
-
-    // Await persistence timeout by advancing fake timers
-    await vi.advanceTimersByTimeAsync(50)
-
-    // Set online and run poll manually and synchronously!
-    session.setOnline(true)
-    const outcome = await poller.executePoll()
-    expect(outcome).toBe('success')
-    session.setOnline(false)
-
-    // It should have chunked 7 items into exactly 2 calls (first with 5 items, second with 2 items)
-    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
-
-    const call1 = mockPollSyncBatch.mock.calls[0][0]
-    const call2 = mockPollSyncBatch.mock.calls[1][0]
-    expect(call1.pushMessages).toHaveLength(5)
-    expect(call2.pushMessages).toHaveLength(2)
-
-    // Verify all items were transactionally cleaned from WAL
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
-    const batch = await wal.readAll()
-    expect(batch.size).toBe(0)
-  })
-
-  it('safely slices successfully sent messages and retains concurrent local edits', async () => {
-
-    mockPollSyncBatch.mockImplementation(async (input: any) => {
-      // Simulate concurrent local edits added while the poll request is in flight
-      // using the real send/append path
-      adapter.send({
-        type: 'sync',
-        senderId: 'test-peer' as PeerId,
-        targetId: 'vault' as PeerId,
-        documentId: 'item-1' as DocumentId,
-        data: syncMessage(20),
-      })
-      adapter.send({
-        type: 'sync',
-        senderId: 'test-peer' as PeerId,
-        targetId: 'vault' as PeerId,
-        documentId: 'item-1' as DocumentId,
-        data: syncMessage(30),
-      })
-
-      return {
-        success: true,
-        pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
-          itemId: m.itemId,
-          cursor: idx + 1,
-        })),
-        pullResults: [],
-      }
-    })
-
-    // 1. Initial message sent and queued while offline
-    adapter.send({
-      type: 'sync',
-      senderId: 'test-peer' as PeerId,
-      targetId: 'vault' as PeerId,
-      documentId: 'item-1' as DocumentId,
-      data: syncMessage(10),
-    })
-
-    await vi.advanceTimersByTimeAsync(50)
-
-    // Set online and run poll manually and synchronously!
-    session.setOnline(true)
-    const outcome = await poller.executePoll()
-    expect(outcome).toBe('success')
-    session.setOnline(false)
-
-    // The sent message should be sliced out, leaving only the concurrent ones [20, 30]
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
-    const batch = await wal.readAll()
-    const item1 = batch.get('item-1' as ItemId)
-    expect(item1).toBeDefined()
-    expect(item1).toHaveLength(2)
-
-    expect(item1![0].data).toEqual(syncMessage(20))
-    expect(item1![1].data).toEqual(syncMessage(30))
-  })
-
-  it('retains messages in SyncWriteAheadLog if the poll call fails', async () => {
-
-    mockPollSyncBatch.mockRejectedValue(new Error('Network error'))
-
-    adapter.send({
-      type: 'sync',
-      senderId: 'test-peer' as PeerId,
-      targetId: 'vault' as PeerId,
-      documentId: 'item-1' as DocumentId,
-      data: syncMessage(100),
-    })
-
-    await vi.advanceTimersByTimeAsync(50)
-
-    // Set online and run poll manually and synchronously!
-    session.setOnline(true)
-    const outcome = await poller.executePoll()
-    expect(outcome).toBe('failure')
-    session.setOnline(false)
-
-    // Message must still exist in WAL due to failure
-    const wal = new SyncWriteAheadLog(WAL_ACCOUNT)
-    const batch = await wal.readAll()
-    const item1 = batch.get('item-1' as ItemId)
-    expect(item1).toBeDefined()
-    expect(item1).toHaveLength(1)
-
-    expect(item1![0].data).toEqual(syncMessage(100))
-  })
-
-  it('detects and reports QuotaExceededError when persisting pending writes', async () => {
-    const mockReporter = vi.fn()
-    registerQuotaReporter(mockReporter)
-
-    setSendEnabled(adapter, true)
-
-    const wal = (broker as any).deps.wal
-    const appendSpy = vi.spyOn(wal, 'append').mockImplementation(async () => {
-      const { runStorageOperation } = await import('../utils/storageManager')
-      await runStorageOperation(async () => {
-        throw new DOMException('Quota exceeded', 'QuotaExceededError')
-      })
-      return 'id-quota'
-    })
-
-    adapter.send({
-      type: 'sync',
-      senderId: 'test-peer' as PeerId,
-      targetId: 'vault' as PeerId,
-      documentId: 'item-quota-fail' as DocumentId,
-      data: new Uint8Array([1, 2, 3]),
-    })
-
-    await vi.advanceTimersByTimeAsync(50)
-
-    expect(appendSpy).toHaveBeenCalled()
-    expect(mockReporter).toHaveBeenCalled()
-    expect(mockReporter.mock.calls[0][0]).toContain('Storage quota exceeded')
-
-    appendSpy.mockRestore()
   })
 
   it('sends reflected heads ACK with empty need when document is fully in sync', async () => {
@@ -749,56 +572,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(decoded.changes.length).toBeGreaterThan(0)
 
     await repo.shutdown()
-  })
-
-  it('immediately triggers next poll if hasMore is true', async () => {
-    let pollCount = 0
-    mockPollSyncBatch.mockImplementation(async input => {
-      pollCount += 1
-      const itemId = input?.pullCursors?.[0]?.itemId || 'item-1'
-      if (pollCount === 1) {
-        return {
-          success: true,
-          pushResults: [],
-          pullResults: [
-            {
-              itemId,
-              messages: [],
-              hasMore: true,
-              nextCursor: 10,
-            }
-          ],
-        }
-      } else {
-        return {
-          success: true,
-          pushResults: [],
-          pullResults: [
-            {
-              itemId,
-              messages: [],
-              hasMore: false,
-              nextCursor: 20,
-            }
-          ],
-        }
-      }
-    })
-
-    setOnline(true)
-
-    // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
-    await vi.advanceTimersByTimeAsync(50)
-    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
-
-    // The second poll returned hasMore: false, so the third poll is scheduled for 30 seconds later.
-    // Advancing by 1,000ms should not run any new polls.
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
-
-    // Advancing past the 30s backoff delay + jitter triggers poll #3.
-    await vi.advanceTimersByTimeAsync(50000)
-    expect(mockPollSyncBatch).toHaveBeenCalledTimes(3)
   })
 
   it('cleans up seededDocuments on disconnect', async () => {

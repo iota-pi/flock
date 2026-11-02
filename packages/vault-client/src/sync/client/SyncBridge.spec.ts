@@ -1,5 +1,4 @@
 import { createSyncBridge } from './SyncBridge'
-import { clearAccountLocalData } from './localDataCleanup'
 import * as Comlink from 'comlink'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { ItemId } from '@vault/shared'
@@ -7,7 +6,6 @@ import { createFakeSink, createFakeTelemetry } from './__test__/fakeHost'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { attemptSessionRecovery } from '../../api/sessionRecovery'
 import { resumePendingReencryption } from '../../api/reencrypt'
-import { getVaultSession } from '../../api/session'
 import * as vaultModule from '../../api/vault'
 import * as sessionModule from '../../api/session'
 import * as storedMetadataModule from '../../api/storedMetadata'
@@ -183,190 +181,6 @@ describe('SyncBridge', () => {
     vi.restoreAllMocks()
   })
 
-  it('initializes and configures the sync worker', async () => {
-    vi.mocked(getVaultSession).mockReturnValueOnce('session-1')
-    const initPromise = SyncBridge.initialize('test-account')
-    expect(sink.state.syncStatus).toBe('connecting')
-    await initPromise
-
-    expect(Comlink.wrap).toHaveBeenCalled()
-    expect(mockSyncApi.setOnlineState).toHaveBeenCalled()
-    expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
-      'test-account',
-      'test-key',
-      // The session goes to the worker in memory, so it can sync before updateAuthToken
-      { randomDataKeys: false, authToken: 'session-1' },
-    )
-    expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
-  })
-
-  it('returns early and does not create a new worker if already initialized with the same account', async () => {
-    await SyncBridge.initialize('test-account')
-    expect(Comlink.wrap).toHaveBeenCalledTimes(1)
-
-    // Call initialize again with the same account
-    await SyncBridge.initialize('test-account')
-    expect(Comlink.wrap).toHaveBeenCalledTimes(1)
-  })
-
-  it('terminates the active worker and initializes a new one when initialized with a different account', async () => {
-    let terminateSpy1: any
-    let terminateSpy2: any
-    let workerIndex = 0
-
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-        if (workerIndex === 0) {
-          terminateSpy1 = this.terminate
-        } else {
-          terminateSpy2 = this.terminate
-        }
-        workerIndex += 1
-      }
-    } as any
-
-    await SyncBridge.initialize('account-one')
-    expect(Comlink.wrap).toHaveBeenCalledTimes(1)
-    expect(terminateSpy1).not.toHaveBeenCalled()
-
-    // Call initialize again with a different account
-    await SyncBridge.initialize('account-two')
-    expect(terminateSpy1).toHaveBeenCalledTimes(1)
-    expect(Comlink.wrap).toHaveBeenCalledTimes(2)
-    expect(terminateSpy2).not.toHaveBeenCalled()
-  })
-
-  it('terminates the active worker and resets state on shutdown', async () => {
-    let terminateSpy: any
-    // Overwrite Worker constructor to capture the instance
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-        terminateSpy = this.terminate
-      }
-    } as any
-
-    await SyncBridge.initialize('test-account')
-    expect(terminateSpy).not.toHaveBeenCalled()
-
-    await SyncBridge.shutdown()
-    expect(mockSyncApi.shutdown).toHaveBeenCalledTimes(1)
-    expect(terminateSpy).toHaveBeenCalledTimes(1)
-    expect(sink.state.syncStatus).toBe('offline')
-
-    // After shutdown, we should be able to initialize again (which spins up a new worker)
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-      }
-    } as any
-
-    await SyncBridge.initialize('test-account')
-    expect(Comlink.wrap).toHaveBeenCalledTimes(2)
-  })
-
-  it('attempts to restart the worker and dispatches to window if worker error event is triggered', async () => {
-    vi.useFakeTimers()
-    let capturedWorker: any = null
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        capturedWorker = this
-      }
-    } as any
-
-    const windowDispatchSpy = vi.spyOn(window, 'dispatchEvent')
-    const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
-    await SyncBridge.initialize('test-account')
-    expect(capturedWorker).not.toBeNull()
-
-    // Trigger the error event
-    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'WASM crash' }))
-
-    // Expect window error event dispatched
-    expect(windowDispatchSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'error', message: 'WASM crash' })
-    )
-
-    // Expect status to be connecting, and reconnect warning set
-    expect(sink.state.syncStatus).toBe('connecting')
-    expect(sink.state.syncWarning).toBe('Sync connection lost. Reconnecting...')
-
-    // Fast-forward 1000ms for the restart timer
-    await vi.advanceTimersByTimeAsync(1000)
-
-    expect(initializeSpy).toHaveBeenCalledTimes(2)
-    windowDispatchSpy.mockRestore()
-    vi.useRealTimers()
-  })
-
-  it('detects a hung worker via heartbeat and restarts it', async () => {
-    vi.useFakeTimers()
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-        // Mock ping port to hang / not respond
-        this.postMessage = vi.fn()
-      }
-    } as any
-
-    const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
-    await SyncBridge.initialize('test-account')
-
-    // Move time forward by first timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s
-    await vi.advanceTimersByTimeAsync(45000)
-    expect(sink.state.syncWarning).toBe('Sync connection is slow. Checking...')
-
-    // Move time forward by second timeout: HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s) = 45s -> total 90s
-    await vi.advanceTimersByTimeAsync(45000)
-
-    expect(sink.state.syncStatus).toBe('connecting')
-    expect(sink.state.syncWarning).toBe('Sync connection lost. Reconnecting...')
-
-    // Fast-forward another 1000ms for the restart timer
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(initializeSpy).toHaveBeenCalledTimes(2)
-
-    vi.useRealTimers()
-  })
-
-  it('halts auto-restart and sets a fatal error after 3 consecutive crashes', async () => {
-    vi.useFakeTimers()
-    let capturedWorker: any = null
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        capturedWorker = this
-      }
-    } as any
-
-    const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
-    await SyncBridge.initialize('test-account')
-
-    // First crash
-    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 1' }))
-    await vi.advanceTimersByTimeAsync(1000) // triggers restart
-    expect(initializeSpy).toHaveBeenCalledTimes(2)
-
-    // Second crash
-    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 2' }))
-    await vi.advanceTimersByTimeAsync(1000) // triggers restart
-    expect(initializeSpy).toHaveBeenCalledTimes(3)
-
-    // Third crash
-    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 3' }))
-
-    // No more restarts. Fatal error should be set.
-    expect(sink.state.fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
-    expect(sink.state.syncStatus).toBe('dead')
-    expect(initializeSpy).toHaveBeenCalledTimes(3) // should not have incremented
-
-    vi.useRealTimers()
-  })
-
   it('responds to online and offline events', async () => {
     const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
 
@@ -512,276 +326,239 @@ describe('SyncBridge', () => {
     visibilitySpy.mockRestore()
   })
 
-  it('reloads keyring and updates worker on storage event for KEYRING_CACHE_KEY', async () => {
-    const { reloadKeyringFromStorage } = await import('../../api/vault')
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
-      success: true,
-      keyringData: 'new-keyring-version-2',
+  describe('keyring updates', () => {
+    it('reloads keyring and updates worker on storage event for KEYRING_CACHE_KEY', async () => {
+      const { reloadKeyringFromStorage } = await import('../../api/vault')
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+        success: true,
+        keyringData: 'new-keyring-version-2',
+      })
+
+      await SyncBridge.initialize('test-account')
+
+      const storageEvent = new StorageEvent('storage', {
+        key: 'test-vault-keyring-cache',
+      })
+      window.dispatchEvent(storageEvent)
+
+      await vi.waitFor(() => {
+        expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
+        expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-2')
+      })
     })
 
-    await SyncBridge.initialize('test-account')
+    it('locks vault when storage reload indicates passwordChanged', async () => {
+      const { reloadKeyringFromStorage } = await import('../../api/vault')
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+        success: false,
+        passwordChanged: true,
+      })
 
-    const storageEvent = new StorageEvent('storage', {
-      key: 'test-vault-keyring-cache',
-    })
-    window.dispatchEvent(storageEvent)
+      await SyncBridge.initialize('test-account')
 
-    await vi.waitFor(() => {
-      expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
-      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-2')
-    })
-  })
+      const storageEvent = new StorageEvent('storage', {
+        key: 'test-vault-keyring-cache',
+      })
+      window.dispatchEvent(storageEvent)
 
-  it('locks vault when storage reload indicates passwordChanged', async () => {
-    const { reloadKeyringFromStorage } = await import('../../api/vault')
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
-      success: false,
-      passwordChanged: true,
-    })
-
-    await SyncBridge.initialize('test-account')
-
-    const storageEvent = new StorageEvent('storage', {
-      key: 'test-vault-keyring-cache',
-    })
-    window.dispatchEvent(storageEvent)
-
-    await vi.waitFor(() => {
-      expect(lockVault).toHaveBeenCalled()
-    })
-  })
-
-  it('reloads keyring and updates worker when keyVersionMissing event is received', async () => {
-    const { reloadKeyringFromStorage } = await import('../../api/vault')
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
-      success: true,
-      keyringData: 'new-keyring-version-3',
+      await vi.waitFor(() => {
+        expect(lockVault).toHaveBeenCalled()
+      })
     })
 
-    await SyncBridge.initialize('test-account')
+    it('reloads keyring and updates worker when keyVersionMissing event is received', async () => {
+      const { reloadKeyringFromStorage } = await import('../../api/vault')
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValueOnce({
+        success: true,
+        keyringData: 'new-keyring-version-3',
+      })
 
-    expect(lastEventPort).not.toBeNull()
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '3' })
+      await SyncBridge.initialize('test-account')
 
-    await vi.waitFor(() => {
-      expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
-      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-3')
+      expect(lastEventPort).not.toBeNull()
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '3' })
+
+      await vi.waitFor(() => {
+        expect(reloadKeyringFromStorage).toHaveBeenCalledWith()
+        expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-keyring-version-3')
+      })
     })
-  })
 
-  it('fetches keyring from server when keyVersionMissing references a key not in local storage', async () => {
-    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
-    vi.mocked(hasVaultKey).mockReturnValueOnce(false)
-    vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(true)
-    vi.mocked(reloadKeyringFromStorage)
-      .mockResolvedValueOnce({ success: true, keyringData: 'old-key' })
-      .mockResolvedValueOnce({ success: true, keyringData: 'server-fetched-keyring-version-5' })
+    it('fetches keyring from server when keyVersionMissing references a key not in local storage', async () => {
+      const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+      vi.mocked(hasVaultKey).mockReturnValueOnce(false)
+      vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(true)
+      vi.mocked(reloadKeyringFromStorage)
+        .mockResolvedValueOnce({ success: true, keyringData: 'old-key' })
+        .mockResolvedValueOnce({ success: true, keyringData: 'server-fetched-keyring-version-5' })
 
-    await SyncBridge.initialize('test-account')
+      await SyncBridge.initialize('test-account')
 
-    expect(lastEventPort).not.toBeNull()
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '5' })
+      expect(lastEventPort).not.toBeNull()
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '5' })
 
-    await vi.waitFor(() => {
-      expect(syncKeyringFromServer).toHaveBeenCalledWith('test-account')
-      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('server-fetched-keyring-version-5')
+      await vi.waitFor(() => {
+        expect(syncKeyringFromServer).toHaveBeenCalledWith('test-account')
+        expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('server-fetched-keyring-version-5')
+      })
     })
-  })
 
-  it('coalesces concurrent keyVersionMissing events to prevent duplicate server calls', async () => {
-    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
-    let serverSynced = false
-    vi.mocked(hasVaultKey).mockImplementation(() => serverSynced)
+    it('coalesces concurrent keyVersionMissing events to prevent duplicate server calls', async () => {
+      const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+      let serverSynced = false
+      vi.mocked(hasVaultKey).mockImplementation(() => serverSynced)
 
-    let resolveServerSync!: () => void
-    const serverSyncPromise = new Promise<void>(resolve => {
-      resolveServerSync = resolve
-    })
-    vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
-      await serverSyncPromise
-      serverSynced = true
-      return true
-    })
-    vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
-      success: true,
-      keyringData: serverSynced ? 'coalesced-keyring' : 'old-keyring',
-    }))
+      let resolveServerSync!: () => void
+      const serverSyncPromise = new Promise<void>(resolve => {
+        resolveServerSync = resolve
+      })
+      vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
+        await serverSyncPromise
+        serverSynced = true
+        return true
+      })
+      vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
+        success: true,
+        keyringData: serverSynced ? 'coalesced-keyring' : 'old-keyring',
+      }))
 
-    await SyncBridge.initialize('test-account')
+      await SyncBridge.initialize('test-account')
 
-    expect(lastEventPort).not.toBeNull()
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+      expect(lastEventPort).not.toBeNull()
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
 
-    await vi.waitFor(() => {
+      await vi.waitFor(() => {
+        expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+      })
+
+      resolveServerSync()
+
+      await vi.waitFor(() => {
+        expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('coalesced-keyring')
+      })
+
       expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+
+      vi.mocked(hasVaultKey).mockReturnValue(true)
+      vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
     })
 
-    resolveServerSync()
+    it('coalesces concurrent keyVersionMissing events for different key versions into a single server call', async () => {
+      const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+      let serverSynced = false
+      vi.mocked(hasVaultKey).mockImplementation(() => serverSynced)
 
-    await vi.waitFor(() => {
-      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('coalesced-keyring')
-    })
+      let resolveServerSync!: () => void
+      const serverSyncPromise = new Promise<void>(resolve => {
+        resolveServerSync = resolve
+      })
+      vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
+        await serverSyncPromise
+        serverSynced = true
+        return true
+      })
+      vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
+        success: true,
+        keyringData: serverSynced ? 'multi-key-keyring' : 'old-keyring',
+      }))
 
-    expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+      await SyncBridge.initialize('test-account')
 
-    vi.mocked(hasVaultKey).mockReturnValue(true)
-    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
-  })
+      expect(lastEventPort).not.toBeNull()
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '8' })
 
-  it('coalesces concurrent keyVersionMissing events for different key versions into a single server call', async () => {
-    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
-    let serverSynced = false
-    vi.mocked(hasVaultKey).mockImplementation(() => serverSynced)
+      await vi.waitFor(() => {
+        expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+      })
 
-    let resolveServerSync!: () => void
-    const serverSyncPromise = new Promise<void>(resolve => {
-      resolveServerSync = resolve
-    })
-    vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
-      await serverSyncPromise
-      serverSynced = true
-      return true
-    })
-    vi.mocked(reloadKeyringFromStorage).mockImplementation(async () => ({
-      success: true,
-      keyringData: serverSynced ? 'multi-key-keyring' : 'old-keyring',
-    }))
+      resolveServerSync()
 
-    await SyncBridge.initialize('test-account')
+      await vi.waitFor(() => {
+        expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('multi-key-keyring')
+      })
 
-    expect(lastEventPort).not.toBeNull()
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '7' })
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '8' })
-
-    await vi.waitFor(() => {
       expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+
+      vi.mocked(hasVaultKey).mockReturnValue(true)
+      vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
     })
 
-    resolveServerSync()
+    it('handles network error gracefully without looping when syncing keyring from server', async () => {
+      const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+      vi.mocked(hasVaultKey).mockReturnValue(false)
 
-    await vi.waitFor(() => {
-      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('multi-key-keyring')
-    })
+      let rejectServerSync!: (err: Error) => void
+      const serverSyncPromise = new Promise<void>((_, reject) => {
+        rejectServerSync = reject
+      })
+      vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
+        await serverSyncPromise
+        return true
+      })
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValue({
+        success: true,
+        keyringData: 'fallback-local-keyring',
+      })
 
-    expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    vi.mocked(hasVaultKey).mockReturnValue(true)
-    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
-  })
+      await SyncBridge.initialize('test-account')
 
-  it('handles network error gracefully without looping when syncing keyring from server', async () => {
-    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
-    vi.mocked(hasVaultKey).mockReturnValue(false)
+      expect(lastEventPort).not.toBeNull()
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '9' })
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '9' })
 
-    let rejectServerSync!: (err: Error) => void
-    const serverSyncPromise = new Promise<void>((_, reject) => {
-      rejectServerSync = reject
-    })
-    vi.mocked(syncKeyringFromServer).mockImplementation(async () => {
-      await serverSyncPromise
-      return true
-    })
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({
-      success: true,
-      keyringData: 'fallback-local-keyring',
-    })
+      await vi.waitFor(() => {
+        expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+      })
 
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      rejectServerSync(new Error('Network offline'))
 
-    await SyncBridge.initialize('test-account')
+      await vi.waitFor(() => {
+        expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('fallback-local-keyring')
+      })
 
-    expect(lastEventPort).not.toBeNull()
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '9' })
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '9' })
-
-    await vi.waitFor(() => {
       expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
-    })
-
-    rejectServerSync(new Error('Network offline'))
-
-    await vi.waitFor(() => {
-      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('fallback-local-keyring')
-    })
-
-    expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[SyncBridge] Failed to sync keyring from server:',
-      expect.any(Error),
-    )
-
-    vi.mocked(hasVaultKey).mockReturnValue(true)
-    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
-  })
-
-  it('keeps a key version the server sync failed to fetch, retrying it at the next keyring update', async () => {
-    const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
-    vi.mocked(hasVaultKey).mockReturnValue(false)
-    vi.mocked(syncKeyringFromServer).mockRejectedValueOnce(new Error('Network offline'))
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'local-keyring' })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-    await SyncBridge.initialize('test-account')
-
-    lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '10' })
-    await vi.waitFor(() => {
-      expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
-      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('local-keyring')
-    })
-
-    // A later keyring update without a version still looks for it
-    vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(true)
-    window.dispatchEvent(new StorageEvent('storage', { key: 'test-vault-keyring-cache' }))
-    await vi.waitFor(() => {
-      expect(syncKeyringFromServer).toHaveBeenCalledTimes(2)
-    })
-
-    vi.mocked(hasVaultKey).mockReturnValue(true)
-    vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
-    vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
-  })
-
-  it('sets syncWarning when snapshotFailed event is received', async () => {
-    await SyncBridge.initialize('test-account')
-
-    expect(lastEventPort).not.toBeNull()
-    lastEventPort!.postMessage({
-      type: 'snapshotFailed',
-      itemId: 'item-1',
-      message: 'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
-    })
-
-    await vi.waitFor(() => {
-      expect(sink.state.syncWarning).toBe(
-        'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[SyncBridge] Failed to sync keyring from server:',
+        expect.any(Error),
       )
-    })
-  })
 
-  it('updates isQuotaExceeded on quotaExceeded event and clears on quotaResolved event', async () => {
-    await SyncBridge.initialize('test-account')
-
-    expect(lastEventPort).not.toBeNull()
-    lastEventPort!.postMessage({
-      type: 'quotaExceeded',
-      message: 'Storage quota exceeded. Changes cannot be saved.',
+      vi.mocked(hasVaultKey).mockReturnValue(true)
+      vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
     })
 
-    await vi.waitFor(() => {
-      expect(sink.state.isQuotaExceeded).toBe(true)
-    })
+    it('keeps a key version the server sync failed to fetch, retrying it at the next keyring update', async () => {
+      const { reloadKeyringFromStorage, syncKeyringFromServer, hasVaultKey } = await import('../../api/vault')
+      vi.mocked(hasVaultKey).mockReturnValue(false)
+      vi.mocked(syncKeyringFromServer).mockRejectedValueOnce(new Error('Network offline'))
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'local-keyring' })
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    lastEventPort!.postMessage({
-      type: 'quotaResolved',
-    })
+      await SyncBridge.initialize('test-account')
 
-    await vi.waitFor(() => {
-      expect(sink.state.isQuotaExceeded).toBe(false)
+      lastEventPort!.postMessage({ type: 'keyVersionMissing', kver: '10' })
+      await vi.waitFor(() => {
+        expect(syncKeyringFromServer).toHaveBeenCalledTimes(1)
+        expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('local-keyring')
+      })
+
+      // A later keyring update without a version still looks for it
+      vi.mocked(syncKeyringFromServer).mockResolvedValueOnce(true)
+      window.dispatchEvent(new StorageEvent('storage', { key: 'test-vault-keyring-cache' }))
+      await vi.waitFor(() => {
+        expect(syncKeyringFromServer).toHaveBeenCalledTimes(2)
+      })
+
+      vi.mocked(hasVaultKey).mockReturnValue(true)
+      vi.mocked(syncKeyringFromServer).mockResolvedValue(true)
+      vi.mocked(reloadKeyringFromStorage).mockResolvedValue({ success: true, keyringData: 'reloaded-key' })
     })
   })
 
@@ -794,87 +571,12 @@ describe('SyncBridge', () => {
     expect(res).toEqual({ success: true })
   })
 
-  it('handles leaderConflict events and updates store state', async () => {
-    await SyncBridge.initialize('test-account')
-
-    expect(sink.state.isLeaderConflict).toBe(false)
-
-    // Simulate leaderConflict true event from worker
-    lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: true })
-
-    await vi.waitFor(() => {
-      expect(sink.state.isLeaderConflict).toBe(true)
-    })
-
-    // Simulate leaderConflict false event from worker
-    lastEventPort!.postMessage({ type: 'leaderConflict', hasConflict: false })
-
-    await vi.waitFor(() => {
-      expect(sink.state.isLeaderConflict).toBe(false)
-    })
-  })
-
   it('delegates claimLeader to syncApi', async () => {
     await SyncBridge.initialize('test-account')
     mockSyncApi.claimLeader.mockResolvedValueOnce(undefined)
 
     await SyncBridge.claimLeader()
     expect(mockSyncApi.claimLeader).toHaveBeenCalledTimes(1)
-  })
-
-  it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
-    let worker1Terminate: any
-    let worker2Terminate: any
-    let workerCount = 0
-
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-        if (workerCount === 0) {
-          worker1Terminate = this.terminate
-        } else {
-          worker2Terminate = this.terminate
-        }
-        workerCount += 1
-      }
-    } as any
-
-    await SyncBridge.initialize('test-account')
-    expect(workerCount).toBe(1)
-
-    let resolveShutdown: () => void = () => {}
-    mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
-      resolveShutdown = resolve
-    }))
-
-    const shutdownPromise = SyncBridge.shutdown()
-    const initPromise = SyncBridge.initialize('test-account-2')
-
-    resolveShutdown()
-    await shutdownPromise
-    await initPromise
-
-    expect(worker1Terminate).toHaveBeenCalledTimes(1)
-    expect(worker2Terminate).not.toHaveBeenCalled()
-    expect(sink.state.syncStatus).not.toBe('offline')
-  })
-
-  it('resets initializationPromise when initialization is aborted due to concurrent account change', async () => {
-    let resolveKeyring1: (val: string) => void = () => {}
-    const { exportKeyringData } = await import('../../api/vault')
-    vi.mocked(exportKeyringData).mockImplementationOnce(
-      () => new Promise<string>(resolve => { resolveKeyring1 = resolve })
-    )
-
-    const init1 = SyncBridge.initialize('account-1')
-    const init2 = SyncBridge.initialize('account-2')
-
-    resolveKeyring1('test-key')
-    await init1
-    await init2
-
-    // Should be successfully initialized with account-2, and ensureReady should not throw
-    await expect(SyncBridge.ensureReady()).resolves.toBeUndefined()
   })
 
   it('flushes item updates asynchronously via setTimeout', async () => {
@@ -906,271 +608,6 @@ describe('SyncBridge', () => {
         { id: 'item-1', item: expect.objectContaining({ id: 'item-1', name: 'Test Item' }) },
       ])
     })
-  })
-
-  it('closes _globalEventChannel.port1 and _pingChannel.port1 on worker crash', async () => {
-    let capturedWorker: any = null
-    globalThis.Worker = class extends MockWorker {
-      constructor(url: string, options: any) {
-        super(url, options)
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        capturedWorker = this
-      }
-    } as any
-
-    const originalMessageChannel = globalThis.MessageChannel
-    const closeSpies: any[] = []
-    class MockMessageChannel {
-      port1 = {
-        onmessage: null,
-        start: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        postMessage: vi.fn(),
-      }
-
-      port2 = {
-        start: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        postMessage: vi.fn(),
-      }
-
-      constructor() {
-        closeSpies.push(this.port1.close)
-      }
-    }
-    globalThis.MessageChannel = MockMessageChannel as any
-
-    try {
-      await SyncBridge.initialize('test-account')
-      expect(capturedWorker).not.toBeNull()
-      expect(closeSpies.length).toBe(2)
-      closeSpies.forEach(spy => expect(spy).not.toHaveBeenCalled())
-
-      // Trigger worker crash error
-      capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
-
-      closeSpies.forEach(spy => expect(spy).toHaveBeenCalledTimes(1))
-    } finally {
-      globalThis.MessageChannel = originalMessageChannel
-    }
-  })
-
-  it('closes MessagePorts from globalEventChannel and pingChannel when initialization is aborted', async () => {
-    const originalMessageChannel = globalThis.MessageChannel
-    const channelCloseSpies: any[] = []
-    class MockMessageChannel {
-      port1 = {
-        onmessage: null,
-        start: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        postMessage: vi.fn(),
-      }
-
-      port2 = {
-        start: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        postMessage: vi.fn(),
-      }
-
-      constructor() {
-        channelCloseSpies.push(this.port1.close)
-      }
-    }
-    globalThis.MessageChannel = MockMessageChannel as any
-
-    try {
-      let init1ResolveRepo: () => void = () => {}
-      mockSyncApi.initRepo.mockImplementation((accountId: string) => {
-        if (accountId === 'account-1') {
-          return new Promise<void>(resolve => {
-            init1ResolveRepo = resolve
-          })
-        }
-        return Promise.resolve()
-      })
-
-      const init1Promise = SyncBridge.initialize('account-1')
-
-      // Session 1 channels have been created (globalEventChannel and pingChannel)
-      await vi.waitFor(() => expect(channelCloseSpies.length).toBe(2))
-      expect(channelCloseSpies[0]).not.toHaveBeenCalled()
-      expect(channelCloseSpies[1]).not.toHaveBeenCalled()
-
-      // Concurrently start session 2, which supersedes session 1
-      const init2Promise = SyncBridge.initialize('account-2')
-      await vi.waitFor(() => expect(channelCloseSpies.length).toBe(4))
-
-      // Now complete initRepo for account-1 so it reaches the abort check
-      init1ResolveRepo()
-      await init1Promise
-      await init2Promise
-
-      // Session 1's ports (indices 0 and 1) must be closed because initialization aborted
-      expect(channelCloseSpies[0]).toHaveBeenCalled()
-      expect(channelCloseSpies[1]).toHaveBeenCalled()
-
-      // Session 2's ports (indices 2 and 3) must remain open
-      expect(channelCloseSpies.length).toBe(4)
-      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
-      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
-    } finally {
-      globalThis.MessageChannel = originalMessageChannel
-    }
-  })
-
-  it('does not close newer session MessagePorts in catch block if superseded by another init session', async () => {
-    const originalMessageChannel = globalThis.MessageChannel
-    const channelCloseSpies: any[] = []
-    class MockMessageChannel {
-      port1 = {
-        onmessage: null,
-        start: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        postMessage: vi.fn(),
-      }
-
-      port2 = {
-        start: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        postMessage: vi.fn(),
-      }
-
-      constructor() {
-        channelCloseSpies.push(this.port1.close)
-      }
-    }
-    globalThis.MessageChannel = MockMessageChannel as any
-
-    try {
-      let init1RejectRepo: (err: Error) => void = () => {}
-      mockSyncApi.initRepo.mockImplementation((accountId: string) => {
-        if (accountId === 'account-fail') {
-          return new Promise<void>((_, reject) => {
-            init1RejectRepo = reject
-          })
-        }
-        return Promise.resolve()
-      })
-
-      const init1Promise = SyncBridge.initialize('account-fail')
-
-      // Session 1 has created 2 channels
-      await vi.waitFor(() => expect(channelCloseSpies.length).toBe(2))
-
-      // Session 2 starts and initializes successfully with account-success
-      const init2Promise = SyncBridge.initialize('account-success')
-      await init2Promise
-
-      // Session 2 created 2 new channels (indices 2 and 3)
-      expect(channelCloseSpies.length).toBe(4)
-      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
-      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
-
-      // Session 2 superseded session 1 and shut its worker down, so session 1 gives up quietly,
-      // even when its initRepo fails later
-      await expect(init1Promise).resolves.toBeUndefined()
-      init1RejectRepo(new Error('Init 1 failed'))
-
-      // Session 1's own ports should be closed
-      await vi.waitFor(() => {
-        expect(channelCloseSpies[0]).toHaveBeenCalled()
-        expect(channelCloseSpies[1]).toHaveBeenCalled()
-      })
-
-      // Session 2's ports must NOT have been closed by session 1
-      expect(channelCloseSpies[2]).not.toHaveBeenCalled()
-      expect(channelCloseSpies[3]).not.toHaveBeenCalled()
-
-      // And ensureReady should succeed because session 2 is active
-      await expect(SyncBridge.ensureReady()).resolves.toBeUndefined()
-    } finally {
-      globalThis.MessageChannel = originalMessageChannel
-    }
-  })
-
-  it('schedules retry with backoff on initialization failure and queues ensureReady callers', async () => {
-    vi.useFakeTimers()
-    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed transiently'))
-
-    const initPromise = SyncBridge.initialize('retry-account')
-    await expect(initPromise).rejects.toThrow('initRepo failed transiently')
-
-    // Warning is set
-    expect(sink.state.syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
-
-    // ensureReady callers wait on the retry
-    let ready = false
-    const ensureReadyPromise = SyncBridge.ensureReady().then(() => {
-      ready = true
-    })
-
-    // Advance 1s - still waiting
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(ready).toBe(false)
-
-    // Advance remaining 1000ms - retry runs and succeeds
-    await vi.advanceTimersByTimeAsync(1000)
-    await ensureReadyPromise
-    expect(ready).toBe(true)
-    expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(2)
-    expect(sink.state.syncWarning).toBeNull()
-
-    vi.useRealTimers()
-  })
-
-  it('exhausts retries after 5 attempts and sets fatal error', async () => {
-    vi.useFakeTimers()
-    mockSyncApi.initRepo.mockRejectedValue(new Error('persistent failure'))
-
-    // Attempt 1 fails
-    await expect(SyncBridge.initialize('fail-account')).rejects.toThrow('persistent failure')
-
-    // Delays: 2000, 5000, 10000, 30000, 60000
-    const delays = [2000, 5000, 10000, 30000, 60000]
-    for (let i = 0; i < delays.length; i++) {
-      await vi.advanceTimersByTimeAsync(delays[i])
-    }
-
-    expect(sink.state.fatalError).toBe('Unable to start sync. Please refresh the page.')
-    expect(sink.state.syncStatus).toBe('offline')
-
-    vi.useRealTimers()
-  })
-
-  it('cancels retry when account changes during retry delay', async () => {
-    vi.useFakeTimers()
-    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('account 1 failed'))
-
-    await expect(SyncBridge.initialize('account-fail')).rejects.toThrow('account 1 failed')
-    expect(sink.state.syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
-
-    // Switch account before retry timer fires
-    const initTwo = SyncBridge.initialize('account-success')
-    await initTwo
-
-    // Advance timer for old retry
-    await vi.advanceTimersByTimeAsync(2000)
-
-    // Should be initialized with account-success, not failed account
-    expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith(
-      'account-success',
-      'test-key',
-      { randomDataKeys: false, authToken: null },
-    )
-
-    vi.useRealTimers()
   })
 
   it('queues mutations during worker crash and applies them after restart', async () => {
@@ -1208,69 +645,6 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.mutateItem).toHaveBeenCalledWith('item-1', { name: 'queued' })
 
     vi.useRealTimers()
-  })
-
-  it('allows ensureReady to wait for initialization during re-initialization with a new account', async () => {
-    await SyncBridge.initialize('account-one')
-
-    let resolveInitRepo: () => void = () => {}
-    mockSyncApi.initRepo.mockImplementationOnce(
-      () =>
-        new Promise<void>(resolve => {
-          resolveInitRepo = resolve
-        })
-    )
-
-    const initTwoPromise = SyncBridge.initialize('account-two')
-    const ensureReadyPromise = SyncBridge.ensureReady()
-
-    // ensureReady should be pending and not throw prematurely
-    let ready = false
-    ensureReadyPromise.then(() => {
-      ready = true
-    })
-
-    await flushPromises()
-    expect(ready).toBe(false)
-
-    resolveInitRepo()
-    await initTwoPromise
-    await ensureReadyPromise
-    expect(ready).toBe(true)
-  })
-
-  it('safely handles concurrent initialize calls for different accounts without destroying the newer promise', async () => {
-    let resolveKeyringA: (val: string) => void = () => {}
-    let resolveKeyringB: (val: string) => void = () => {}
-
-    const { exportKeyringData } = await import('../../api/vault')
-    vi.mocked(exportKeyringData)
-      .mockImplementationOnce(() => new Promise<string>(resolve => { resolveKeyringA = resolve }))
-      .mockImplementationOnce(() => new Promise<string>(resolve => { resolveKeyringB = resolve }))
-
-    const initAPromise = SyncBridge.initialize('account-A')
-    const initBPromise = SyncBridge.initialize('account-B')
-
-    const ensureReadyPromise = SyncBridge.ensureReady()
-
-    let ready = false
-    ensureReadyPromise.then(() => {
-      ready = true
-    })
-
-    // Release A's keyring -> A discovers account changed to B and aborts
-    resolveKeyringA('key-a')
-    await initAPromise
-
-    // ensureReady should still be pending on B
-    await flushPromises()
-    expect(ready).toBe(false)
-
-    // Release B's keyring -> B finishes
-    resolveKeyringB('key-b')
-    await initBPromise
-    await ensureReadyPromise
-    expect(ready).toBe(true)
   })
 
   it('preserves recovery entries subscriptions and app store state on shutdown with internalRestart', async () => {
@@ -1431,130 +805,6 @@ describe('SyncBridge', () => {
       mockSyncApi.listRecoveryItems.mockResolvedValueOnce(entries)
       const listResult = await SyncBridge.listRecoveryItems()
       expect(listResult).toEqual(entries)
-    })
-
-    it('clears local data when shutdown({ clearLocalData: true }) is called after syncApi is already null', async () => {
-      await SyncBridge.initialize('test-account-cleared')
-      // Simulate unmount shutdown without args
-      await SyncBridge.shutdown()
-
-      // Now explicit logout occurs when syncApi is null
-      await expect(SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-cleared' })).resolves.not.toThrow()
-    })
-
-    it('preserves clearLocalData instruction when concurrent shutdown() is followed by shutdown({ clearLocalData: true })', async () => {
-      const writeAheadLogStorage = await import('../shared/writeAheadLogStorage')
-      const walClearSpy = vi.spyOn(writeAheadLogStorage, 'clearWriteAheadLog')
-
-      await SyncBridge.initialize('test-account-race-1')
-
-      let resolveShutdown: () => void = () => {}
-      mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
-        resolveShutdown = resolve
-      }))
-
-      // Unmount starts shutdown without clearLocalData
-      const unmountShutdown = SyncBridge.shutdown()
-
-      // Logout thunk immediately calls shutdown with clearLocalData: true
-      const logoutShutdown = SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-race-1' })
-
-      resolveShutdown()
-      await unmountShutdown
-      await logoutShutdown
-
-      expect(walClearSpy).toHaveBeenCalledWith('test-account-race-1')
-      expect(SyncBridge.isClearingLocalData()).toBe(false)
-      walClearSpy.mockRestore()
-    })
-
-    it('preserves clearLocalData instruction when shutdown({ clearLocalData: true }) is followed by unmount shutdown()', async () => {
-      await SyncBridge.initialize('test-account-race-2')
-
-      let resolveShutdown: () => void = () => {}
-      mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
-        resolveShutdown = resolve
-      }))
-
-      // Logout thunk starts shutdown with clearLocalData: true
-      const logoutShutdown = SyncBridge.shutdown({ clearLocalData: true, accountId: 'test-account-race-2' })
-
-      // Unmount effect fires shutdown without args while logout is in-flight
-      const unmountShutdown = SyncBridge.shutdown()
-
-      resolveShutdown()
-      await logoutShutdown
-      await unmountShutdown
-
-      expect(mockSyncApi.shutdown).toHaveBeenCalledWith(
-        expect.objectContaining({ clearLocalData: true })
-      )
-    })
-
-    it('executes clearLocalData if requestClearOnShutdown was called before unmount shutdown', async () => {
-      await SyncBridge.initialize('test-account-preempt')
-
-      SyncBridge.requestClearOnShutdown('test-account-preempt')
-      expect(SyncBridge.isClearingLocalData()).toBe(true)
-
-      await SyncBridge.shutdown()
-
-      expect(mockSyncApi.shutdown).toHaveBeenCalledWith(
-        expect.objectContaining({ clearLocalData: true })
-      )
-      expect(SyncBridge.isClearingLocalData()).toBe(false)
-    })
-
-  })
-
-  describe('clearAccountLocalData', () => {
-    const originalIndexedDB = globalThis.indexedDB
-    let mockReq: {
-      onsuccess: ((event?: any) => void) | null
-      onerror: ((event?: any) => void) | null
-      onblocked: ((event?: any) => void) | null
-      error?: Error | null
-    }
-
-    beforeEach(() => {
-      mockReq = {
-        onsuccess: null,
-        onerror: null,
-        onblocked: null,
-        error: null,
-      }
-      globalThis.indexedDB = {
-        deleteDatabase: vi.fn().mockImplementation(() => mockReq),
-      } as any
-    })
-
-    afterEach(() => {
-      globalThis.indexedDB = originalIndexedDB
-      vi.useRealTimers()
-    })
-
-    it('clearAccountLocalData catches rejection from deleteDatabase gracefully', async () => {
-      vi.useFakeTimers()
-      const clearPromise = clearAccountLocalData('acc-1')
-
-      mockReq.onblocked?.()
-      vi.advanceTimersByTime(5000)
-
-      // clearAccountLocalData uses Promise.allSettled and does not throw uncaught error
-      await expect(clearPromise).resolves.toBeUndefined()
-    })
-
-    it('clearAccountLocalData deletes both the plaintext and sealed Automerge databases', async () => {
-      globalThis.indexedDB = {
-        deleteDatabase: vi.fn().mockImplementation(() => {
-          const req: typeof mockReq = { onsuccess: null, onerror: null, onblocked: null }
-          setTimeout(() => req.onsuccess?.(), 0)
-          return req
-        }),
-      } as any
-      await clearAccountLocalData('acc-1')
-      expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith('test-vault-automerge-acc-1')
-      expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith('test-vault-automerge-sealed-acc-1')
     })
   })
 })

@@ -451,6 +451,25 @@ describe('SyncOrchestrator', () => {
     expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
   })
 
+  it('polls again at once while the pull queue has more pages, then waits for the scheduled poll', async () => {
+    // The first poll leaves more pages to pull (e.g. a pull result with hasMore), the second doesn't
+    mockPullQueueManager.hasImmediatePendingPulls.mockReturnValueOnce(true)
+
+    orchestrator.setLeader(true)
+    setOnline(orchestrator, true)
+
+    // The second poll is scheduled with 0ms delay, so both polls run at once
+    await vi.advanceTimersByTimeAsync(50)
+    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+
+    // The third poll waits for the 30s poll interval plus jitter
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(50000)
+    expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
+  })
+
   it('reports when several tabs lead and when this one leads alone again', async () => {
     const onLeaderOverlapChange = vi.fn()
 

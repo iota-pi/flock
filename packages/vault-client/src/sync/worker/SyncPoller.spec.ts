@@ -5,7 +5,7 @@ import { SyncApiClient, AuthError, type PullSyncMessagesResponse } from './SyncA
 import { createMockKeyProvider, createMockVault, noItemLocks, spyOnVaultTrpc } from './__test__/testUtils'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { CursorStore } from './stores/CursorStore'
-import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, type WalEntry } from './SyncWriteAheadLog'
 import type { ItemId } from '@vault/shared'
 import type { RecoveryManager } from './RecoveryManager'
 import { encodeSyncMessage } from '@automerge/automerge/slim'
@@ -20,9 +20,9 @@ const encryptBytes = vi.fn().mockResolvedValue({
 })
 const keys = createMockKeyProvider({ ...createMockVault(), encryptBytes })
 
-/** A sync message, which the poller checks every WAL entry it pushes is */
-function syncMessage(): Uint8Array {
-  return encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
+/** A sync message, which the poller checks every WAL entry it pushes is, carrying `n` as its change if given */
+function syncMessage(n?: number): Uint8Array {
+  return encodeSyncMessage({ heads: [], need: [], have: [], changes: n === undefined ? [] : [new Uint8Array([n])] })
 }
 
 beforeEach(() => {
@@ -279,6 +279,97 @@ describe('SyncPoller', () => {
     expect(await poller.executePoll()).toBe('failure')
     expect(pullQueueManager.getGlobalPageToken()).toEqual(sampleKey)
     errorSpy.mockRestore()
+  })
+
+  describe('with a real write-ahead log', () => {
+    let wal: SyncWriteAheadLog
+
+    beforeEach(async () => {
+      wal = new SyncWriteAheadLog('test-account')
+      await wal.clear()
+      poller = new SyncPoller({
+        accountId: 'test-account',
+        session,
+        pullQueueManager,
+        keys,
+        wal,
+        apiClient: new SyncApiClient(),
+        recoveryManager: mockRecoveryManager,
+        onPushAcknowledged: () => {},
+        onWalEntriesPruned,
+      })
+    })
+
+    it('pushes items in chunks of 5 and removes every pushed entry from the WAL', async () => {
+      mockPollSyncBatch.mockImplementation(async (input: any) => ({
+        success: true,
+        pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
+          itemId: m.itemId,
+          cursor: idx,
+        })),
+        pullResults: [],
+      }))
+
+      for (let i = 1; i <= 7; i += 1) {
+        await wal.append(`item-${i}` as ItemId, syncMessage(i))
+      }
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+
+      // 7 items go in exactly 2 calls (first with 5 items, second with 2 items)
+      expect(mockPollSyncBatch).toHaveBeenCalledTimes(2)
+      expect(mockPollSyncBatch.mock.calls[0][0].pushMessages).toHaveLength(5)
+      expect(mockPollSyncBatch.mock.calls[1][0].pushMessages).toHaveLength(2)
+
+      const batch = await wal.readAll()
+      expect(batch.size).toBe(0)
+    })
+
+    it('removes only the pushed entries, keeping local edits appended while the poll was in flight', async () => {
+      mockPollSyncBatch.mockImplementation(async (input: any) => {
+        // Local edits written while the poll request is in flight
+        await wal.append('item-1' as ItemId, syncMessage(20))
+        await wal.append('item-1' as ItemId, syncMessage(30))
+
+        return {
+          success: true,
+          pushResults: (input.pushMessages || []).map((m: any, idx: number) => ({
+            itemId: m.itemId,
+            cursor: idx + 1,
+          })),
+          pullResults: [],
+        }
+      })
+
+      await wal.append('item-1' as ItemId, syncMessage(10))
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+
+      // The pushed entry is removed, leaving only the concurrent ones [20, 30]
+      const batch = await wal.readAll()
+      const item1 = batch.get('item-1' as ItemId)
+      expect(item1).toBeDefined()
+      expect(item1).toHaveLength(2)
+      expect(item1![0].data).toEqual(syncMessage(20))
+      expect(item1![1].data).toEqual(syncMessage(30))
+    })
+
+    it('keeps the entries in the WAL if the poll call fails', async () => {
+      mockPollSyncBatch.mockRejectedValue(new Error('Network error'))
+
+      await wal.append('item-1' as ItemId, syncMessage(100))
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('failure')
+
+      const batch = await wal.readAll()
+      const item1 = batch.get('item-1' as ItemId)
+      expect(item1).toBeDefined()
+      expect(item1).toHaveLength(1)
+      expect(item1![0].data).toEqual(syncMessage(100))
+    })
   })
 
   it('sends cursors and removes sent IDs from WAL with every chunk in multi-chunk batch', async () => {

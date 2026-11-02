@@ -119,6 +119,18 @@ describe('SyncEventProcessor', () => {
     expect(sink.state.syncWarning).toBe('Storage write failed')
   })
 
+  it('sets the sync warning on snapshotFailed event', () => {
+    processor.handleSyncEvent({
+      type: 'snapshotFailed',
+      itemId: 'item-1' as ItemId,
+      message: 'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
+    })
+
+    expect(sink.state.syncWarning).toBe(
+      'Snapshot sync failed for item item-1: Document data not available. Changes are stored locally only.',
+    )
+  })
+
   it('handles leaderConflict events', () => {
     processor.handleSyncEvent({ type: 'leaderConflict', hasConflict: true })
     expect(sink.state.isLeaderConflict).toBe(true)
