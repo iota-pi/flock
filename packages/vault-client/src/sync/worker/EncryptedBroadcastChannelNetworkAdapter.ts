@@ -51,9 +51,6 @@ export interface EncryptedBroadcastChannelOptions
 }
 
 export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdapter {
-  private options: EncryptedBroadcastChannelOptions
-  private readonly keys: KeyProvider
-  private readonly bus: RealtimeBus | null
   private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: AsyncQueue<Message>
   private receiveQueue: AsyncQueue<Message>
@@ -63,14 +60,11 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   private maxCryptoRetries: number
   private cryptoRetryDelayMs: number
 
-  constructor(options: EncryptedBroadcastChannelOptions) {
+  constructor(private readonly deps: EncryptedBroadcastChannelOptions) {
     super()
-    this.options = options
-    this.keys = options.keys
-    this.bus = options.bus ?? null
-    this.maxPendingMessagesPerKey = options.maxPendingMessagesPerKey ?? 1000
-    this.maxCryptoRetries = options.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
-    this.cryptoRetryDelayMs = options.cryptoRetryDelayMs ?? DEFAULT_CRYPTO_RETRY_DELAY_MS
+    this.maxPendingMessagesPerKey = deps.maxPendingMessagesPerKey ?? 1000
+    this.maxCryptoRetries = deps.maxCryptoRetries ?? DEFAULT_MAX_CRYPTO_RETRIES
+    this.cryptoRetryDelayMs = deps.cryptoRetryDelayMs ?? DEFAULT_CRYPTO_RETRY_DELAY_MS
 
     this.sendQueue = new AsyncQueue<Message>(message => this.processSendItem(message))
     this.receiveQueue = new AsyncQueue<Message>(message => this.processReceiveItem(message))
@@ -79,7 +73,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   }
 
   private setupInner(): void {
-    this.inner = new BroadcastChannelNetworkAdapter(this.options as BroadcastChannelNetworkAdapterOptions | undefined)
+    this.inner = new BroadcastChannelNetworkAdapter(this.deps as BroadcastChannelNetworkAdapterOptions | undefined)
 
     // Forward events via base dispatcher methods
     this.inner.on('peer-candidate', payload => this.dispatchPeerCandidate(payload.peerId, payload.peerMetadata))
@@ -155,14 +149,14 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   private async processSendItem(message: Message): Promise<void> {
     await this.withCryptoRetry('sending', async () => {
       if (message.type === 'sync' && message.data) {
-        const cryptoResult = await this.keys.encryptBytes(message.data)
+        const cryptoResult = await this.deps.keys.encryptBytes(message.data)
         const jsonString = JSON.stringify(cryptoResult)
         const encodedData = new TextEncoder().encode(jsonString)
         this.inner.send({ ...message, data: encodedData })
-        if (message.documentId && this.bus) {
+        if (message.documentId && this.deps.bus) {
           const itemId = toVaultItemIdFromAutomergeId(message.documentId)
           if (itemId && !isIndexDocument(itemId)) {
-            this.bus.publishSyncPing([itemId])
+            this.deps.bus.publishSyncPing([itemId])
           }
         }
       } else {
@@ -205,7 +199,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
   }
 
   private async waitForKeyAndDrain(kver: string): Promise<void> {
-    const timeout = this.options.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait
+    const timeout = this.deps.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait
     // Multiples of `timeout`, so each wait below is a whole `timeout` and the
     // loop rechecks the pending buffer and connection state that often.
     const requestBackoff = new RetryStrategy({
@@ -214,14 +208,14 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
     let untilNextRequestMs = requestBackoff.nextDelay()
     try {
       while (this.hasPendingMessages(kver) && !this.isDisconnected) {
-        if (this.keys.hasKey(kver)) {
+        if (this.deps.keys.hasKey(kver)) {
           this.requeuePendingMessages(kver)
           break
         }
 
         const waitMs = Math.min(timeout, untilNextRequestMs)
-        const keyAcquired = await this.keys.waitForKey(kver, waitMs)
-        if (keyAcquired || this.keys.hasKey(kver)) {
+        const keyAcquired = await this.deps.keys.waitForKey(kver, waitMs)
+        if (keyAcquired || this.deps.keys.hasKey(kver)) {
           this.requeuePendingMessages(kver)
           break
         }
@@ -232,8 +226,8 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         }
         untilNextRequestMs = requestBackoff.nextDelay()
 
-        if (this.hasPendingMessages(kver) && !this.isDisconnected && this.options.onKeyVersionMissing) {
-          this.options.onKeyVersionMissing(kver)
+        if (this.hasPendingMessages(kver) && !this.isDisconnected && this.deps.onKeyVersionMissing) {
+          this.deps.onKeyVersionMissing(kver)
         }
       }
     } catch (err) {
@@ -266,16 +260,16 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         const cryptoResult = JSON.parse(jsonString) as CryptoResult
         kver = cryptoResult.kver || '1'
 
-        if (!this.keys.hasKey(kver) && this.hasPendingMessages(kver)) {
+        if (!this.deps.keys.hasKey(kver) && this.hasPendingMessages(kver)) {
           this.bufferPendingMessage(kver, message)
           return
         }
 
         let decryptedData: Uint8Array
         try {
-          decryptedData = await decryptWithKeyResolution(this.keys, cryptoResult, {
-            timeoutMs: this.options.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait,
-            onKeyVersionMissing: this.options.onKeyVersionMissing,
+          decryptedData = await decryptWithKeyResolution(this.deps.keys, cryptoResult, {
+            timeoutMs: this.deps.keyWaitTimeoutMs ?? SYNC_TIMEOUTS.keyWait,
+            onKeyVersionMissing: this.deps.onKeyVersionMissing,
           })
         } catch (err) {
           const classified = classifySyncError(err)
@@ -292,14 +286,14 @@ export class EncryptedBroadcastChannelNetworkAdapter extends BaseSyncNetworkAdap
         }
 
         this.dispatchMessage({ ...message, data: decryptedData })
-        if (message.documentId && this.options.onDocumentReceived) {
-          this.options.onDocumentReceived(message.documentId)
+        if (message.documentId && this.deps.onDocumentReceived) {
+          this.deps.onDocumentReceived(message.documentId)
         }
       } catch (err) {
         // Only a missing key needs a keyring reload. Other failures (such as a
         // decrypt error with the key loaded) are retried without one.
-        if (kver && !this.keys.hasKey(kver) && this.options.onKeyVersionMissing) {
-          this.options.onKeyVersionMissing(kver)
+        if (kver && !this.deps.keys.hasKey(kver) && this.deps.onKeyVersionMissing) {
+          this.deps.onKeyVersionMissing(kver)
         }
         throw err
       }

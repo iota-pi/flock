@@ -122,7 +122,7 @@ beforeEach(() => {
       saveDocToStorage = vi.fn().mockResolvedValue(undefined)
       readItemSnapshot = vi.fn().mockResolvedValue(null)
       hasDataInStorage = vi.fn().mockResolvedValue(true)
-      constructor(readonly options: { isLocallyUnreadable: (documentId: string) => boolean }) {}
+      constructor(readonly deps: { isLocallyUnreadable: (documentId: string) => boolean }) {}
     },
     AutomergeIndexManager: class MockAutomergeIndexManager {
       ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
@@ -716,7 +716,7 @@ describe('SyncWorkerContext', () => {
 
     /** Asks the predicate the context gave its (mocked) doc store */
     function isLocallyUnreadable(ctx: SyncWorkerContext, documentId: DocumentId): boolean {
-      return (ctx.services.docStore as any).options.isLocallyUnreadable(documentId)
+      return depsOf<{ isLocallyUnreadable: (documentId: DocumentId) => boolean }>(ctx.services.docStore).isLocallyUnreadable(documentId)
     }
 
     it('quarantines a document once, however many of its chunks fail', async () => {

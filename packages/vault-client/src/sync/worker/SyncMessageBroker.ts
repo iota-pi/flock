@@ -24,23 +24,10 @@ export interface SyncMessageBrokerDeps {
 }
 
 export class SyncMessageBroker {
-  private readonly session: SyncSessionState
-  private readonly wal: SyncWriteAheadLog
   private readonly snapshotOnlyItems = new Set<ItemId>()
   private readonly blockedItemIds = new Set<ItemId>()
-  private readonly adapter: VaultNetworkAdapter
-  private readonly pullQueueManager: SyncPullQueueManager
-  private readonly onFlushNeeded: () => void
-  private readonly requestSnapshot: (itemIds: ItemId[]) => void
 
-  constructor(deps: SyncMessageBrokerDeps) {
-    this.adapter = deps.adapter
-    this.pullQueueManager = deps.pullQueueManager
-    this.wal = deps.wal
-    this.session = deps.session
-    this.onFlushNeeded = deps.onFlushNeeded
-    this.requestSnapshot = deps.requestSnapshot
-  }
+  constructor(private readonly deps: SyncMessageBrokerDeps) {}
 
   /** Takes an outgoing message from the adapter: a change goes to the WAL, a request to the pull queue */
   send(message: Message): void {
@@ -72,8 +59,8 @@ export class SyncMessageBroker {
   recordSyncedHeads(itemId: ItemId, heads: string[]): void {
     const documentId = toDocumentIdFromItemId(itemId)
     this.blockedItemIds.delete(itemId)
-    this.adapter.setSyncedHeads(documentId, heads)
-    this.adapter.resetReNegotiationCircuit(documentId)
+    this.deps.adapter.setSyncedHeads(documentId, heads)
+    this.deps.adapter.resetReNegotiationCircuit(documentId)
   }
 
   /**
@@ -84,12 +71,12 @@ export class SyncMessageBroker {
     for (const itemId of itemIds) {
       this.snapshotOnlyItems.add(itemId)
     }
-    this.requestSnapshot(itemIds)
+    this.deps.requestSnapshot(itemIds)
   }
 
   private async handleOutgoingMessage(message: Message): Promise<void> {
     try {
-      if (!this.session.isLeader || this.session.isShutdown) {
+      if (!this.deps.session.isLeader || this.deps.session.isShutdown) {
         return
       }
 
@@ -101,8 +88,8 @@ export class SyncMessageBroker {
       const itemId = toVaultItemIdFromAutomergeId(documentId)
 
       if (message.type === 'request') {
-        this.pullQueueManager.cursors.addPendingItem(itemId)
-        this.onFlushNeeded()
+        this.deps.pullQueueManager.cursors.addPendingItem(itemId)
+        this.deps.onFlushNeeded()
       } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
         if (this.blockedItemIds.has(itemId)) {
           log.warn(`Dropping outgoing sync message for blocked item ${itemId}`)
@@ -124,8 +111,8 @@ export class SyncMessageBroker {
         }
 
         try {
-          await this.wal.append(itemId, message.data)
-          this.onFlushNeeded()
+          await this.deps.wal.append(itemId, message.data)
+          this.deps.onFlushNeeded()
         } catch (err) {
           log.error(`Failed to append sync message to WAL for item ${itemId}:`, err)
           this.handleWalAppendFailure(itemId, documentId as DocumentId)
@@ -138,8 +125,8 @@ export class SyncMessageBroker {
 
   private handleWalAppendFailure(itemId: ItemId, documentId: DocumentId): void {
     this.blockedItemIds.add(itemId)
-    this.adapter.triggerReNegotiation(documentId)
-    this.requestSnapshot([itemId])
+    this.deps.adapter.triggerReNegotiation(documentId)
+    this.deps.requestSnapshot([itemId])
   }
 
   shutdown(): void {

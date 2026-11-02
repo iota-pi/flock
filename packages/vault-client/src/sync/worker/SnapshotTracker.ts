@@ -30,7 +30,6 @@ export interface SnapshotTrackerOptions {
 type TrackedTimestamps = Partial<ItemSyncTimestamps>
 
 export class SnapshotTracker {
-  private readonly session: SyncSessionState
   private readonly dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
   private readonly timestampsByItemId = new Map<ItemId, TrackedTimestamps>()
@@ -44,10 +43,6 @@ export class SnapshotTracker {
 
   private readonly loadGuard = new SingleFlightGuard<void>()
   private readonly persistMutex = new AsyncMutex()
-  private readonly onTriggerPush?: () => void
-  private readonly isRetryActive?: () => boolean
-  private readonly recoveryManager: RecoveryManager
-  private readonly lastModifiedStore: LastModifiedStore
 
   // Bounded by maxWait, so steady editing still saves. The startup audit needs a saved localModifiedAt
   // to re-queue an edit whose snapshot never went up.
@@ -57,20 +52,15 @@ export class SnapshotTracker {
     { maxWait: 5000 },
   )
 
-  constructor(options: SnapshotTrackerOptions) {
-    this.lastModifiedStore = options.lastModifiedStore
-    this.recoveryManager = options.recoveryManager
-    this.debounceDelayMs = options.debounceDelayMs ?? 30_000
-    this.maxWaitMs = options.maxWaitMs ?? 5 * 60 * 1000
-    this.session = options.session
-    this.onTriggerPush = options.onTriggerPush
-    this.isRetryActive = options.isRetryActive
+  constructor(private readonly deps: SnapshotTrackerOptions) {
+    this.debounceDelayMs = deps.debounceDelayMs ?? 30_000
+    this.maxWaitMs = deps.maxWaitMs ?? 5 * 60 * 1000
   }
 
   /** Schedules the pending uploads when this tab becomes the leader, and cancels them when it stops being one */
   onLeaderChange(): void {
-    if (this.session.isShutdown) return
-    if (this.session.isLeader) {
+    if (this.deps.session.isShutdown) return
+    if (this.deps.session.isLeader) {
       if (this.dirtyItems.size > 0) {
         this.scheduleDebouncedSnapshotPush()
       }
@@ -80,7 +70,7 @@ export class SnapshotTracker {
   }
 
   markItemDirty(itemId: ItemId, customDebounceDelayMs?: number): void {
-    if (this.session.isShutdown || !itemId) return
+    if (this.deps.session.isShutdown || !itemId) return
     this.dirtyItemsTick += 1
     this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.timestamps(itemId).localModifiedAt = Date.now()
@@ -99,12 +89,12 @@ export class SnapshotTracker {
   }
 
   private scheduleDebouncedSnapshotPush(customDelayMs?: number): void {
-    if (!this.session.isOperational) return
-    if (this.isRetryActive?.()) return
+    if (!this.deps.session.isOperational) return
+    if (this.deps.isRetryActive?.()) return
 
     const trigger = () => {
       this.clearDebounceTimers()
-      this.onTriggerPush?.()
+      this.deps.onTriggerPush?.()
     }
     if (!this.maxWaitTimer.isPending) {
       this.maxWaitTimer.schedule(this.maxWaitMs, trigger)
@@ -136,15 +126,15 @@ export class SnapshotTracker {
 
   /** Loads the stored timestamps and the items quarantined as oversized */
   async loadLastModified(): Promise<void> {
-    if (this.session.isShutdown) return
+    if (this.deps.session.isShutdown) return
     return this.loadGuard.run(() => this.executeLoadLastModified())
   }
 
   private async executeLoadLastModified(): Promise<void> {
     try {
-      checkAlive(null, () => !this.session.isShutdown)
-      const stored = await this.lastModifiedStore.loadTimestamps()
-      checkAlive(null, () => !this.session.isShutdown)
+      checkAlive(null, () => !this.deps.session.isShutdown)
+      const stored = await this.deps.lastModifiedStore.loadTimestamps()
+      checkAlive(null, () => !this.deps.session.isShutdown)
 
       if (stored && Array.isArray(stored)) {
         for (const [itemId, ts] of stored) {
@@ -161,8 +151,8 @@ export class SnapshotTracker {
 
       const quarantinedIds = new Set<ItemId>()
       try {
-        const recoveryEntries = await this.recoveryManager.listRecoveryItems()
-        checkAlive(null, () => !this.session.isShutdown)
+        const recoveryEntries = await this.deps.recoveryManager.listRecoveryItems()
+        checkAlive(null, () => !this.deps.session.isShutdown)
         for (const entry of recoveryEntries) {
           quarantinedIds.add(entry.itemId)
           if (entry.kind === 'oversized') {
@@ -174,7 +164,7 @@ export class SnapshotTracker {
         log.error('Failed to read manual recovery entries during startup audit', recoveryErr)
       }
 
-      checkAlive(null, () => !this.session.isShutdown)
+      checkAlive(null, () => !this.deps.session.isShutdown)
 
       // Startup & Promotion Dirty Audit: Re-enqueue un-snapshotted items (excluding quarantined items)
       let auditCount = 0
@@ -193,7 +183,7 @@ export class SnapshotTracker {
         this.scheduleDebouncedSnapshotPush()
       }
     } catch (error) {
-      if (isAbortError(error) || this.session.isShutdown) return
+      if (isAbortError(error) || this.deps.session.isShutdown) return
       log.error('Failed to load lastModified timestamps', error)
     }
   }
@@ -214,7 +204,7 @@ export class SnapshotTracker {
   /** Like `persistLastModified`, but throws a failure, for callers that must know the timestamps were saved */
   async saveLastModified(): Promise<void> {
     await this.persistMutex.runExclusive(async () => {
-      const merged = new Map<ItemId, ItemSyncTimestamps>(await this.lastModifiedStore.loadTimestamps() ?? [])
+      const merged = new Map<ItemId, ItemSyncTimestamps>(await this.deps.lastModifiedStore.loadTimestamps() ?? [])
       for (const [itemId, local] of this.timestampsByItemId) {
         const stored = merged.get(itemId)
         merged.set(itemId, {
@@ -225,7 +215,7 @@ export class SnapshotTracker {
           baseVersion: Math.max(stored?.baseVersion ?? 0, local.baseVersion ?? 0),
         })
       }
-      await this.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
+      await this.deps.lastModifiedStore.saveTimestamps(Array.from(merged.entries()))
     })
   }
 
@@ -271,7 +261,7 @@ export class SnapshotTracker {
   }
 
   deleteDirtyItem(itemId: ItemId): boolean {
-    if (this.session.isShutdown || !itemId) return false
+    if (this.deps.session.isShutdown || !itemId) return false
     const deleted = this.dirtyItems.delete(itemId)
     const entry = this.timestampsByItemId.get(itemId)
     if (entry?.localModifiedAt !== undefined && entry.localModifiedAt > (entry.lastSnapshotAt ?? 0)) {

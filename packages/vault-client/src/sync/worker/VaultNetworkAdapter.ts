@@ -75,8 +75,6 @@ interface RenegotiationCircuitState {
 }
 
 export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
-  private readonly accountId: string
-  private readonly session: SyncSessionState
   private seededDocuments = new BoundedSet<DocumentId>(MAX_SEEDED_DOCUMENTS)
   private readonly outboundQueue = new BoundedQueue<Message>(
     MAX_OUTBOUND_QUEUE_SIZE,
@@ -90,27 +88,17 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   private pendingReNegotiations = new Set<DocumentId>()
   private renegotiationCircuits = new Map<DocumentId, RenegotiationCircuitState>()
   private syncedHeads = new Map<DocumentId, string[]>()
-  private readonly syncedHeadsStore: SyncedHeadsStore | null
   /**
    * Whether heads changed since the last save. Only this tab's own changes count: heads loaded at
    * startup may be older than the store, and saving them would undo another tab's progress.
    */
   private hasUnsavedSyncedHeads = false
-  private readonly headsValidator: HeadsValidator | null
-  private readonly onMessageToSend: (message: Message) => void
-  private readonly onReNegotiationTriggered?: (documentId: DocumentId) => void
 
-  constructor(options: VaultNetworkAdapterOptions) {
+  constructor(private readonly deps: VaultNetworkAdapterOptions) {
     super()
-    this.accountId = options.accountId
-    this.session = options.session
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve
     })
-    this.syncedHeadsStore = options.syncedHeadsStore ?? null
-    this.headsValidator = options.headsValidator ?? null
-    this.onMessageToSend = options.onMessageToSend
-    this.onReNegotiationTriggered = options.onReNegotiationTriggered
   }
 
   /** Saves changed synced heads (unless local data is being cleared), then disconnects */
@@ -155,12 +143,12 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   protected override canSend(): boolean {
     return super.canSend()
       && this.connectionState === 'connected'
-      && this.session.isLeader
+      && this.deps.session.isLeader
   }
 
   /** Connects the vault peer when this tab becomes the leader, and disconnects it when it stops being one */
   onLeaderChange(): void {
-    if (this.session.isLeader) {
+    if (this.deps.session.isLeader) {
       this.seededDocuments.clear()
       this.resumeSending()
     } else {
@@ -297,7 +285,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
       this.pendingReNegotiations.add(documentId)
     }
 
-    this.onReNegotiationTriggered?.(documentId)
+    this.deps.onReNegotiationTriggered?.(documentId)
     return true
   }
 
@@ -342,7 +330,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
       return
     }
 
-    this.onMessageToSend(message)
+    this.deps.onMessageToSend(message)
   }
 
   /**
@@ -356,7 +344,7 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
     const isKnown = Boolean(
       synced
       && synced.length > 0
-      && (!this.headsValidator || this.headsValidator(documentId, synced))
+      && (!this.deps.headsValidator || this.deps.headsValidator(documentId, synced))
     )
     const lastSync = isKnown ? synced! : []
     return {
@@ -444,11 +432,11 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   }, 1000)
 
   private async persistSyncedHeads(): Promise<void> {
-    if (!this.syncedHeadsStore) return
+    if (!this.deps.syncedHeadsStore) return
     const entries = Array.from(this.syncedHeads.entries())
     this.hasUnsavedSyncedHeads = false
     try {
-      await this.syncedHeadsStore.saveSyncedHeads(entries)
+      await this.deps.syncedHeadsStore.saveSyncedHeads(entries)
     } catch (err) {
       this.hasUnsavedSyncedHeads = true
       log.error('Failed to persist synced heads', err)
@@ -462,9 +450,9 @@ export class VaultNetworkAdapter extends BaseSyncNetworkAdapter {
   }
 
   private connectPeer(): void {
-    if (this.connectionState === 'connected' && this.session.isLeader) {
+    if (this.connectionState === 'connected' && this.deps.session.isLeader) {
       this.dispatchPeerCandidate(VAULT_PEER_ID, {
-        storageId: `vault:${this.accountId}` as StorageId,
+        storageId: `vault:${this.deps.accountId}` as StorageId,
         isEphemeral: false,
       })
     }

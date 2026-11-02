@@ -52,7 +52,6 @@ export interface ManifestSyncManagerDeps {
 export type SyncResult = { added: ItemId[], success: boolean }
 
 export class ManifestSyncManager {
-  private readonly deps: ManifestSyncManagerDeps
   private readonly hydrator: ManifestHydrator
   private isShutdown = false
 
@@ -60,8 +59,7 @@ export class ManifestSyncManager {
   private readonly syncRun = new AbortableRun(this.isAlive)
   private readonly syncGuard = new SingleFlightGuard<SyncResult>()
 
-  constructor(deps: ManifestSyncManagerDeps) {
-    this.deps = deps
+  constructor(private readonly deps: ManifestSyncManagerDeps) {
     this.hydrator = new ManifestHydrator({
       accountId: this.deps.accountId,
       apiClient: this.deps.apiClient,

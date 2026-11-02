@@ -83,19 +83,11 @@ export interface AutomergeDocStoreOptions {
 export class AutomergeDocStore implements ItemLockCoordinator {
   private findOrCreateGuard = new KeyedSingleFlightGuard<ItemId, RepoDocHandle>()
   private itemMutex = new KeyedAsyncMutex<ItemId>()
-  private readonly repo: Repo
-  private readonly onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
-  private readonly storageAdapter: DocStorageChecker
   private isShutdown = false
   public readonly codec: DocCodec
-  private readonly isLocallyUnreadable: (documentId: DocumentId) => boolean
 
-  constructor(options: AutomergeDocStoreOptions) {
-    this.repo = options.repo
-    this.onHandleReplaced = options.onHandleReplaced
-    this.storageAdapter = options.storageAdapter
-    this.codec = options.codec
-    this.isLocallyUnreadable = options.isLocallyUnreadable
+  constructor(private readonly deps: AutomergeDocStoreOptions) {
+    this.codec = deps.codec
   }
 
   async withItemLock<T>(itemId: ItemId, fn: () => Promise<T>): Promise<T> {
@@ -113,31 +105,31 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
   /** The repo's in-memory handle for the document, when it's ready */
   private getReadyHandle(documentId: DocumentId): RepoDocHandle {
-    const handle: RepoDocHandle = this.repo.handles[documentId]
+    const handle: RepoDocHandle = this.deps.repo.handles[documentId]
     return handle?.isReady() ? handle : undefined
   }
 
   async loadDocDataFromStorage(itemId: ItemId): Promise<Uint8Array | undefined> {
-    if (!this.repo.storageSubsystem) return undefined
+    if (!this.deps.repo.storageSubsystem) return undefined
     const { documentId } = this.resolveDocumentId(itemId)
-    const data = await this.repo.storageSubsystem.loadDocData(documentId)
+    const data = await this.deps.repo.storageSubsystem.loadDocData(documentId)
     return (data && data.length > 0) ? data : undefined
   }
 
   async hasDataInStorage(itemId: ItemId): Promise<boolean> {
     checkAlive(null, !this.isShutdown, 'Doc store is shut down')
     const { documentId } = this.resolveDocumentId(itemId)
-    return this.storageAdapter.has([documentId])
+    return this.deps.storageAdapter.has([documentId])
   }
 
   async saveDocToStorage(itemId: ItemId): Promise<boolean> {
-    if (!this.repo.storageSubsystem) return false
+    if (!this.deps.repo.storageSubsystem) return false
     const { documentId } = this.resolveDocumentId(itemId)
     const handle = this.getReadyHandle(documentId) ?? await this.findHandle(itemId, { knownToExist: true })
     if (!handle?.isReady()) return false
     const doc = handle.doc()
     if (!doc) return false
-    await this.repo.storageSubsystem.saveDoc(documentId, doc)
+    await this.deps.repo.storageSubsystem.saveDoc(documentId, doc)
     return true
   }
 
@@ -145,7 +137,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     url: AutomergeUrl,
     timeoutMs: number,
   ): Promise<RepoDocHandle> {
-    const lookup = await findWithTimeout<RepoDoc>(this.repo, url, timeoutMs)
+    const lookup = await findWithTimeout<RepoDoc>(this.deps.repo, url, timeoutMs)
     return lookup.type === 'found' ? lookup.handle : undefined
   }
 
@@ -173,7 +165,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
 
     // If handle exists in cache but is still loading, bypass storage check
     // since loading has already been initiated.
-    let existsInStorage = !!this.repo.handles[documentId]
+    let existsInStorage = !!this.deps.repo.handles[documentId]
     if (!existsInStorage) {
       // 2. Determine if it's known to exist (or check locally as fallback)
       if (options.knownToExist !== undefined) {
@@ -189,12 +181,12 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     }
 
     if (!existsInStorage) return undefined
-    if (this.isLocallyUnreadable(documentId)) return undefined
+    if (this.deps.isLocallyUnreadable(documentId)) return undefined
 
     // 3. Fast-path attempt (2s)
     const fastHandle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreFastPath)
     if (fastHandle?.isReady()) return fastHandle
-    if (this.isLocallyUnreadable(documentId)) return undefined
+    if (this.deps.isLocallyUnreadable(documentId)) return undefined
 
     // 4. Extended attempt for confirmed-to-exist documents (8s)
     // Check cache in case it became ready after timedFind aborted
@@ -254,7 +246,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         // Document genuinely doesn't exist — safe to create
         const { documentId } = this.resolveDocumentId(itemId)
         try {
-          this.repo.delete(documentId)
+          this.deps.repo.delete(documentId)
         } catch (error) {
           log.error('Failed to clear unavailable handle before import', {
             itemId,
@@ -265,7 +257,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
         const newDoc = Automerge.init()
         const binary = Automerge.save(newDoc)
         try {
-          handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
+          handle = this.deps.repo.import<RepoDoc>(binary, { docId: documentId })
         } catch (error) {
           throw new Error(
             `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${errorMessage(error)}`,
@@ -273,7 +265,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
           )
         }
 
-        this.onHandleReplaced?.(itemId, handle)
+        this.deps.onHandleReplaced?.(itemId, handle)
         return handle
       })
     )
@@ -416,20 +408,20 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const existing = this.getReadyHandle(documentId)
     if (existing) {
       this.applyMerge(existing, parsed ?? Automerge.load<RepoDoc>(binary))
-      this.onHandleReplaced?.(itemId, existing)
+      this.deps.onHandleReplaced?.(itemId, existing)
       return existing
     }
 
     try {
-      await this.repo.removeFromCache(documentId)
+      await this.deps.repo.removeFromCache(documentId)
     } catch {
       // Ignore cache-eviction failures
     }
 
-    const handle = this.repo.import<RepoDoc>(binary, {
+    const handle = this.deps.repo.import<RepoDoc>(binary, {
       docId: documentId,
     })
-    this.onHandleReplaced?.(itemId, handle)
+    this.deps.onHandleReplaced?.(itemId, handle)
     return handle
   }
 

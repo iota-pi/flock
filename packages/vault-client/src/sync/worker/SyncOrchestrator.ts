@@ -64,7 +64,6 @@ export class SyncOrchestrator {
   private readonly pollGuard = new SingleFlightGuard<void>()
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private readonly pollRun = new AbortableRun(() => this.isOperational)
-  private readonly poller: SyncPollerLike
 
   private readonly pollTimer = new RetryTimer()
   private readonly syncBatchTimer = new RetryTimer()
@@ -75,37 +74,18 @@ export class SyncOrchestrator {
 
   private manifestSyncIntervalId: ReturnType<typeof setInterval> | null = null
   private readonly manifestSyncIntervalMs: number
-  private readonly manifestSyncManager: ManifestSyncManagerLike
 
-  private readonly accountId: string
-  private readonly session: SyncSessionState
-  private readonly clientEventHub: ClientEventHub
-  private readonly pullQueueManager: SyncPullQueueManagerLike
-  private readonly createLeaderElection?: SyncOrchestratorDeps['createLeaderElection']
-  private readonly onLeaderChange?: (isLeader: boolean) => void
-  private readonly onLeaderOverlapChange?: (hasMultipleLeaders: boolean) => void
-  private readonly onPollResult?: (outcome: PollOutcome) => void
 
-  constructor(deps: SyncOrchestratorDeps) {
-    this.accountId = deps.accountId
-    this.session = deps.session
-    this.clientEventHub = deps.clientEventHub
-    this.pullQueueManager = deps.pullQueueManager
-    this.createLeaderElection = deps.createLeaderElection
-    this.onLeaderChange = deps.onLeaderChange
-    this.onLeaderOverlapChange = deps.onLeaderOverlapChange
-    this.onPollResult = deps.onPollResult
-    this.poller = deps.poller
-    this.manifestSyncManager = deps.manifestSyncManager
+  constructor(private readonly deps: SyncOrchestratorDeps) {
     this.manifestSyncIntervalMs = deps.manifestSyncIntervalMs ?? DEFAULT_MANIFEST_SYNC_INTERVAL_MS
   }
 
   get isOperational(): boolean {
-    return this.session.isOperational
+    return this.deps.session.isOperational
   }
 
   private get isShutdown(): boolean {
-    return this.session.isShutdown
+    return this.deps.session.isShutdown
   }
 
   private canPoll(force = false): boolean {
@@ -125,18 +105,18 @@ export class SyncOrchestrator {
         this.setLeader(false)
       },
       onMultipleLeadersDetected: () => {
-        this.onLeaderOverlapChange?.(true)
+        this.deps.onLeaderOverlapChange?.(true)
       },
       onSoleLeaderRestored: () => {
-        this.onLeaderOverlapChange?.(false)
+        this.deps.onLeaderOverlapChange?.(false)
       },
       onLeaderConflict: (isConflict: boolean) => {
-        this.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
+        this.deps.clientEventHub.emit({ type: 'leaderConflict', hasConflict: isConflict })
       },
     }
-    this.leaderElection = this.createLeaderElection
-      ? this.createLeaderElection(this.accountId, callbacks)
-      : new LeaderElection(this.accountId, callbacks)
+    this.leaderElection = this.deps.createLeaderElection
+      ? this.deps.createLeaderElection(this.deps.accountId, callbacks)
+      : new LeaderElection(this.deps.accountId, callbacks)
     fireAndForget(this.leaderElection.acquire(), 'SyncOrchestrator:leaderElection:acquire')
   }
 
@@ -145,14 +125,14 @@ export class SyncOrchestrator {
   }
 
   setLeader(isLeader: boolean): void {
-    if (!this.session.setLeader(isLeader)) {
+    if (!this.deps.session.setLeader(isLeader)) {
       return
     }
-    this.onLeaderChange?.(isLeader)
+    this.deps.onLeaderChange?.(isLeader)
 
     if (isLeader) {
       fireAndForget(this.cursorReloadGuard.run(() => this.reloadCursors()), 'SyncOrchestrator:reloadCursors')
-      if (this.session.isOnline) {
+      if (this.deps.session.isOnline) {
         this.startSyncing()
       } else {
         this.startPolling()
@@ -175,17 +155,17 @@ export class SyncOrchestrator {
     this.stopPolling()
     this.stopPeriodicManifestSync()
     this.abortPoll()
-    this.manifestSyncManager.abort()
+    this.deps.manifestSyncManager.abort()
   }
 
   /** Stops syncing when the device goes offline, and resumes when it's back. The session holds the state. */
   onOnlineStateChange(): void {
-    if (!this.session.isOnline) {
+    if (!this.deps.session.isOnline) {
       this.stopSyncing()
       return
     }
 
-    if (this.session.isLeader) {
+    if (this.deps.session.isLeader) {
       this.pollBackoff.reset()
       this.startSyncing()
     }
@@ -224,7 +204,7 @@ export class SyncOrchestrator {
     if (this.isShutdown) return
     this.stopPolling()
 
-    if (!this.session.isLeader) {
+    if (!this.deps.session.isLeader) {
       return
     }
 
@@ -270,11 +250,11 @@ export class SyncOrchestrator {
 
     const pollNow = outcome !== 'failure' && (
       wasFlushPending
-      || (outcome === 'success' && this.pullQueueManager.hasImmediatePendingPulls())
+      || (outcome === 'success' && this.deps.pullQueueManager.hasImmediatePendingPulls())
     )
     this.schedulePollTimer(pollNow ? 0 : this.pollBackoff.currentBaseDelay)
     // Reported once the next poll is scheduled, so a failing receiver can't stop polling
-    this.onPollResult?.(outcome)
+    this.deps.onPollResult?.(outcome)
   }
 
   private handlePollError(error: unknown): void {
@@ -294,11 +274,11 @@ export class SyncOrchestrator {
   private handleAuthFailure(): void {
     this.pollingPausedForAuth = true
     this.stopPolling()
-    this.clientEventHub.emit({
+    this.deps.clientEventHub.emit({
       type: 'authFailure',
       message: 'Sync paused: your session has expired. Please sign in again.',
     })
-    this.onPollResult?.('auth-failure')
+    this.deps.onPollResult?.('auth-failure')
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
@@ -314,7 +294,7 @@ export class SyncOrchestrator {
             }
             checkAlive(signal, () => this.isOperational)
 
-            const result = await this.poller.executePoll(signal)
+            const result = await this.deps.poller.executePoll(signal)
             checkAlive(signal, () => this.isOperational)
             return result
           })
@@ -350,7 +330,7 @@ export class SyncOrchestrator {
 
   private async reloadCursors(): Promise<void> {
     try {
-      await this.pullQueueManager.loadCursors()
+      await this.deps.pullQueueManager.loadCursors()
     } catch (error) {
       log.error('Failed to reload cursors on leader promotion', error)
     }
@@ -365,7 +345,7 @@ export class SyncOrchestrator {
     }
     this.stopSyncing()
     await this.pollGuard.waitForRunning()
-    await this.manifestSyncManager.waitForIdle()
+    await this.deps.manifestSyncManager.waitForIdle()
   }
 
   private startPeriodicManifestSync(): void {
@@ -391,7 +371,7 @@ export class SyncOrchestrator {
       return
     }
     try {
-      await this.manifestSyncManager.sync(false)
+      await this.deps.manifestSyncManager.sync(false)
     } catch (error) {
       log.warn('Manifest sync failed', error)
     }

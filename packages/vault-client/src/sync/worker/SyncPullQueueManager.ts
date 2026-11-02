@@ -61,18 +61,6 @@ export interface SyncPullQueueManagerDeps {
 }
 
 export class SyncPullQueueManager {
-  private readonly cursorStore: CursorStore
-  private readonly keys: KeyProvider
-  private readonly lockCoordinator: ItemLockCoordinator
-  private readonly adapter: Pick<VaultNetworkAdapter, 'receiveServerMessage'>
-  private readonly session: SyncSessionState
-  private readonly bus: RealtimeBus | null
-  private readonly onKeyVersionMissing?: (kver: string) => void
-  private readonly onItemMessageParsed?: (itemId: ItemId) => void
-  private readonly onFlushNeeded?: () => void
-  private readonly onRetryingChange?: (isRetrying: boolean) => void
-  private readonly onRemoteMessagesParsed?: (itemId: ItemId) => void
-  private readonly onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
 
   /** Where each item's pulls, and the account-wide scan, have reached */
   readonly cursors: PullCursorState
@@ -85,23 +73,11 @@ export class SyncPullQueueManager {
 
   // A pull that finishes after shutdown mustn't save, since shutdown may be clearing local data
   private readonly saveCursorsDebounced = debounce(() => {
-    if (this.session.isShutdown) return
+    if (this.deps.session.isShutdown) return
     fireAndForget(this.persistCursors(), 'SyncPullQueueManager:persistCursors')
   }, 1000)
 
-  constructor(deps: SyncPullQueueManagerDeps) {
-    this.cursorStore = deps.cursorStore
-    this.keys = deps.keys
-    this.lockCoordinator = deps.lockCoordinator
-    this.adapter = deps.adapter
-    this.session = deps.session
-    this.bus = deps.bus ?? null
-    this.onKeyVersionMissing = deps.onKeyVersionMissing
-    this.onItemMessageParsed = deps.onItemMessageParsed
-    this.onFlushNeeded = deps.onFlushNeeded
-    this.onRetryingChange = deps.onRetryingChange
-    this.onRemoteMessagesParsed = deps.onRemoteMessagesParsed
-    this.onDecryptionFailure = deps.onDecryptionFailure
+  constructor(private readonly deps: SyncPullQueueManagerDeps) {
     this.cursors = new PullCursorState(deps.keys)
   }
 
@@ -121,9 +97,9 @@ export class SyncPullQueueManager {
   }
 
   async loadCursors(): Promise<void> {
-    if (this.session.isShutdown) return
+    if (this.deps.session.isShutdown) return
     try {
-      const stored = await this.cursorStore.loadCursors()
+      const stored = await this.deps.cursorStore.loadCursors()
       if (stored) {
         this.cursors.loadState(stored)
       }
@@ -135,7 +111,7 @@ export class SyncPullQueueManager {
   private async persistCursors(): Promise<void> {
     const data = this.cursors.exportState()
     try {
-      await this.cursorStore.saveCursors(data)
+      await this.deps.cursorStore.saveCursors(data)
     } catch (error) {
       log.error('Failed to save cursors', error)
     }
@@ -153,8 +129,8 @@ export class SyncPullQueueManager {
 
   /** Hands a pulled message to the adapter. If the adapter throws, the batch stops there and is retried. */
   private deliverMessage(itemId: ItemId, documentId: DocumentId, message: Uint8Array): void {
-    this.onItemMessageParsed?.(itemId)
-    this.adapter.receiveServerMessage(documentId, message)
+    this.deps.onItemMessageParsed?.(itemId)
+    this.deps.adapter.receiveServerMessage(documentId, message)
   }
 
   private async handleMessageEntry(
@@ -169,11 +145,11 @@ export class SyncPullQueueManager {
 
     let decrypted: Uint8Array
     try {
-      decrypted = await decryptWithKeyResolution(this.keys, entry.encryptedMessage, {
+      decrypted = await decryptWithKeyResolution(this.deps.keys, entry.encryptedMessage, {
         docId: itemId,
         timeoutMs: KEY_WAIT_TIMEOUT_MS,
         timedOutKeys,
-        onKeyVersionMissing: this.onKeyVersionMissing,
+        onKeyVersionMissing: this.deps.onKeyVersionMissing,
       })
     } catch (error) {
       const classified = classifySyncError(error)
@@ -212,8 +188,8 @@ export class SyncPullQueueManager {
   onKeyringUpdated(): void {
     const unblockedAny = this.cursors.onKeyringUpdated()
     if (unblockedAny) {
-      this.onRetryingChange?.(this.cursors.isAnyRetrying())
-      this.onFlushNeeded?.()
+      this.deps.onRetryingChange?.(this.cursors.isAnyRetrying())
+      this.deps.onFlushNeeded?.()
     }
   }
 
@@ -248,7 +224,7 @@ export class SyncPullQueueManager {
       return { highestCursor: initialCursor, hasParsedMessages: false, hasParsedRemoteMessages: false }
     }
 
-    return this.lockCoordinator.withItemLock(itemId, async () => {
+    return this.deps.lockCoordinator.withItemLock(itemId, async () => {
       let highestCursor = initialCursor
       let failure: PullFailure | undefined
       let hasParsedMessages = false
@@ -325,14 +301,14 @@ export class SyncPullQueueManager {
     }
 
     if (messageResult.hasParsedRemoteMessages && !failure && !outcome.permanentlyFailed) {
-      this.onRemoteMessagesParsed?.(itemId)
+      this.deps.onRemoteMessagesParsed?.(itemId)
     }
 
     if (outcome.permanentlyFailed) {
       const err = new Error(
         `Permanently failed to parse sync messages after ${PullCursorState.MAX_PULL_RETRIES} attempts`
       )
-      this.onDecryptionFailure?.(itemId, err)
+      this.deps.onDecryptionFailure?.(itemId, err)
     }
 
     return {
@@ -352,7 +328,7 @@ export class SyncPullQueueManager {
     globalNextPageToken: PageToken | undefined,
     globalScannedThroughCursor: number | undefined,
   ): Promise<void> {
-    if (this.session.isShutdown) return
+    if (this.deps.session.isShutdown) return
     this.hasMoreGlobal = hasMoreGlobal
     this.globalPageToken = hasMoreGlobal ? globalNextPageToken : undefined
 
@@ -395,9 +371,9 @@ export class SyncPullQueueManager {
         throw firstItemError.error
       }
     } finally {
-      this.onRetryingChange?.(this.cursors.isAnyRetrying())
+      this.deps.onRetryingChange?.(this.cursors.isAnyRetrying())
       if (successfullyPulledItemIds.size > 0) {
-        this.bus?.publishSyncPing(Array.from(successfullyPulledItemIds))
+        this.deps.bus?.publishSyncPing(Array.from(successfullyPulledItemIds))
       }
     }
   }
@@ -407,6 +383,6 @@ export class SyncPullQueueManager {
     for (const [itemId, cursor] of cursors) {
       this.batchProgress.clearUpTo(itemId, cursor)
     }
-    await this.cursorStore.saveCursors(this.cursors.exportState())
+    await this.deps.cursorStore.saveCursors(this.cursors.exportState())
   }
 }

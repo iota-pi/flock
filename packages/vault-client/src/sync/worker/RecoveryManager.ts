@@ -34,15 +34,10 @@ export interface QuarantineOptions {
 }
 
 export class RecoveryManager {
-  private readonly accountId: string
-  private readonly eventHub: ClientEventHub
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
 
-  constructor(deps: RecoveryManagerDeps) {
-    this.accountId = deps.accountId
-    this.eventHub = deps.eventHub
-  }
+  constructor(private readonly deps: RecoveryManagerDeps) {}
 
   private isInFlight(itemId: ItemId): boolean {
     return this.inFlightItemIds.has(itemId)
@@ -80,8 +75,8 @@ export class RecoveryManager {
 
   async pushRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
     try {
-      const entries = await readManualRecoveryEntries(this.accountId, options)
-      this.eventHub.emit({ type: 'recoveryItemsChanged', entries })
+      const entries = await readManualRecoveryEntries(this.deps.accountId, options)
+      this.deps.eventHub.emit({ type: 'recoveryItemsChanged', entries })
       return entries
     } catch (error) {
       log.error('Failed to push recovery entries change', error)
@@ -90,7 +85,7 @@ export class RecoveryManager {
   }
 
   async listRecoveryItems(options?: ReadManualRecoveryOptions): Promise<ManualRecoveryEntry[]> {
-    return await readManualRecoveryEntries(this.accountId, options)
+    return await readManualRecoveryEntries(this.deps.accountId, options)
   }
 
   async quarantine(
@@ -99,7 +94,7 @@ export class RecoveryManager {
     error?: unknown,
     options?: QuarantineOptions,
   ): Promise<void> {
-    const accountId = this.accountId
+    const accountId = this.deps.accountId
     if (!itemId) return
 
     const now = Date.now()
@@ -139,7 +134,7 @@ export class RecoveryManager {
   }
 
   async unquarantine(itemId: ItemId): Promise<void> {
-    const accountId = this.accountId
+    const accountId = this.deps.accountId
     if (!itemId) return
 
     try {
@@ -156,7 +151,7 @@ export class RecoveryManager {
   }
 
   async resolveQuarantines(itemIds: ItemId[], kinds: ReadonlySet<ManualRecoveryKind>): Promise<void> {
-    const accountId = this.accountId
+    const accountId = this.deps.accountId
     const uniqueItemIds = Array.from(new Set(itemIds.filter(id => Boolean(id))))
     if (uniqueItemIds.length === 0) return
 
@@ -178,7 +173,7 @@ export class RecoveryManager {
   }
 
   async dismissEntry(entryId: string): Promise<void> {
-    const accountId = this.accountId
+    const accountId = this.deps.accountId
     if (!entryId) return
 
     await removeManualRecoveryEntryById(accountId, entryId)

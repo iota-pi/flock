@@ -77,25 +77,17 @@ export class AutomergeIndexManager {
   private mutex = new AsyncMutex()
   private lastEmittedItemIds: string[] | null = null
   private isClosed = false
-  private readonly accountId: string
   public readonly indexStore: IndexStore
-  private readonly bus: RealtimeBus | null
-  private readonly onIndexUpdated?: (itemIds: ItemId[]) => void
-  private readonly onMetadataUpdated?: (metadata: VaultMetadata) => void
   private readonly unsubscribers: Array<() => void> = []
 
-  constructor(options: AutomergeIndexManagerOptions) {
-    this.accountId = options.accountId
-    this.indexStore = options.indexStore
-    this.bus = options.bus ?? null
-    this.onIndexUpdated = options.onIndexUpdated
-    this.onMetadataUpdated = options.onMetadataUpdated
-    if (this.bus) {
+  constructor(private readonly deps: AutomergeIndexManagerOptions) {
+    this.indexStore = deps.indexStore
+    if (this.deps.bus) {
       this.unsubscribers.push(
-        this.bus.subscribeIndexUpdated(itemIds => {
+        this.deps.bus.subscribeIndexUpdated(itemIds => {
           if (!this.isClosed) this.handleRemoteIndexUpdated(itemIds)
         }),
-        this.bus.subscribeMetadataUpdated(metadata => {
+        this.deps.bus.subscribeMetadataUpdated(metadata => {
           if (!this.isClosed) this.handleRemoteMetadataUpdated(metadata)
         }),
       )
@@ -118,7 +110,7 @@ export class AutomergeIndexManager {
       return false
     }
     this.lastEmittedItemIds = [...itemIds]
-    this.onIndexUpdated?.(itemIds)
+    this.deps.onIndexUpdated?.(itemIds)
     return true
   }
 
@@ -127,21 +119,21 @@ export class AutomergeIndexManager {
   }
 
   private handleRemoteMetadataUpdated(metadata: VaultMetadata): void {
-    this.onMetadataUpdated?.(metadata)
+    this.deps.onMetadataUpdated?.(metadata)
   }
 
   /** Reports a local index change here and to the account's other tabs */
   private emitIndexUpdated(itemIds: ItemId[]): void {
     if (this.notifyIndexUpdated(itemIds) && !this.isClosed) {
-      this.bus?.publishIndexUpdated(itemIds)
+      this.deps.bus?.publishIndexUpdated(itemIds)
     }
   }
 
   /** Reports a local metadata change here and to the account's other tabs */
   private emitMetadataUpdated(metadata: VaultMetadata): void {
-    this.onMetadataUpdated?.(metadata)
+    this.deps.onMetadataUpdated?.(metadata)
     if (!this.isClosed) {
-      this.bus?.publishMetadataUpdated(metadata)
+      this.deps.bus?.publishMetadataUpdated(metadata)
     }
   }
 
@@ -155,7 +147,7 @@ export class AutomergeIndexManager {
   private async withLock<T>(task: () => Promise<T>): Promise<T> {
     return this.mutex.runExclusive(async () => {
       if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
-        const lockName = `${getVaultStorageNames().accountPrefixes.indexLock}${this.accountId}`
+        const lockName = `${getVaultStorageNames().accountPrefixes.indexLock}${this.deps.accountId}`
         return withTimeout(
           SYNC_TIMEOUTS.indexLock,
           signal => navigator.locks.request(lockName, { mode: 'exclusive', signal }, task),
@@ -168,7 +160,7 @@ export class AutomergeIndexManager {
   }
 
   private async getIndexSnapshotInternal(): Promise<NormalizedIndexDocument> {
-    return normalizeIndexDocument(await this.indexStore.getIndex(), this.accountId)
+    return normalizeIndexDocument(await this.indexStore.getIndex(), this.deps.accountId)
   }
 
   async getIndexSnapshot(): Promise<NormalizedIndexDocument> {
@@ -195,7 +187,7 @@ export class AutomergeIndexManager {
     return this.withLock(async () => {
       const doc = await this.indexStore.getIndex()
       if (!doc?.accountId) {
-        await this.indexStore.saveIndex(normalizeIndexDocument(doc, this.accountId))
+        await this.indexStore.saveIndex(normalizeIndexDocument(doc, this.deps.accountId))
       }
     })
   }

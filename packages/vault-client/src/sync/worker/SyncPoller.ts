@@ -45,33 +45,14 @@ export interface SyncPollerDeps {
 }
 
 export class SyncPoller {
-  private readonly accountId: string
-  private readonly session: SyncSessionState
-  private readonly apiClient: SyncApiClient
   private readonly consecutivePushFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_PUSH_FAILURES)
-  private readonly recoveryManager: RecoveryManager
-  private readonly pullQueueManager: SyncPullQueueManager
-  private readonly keys: KeyProvider
-  private readonly wal: SyncWriteAheadLog
-  private readonly onPushAcknowledged: (itemId: ItemId, heads: string[]) => void
-  private readonly onWalEntriesPruned?: (itemIds: ItemId[]) => void
   /** WAL entries already checked to be sync messages, so a retried push doesn't decode them again */
   private validEntryIds = new Set<string>()
 
-  constructor(deps: SyncPollerDeps) {
-    this.accountId = deps.accountId
-    this.session = deps.session
-    this.pullQueueManager = deps.pullQueueManager
-    this.keys = deps.keys
-    this.wal = deps.wal
-    this.apiClient = deps.apiClient
-    this.recoveryManager = deps.recoveryManager
-    this.onPushAcknowledged = deps.onPushAcknowledged
-    this.onWalEntriesPruned = deps.onWalEntriesPruned
-  }
+  constructor(private readonly deps: SyncPollerDeps) {}
 
   private get isOperational(): boolean {
-    return this.session.isOperational
+    return this.deps.session.isOperational
   }
 
   shutdown(): void {
@@ -130,13 +111,13 @@ export class SyncPoller {
       return 'failure'
     } finally {
       if (inFlightWalIds.length > 0) {
-        this.wal.unmarkInFlight(inFlightWalIds)
+        this.deps.wal.unmarkInFlight(inFlightWalIds)
       }
     }
   }
 
   private async loadWalEntries(inFlightWalIds: string[]): Promise<ChunkEntry> {
-    const walMap = await this.wal.readAll()
+    const walMap = await this.deps.wal.readAll()
     await this.dropInvalidEntries(walMap)
     const batchEntries = Array.from(walMap.entries())
     for (const [, messages] of batchEntries) {
@@ -147,7 +128,7 @@ export class SyncPoller {
       }
     }
     if (inFlightWalIds.length > 0) {
-      this.wal.markInFlight(inFlightWalIds)
+      this.deps.wal.markInFlight(inFlightWalIds)
     }
     return batchEntries
   }
@@ -176,8 +157,8 @@ export class SyncPoller {
     this.validEntryIds = validEntryIds
 
     if (droppedItemIds.length > 0) {
-      await this.wal.remove(droppedEntryIds)
-      this.onWalEntriesPruned?.(droppedItemIds)
+      await this.deps.wal.remove(droppedEntryIds)
+      this.deps.onWalEntriesPruned?.(droppedItemIds)
     }
   }
 
@@ -205,7 +186,7 @@ export class SyncPoller {
           messages.map(m => m.id)
         )
         const combined = packBatchedMessages(messages.map(m => m.data))
-        const encryptedMessage = await this.keys.encryptBytes(combined, itemId)
+        const encryptedMessage = await this.deps.keys.encryptBytes(combined, itemId)
         return {
           itemId,
           encryptedMessage: {
@@ -220,17 +201,17 @@ export class SyncPoller {
 
     // Send both pullCursors (for lagging/retry-pending items that need per-item catchup)
     // and clientLatestCursor (for global updates across all other healthy items).
-    const globalPageToken = this.pullQueueManager.getGlobalPageToken()
-    const pullCursors = this.pullQueueManager.cursors.getPendingPulls()
+    const globalPageToken = this.deps.pullQueueManager.getGlobalPageToken()
+    const pullCursors = this.deps.pullQueueManager.cursors.getPendingPulls()
     const hasPageTokens = !!globalPageToken || pullCursors.some(c => c.pageToken)
     let response: PollSyncBatchResponse
     try {
-      response = await this.apiClient.pollSyncBatch(
+      response = await this.deps.apiClient.pollSyncBatch(
         {
-          account: this.accountId,
+          account: this.deps.accountId,
           pushMessages,
           pullCursors,
-          clientLatestCursor: this.pullQueueManager.cursors.getGlobalScanCursor(),
+          clientLatestCursor: this.deps.pullQueueManager.cursors.getGlobalScanCursor(),
           globalPageToken,
         },
         { signal }
@@ -238,7 +219,7 @@ export class SyncPoller {
     } catch (error) {
       if (hasPageTokens && this.isRejectedRequest(error)) {
         log.warn('Server rejected a page token; restarting pagination from the cursors', error)
-        this.pullQueueManager.resetPagination()
+        this.deps.pullQueueManager.resetPagination()
       }
       throw error
     }
@@ -259,7 +240,7 @@ export class SyncPoller {
       )
     }
 
-    await this.pullQueueManager.processPullResults(
+    await this.deps.pullQueueManager.processPullResults(
       response.pullResults,
       response.globalHasMore,
       response.globalNextPageToken,
@@ -287,7 +268,7 @@ export class SyncPoller {
         if (ids && ids.length > 0) {
           acknowledgedIds.push(...ids)
         }
-        this.pullQueueManager.recordOwnPushedMessage(result.itemId, result.cursor)
+        this.deps.pullQueueManager.recordOwnPushedMessage(result.itemId, result.cursor)
         this.acknowledgeSuccessfulPush(chunkEntry, result)
       } else {
         log.warn(`Push failed for item ${result.itemId}`, result)
@@ -308,7 +289,7 @@ export class SyncPoller {
             if (m.id) quarantinedIds.push(m.id)
           }
           try {
-            await this.recoveryManager.quarantine(
+            await this.deps.recoveryManager.quarantine(
               sentItemId,
               'pushFailure',
               `Push failed after ${MAX_CONSECUTIVE_PUSH_FAILURES} consecutive attempts: ${errorMsg}`
@@ -326,7 +307,7 @@ export class SyncPoller {
 
     const idsToRemove = [...acknowledgedIds, ...quarantinedIds]
     if (idsToRemove.length > 0) {
-      await this.wal.remove(idsToRemove)
+      await this.deps.wal.remove(idsToRemove)
     }
 
     return {
@@ -349,7 +330,7 @@ export class SyncPoller {
       return
     }
     if (heads && heads.length > 0) {
-      this.onPushAcknowledged(result.itemId, heads)
+      this.deps.onPushAcknowledged(result.itemId, heads)
     }
   }
 

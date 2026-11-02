@@ -57,12 +57,6 @@ export interface ItemReencryptorOptions {
 }
 
 export class ItemReencryptor {
-  private readonly accountId: string
-  private readonly builder: SnapshotBuilder
-  private readonly indexManager: AutomergeIndexManager
-  private readonly apiClient: SyncApiClient
-  private readonly recoveryManager: RecoveryManager
-  private readonly session: SyncSessionState
   private readonly retryStrategy: RetryStrategy
   private readonly retryTimer = new RetryTimer()
   private readonly maxBatchCount: number
@@ -70,20 +64,12 @@ export class ItemReencryptor {
   private readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
   private readonly progressCallbacks = new Set<(done: number, total: number) => void>()
-  private readonly recorder?: StoredSnapshotRecorder
 
-  constructor(options: ItemReencryptorOptions) {
-    this.accountId = options.accountId
-    this.builder = options.builder
-    this.indexManager = options.indexManager
-    this.apiClient = options.apiClient
-    this.recoveryManager = options.recoveryManager
-    this.session = options.session
-    this.recorder = options.recorder
-    this.retryStrategy = new RetryStrategy({ delays: options.retryDelays ?? DEFAULT_RETRY_DELAYS })
-    this.batchRetryDelays = options.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
-    this.maxBatchCount = options.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
-    this.maxBatchBytes = options.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
+  constructor(private readonly deps: ItemReencryptorOptions) {
+    this.retryStrategy = new RetryStrategy({ delays: deps.retryDelays ?? DEFAULT_RETRY_DELAYS })
+    this.batchRetryDelays = deps.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
+    this.maxBatchCount = deps.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
+    this.maxBatchBytes = deps.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
   }
 
   get retryAttempt(): number {
@@ -142,12 +128,12 @@ export class ItemReencryptor {
   }
 
   private async runAll(options: ReencryptRunOptions): Promise<ReencryptResult> {
-    const initialToken = await this.apiClient.getValidToken()
+    const initialToken = await this.deps.apiClient.getValidToken()
     if (!initialToken) {
       throw new Error('No active session token available')
     }
 
-    const allItemIds = await this.indexManager.listItemIds()
+    const allItemIds = await this.deps.indexManager.listItemIds()
     const total = allItemIds.length
     const result: ReencryptResult = { succeeded: [], failed: [] }
 
@@ -184,7 +170,7 @@ export class ItemReencryptor {
   ): Promise<void> {
     checkAlive(signal, true, 'Re-encryption aborted')
 
-    if (!this.session.isOnline) {
+    if (!this.deps.session.isOnline) {
       const errMsg = 'Network is offline'
       log.warn(`Aborting: ${errMsg}`)
       throw new Error(`Re-encryption aborted: network error (${errMsg})`)
@@ -252,7 +238,7 @@ export class ItemReencryptor {
   ): Promise<Exclude<BuildSnapshotResult, { type: 'not-ready' }>> {
     return RetryStrategy.executeWithRetry(
       async () => {
-        const result = await this.builder.build(itemId, 0, { signal })
+        const result = await this.deps.builder.build(itemId, 0, { signal })
         if (result.type === 'not-ready') {
           throw new Error(`Item ${itemId} document or vault was not ready`)
         }
@@ -284,9 +270,9 @@ export class ItemReencryptor {
     return RetryStrategy.executeWithRetry(
       async () => {
         const result = await uploadSnapshotBatch(batch, {
-          accountId: this.accountId,
-          apiClient: this.apiClient,
-          recorder: this.recorder,
+          accountId: this.deps.accountId,
+          apiClient: this.deps.apiClient,
+          recorder: this.deps.recorder,
           signal,
         })
         for (const item of result.stored) {
@@ -305,7 +291,7 @@ export class ItemReencryptor {
         shouldRetry: err => {
           const classified = classifySyncError(err)
           if (classified.isAuth) return false
-          return this.session.isOnline || !(classified.isNetwork || classified.isServerError)
+          return this.deps.session.isOnline || !(classified.isNetwork || classified.isServerError)
         },
         onRetry: (err, attempt) => {
           log.warn(`Attempt ${attempt} failed to upload snapshots for batch:`, err)
@@ -353,7 +339,7 @@ export class ItemReencryptor {
     for (const failure of failures) {
       result.failed.push(failure)
       try {
-        await this.recoveryManager.quarantine(failure.itemId, 'snapshotFailure', `${stage}: ${failure.error}`)
+        await this.deps.recoveryManager.quarantine(failure.itemId, 'snapshotFailure', `${stage}: ${failure.error}`)
       } catch (storageErr) {
         log.error(`Failed to quarantine item ${failure.itemId}:`, storageErr)
       }

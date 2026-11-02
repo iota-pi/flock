@@ -412,7 +412,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     setSendEnabled(adapter, true)
 
-    const wal = (broker as any).wal
+    const wal = (broker as any).deps.wal
     const appendSpy = vi.spyOn(wal, 'append').mockImplementation(async () => {
       const { runStorageOperation } = await import('../utils/storageManager')
       await runStorageOperation(async () => {
