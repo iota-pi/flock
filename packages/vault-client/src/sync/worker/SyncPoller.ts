@@ -14,6 +14,7 @@ import { checkAlive } from '../utils/abort'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { RecoveryManager } from './RecoveryManager'
 import { createLogger } from '../utils/logger'
+import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 
 const log = createLogger('SyncPoller')
 
@@ -47,7 +48,7 @@ export class SyncPoller {
   private readonly accountId: string
   private readonly session: SyncSessionState
   private readonly apiClient: SyncApiClient
-  private readonly consecutivePushFailures = new Map<ItemId, number>()
+  private readonly consecutivePushFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_PUSH_FAILURES)
   private readonly recoveryManager: RecoveryManager
   private readonly pullQueueManager: SyncPullQueueManager
   private readonly internalEventHub: WorkerInternalEventHub
@@ -79,7 +80,7 @@ export class SyncPoller {
 
   /**
    * Pushes the WAL and pulls updates. Aborting `signal` cancels the poll, which then reports `'no-poll'`.
-   * The requests it makes are counted by the worker's tracked fetch, so it reports none of its own.
+   * Polls go through the untracked client, so they don't show as activity in the sync status.
    */
   async executePoll(signal: AbortSignal = new AbortController().signal): Promise<PollOutcome> {
     if (!this.isOperational) return 'no-poll'
@@ -281,7 +282,7 @@ export class SyncPoller {
     for (const result of results) {
       if (this.isPushResultSuccessful(result)) {
         acknowledgedItemIds.add(result.itemId)
-        this.consecutivePushFailures.delete(result.itemId)
+        this.consecutivePushFailures.reset(result.itemId)
         const ids = sentIdsByItem.get(result.itemId)
         if (ids && ids.length > 0) {
           acknowledgedIds.push(...ids)
@@ -295,15 +296,14 @@ export class SyncPoller {
 
     for (const [sentItemId, messages] of chunkEntry) {
       if (!acknowledgedItemIds.has(sentItemId)) {
-        const failures = (this.consecutivePushFailures.get(sentItemId) || 0) + 1
+        const failures = this.consecutivePushFailures.recordFailure(sentItemId)
         const errorMsg = 'Push unacknowledged by server'
 
-        if (failures >= MAX_CONSECUTIVE_PUSH_FAILURES) {
+        if (this.consecutivePushFailures.isExhausted(failures)) {
           log.error(
             `Item ${sentItemId} reached max consecutive push failures (${failures}). Quarantining to manual recovery.`
           )
           quarantinedItemIds.add(sentItemId)
-          this.consecutivePushFailures.delete(sentItemId)
           for (const m of messages) {
             if (m.id) quarantinedIds.push(m.id)
           }
@@ -317,7 +317,6 @@ export class SyncPoller {
             log.error(`Failed to quarantine item ${sentItemId}:`, qErr)
           }
         } else {
-          this.consecutivePushFailures.set(sentItemId, failures)
           log.warn(
             `Push failed for item ${sentItemId} (attempt ${failures}/${MAX_CONSECUTIVE_PUSH_FAILURES}): ${errorMsg}, preserving in WAL`
           )

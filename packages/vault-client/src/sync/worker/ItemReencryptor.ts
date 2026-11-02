@@ -25,7 +25,7 @@ import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 
-const log = createLogger('reencryptAllItems')
+const log = createLogger('ItemReencryptor')
 
 const MAX_BATCH_RETRIES = 3
 const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
@@ -34,7 +34,7 @@ const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
 type FailedItem = ReencryptResult['failed'][number]
 type ReadySnapshot = { itemId: ItemId; snapshot: VaultSnapshotInput; heads?: string[] }
 
-/** One call's options for `reencryptAllItems`. A scheduled retry runs with the same ones. */
+/** One call's options for `ItemReencryptor.run`. A scheduled retry runs with the same ones. */
 export interface ReencryptRunOptions {
   onProgress?: (done: number, total: number) => void
   signal?: AbortSignal
@@ -114,8 +114,8 @@ export class ItemReencryptor {
 
     this.retryTimer.schedule(delayMs, () => {
       fireAndForget(
-        this.reencryptAllItems(options),
-        'reencryptAllItems:scheduledRetry',
+        this.run(options),
+        'ItemReencryptor:scheduledRetry',
         err => {
           log.warn('Scheduled retry failed:', err)
         },
@@ -129,7 +129,7 @@ export class ItemReencryptor {
    * Re-encrypts every item. Concurrent calls share one run, and each caller's signal only stops that
    * caller waiting for it.
    */
-  async reencryptAllItems(options: ReencryptRunOptions = {}): Promise<ReencryptResult> {
+  async run(options: ReencryptRunOptions = {}): Promise<ReencryptResult> {
     const { onProgress, signal } = options
     checkAlive(signal, true, 'Re-encryption aborted')
 

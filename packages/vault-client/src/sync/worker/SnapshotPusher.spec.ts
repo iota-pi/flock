@@ -218,14 +218,14 @@ describe('SnapshotPusher', () => {
     // 4 failures
     for (let i = 0; i < 4; i++) {
       await pusher.triggerSnapshotPush()
-      expect(pusher['consecutiveFailures'].get('item-1' as ItemId)).toBe(i + 1)
+      expect(pusher['consecutiveFailures'].count('item-1' as ItemId)).toBe(i + 1)
       expect(mockRecoveryManager.quarantine).not.toHaveBeenCalled()
     }
 
     // 5th failure triggers quarantine
     await pusher.triggerSnapshotPush()
 
-    expect(pusher['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
+    expect(pusher['consecutiveFailures'].count('item-1' as ItemId)).toBe(0)
     expect(mockTracker.removeDirtyItemIfTickMatches).toHaveBeenCalledWith('item-1', 1)
     expect(mockEventHub.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'snapshotFailed', itemId: 'item-1' }),
@@ -342,7 +342,7 @@ describe('SnapshotPusher', () => {
       await expect(push).resolves.toEqual({ persisted: 1, total: 1 })
       expect(mockApiClient.putSnapshots).toHaveBeenCalledTimes(1)
       expect(mockApiClient.putSnapshots.mock.calls[0][0].snapshots.map((s: any) => s.itemId)).toEqual(['item-2'])
-      expect(pusher['consecutiveFailures'].get('item-1' as ItemId)).toBe(1)
+      expect(pusher['consecutiveFailures'].count('item-1' as ItemId)).toBe(1)
       // A failed item leaves the push unsuccessful, so it's retried with backoff
       expect(pusher.isRetryActive).toBe(true)
     })

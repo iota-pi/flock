@@ -444,7 +444,7 @@ export class SyncWorker implements SyncApi {
 
   reencryptAllItems = () =>
     this.withContext(async ctx => {
-      const result = await ctx.services.itemReencryptor.reencryptAllItems({
+      const result = await ctx.services.itemReencryptor.run({
         onProgress: (done, total) => {
           this.clientEventHub.emit({ type: 'reencryptProgress', done, total })
         },

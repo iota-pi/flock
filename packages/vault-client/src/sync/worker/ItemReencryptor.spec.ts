@@ -1,4 +1,4 @@
-import { ItemReencryptor, type ItemReencryptorOptions } from './reencryptAllItems'
+import { ItemReencryptor, type ItemReencryptorOptions } from './ItemReencryptor'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import { passthroughCodec } from './domain'
@@ -76,7 +76,7 @@ beforeEach(() => {
   })
 })
 
-describe('reencryptAllItems', () => {
+describe('ItemReencryptor.run', () => {
   let mockRepo: any
   let mockHandle: any
   let itemReencryptor: ItemReencryptor
@@ -116,7 +116,7 @@ describe('reencryptAllItems', () => {
 
   it('throws an error if there is no session token', async () => {
     setApiAuthToken('')
-    await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow('No active session token available')
+    await expect(itemReencryptor.run()).rejects.toThrow('No active session token available')
   })
 
   it('handles empty item list', async () => {
@@ -124,7 +124,7 @@ describe('reencryptAllItems', () => {
     mockListAutomergeItemIds.mockResolvedValue([])
 
     const onProgress = vi.fn()
-    const result = await itemReencryptor.reencryptAllItems({ onProgress })
+    const result = await itemReencryptor.run({ onProgress })
 
     expect(result).toEqual({ succeeded: [], failed: [] })
     expect(onProgress).toHaveBeenCalledWith(0, 0)
@@ -137,7 +137,7 @@ describe('reencryptAllItems', () => {
     mockPutSnapshots.mockResolvedValue({ success: true })
 
     const onProgress = vi.fn()
-    const result = await itemReencryptor.reencryptAllItems({ onProgress })
+    const result = await itemReencryptor.run({ onProgress })
 
     expect(result).toEqual({
       succeeded: ['item-1', 'item-2'],
@@ -162,7 +162,7 @@ describe('reencryptAllItems', () => {
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({ success: true, persisted: 1 })
 
-    const result = await itemReencryptor.reencryptAllItems()
+    const result = await itemReencryptor.run()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
     expect(result.succeeded).toEqual([])
@@ -184,7 +184,7 @@ describe('reencryptAllItems', () => {
       results: [{ itemId: 'item-1', version: 4 }, { itemId: 'item-2', version: 9 }],
     })
 
-    await reencryptor.reencryptAllItems()
+    await reencryptor.run()
 
     expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
       [
@@ -206,7 +206,7 @@ describe('reencryptAllItems', () => {
       results: [{ itemId: 'item-2', version: 3 }],
     })
 
-    const result = await reencryptor.reencryptAllItems()
+    const result = await reencryptor.run()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
     expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
@@ -225,7 +225,7 @@ describe('reencryptAllItems', () => {
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
     mockPutSnapshots.mockResolvedValue({ success: false })
 
-    const result = await itemReencryptor.reencryptAllItems()
+    const result = await itemReencryptor.run()
 
     expect(result).toEqual({
       succeeded: [],
@@ -257,7 +257,7 @@ describe('reencryptAllItems', () => {
       .mockResolvedValueOnce({ success: true })
 
     const onProgress = vi.fn()
-    const result = await itemReencryptor.reencryptAllItems({ onProgress })
+    const result = await itemReencryptor.run({ onProgress })
 
     expect(result.succeeded).toHaveLength(2)
     expect(result.succeeded).toEqual(['item-10', 'item-11'])
@@ -294,7 +294,7 @@ describe('reencryptAllItems', () => {
     })
 
     const onProgress = vi.fn()
-    const result = await itemReencryptor.reencryptAllItems({ onProgress })
+    const result = await itemReencryptor.run({ onProgress })
 
     expect(result.succeeded).toEqual(['item-1', 'item-2'])
     expect(result.failed).toEqual([
@@ -339,7 +339,7 @@ describe('reencryptAllItems', () => {
     })
 
     const onProgress = vi.fn()
-    const result = await itemReencryptor.reencryptAllItems({ onProgress })
+    const result = await itemReencryptor.run({ onProgress })
 
     expect(result.succeeded).toEqual(['item-1', 'item-2'])
     expect(result.failed).toEqual([
@@ -381,7 +381,7 @@ describe('reencryptAllItems', () => {
     })
 
     const onProgress = vi.fn()
-    const result = await itemReencryptor.reencryptAllItems({ onProgress })
+    const result = await itemReencryptor.run({ onProgress })
 
     expect(attempts).toBe(2)
     expect(result.succeeded).toEqual(['item-retry'])
@@ -404,7 +404,7 @@ describe('reencryptAllItems', () => {
       }
     })
 
-    const result = await itemReencryptor.reencryptAllItems()
+    const result = await itemReencryptor.run()
 
     expect(attempts).toBe(3)
     expect(result.succeeded).toEqual([])
@@ -439,12 +439,12 @@ describe('reencryptAllItems', () => {
       }
     })
 
-    const result = await itemReencryptor.reencryptAllItems()
+    const result = await itemReencryptor.run()
 
     expect(result.failed).toHaveLength(1)
     expect(result.failed[0].itemId).toBe('item-bad-storage')
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[reencryptAllItems] Failed to quarantine item item-bad-storage:',
+      '[ItemReencryptor] Failed to quarantine item item-bad-storage:',
       expect.any(Error)
     )
 
@@ -465,7 +465,7 @@ describe('reencryptAllItems', () => {
       return { success: true }
     })
 
-    const result = await itemReencryptor.reencryptAllItems()
+    const result = await itemReencryptor.run()
 
     expect(result.succeeded).toHaveLength(12)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
@@ -497,7 +497,7 @@ describe('reencryptAllItems', () => {
         return { success: true }
       })
 
-    const result = await reencryptor.reencryptAllItems()
+    const result = await reencryptor.run()
 
     expect(refreshAuthToken).toHaveBeenCalledTimes(1)
     expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
@@ -523,7 +523,7 @@ describe('reencryptAllItems', () => {
         return { success: true }
       })
 
-    const result = await itemReencryptor.reencryptAllItems()
+    const result = await itemReencryptor.run()
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
     expect(tokensSent).toEqual(['stale-token', 'new-token'])
@@ -542,7 +542,7 @@ describe('reencryptAllItems', () => {
       message: 'UNAUTHORIZED',
     })
 
-    await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+    await expect(itemReencryptor.run()).rejects.toThrow(
       /session expired.*UNAUTHORIZED/i
     )
 
@@ -573,7 +573,7 @@ describe('reencryptAllItems', () => {
       apiClient: new SyncApiClient({ refreshAuthToken }),
     })
 
-    const result = await reencryptor.reencryptAllItems()
+    const result = await reencryptor.run()
 
     expect(refreshAuthToken).toHaveBeenCalledTimes(1)
     expect(result.succeeded).toEqual(['item-1'])
@@ -594,7 +594,7 @@ describe('reencryptAllItems', () => {
 
       mockPutSnapshots.mockRejectedValue(new TypeError('Failed to fetch'))
 
-      await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+      await expect(itemReencryptor.run()).rejects.toThrow(
         /Re-encryption aborted: network error/
       )
 
@@ -620,7 +620,7 @@ describe('reencryptAllItems', () => {
           writable: true,
         })
 
-        await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+        await expect(itemReencryptor.run()).rejects.toThrow(
           /Re-encryption aborted: network error \(Network is offline\)/
         )
 
@@ -643,7 +643,7 @@ describe('reencryptAllItems', () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
       mockPutSnapshots.mockRejectedValue(new Error('The network connection was lost.'))
 
-      await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+      await expect(itemReencryptor.run()).rejects.toThrow(
         /Re-encryption aborted: network error/
       )
 
@@ -664,7 +664,7 @@ describe('reencryptAllItems', () => {
         message: 'Bad Request: Invalid snapshot schema',
       })
 
-      const result = await itemReencryptor.reencryptAllItems()
+      const result = await itemReencryptor.run()
 
       // Permanent failure: quarantined to manual recovery store and reported in failed
       expect(result.failed).toHaveLength(1)
@@ -694,7 +694,7 @@ describe('reencryptAllItems', () => {
         message: 'Internal server error',
       })
 
-      await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+      await expect(itemReencryptor.run()).rejects.toThrow(
         /Re-encryption aborted: server error/
       )
 
@@ -716,7 +716,7 @@ describe('reencryptAllItems', () => {
         message: 'Server error occurred while persisting snapshot',
       })
 
-      await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+      await expect(itemReencryptor.run()).rejects.toThrow(
         /Re-encryption aborted: server error/
       )
 
@@ -736,7 +736,7 @@ describe('reencryptAllItems', () => {
         message: 'Service Unavailable',
       })
 
-      await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+      await expect(itemReencryptor.run()).rejects.toThrow(
         /Re-encryption aborted: server error/
       )
 
@@ -754,7 +754,7 @@ describe('reencryptAllItems', () => {
         message: 'Internal server error',
       })
 
-      await expect(itemReencryptor.reencryptAllItems()).rejects.toThrow(
+      await expect(itemReencryptor.run()).rejects.toThrow(
         /Re-encryption aborted: server error/
       )
 
@@ -779,7 +779,7 @@ describe('reencryptAllItems', () => {
       })
 
       const onProgress = vi.fn()
-      const result = await customReencryptor.reencryptAllItems({ onProgress })
+      const result = await customReencryptor.run({ onProgress })
 
       expect(result).toEqual({
         succeeded: ['item-1', 'item-2', 'item-3'],
@@ -809,7 +809,7 @@ describe('reencryptAllItems', () => {
         maxBatchBytes: 200,
       })
 
-      const result = await customReencryptor.reencryptAllItems()
+      const result = await customReencryptor.run()
 
       expect(result.succeeded).toEqual(['item-2'])
       expect(result.failed).toHaveLength(1)
@@ -847,7 +847,7 @@ describe('ItemReencryptor class', () => {
   })
 })
 
-describe('reencryptAllItems cancellation and event loop yielding', () => {
+describe('ItemReencryptor.run cancellation and event loop yielding', () => {
   let mockRepo: any
   let mockHandle: any
   let itemReencryptor: ItemReencryptor
@@ -891,7 +891,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
     controller.abort(new Error('User cancelled'))
 
     await expect(
-      itemReencryptor.reencryptAllItems({ signal: controller.signal })
+      itemReencryptor.run({ signal: controller.signal })
     ).rejects.toThrow('User cancelled')
 
     expect(mockPutSnapshots).not.toHaveBeenCalled()
@@ -908,7 +908,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
     })
 
     await expect(
-      itemReencryptor.reencryptAllItems({ signal: controller.signal })
+      itemReencryptor.run({ signal: controller.signal })
     ).rejects.toThrow('Operation cancelled')
 
     expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
@@ -927,7 +927,7 @@ describe('reencryptAllItems cancellation and event loop yielding', () => {
         return { success: true }
       })
 
-    const result = await itemReencryptor.reencryptAllItems()
+    const result = await itemReencryptor.run()
 
     expect(result.succeeded).toEqual(['item-1', 'item-2'])
     expect(macrotaskRun).toBe(true)
@@ -975,7 +975,7 @@ describe('concurrency and retry race safety (H11)', () => {
     vi.useRealTimers()
   })
 
-  it('coalesces concurrent reencryptAllItems calls using SingleFlightGuard', async () => {
+  it('coalesces concurrent run calls using SingleFlightGuard', async () => {
     let resolveUpload: (val: any) => void
     const uploadPromise = new Promise(resolve => {
       resolveUpload = resolve
@@ -985,10 +985,10 @@ describe('concurrency and retry race safety (H11)', () => {
     const onProgress1 = vi.fn()
     const onProgress2 = vi.fn()
 
-    const p1 = itemReencryptor.reencryptAllItems({ onProgress: onProgress1 })
+    const p1 = itemReencryptor.run({ onProgress: onProgress1 })
     expect(itemReencryptor.isReencrypting).toBe(true)
 
-    const p2 = itemReencryptor.reencryptAllItems({ onProgress: onProgress2 })
+    const p2 = itemReencryptor.run({ onProgress: onProgress2 })
 
     // Complete the upload
     resolveUpload!({ success: true })
@@ -1017,13 +1017,13 @@ describe('concurrency and retry race safety (H11)', () => {
     // Schedule a retry
     itemReencryptor.scheduleRetry({ onProgress: retryProgress })
 
-    // Advance timers so the scheduled retry fires its fireAndForget(reencryptAllItems)
+    // Advance timers so the scheduled retry fires its fireAndForget(run)
     vi.runOnlyPendingTimers()
 
     expect(itemReencryptor.isReencrypting).toBe(true)
 
     // Now, manual invocation happens while the scheduled retry is executing in background
-    const manualPromise = itemReencryptor.reencryptAllItems({ onProgress: manualProgress })
+    const manualPromise = itemReencryptor.run({ onProgress: manualProgress })
 
     // Complete the in-flight upload
     resolveUpload!({ success: true })
@@ -1037,7 +1037,7 @@ describe('concurrency and retry race safety (H11)', () => {
     expect(itemReencryptor.isReencrypting).toBe(false)
   })
 
-  it('cancels pending scheduled retry timeout when reencryptAllItems is invoked manually', async () => {
+  it('cancels pending scheduled retry timeout when run is invoked manually', async () => {
     vi.useFakeTimers()
     mockPutSnapshots.mockResolvedValue({ success: true })
 
@@ -1047,8 +1047,8 @@ describe('concurrency and retry race safety (H11)', () => {
     // Schedule a retry
     itemReencryptor.scheduleRetry({ onProgress: retryProgress })
 
-    // Invoke reencryptAllItems manually BEFORE the scheduled timer elapses
-    const manualPromise = itemReencryptor.reencryptAllItems({ onProgress: manualProgress })
+    // Invoke run manually BEFORE the scheduled timer elapses
+    const manualPromise = itemReencryptor.run({ onProgress: manualProgress })
 
     const result = await manualPromise
     expect(result.succeeded).toEqual(['item-1', 'item-2'])
@@ -1077,8 +1077,8 @@ describe('concurrency and retry race safety (H11)', () => {
 
     const abortController = new AbortController()
 
-    const p1 = itemReencryptor.reencryptAllItems()
-    const p2 = itemReencryptor.reencryptAllItems({ signal: abortController.signal })
+    const p1 = itemReencryptor.run()
+    const p2 = itemReencryptor.run({ signal: abortController.signal })
 
     // Abort caller 2 while caller 1 is still in flight
     abortController.abort(new Error('Caller 2 cancelled'))

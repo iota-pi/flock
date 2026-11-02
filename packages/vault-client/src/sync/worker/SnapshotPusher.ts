@@ -9,6 +9,7 @@ import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { AbortableRun } from '../utils/AbortableRun'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
+import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
@@ -60,7 +61,7 @@ export class SnapshotPusher {
   private readonly getLatestCursor?: () => number
   private readonly maxPayloadBytes: number
 
-  private readonly consecutiveFailures = new Map<ItemId, number>()
+  private readonly consecutiveFailures = new ConsecutiveFailureCounter<ItemId>(MAX_CONSECUTIVE_SNAPSHOT_FAILURES)
   private readonly pushGuard = new SingleFlightGuard<SnapshotPushOutcome>()
   private readonly pushRun = new AbortableRun(() => this.session.isOperational)
   private pendingPushRequested = false
@@ -136,15 +137,14 @@ export class SnapshotPusher {
     failureType: string,
     reason?: string,
   ): Promise<void> {
-    const failures = (this.consecutiveFailures.get(itemId) ?? 0) + 1
-    if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
+    const failures = this.consecutiveFailures.recordFailure(itemId)
+    if (this.consecutiveFailures.isExhausted(failures)) {
       const detailedReason =
         reason ||
         `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`
       log.error(
         `Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Reason: ${detailedReason}. Moving to manual recovery.`,
       )
-      this.consecutiveFailures.delete(itemId)
       this.tracker.removeDirtyItemIfTickMatches(itemId, tick)
 
       this.eventHub.emit({
@@ -162,8 +162,6 @@ export class SnapshotPusher {
       } catch (recoveryError) {
         log.error('Failed to record manual recovery entry', recoveryError)
       }
-    } else {
-      this.consecutiveFailures.set(itemId, failures)
     }
   }
 
@@ -247,7 +245,7 @@ export class SnapshotPusher {
   /** Records snapshots the server stored, whichever upload sent them */
   recordStoredSnapshots(stored: UploadableSnapshot[], versions: Map<ItemId, number>): void {
     for (const item of stored) {
-      this.consecutiveFailures.delete(item.snapshot.itemId)
+      this.consecutiveFailures.reset(item.snapshot.itemId)
       const assignedVersion = versions.get(item.snapshot.itemId)
       this.tracker.recordSnapshotSuccess(item.snapshot.itemId, item.snapshot.modified, item.tick, assignedVersion)
       // Tombstones deliberately carry no heads: the server does not hold the document state.

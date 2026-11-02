@@ -358,7 +358,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
     expect(manager.tracker.exportItemVersions().get('item-1' as ItemId)?.baseVersion).toBe(7)
     expect(manager.tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
-    expect(manager['pusher']['consecutiveFailures'].get('item-2' as ItemId)).toBe(1)
+    expect(manager['pusher']['consecutiveFailures'].count('item-2' as ItemId)).toBe(1)
     expect(manager['pusher'].isRetryActive).toBe(true)
   })
 
@@ -876,7 +876,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       // Should still be dirty and failures map should not have counted failures
       expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-      expect(manager['pusher']['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
+      expect(manager['pusher']['consecutiveFailures'].count('item-1' as ItemId)).toBe(0)
     })
 
     it('increments consecutiveBuildFailures and moves item to manual recovery with user notification after MAX_CONSECUTIVE_SNAPSHOT_FAILURES on real error', async () => {
@@ -894,7 +894,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       // Item should now be dropped from active dirty queue
       expect(manager.tracker.getDirtyItemIds()).not.toContain('item-1' as ItemId)
-      expect(manager['pusher']['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['pusher']['consecutiveFailures'].count('item-1' as ItemId)).toBe(0)
 
       // User notification emitted via eventHub
       expect(mockEventHub.emit).toHaveBeenCalledWith(
@@ -936,7 +936,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       // Item must remain dirty and NOT be dropped
       expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-      expect(manager['pusher']['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
+      expect(manager['pusher']['consecutiveFailures'].count('item-1' as ItemId)).toBe(0)
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: 'snapshotFailed' }),
       )
@@ -957,8 +957,8 @@ describe('SnapshotManager Retry Mechanism', () => {
       // Items must remain dirty for subsequent retry and NOT be dropped
       expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager.tracker.getDirtyItemIds()).toContain('item-2' as ItemId)
-      expect(manager['pusher']['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
-      expect(manager['pusher']['consecutiveFailures'].has('item-2' as ItemId)).toBe(false)
+      expect(manager['pusher']['consecutiveFailures'].count('item-1' as ItemId)).toBe(0)
+      expect(manager['pusher']['consecutiveFailures'].count('item-2' as ItemId)).toBe(0)
       expect(mockEventHub.emit).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: 'snapshotFailed' }),
       )
@@ -1261,7 +1261,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
       expect(manager['pusher'].retryAttempt).toBe(1)
       expect(manager['pusher'].isRetryActive).toBe(true)
-      expect(manager['pusher']['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
+      expect(manager['pusher']['consecutiveFailures'].count('item-1' as ItemId)).toBe(0)
     })
 
     it('recovers and pushes snapshots when auth token becomes available on retry', async () => {
@@ -1315,7 +1315,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       expect(manager['pusher'].retryAttempt).toBe(6)
       expect(manager.tracker.getDirtyItemIds()).toContain('item-1' as ItemId)
-      expect(manager['pusher']['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['pusher']['consecutiveFailures'].count('item-1' as ItemId)).toBe(0)
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
     })
   })

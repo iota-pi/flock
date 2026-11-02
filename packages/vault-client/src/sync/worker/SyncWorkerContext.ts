@@ -25,7 +25,7 @@ import type { ItemId } from '@vault/shared'
 import { ServiceLifecycleManager, type ServiceRegistration } from './ServiceLifecycleManager'
 import { SyncApiClient } from './SyncApiClient'
 import { StorageRecoveryService } from './StorageRecoveryService'
-import { ItemReencryptor } from './reencryptAllItems'
+import { ItemReencryptor } from './ItemReencryptor'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
@@ -346,7 +346,7 @@ export class SyncWorkerContext {
           dataVersionTracker.onSnapshotsUpgraded(),
           'SyncWorkerContext:raiseAccountDataVersion',
         ),
-        rewriteSnapshots: signal => itemReencryptor.reencryptAllItems({ signal }),
+        rewriteSnapshots: signal => itemReencryptor.run({ signal }),
       })
       : null
 

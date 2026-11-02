@@ -129,7 +129,7 @@ beforeEach(() => {
           append: vi.fn().mockResolvedValue(undefined),
         },
         itemReencryptor: {
-          reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
+          run: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
         },
       }
 
@@ -667,8 +667,8 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       const eventSpy = vi.fn()
       ;(worker as any).clientEventHub.subscribe(eventSpy)
 
-      // Mock itemReencryptor.reencryptAllItems to invoke the onProgress callback it receives
-      ;(worker as any)._context.services.itemReencryptor.reencryptAllItems.mockImplementationOnce(
+      // Mock itemReencryptor.run to invoke the onProgress callback it receives
+      ;(worker as any)._context.services.itemReencryptor.run.mockImplementationOnce(
         async ({ onProgress }: { onProgress: (done: number, total: number) => void }) => {
           onProgress(3, 10)
           onProgress(10, 10)
@@ -687,7 +687,7 @@ describe('SyncWorker readiness and queueing before initialization', () => {
       await worker.initRepo('account-1', 'vault-key-1')
       const ctx = (worker as any)._context
       const order: string[] = []
-      ctx.services.itemReencryptor.reencryptAllItems.mockImplementationOnce(async () => {
+      ctx.services.itemReencryptor.run.mockImplementationOnce(async () => {
         order.push('items')
         return { succeeded: [], failed: [] }
       })
