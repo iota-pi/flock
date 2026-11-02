@@ -11,7 +11,7 @@ import { spyOnExports } from '../../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
 import type { SnapshotTracker } from '../SnapshotTracker'
 import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
-import type { RealtimeBus } from '../realtimeBus'
+import type { RealtimeBus } from '../RealtimeBus'
 import type { VaultMetadata } from '../../shared/types'
 
 /** A real local cipher over a fresh one-key keyring */

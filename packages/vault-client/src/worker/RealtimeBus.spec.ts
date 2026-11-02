@@ -1,5 +1,5 @@
 import type { ItemId } from '@vault/shared'
-import { RealtimeBus, getIndexChannelName, getSyncPingChannelName } from './realtimeBus'
+import { RealtimeBus, getIndexChannelName, getSyncPingChannelName } from './RealtimeBus'
 
 class MockBroadcastChannel {
   name: string
@@ -194,7 +194,7 @@ describe('RealtimeBus', () => {
 
     expect(() => bus.publishSyncPing(['item-1'] as ItemId[])).not.toThrow()
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      '[realtimeBus] BroadcastChannel is not supported or failed to initialize:',
+      '[RealtimeBus] BroadcastChannel is not supported or failed to initialize:',
       expect.any(Error),
     )
     consoleWarnSpy.mockRestore()
@@ -209,7 +209,7 @@ describe('RealtimeBus', () => {
 
     expect(() => bus.publishSyncPing(['item-1'] as ItemId[])).not.toThrow()
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      '[realtimeBus] Failed to post message to BroadcastChannel:',
+      '[RealtimeBus] Failed to post message to BroadcastChannel:',
       expect.any(Error),
     )
     consoleWarnSpy.mockRestore()
@@ -222,7 +222,7 @@ describe('RealtimeBus', () => {
     channelNamed(getSyncPingChannelName('acc-1')).onmessageerror!(new MessageEvent('messageerror'))
 
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      '[realtimeBus] Error deserializing message on BroadcastChannel:',
+      '[RealtimeBus] Error deserializing message on BroadcastChannel:',
       expect.any(MessageEvent),
     )
     consoleWarnSpy.mockRestore()

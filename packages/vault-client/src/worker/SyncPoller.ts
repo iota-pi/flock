@@ -68,13 +68,7 @@ export class SyncPoller {
 
     const inFlightWalIds: string[] = []
     try {
-      let batchEntries: ChunkEntry
-      try {
-        batchEntries = await this.loadWalEntries(inFlightWalIds)
-      } catch (err) {
-        log.error('Failed to load WAL entries', err)
-        return 'failure'
-      }
+      const batchEntries = await this.loadWalEntries(inFlightWalIds)
 
       const chunks = batchEntries.length > 0 ? chunk(batchEntries, POLL_CHUNK_SIZE) : [[]]
 
@@ -121,11 +115,7 @@ export class SyncPoller {
     await this.dropInvalidEntries(walMap)
     const batchEntries = Array.from(walMap.entries())
     for (const [, messages] of batchEntries) {
-      for (const m of messages) {
-        if (m && m.id) {
-          inFlightWalIds.push(m.id)
-        }
-      }
+      inFlightWalIds.push(...messages.map(m => m.id))
     }
     if (inFlightWalIds.length > 0) {
       this.deps.wal.markInFlight(inFlightWalIds)
@@ -285,9 +275,7 @@ export class SyncPoller {
             `Item ${sentItemId} reached max consecutive push failures (${MAX_CONSECUTIVE_PUSH_FAILURES}). Quarantining to manual recovery.`
           )
           quarantinedItemIds.add(sentItemId)
-          for (const m of messages) {
-            if (m.id) quarantinedIds.push(m.id)
-          }
+          quarantinedIds.push(...messages.map(m => m.id))
           try {
             await this.deps.recoveryManager.quarantine(
               sentItemId,

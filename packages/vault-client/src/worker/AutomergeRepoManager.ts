@@ -6,7 +6,7 @@ import { runStorageOperation } from '../utils/storageManager'
 import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import { getVaultStorageNames } from '../shared/storageNames'
 import type { KeyProvider } from '../keys/Keyring'
-import type { RealtimeBus } from './realtimeBus'
+import type { RealtimeBus } from './RealtimeBus'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('AutomergeRepoManager')

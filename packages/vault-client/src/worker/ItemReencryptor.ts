@@ -1,10 +1,10 @@
 import { chunk, partition } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { estimateSnapshotSize, type BuildSnapshotResult, type SnapshotBuilder } from './snapshotBuilder'
+import { estimateSnapshotSize, type BuildSnapshotResult, type SnapshotBuilder } from './SnapshotBuilder'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
-import { uploadSnapshotBatch, type StoredSnapshotRecorder } from './snapshotUpload'
+import { uploadSnapshotBatch, type StoredSnapshotRecorder, type UploadableSnapshot } from './snapshotUpload'
 import { classifySyncError } from '../utils/errorClassifier'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
@@ -16,7 +16,7 @@ import {
 } from '../utils/SizeAwareBatchAccumulator'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { ItemId, VaultSnapshotInput } from '@vault/shared'
+import type { ItemId } from '@vault/shared'
 import type { ReencryptResult } from '../shared/types'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
@@ -29,7 +29,6 @@ const DEFAULT_BATCH_RETRY_DELAYS = [0, 0, 0] as const
 const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
 
 type FailedItem = ReencryptResult['failed'][number]
-type ReadySnapshot = { itemId: ItemId; snapshot: VaultSnapshotInput; heads?: string[] }
 
 /** One call's options for `ItemReencryptor.run`. A scheduled retry runs with the same ones. */
 export interface ReencryptRunOptions {
@@ -47,7 +46,6 @@ export interface ItemReencryptorOptions {
   session: SyncSessionState
   retryDelays?: number[]
   batchRetryDelays?: readonly number[]
-  maxBatchCount?: number
   maxBatchBytes?: number
   /**
    * Records the snapshots the server stored, as the snapshot pusher does. Otherwise the next manifest
@@ -59,7 +57,6 @@ export interface ItemReencryptorOptions {
 export class ItemReencryptor {
   private readonly retryStrategy: RetryStrategy
   private readonly retryTimer = new RetryTimer()
-  private readonly maxBatchCount: number
   private readonly maxBatchBytes: number
   private readonly batchRetryDelays: readonly number[]
   private readonly reencryptGuard = new SingleFlightGuard<ReencryptResult>()
@@ -68,7 +65,6 @@ export class ItemReencryptor {
   constructor(private readonly deps: ItemReencryptorOptions) {
     this.retryStrategy = new RetryStrategy({ delays: deps.retryDelays ?? DEFAULT_RETRY_DELAYS })
     this.batchRetryDelays = deps.batchRetryDelays ?? DEFAULT_BATCH_RETRY_DELAYS
-    this.maxBatchCount = deps.maxBatchCount ?? REENCRYPT_CHUNK_SIZE
     this.maxBatchBytes = deps.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES
   }
 
@@ -171,16 +167,15 @@ export class ItemReencryptor {
     checkAlive(signal, true, 'Re-encryption aborted')
 
     if (!this.deps.session.isOnline) {
-      const errMsg = 'Network is offline'
-      log.warn(`Aborting: ${errMsg}`)
-      throw new Error(`Re-encryption aborted: network error (${errMsg})`)
+      log.warn('Aborting: network is offline')
+      throw new Error('Re-encryption aborted: network error (offline)')
     }
 
     const settled = await Promise.allSettled(
       itemIds.map(itemId => this.buildSnapshotWithRetry(itemId, signal))
     )
 
-    const readySnapshots: ReadySnapshot[] = []
+    const readySnapshots: UploadableSnapshot[] = []
     const buildFailures: FailedItem[] = []
 
     for (const [index, outcome] of settled.entries()) {
@@ -193,7 +188,7 @@ export class ItemReencryptor {
         log.error(error, outcome.reason)
         buildFailures.push({ itemId, error })
       } else if (outcome.value.type === 'success') {
-        readySnapshots.push({ itemId, snapshot: outcome.value.snapshot, heads: outcome.value.heads })
+        readySnapshots.push({ snapshot: outcome.value.snapshot, heads: outcome.value.heads })
       } else {
         const error = outcome.value.reason
           ? `Failed to build snapshot for item ${itemId}: ${outcome.value.reason}`
@@ -205,8 +200,8 @@ export class ItemReencryptor {
 
     await this.recordFailures(buildFailures, 'Re-encryption snapshot build failed', result)
 
+    // The chunk already caps the item count
     const snapshotBatches = SizeAwareBatchAccumulator.batch(readySnapshots, {
-      maxBatchCount: this.maxBatchCount,
       maxBatchBytes: this.maxBatchBytes,
       calculateSize: item => estimateSnapshotSize(item.snapshot),
     })
@@ -219,16 +214,16 @@ export class ItemReencryptor {
         const error = this.describeUploadFailure(err, signal)
         log.error(error)
         // The server holds the re-encrypted snapshots an earlier attempt stored
-        const [stored, unstored] = partition(batch, item => storedIds.has(item.itemId))
-        result.succeeded.push(...stored.map(item => item.itemId))
+        const [stored, unstored] = partition(batch, item => storedIds.has(item.snapshot.itemId))
+        result.succeeded.push(...stored.map(item => item.snapshot.itemId))
         await this.recordFailures(
-          unstored.map(({ itemId }) => ({ itemId, error })),
+          unstored.map(({ snapshot }) => ({ itemId: snapshot.itemId, error })),
           'Re-encryption upload failed',
           result
         )
         continue
       }
-      result.succeeded.push(...batch.map(item => item.itemId))
+      result.succeeded.push(...batch.map(item => item.snapshot.itemId))
     }
   }
 
@@ -263,7 +258,7 @@ export class ItemReencryptor {
    * resends the whole batch and adds the items the server stored to `storedIds`.
    */
   private uploadBatchWithRetry(
-    batch: ReadySnapshot[],
+    batch: UploadableSnapshot[],
     storedIds: Set<ItemId>,
     signal?: AbortSignal
   ): Promise<void> {
@@ -276,7 +271,7 @@ export class ItemReencryptor {
           signal,
         })
         for (const item of result.stored) {
-          storedIds.add(item.itemId)
+          storedIds.add(item.snapshot.itemId)
         }
         if (!result.success) {
           throw new Error(

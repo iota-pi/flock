@@ -2,7 +2,7 @@ import type { SyncStatus } from '../shared/types'
 import { checkAlive, untilAborted, withTimeout } from '../utils/abort'
 import { createLogger } from '../utils/logger'
 
-const log = createLogger('syncWorkerHealth')
+const log = createLogger('SyncWorkerHealthMonitor')
 
 const HEARTBEAT_INTERVAL_MS = 15000
 const HEARTBEAT_TIMEOUT_MS = 30000

@@ -181,5 +181,5 @@ Inside the worker, components call each other through plain callbacks that `Sync
 
 ## Other recovery
 
-- Worker health (`syncWorkerHealth.ts`) sends a 15s ping and treats a 30s silence as a timeout. A crashed worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3) times.
+- Worker health (`SyncWorkerHealthMonitor.ts`) sends a 15s ping and treats a 30s silence as a timeout. A crashed worker is auto-restarted up to `MAX_CONSECUTIVE_CRASHES` (3) times.
 - `ManifestSyncManager` reconciles daily, and also every 7 days when forced.

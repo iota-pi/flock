@@ -4,7 +4,7 @@ import {
   MAX_CONSECUTIVE_CRASHES,
   MAX_CONSECUTIVE_TIMEOUTS,
   SyncWorkerHealthMonitor,
-} from './syncWorkerHealth'
+} from './SyncWorkerHealthMonitor'
 import { createFakeSink } from './__test__/fakeHost'
 
 describe('sendPing', () => {
@@ -108,7 +108,7 @@ describe('sendPing', () => {
   })
 })
 
-describe('syncWorkerHealth', () => {
+describe('SyncWorkerHealthMonitor', () => {
   let mockWorker: any
   let healthMonitor: SyncWorkerHealthMonitor
   let sink: ReturnType<typeof createFakeSink>

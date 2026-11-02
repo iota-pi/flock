@@ -1,6 +1,6 @@
 import { SnapshotPusher } from './SnapshotPusher'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder } from './snapshotBuilder'
+import { SnapshotBuilder } from './SnapshotBuilder'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { SyncSessionState } from './SyncSessionState'
 import { type ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'

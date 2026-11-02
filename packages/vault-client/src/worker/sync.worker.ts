@@ -148,18 +148,15 @@ export class SyncWorker implements SyncApi {
     settle?.(token)
   }
 
-  private async ensureReady(): Promise<SyncWorkerContext> {
+  /** Runs `fn` with the session's context, waiting for `initRepo` if it's still running */
+  private async withContext<T>(fn: (ctx: SyncWorkerContext) => Promise<T> | T): Promise<T> {
     if (this.isShutDown) {
       throw new Error(NOT_INITIALIZED_MESSAGE)
     }
-    return this.ready.promise
+    return fn(await this.ready.promise)
   }
 
-  private async withContext<T>(fn: (ctx: SyncWorkerContext) => Promise<T> | T): Promise<T> {
-    const context = await this.ensureReady()
-    return fn(context)
-  }
-
+  /** The current context, for synchronous callbacks that only run once a session exists */
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error(NOT_INITIALIZED_MESSAGE)
     return this._context

@@ -2,7 +2,7 @@ import { ItemReencryptor, type ItemReencryptorOptions } from './ItemReencryptor'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import { passthroughCodec } from './domain'
-import { SnapshotBuilder } from './snapshotBuilder'
+import { SnapshotBuilder } from './SnapshotBuilder'
 import { SyncApiClient } from './SyncApiClient'
 import { SyncSessionState } from './SyncSessionState'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
@@ -189,8 +189,8 @@ describe('ItemReencryptor.run', () => {
 
     expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
       [
-        expect.objectContaining({ itemId: 'item-1', heads: ['mock-head'] }),
-        expect.objectContaining({ itemId: 'item-2', heads: ['mock-head'] }),
+        expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-1' }), heads: ['mock-head'] }),
+        expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-2' }), heads: ['mock-head'] }),
       ],
       new Map([['item-1', 4], ['item-2', 9]]),
     )
@@ -211,7 +211,7 @@ describe('ItemReencryptor.run', () => {
 
     expect(mockPutSnapshots).toHaveBeenCalledTimes(3)
     expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
-      [expect.objectContaining({ itemId: 'item-2' })],
+      [expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-2' }) })],
       new Map([['item-2', 3]]),
     )
     expect(result.succeeded).toEqual(['item-2'])
@@ -613,7 +613,7 @@ describe('ItemReencryptor.run', () => {
       context.session.setOnline(false)
 
       await expect(itemReencryptor.run()).rejects.toThrow(
-        /Re-encryption aborted: network error \(Network is offline\)/
+        /Re-encryption aborted: network error \(offline\)/
       )
 
       // CRITICAL: No items quarantined, no upload attempts made while offline

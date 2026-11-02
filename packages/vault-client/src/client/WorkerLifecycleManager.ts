@@ -8,7 +8,7 @@ import { getVaultSession } from '../keys/session'
 import { hasRandomDataKeys } from '../keys/storedMetadata'
 import {
   SyncWorkerHealthMonitor,
-} from './syncWorkerHealth'
+} from './SyncWorkerHealthMonitor'
 import { getOnlineState } from '../utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'

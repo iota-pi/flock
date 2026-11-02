@@ -3,7 +3,7 @@ import type { VaultMetadata } from '../shared/types'
 import { getVaultStorageNames } from '../shared/storageNames'
 import { createLogger } from '../utils/logger'
 
-const log = createLogger('realtimeBus')
+const log = createLogger('RealtimeBus')
 
 type ItemIdsListener = (itemIds: ItemId[]) => void
 type MetadataListener = (metadata: VaultMetadata) => void

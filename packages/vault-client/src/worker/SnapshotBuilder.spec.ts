@@ -3,7 +3,7 @@ import {
   estimateSnapshotSize,
   SnapshotBuilder,
   toTombstoneSnapshot,
-} from './snapshotBuilder'
+} from './SnapshotBuilder'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { classifySyncError, TRANSIENT_VAULT_ERROR_SUBSTRINGS } from '../utils/errorClassifier'
 import { VaultNotInitializedError } from '../keys/Keyring'

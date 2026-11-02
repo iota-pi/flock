@@ -2,7 +2,7 @@ import { AutomergeIndexManager, mergeIndexDocuments } from './AutomergeIndexMana
 import type { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from './AutomergeDocStore'
 import type { ItemId } from '@vault/shared'
-import { RealtimeBus } from '../realtimeBus'
+import { RealtimeBus } from '../RealtimeBus'
 
 /** Yields to other tasks, so concurrent operations interleave as they would against IndexedDB */
 const storeLatency = () => new Promise(resolve => setTimeout(resolve, 0))

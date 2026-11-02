@@ -6,7 +6,7 @@ import type { ClientEventHub } from './SyncEventHub'
 import type { DocCodec, LegacySettingsContext, LegacySettingsSource } from './domain'
 import { reconcileAutomergeList } from './utils/crdtReconcile'
 import { isPlainObject } from './utils/objectUtils'
-import type { RealtimeBus } from './realtimeBus'
+import type { RealtimeBus } from './RealtimeBus'
 import { createLogger } from '../utils/logger'
 import { errorMessage } from '../utils/errorMessage'
 

@@ -6,7 +6,7 @@ import { AsyncMutex } from '../../utils/AsyncMutex'
 import { getVaultStorageNames } from '../../shared/storageNames'
 import { withTimeout } from '../../utils/abort'
 import { SYNC_TIMEOUTS } from '../../shared/syncConfig'
-import type { RealtimeBus } from '../realtimeBus'
+import type { RealtimeBus } from '../RealtimeBus'
 
 /** An index document with every field filled in */
 export type NormalizedIndexDocument = Required<AutomergeIndexDocument>
