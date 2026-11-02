@@ -73,7 +73,7 @@ export class SyncOrchestrator {
     jitter: { factor: 0.25, maxJitterMs: 15000 },
   })
 
-  private manifestSyncIntervalId: number | null = null
+  private manifestSyncIntervalId: ReturnType<typeof setInterval> | null = null
   private readonly manifestSyncIntervalMs: number
   private readonly manifestSyncManager: ManifestSyncManagerLike
 
@@ -373,14 +373,14 @@ export class SyncOrchestrator {
       return
     }
     this.stopPeriodicManifestSync()
-    this.manifestSyncIntervalId = self.setInterval(() => {
+    this.manifestSyncIntervalId = setInterval(() => {
       fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
-    }, this.manifestSyncIntervalMs) as unknown as number
+    }, this.manifestSyncIntervalMs)
   }
 
   private stopPeriodicManifestSync(): void {
     if (this.manifestSyncIntervalId !== null) {
-      self.clearInterval(this.manifestSyncIntervalId)
+      clearInterval(this.manifestSyncIntervalId)
       this.manifestSyncIntervalId = null
     }
   }

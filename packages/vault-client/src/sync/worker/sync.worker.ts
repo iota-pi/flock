@@ -22,7 +22,7 @@ import { configureVaultStorageNames, type VaultStorageNames } from '../shared/st
 import { getTrackedFetch } from '../../api/trackedFetch'
 import { fireAndForget } from '../utils/fireAndForget'
 import { createLogger } from '../utils/logger'
-import { AbortError } from '../utils/abort'
+import { AbortError, withTimeout } from '../utils/abort'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
 const log = createLogger('SyncWorker')
@@ -133,17 +133,14 @@ export class SyncWorker implements SyncApi {
    * Concurrent requests share one round trip.
    */
   requestAuthTokenRefresh = (): Promise<string | null> =>
-    this.tokenRefresh.run(() => new Promise<string | null>(resolve => {
-      const timeoutId = setTimeout(() => {
+    this.tokenRefresh.run(() => withTimeout(SYNC_TIMEOUTS.tokenRefresh, signal => new Promise<string | null>(resolve => {
+      signal.addEventListener('abort', () => {
         log.warn('Token refresh timed out waiting for main thread')
         this.resolveTokenRefresh(null)
-      }, SYNC_TIMEOUTS.tokenRefresh)
-      this.settleTokenRefresh = token => {
-        clearTimeout(timeoutId)
-        resolve(token)
-      }
+      }, { once: true })
+      this.settleTokenRefresh = resolve
       this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
-    }))
+    })))
 
   private resolveTokenRefresh(token: string | null): void {
     const settle = this.settleTokenRefresh

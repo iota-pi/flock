@@ -1,4 +1,5 @@
 import { deleteStoredSessionToken } from '../sync/shared/workerAuthStore'
+import { delay } from '../sync/utils/abort'
 import { createLogger } from '../sync/utils/logger'
 import { SingleFlightGuard } from '../sync/utils/SingleFlightGuard'
 import { getSession } from './AccountClient'
@@ -78,8 +79,9 @@ export function notifyLateSession() {
 }
 
 /** Resolves (to undefined) once a login has waited long enough for the server */
-function serverWaitElapsed(): Promise<undefined> {
-  return new Promise(resolve => setTimeout(resolve, LOGIN_SERVER_WAIT_MS))
+async function serverWaitElapsed(): Promise<undefined> {
+  await delay(LOGIN_SERVER_WAIT_MS)
+  return undefined
 }
 
 /**

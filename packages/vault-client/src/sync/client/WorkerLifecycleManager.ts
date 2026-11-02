@@ -12,6 +12,7 @@ import {
 import { getOnlineState } from '../utils/onlineStatus'
 import { clearAccountLocalData } from './localDataCleanup'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
+import { RetryTimer } from '../utils/RetryTimer'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { createLogger } from '../utils/logger'
 import { AbortError, delay, untilAborted, withTimeout } from '../utils/abort'
@@ -99,6 +100,8 @@ export class WorkerLifecycleManager {
 
   /** Settles the pending `initializationPromise` that mutations wait on while a crashed worker restarts */
   private pendingRestart: PromiseWithResolvers<void> | null = null
+  /** Restarts a crashed worker after a delay; every shutdown cancels it */
+  private readonly restartTimer = new RetryTimer()
 
   private resolvePendingRestart(): void {
     this.pendingRestart?.resolve()
@@ -310,7 +313,7 @@ export class WorkerLifecycleManager {
         }
       },
       onRestart: () => {
-        setTimeout(() => {
+        this.restartTimer.schedule(SYNC_TIMEOUTS.workerRestartDelay, () => {
           if (this.currentAccountId === accountId) {
             this.initializationPromise = null
             this.callbacks.onRestart(accountId)
@@ -322,7 +325,7 @@ export class WorkerLifecycleManager {
           } else {
             this.resolvePendingRestart()
           }
-        }, SYNC_TIMEOUTS.workerRestartDelay)
+        })
       },
     })
   }
@@ -414,6 +417,7 @@ export class WorkerLifecycleManager {
       this.currentAccountId = null
     }
     this.initRetryStrategy.reset()
+    this.restartTimer.cancel()
     this.resolvePendingRestart()
     this.healthMonitor.stopWorkerHeartbeat()
     this.healthMonitor.resetCrashMetrics()
