@@ -21,18 +21,14 @@ import { useItem } from 'src/state/selectors'
 import BaseDrawer, { type BaseDrawerProps } from 'src/components/drawers/BaseDrawer'
 import ConfirmationDialog from 'src/components/dialogs/ConfirmationDialog'
 import InlineText from 'src/components/ui/InlineText'
-import { isSameDay } from 'src/utils'
 import {
-  ArchiveIcon,
   DeleteIcon,
   getIcon,
   getIconType,
-  PrayerIcon,
-  UnarchiveIcon,
 } from 'src/components/Icons'
-import { getLastPrayedFor } from 'src/utils/prayer'
 import { convertItemType, deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
+import { ArchiveMenuItem, MarkPrayedMenuItem } from './ItemMenuItems'
 import { ITEM_TYPES } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 import type { ItemType } from 'src/shared/itemTypes'
@@ -117,29 +113,6 @@ function ItemDrawer({
     [itemId, onClose],
   )
 
-  const archived = resolvedItem?.archived ?? false
-  const lastPrayer = resolvedItem ? getLastPrayedFor(resolvedItem) : 0
-  const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
-
-  const archiveMenuItem = useMemo(
-    () => (
-      <MenuItem
-        data-cy="archive"
-        key="archive"
-        disabled={isNew}
-        onClick={() => {
-          handleChange({ archived: !archived })
-        }}
-      >
-        <ListItemIcon>
-          {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
-        </ListItemIcon>
-        <ListItemText>{archived ? 'Unarchive' : 'Archive'}</ListItemText>
-      </MenuItem>
-    ),
-    [archived, handleChange, isNew],
-  )
-
   const handleConvertType = useCallback(
     async (targetType: ItemType) => {
       if (!itemId || !resolvedItem) return
@@ -175,37 +148,6 @@ function ItemDrawer({
     [handleConvertType, resolvedItem?.type],
   )
 
-  const markPrayedMenuItem = useMemo(
-    () => (
-      <MenuItem
-        data-cy="mark-prayed"
-        key="mark-prayed"
-        disabled={isNew}
-        onClick={() => {
-          handleChange(prev => {
-            let prayedFor = prev.prayedFor
-            if (isPrayedForToday) {
-              const startOfDay = new Date()
-              startOfDay.setHours(0, 0, 0, 0)
-              prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
-            } else {
-              prayedFor = [...prayedFor, new Date().getTime()]
-            }
-            return { ...prev, prayedFor }
-          })
-        }}
-      >
-        <ListItemIcon>
-          <PrayerIcon />
-        </ListItemIcon>
-        <ListItemText>
-          {isPrayedForToday ? 'Unmark Prayed' : 'Mark as Prayed Today'}
-        </ListItemText>
-      </MenuItem>
-    ),
-    [handleChange, isNew, isPrayedForToday],
-  )
-
   const deleteMenuItem = useMemo(
     () => (
       <MenuItem
@@ -232,15 +174,15 @@ function ItemDrawer({
         item={resolvedItem}
         menuButtonDataCy="item-menu-button"
         menuItems={[
-          markPrayedMenuItem,
+          <MarkPrayedMenuItem key="mark-prayed" item={resolvedItem} onChange={handleChange} />,
           ...(!fromPrayerPage ? changeTypeMenuItems : []),
-          archiveMenuItem,
+          <ArchiveMenuItem key="archive" item={resolvedItem} onChange={handleChange} />,
           deleteMenuItem,
         ]}
         showEditButton={false}
       />
     ) : undefined,
-    [archiveMenuItem, changeTypeMenuItems, deleteMenuItem, fromPrayerPage, markPrayedMenuItem, resolvedItem],
+    [changeTypeMenuItems, deleteMenuItem, fromPrayerPage, handleChange, resolvedItem],
   )
 
   return (

@@ -1,8 +1,41 @@
 import { renderHook } from '@testing-library/react'
-import { generateNoteId, formatDate, isSameDay, useStableArray } from './index'
+import { generateNoteId, getStartOfDay, formatDate, isSameDay, useStableArray } from './index'
 import { generateItemId } from '@vault/shared'
 
 describe('utils/index', () => {
+  describe('getStartOfDay', () => {
+    it('returns midnight of the given date', () => {
+      const input = new Date('2025-12-04T14:30:45.123')
+      const result = getStartOfDay(input)
+
+      expect(result.getFullYear()).toBe(2025)
+      expect(result.getMonth()).toBe(11) // December (0-indexed)
+      expect(result.getDate()).toBe(4)
+      expect(result.getHours()).toBe(0)
+      expect(result.getMinutes()).toBe(0)
+      expect(result.getSeconds()).toBe(0)
+      expect(result.getMilliseconds()).toBe(0)
+    })
+
+    it('returns midnight of current date when no argument', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2025-12-04T14:30:00'))
+      const result = getStartOfDay()
+      vi.useRealTimers()
+
+      expect(result.getDate()).toBe(4)
+      expect(result.getHours()).toBe(0)
+    })
+
+    it('does not mutate the input date', () => {
+      const input = new Date('2025-12-04T14:30:00')
+      const originalTime = input.getTime()
+      getStartOfDay(input)
+
+      expect(input.getTime()).toBe(originalTime)
+    })
+  })
+
   describe('generateItemId', () => {
     it('returns a 21-character URL-safe nanoid string', () => {
       const id = generateItemId()

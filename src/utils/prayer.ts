@@ -1,5 +1,5 @@
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
-import { isSameDay } from './index'
+import { getStartOfDay, isSameDay } from './index'
 import { compareItems, filterArchived, type Item } from '../state/items'
 import type { GroupItem } from '../shared/schemas/items'
 import type { ItemId } from '@vault/shared'
@@ -219,9 +219,7 @@ export function getLastPrayedFor(
     return prayedFor[prayedFor.length - 1] || 0
   }
 
-  const startOfToday = new Date()
-  startOfToday.setHours(0, 0, 0, 0)
-  const startOfTodayMs = startOfToday.getTime()
+  const startOfTodayMs = getStartOfDay().getTime()
   const endOfTodayMs = startOfTodayMs + ONE_DAY_IN_MS
 
   for (let index = prayedFor.length - 1; index >= 0; index -= 1) {
@@ -232,6 +230,20 @@ export function getLastPrayedFor(
   }
 
   return 0
+}
+
+/** Whether the item was last prayed for on the same day as `today` */
+export function isPrayedForToday(item: Item, today = new Date()): boolean {
+  return isSameDay(today, new Date(getLastPrayedFor(item)))
+}
+
+/** The item's prayer times with today's removed if it was prayed for today, or with now added if not */
+export function togglePrayedForToday(item: Item): number[] {
+  if (isPrayedForToday(item)) {
+    const startOfToday = getStartOfDay().getTime()
+    return item.prayedFor.filter(time => time < startOfToday)
+  }
+  return [...item.prayedFor, Date.now()]
 }
 
 export function getPrayerSchedule(items: Item[]): ItemId[] {
@@ -369,10 +381,9 @@ export function isPrayerCompletedForToday(
     return false
   }
 
-  const isPrayedForToday = (item: Item): boolean =>
-    isSameDay(today, new Date(getLastPrayedFor(item)))
+  const prayedToday = (item: Item) => isPrayedForToday(item, today)
 
-  const completed = unarchived.filter(isPrayedForToday).length
+  const completed = unarchived.filter(prayedToday).length
   if (completed === 0) {
     return false
   }
@@ -393,7 +404,7 @@ export function isPrayerCompletedForToday(
     .filter((item): item is Item => !!item)
 
   const allVisiblePrayed =
-    visibleSchedule.length > 0 && visibleSchedule.every(isPrayedForToday)
+    visibleSchedule.length > 0 && visibleSchedule.every(prayedToday)
 
   return allVisiblePrayed || (goal > 0 && completed >= goal)
 }

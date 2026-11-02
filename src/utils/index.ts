@@ -12,6 +12,12 @@ export function formatDate(date: Date) {
   return date.toLocaleDateString()
 }
 
+export function getStartOfDay(date = new Date()): Date {
+  const result = new Date(date)
+  result.setHours(0, 0, 0, 0)
+  return result
+}
+
 export function isSameDay(d1: Date, d2: Date) {
   return formatDate(d1) === formatDate(d2)
 }
