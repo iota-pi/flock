@@ -10,7 +10,7 @@ import type { Item } from '../../state/items'
 import Search from '../Search'
 import { storeItems } from '../../features/items/mutations/itemMutations'
 import type { GroupItem } from 'src/shared/schemas/items'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('GroupDialog')
 

@@ -11,7 +11,7 @@ import { storeItems } from '../../features/items/mutations/itemMutations'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
 import type { Frequency } from '../../utils/frequencies'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('FrequencyDialog')
 

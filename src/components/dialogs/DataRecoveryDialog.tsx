@@ -15,7 +15,7 @@ import { deleteItems } from '../../features/items/mutations/itemMutations'
 import ConfirmationDialog from './ConfirmationDialog'
 import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryKind } from '@vault/client'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('DataRecoveryDialog')
 

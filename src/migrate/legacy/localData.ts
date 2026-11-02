@@ -9,7 +9,7 @@ import {
   databaseExists,
 } from '@vault/client/worker'
 import type { PersistedSyncCursors, ItemSyncTimestamps } from '@vault/client/worker'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('localData')
 

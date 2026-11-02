@@ -9,7 +9,7 @@ import Search from '../Search'
 import { useAppStore } from '../../state/store'
 import { createItem } from '../../features/items/mutations/itemMutations'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('EverythingSearch')
 

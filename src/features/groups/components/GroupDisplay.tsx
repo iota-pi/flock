@@ -9,7 +9,7 @@ import { useAppStore } from 'src/state/store'
 import type { GroupItem } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 import { RemoveIcon } from 'src/components/Icons'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('GroupDisplay')
 

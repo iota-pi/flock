@@ -9,7 +9,7 @@ import type { FlowState } from 'src/state/slices/prayerFlowSlice'
 import { SyncBridge } from 'src/app/vault/syncBridge'
 import { useAppStore } from 'src/state/store'
 import { useMetadata } from 'src/state/selectors'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('usePrayerFlowActions')
 

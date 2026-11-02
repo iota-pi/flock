@@ -33,7 +33,7 @@ import { ITEM_TYPES } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
 import type { ItemType } from 'src/shared/itemTypes'
 import { useAppStore } from 'src/state/store'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('ItemDrawer')
 

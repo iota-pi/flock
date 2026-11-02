@@ -32,8 +32,8 @@ import {
   StaleBiometricKeyError,
   UnsupportedKeyDerivationError,
   type KdfParams,
-  createLogger,
 } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { isNotFoundError, isRateLimitedError } from '@vault/shared'
 import { getBiometricLabel } from '../../utils/biometricLabel'
 import { consumeManualLock } from 'src/app/vault/autoLockStore'

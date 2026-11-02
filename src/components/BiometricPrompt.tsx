@@ -4,7 +4,8 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Snackbar from '@mui/material/Snackbar'
 
-import { enableBiometrics, hasBiometricData, isWebAuthnPrfSupported, createLogger } from '@vault/client'
+import { enableBiometrics, hasBiometricData, isWebAuthnPrfSupported } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { useAppStore } from '../state/store'
 import { getBiometricLabel } from '../utils/biometricLabel'
 

@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import type { BaseToastMessage } from '../state/slices/toastSlice'
 import { useAppStore } from '../state/store'
 import { subscribe, unsubscribe } from '../utils/pushNotifications'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('useSubscriptionSettings')
 

@@ -8,7 +8,8 @@ import { initAppSentry } from './app/sentry'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
 import { registerAppUpdates } from './app/appUpdate'
-import { hasApiAuthToken, createLogger } from '@vault/client'
+import { hasApiAuthToken } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import ThemedApp from './ThemedApp'
 
 const log = createLogger('App')

@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from './syncBridge'
-import { createLogger, fireAndForget, resumePendingReencryption } from '@vault/client'
+import { fireAndForget, resumePendingReencryption } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('useSyncCoordinatorLifecycle')
 

@@ -41,7 +41,7 @@ import {
 import ListBoxComponent, { type SearchListVirtualizerApi } from './search/ListBox'
 import { ERROR_ITEM_TYPE, ITEM_TYPES } from 'src/shared/schemas/items'
 import type { ItemId } from '@vault/shared'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('Search')
 

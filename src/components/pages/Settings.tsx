@@ -14,7 +14,7 @@ import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
 import { useVisibleItems } from 'src/state/selectors'
 import ConfirmationDialog from '../dialogs/ConfirmationDialog'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('Settings')
 

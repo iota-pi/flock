@@ -11,7 +11,7 @@ import type { AccountMetadata } from 'src/state/metadata'
 import { useAppStore } from 'src/state/store'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'
 import { SyncBridge } from 'src/app/vault/syncBridge'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('itemMutations')
 

@@ -5,7 +5,7 @@ import {
   getReminderSettings,
 } from '../api/notificationClient'
 import env from '../env'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('pushNotifications')
 

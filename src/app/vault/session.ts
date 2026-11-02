@@ -1,4 +1,5 @@
-import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata, createLogger } from '@vault/client'
+import { clearVaultDeviceData, lockVaultKeys, readStoredMetadata } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import { useAppStore } from '../../state/store'
 import { unsubscribe as unsubscribeFromNotifications } from '../../utils/pushNotifications'
 import { SyncBridge } from './syncBridge'

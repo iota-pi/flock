@@ -6,7 +6,7 @@ import { isPrayerCompletedForToday } from '../utils/prayer'
 import { clearReminderNotifications } from '../utils/pushNotifications'
 import { snoozeReminders } from '../api/notificationClient'
 import { formatDate } from '../utils'
-import { createLogger } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 
 const log = createLogger('useAutoClearPrayerNotifications')
 

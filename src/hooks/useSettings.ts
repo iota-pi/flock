@@ -8,8 +8,8 @@ import {
   hasBiometricData,
   subscribeBiometrics,
   isWebAuthnPrfSupported,
-  createLogger,
 } from '@vault/client'
+import { createLogger } from 'src/utils/logger'
 import {
   getAutoLockSummary,
   markManualLock,
