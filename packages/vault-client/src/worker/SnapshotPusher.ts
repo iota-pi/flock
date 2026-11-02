@@ -116,8 +116,7 @@ export class SnapshotPusher {
     failureType: 'build' | 'upload',
     reason?: string,
   ): Promise<void> {
-    const failures = this.consecutiveFailures.recordFailure(itemId)
-    if (this.consecutiveFailures.isExhausted(failures)) {
+    if (this.consecutiveFailures.recordFailure(itemId)) {
       const detailedReason =
         reason ||
         `Snapshot ${failureType} failed after ${MAX_CONSECUTIVE_SNAPSHOT_FAILURES} consecutive attempts`

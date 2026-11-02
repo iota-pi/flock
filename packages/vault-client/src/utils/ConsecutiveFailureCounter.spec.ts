@@ -4,16 +4,18 @@ describe('ConsecutiveFailureCounter', () => {
   it('counts failures per key until the limit, then resets the key', () => {
     const counter = new ConsecutiveFailureCounter<string>(3)
 
-    expect(counter.recordFailure('a')).toBe(1)
-    expect(counter.recordFailure('b')).toBe(1)
-    expect(counter.recordFailure('a')).toBe(2)
+    expect(counter.recordFailure('a')).toBe(false)
+    expect(counter.recordFailure('b')).toBe(false)
+    expect(counter.recordFailure('a')).toBe(false)
+    expect(counter.count('a')).toBe(2)
 
-    const failures = counter.recordFailure('a')
-    expect(failures).toBe(3)
-    expect(counter.isExhausted(failures)).toBe(true)
+    expect(counter.recordFailure('a')).toBe(true)
+    expect(counter.count('a')).toBe(0)
 
-    expect(counter.recordFailure('a')).toBe(1)
-    expect(counter.recordFailure('b')).toBe(2)
+    expect(counter.recordFailure('a')).toBe(false)
+    expect(counter.count('a')).toBe(1)
+    expect(counter.recordFailure('b')).toBe(false)
+    expect(counter.count('b')).toBe(2)
   })
 
   it('reset and clear drop counts', () => {
@@ -23,11 +25,12 @@ describe('ConsecutiveFailureCounter', () => {
     counter.recordFailure('c')
 
     counter.reset('a')
-    expect(counter.recordFailure('a')).toBe(1)
-    expect(counter.isExhausted(counter.recordFailure('b'))).toBe(false)
+    expect(counter.count('a')).toBe(0)
+    expect(counter.recordFailure('b')).toBe(false)
+    expect(counter.count('b')).toBe(2)
 
     counter.clear()
-    expect(counter.recordFailure('b')).toBe(1)
-    expect(counter.recordFailure('c')).toBe(1)
+    expect(counter.count('b')).toBe(0)
+    expect(counter.count('c')).toBe(0)
   })
 })

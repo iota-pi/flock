@@ -277,12 +277,12 @@ export class SyncPoller {
 
     for (const [sentItemId, messages] of chunkEntry) {
       if (!acknowledgedItemIds.has(sentItemId)) {
-        const failures = this.consecutivePushFailures.recordFailure(sentItemId)
+        const exhausted = this.consecutivePushFailures.recordFailure(sentItemId)
         const errorMsg = 'Push unacknowledged by server'
 
-        if (this.consecutivePushFailures.isExhausted(failures)) {
+        if (exhausted) {
           log.error(
-            `Item ${sentItemId} reached max consecutive push failures (${failures}). Quarantining to manual recovery.`
+            `Item ${sentItemId} reached max consecutive push failures (${MAX_CONSECUTIVE_PUSH_FAILURES}). Quarantining to manual recovery.`
           )
           quarantinedItemIds.add(sentItemId)
           for (const m of messages) {
@@ -299,7 +299,7 @@ export class SyncPoller {
           }
         } else {
           log.warn(
-            `Push failed for item ${sentItemId} (attempt ${failures}/${MAX_CONSECUTIVE_PUSH_FAILURES}): ${errorMsg}, preserving in WAL`
+            `Push failed for item ${sentItemId} (attempt ${this.consecutivePushFailures.count(sentItemId)}/${MAX_CONSECUTIVE_PUSH_FAILURES}): ${errorMsg}, preserving in WAL`
           )
         }
       }

@@ -8,27 +8,22 @@ export class ConsecutiveFailureCounter<K> {
   constructor(readonly limit: number) {}
 
   /** The key's current run of failures */
-  private count(key: K): number {
+  count(key: K): number {
     return this.counts.get(key) ?? 0
   }
 
   /**
-   * Records a failure and returns the key's new count. Reaching `limit` resets the key, so the caller
-   * acts on it once and a later failure starts a new run.
+   * Records a failure and returns whether the key reached `limit`. Reaching it resets the key, so the
+   * caller acts on it once and a later failure starts a new run.
    */
-  recordFailure(key: K): number {
+  recordFailure(key: K): boolean {
     const failures = this.count(key) + 1
     if (failures >= this.limit) {
       this.counts.delete(key)
-    } else {
-      this.counts.set(key, failures)
+      return true
     }
-    return failures
-  }
-
-  /** Whether `failures`, as returned by `recordFailure`, reached the limit */
-  isExhausted(failures: number): boolean {
-    return failures >= this.limit
+    this.counts.set(key, failures)
+    return false
   }
 
   reset(key: K): void {
