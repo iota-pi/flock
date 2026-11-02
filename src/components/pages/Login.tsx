@@ -36,6 +36,7 @@ import {
 } from '@vault/client'
 import { isNotFoundError, isRateLimitedError } from '@vault/shared'
 import { getBiometricLabel } from '../../utils/biometricLabel'
+import { consumeManualLock } from 'src/app/vault/autoLockStore'
 import { goToMigration, isMigrationDeferred, MIN_ACCOUNT_DATA_VERSION } from 'src/migrate/detection'
 
 const log = createLogger('Login')
@@ -163,13 +164,7 @@ function LoginPage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const biometricLabel = getBiometricLabel()
-  const [wasManuallyLocked] = useState(() => {
-    const flag = sessionStorage.getItem('flock-manual-lock') === 'true'
-    if (flag) {
-      sessionStorage.removeItem('flock-manual-lock')
-    }
-    return flag
-  })
+  const [wasManuallyLocked] = useState(consumeManualLock)
   const hasAutoPromptedRef = useRef(false)
 
   // Pick up a new version of the app before signing in: applying it reloads the page, which would

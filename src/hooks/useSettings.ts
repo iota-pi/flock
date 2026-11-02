@@ -12,6 +12,7 @@ import {
 } from '@vault/client'
 import {
   getAutoLockSummary,
+  markManualLock,
   readAutoLockSettings,
   writeAutoLockSettings,
   type AutoLockSettings,
@@ -73,16 +74,13 @@ export default function useSettings(items: Item[]) {
   const saveAutoLockSettings = useCallback((settings: AutoLockSettings) => {
     writeAutoLockSettings(settings)
     setAutoLockSettings(settings)
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('flock-autolock-changed'))
-    }
     setMessage({ message: 'Auto-lock settings saved' })
   }, [setMessage])
 
   // Actions
   const handleLock = useCallback(
     async () => {
-      sessionStorage.setItem('flock-manual-lock', 'true')
+      markManualLock()
       await lockVault()
       setMessage({ message: 'App locked' })
     },
