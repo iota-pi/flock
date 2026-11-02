@@ -51,6 +51,7 @@ describe('SyncOrchestrator', () => {
     mockManifestSyncManager = {
       sync: vi.fn().mockResolvedValue({ added: [] }),
       abort: vi.fn(),
+      waitForIdle: vi.fn().mockResolvedValue(undefined),
     }
 
     mockPoller = {
@@ -828,7 +829,7 @@ describe('SyncOrchestrator', () => {
       setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false, expect.any(AbortSignal))
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false)
     })
 
     it('does not trigger manifest sync on reconnection when not leader', async () => {
@@ -859,7 +860,7 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false, expect.any(AbortSignal))
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledWith(false)
 
       // Periodic check after 5000ms
       await vi.advanceTimersByTimeAsync(5000)
@@ -946,10 +947,10 @@ describe('SyncOrchestrator', () => {
       await shutDown(customOrchestrator)
     })
 
-    it('shutdown stops periodic schedule and awaits in-flight manifest sync', async () => {
-      let resolveSync: (val: any) => void = () => {}
-      mockManifestSyncManager.sync.mockImplementation(
-        () => new Promise(resolve => { resolveSync = resolve })
+    it('shutdown stops periodic schedule and waits for the manifest sync manager to go idle', async () => {
+      let resolveIdle: () => void = () => {}
+      mockManifestSyncManager.waitForIdle.mockImplementation(
+        () => new Promise<void>(resolve => { resolveIdle = resolve })
       )
 
       orchestrator.setLeader(true)
@@ -965,44 +966,22 @@ describe('SyncOrchestrator', () => {
 
       await vi.advanceTimersByTimeAsync(0)
       expect(shutdownFinished).toBe(false)
+      expect(mockManifestSyncManager.abort).toHaveBeenCalled()
 
-      resolveSync({ added: [] })
+      resolveIdle()
       await shutdownPromise
       expect(shutdownFinished).toBe(true)
     })
 
-    it('prevents concurrent manifest syncs on rapid online/offline toggles', async () => {
-      let resolveSync: (val: any) => void = () => {}
-      mockManifestSyncManager.sync.mockImplementation(
-        () => new Promise(resolve => { resolveSync = resolve })
-      )
+    it('swallows a failed manifest sync', async () => {
+      mockManifestSyncManager.sync.mockRejectedValueOnce(new Error('Manifest sync failed'))
 
       orchestrator.setLeader(true)
-      // First sync is now initiated and in-flight
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
-
-      // Rapidly toggle online/offline multiple times while sync is in flight
-      setOnline(orchestrator, false)
-      setOnline(orchestrator, true)
-      setOnline(orchestrator, false)
-      setOnline(orchestrator, true)
-      setOnline(orchestrator, false)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      // Must NOT have spawned additional concurrent manifest syncs
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
-
-      // Finish the active sync
-      resolveSync({ added: [] })
-      await vi.advanceTimersByTimeAsync(0)
-
-      // Now that the active sync has resolved, a subsequent reconnection can trigger a new sync
-      setOnline(orchestrator, false)
-      setOnline(orchestrator, true)
-      await vi.advanceTimersByTimeAsync(0)
-
-      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(2)
+      await shutDown(orchestrator)
     })
   })
 
@@ -1080,43 +1059,32 @@ describe('SyncOrchestrator', () => {
     })
 
     it('aborts in-flight manifest sync when leadership is revoked', async () => {
-      let capturedSignal: AbortSignal | undefined
-      mockManifestSyncManager.sync.mockImplementation((_force?: boolean, signal?: AbortSignal) => {
-        capturedSignal = signal
-        return new Promise<{ added: any[] }>(() => {})
-      })
+      mockManifestSyncManager.sync.mockImplementation(() => new Promise<{ added: any[] }>(() => {}))
 
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
-      expect(capturedSignal).toBeDefined()
-      expect(capturedSignal?.aborted).toBe(false)
+      expect(mockManifestSyncManager.abort).not.toHaveBeenCalled()
 
       orchestrator.setLeader(false)
 
-      expect(capturedSignal?.aborted).toBe(true)
       expect(mockManifestSyncManager.abort).toHaveBeenCalledTimes(1)
     })
 
     it('aborts in-flight manifest sync when going offline', async () => {
-      let capturedSignal: AbortSignal | undefined
-      mockManifestSyncManager.sync.mockImplementation((_force?: boolean, signal?: AbortSignal) => {
-        capturedSignal = signal
-        return new Promise<{ added: any[] }>(() => {})
-      })
+      mockManifestSyncManager.sync.mockImplementation(() => new Promise<{ added: any[] }>(() => {}))
 
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(1)
-      expect(capturedSignal?.aborted).toBe(false)
+      expect(mockManifestSyncManager.abort).not.toHaveBeenCalled()
 
       setOnline(orchestrator, false)
 
-      expect(capturedSignal?.aborted).toBe(true)
       expect(mockManifestSyncManager.abort).toHaveBeenCalledTimes(1)
     })
   })

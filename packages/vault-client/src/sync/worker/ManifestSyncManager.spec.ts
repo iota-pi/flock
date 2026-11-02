@@ -1345,6 +1345,24 @@ describe('ManifestSyncManager', () => {
 
         expect(fetchSignal?.aborted).toBe(true)
       })
+
+      it('waitForIdle resolves once the sync in flight settles', async () => {
+        let resolveFetch: (value: unknown) => void = () => {}
+        mockFetchManifest.mockImplementation(() => new Promise(resolve => { resolveFetch = resolve }))
+
+        const syncPromise = manifestSyncManager.sync(true)
+        await vi.waitFor(() => expect(mockFetchManifest).toHaveBeenCalled())
+
+        let idle = false
+        const idlePromise = manifestSyncManager.waitForIdle().then(() => { idle = true })
+        await Promise.resolve()
+        expect(idle).toBe(false)
+
+        resolveFetch({ manifest: [], serverTime: 1000 })
+        await syncPromise
+        await idlePromise
+        expect(idle).toBe(true)
+      })
     })
   })
 })

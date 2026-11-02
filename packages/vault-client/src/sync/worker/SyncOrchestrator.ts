@@ -31,8 +31,9 @@ export interface SyncPullQueueManagerLike {
 }
 
 export interface ManifestSyncManagerLike {
-  sync: (force?: boolean, signal?: AbortSignal) => Promise<{ added: ItemId[] }>
+  sync: (force?: boolean) => Promise<{ added: ItemId[] }>
   abort: () => void
+  waitForIdle: () => Promise<void>
 }
 
 export interface SyncOrchestratorDeps {
@@ -58,7 +59,6 @@ export class SyncOrchestrator {
   private readonly pollGuard = new SingleFlightGuard<void>()
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private readonly pollRun = new AbortableRun(() => this.isOperational)
-  private readonly manifestSyncRun = new AbortableRun(() => this.isOperational)
   private readonly poller: SyncPollerLike
 
   private readonly pollTimer = new RetryTimer()
@@ -70,7 +70,6 @@ export class SyncOrchestrator {
 
   private manifestSyncIntervalId: number | null = null
   private readonly manifestSyncIntervalMs: number
-  private readonly manifestSyncGuard = new SingleFlightGuard<void>()
   private readonly manifestSyncManager: ManifestSyncManagerLike
 
   private readonly accountId: string
@@ -106,11 +105,6 @@ export class SyncOrchestrator {
 
   private abortPoll(): void {
     this.pollRun.abort()
-  }
-
-  private abortManifestSync(): void {
-    this.manifestSyncRun.abort()
-    this.manifestSyncManager.abort()
   }
 
   async start(): Promise<void> {
@@ -172,7 +166,7 @@ export class SyncOrchestrator {
     this.stopPolling()
     this.stopPeriodicManifestSync()
     this.abortPoll()
-    this.abortManifestSync()
+    this.manifestSyncManager.abort()
   }
 
   /** Stops syncing when the device goes offline, and resumes when it's back. The session holds the state. */
@@ -362,7 +356,7 @@ export class SyncOrchestrator {
     }
     this.stopSyncing()
     await this.pollGuard.waitForRunning()
-    await this.manifestSyncGuard.waitForRunning()
+    await this.manifestSyncManager.waitForIdle()
   }
 
   private startPeriodicManifestSync(): void {
@@ -382,25 +376,15 @@ export class SyncOrchestrator {
     }
   }
 
+  /** The manifest sync manager runs one sync at a time and aborts it when `stopSyncing` calls `abort` */
   private async triggerManifestSync(): Promise<void> {
+    if (!this.isOperational) {
+      return
+    }
     try {
-      if (!this.isOperational) {
-        return
-      }
-      return await this.manifestSyncGuard.run(async () => {
-        try {
-          await this.manifestSyncRun.run(signal => this.manifestSyncManager.sync(false, signal))
-        } catch (error) {
-          if (isAbortError(error)) {
-            return
-          }
-          log.warn('Manifest sync failed', error)
-        }
-      })
-    } catch (err) {
-      if (!isAbortError(err)) {
-        log.error('Error during triggerManifestSync:', err)
-      }
+      await this.manifestSyncManager.sync(false)
+    } catch (error) {
+      log.warn('Manifest sync failed', error)
     }
   }
 }

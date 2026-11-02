@@ -90,6 +90,11 @@ export class ManifestSyncManager {
     this.abort()
   }
 
+  /** Resolves once the sync in flight, if any, has settled */
+  async waitForIdle(): Promise<void> {
+    await this.syncGuard.waitForRunning()
+  }
+
   async sync(force = false, signal?: AbortSignal): Promise<SyncResult> {
     if (this.isShutdown) return { added: [], success: false }
     return this.syncGuard.run(() => this.executeSync(force, signal))

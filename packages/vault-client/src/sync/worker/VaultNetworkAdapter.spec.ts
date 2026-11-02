@@ -160,7 +160,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       clientEventHub,
       internalEventHub,
       pullQueueManager,
-      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn() },
+      manifestSyncManager: { sync: vi.fn().mockResolvedValue({ added: [] }), abort: vi.fn(), waitForIdle: vi.fn().mockResolvedValue(undefined) },
     })
 
     orchestrator.setLeader(true)
