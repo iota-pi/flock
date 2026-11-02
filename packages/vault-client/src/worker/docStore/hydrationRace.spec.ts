@@ -1,15 +1,15 @@
 import type { Mock } from 'vitest'
-import { Repo, interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
+import { Repo, type DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import { SyncPullQueueManager } from '../SyncPullQueueManager'
 import { CursorStore } from '../stores/CursorStore'
-import { toAutomergeUrlFromItemId } from '../utils/automerge'
 import { packBatchedMessages } from '../utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 import type { VaultDoc } from '../../shared/types'
 import { createMockKeyProvider, createMockVault, createTestDocStore, mockLocalForage } from '../__test__/testUtils'
 import { SyncSessionState } from '../SyncSessionState'
+import { toDocumentIdFromItemId } from '../utils/automerge'
 
 type NotesDoc = VaultDoc & { notes: Array<{ id: string; text: string; archived: boolean; time: number }> }
 
@@ -213,7 +213,7 @@ describe('Document Hydration Race Condition (C4)', () => {
 
     // First, seed initial handle from baseBinary so pull queue can apply changes
     repo.import<any>(baseBinary, {
-      docId: interpretAsDocumentId(toAutomergeUrlFromItemId(itemId)),
+      docId: toDocumentIdFromItemId(itemId),
     })
 
     receiveServerMessage.mockImplementation(documentId => {
@@ -271,7 +271,7 @@ describe('Document Hydration Race Condition (C4)', () => {
 
   it('defense-in-depth: merges into inMemoryHandle if handle became ready during storage check', async () => {
     const itemId = 'defense-item-1' as ItemId
-    const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+    const documentId = toDocumentIdFromItemId(itemId)
     const baseBinary = createBaseDocBinary(itemId)
 
     const snapshotBinary = forkDocBinary(baseBinary, d => {
@@ -306,7 +306,7 @@ describe('Document Hydration Race Condition (C4)', () => {
 
   it('defense-in-depth: seedImportedDocument does not evict an existing ready handle', async () => {
     const itemId = 'seed-defense-1' as ItemId
-    const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+    const documentId = toDocumentIdFromItemId(itemId)
     const baseBinary = createBaseDocBinary(itemId)
 
     // Pre-seed an existing ready handle

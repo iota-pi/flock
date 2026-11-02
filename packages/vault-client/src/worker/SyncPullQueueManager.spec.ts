@@ -1,11 +1,11 @@
 import type { Mock } from 'vitest'
-import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
+import type { DocumentId } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncSessionState } from './SyncSessionState'
 import * as automerge from './utils/automerge'
-import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
+import { toDocumentIdFromItemId, toVaultItemIdFromAutomergeId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from './SyncApiClient'
 import type { ItemId } from '@vault/shared'
 import { CursorStore } from './stores/CursorStore'
@@ -46,7 +46,7 @@ const {
 const realtimeBus = createFakeRealtimeBus()
 const mockPublishRealtimeBusSyncPing = realtimeBus.publishSyncPing
 const mockReportQuotaExceeded = vi.fn()
-const realToAutomergeUrlFromItemId = automerge.toAutomergeUrlFromItemId
+const realToDocumentIdFromItemId = automerge.toDocumentIdFromItemId
 
 /** A decrypted pulled message: a batch of sync messages, as every push sends */
 function batch(...messages: Uint8Array[]): Uint8Array {
@@ -86,11 +86,11 @@ beforeEach(() => {
       }
     }),
   })
-  vi.spyOn(automerge, 'toAutomergeUrlFromItemId').mockImplementation((itemId: ItemId) => {
+  vi.spyOn(automerge, 'toDocumentIdFromItemId').mockImplementation((itemId: ItemId) => {
     if (itemId === 'item-throw-error') {
       throw new Error('Failed to resolve URL')
     }
-    return realToAutomergeUrlFromItemId(itemId)
+    return realToDocumentIdFromItemId(itemId)
   })
 })
 
@@ -257,9 +257,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults, false, undefined, 5)
 
-      const expectedDocId = interpretAsDocumentId(
-        toAutomergeUrlFromItemId('item-1' as ItemId)
-      )
+      const expectedDocId = toDocumentIdFromItemId('item-1' as ItemId)
       expect(onMessageParsedSpy).toHaveBeenCalledWith(
         'item-1',
         expectedDocId,
@@ -321,9 +319,7 @@ describe('SyncPullQueueManager', () => {
 
       await processItemResults(manager, pullResults)
 
-      const expectedDocId = interpretAsDocumentId(
-        toAutomergeUrlFromItemId('item-2' as ItemId)
-      )
+      const expectedDocId = toDocumentIdFromItemId('item-2' as ItemId)
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
@@ -1029,9 +1025,7 @@ describe('SyncPullQueueManager', () => {
       // Attempt 1: Message 1 throws, halts immediately so message 2 is not applied out-of-order
       await processItemResults(manager, pullResults)
 
-      const expectedDocId = interpretAsDocumentId(
-        toAutomergeUrlFromItemId('item-batch-error' as ItemId)
-      )
+      const expectedDocId = toDocumentIdFromItemId('item-batch-error' as ItemId)
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
@@ -1110,9 +1104,7 @@ describe('SyncPullQueueManager', () => {
         },
       ]
 
-      const expectedDocId = interpretAsDocumentId(
-        toAutomergeUrlFromItemId('item-partial-retry' as ItemId)
-      )
+      const expectedDocId = toDocumentIdFromItemId('item-partial-retry' as ItemId)
 
       // Attempt 1: msg1 succeeds, msg2 fails
       await processItemResults(manager, pullResults)
@@ -1363,7 +1355,7 @@ describe('SyncPullQueueManager', () => {
       await vi.runAllTimersAsync()
       expect(saveSpy).toHaveBeenCalled()
 
-      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-success' as ItemId))
+      const expectedDocId = toDocumentIdFromItemId('item-success' as ItemId)
       expect(onMessageParsedSpy).toHaveBeenCalledWith(
         'item-success',
         expectedDocId,

@@ -1,4 +1,4 @@
-import { type Repo, type DocHandle, interpretAsDocumentId, type AutomergeUrl, type DocumentId } from '@automerge/automerge-repo/slim'
+import type { Repo, DocHandle, AutomergeUrl, DocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '@vault/shared'
 import type { VaultDoc, VaultMetadata } from '../../shared/types'
@@ -6,6 +6,7 @@ import type { DocCodec } from '../domain'
 import {
   readObjectSnapshot,
   toAutomergeUrlFromItemId,
+  toDocumentIdFromItemId,
   areHeadsEqual,
 } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
@@ -99,8 +100,7 @@ export class AutomergeDocStore implements ItemLockCoordinator {
   }
 
   private resolveDocumentId(itemId: ItemId) {
-    const url = toAutomergeUrlFromItemId(itemId)
-    return { url, documentId: interpretAsDocumentId(url) }
+    return { url: toAutomergeUrlFromItemId(itemId), documentId: toDocumentIdFromItemId(itemId) }
   }
 
   /** The repo's in-memory handle for the document, when it's ready */

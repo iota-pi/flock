@@ -1,5 +1,5 @@
 import type { Mock } from 'vitest'
-import { interpretAsDocumentId, type PeerId } from '@automerge/automerge-repo/slim'
+import type { PeerId } from '@automerge/automerge-repo/slim'
 import { setApiAuthToken } from '../keys/runtime'
 import * as Automerge from '@automerge/automerge/slim'
 
@@ -14,7 +14,6 @@ import { ClientEventHub } from './SyncEventHub'
 import { CursorStore } from './stores/CursorStore'
 import type { AutomergeIndexManager } from './docStore'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { packBatchedMessages } from './utils/binaryFraming'
 import type { ItemId } from '@vault/shared'
 
@@ -28,6 +27,7 @@ import {
   spyOnVaultTrpc,
 } from './__test__/testUtils'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
+import { toDocumentIdFromItemId } from './utils/automerge'
 
 const mockStores = new Map<string, MockLocalforage>()
 const createLocalForageInstance = (opts: { name: string; storeName: string }) => {
@@ -145,7 +145,7 @@ describe('Sync System Integration Test Suite', () => {
 
   it('Scenario 1: Client creates item -> WAL append -> push to server succeeds -> sent WAL entries removed', async () => {
     const itemId = 'item-create-1' as ItemId
-    const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+    const docId = toDocumentIdFromItemId(itemId)
     const syncData = createTestSyncMessageData()
 
     // 1. Adapter produces sync message (e.g. from Automerge edit)
@@ -234,8 +234,8 @@ describe('Sync System Integration Test Suite', () => {
 
     const item1 = 'item-offline-1' as ItemId
     const item2 = 'item-offline-2' as ItemId
-    const docId1 = interpretAsDocumentId(toAutomergeUrlFromItemId(item1))
-    const docId2 = interpretAsDocumentId(toAutomergeUrlFromItemId(item2))
+    const docId1 = toDocumentIdFromItemId(item1)
+    const docId2 = toDocumentIdFromItemId(item2)
     const syncData = createTestSyncMessageData()
 
     // Offline edits to two items

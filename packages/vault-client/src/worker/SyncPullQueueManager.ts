@@ -1,9 +1,9 @@
-import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
+import type { DocumentId } from '@automerge/automerge-repo/slim'
 import { debounce } from 'lodash-es'
 
 import type { PullSyncMessagesResponse } from './SyncApiClient'
 import type { KeyProvider } from '../keys/Keyring'
-import { toAutomergeUrlFromItemId } from './utils/automerge'
+import { toDocumentIdFromItemId } from './utils/automerge'
 import type { RealtimeBus } from './realtimeBus'
 import type { SyncSessionState } from './SyncSessionState'
 import { decryptWithKeyResolution } from './utils/decryptWithKeyResolution'
@@ -214,7 +214,7 @@ export class SyncPullQueueManager {
     initialCursor: number,
     timedOutKeys: Set<string>
   ): Promise<ProcessItemMessagesResult> {
-    const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+    const documentId = toDocumentIdFromItemId(itemId)
 
     // Sort messages ascending by cursor to ensure causal processing order and prevent
     // out-of-order cursors from prematurely advancing state.cursor if an earlier cursor fails.

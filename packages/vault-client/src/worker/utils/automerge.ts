@@ -1,6 +1,7 @@
 import {
   type DocumentId,
   documentIdToBinary,
+  interpretAsDocumentId,
   stringifyAutomergeUrl,
   type AutomergeUrl,
   type BinaryDocumentId,
@@ -39,8 +40,7 @@ export function toAutomergeUrlFromItemId(itemId: ItemId): AutomergeUrl {
 }
 
 export function toDocumentIdFromItemId(itemId: ItemId): DocumentId {
-  const url = toAutomergeUrlFromItemId(itemId)
-  return url.replace(/^automerge:/, '') as DocumentId
+  return interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 }
 
 export function toVaultItemIdFromAutomergeId(documentId: DocumentId): ItemId {

@@ -1,17 +1,17 @@
-import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
+import type { Message } from '@automerge/automerge-repo/slim'
 import type { Mock } from 'vitest'
 
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { SyncSessionState } from './SyncSessionState'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
-import { toAutomergeUrlFromItemId, toDocumentIdFromItemId } from './utils/automerge'
+import { toDocumentIdFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { MAX_INCREMENTAL_MESSAGE_BYTES } from '@vault/shared'
 
 function createSyncMessage(itemId: string, data: number[]): Message {
-  const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))
+  const docId = toDocumentIdFromItemId(itemId as ItemId)
   return {
     type: 'sync',
     senderId: 'client' as any,
@@ -129,7 +129,7 @@ describe('SyncMessageBroker', () => {
     const flushSpy = onFlushNeeded
     session.setLeader(true)
 
-    const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-req' as ItemId))
+    const docId = toDocumentIdFromItemId('item-req' as ItemId)
     const reqMsg: Message = {
       type: 'request',
       senderId: 'client' as any,

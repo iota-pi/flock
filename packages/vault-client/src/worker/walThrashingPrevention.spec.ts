@@ -1,5 +1,5 @@
 import type { Mock } from 'vitest'
-import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
+import type { Message } from '@automerge/automerge-repo/slim'
 import {
   type MockLocalforage,
   createMockLocalForage,
@@ -11,10 +11,10 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { SyncSessionState } from './SyncSessionState'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
-import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from '@vault/shared'
 import { clearAccountStoreInstancesCacheForTesting } from '../shared/createAccountStore'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
+import { toDocumentIdFromItemId } from './utils/automerge'
 
 const mockStores = new Map<string, MockLocalforage>()
 
@@ -27,7 +27,7 @@ const createLocalForageInstance = (opts: { name: string; storeName: string }) =>
 }
 
 function createTestSyncMessage(itemId: string, data: Uint8Array = new Uint8Array([1, 2, 3])): Message {
-  const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))
+  const docId = toDocumentIdFromItemId(itemId as ItemId)
   return {
     type: 'sync',
     senderId: 'client' as any,
