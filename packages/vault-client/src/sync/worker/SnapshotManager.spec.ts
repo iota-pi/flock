@@ -2,7 +2,9 @@ import { ItemId, MAX_ITEM_SIZE_KB } from '@vault/shared'
 import { SnapshotManager, type SnapshotManagerOptions } from './SnapshotManager'
 import { SyncSessionState } from './SyncSessionState'
 import { RecoveryManager } from './RecoveryManager'
-import { passthroughCodec } from './domain'
+import { passthroughCodec, type DocCodec } from './domain'
+import { SnapshotBuilder } from './snapshotBuilder'
+import type { Repo } from '@automerge/automerge-repo/slim'
 import { SyncApiClient } from './SyncApiClient'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { getApiAuthToken, setApiAuthToken } from '../../api/runtime'
@@ -33,13 +35,19 @@ const sessions = new WeakMap<SnapshotManager, SyncSessionState>()
 
 /** A manager with its own session state, a leader's when `isLeader` is set */
 function createManager(
-  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session'>,
+  context: Omit<ConstructorParameters<typeof SnapshotManager>[0], 'session' | 'lastModifiedStore' | 'builder'> & {
+    repo: Repo
+    keys: KeyProvider
+    codec?: DocCodec
+  },
   lastModifiedStore: LastModifiedStore,
   options: SnapshotManagerOptions & { isLeader?: boolean } = {},
 ): SnapshotManager {
   const { isLeader, ...managerOptions } = options
+  const { repo, keys, codec = passthroughCodec, ...deps } = context
   const session = new SyncSessionState({ isLeader })
-  const created = new SnapshotManager({ ...context, session }, lastModifiedStore, managerOptions)
+  const builder = new SnapshotBuilder(repo, keys, codec)
+  const created = new SnapshotManager({ ...deps, session, lastModifiedStore, builder }, managerOptions)
   sessions.set(created, session)
   return created
 }

@@ -37,68 +37,6 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
   return cipherBytes + ivBytes + idBytes + BASE_OVERHEAD_BYTES
 }
 
-export interface BuildSnapshotOptions {
-  signal?: AbortSignal
-  codec: DocCodec
-}
-
-/** Throws what the lookup or encryption throws; `SnapshotBuilder.build` turns that into a result */
-export async function buildSnapshot(
-  repo: Repo,
-  itemId: ItemId,
-  snapshotCursor: number,
-  keys: KeyProvider,
-  options: BuildSnapshotOptions,
-): Promise<BuildSnapshotResult> {
-  const documentUrl = toAutomergeUrlFromItemId(itemId)
-  const lookup = await findWithTimeout(repo, documentUrl, SYNC_TIMEOUTS.snapshotDocLookup, options.signal)
-  if (lookup.type === 'timeout') {
-    return {
-      type: 'error',
-      reason: `Document lookup timed out after ${SYNC_TIMEOUTS.snapshotDocLookup}ms`,
-    }
-  }
-  const handle = lookup.handle
-  if (!handle) {
-    return { type: 'error', reason: 'Document handle not found' }
-  }
-
-  if (!handle.isReady()) {
-    return { type: 'not-ready' }
-  }
-
-  const doc = handle.doc()
-  if (!doc) {
-    return { type: 'error', reason: 'Document data not available' }
-  }
-
-  const snapshotTimestamp = Date.now()
-  const heads = Automerge.getHeads(doc)
-  const binary = Automerge.save(doc)
-  if (!binary || binary.byteLength === 0) {
-    return { type: 'error', reason: 'Failed to serialize document binary' }
-  }
-
-  const encryptedDoc = await keys.encryptBytes(binary, itemId)
-
-  const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, options.codec)
-  if (!itemSnapshot) {
-    return { type: 'error', reason: 'Failed to normalize item snapshot' }
-  }
-
-  return {
-    type: 'success',
-    snapshot: {
-      itemId,
-      snapshot: encryptedDoc,
-      snapshotCursor,
-      modified: snapshotTimestamp,
-      deleted: !!itemSnapshot.deleted || undefined,
-    },
-    heads,
-  }
-}
-
 /**
  * Strips the payload from a deleted snapshot, leaving only the metadata needed
  * for the server to record the tombstone. Used when the full document history
@@ -116,6 +54,7 @@ export function toTombstoneSnapshot(snapshot: VaultSnapshotInput): VaultSnapshot
   }
 }
 
+/** Builds an item's encrypted snapshot from its local Automerge doc */
 export class SnapshotBuilder {
   constructor(
     private readonly repo: Repo,
@@ -123,13 +62,10 @@ export class SnapshotBuilder {
     private readonly codec: DocCodec,
   ) {}
 
-  async build(
-    itemId: ItemId,
-    snapshotCursor: number,
-    options?: Omit<BuildSnapshotOptions, 'codec'>,
-  ): Promise<BuildSnapshotResult> {
+  /** Reports failures as results; only an abort of `signal` throws */
+  async build(itemId: ItemId, snapshotCursor: number, options?: { signal?: AbortSignal }): Promise<BuildSnapshotResult> {
     try {
-      return await buildSnapshot(this.repo, itemId, snapshotCursor, this.keys, { ...options, codec: this.codec })
+      return await this.buildOrThrow(itemId, snapshotCursor, options?.signal)
     } catch (error: unknown) {
       // The caller stopped; that says nothing about this item
       if (options?.signal?.aborted) {
@@ -148,8 +84,53 @@ export class SnapshotBuilder {
     }
   }
 
-  estimateSize(snapshot: VaultSnapshotInput): number {
-    return estimateSnapshotSize(snapshot)
+  private async buildOrThrow(itemId: ItemId, snapshotCursor: number, signal?: AbortSignal): Promise<BuildSnapshotResult> {
+    const documentUrl = toAutomergeUrlFromItemId(itemId)
+    const lookup = await findWithTimeout(this.repo, documentUrl, SYNC_TIMEOUTS.snapshotDocLookup, signal)
+    if (lookup.type === 'timeout') {
+      return {
+        type: 'error',
+        reason: `Document lookup timed out after ${SYNC_TIMEOUTS.snapshotDocLookup}ms`,
+      }
+    }
+    const handle = lookup.handle
+    if (!handle) {
+      return { type: 'error', reason: 'Document handle not found' }
+    }
+
+    if (!handle.isReady()) {
+      return { type: 'not-ready' }
+    }
+
+    const doc = handle.doc()
+    if (!doc) {
+      return { type: 'error', reason: 'Document data not available' }
+    }
+
+    const snapshotTimestamp = Date.now()
+    const heads = Automerge.getHeads(doc)
+    const binary = Automerge.save(doc)
+    if (!binary || binary.byteLength === 0) {
+      return { type: 'error', reason: 'Failed to serialize document binary' }
+    }
+
+    const encryptedDoc = await this.keys.encryptBytes(binary, itemId)
+
+    const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, this.codec)
+    if (!itemSnapshot) {
+      return { type: 'error', reason: 'Failed to normalize item snapshot' }
+    }
+
+    return {
+      type: 'success',
+      snapshot: {
+        itemId,
+        snapshot: encryptedDoc,
+        snapshotCursor,
+        modified: snapshotTimestamp,
+        deleted: !!itemSnapshot.deleted || undefined,
+      },
+      heads,
+    }
   }
 }
-

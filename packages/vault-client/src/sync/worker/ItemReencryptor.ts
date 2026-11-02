@@ -1,9 +1,7 @@
-import type { Repo } from '@automerge/automerge-repo/slim'
 import { chunk, partition } from 'lodash-es'
 
 import type { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { SnapshotBuilder, estimateSnapshotSize, type BuildSnapshotResult } from './snapshotBuilder'
-import type { DocCodec } from './domain'
+import { estimateSnapshotSize, type BuildSnapshotResult, type SnapshotBuilder } from './snapshotBuilder'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
 import { uploadSnapshotBatch, type StoredSnapshotRecorder } from './snapshotUpload'
@@ -22,7 +20,6 @@ import { getOnlineState } from '../utils/onlineStatus'
 import type { ItemId, VaultSnapshotInput } from '@vault/shared'
 import type { ReencryptResult } from '../shared/types'
 import { SYNC_BATCH_SIZES } from '../shared/syncConfig'
-import type { KeyProvider } from '../../api/Keyring'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ItemReencryptor')
@@ -42,7 +39,7 @@ export interface ReencryptRunOptions {
 
 export interface ItemReencryptorOptions {
   accountId: string
-  repo: Repo
+  builder: SnapshotBuilder
   indexManager: AutomergeIndexManager
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
@@ -50,8 +47,6 @@ export interface ItemReencryptorOptions {
   batchRetryDelays?: readonly number[]
   maxBatchCount?: number
   maxBatchBytes?: number
-  codec: DocCodec
-  keys: KeyProvider
   /**
    * Records the snapshots the server stored, as the snapshot pusher does. Otherwise the next manifest
    * sync would take the new versions for remote changes and fetch every item.
@@ -76,7 +71,7 @@ export class ItemReencryptor {
 
   constructor(options: ItemReencryptorOptions) {
     this.accountId = options.accountId
-    this.builder = new SnapshotBuilder(options.repo, options.keys, options.codec)
+    this.builder = options.builder
     this.indexManager = options.indexManager
     this.apiClient = options.apiClient
     this.recoveryManager = options.recoveryManager

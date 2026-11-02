@@ -12,6 +12,9 @@ import * as docStoreModule from './docStore'
 import * as automergeModule from './utils/automerge'
 import * as Automerge from '@automerge/automerge/slim'
 
+/** Estimates well above the pusher's `maxPayloadBytes` of 1000 */
+const OVERSIZED_CIPHER = 'x'.repeat(5000)
+
 describe('SnapshotPusher', () => {
   let pusher: SnapshotPusher
   let mockTracker: any
@@ -47,7 +50,6 @@ describe('SnapshotPusher', () => {
         },
         heads: ['head-1'],
       }),
-      estimateSize: vi.fn().mockReturnValue(200),
     }
 
     mockBroker = {
@@ -90,6 +92,17 @@ describe('SnapshotPusher', () => {
     vi.useRealTimers()
   })
 
+  const oversizedSnapshot = () => ({
+    type: 'success',
+    snapshot: {
+      itemId: 'item-1' as ItemId,
+      snapshot: { cipher: OVERSIZED_CIPHER, iv: '123', kver: '1' },
+      snapshotCursor: 10,
+      modified: 1000,
+    },
+    heads: ['head-1'],
+  })
+
   it('pushes snapshots successfully and notifies tracker and broker', async () => {
     const result = await pusher.triggerSnapshotPush()
 
@@ -104,7 +117,7 @@ describe('SnapshotPusher', () => {
   })
 
   it('handles oversized item by quarantining and reporting a snapshot failure', async () => {
-    mockBuilder.estimateSize.mockReturnValue(5000) // Exceeds maxPayloadBytes = 1000
+    mockBuilder.build.mockResolvedValue(oversizedSnapshot())
 
     const result = await pusher.triggerSnapshotPush()
 
@@ -122,7 +135,7 @@ describe('SnapshotPusher', () => {
   })
 
   it('does not warn again about an item the tracker already knows is oversized', async () => {
-    mockBuilder.estimateSize.mockReturnValue(5000)
+    mockBuilder.build.mockResolvedValue(oversizedSnapshot())
     mockTracker.recordOversized.mockReturnValue(false)
 
     await pusher.triggerSnapshotPush()
@@ -137,7 +150,7 @@ describe('SnapshotPusher', () => {
       type: 'success',
       snapshot: {
         itemId: itemId as ItemId,
-        snapshot: { cipher: 'abc', iv: '123', kver: '1' },
+        snapshot: { cipher: OVERSIZED_CIPHER, iv: '123', kver: '1' },
         snapshotCursor: 10,
         modified: 1000,
         deleted: true,
@@ -146,8 +159,6 @@ describe('SnapshotPusher', () => {
     })
 
     beforeEach(() => {
-      // Only snapshots carrying a cipher are over the limit
-      mockBuilder.estimateSize.mockImplementation((s: any) => (s.snapshot ? 5000 : 200))
       mockBuilder.build.mockResolvedValue(deletedSnapshot('item-1'))
     })
 
@@ -188,9 +199,6 @@ describe('SnapshotPusher', () => {
           heads: ['head-2'],
         }
       })
-      mockBuilder.estimateSize.mockImplementation((s: any) => (s.deleted ? 200 : 300))
-      // Make item-1's full snapshot look oversized only during preparation
-      mockBuilder.estimateSize.mockImplementationOnce(() => 5000)
       mockApiClient.putSnapshots.mockResolvedValue({
         success: true,
         persisted: 2,

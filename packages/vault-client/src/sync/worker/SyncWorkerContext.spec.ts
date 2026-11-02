@@ -257,14 +257,14 @@ describe('SyncWorkerContext', () => {
 
   it('marks item dirty in SnapshotManager when adapter triggers re-negotiation', () => {
     depsOf<VaultNetworkAdapterOptions>(context.services.adapter).onReNegotiationTriggered!('test-doc-id' as DocumentId)
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('test-doc-id' as ItemId, 0)
+    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('test-doc-id' as ItemId, 0)
   })
 
   it('marks items dirty in SnapshotManager when the broker or WAL requests a snapshot', () => {
     depsOf<SyncMessageBrokerDeps>(context.services.broker).requestSnapshot(['test-item-id' as ItemId])
     depsOf<SyncWriteAheadLogOptions>(context.services.wal).onSnapshotNeeded!(['unreadable-item' as ItemId])
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('unreadable-item' as ItemId, 0)
+    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
+    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('unreadable-item' as ItemId, 0)
   })
 
   it('routes items whose WAL entries are pruned to snapshot-only sync', () => {
@@ -310,15 +310,15 @@ describe('SyncWorkerContext', () => {
     const { deps } = context.services.itemOperations as unknown as { deps: { markDocumentDirty: (id: ItemId) => void } }
     deps.markDocumentDirty('edited-item' as ItemId)
 
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('edited-item')
+    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('edited-item')
     expect(realtimeBus.publishItemDirty).toHaveBeenCalledWith(['edited-item'])
   })
 
   it('marks items dirty when another tab announces local edits', () => {
     realtimeBus.receiveItemDirty(['tab-item-1', 'tab-item-2'] as ItemId[])
 
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('tab-item-1')
-    expect(context.services.snapshotTracker.markItemDirty).toHaveBeenCalledWith('tab-item-2')
+    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('tab-item-1')
+    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('tab-item-2')
     expect(realtimeBus.publishItemDirty).not.toHaveBeenCalled()
   })
 
@@ -417,9 +417,9 @@ describe('SyncWorkerContext', () => {
     })
 
     it('saves dirty documents, triggers renegotiation, persists timestamps, and emits quotaResolved on success', async () => {
-      vi.spyOn(context.services.snapshotTracker, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
+      vi.spyOn(context.services.snapshotManager.tracker, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       const saveDocSpy = vi.spyOn(context.services.docStore, 'saveDocToStorage').mockResolvedValue(true)
-      const persistTimestampsSpy = vi.spyOn(context.services.snapshotTracker, 'saveLastModified').mockResolvedValue(undefined)
+      const persistTimestampsSpy = vi.spyOn(context.services.snapshotManager.tracker, 'saveLastModified').mockResolvedValue(undefined)
       const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
 
       const result = await context.retrySave()
@@ -438,7 +438,8 @@ describe('SyncWorkerContext', () => {
   describe('recovery items', () => {
     it('releases a quarantined item and pushes its snapshot again', async () => {
       const unquarantine = vi.spyOn(context.services.recoveryManager, 'unquarantine').mockResolvedValue(undefined)
-      const { snapshotManager, snapshotTracker } = context.services as any
+      const { snapshotManager } = context.services as any
+      const snapshotTracker = snapshotManager.tracker
       snapshotTracker.clearOversized = vi.fn()
 
       await context.retryRecoveryItem('item-1' as ItemId)
@@ -450,7 +451,8 @@ describe('SyncWorkerContext', () => {
     })
 
     it('recreates an oversized item and pushes the old one as a tombstone', async () => {
-      const { snapshotManager, snapshotTracker } = context.services as any
+      const { snapshotManager } = context.services as any
+      const snapshotTracker = snapshotManager.tracker
       snapshotTracker.clearOversized = vi.fn()
       const itemOperations = context.services.itemOperations as any
       itemOperations.recreateOversizedItem = vi.fn().mockResolvedValue('item-new')
@@ -466,7 +468,7 @@ describe('SyncWorkerContext', () => {
 
   describe('sync state backup', () => {
     it('exports cursors, unpushed WAL entries and modification times', async () => {
-      const { pullQueueManager, wal, snapshotTracker } = context.services as any
+      const { pullQueueManager, wal, snapshotManager: { tracker: snapshotTracker } } = context.services as any
       pullQueueManager.exportCursors = vi.fn().mockReturnValue([['item-1', 5]])
       wal.readAll.mockResolvedValue(new Map([['item-1', [{ data: new Uint8Array([1, 2, 3]) }]]]))
       snapshotTracker.exportLastModified = vi.fn().mockReturnValue([['item-1', 1000]])
@@ -481,7 +483,7 @@ describe('SyncWorkerContext', () => {
     })
 
     it('restores the state it exported', async () => {
-      const { pullQueueManager, wal, snapshotTracker } = context.services as any
+      const { pullQueueManager, wal, snapshotManager: { tracker: snapshotTracker } } = context.services as any
       pullQueueManager.importCursors = vi.fn().mockResolvedValue(undefined)
       snapshotTracker.importLastModified = vi.fn().mockResolvedValue(undefined)
       const message = new Uint8Array([4, 5, 6])

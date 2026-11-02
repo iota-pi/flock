@@ -1,7 +1,6 @@
 import type { VaultDoc } from '../shared/types'
 import type { AutomergeDocStore, AutomergeIndexManager } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import type { SnapshotTracker } from './SnapshotTracker'
 import type { ItemId, ManifestEntry } from '@vault/shared'
 import type { SyncApiClient } from './SyncApiClient'
 import type { StoreItemsOptions } from './ItemOperations'
@@ -29,7 +28,6 @@ export interface ManifestSyncManagerDeps {
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
   snapshotManager: SnapshotManager
-  snapshotTracker: SnapshotTracker
   keys: KeyProvider
   recoveryManager: RecoveryManager
   apiClient: SyncApiClient
@@ -69,7 +67,7 @@ export class ManifestSyncManager {
       apiClient: this.deps.apiClient,
       docStore: this.deps.docStore,
       indexManager: this.deps.indexManager,
-      snapshotTracker: this.deps.snapshotTracker,
+      snapshotTracker: this.deps.snapshotManager.tracker,
       keys: this.deps.keys,
       storeItems: this.deps.storeItems,
       onDecryptionFailure: this.deps.onDecryptionFailure,
@@ -142,8 +140,8 @@ export class ManifestSyncManager {
 
   private async collectLocalSyncState(signal: AbortSignal) {
     const tombstoneItemIds = await this.deps.indexManager.listAutomergeTombstoneIds()
-    const localLastModifiedMap = new Map(this.deps.snapshotTracker.exportLastModified())
-    const localVersionsMap = new Map(this.deps.snapshotTracker.exportItemVersions())
+    const localLastModifiedMap = new Map(this.deps.snapshotManager.tracker.exportLastModified())
+    const localVersionsMap = new Map(this.deps.snapshotManager.tracker.exportItemVersions())
     checkAlive(signal, this.isAlive)
 
     const quarantinedMap = new Map<ItemId, QuarantinedItem>()
@@ -289,24 +287,24 @@ export class ManifestSyncManager {
         await this.deps.storeItems(deltas.locallyTombstonedSnapshots, { markDirty: false })
       } finally {
         for (const item of deltas.locallyTombstonedSnapshots) {
-          this.deps.snapshotTracker.deleteDirtyItem(item.id)
+          this.deps.snapshotManager.tracker.deleteDirtyItem(item.id)
         }
       }
     }
 
     if (deltas.deletedLastModifiedUpdates.length > 0) {
       for (const [id] of deltas.deletedLastModifiedUpdates) {
-        this.deps.snapshotTracker.deleteDirtyItem(id)
+        this.deps.snapshotManager.tracker.deleteDirtyItem(id)
       }
-      await this.deps.snapshotTracker.importLastModified(deltas.deletedLastModifiedUpdates)
+      await this.deps.snapshotManager.tracker.importLastModified(deltas.deletedLastModifiedUpdates)
     }
 
     if (deltas.deletedVersionUpdates.length > 0) {
-      await this.deps.snapshotTracker.importVersions(deltas.deletedVersionUpdates)
+      await this.deps.snapshotManager.tracker.importVersions(deltas.deletedVersionUpdates)
     }
 
     for (const id of deltas.upstreamIds) {
-      this.deps.snapshotTracker.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
+      this.deps.snapshotManager.tracker.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
   }
 

@@ -8,7 +8,7 @@ import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SyncedHeadsStore } from './stores/SyncedHeadsStore'
 import { SnapshotManager } from './SnapshotManager'
-import type { SnapshotTracker } from './SnapshotTracker'
+import { SnapshotBuilder } from './snapshotBuilder'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { SyncPoller } from './SyncPoller'
 import { ManifestSyncManager } from './ManifestSyncManager'
@@ -138,7 +138,6 @@ export interface SyncWorkerServices {
   pullQueueManager: SyncPullQueueManager
   poller: SyncPoller
   snapshotManager: SnapshotManager
-  snapshotTracker: SnapshotTracker
   orchestrator: SyncOrchestrator
   manifestSyncManager: ManifestSyncManager
   itemOperations: ItemOperations
@@ -287,25 +286,22 @@ export class SyncWorkerContext {
       requestSnapshot: itemIds => this.requestSnapshot(itemIds),
     })
 
-    const snapshotManager = new SnapshotManager(
-      {
-        accountId,
-        session,
-        repo,
-        broker,
-        getLatestCursor: () => pullQueueManager.getGlobalLatestCursor(),
-        eventHub: clientEventHub,
-        recoveryManager,
-        apiClient: this.apiClient,
-        codec: this.domain.codec,
-        keys,
-      },
-      lastModifiedStore
-    )
-    const snapshotTracker = snapshotManager.tracker
+    const snapshotBuilder = new SnapshotBuilder(repo, keys, this.domain.codec)
+
+    const snapshotManager = new SnapshotManager({
+      accountId,
+      session,
+      lastModifiedStore,
+      builder: snapshotBuilder,
+      broker,
+      getLatestCursor: () => pullQueueManager.getGlobalLatestCursor(),
+      eventHub: clientEventHub,
+      recoveryManager,
+      apiClient: this.apiClient,
+    })
 
     const markDocumentDirty = (id: ItemId) => {
-      snapshotTracker.markItemDirty(id)
+      snapshotManager.tracker.markItemDirty(id)
       // Only the leader uploads snapshots, so tell it about edits made in this tab
       realtimeBus.publishItemDirty([id])
     }
@@ -335,12 +331,10 @@ export class SyncWorkerContext {
 
     const itemReencryptor = new ItemReencryptor({
       accountId,
-      repo,
+      builder: snapshotBuilder,
       indexManager,
       apiClient: this.apiClient,
       recoveryManager,
-      codec: this.domain.codec,
-      keys,
       recorder: snapshotManager,
     })
 
@@ -368,7 +362,6 @@ export class SyncWorkerContext {
       docStore,
       indexManager,
       snapshotManager,
-      snapshotTracker,
       keys,
       recoveryManager,
       apiClient: this.apiClient,
@@ -425,7 +418,6 @@ export class SyncWorkerContext {
       wal,
       docStore,
       snapshotManager,
-      snapshotTracker,
       lastModifiedStore,
       broker,
       adapter,
@@ -449,7 +441,6 @@ export class SyncWorkerContext {
       pullQueueManager,
       poller,
       snapshotManager,
-      snapshotTracker,
       orchestrator,
       manifestSyncManager,
       itemOperations,
@@ -513,10 +504,10 @@ export class SyncWorkerContext {
     }
   }
 
-  private subscribeCrossTabDirtyItems({ realtimeBus, snapshotTracker }: SyncWorkerServices): void {
+  private subscribeCrossTabDirtyItems({ realtimeBus, snapshotManager }: SyncWorkerServices): void {
     const unsub = realtimeBus.subscribeItemDirty(itemIds => {
       for (const itemId of itemIds) {
-        snapshotTracker.markItemDirty(itemId)
+        snapshotManager.tracker.markItemDirty(itemId)
       }
     })
     this.unsubscribers.push(unsub)
@@ -525,7 +516,7 @@ export class SyncWorkerContext {
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
       realtimeBus, repoManager, adapter, broker, storageRecoveryService, indexManager, recoveryManager,
-      docStore, snapshotManager, snapshotTracker, syncedHeadsStore, pullQueueManager, poller, manifestSyncManager,
+      docStore, snapshotManager, syncedHeadsStore, pullQueueManager, poller, manifestSyncManager,
       orchestrator, itemReencryptor, snapshotFormatUpgrade,
     } = services
 
@@ -555,7 +546,7 @@ export class SyncWorkerContext {
       { name: 'DocStore', onStop: () => docStore.shutdown() },
       // Cross-tab pings can mark items dirty before the timestamps load, so it always stops
       { name: 'SnapshotManager', onStop: options => snapshotManager.shutdown(options) },
-      { name: 'LastModifiedTimestamps', onStart: () => snapshotTracker.loadLastModified() },
+      { name: 'LastModifiedTimestamps', onStart: () => snapshotManager.tracker.loadLastModified() },
       {
         name: 'SyncedHeads',
         onStart: async () => {
@@ -591,7 +582,7 @@ export class SyncWorkerContext {
   /** Marks items for a snapshot without debouncing, so their full state is delivered */
   private requestSnapshot(itemIds: ItemId[]): void {
     for (const itemId of itemIds) {
-      this._services?.snapshotTracker.markItemDirty(itemId, 0)
+      this._services?.snapshotManager.tracker.markItemDirty(itemId, 0)
     }
   }
 
@@ -766,10 +757,10 @@ export class SyncWorkerContext {
 
   /** Releases a quarantined item and pushes its snapshot again */
   async retryRecoveryItem(itemId: ItemId): Promise<void> {
-    const { recoveryManager, snapshotManager, snapshotTracker } = this.services
+    const { recoveryManager, snapshotManager } = this.services
     await recoveryManager.unquarantine(itemId)
-    snapshotTracker.clearOversized(itemId)
-    snapshotTracker.markItemDirty(itemId)
+    snapshotManager.tracker.clearOversized(itemId)
+    snapshotManager.tracker.markItemDirty(itemId)
     fireAndForget(
       snapshotManager.flushPendingSnapshots(),
       'SyncWorkerContext:retryRecoveryItem:flushPendingSnapshots',
@@ -778,10 +769,10 @@ export class SyncWorkerContext {
 
   /** Copies an oversized item to a new ID and deletes the old one. Returns the new item's ID. */
   async recreateOversizedItem(itemId: ItemId): Promise<ItemId> {
-    const { itemOperations, snapshotManager, snapshotTracker } = this.services
+    const { itemOperations, snapshotManager } = this.services
     const newItemId = await itemOperations.recreateOversizedItem(itemId)
     // The deleted old item is too large to upload, so it is pushed as a metadata-only tombstone
-    snapshotTracker.clearOversized(itemId)
+    snapshotManager.tracker.clearOversized(itemId)
     fireAndForget(
       snapshotManager.flushPendingSnapshots(),
       'SyncWorkerContext:recreateOversizedItem:flushPendingSnapshots',
@@ -791,21 +782,21 @@ export class SyncWorkerContext {
 
   /** The sync state a backup carries: pull cursors, unpushed WAL entries and modification times */
   async exportSyncState(): Promise<BackupSyncState> {
-    const { pullQueueManager, wal, snapshotTracker } = this.services
+    const { pullQueueManager, wal, snapshotManager } = this.services
     const cursors = pullQueueManager.exportCursors()
     const walMap = await wal.readAll()
     const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
       entries.map(entry => entry.data.toBase64()),
     ])
-    const lastModified = snapshotTracker.exportLastModified()
+    const lastModified = snapshotManager.tracker.exportLastModified()
 
     return { cursors, pendingSync, lastModified }
   }
 
   /** Restores the sync state `exportSyncState` exported */
   async restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
-    const { pullQueueManager, wal, snapshotTracker } = this.services
+    const { pullQueueManager, wal, snapshotManager } = this.services
     if (state.cursors) await pullQueueManager.importCursors(state.cursors)
     if (state.pendingSync) {
       for (const [itemId, base64Msgs] of state.pendingSync) {
@@ -814,7 +805,7 @@ export class SyncWorkerContext {
         }
       }
     }
-    if (state.lastModified) await snapshotTracker.importLastModified(state.lastModified)
+    if (state.lastModified) await snapshotManager.tracker.importLastModified(state.lastModified)
   }
 
   /** Records whether the device is online, and tells the components that react to it */

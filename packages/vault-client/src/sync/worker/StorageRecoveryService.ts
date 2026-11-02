@@ -9,7 +9,6 @@ import type { ClientEventHub } from './SyncEventHub'
 import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { AutomergeDocStore } from './docStore'
 import type { SnapshotManager } from './SnapshotManager'
-import type { SnapshotTracker } from './SnapshotTracker'
 import type { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
@@ -35,7 +34,6 @@ export interface StorageRecoveryServiceDeps {
   wal: SyncWriteAheadLog
   docStore: AutomergeDocStore
   snapshotManager: SnapshotManager
-  snapshotTracker: SnapshotTracker
   lastModifiedStore: LastModifiedStore
   broker: SyncMessageBroker
   adapter: VaultNetworkAdapter
@@ -129,7 +127,7 @@ export class StorageRecoveryService {
       this.deps.adapter.resetReNegotiationCircuit()
 
       const dirtyIds = Array.from(
-        new Set([...this.deps.snapshotTracker.getDirtyItemIds(), ...blockedIds])
+        new Set([...this.deps.snapshotManager.tracker.getDirtyItemIds(), ...blockedIds])
       )
       for (const itemId of dirtyIds) {
         try {
@@ -146,7 +144,7 @@ export class StorageRecoveryService {
       }
 
       await rethrowQuota(
-        this.deps.snapshotTracker.saveLastModified(),
+        this.deps.snapshotManager.tracker.saveLastModified(),
         'Storage quota is still exceeded while saving timestamps.',
       )
       if (this.deps.session.isOnline) {

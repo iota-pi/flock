@@ -2,6 +2,7 @@ import { ItemReencryptor, type ItemReencryptorOptions } from './ItemReencryptor'
 import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 import { passthroughCodec } from './domain'
+import { SnapshotBuilder } from './snapshotBuilder'
 import { SyncApiClient } from './SyncApiClient'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { createMockKeyProvider, createMockVault, spyOnVaultTrpc } from './__test__/testUtils'
@@ -29,12 +30,10 @@ const keys = createMockKeyProvider(vault)
 function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencryptorOptions {
   return {
     accountId: 'test-account',
-    repo: {} as any,
+    builder: {} as any,
     indexManager: {} as any,
     apiClient: new SyncApiClient(),
     recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-    codec: passthroughCodec,
-    keys,
     ...overrides,
   }
 }
@@ -80,7 +79,7 @@ describe('ItemReencryptor.run', () => {
   let mockRepo: any
   let mockHandle: any
   let itemReencryptor: ItemReencryptor
-  let context: Omit<ItemReencryptorOptions, 'keys'>
+  let context: ItemReencryptorOptions
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -101,13 +100,12 @@ describe('ItemReencryptor.run', () => {
 
     context = {
       accountId: 'test-account',
-      repo: mockRepo,
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-      codec: passthroughCodec,
     }
-    itemReencryptor = new ItemReencryptor({ ...context, keys })
+    itemReencryptor = new ItemReencryptor(context)
   })
 
   afterEach(() => {
@@ -175,7 +173,7 @@ describe('ItemReencryptor.run', () => {
 
   it('records the versions and heads of the snapshots the server stored', async () => {
     const recorder = { recordStoredSnapshots: vi.fn() }
-    const reencryptor = new ItemReencryptor({ ...context, keys, recorder })
+    const reencryptor = new ItemReencryptor({ ...context, recorder })
     setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({
@@ -197,7 +195,7 @@ describe('ItemReencryptor.run', () => {
 
   it('counts items an attempt stored as succeeded when the batch never fully uploads', async () => {
     const recorder = { recordStoredSnapshots: vi.fn() }
-    const reencryptor = new ItemReencryptor({ ...context, keys, recorder })
+    const reencryptor = new ItemReencryptor({ ...context, recorder })
     setApiAuthToken('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
     mockPutSnapshots.mockResolvedValue({
@@ -482,7 +480,6 @@ describe('ItemReencryptor.run', () => {
     })
     const reencryptor = new ItemReencryptor({
       ...context,
-      keys,
       apiClient: new SyncApiClient({ refreshAuthToken }),
     })
 
@@ -569,7 +566,6 @@ describe('ItemReencryptor.run', () => {
 
     const reencryptor = new ItemReencryptor({
       ...context,
-      keys,
       apiClient: new SyncApiClient({ refreshAuthToken }),
     })
 
@@ -774,7 +770,6 @@ describe('ItemReencryptor.run', () => {
       // Setting maxBatchBytes to 200 ensures each batch holds at most 1 item!
       const customReencryptor = new ItemReencryptor({
         ...context,
-        keys,
         maxBatchBytes: 200,
       })
 
@@ -805,7 +800,6 @@ describe('ItemReencryptor.run', () => {
 
       const customReencryptor = new ItemReencryptor({
         ...context,
-        keys,
         maxBatchBytes: 200,
       })
 
@@ -873,13 +867,12 @@ describe('ItemReencryptor.run cancellation and event loop yielding', () => {
 
     context = {
       accountId: 'test-account',
-      repo: mockRepo,
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-      codec: passthroughCodec,
     }
-    itemReencryptor = new ItemReencryptor({ ...context, keys })
+    itemReencryptor = new ItemReencryptor(context)
   })
 
   afterEach(() => {
@@ -961,13 +954,12 @@ describe('concurrency and retry race safety (H11)', () => {
 
     context = {
       accountId: 'test-account',
-      repo: mockRepo,
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-      codec: passthroughCodec,
     }
-    itemReencryptor = new ItemReencryptor({ ...context, keys })
+    itemReencryptor = new ItemReencryptor(context)
   })
 
   afterEach(() => {

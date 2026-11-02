@@ -1,6 +1,5 @@
 import { ItemId, type VaultSnapshotInput } from '@vault/shared'
 import {
-  buildSnapshot,
   estimateSnapshotSize,
   SnapshotBuilder,
   toTombstoneSnapshot,
@@ -37,9 +36,10 @@ beforeEach(() => {
   })
 })
 
-describe('buildSnapshot helper function', () => {
+describe('SnapshotBuilder', () => {
   let mockRepo: any
   let mockHandle: any
+  let builder: SnapshotBuilder
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -63,10 +63,12 @@ describe('buildSnapshot helper function', () => {
     mockNormalizeItemSnapshot.mockReturnValue({
       type: 'topic',
     })
+
+    builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec)
   })
 
   it('builds a snapshot successfully under normal conditions', async () => {
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: testCodec })
+    const result = await new SnapshotBuilder(mockRepo, keys, testCodec).build('item-1' as ItemId, 42)
 
     expect(result).toEqual({
       type: 'success',
@@ -103,7 +105,7 @@ describe('buildSnapshot helper function', () => {
 
     it('aborts the lookup when the caller aborts', async () => {
       const controller = new AbortController()
-      await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec })
+      await builder.build('item-1' as ItemId, 42, { signal: controller.signal })
 
       const lookupSignal: AbortSignal = mockRepo.find.mock.calls[0][1].signal
       expect(lookupSignal.aborted).toBe(false)
@@ -114,7 +116,7 @@ describe('buildSnapshot helper function', () => {
     it('returns an error when the lookup never settles', async () => {
       mockRepo.find.mockImplementation(pendingFind)
 
-      const resultPromise = buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+      const resultPromise = builder.build('item-1' as ItemId, 42)
       await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup - 1)
       let settled = false
       void resultPromise.then(() => { settled = true })
@@ -133,7 +135,7 @@ describe('buildSnapshot helper function', () => {
       mockRepo.find.mockImplementation(pendingFind)
       const controller = new AbortController()
 
-      const resultPromise = buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec })
+      const resultPromise = builder.build('item-1' as ItemId, 42, { signal: controller.signal })
       const caught = resultPromise.catch((error: unknown) => error)
       controller.abort()
       expect(await caught).toMatchObject({ name: 'AbortError' })
@@ -145,24 +147,9 @@ describe('buildSnapshot helper function', () => {
       controller.abort()
 
       await expect(
-        buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { signal: controller.signal, codec: passthroughCodec }),
+        builder.build('item-1' as ItemId, 42, { signal: controller.signal }),
       ).rejects.toMatchObject({ name: 'AbortError' })
       expect(mockRepo.find).not.toHaveBeenCalled()
-    })
-
-    it('SnapshotBuilder reports a timed-out lookup as an error and propagates a caller abort', async () => {
-      mockRepo.find.mockImplementation(pendingFind)
-      const builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec)
-
-      const timedOut = builder.build('item-1' as ItemId, 42)
-      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.snapshotDocLookup)
-      await expect(timedOut).resolves.toEqual(expect.objectContaining({ type: 'error' }))
-
-      const controller = new AbortController()
-      const aborted = builder.build('item-1' as ItemId, 42, { signal: controller.signal })
-      const caught = aborted.catch((error: unknown) => error)
-      controller.abort()
-      expect(await caught).toMatchObject({ name: 'AbortError' })
     })
   })
 
@@ -176,7 +163,7 @@ describe('buildSnapshot helper function', () => {
         return { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' }
       })
 
-      const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+      const result = await builder.build('item-1' as ItemId, 42)
       expect(result.type).toBe('success')
       // Timestamp must be T1 (1000), not T3 (3000)
       expect((result as Extract<typeof result, { type: 'success' }>).snapshot.modified).toBe(1000)
@@ -187,34 +174,34 @@ describe('buildSnapshot helper function', () => {
 
   it('returns error if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
-    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+    let result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
 
     mockRepo.find.mockResolvedValue(undefined)
-    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+    result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({ type: 'error', reason: 'Document handle not found' })
   })
 
   it('returns not-ready if document handle is not ready', async () => {
     mockHandle.isReady.mockReturnValue(false)
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+    const result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({ type: 'not-ready' })
   })
 
   it('returns error if doc is missing or saving binary is empty', async () => {
     mockHandle.doc.mockReturnValue(undefined)
-    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+    let result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({ type: 'error', reason: 'Document data not available' })
 
     mockHandle.doc.mockReturnValue({ id: 'item-1' })
     mockSave.mockReturnValue(new Uint8Array([]))
-    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+    result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({ type: 'error', reason: 'Failed to serialize document binary' })
   })
 
   it('returns error if normalizeItemSnapshot returns null', async () => {
     mockNormalizeItemSnapshot.mockReturnValue(null)
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+    const result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({ type: 'error', reason: 'Failed to normalize item snapshot' })
   })
 
@@ -224,7 +211,7 @@ describe('buildSnapshot helper function', () => {
       deleted: true,
     })
 
-    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })
+    const result = await builder.build('item-1' as ItemId, 42)
     expect(result).toEqual({
       type: 'success',
       snapshot: expect.objectContaining({
@@ -234,11 +221,23 @@ describe('buildSnapshot helper function', () => {
     })
   })
 
-  it('propagates encryptBytes exceptions (SnapshotBuilder handles them)', async () => {
-    const error = new Error('Crypto error')
-    mockEncryptBytes.mockRejectedValue(error)
+  it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
+    mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
+    let result = await builder.build('item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
 
-    await expect(buildSnapshot(mockRepo, 'item-1' as ItemId, 42, keys, { codec: passthroughCodec })).rejects.toThrow('Crypto error')
+    mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
+    result = await builder.build('item-1' as ItemId, 42)
+    expect(result).toEqual({ type: 'not-ready' })
+  })
+
+  it('handles non-transient error by returning error result with reason', async () => {
+    mockEncryptBytes.mockRejectedValue(new Error('Non-transient encryption error'))
+    const result = await builder.build('item-1' as ItemId, 42)
+    expect(result).toEqual({
+      type: 'error',
+      reason: 'Non-transient encryption error',
+    })
   })
 })
 
@@ -269,73 +268,6 @@ describe('classifySyncError isTransientVault', () => {
     expect(isTransientVaultError(new Error('Corrupt block detected'))).toBe(false)
     expect(isTransientVaultError(new Error('Permission denied'))).toBe(false)
     expect(isTransientVaultError('Unexpected EOF')).toBe(false)
-  })
-})
-
-describe('SnapshotBuilder class', () => {
-  let mockRepo: any
-  let mockHandle: any
-  let builder: SnapshotBuilder
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-
-    mockHandle = {
-      isReady: vi.fn().mockReturnValue(true),
-      doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'topic' }),
-    }
-
-    mockRepo = {
-      find: vi.fn().mockResolvedValue(mockHandle),
-    }
-
-    mockToAutomergeUrlFromItemId.mockReturnValue('automerge:item-1')
-    mockSave.mockReturnValue(new Uint8Array([1, 2, 3]))
-    mockEncryptBytes.mockResolvedValue({
-      iv: 'mock-iv',
-      cipher: 'mock-cipher',
-      kver: '1',
-    })
-    mockNormalizeItemSnapshot.mockReturnValue({
-      type: 'topic',
-    })
-
-    builder = new SnapshotBuilder(mockRepo, keys, passthroughCodec)
-  })
-
-  it('builds snapshot successfully', async () => {
-    const result = await builder.build('item-1' as ItemId, 42)
-    expect(result.type).toBe('success')
-  })
-
-  it('returns not-ready if encryptBytes throws VaultNotInitializedError or Vault is locked', async () => {
-    mockEncryptBytes.mockRejectedValueOnce(new VaultNotInitializedError())
-    let result = await builder.build('item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'not-ready' })
-
-    mockEncryptBytes.mockRejectedValueOnce(new Error('Vault is locked'))
-    result = await builder.build('item-1' as ItemId, 42)
-    expect(result).toEqual({ type: 'not-ready' })
-  })
-
-  it('handles non-transient error by returning error result with reason', async () => {
-    mockEncryptBytes.mockRejectedValue(new Error('Non-transient encryption error'))
-    const result = await builder.build('item-1' as ItemId, 42)
-    expect(result).toEqual({
-      type: 'error',
-      reason: 'Non-transient encryption error',
-    })
-  })
-
-  it('estimates snapshot size properly', () => {
-    const snapshot = {
-      itemId: 'item-1' as ItemId,
-      snapshot: { cipher: '1234567890', iv: '1234', kver: '1' },
-      snapshotCursor: 10,
-      modified: 12345,
-    }
-    const size = builder.estimateSize(snapshot)
-    expect(size).toBe(10 + 4 + 6 + 128)
   })
 })
 

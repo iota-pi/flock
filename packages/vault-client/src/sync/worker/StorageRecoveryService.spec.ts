@@ -32,6 +32,7 @@ describe('StorageRecoveryService', () => {
     }
     mockSnapshotManager = {
       flushPendingSnapshots: vi.fn().mockResolvedValue({ persisted: 1, total: 1 }),
+      tracker: mockSnapshotTracker,
     }
     mockLastModifiedStore = {
       testStorageAvailable: vi.fn().mockResolvedValue(undefined),
@@ -55,7 +56,6 @@ describe('StorageRecoveryService', () => {
       wal: mockWal,
       docStore: mockDocStore,
       snapshotManager: mockSnapshotManager,
-      snapshotTracker: mockSnapshotTracker,
       lastModifiedStore: mockLastModifiedStore,
       broker: mockBroker,
       adapter: mockAdapter,

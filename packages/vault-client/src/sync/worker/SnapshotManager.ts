@@ -1,17 +1,14 @@
-import type { Repo } from '@automerge/automerge-repo/slim'
 import { ItemId } from '@vault/shared'
-import { LastModifiedStore } from './stores/LastModifiedStore'
+import type { LastModifiedStore } from './stores/LastModifiedStore'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import type { ClientEventHub } from './SyncEventHub'
 import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder } from './snapshotBuilder'
-import type { DocCodec } from './domain'
+import type { SnapshotBuilder } from './snapshotBuilder'
 import { SnapshotPusher } from './SnapshotPusher'
 import type { SnapshotPushResult } from './syncProtocol'
 import { fireAndForget } from '../utils/fireAndForget'
-import type { KeyProvider } from '../../api/Keyring'
 import type { SyncSessionState } from './SyncSessionState'
 import type { StoredSnapshotRecorder, UploadableSnapshot } from './snapshotUpload'
 
@@ -27,7 +24,6 @@ export interface SnapshotManagerOptions {
  */
 export class SnapshotManager implements StoredSnapshotRecorder {
   readonly tracker: SnapshotTracker
-  private readonly builder: SnapshotBuilder
   private readonly pusher: SnapshotPusher
   private readonly session: SyncSessionState
 
@@ -35,22 +31,19 @@ export class SnapshotManager implements StoredSnapshotRecorder {
     deps: {
       accountId: string
       session: SyncSessionState
-      repo: Repo
+      lastModifiedStore: LastModifiedStore
+      builder: SnapshotBuilder
       broker: SyncMessageBroker
       getLatestCursor?: () => number
       eventHub: ClientEventHub
       recoveryManager: RecoveryManager
       apiClient: SyncApiClient
-      codec: DocCodec
-      keys: KeyProvider
     },
-    lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
     this.session = deps.session
-    this.builder = new SnapshotBuilder(deps.repo, deps.keys, deps.codec)
     this.tracker = new SnapshotTracker({
-      lastModifiedStore,
+      lastModifiedStore: deps.lastModifiedStore,
       recoveryManager: deps.recoveryManager,
       debounceDelayMs: options?.debounceDelayMs,
       maxWaitMs: options?.maxWaitMs,
@@ -63,7 +56,7 @@ export class SnapshotManager implements StoredSnapshotRecorder {
       accountId: deps.accountId,
       session: deps.session,
       tracker: this.tracker,
-      builder: this.builder,
+      builder: deps.builder,
       broker: deps.broker,
       recoveryManager: deps.recoveryManager,
       apiClient: deps.apiClient,

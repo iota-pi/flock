@@ -13,7 +13,7 @@ import { ConsecutiveFailureCounter } from '../utils/ConsecutiveFailureCounter'
 import { checkAlive, isAbortError } from '../utils/abort'
 import { SizeAwareBatchAccumulator } from '../utils/SizeAwareBatchAccumulator'
 import { SnapshotTracker } from './SnapshotTracker'
-import { SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
+import { estimateSnapshotSize, SnapshotBuilder, toTombstoneSnapshot, type PreparedSnapshotItem } from './snapshotBuilder'
 import { fireAndForget } from '../utils/fireAndForget'
 import { uploadSnapshotBatch, type SnapshotBatchResult, type UploadableSnapshot } from './snapshotUpload'
 import { createLogger } from '../utils/logger'
@@ -214,7 +214,7 @@ export class SnapshotPusher {
     // Failures are counted until an upload is confirmed (see recordStoredSnapshots)
     const snapshot = buildResult.snapshot
 
-    const snapshotSize = this.builder.estimateSize(snapshot)
+    const snapshotSize = estimateSnapshotSize(snapshot)
 
     if (snapshotSize > this.maxPayloadBytes && snapshot.deleted === true) {
       // The full history can never be uploaded, but the server still needs to learn of the deletion
@@ -224,7 +224,7 @@ export class SnapshotPusher {
       return {
         type: 'ready',
         item: { snapshot: tombstone, tick, heads: undefined },
-        size: this.builder.estimateSize(tombstone),
+        size: estimateSnapshotSize(tombstone),
       }
     }
 
@@ -302,7 +302,7 @@ export class SnapshotPusher {
 
     const accumulator = new SizeAwareBatchAccumulator<PreparedSnapshotItem>({
       maxBatchBytes: this.maxPayloadBytes,
-      calculateSize: item => this.builder.estimateSize(item.snapshot),
+      calculateSize: item => estimateSnapshotSize(item.snapshot),
     })
 
     /** Sends the accumulated batch, returning whether the server answered */
