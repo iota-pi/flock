@@ -14,6 +14,8 @@ interface SyncState {
   isLeaderConflict: boolean
   /** Set when this device's local data can't be opened (see LocalDataUnavailableDialog) */
   localDataUnavailable: { unpushedChanges: number } | null
+  /** Whether the browser agreed to keep this site's storage from eviction; null until it has said */
+  isStoragePersisted: boolean | null
 }
 
 export interface SyncSlice extends SyncState {
@@ -28,6 +30,7 @@ export interface SyncSlice extends SyncState {
   clearQuotaExceeded: () => void
   setLeaderConflict: (isConflict: boolean) => void
   setLocalDataUnavailable: (details: SyncState['localDataUnavailable']) => void
+  setStoragePersisted: (persisted: boolean) => void
 }
 
 const initialSyncState: SyncState = {
@@ -39,6 +42,7 @@ const initialSyncState: SyncState = {
   isQuotaExceeded: false,
   isLeaderConflict: false,
   localDataUnavailable: null,
+  isStoragePersisted: null,
 }
 
 export const createSyncSlice: StateCreator<
@@ -86,5 +90,8 @@ export const createSyncSlice: StateCreator<
   },
   setLocalDataUnavailable: details => {
     set(() => ({ localDataUnavailable: details }))
+  },
+  setStoragePersisted: persisted => {
+    set(() => ({ isStoragePersisted: persisted }))
   },
 })

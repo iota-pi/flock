@@ -29,7 +29,9 @@ export default function AppInitializer() {
     )
     initTrpcClient(trackedFetch)
     initVaultTrpcClient(trackedFetch)
-    void ensurePersistentStorage()
+    ensurePersistentStorage()
+      .then(useAppStore.getState().setStoragePersisted)
+      .catch(log.error)
     void loadAccount().catch(log.error)
   }, [setFatalError])
 

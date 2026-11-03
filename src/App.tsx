@@ -24,6 +24,7 @@ import QuotaExceededDialog from './components/dialogs/QuotaExceededDialog'
 import LeaderConflictDialog from './components/dialogs/LeaderConflictDialog'
 import LocalDataUnavailableDialog from './components/dialogs/LocalDataUnavailableDialog'
 import AppUpdateSnackbar from './components/AppUpdateSnackbar'
+import StoragePersistenceNotice from './components/StoragePersistenceNotice'
 
 
 const Root = styled('div')({
@@ -111,6 +112,8 @@ function RootLayout() {
             {syncWarning}
           </Alert>
         )}
+
+        {loggedIn && <StoragePersistenceNotice />}
 
         <MainLayout>
           <Outlet />
