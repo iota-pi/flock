@@ -16,10 +16,24 @@ function rootLocation(draft: Record<string, unknown>): DocLocation | undefined {
   return Automerge.isAutomerge(draft) ? { root: draft, path: [] } : undefined
 }
 
+/** An object written as an Automerge map, as opposed to a list or a scalar such as a date, bytes or a counter */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !(value instanceof Date) &&
+    !(value instanceof Uint8Array) &&
+    !Automerge.isCounter(value) &&
+    !Automerge.isImmutableString(value)
+  )
+}
+
 /**
  * Writes one field, skipping unchanged values. Every write is a new op that beats concurrent edits from
- * other devices, and assigning a string replaces its Text object, so a whole-item save would otherwise
- * undo remote edits to fields it didn't change. Changed strings are diffed into the existing Text object.
+ * other devices, and assigning a string or object replaces its Text object or map, so a whole-item save
+ * would otherwise undo remote edits to fields it didn't change. Changed strings are diffed into the existing
+ * Text object, and nested objects are updated field by field.
  */
 function setField(obj: Record<string, unknown>, key: string, value: unknown, at: DocLocation | undefined): void {
   const current = obj[key]
@@ -28,6 +42,8 @@ function setField(obj: Record<string, unknown>, key: string, value: unknown, at:
     if (key in obj) delete obj[key]
   } else if (Array.isArray(value) && Array.isArray(current)) {
     reconcileAutomergeList(current, value, childLocation(at, key))
+  } else if (isPlainObject(value) && isPlainObject(current)) {
+    updateObjectInPlace(current, value, childLocation(at, key))
   } else if (at && typeof value === 'string' && typeof current === 'string') {
     Automerge.updateText(at.root, [...at.path, key], value)
   } else {

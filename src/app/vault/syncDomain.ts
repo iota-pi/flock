@@ -18,6 +18,10 @@ export const flockItemCodec: DocCodec = {
       delete (normalizedItem as Record<string, unknown>).members
       delete (normalizedItem as Record<string, unknown>).memberPrayerFrequency
       delete (normalizedItem as Record<string, unknown>).memberPrayerTarget
+    } else if (Array.isArray(normalizedItem.members)) {
+      // Devices adding the same member concurrently both keep their insert when the lists merge. The next
+      // save writes the deduplicated list back, which removes the extra copy from the doc.
+      normalizedItem.members = [...new Set(normalizedItem.members)]
     }
 
     const parsed = standardItemSchema.safeParse(normalizedItem)
@@ -56,7 +60,7 @@ export const flockSyncHooks: SyncDomainHooks = {
     if (item.type !== 'group' || !Array.isArray(item.members) || !item.members.includes(oldId)) {
       return null
     }
-    return { members: item.members.map(member => (member === oldId ? newId : member)) }
+    return { members: [...new Set(item.members.map(member => (member === oldId ? newId : member)))] }
   },
 
   prepareRecreatedDoc(doc) {

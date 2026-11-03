@@ -44,6 +44,13 @@ describe('flockItemCodec', () => {
     expect((normalized as Record<string, unknown>).memberPrayerTarget).toBeUndefined()
   })
 
+  it('removes duplicate group members, keeping the first occurrence of each', () => {
+    const group = { ...getBlankGroup('group-1' as ItemId, false), members: ['b', 'a', 'b', 'c', 'a'] as ItemId[] }
+    const decoded = flockItemCodec.decode(group.id, group) as Item
+
+    expect((decoded as Record<string, unknown>).members).toEqual(['b', 'a', 'c'])
+  })
+
   it('turns an unparseable document into a corrupt error item that keeps the raw snapshot', () => {
     const raw = { id: 'bad-1', type: 'group', name: 42 }
     const decoded = flockItemCodec.decode('bad-1' as ItemId, raw) as ErrorItem
@@ -58,6 +65,17 @@ describe('flockItemCodec', () => {
 describe('flockSyncHooks', () => {
   it('repoints group members from the old id to the new id', () => {
     const group = { ...getBlankGroup('group-1' as ItemId, false), members: ['old' as ItemId, 'other' as ItemId] }
+
+    expect(flockSyncHooks.remapReferences!(group, 'old' as ItemId, 'new' as ItemId)).toEqual({
+      members: ['new', 'other'],
+    })
+  })
+
+  it('does not duplicate a member when the group already contains the new id', () => {
+    const group = {
+      ...getBlankGroup('group-1' as ItemId, false),
+      members: ['old' as ItemId, 'new' as ItemId, 'other' as ItemId],
+    }
 
     expect(flockSyncHooks.remapReferences!(group, 'old' as ItemId, 'new' as ItemId)).toEqual({
       members: ['new', 'other'],

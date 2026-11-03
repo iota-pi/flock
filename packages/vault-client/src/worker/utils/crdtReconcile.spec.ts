@@ -406,6 +406,101 @@ describe('crdtReconcile', () => {
       ])
     })
 
+    describe('nested objects', () => {
+      type NestedDoc = {
+        name: string
+        details: { phone?: string; email?: string; bio?: string; tags?: string[] }
+        when?: Date
+        bytes?: Uint8Array
+        extra?: { a: number } | number
+      }
+
+      function createNestedDoc(): Automerge.Doc<NestedDoc> {
+        return Automerge.change(Automerge.init<NestedDoc>(), d => {
+          d.name = 'Test Item'
+          d.details = { phone: '123', email: 'a@example.com', bio: 'one two', tags: ['x'] }
+        })
+      }
+
+      function plain(doc: Automerge.Doc<NestedDoc>): Record<string, unknown> {
+        return JSON.parse(JSON.stringify(doc)) as Record<string, unknown>
+      }
+
+      it('keeps concurrent edits to different fields of a nested object', () => {
+        const doc0 = createNestedDoc()
+        const whole = plain(doc0)
+        const details = whole.details as NestedDoc['details']
+        const docA = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, phone: '456' } })
+        })
+        const docB = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, email: 'b@example.com' } })
+        })
+
+        const merged = Automerge.merge(docA, docB)
+        expect(merged.details.phone).toBe('456')
+        expect(merged.details.email).toBe('b@example.com')
+      })
+
+      it('merges concurrent edits to different parts of a nested string', () => {
+        const doc0 = createNestedDoc()
+        const whole = plain(doc0)
+        const details = whole.details as NestedDoc['details']
+        const docA = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, bio: 'zero one two' } })
+        })
+        const docB = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { ...whole, details: { ...details, bio: 'one two three' } })
+        })
+
+        expect(Automerge.merge(docA, docB).details.bio).toBe('zero one two three')
+      })
+
+      it('writes nothing when a nested object is unchanged', () => {
+        const doc0 = createNestedDoc()
+        const doc1 = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, plain(doc0))
+        })
+        expect(Automerge.getHeads(doc1)).toEqual(Automerge.getHeads(doc0))
+      })
+
+      it('adds and removes nested keys in place', () => {
+        const doc0 = createNestedDoc()
+        const doc1 = Automerge.change(Automerge.clone(doc0), d => {
+          const detailsBefore = d.details
+          applyItemUpdatesToDraft(d, { details: { phone: '123', bio: 'one two', tags: ['x', 'y'] } })
+          expect(d.details).toBe(detailsBefore)
+        })
+        expect(doc1.details).toEqual({ phone: '123', bio: 'one two', tags: ['x', 'y'] })
+      })
+
+      it('replaces an object with a scalar and a scalar with an object', () => {
+        const doc0 = Automerge.change(createNestedDoc(), d => {
+          d.extra = { a: 1 }
+        })
+        const doc1 = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { extra: 2 })
+        })
+        expect(doc1.extra).toBe(2)
+        const doc2 = Automerge.change(doc1, d => {
+          applyItemUpdatesToDraft(d, { extra: { a: 3 } })
+        })
+        expect(doc2.extra).toEqual({ a: 3 })
+      })
+
+      it('replaces dates and bytes rather than treating them as nested objects', () => {
+        const doc0 = Automerge.change(createNestedDoc(), d => {
+          d.when = new Date(1000)
+          d.bytes = new Uint8Array([1, 2])
+        })
+        const doc1 = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { when: new Date(2000), bytes: new Uint8Array([3]) })
+        })
+        expect(doc1.when).toEqual(new Date(2000))
+        expect(doc1.bytes).toEqual(new Uint8Array([3]))
+      })
+    })
+
     it('merges concurrent prayer recordings across devices', () => {
       const doc0 = createBaseDoc()
       let docA = Automerge.clone(doc0)
