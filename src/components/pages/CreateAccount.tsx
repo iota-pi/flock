@@ -179,7 +179,8 @@ function CreateAccountPage() {
           </Typography>
 
           <Typography>
-            Use a password manager to create and save your password. Once you've set your password,
+            Use a password manager to create and save your password.
+            Once you&apos;ve set your password,
             you&apos;ll get an account ID: save it
             {' '}
             <b>in the same entry as the username</b>.
