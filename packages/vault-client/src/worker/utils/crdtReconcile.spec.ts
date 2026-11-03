@@ -205,6 +205,8 @@ describe('crdtReconcile', () => {
       members: ItemId[]
       prayedFor: number[]
       name: string
+      description?: string
+      frequency?: string
     }
 
     function createBaseDoc(): Automerge.Doc<TestDoc> {
@@ -326,6 +328,82 @@ describe('crdtReconcile', () => {
       expect(merged.members).toContain('m2')
       expect(merged.members).toContain('m3')
       expect(merged.members.length).toBe(3)
+    })
+
+    it('keeps a concurrent edit to a field that a whole-item save wrote back unchanged', () => {
+      const doc0 = Automerge.change(createBaseDoc(), d => {
+        d.description = 'Original description'
+        d.frequency = 'weekly'
+      })
+      const whole = JSON.parse(JSON.stringify(doc0)) as Record<string, unknown>
+
+      for (let run = 0; run < 20; run += 1) {
+        // A saves the whole item with only the frequency changed, B edits the description
+        const docA = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { ...whole, frequency: 'monthly' })
+        })
+        const docB = Automerge.change(Automerge.clone(doc0), d => {
+          applyItemUpdatesToDraft(d, { description: 'Edited on B' })
+        })
+
+        const merged = Automerge.merge(docA, docB)
+        expect(merged.description).toBe('Edited on B')
+        expect(merged.frequency).toBe('monthly')
+      }
+    })
+
+    it('writes nothing when a whole-item save matches the doc', () => {
+      const doc0 = createBaseDoc()
+      const whole = JSON.parse(JSON.stringify(doc0)) as Record<string, unknown>
+      const doc1 = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, whole)
+      })
+      expect(Automerge.getHeads(doc1)).toEqual(Automerge.getHeads(doc0))
+    })
+
+    it('merges concurrent edits to different parts of the same string', () => {
+      const doc0 = Automerge.change(createBaseDoc(), d => {
+        d.description = 'one two'
+      })
+      const docA = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, { description: 'zero one two' })
+      })
+      const docB = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, { description: 'one two three' })
+      })
+      expect(Automerge.merge(docA, docB).description).toBe('zero one two three')
+    })
+
+    it('merges concurrent edits to the same note texts while notes are inserted around them', () => {
+      const doc0 = Automerge.change(createBaseDoc(), d => {
+        d.notes.push({ id: 'n2', text: 'Note 2', archived: false, time: 200 })
+      })
+      // A inserts notes on both sides of n1 (the LCS path) and edits n1 and n2 (the suffix path)
+      const docA = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, {
+          notes: [
+            { id: 'n3', text: 'Note 3', archived: false, time: 300 },
+            { id: 'n1', text: 'Note 1 from A', archived: false, time: 100 },
+            { id: 'n4', text: 'Note 4', archived: false, time: 400 },
+            { id: 'n2', text: 'Note 2 from A', archived: false, time: 200 },
+          ],
+        })
+      })
+      const docB = Automerge.change(Automerge.clone(doc0), d => {
+        applyItemUpdatesToDraft(d, {
+          notes: [
+            { id: 'n1', text: 'B: Note 1', archived: false, time: 100 },
+            { id: 'n2', text: 'B: Note 2', archived: false, time: 200 },
+          ],
+        })
+      })
+      const merged = Automerge.merge(docA, docB)
+      expect(merged.notes.map(n => n.text)).toEqual([
+        'Note 3',
+        'B: Note 1 from A',
+        'Note 4',
+        'B: Note 2 from A',
+      ])
     })
 
     it('merges concurrent prayer recordings across devices', () => {
