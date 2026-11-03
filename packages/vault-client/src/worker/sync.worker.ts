@@ -367,6 +367,9 @@ export class SyncWorker implements SyncApi {
   pushSnapshots = () =>
     this.withContext(ctx => ctx.services.snapshotManager.flushPendingSnapshots())
 
+  getUnsyncedChanges = () =>
+    this.withContext(ctx => ctx.getUnsyncedChanges())
+
   retrySave = () =>
     this.withContext(ctx => ctx.retrySave()).catch(() => ({
       success: false,

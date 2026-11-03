@@ -10,6 +10,7 @@ import { clearSyncMetadataStorage } from './stores/syncMetadataStorage'
 import { MigrationRequiredError } from './DataVersionTracker'
 import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { AbortError } from '../utils/abort'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
@@ -115,6 +116,7 @@ beforeEach(() => {
       handleQuotaExceeded = vi.fn().mockResolvedValue(1)
       append = vi.fn().mockResolvedValue(undefined)
       readAll = vi.fn().mockResolvedValue(new Map())
+      pendingItemIds = vi.fn().mockResolvedValue(new Set())
     },
   })
   spyOnExports(docStoreModule, {
@@ -431,6 +433,62 @@ describe('SyncWorkerContext', () => {
       expect(context.services.adapter.triggerReNegotiation).toHaveBeenCalled()
       expect(persistTimestampsSpy).toHaveBeenCalled()
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
+    })
+  })
+
+  describe('getUnsyncedChanges', () => {
+    function stubPending(options: { wal?: string[], dirty?: string[], quarantined?: string[] }) {
+      vi.spyOn(context.services.wal, 'pendingItemIds').mockResolvedValue(new Set((options.wal ?? []) as ItemId[]))
+      vi.spyOn(context.services.snapshotManager.tracker, 'getDirtyItemIds').mockReturnValue((options.dirty ?? []) as ItemId[])
+      vi.spyOn(context.services.recoveryManager, 'listRecoveryItems').mockResolvedValue(
+        (options.quarantined ?? []).map(itemId => ({
+          id: `entry-${itemId}`,
+          itemId: itemId as ItemId,
+          reason: 'failed',
+          kind: 'unknown' as const,
+          createdAt: 0,
+        })),
+      )
+    }
+
+    it('pushes pending changes before counting them', async () => {
+      stubPending({})
+
+      expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 0, quarantinedItems: 0 })
+      expect(context.services.orchestrator.flush).toHaveBeenCalled()
+      expect(context.services.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
+    })
+
+    it('counts each item with unpushed WAL entries or a pending snapshot once, and quarantined items apart', async () => {
+      stubPending({
+        wal: ['item-1', 'item-2'],
+        dirty: ['item-2', 'item-3', 'item-4'],
+        quarantined: ['item-4', 'item-5', 'item-5'],
+      })
+
+      expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 3, quarantinedItems: 2 })
+    })
+
+    it('still counts when the snapshot push fails', async () => {
+      stubPending({ dirty: ['item-1'] })
+      vi.spyOn(context.services.snapshotManager, 'flushPendingSnapshots').mockRejectedValue(new Error('offline'))
+
+      expect(await context.getUnsyncedChanges()).toEqual({ pendingItems: 1, quarantinedItems: 0 })
+    })
+
+    it('stops waiting for a snapshot push that does not finish', async () => {
+      vi.useFakeTimers()
+      try {
+        stubPending({ dirty: ['item-1'] })
+        vi.spyOn(context.services.snapshotManager, 'flushPendingSnapshots').mockReturnValue(new Promise(() => {}))
+
+        const result = context.getUnsyncedChanges()
+        await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.unsyncedChangesFlush)
+
+        expect(await result).toEqual({ pendingItems: 1, quarantinedItems: 0 })
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 
@@ -929,7 +987,18 @@ describe('SyncWorkerContext', () => {
       'ManifestSyncManager',
       'SyncOrchestrator',
       'ItemReencryptor',
+      'SyncProgressTracker',
     ])
+  })
+
+  it('passes poll results to the status manager and the sync progress tracker', () => {
+    const onPollResult = vi.spyOn(context.services.syncProgress, 'onPollResult')
+    const handlePollResult = vi.spyOn(context.statusManager, 'handlePollResult')
+
+    ;(context.services.orchestrator as any).deps.onPollResult('success')
+
+    expect(handlePollResult).toHaveBeenCalledWith('success')
+    expect(onPollResult).toHaveBeenCalledWith('success')
   })
 
   it('uses the given apiClient', async () => {

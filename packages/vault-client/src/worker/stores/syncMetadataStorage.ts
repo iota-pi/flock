@@ -17,6 +17,8 @@ export const SYNC_METADATA_KEYS = {
   SNAPSHOTS_DOC_BOUND: 'snapshotsDocBound',
   /** The app's data version this device's local data has been migrated to (see DataVersionTracker) */
   DEVICE_DATA_VERSION: 'deviceDataVersion',
+  /** When this device last completed a sync with the server (see SyncProgressTracker) */
+  LAST_SYNCED_AT: 'lastSyncedAt',
 } as const
 
 /**

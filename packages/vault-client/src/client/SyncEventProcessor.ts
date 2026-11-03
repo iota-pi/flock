@@ -86,6 +86,9 @@ export class SyncEventProcessor<TDoc extends VaultDoc = VaultDoc, TMeta extends 
       case 'statusChange':
         this.sink.setSyncStatus(event.status)
         break
+      case 'syncProgress':
+        this.sink.setSyncProgress?.(event.progress)
+        break
       case 'itemUpdated': {
         const { id, item } = event
         // The worker's codec produces the app's document type

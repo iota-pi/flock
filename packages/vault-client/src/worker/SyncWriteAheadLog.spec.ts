@@ -103,6 +103,17 @@ describe('SyncWriteAheadLog', () => {
     expect(remaining[0].id).toBe(id2)
   })
 
+  it('lists the items with pending entries', async () => {
+    const id1 = await wal.append('item-1' as ItemId, new Uint8Array([1]))
+    await wal.append('item-1' as ItemId, new Uint8Array([2]))
+    await wal.append('item-2' as ItemId, new Uint8Array([3]))
+    const id3 = await wal.append('item-3' as ItemId, new Uint8Array([4]))
+
+    await wal.remove([id1, id3])
+
+    expect(await wal.pendingItemIds()).toEqual(new Set(['item-1', 'item-2']))
+  })
+
   it('clears all entries on clear()', async () => {
     await wal.append('item-1' as ItemId, new Uint8Array([1]))
     await wal.append('item-2' as ItemId, new Uint8Array([2]))

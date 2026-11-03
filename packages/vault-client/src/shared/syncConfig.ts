@@ -28,6 +28,12 @@ export const SYNC_TIMEOUTS = {
   workerRestartDelay: 1000,
   /** Timeout for graceful worker shutdown before forcing termination */
   workerShutdown: 1000,
+  /** How long counting unsynced changes waits for pending snapshots to upload first */
+  unsyncedChangesFlush: 5000,
+  /** Debounce before recounting the changes waiting to sync, after something that may have changed them */
+  syncProgressDebounce: 300,
+  /** How often the changes waiting to sync are recounted anyway, so a tab sees what the account's other tabs pushed */
+  syncProgressInterval: 15000,
   /** Debounce before uploading a snapshot that manifest sync found missing or newer on this device */
   upstreamSnapshotDebounce: 2000,
 } as const

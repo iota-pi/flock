@@ -64,6 +64,14 @@ describe('SyncWriteAheadLog with a cipher', () => {
     expect(entries.get('item-1' as ItemId)).toEqual([expect.objectContaining({ id, data: MESSAGE })])
   })
 
+  it('lists pending items from the readable descriptors, even an entry that cannot be opened', async () => {
+    await wal.append('item-1' as ItemId, MESSAGE)
+    const badId = await wal.append('item-2' as ItemId, MESSAGE)
+    corrupt(badId)
+
+    expect(await wal.pendingItemIds()).toEqual(new Set(['item-1', 'item-2']))
+  })
+
   function corrupt(id: string): void {
     storeFor('sealedWalDatabase')!.data.get(id).sealed.ct[0] ^= 1
   }

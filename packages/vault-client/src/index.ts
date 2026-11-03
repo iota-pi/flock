@@ -42,7 +42,9 @@ export type { SyncStateSink, SyncTelemetry } from './client/host'
 export type {
   DataVersionStatus,
   MigrationRequiredReason,
+  SyncProgress,
   SyncStatus,
+  UnsyncedChanges,
   VaultDoc,
   VaultMetadata,
 } from './shared/types'

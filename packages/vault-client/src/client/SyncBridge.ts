@@ -326,6 +326,7 @@ export class SyncBridgeService<TDoc extends VaultDoc = VaultDoc, TMeta extends V
   readonly flushSync = this.forward('flushSync')
   readonly fullResync = this.forward('fullResync')
   readonly pushSnapshots = this.forward('pushSnapshots')
+  readonly getUnsyncedChanges = this.forward('getUnsyncedChanges')
   readonly retrySave = this.forward('retrySave')
   readonly checkDataVersion = this.forward('checkDataVersion')
   readonly retryRecoveryItem = this.forward('retryRecoveryItem')

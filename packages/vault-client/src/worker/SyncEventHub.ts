@@ -1,4 +1,4 @@
-import type { MigrationRequiredReason, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
+import type { MigrationRequiredReason, SyncProgress, SyncStatus, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ItemId } from '@vault/shared'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 import { createLogger } from '../utils/logger'
@@ -6,6 +6,8 @@ import { createLogger } from '../utils/logger'
 export type ClientEvent =
   | { type: 'ready' }
   | { type: 'statusChange'; status: SyncStatus }
+  /** Sent when the number of items waiting to sync or the last sync time changed (see SyncProgressTracker) */
+  | { type: 'syncProgress'; progress: SyncProgress }
   | { type: 'itemUpdated'; id: string; item: VaultDoc | null }
   | { type: 'indexUpdated'; itemIds: ItemId[] }
   | { type: 'metadataUpdated'; metadata: VaultMetadata }

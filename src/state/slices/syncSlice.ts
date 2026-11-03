@@ -1,10 +1,12 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
-import type { SyncStatus } from '@vault/client'
+import type { SyncProgress, SyncStatus } from '@vault/client'
 
 
 interface SyncState {
   syncStatus: SyncStatus
+  /** How many items are waiting to sync and when this device last synced, once the worker has said */
+  syncProgress: SyncProgress | null
   fatalError: string | null
   syncWarning: string | null
   generation: number
@@ -16,6 +18,7 @@ interface SyncState {
 
 export interface SyncSlice extends SyncState {
   setSyncStatus: (status: SyncState['syncStatus']) => void
+  setSyncProgress: (progress: SyncProgress | null) => void
   setFatalError: (message: string) => void
   clearFatalError: () => void
   setSyncWarning: (message: string) => void
@@ -29,6 +32,7 @@ export interface SyncSlice extends SyncState {
 
 const initialSyncState: SyncState = {
   syncStatus: 'idle',
+  syncProgress: null,
   fatalError: null,
   syncWarning: null,
   generation: 0,
@@ -46,6 +50,9 @@ export const createSyncSlice: StateCreator<
   ...initialSyncState,
   setSyncStatus: status => {
     set(() => ({ syncStatus: status }))
+  },
+  setSyncProgress: progress => {
+    set(() => ({ syncProgress: progress }))
   },
   setFatalError: message => {
     set(() => ({ fatalError: message }))

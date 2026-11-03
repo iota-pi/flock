@@ -351,6 +351,17 @@ export class SyncWriteAheadLog {
     return result
   }
 
+  /** The items with entries still waiting to be pushed. Reads only the descriptors, so nothing is opened. */
+  async pendingItemIds(): Promise<Set<ItemId>> {
+    const itemIds = new Set<ItemId>()
+    await this.storage.iterate<StoredWalEntry, void>(entry => {
+      if (this.cipher ? entry.sealed : entry.data) {
+        itemIds.add(entry.itemId)
+      }
+    })
+    return itemIds
+  }
+
   /**
    * Remove specific entries by ID after successful network send.
    */

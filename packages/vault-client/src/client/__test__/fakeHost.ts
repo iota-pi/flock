@@ -1,8 +1,9 @@
-import type { SyncStatus } from '../../shared/types'
+import type { SyncProgress, SyncStatus } from '../../shared/types'
 import type { SyncStateSink, SyncTelemetry } from '../host'
 
 interface FakeSyncState {
   syncStatus: SyncStatus
+  syncProgress: SyncProgress | null
   syncWarning: string | null
   fatalError: string | null
   isQuotaExceeded: boolean
@@ -13,6 +14,7 @@ interface FakeSyncState {
 export function createFakeSink() {
   const state: FakeSyncState = {
     syncStatus: 'idle',
+    syncProgress: null,
     syncWarning: null,
     fatalError: null,
     isQuotaExceeded: false,
@@ -25,6 +27,9 @@ export function createFakeSink() {
     updateMetadata: vi.fn(),
     setSyncStatus: vi.fn((status: SyncStatus) => {
       state.syncStatus = status
+    }),
+    setSyncProgress: vi.fn((progress: SyncProgress) => {
+      state.syncProgress = progress
     }),
     getSyncWarning: () => state.syncWarning,
     setSyncWarning: vi.fn((message: string) => {

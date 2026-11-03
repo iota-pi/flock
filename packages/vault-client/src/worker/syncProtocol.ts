@@ -1,4 +1,4 @@
-import type { DataVersionStatus, ReencryptResult, VaultDoc, VaultMetadata } from '../shared/types'
+import type { DataVersionStatus, ReencryptResult, UnsyncedChanges, VaultDoc, VaultMetadata } from '../shared/types'
 import type { ManualRecoveryEntry, ReadManualRecoveryOptions } from '../shared/manualRecoveryStore'
 import type { BackupSyncState } from '../shared/backupSyncState'
 import type { ItemId } from '@vault/shared'
@@ -43,6 +43,8 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   flushSync: () => Promise<void>
   fullResync: () => Promise<boolean>
   pushSnapshots: () => Promise<SnapshotPushResult>
+  /** Tries to push pending changes (briefly), then counts what still hasn't reached the server */
+  getUnsyncedChanges: () => Promise<UnsyncedChanges>
   retrySave: () => Promise<RetrySaveResult>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
   /** Replaces an item whose local copy can't be decrypted with the server's copy */

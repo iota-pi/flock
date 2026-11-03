@@ -18,6 +18,8 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import type { ClientEventHub } from './SyncEventHub'
 import { SyncStatusManager } from './SyncStatusManager'
+import { SyncProgressTracker } from './SyncProgressTracker'
+import { LastSyncedStore } from './stores/LastSyncedStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
@@ -36,12 +38,14 @@ import { SyncSessionState } from './SyncSessionState'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
 import { getVaultStorageNames } from '../shared/storageNames'
-import { AbortError } from '../utils/abort'
+import { AbortError, untilAborted, withTimeout } from '../utils/abort'
+import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { DSK_KEY, openLocalStorage, type LocalStorage } from './localEncryption/openLocalStorage'
 import { LocalCipher, LocalDataUnreadableError, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import type { KeyProvider, LocalKeyWrapper } from '../keys/Keyring'
 import { createLogger } from '../utils/logger'
 import type { RetrySaveResult } from './syncProtocol'
+import type { UnsyncedChanges } from '../shared/types'
 
 const log = createLogger('SyncWorkerContext')
 
@@ -147,6 +151,7 @@ export interface SyncWorkerServices {
   accountSettings: AccountSettings
   snapshotFormatUpgrade: SnapshotFormatUpgrade | null
   dataVersionTracker: DataVersionTracker
+  syncProgress: SyncProgressTracker
 }
 
 export class SyncWorkerContext {
@@ -278,12 +283,21 @@ export class SyncWorkerContext {
       onWalEntriesPruned: itemIds => this._services?.broker.fallbackToSnapshot(itemIds),
     })
 
+    const syncProgress = new SyncProgressTracker({
+      eventHub: clientEventHub,
+      store: new LastSyncedStore(accountId),
+      countUnsyncedChanges: () => this.countUnsyncedChanges(),
+    })
+
     const broker = new SyncMessageBroker({
       adapter,
       pullQueueManager,
       session,
       wal,
-      onFlushNeeded: () => this._services?.orchestrator.flush(),
+      onFlushNeeded: () => {
+        this._services?.orchestrator.flush()
+        syncProgress.scheduleRecount()
+      },
       requestSnapshot: itemIds => this.requestSnapshot(itemIds),
     })
 
@@ -411,7 +425,10 @@ export class SyncWorkerContext {
           repoManager.resumeBroadcastSync()
         }
       },
-      onPollResult: outcome => this.statusManager.handlePollResult(outcome),
+      onPollResult: outcome => {
+        this.statusManager.handlePollResult(outcome)
+        syncProgress.onPollResult(outcome)
+      },
     })
 
     const storageRecoveryService = new StorageRecoveryService({
@@ -462,6 +479,7 @@ export class SyncWorkerContext {
       accountSettings,
       snapshotFormatUpgrade,
       dataVersionTracker,
+      syncProgress,
     }
   }
 
@@ -530,7 +548,7 @@ export class SyncWorkerContext {
     const {
       realtimeBus, repoManager, adapter, broker, storageRecoveryService, indexManager, recoveryManager,
       docStore, snapshotManager, syncedHeadsStore, pullQueueManager, poller, manifestSyncManager,
-      orchestrator, itemReencryptor, snapshotFormatUpgrade,
+      orchestrator, itemReencryptor, snapshotFormatUpgrade, syncProgress,
     } = services
 
     // Teardown runs in LIFO order (reverse registration order).
@@ -582,6 +600,11 @@ export class SyncWorkerContext {
         onStop: () => orchestrator.shutdown(),
       },
       { name: 'ItemReencryptor', onStop: () => itemReencryptor.cancelScheduled() },
+      {
+        name: 'SyncProgressTracker',
+        onStart: () => syncProgress.start(),
+        onStop: () => syncProgress.stop(),
+      },
     ]
     if (snapshotFormatUpgrade) {
       registrations.push({ name: 'SnapshotFormatUpgrade', onStop: () => snapshotFormatUpgrade.stop() })
@@ -759,5 +782,39 @@ export class SyncWorkerContext {
 
   claimLeader(): void {
     this.services.orchestrator.claimLeader()
+  }
+
+  /**
+   * Counts the items whose local changes the server may not have: unpushed WAL entries or a snapshot
+   * still to upload (pruned WAL entries mark their items dirty), plus quarantined items. It first
+   * gives pending pushes a short chance to finish, so changes about to sync aren't reported.
+   */
+  async getUnsyncedChanges(): Promise<UnsyncedChanges> {
+    const { orchestrator, snapshotManager } = this.services
+    orchestrator.flush()
+    try {
+      await withTimeout(
+        SYNC_TIMEOUTS.unsyncedChangesFlush,
+        signal => untilAborted(snapshotManager.flushPendingSnapshots(), signal),
+      )
+    } catch (error) {
+      log.warn('Pending snapshots did not finish uploading before counting unsynced changes', error)
+    }
+    return this.countUnsyncedChanges()
+  }
+
+  /** Counts the items whose local changes the server may not have, without pushing anything first */
+  async countUnsyncedChanges(): Promise<UnsyncedChanges> {
+    const { snapshotManager, wal, recoveryManager } = this.services
+    const [walItemIds, recoveryEntries] = await Promise.all([
+      wal.pendingItemIds(),
+      recoveryManager.listRecoveryItems(),
+    ])
+    const quarantined = new Set(recoveryEntries.map(entry => entry.itemId))
+    const pending = new Set([...walItemIds, ...snapshotManager.tracker.getDirtyItemIds()])
+    for (const itemId of quarantined) {
+      pending.delete(itemId)
+    }
+    return { pendingItems: pending.size, quarantinedItems: quarantined.size }
   }
 }
