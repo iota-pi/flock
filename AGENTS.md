@@ -58,13 +58,14 @@ Read [docs/sync-design.md](docs/sync-design.md) before changing or reviewing any
 6. **DocHandle listeners must use the same function reference** for `.on()` and `.off()`.
 7. **`ClientEventHub.emit` doesn't await listeners.** Async listeners must synchronize themselves.
 8. **Snapshot reconciliation compares server-assigned `version` with the local `baseVersion`**, not timestamps.
-9. **Encrypt and decrypt snapshots and sync messages with the ID of the item they belong to** (`encryptBytes(bytes, itemId)`, `decryptWithKeyResolution(payload, { docId })`). Every server path must keep the ciphertext's `format` field.
+9. **Encrypt and decrypt snapshots and sync messages with the ID of the item they belong to** (`encryptBytes(bytes, itemId)`, `decryptWithKeyResolution(payload, { docId })`), and snapshot heads with purpose `heads` as well. Every server path must keep the ciphertext's `format` field, and every item write must set or remove `heads`.
 10. **Never write user content to local storage unsealed.** Seal and open outside IndexedDB transactions (awaiting WebCrypto inside one throws `TransactionInactiveError`). A record that fails to decrypt throws; it's never treated as missing, and local data is never reset without the user confirming (docs/local-encryption.md).
 
 ## Intentional designs (don't "fix" or flag these)
 
 - Snapshot uploads are unconditional last-write-wins (LWW) with no OCC. Hydration is a CRDT merge, so stale snapshots are harmless.
 - Pull queries are strictly `cursor > from` with no lookback window. A lookback previously caused infinite re-downloads.
+- Pulls leave out messages stamped in the last `SYNC_SETTLE_MS` (10s), so that slow writes and the eventually consistent GSI land before a client can read past them.
 - Per-item pulls are filtered out of the global pull result.
 - WAL pruning can drop unpushed entries, because snapshots carry the full state.
 - The cross-tab adapter waits inline for a missing key version, buffering after 5s.

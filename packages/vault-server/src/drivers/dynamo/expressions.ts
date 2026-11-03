@@ -72,22 +72,33 @@ export function partitionKeyCondition(
 }
 
 /**
- * The key condition for a partition, optionally limited to cursors strictly after `afterCursor`.
- * Pulls have no lookback (docs/sync-design.md).
+ * The key condition for a partition, optionally limited to cursors strictly after `afterCursor` and
+ * at most `throughCursor`. Pulls have no lookback (docs/sync-design.md).
  */
 export function cursorKeyCondition(
   partitionKey: string,
   partitionValue: unknown,
   afterCursor: number | undefined,
+  throughCursor?: number,
 ): Pick<QueryCommandInput, 'KeyConditionExpression' | 'ExpressionAttributeNames' | 'ExpressionAttributeValues'> {
   const partition = partitionKeyCondition(partitionKey, partitionValue)
-  if (typeof afterCursor !== 'number') {
+  const hasLower = typeof afterCursor === 'number'
+  const hasUpper = typeof throughCursor === 'number'
+  if (!hasLower && !hasUpper) {
     return partition
   }
+  // Key conditions have no strict lower bound with an upper one, so BETWEEN starts one past the cursor
+  const cursorCondition = hasLower && hasUpper
+    ? '#c BETWEEN :cursor AND :through'
+    : hasLower ? '#c > :cursor' : '#c <= :through'
   return {
-    KeyConditionExpression: `${partition.KeyConditionExpression} AND #c > :cursor`,
+    KeyConditionExpression: `${partition.KeyConditionExpression} AND ${cursorCondition}`,
     ExpressionAttributeNames: { '#c': 'cursor' },
-    ExpressionAttributeValues: { ...partition.ExpressionAttributeValues, ':cursor': afterCursor },
+    ExpressionAttributeValues: {
+      ...partition.ExpressionAttributeValues,
+      ...(hasLower ? { ':cursor': hasUpper ? afterCursor + 1 : afterCursor } : {}),
+      ...(hasUpper ? { ':through': throughCursor } : {}),
+    },
   }
 }
 

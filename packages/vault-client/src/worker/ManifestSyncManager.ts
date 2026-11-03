@@ -14,13 +14,13 @@ import { isAuthError } from '../utils/errorClassifier'
 import { errorMessage } from '../utils/errorMessage'
 import { calculateSyncDeltas, type QuarantinedItem, type SyncDeltas } from './calculateSyncDeltas'
 import { ManifestHydrator } from './ManifestHydrator'
+import { findSnapshotsCoveredLocally } from './findSnapshotsCoveredLocally'
 import type { KeyProvider } from '../keys/Keyring'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ManifestSyncManager')
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
-const MANIFEST_SYNC_OFFLINE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
+const MANIFEST_SYNC_MIN_GAP_MS = SYNC_TIMEOUTS.manifestSyncMinGap
 const UPSTREAM_SNAPSHOT_DEBOUNCE_MS = SYNC_TIMEOUTS.upstreamSnapshotDebounce
 
 export interface ManifestSyncManagerDeps {
@@ -38,7 +38,7 @@ export interface ManifestSyncManagerDeps {
   decodeLegacyItem?: SyncDomain['decodeLegacyItem']
   /** Called when the server holds legacy rows and there is no `decodeLegacyItem` hook to read them */
   onMigrationRequired?: () => void
-  /** Fetches the manifest on every sync, rather than at most daily on a device that has items */
+  /** Fetches the manifest on every sync, rather than at most every `manifestSyncMinGap` on a device that has items */
   fetchManifestEverySync?: boolean
   /** Moves settings that predate the settings document into it (see AccountSettings) */
   migrateLegacySettings?: () => Promise<void>
@@ -98,9 +98,7 @@ export class ManifestSyncManager {
 
   private shouldSkipSync(force: boolean, hasKnownItems: boolean, timeSinceLastSync: number): boolean {
     if (this.deps.fetchManifestEverySync) return false
-    const isOfflineTooLong = timeSinceLastSync >= MANIFEST_SYNC_OFFLINE_THRESHOLD_MS
-    const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
-    return !force && !isOfflineTooLong && isWithinDailyWindow
+    return !force && hasKnownItems && timeSinceLastSync < MANIFEST_SYNC_MIN_GAP_MS
   }
 
   private async fetchRemoteManifest(
@@ -228,6 +226,11 @@ export class ManifestSyncManager {
         const localState = await this.collectLocalSyncState(signal)
         checkAlive(signal, this.isAlive)
 
+        if (!force) {
+          await this.skipSnapshotsCoveredLocally(remoteData.manifest, gating.knownItemIds, localState, signal)
+          checkAlive(signal, this.isAlive)
+        }
+
         // Step 1: Calculate sync deltas
         const deltas = calculateSyncDeltas({
           manifest: remoteData.manifest,
@@ -304,6 +307,41 @@ export class ManifestSyncManager {
     for (const id of deltas.upstreamIds) {
       this.deps.snapshotManager.tracker.markItemDirty(id, UPSTREAM_SNAPSHOT_DEBOUNCE_MS)
     }
+  }
+
+  /**
+   * Raises `baseVersion` to the server's for items whose snapshot this device already has, so that
+   * the deltas don't fetch them. They count as hydrated: the adapter learns the server has their heads.
+   */
+  private async skipSnapshotsCoveredLocally(
+    manifest: ManifestEntry[],
+    knownItemIds: ItemId[],
+    localState: Awaited<ReturnType<ManifestSyncManager['collectLocalSyncState']>>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const covered = await findSnapshotsCoveredLocally({
+      manifest,
+      activeItemIds: knownItemIds,
+      tombstoneItemIds: localState.tombstoneItemIds,
+      quarantinedMap: localState.quarantinedMap,
+      localVersionsMap: localState.localVersionsMap,
+      keys: this.deps.keys,
+      docStore: this.deps.docStore,
+      signal,
+      isAlive: this.isAlive,
+    })
+    if (covered.length === 0) return
+    checkAlive(signal, this.isAlive)
+
+    for (const { itemId, version } of covered) {
+      const isDirty = localState.localVersionsMap.get(itemId)?.isDirty ?? false
+      localState.localVersionsMap.set(itemId, { baseVersion: version, isDirty })
+    }
+    await this.deps.snapshotManager.tracker.importVersions(covered.map(({ itemId, version }) => [itemId, version]))
+    for (const { itemId, heads } of covered) {
+      this.deps.onItemSnapshotHydrated?.(itemId, heads)
+    }
+    log.info(`Skipped fetching ${covered.length} snapshots this device already has`)
   }
 
   private async migrateLegacySettings() {

@@ -30,6 +30,11 @@ export const SYNC_TIMEOUTS = {
   foregroundPingInterval: 30_000,
   /** Default interval between periodic server manifest reconciliations */
   manifestSyncInterval: 60 * 60 * 1000,
+  /**
+   * A manifest sync (other than a forced one) is skipped this soon after the last clean one. Shorter
+   * than `manifestSyncInterval`, which fires just under an interval after the last one finished.
+   */
+  manifestSyncMinGap: 50 * 60 * 1000,
   /** Delay before auto-restarting worker after crash */
   workerRestartDelay: 1000,
   /** Timeout for graceful worker shutdown before forcing termination */

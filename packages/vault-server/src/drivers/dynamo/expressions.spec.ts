@@ -117,6 +117,22 @@ describe('cursorKeyCondition', () => {
       ExpressionAttributeValues: { ':account': 'acct', ':cursor': 0 },
     })
   })
+
+  it('adds an inclusive upper bound, starting one past the cursor', () => {
+    expect(cursorKeyCondition('account', 'acct', 10, 50)).toEqual({
+      KeyConditionExpression: 'account = :account AND #c BETWEEN :cursor AND :through',
+      ExpressionAttributeNames: { '#c': 'cursor' },
+      ExpressionAttributeValues: { ':account': 'acct', ':cursor': 11, ':through': 50 },
+    })
+  })
+
+  it('limits only the upper end without a cursor', () => {
+    expect(cursorKeyCondition('account', 'acct', undefined, 50)).toEqual({
+      KeyConditionExpression: 'account = :account AND #c <= :through',
+      ExpressionAttributeNames: { '#c': 'cursor' },
+      ExpressionAttributeValues: { ':account': 'acct', ':through': 50 },
+    })
+  })
 })
 
 describe('projection', () => {

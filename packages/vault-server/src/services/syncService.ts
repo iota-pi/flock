@@ -6,16 +6,27 @@ import { mapWithConcurrency } from '@vault/shared'
 export type PollSyncInput = z.infer<typeof SyncPollBatchSchema>
 
 type PushSyncBatchInput = Pick<PollSyncInput, 'account'> & { messages: PollSyncInput['pushMessages'] }
-type PullSyncBatchInput = Pick<PollSyncInput, 'account'> & { cursors: PollSyncInput['pullCursors'] }
+type PullSyncBatchInput = Pick<PollSyncInput, 'account'> & {
+  cursors: PollSyncInput['pullCursors']
+  throughCursor?: number
+}
 type PullSyncMessageInput = Pick<PollSyncInput, 'account'> & {
   itemId: ItemId
   cursor: number
+  throughCursor?: number
   pageToken?: PageToken
 }
 
 type PullSyncGlobalInput = Pick<PollSyncInput, 'account'> & {
   cursor: number
+  throughCursor?: number
   pageToken?: PageToken
+}
+
+export interface PollSyncOptions {
+  /** How old a message's cursor must be before a pull returns it (`SYNC_SETTLE_MS` by default) */
+  settleMs?: number
+  now?: number
 }
 
 /** The driver methods the sync service uses */
@@ -61,6 +72,20 @@ export const DEFAULT_PULL_BATCH_CONCURRENCY = 10
 const TIMESTAMP_MULTIPLIER = 10_000_000
 const MAX_OFFSET = 9_999_000
 const CUSTOM_EPOCH = 1760000000000 // 2025-10-09T08:53:20.000Z. Never change it: cursors must keep increasing
+
+/**
+ * Pulls leave out messages stamped in the last `SYNC_SETTLE_MS`. A message's cursor is fixed when its
+ * push starts, but the write can take seconds and the account-wide pull reads an eventually
+ * consistent index, so a pull could otherwise return a later message first and move the client's
+ * cursor past this one (docs/sync-design.md). Longer than a push's worst-case unprocessed-item retries.
+ */
+export const SYNC_SETTLE_MS = 5_000
+
+/** The highest cursor of the last whole second that ended at least `settleMs` before `now` */
+export function settledCursorAt(now: number, settleMs: number): number {
+  const settledSeconds = Math.floor(Math.max(0, now - settleMs - CUSTOM_EPOCH) / 1000)
+  return settledSeconds * TIMESTAMP_MULTIPLIER - 1
+}
 
 /** The cursor a client reaches after `messages` (which are in cursor order), starting from `fromCursor` */
 function nextCursorAfter(messages: StoredSyncMessage[], fromCursor: number): number {
@@ -109,6 +134,7 @@ async function pullItemSyncMessages(
     account: input.account,
     itemId: input.itemId,
     fromCursor: input.cursor,
+    throughCursor: input.throughCursor,
     pageToken: input.pageToken,
   })
 
@@ -145,6 +171,7 @@ export async function pullSyncBatch(
       account: input.account,
       itemId,
       cursor,
+      throughCursor: input.throughCursor,
       pageToken,
     }),
   )
@@ -157,6 +184,7 @@ export async function pullSyncGlobal(
   const { items, hasMore, nextPageToken, scannedThroughCursor } = await vault.getGlobalSyncMessagesAfterCursor({
     account: input.account,
     cursor: input.cursor,
+    throughCursor: input.throughCursor,
     pageToken: input.pageToken,
   })
 
@@ -179,6 +207,7 @@ export async function pullSyncGlobal(
 export async function pollSync(
   vault: SyncRepository,
   input: PollSyncInput,
+  { settleMs = SYNC_SETTLE_MS, now = Date.now() }: PollSyncOptions = {},
 ): Promise<PollSyncResult> {
   if (input.globalPageToken) {
     vault.validatePageToken({ account: input.account, pageToken: input.globalPageToken })
@@ -198,16 +227,19 @@ export async function pollSync(
     ? await pushSyncBatch(vault, { account: input.account, messages: input.pushMessages })
     : []
 
+  // One bound for both pulls, so per-item and account-wide results agree
+  const throughCursor = settledCursorAt(now, settleMs)
   const shouldPullBatch = input.pullCursors.length > 0
   const shouldPullGlobal = typeof input.clientLatestCursor === 'number' || !!input.globalPageToken
   const [batchPullResults, globalPullResult] = await Promise.all([
     shouldPullBatch
-      ? pullSyncBatch(vault, { account: input.account, cursors: input.pullCursors })
+      ? pullSyncBatch(vault, { account: input.account, cursors: input.pullCursors, throughCursor })
       : null,
     shouldPullGlobal
       ? pullSyncGlobal(vault, {
         account: input.account,
         cursor: input.clientLatestCursor ?? 0,
+        throughCursor,
         pageToken: input.globalPageToken,
       })
       : null,

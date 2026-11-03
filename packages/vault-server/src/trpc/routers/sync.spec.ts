@@ -362,6 +362,7 @@ describe('pollSync behavior and account isolation', () => {
         account: 'target-account',
         itemId: 'item-1',
         fromCursor: 200,
+        throughCursor: expect.any(Number),
         pageToken: itemToken,
       })
       expect(result.pullResults).toHaveLength(1)
@@ -403,6 +404,7 @@ describe('pollSync behavior and account isolation', () => {
       expect(ctx.vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith({
         account: 'target-account',
         cursor: 0,
+        throughCursor: expect.any(Number),
         pageToken: globalToken,
       })
       expect(result.hasMore).toBe(true)

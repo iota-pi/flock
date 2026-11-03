@@ -290,8 +290,9 @@ export function createMockKeyProvider(
   return {
     hasKey: kver => vault.hasVaultKey(kver),
     waitForKey: (kver, timeoutMs) => vault.waitForKeyVersion(kver, timeoutMs),
-    encryptBytes: (bytes, docId) => vault.encryptBytes(bytes, docId),
-    decryptBytes: (data, docId) => vault.decryptBytes(data, docId),
+    // The purpose is passed only when given, so that specs can expect calls without it
+    encryptBytes: (bytes, docId, purpose) => vault.encryptBytes(bytes, docId, ...(purpose ? [purpose] : [])),
+    decryptBytes: (data, docId, purpose) => vault.decryptBytes(data, docId, ...(purpose ? [purpose] : [])),
   }
 }
 

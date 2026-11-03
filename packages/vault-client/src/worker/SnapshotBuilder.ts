@@ -9,6 +9,7 @@ import type { DocCodec } from './domain'
 import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
+import { encryptSnapshotHeads } from './snapshotHeads'
 
 const log = createLogger('SnapshotBuilder')
 
@@ -33,7 +34,8 @@ export function estimateSnapshotSize(snapshot: VaultSnapshotInput): number {
   const cipherBytes = snapshot.snapshot?.cipher?.length ?? 0
   const ivBytes = snapshot.snapshot?.iv?.length ?? 0
   const idBytes = snapshot.itemId?.length ?? 0
-  return cipherBytes + ivBytes + idBytes + BASE_OVERHEAD_BYTES
+  const headsBytes = (snapshot.heads?.cipher.length ?? 0) + (snapshot.heads?.iv.length ?? 0)
+  return cipherBytes + ivBytes + idBytes + headsBytes + BASE_OVERHEAD_BYTES
 }
 
 /**
@@ -114,6 +116,7 @@ export class SnapshotBuilder {
     }
 
     const encryptedDoc = await this.keys.encryptBytes(binary, itemId)
+    const encryptedHeads = heads.length > 0 ? await encryptSnapshotHeads(this.keys, itemId, heads) : undefined
 
     const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>, this.codec)
     if (!itemSnapshot) {
@@ -128,6 +131,7 @@ export class SnapshotBuilder {
         snapshotCursor,
         modified: snapshotTimestamp,
         deleted: !!itemSnapshot.deleted || undefined,
+        ...(encryptedHeads ? { heads: encryptedHeads } : {}),
       },
       heads,
     }

@@ -69,6 +69,8 @@ export interface GetSyncMessagesInput {
   account: string
   itemId: ItemId
   fromCursor?: number
+  /** Leaves out messages with a higher cursor, which may not have settled (docs/sync-design.md) */
+  throughCursor?: number
   pageToken?: PageToken
 }
 
@@ -88,6 +90,8 @@ export interface ValidatePageTokenInput {
 export interface GetGlobalSyncMessagesInput {
   account: string
   cursor?: number
+  /** Leaves out messages with a higher cursor, which may not have settled (docs/sync-design.md) */
+  throughCursor?: number
   pageToken?: PageToken
 }
 

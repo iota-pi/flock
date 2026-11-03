@@ -59,6 +59,8 @@ export type ManifestEntry = {
   version?: number
   modifiedAt?: number
   isDeleted?: boolean
+  /** The stored snapshot's encrypted heads, when the device that uploaded it sent them */
+  heads?: z.infer<typeof CryptoResultSchema>
 }
 
 export const PutSnapshotResultItemSchema = z.object({

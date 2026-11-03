@@ -159,10 +159,12 @@ export class SyncOrchestrator {
   /**
    * Polls now when the user comes back to one of the account's tabs, unless a poll is running or one
    * finished in the last `foregroundPollMinGap`. Backoff after failures resets too: the connection
-   * may be back without an `online` event (captive portal, flaky network, a phone waking).
+   * may be back without an `online` event (captive portal, flaky network, a phone waking). Also runs
+   * a manifest sync, which skips itself if one finished in the last `manifestSyncMinGap`.
    */
   onForeground(): void {
     if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
+    fireAndForget(this.triggerManifestSync(), 'SyncOrchestrator:triggerManifestSync')
     if (this.pollingPausedForAuth || this.pollGuard.isRunning) return
     const isBackingOff = this.pollBackoff.attempt > 0
     if (!isBackingOff && Date.now() - this.lastPollFinishedAt < SYNC_TIMEOUTS.foregroundPollMinGap) return

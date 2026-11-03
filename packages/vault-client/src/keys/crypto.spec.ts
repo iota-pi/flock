@@ -72,6 +72,15 @@ describe('Vault Cryptography', () => {
       await expect(decryptBytesWithKey(key, payload, 'item-b')).rejects.toThrow()
     })
 
+    it('keeps snapshot heads and the document apart', async () => {
+      const heads = await encryptBytesWithKey(key, bytes, '1', 'item-a', 'heads')
+      expect(Array.from(await decryptBytesWithKey(key, heads, 'item-a', 'heads'))).toEqual([10, 20, 30, 40])
+      await expect(decryptBytesWithKey(key, heads, 'item-a')).rejects.toThrow()
+
+      const doc = await encryptBytesWithKey(key, bytes, '1', 'item-a')
+      await expect(decryptBytesWithKey(key, doc, 'item-a', 'heads')).rejects.toThrow()
+    })
+
     it('needs the document ID to decrypt', async () => {
       const payload = await encryptBytesWithKey(key, bytes, '1', 'item-a')
       await expect(decryptBytesWithKey(key, payload)).rejects.toThrow('needs its document ID')

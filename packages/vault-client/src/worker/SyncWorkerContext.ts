@@ -77,7 +77,7 @@ export interface SyncSessionConfig {
    */
   upgradeSnapshotFormat?: boolean
   /**
-   * Fetches the manifest on every sync, rather than at most daily on a device that has items, so
+   * Fetches the manifest on every sync, rather than at most every `manifestSyncMinGap` on a device that has items, so
    * every row on the server is seen. For an app's migration app.
    */
   fetchManifestEverySync?: boolean

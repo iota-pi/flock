@@ -4,7 +4,7 @@ import {
   UpdateCommand,
   type UpdateCommandOutput,
 } from '@aws-sdk/lib-dynamodb'
-import { chunk, type ItemId, type ManifestEntry } from '@vault/shared'
+import { chunk, CryptoResultSchema, type ItemId, type ManifestEntry } from '@vault/shared'
 import type { BaseData, FetchedVaultItem, ItemFormatSummary, VaultItem } from '../vaultDriver'
 import type { VaultTableNames } from './config'
 import { buildUpdateParams, partitionKeyCondition, projection, RawUpdateValue } from './expressions'
@@ -46,6 +46,9 @@ function updateItemCommand(
     : Date.now()
   // A snapshot supersedes the legacy payload, which nothing reads once a snapshot exists
   const removeLegacyCipher = !!item.snapshot && !item.cipher
+  // Heads describe the snapshot written with them. Stale heads paired with a newer version would let
+  // a client skip a snapshot it needs, so a write without heads removes them (docs/sync-design.md).
+  const remove = [...(removeLegacyCipher ? ['cipher'] : []), ...(item.heads ? [] : ['heads'])]
 
   return new UpdateCommand({
     TableName: tables.items,
@@ -58,10 +61,11 @@ function updateItemCommand(
         metadata: item.metadata,
         snapshot: item.snapshot || undefined,
         cipher: item.cipher || undefined,
+        heads: item.heads || undefined,
         modifiedAt,
         version: new RawUpdateValue('if_not_exists(#version, :zero) + :one', { ':zero': 0, ':one': 1 }),
       },
-      remove: removeLegacyCipher ? ['cipher'] : [],
+      remove,
       // Older rows may mark deletion with a top-level attribute, which the manifest also reads
       condition: unlessDeleted
         ? {
@@ -81,7 +85,7 @@ export async function fetchManifest({ client, tables }: DynamoContext, { account
   const records = queryAll(client, {
     TableName: tables.items,
     ...partitionKeyCondition('account', account),
-    ...projection(['item', 'version', 'modifiedAt', 'metadata.modified', 'metadata.deleted', 'deleted']),
+    ...projection(['item', 'version', 'modifiedAt', 'metadata.modified', 'metadata.deleted', 'deleted', 'heads']),
   })
 
   for await (const record of records) {
@@ -92,11 +96,13 @@ export async function fetchManifest({ client, tables }: DynamoContext, { account
       ? record.modifiedAt
       : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
     const version = typeof record.version === 'number' ? record.version : 1
+    const heads = isDeleted ? undefined : CryptoResultSchema.safeParse(record.heads).data
     manifest.push({
       itemId,
       version,
       modifiedAt,
       ...(isDeleted ? { isDeleted: true } : {}),
+      ...(heads ? { heads } : {}),
     })
   }
 

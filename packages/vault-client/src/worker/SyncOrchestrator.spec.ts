@@ -902,6 +902,23 @@ describe('SyncOrchestrator', () => {
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
     })
 
+    it('runs a manifest sync, which skips itself when one ran recently', async () => {
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      const manifestSyncs = mockManifestSyncManager.sync.mock.calls.length
+
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(manifestSyncs + 1)
+      expect(mockManifestSyncManager.sync).toHaveBeenLastCalledWith(false)
+
+      setOnline(orchestrator, false)
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockManifestSyncManager.sync).toHaveBeenCalledTimes(manifestSyncs + 1)
+    })
+
     it('does not resume polling that is paused for auth', async () => {
       mockPoller.executePoll.mockResolvedValueOnce('failure')
       mockPoller.executePoll.mockResolvedValueOnce('auth-failure')

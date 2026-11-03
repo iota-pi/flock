@@ -8,6 +8,7 @@ import {
   exportVaultKey,
   importVaultKey,
   type CryptoResult,
+  type DocBindingPurpose,
 } from './crypto'
 import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 
@@ -17,9 +18,12 @@ export interface KeyProvider {
   hasKey(kver?: string): boolean
   /** Waits up to `timeoutMs` for the key with this version to be loaded. Returns whether it was. */
   waitForKey(kver: string, timeoutMs?: number): Promise<boolean>
-  /** Encrypts with the active key. Pass the `docId` of the document the bytes belong to, to bind them to it. */
-  encryptBytes(bytes: Uint8Array, docId?: string): Promise<CryptoResult>
-  decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array>
+  /**
+   * Encrypts with the active key. Pass the `docId` of the document the bytes belong to, to bind them
+   * to it, and `purpose` when they are something other than the document itself.
+   */
+  encryptBytes(bytes: Uint8Array, docId?: string, purpose?: DocBindingPurpose): Promise<CryptoResult>
+  decryptBytes(data: CryptoResult, docId?: string, purpose?: DocBindingPurpose): Promise<Uint8Array>
 }
 
 /** A device key encrypted with data key `kver` */
@@ -193,12 +197,12 @@ export class Keyring implements KeyProvider, LocalKeyWrapper {
     return decryptWithKey(this.getKey(data.kver || '1'), data)
   }
 
-  async encryptBytes(bytes: Uint8Array, docId?: string): Promise<CryptoResult> {
-    return encryptBytesWithKey(this.getKey(), bytes, this.active, docId)
+  async encryptBytes(bytes: Uint8Array, docId?: string, purpose?: DocBindingPurpose): Promise<CryptoResult> {
+    return encryptBytesWithKey(this.getKey(), bytes, this.active, docId, purpose)
   }
 
-  async decryptBytes(data: CryptoResult, docId?: string): Promise<Uint8Array> {
-    return decryptBytesWithKey(this.getKey(data.kver || '1'), data, docId)
+  async decryptBytes(data: CryptoResult, docId?: string, purpose?: DocBindingPurpose): Promise<Uint8Array> {
+    return decryptBytesWithKey(this.getKey(data.kver || '1'), data, docId, purpose)
   }
 
   async wrapLocalKey(raw: Uint8Array, associatedData: Uint8Array): Promise<LocalKeyWrap> {

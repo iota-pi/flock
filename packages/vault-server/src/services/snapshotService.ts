@@ -31,6 +31,8 @@ export async function persistSnapshots(
         },
         // Payload-less tombstones intentionally omit the snapshot so the previous one is kept
         ...(snapshot.snapshot ? { snapshot: snapshot.snapshot } : {}),
+        // Without heads, the driver removes any stored ones, which belonged to an older snapshot
+        ...(snapshot.snapshot && snapshot.heads ? { heads: snapshot.heads } : {}),
       }
 
       const setResult = await vault.set(item)

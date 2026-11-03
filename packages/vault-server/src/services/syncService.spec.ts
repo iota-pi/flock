@@ -5,18 +5,21 @@ import {
   pullSyncGlobal,
   pollSync,
   pushSyncBatch,
+  settledCursorAt,
+  SYNC_SETTLE_MS,
 } from './syncService'
 import { InvalidPageTokenError } from '../errors'
 import { mapWithConcurrency, type ItemId } from '@vault/shared'
 import type { SyncRepository, PollSyncInput } from './syncService'
 
+const CUSTOM_EPOCH = 1760000000000 // 2025-10-09T08:53:20.000Z
+const TIMESTAMP_MULTIPLIER = 10_000_000
+const MAX_OFFSET = 9_999_000
+
 describe('SyncService', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
-
-  const CUSTOM_EPOCH = 1760000000000 // 2025-10-09T08:53:20.000Z
-  const TIMESTAMP_MULTIPLIER = 10_000_000
 
   const createMockRepository = () => {
     return {
@@ -579,6 +582,30 @@ describe('pollSync', () => {
     vault.getGlobalSyncMessagesAfterCursor.mockResolvedValueOnce({ items: [], hasMore: true, nextPageToken: 'g', scannedThroughCursor: 0 })
     const globalHasMore = await pollSync(vault, input({ clientLatestCursor: 0 }))
     expect(globalHasMore).toMatchObject({ hasMore: true, globalHasMore: true, globalNextPageToken: 'g' })
+  })
+
+  it('limits both pulls to messages stamped before the settle window', async () => {
+    const { vault } = createMockVault()
+    const now = 1772473432500
+    const settledSeconds = Math.floor((now - 10_000 - CUSTOM_EPOCH) / 1000)
+
+    await pollSync(vault, input({
+      clientLatestCursor: 10,
+      pullCursors: [{ itemId: 'lagging' as ItemId, cursor: 1 }],
+    }), { now, settleMs: 10_000 })
+
+    const throughCursor = settledSeconds * TIMESTAMP_MULTIPLIER - 1
+    expect(settledCursorAt(now, 10_000)).toBe(throughCursor)
+    expect(vault.getSyncMessages).toHaveBeenCalledWith(expect.objectContaining({ throughCursor }))
+    expect(vault.getGlobalSyncMessagesAfterCursor).toHaveBeenCalledWith(expect.objectContaining({ throughCursor }))
+  })
+
+  it('settles a message once a whole second has passed after the window', () => {
+    const pushedAt = 1772473432500
+    const pushedCursor = Math.floor((pushedAt - CUSTOM_EPOCH) / 1000) * TIMESTAMP_MULTIPLIER + MAX_OFFSET
+
+    expect(settledCursorAt(pushedAt + SYNC_SETTLE_MS, SYNC_SETTLE_MS)).toBeLessThan(pushedCursor)
+    expect(settledCursorAt(pushedAt + SYNC_SETTLE_MS + 1000, SYNC_SETTLE_MS)).toBeGreaterThanOrEqual(pushedCursor)
   })
 
   it('pulls nothing without cursors', async () => {

@@ -89,7 +89,7 @@ As built:
     - `decodeLegacyItem` and `legacySettings`
     - `migrateLocalData`
     - `upgradeSnapshotFormat`
-    - `fetchManifestEverySync`. Without it, a device that synced within the day would skip the manifest and never see a legacy row, and a skipped sync still counts as one without failures.
+    - `fetchManifestEverySync`. Without it, a device that synced within the last `manifestSyncMinGap` would skip the manifest and never see a legacy row, and a skipped sync still counts as one without failures.
   - Flow:
     1. It logs in (online only), so the key derivation upgrade (2.5d) happens here.
     2. It announces itself on the `flock-migration` BroadcastChannel, so the main app's tabs lock themselves and its engine is the only one running.

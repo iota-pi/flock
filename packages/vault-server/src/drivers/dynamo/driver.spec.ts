@@ -563,6 +563,35 @@ describe('DynamoDriver', function () {
     })
   })
 
+  it('returns snapshot heads in the manifest and removes them with a write that has none', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+    const snapshot = { cipher: Buffer.from('snapshot').toString('base64'), iv: 'snapshot-iv', kver: '1', format: 2 as const }
+    const heads = { cipher: 'heads-cipher', iv: 'heads-iv', kver: '1', format: 2 as const }
+
+    await driver.set({ account, item, metadata: { iv: '', modified: 1 }, snapshot, heads })
+    expect((await driver.fetchManifest({ account }))[0]).toMatchObject({ itemId: item, version: 1, heads })
+
+    // Another snapshot from a build that doesn't send heads: the old ones would describe an older snapshot
+    await driver.set({ account, item, metadata: { iv: '', modified: 2 }, snapshot })
+    const [entry] = await driver.fetchManifest({ account })
+    expect(entry.version).toBe(2)
+    expect(entry.heads).toBeUndefined()
+  })
+
+  it('leaves heads out of the manifest for a deleted item', async () => {
+    const account = generateTestAccountId()
+    const item = generateItemId()
+    const snapshot = { cipher: Buffer.from('snapshot').toString('base64'), iv: 'snapshot-iv', kver: '1' }
+    const heads = { cipher: 'heads-cipher', iv: 'heads-iv', kver: '1' }
+
+    await driver.set({ account, item, metadata: { iv: '', modified: 1, deleted: true }, snapshot, heads })
+
+    const [entry] = await driver.fetchManifest({ account })
+    expect(entry).toMatchObject({ itemId: item, isDeleted: true })
+    expect(entry.heads).toBeUndefined()
+  })
+
   it('payload-less tombstone keeps the previous snapshot and marks the item deleted', async () => {
     const account = generateTestAccountId()
     const item = generateItemId()
@@ -754,6 +783,58 @@ describe('DynamoDriver', function () {
       })
       expect(continuation.items.flatMap(i => i.messages.map(m => m.cursor))).toEqual([130])
       expect(continuation.scannedThroughCursor).toBe(130)
+    })
+
+    it('leaves out messages after throughCursor', async () => {
+      const account = generateTestAccountId()
+      const itemA = generateItemId()
+      const itemB = generateItemId()
+      await driver.pushSyncMessagesBatch({
+        account,
+        messages: [
+          { itemId: itemA, entry: { cursor: 110, encryptedMessage, createdAt: 1 } },
+          { itemId: itemB, entry: { cursor: 120, encryptedMessage, createdAt: 1 } },
+          { itemId: itemA, entry: { cursor: 130, encryptedMessage, createdAt: 1 } },
+        ],
+      })
+
+      const global = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 100, throughCursor: 120 })
+      expect(global.items.flatMap(i => i.messages.map(m => m.cursor))).toEqual([110, 120])
+      expect(global.scannedThroughCursor).toBe(120)
+
+      const item = await driver.getSyncMessages({ account, itemId: itemA, fromCursor: 100, throughCursor: 129 })
+      expect(item.messages.map(m => m.cursor)).toEqual([110])
+
+      const continuation = await driver.getGlobalSyncMessagesAfterCursor({
+        account,
+        cursor: 100,
+        throughCursor: 125,
+        pageToken: pageToken({ account, cursor: 110, syncId: `${account}#${itemA}` }),
+      })
+      expect(continuation.items.flatMap(i => i.messages.map(m => m.cursor))).toEqual([120])
+    })
+
+    it('returns an empty page when the cursor or page token is already at throughCursor', async () => {
+      const account = generateTestAccountId()
+      const itemId = generateItemId()
+      await driver.pushSyncMessagesBatch({
+        account,
+        messages: [{ itemId, entry: { cursor: 110, encryptedMessage, createdAt: 1 } }],
+      })
+
+      const atBound = await driver.getSyncMessages({ account, itemId, fromCursor: 110, throughCursor: 110 })
+      expect(atBound).toEqual({ messages: [], hasMore: false })
+
+      const ahead = await driver.getGlobalSyncMessagesAfterCursor({ account, cursor: 200, throughCursor: 150 })
+      expect(ahead).toMatchObject({ items: [], hasMore: false, scannedThroughCursor: 200 })
+
+      const tokenAhead = await driver.getGlobalSyncMessagesAfterCursor({
+        account,
+        cursor: 100,
+        throughCursor: 105,
+        pageToken: pageToken({ account, cursor: 110, syncId: `${account}#${itemId}` }),
+      })
+      expect(tokenAhead).toMatchObject({ items: [], hasMore: false, nextPageToken: undefined })
     })
 
     it('getGlobalSyncMessagesAfterCursor keeps an item ID that contains #', async () => {

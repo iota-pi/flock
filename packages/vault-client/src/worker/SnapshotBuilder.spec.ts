@@ -78,6 +78,7 @@ describe('SnapshotBuilder', () => {
         snapshotCursor: 42,
         modified: expect.any(Number),
         deleted: undefined,
+        heads: { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' },
       },
       heads: ['mock-head'],
     })
@@ -86,6 +87,7 @@ describe('SnapshotBuilder', () => {
     expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1', { signal: expect.any(AbortSignal) })
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'item-1')
+    expect(mockEncryptBytes).toHaveBeenCalledWith(new TextEncoder().encode('["mock-head"]'), 'item-1', 'heads')
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' }, testCodec)
   })
 

@@ -70,6 +70,7 @@ export async function getSyncMessages(context: DynamoContext, input: GetSyncMess
     partitionKey: 'syncId',
     partitionValue: expectedSyncId,
     afterCursor: input.fromCursor,
+    throughCursor: input.throughCursor,
     startKey: input.pageToken
       ? decodeItemPageToken(input.pageToken, expectedSyncId, input.fromCursor)
       : undefined,
@@ -99,6 +100,7 @@ export async function getGlobalSyncMessagesAfterCursor(
     partitionKey: 'account',
     partitionValue: input.account,
     afterCursor: input.cursor,
+    throughCursor: input.throughCursor,
     startKey,
   })
 
@@ -133,7 +135,7 @@ export async function getGlobalSyncMessagesAfterCursor(
 
 /**
  * Queries one page of a partition's sync messages: from the decoded page token when there is one,
- * otherwise after `afterCursor`
+ * otherwise after `afterCursor`, and up to `throughCursor`
  */
 async function querySyncMessagePage(
   { client, tables, syncMessagePageSize }: DynamoContext,
@@ -142,20 +144,28 @@ async function querySyncMessagePage(
     partitionKey,
     partitionValue,
     afterCursor,
+    throughCursor,
     startKey,
   }: {
     indexName?: string
     partitionKey: string
     partitionValue: string
     afterCursor: number | undefined
+    throughCursor: number | undefined
     startKey: Record<string, unknown> | undefined
   },
 ): Promise<{ items: SyncMessageRow[], hasMore: boolean, nextPageToken?: PageToken }> {
+  // DynamoDB rejects an empty range and a start key outside the range, so these return nothing.
+  // Without a token the client continues from its cursor.
+  const lowestCursor = typeof startKey?.cursor === 'number' ? startKey.cursor : afterCursor
+  if (typeof throughCursor === 'number' && typeof lowestCursor === 'number' && lowestCursor >= throughCursor) {
+    return { items: [], hasMore: false }
+  }
   const response = await client.send(new QueryCommand({
     TableName: tables.syncMessages,
     IndexName: indexName,
     // A continuation starts from the token, which already lies after the cursor
-    ...cursorKeyCondition(partitionKey, partitionValue, startKey ? undefined : afterCursor),
+    ...cursorKeyCondition(partitionKey, partitionValue, startKey ? undefined : afterCursor, throughCursor),
     Limit: syncMessagePageSize,
     ExclusiveStartKey: startKey,
   }))
