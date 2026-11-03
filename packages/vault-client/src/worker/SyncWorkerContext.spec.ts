@@ -196,6 +196,7 @@ beforeEach(() => {
       constructor(readonly deps: SyncOrchestratorDeps) {}
       claimLeader = vi.fn()
       flush = vi.fn()
+      onForeground = vi.fn()
     },
   })
   spyOnExports(lastModifiedStoreModule, {
@@ -369,6 +370,25 @@ describe('SyncWorkerContext', () => {
     expect(context.session.isOnline).toBe(false)
     expect(context.services.orchestrator.onOnlineStateChange).toHaveBeenCalledTimes(1)
     expect(context.services.snapshotManager.onOnlineStateChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells the other tabs its visibility, and polls when the user comes back', () => {
+    context.setVisibility(false)
+    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }))
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).isForeground!()).toBe(false)
+    expect(context.services.orchestrator.onForeground).not.toHaveBeenCalled()
+
+    context.setVisibility(true, true)
+    expect(realtimeBus.publishTabVisibility).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, returned: true }))
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).isForeground!()).toBe(true)
+    expect(context.services.orchestrator.onForeground).toHaveBeenCalledTimes(1)
+  })
+
+  it('polls when another tab of the account comes into view', () => {
+    context.setVisibility(false)
+    realtimeBus.receiveTabVisibility({ tabId: 'other-tab', visible: true, returned: true })
+    expect(depsOf<SyncOrchestratorDeps>(context.services.orchestrator).isForeground!()).toBe(true)
+    expect(context.services.orchestrator.onForeground).toHaveBeenCalledTimes(1)
   })
 
   describe('manual recovery event handling', () => {
@@ -971,6 +991,7 @@ describe('SyncWorkerContext', () => {
     const serviceNames = registerSpy.mock.calls.map(([registration]) => registration.name)
     expect(serviceNames).toEqual([
       'RealtimeBus',
+      'ForegroundTracker',
       'RepoManager',
       'VaultNetworkAdapter',
       'SyncMessageBroker',

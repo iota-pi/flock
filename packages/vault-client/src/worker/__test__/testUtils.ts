@@ -11,7 +11,7 @@ import { spyOnExports } from '../../../test/moduleMocks'
 import type { ItemId } from '@vault/shared'
 import type { SnapshotTracker } from '../SnapshotTracker'
 import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
-import type { RealtimeBus } from '../RealtimeBus'
+import type { RealtimeBus, TabVisibility } from '../RealtimeBus'
 import type { VaultMetadata } from '../../shared/types'
 
 /** A real local cipher over a fresh one-key keyring */
@@ -387,12 +387,14 @@ export interface FakeRealtimeBus {
   publishItemDirty: Mock<(itemIds: ItemId[]) => void>
   publishIndexUpdated: Mock<(itemIds: ItemId[]) => void>
   publishMetadataUpdated: Mock<(metadata: VaultMetadata) => void>
+  publishTabVisibility: Mock<(visibility: TabVisibility) => void>
   close: Mock<() => void>
   /** Delivers messages as if another tab had published them */
   receiveSyncPing(itemIds: ItemId[]): void
   receiveItemDirty(itemIds: ItemId[]): void
   receiveIndexUpdated(itemIds: ItemId[]): void
   receiveMetadataUpdated(metadata: VaultMetadata): void
+  receiveTabVisibility(visibility: TabVisibility): void
 }
 
 export function createFakeRealtimeBus(): FakeRealtimeBus {
@@ -400,6 +402,7 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
   const itemDirty = new Set<(itemIds: ItemId[]) => void>()
   const index = new Set<(itemIds: ItemId[]) => void>()
   const metadata = new Set<(metadata: VaultMetadata) => void>()
+  const tabVisibility = new Set<(visibility: TabVisibility) => void>()
   const subscribe = <T>(listeners: Set<T>) => (listener: T) => {
     listeners.add(listener)
     return () => {
@@ -411,16 +414,19 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
     publishItemDirty: vi.fn(),
     publishIndexUpdated: vi.fn(),
     publishMetadataUpdated: vi.fn(),
+    publishTabVisibility: vi.fn(),
     close: vi.fn(() => {
       syncPing.clear()
       itemDirty.clear()
       index.clear()
       metadata.clear()
+      tabVisibility.clear()
     }),
     receiveSyncPing: (itemIds: ItemId[]) => syncPing.forEach(listener => listener(itemIds)),
     receiveItemDirty: (itemIds: ItemId[]) => itemDirty.forEach(listener => listener(itemIds)),
     receiveIndexUpdated: (itemIds: ItemId[]) => index.forEach(listener => listener(itemIds)),
     receiveMetadataUpdated: (value: VaultMetadata) => metadata.forEach(listener => listener(value)),
+    receiveTabVisibility: (value: TabVisibility) => tabVisibility.forEach(listener => listener(value)),
   }
   const bus = {
     ...fake,
@@ -428,6 +434,7 @@ export function createFakeRealtimeBus(): FakeRealtimeBus {
     subscribeItemDirty: subscribe(itemDirty),
     subscribeIndexUpdated: subscribe(index),
     subscribeMetadataUpdated: subscribe(metadata),
+    subscribeTabVisibility: subscribe(tabVisibility),
   } as unknown as RealtimeBus
   return { ...fake, bus }
 }

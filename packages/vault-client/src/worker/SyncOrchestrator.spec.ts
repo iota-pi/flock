@@ -823,7 +823,7 @@ describe('SyncOrchestrator', () => {
     })
   })
 
-  describe('pollIfBackingOff (page visible again)', () => {
+  describe('onForeground (the user came back to a tab)', () => {
     it('polls at once and resets backoff when polling is backing off', async () => {
       vi.spyOn(Math, 'random').mockReturnValue(0.5)
       mockPoller.executePoll.mockResolvedValueOnce('failure')
@@ -837,7 +837,7 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(60000)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
 
-      orchestrator.pollIfBackingOff()
+      orchestrator.onForeground()
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
 
@@ -846,18 +846,38 @@ describe('SyncOrchestrator', () => {
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(4)
     })
 
-    it('does nothing when polling is not backing off', async () => {
+    it('polls once the last poll is older than the minimum gap', async () => {
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
-      orchestrator.pollIfBackingOff()
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.foregroundPollMinGap)
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not start a second poll while one is running', async () => {
+      let resolvePoll: (outcome: PollOutcome) => void = () => {}
+      mockPoller.executePoll.mockImplementationOnce(() => new Promise(resolve => {
+        resolvePoll = resolve
+      }))
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      orchestrator.onForeground()
+      resolvePoll('success')
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
     })
 
-    it('does nothing for a follower, while offline or while paused for auth', async () => {
+    it('does nothing for a follower or while offline', async () => {
       mockPoller.executePoll.mockResolvedValueOnce('failure')
       orchestrator.setLeader(true)
       setOnline(orchestrator, true)
@@ -865,7 +885,7 @@ describe('SyncOrchestrator', () => {
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
       setOnline(orchestrator, false)
-      orchestrator.pollIfBackingOff()
+      orchestrator.onForeground()
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
 
@@ -877,7 +897,7 @@ describe('SyncOrchestrator', () => {
         manifestSyncManager: mockManifestSyncManager,
       })
       setOnline(follower, true)
-      follower.pollIfBackingOff()
+      follower.onForeground()
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
     })
@@ -891,9 +911,78 @@ describe('SyncOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(80000)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
 
-      orchestrator.pollIfBackingOff()
+      orchestrator.onForeground()
       await vi.advanceTimersByTimeAsync(0)
       expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('poll cadence by visibility', () => {
+    let isForeground: boolean
+
+    beforeEach(() => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5)
+      isForeground = true
+      orchestrator = createOrchestrator({
+        accountId: 'account-1',
+        poller: mockPoller,
+        clientEventHub,
+        pullQueueManager: mockPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
+        isForeground: () => isForeground,
+      })
+    })
+
+    /** Makes the orchestrator the leader, which polls at once */
+    async function startPolling(): Promise<void> {
+      orchestrator.setLeader(true)
+      await vi.advanceTimersByTimeAsync(0)
+    }
+
+    it('polls every 30s while a tab is visible', async () => {
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('slows to the hidden interval while no tab is visible', async () => {
+      isForeground = false
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(SYNC_TIMEOUTS.hiddenPollInterval - 1)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps failure backoff while hidden', async () => {
+      isForeground = false
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('still pushes local changes at once while hidden', async () => {
+      isForeground = false
+      await startPolling()
+      orchestrator.flush()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+
+    it('polls when the user comes back to a hidden leader', async () => {
+      isForeground = false
+      await startPolling()
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      isForeground = true
+      orchestrator.onForeground()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
     })
   })
 

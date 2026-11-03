@@ -34,6 +34,8 @@ export interface SyncOrchestratorDeps {
   onLeaderOverlapChange?: (hasMultipleLeaders: boolean) => void
   /** Receives each poll's outcome */
   onPollResult?: (outcome: PollOutcome) => void
+  /** Whether any of the account's tabs is visible. Polls slow to `hiddenPollInterval` while none is. */
+  isForeground?: () => boolean
 }
 
 const DEFAULT_MANIFEST_SYNC_INTERVAL_MS = SYNC_TIMEOUTS.manifestSyncInterval
@@ -43,6 +45,7 @@ export class SyncOrchestrator {
   private pollingPausedForAuth = false
 
   private pendingFlush = false
+  private lastPollFinishedAt = 0
   private readonly pollGuard = new SingleFlightGuard<void>()
   private readonly cursorReloadGuard = new SingleFlightGuard<void>()
   private readonly pollRun = new AbortableRun(() => this.isOperational)
@@ -154,12 +157,15 @@ export class SyncOrchestrator {
   }
 
   /**
-   * Polls now if polling is backing off after failures. Called when the page is visible again: the
-   * connection may be back without an `online` event (captive portal, flaky network, a phone waking).
+   * Polls now when the user comes back to one of the account's tabs, unless a poll is running or one
+   * finished in the last `foregroundPollMinGap`. Backoff after failures resets too: the connection
+   * may be back without an `online` event (captive portal, flaky network, a phone waking).
    */
-  pollIfBackingOff(): void {
+  onForeground(): void {
     if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
-    if (this.pollingPausedForAuth || this.pollBackoff.attempt === 0) return
+    if (this.pollingPausedForAuth || this.pollGuard.isRunning) return
+    const isBackingOff = this.pollBackoff.attempt > 0
+    if (!isBackingOff && Date.now() - this.lastPollFinishedAt < SYNC_TIMEOUTS.foregroundPollMinGap) return
     this.pollBackoff.reset()
     this.startPolling()
   }
@@ -230,9 +236,18 @@ export class SyncOrchestrator {
     })
   }
 
+  /** The backoff delay after failures, otherwise the foreground or hidden interval */
+  private get nextPollDelay(): number {
+    if (this.pollBackoff.attempt > 0 || (this.deps.isForeground?.() ?? true)) {
+      return this.pollBackoff.currentBaseDelay
+    }
+    return SYNC_TIMEOUTS.hiddenPollInterval
+  }
+
   private scheduleNextPoll(outcome: PollOutcome): void {
     const wasFlushPending = this.pendingFlush
     this.pendingFlush = false
+    this.lastPollFinishedAt = Date.now()
 
     if (outcome === 'failure') {
       this.pollBackoff.increment({ clampToLast: true })
@@ -245,7 +260,7 @@ export class SyncOrchestrator {
       wasFlushPending
       || (outcome === 'success' && this.deps.pullQueueManager.hasImmediatePendingPulls())
     )
-    this.schedulePollTimer(pollNow ? 0 : this.pollBackoff.currentBaseDelay)
+    this.schedulePollTimer(pollNow ? 0 : this.nextPollDelay)
     // Reported once the next poll is scheduled, so a failing receiver can't stop polling
     this.deps.onPollResult?.(outcome)
   }

@@ -22,6 +22,12 @@ export const SYNC_TIMEOUTS = {
   recoveryCooldown: 60_000,
   /** Timeout for deleting IndexedDB databases during account data wipe */
   localDataCleanup: 5000,
+  /** Interval between polls while none of the account's tabs on this device is visible */
+  hiddenPollInterval: 5 * 60 * 1000,
+  /** A tab coming back into view polls only if the last poll finished at least this long ago */
+  foregroundPollMinGap: 10_000,
+  /** How often a visible tab tells the account's other tabs that it's still visible */
+  foregroundPingInterval: 30_000,
   /** Default interval between periodic server manifest reconciliations */
   manifestSyncInterval: 60 * 60 * 1000,
   /** Delay before auto-restarting worker after crash */

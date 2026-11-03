@@ -8,6 +8,15 @@ const log = createLogger('RealtimeBus')
 type ItemIdsListener = (itemIds: ItemId[]) => void
 type MetadataListener = (metadata: VaultMetadata) => void
 
+/** A tab's visibility, which it sends when it changes and regularly while it's visible */
+export interface TabVisibility {
+  tabId: string
+  visible: boolean
+  /** The user just came back to the tab (it became visible or got focus), so the leader should poll */
+  returned: boolean
+}
+type TabVisibilityListener = (visibility: TabVisibility) => void
+
 export function getSyncPingChannelName(accountId: string): string {
   return `${getVaultStorageNames().accountPrefixes.syncPingChannel}${accountId}`
 }
@@ -65,7 +74,8 @@ function postToChannel(channel: BroadcastChannel | null, message: unknown): void
 
 /**
  * Tells this account's other tabs on the device what this tab did: items synced (`sync_ping`), items
- * edited (`item_dirty`, so the leader uploads their snapshots), and index and metadata changes. Each
+ * edited (`item_dirty`, so the leader uploads their snapshots), whether it's visible (`tab_visibility`,
+ * so the leader polls at the foreground rate), and index and metadata changes. Each
  * session's context owns one and closes it when it stops. Index and metadata messages keep their own
  * channel, so tabs running an earlier release still hear them.
  */
@@ -76,6 +86,7 @@ export class RealtimeBus {
   private readonly itemDirtyListeners = new Set<ItemIdsListener>()
   private readonly indexListeners = new Set<ItemIdsListener>()
   private readonly metadataListeners = new Set<MetadataListener>()
+  private readonly tabVisibilityListeners = new Set<TabVisibilityListener>()
 
   constructor(accountId: string) {
     this.syncChannel = openChannel(getSyncPingChannelName(accountId), data => this.handleSyncMessage(data))
@@ -83,7 +94,13 @@ export class RealtimeBus {
   }
 
   private handleSyncMessage(data: unknown): void {
-    const message = data as { type?: string; itemIds?: unknown } | null
+    const message = data as { type?: string; itemIds?: unknown } & Partial<TabVisibility> | null
+    if (message?.type === 'tab_visibility') {
+      if (typeof message.tabId !== 'string') return
+      const visibility = { tabId: message.tabId, visible: !!message.visible, returned: !!message.returned }
+      notifyListeners(this.tabVisibilityListeners, visibility, 'TabVisibilityListener')
+      return
+    }
     if (!Array.isArray(message?.itemIds)) return
     const itemIds = message.itemIds as ItemId[]
     if (message.type === 'sync_ping') {
@@ -112,6 +129,11 @@ export class RealtimeBus {
     return addListener(this.itemDirtyListeners, listener)
   }
 
+  /** Another tab's visibility */
+  subscribeTabVisibility(listener: TabVisibilityListener): () => void {
+    return addListener(this.tabVisibilityListeners, listener)
+  }
+
   /** Another tab's index */
   subscribeIndexUpdated(listener: ItemIdsListener): () => void {
     return addListener(this.indexListeners, listener)
@@ -132,6 +154,10 @@ export class RealtimeBus {
     postToChannel(this.syncChannel, { type: 'item_dirty', itemIds })
   }
 
+  publishTabVisibility(visibility: TabVisibility): void {
+    postToChannel(this.syncChannel, { type: 'tab_visibility', ...visibility })
+  }
+
   publishIndexUpdated(itemIds: ItemId[]): void {
     postToChannel(this.indexChannel, { type: 'indexUpdated', itemIds })
   }
@@ -150,6 +176,7 @@ export class RealtimeBus {
     this.itemDirtyListeners.clear()
     this.indexListeners.clear()
     this.metadataListeners.clear()
+    this.tabVisibilityListeners.clear()
   }
 }
 

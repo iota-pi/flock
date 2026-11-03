@@ -42,7 +42,7 @@ const mockSyncApi = {
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
   retrySave: vi.fn().mockResolvedValue({ success: true }),
   claimLeader: vi.fn().mockResolvedValue(undefined),
-  pollIfBackingOff: vi.fn().mockResolvedValue(undefined),
+  setVisibility: vi.fn().mockResolvedValue(undefined),
 }
 
 let lastEventPort: MessagePort | null = null
@@ -309,6 +309,7 @@ describe('SyncBridge', () => {
     expect(windowRemoveSpy).toHaveBeenCalledWith('online', expect.any(Function))
     expect(windowRemoveSpy).toHaveBeenCalledWith('offline', expect.any(Function))
     expect(windowRemoveSpy).toHaveBeenCalledWith('pagehide', expect.any(Function))
+    expect(windowRemoveSpy).toHaveBeenCalledWith('focus', expect.any(Function))
     expect(windowRemoveSpy).toHaveBeenCalledWith('storage', expect.any(Function))
     expect(documentRemoveSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
 
@@ -327,14 +328,18 @@ describe('SyncBridge', () => {
     visibilitySpy.mockRestore()
   })
 
-  it('asks the worker to cut poll backoff short when the document becomes visible', async () => {
-    await SyncBridge.initialize('test-account')
-
+  it('tells the worker the page visibility, and when the user comes back to it', async () => {
     const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
-    document.dispatchEvent(new Event('visibilitychange'))
+    await SyncBridge.initialize('test-account')
+    await vi.waitFor(() => expect(mockSyncApi.setVisibility).toHaveBeenCalledWith(true, false))
 
-    expect(mockSyncApi.pollIfBackingOff).toHaveBeenCalledTimes(1)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.waitFor(() => expect(mockSyncApi.setVisibility).toHaveBeenLastCalledWith(true, true))
     expect(mockSyncApi.pushSnapshots).not.toHaveBeenCalled()
+
+    visibilitySpy.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.waitFor(() => expect(mockSyncApi.setVisibility).toHaveBeenLastCalledWith(false, false))
 
     visibilitySpy.mockRestore()
   })

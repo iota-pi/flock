@@ -49,6 +49,7 @@ If `processPullResults` or any I/O throws and the poll still reports `'success'`
 
 - `SnapshotManager` debounces dirty items (30s default, 5 min max wait) and uploads encrypted full Automerge binaries. Failures back off at 2s → 5s → 10s → 30s → 60s. After `MAX_CONSECUTIVE_SNAPSHOT_FAILURES` (5, `SnapshotPusher`), the item is dropped from the dirty queue.
 - When offline, the orchestrator stops polling and `SnapshotManager` halts retries. On reconnect, backoff resets and a poll runs immediately.
+- **Poll cadence follows visibility.** The leader polls every 30s while any of the account's tabs on the device is visible, and every `hiddenPollInterval` (5 min) while none is. Failure backoff overrides both, and local edits still flush at once. When the user comes back to a tab (it becomes visible or gets focus), `SyncOrchestrator.onForeground` polls now and resets backoff, unless a poll is running or one finished in the last `foregroundPollMinGap` (10s). There's no server push: Web Push would show a notification for every nudge.
 
 ### Monotonic versions (no clock-based reconciliation)
 
@@ -130,6 +131,7 @@ Items that can't be synced are quarantined in `manualRecoveryStore` and shown to
 - `LeaderElection` uses `navigator.locks`. Only the leader runs the `SyncOrchestrator` poll loop. Followers keep a live Repo and sync with other tabs over `EncryptedBroadcastChannelNetworkAdapter`.
 - Only tabs with `isLeader === true` send heartbeats on the presence channel. A leader that yields to a higher-priority `claim` calls `revokeLeadership(false)`, which keeps the presence channel and heartbeat timer so it can detect a crash of the new leader.
 - `onMultipleLeadersDetected` must fire only when there are genuinely 2+ active leaders. A follower receiving the sole leader's heartbeat does not count.
+- Every tab runs a `ForegroundTracker`, which sends `tab_visibility` messages on the `RealtimeBus` sync channel when its visibility changes and every 30s while it's visible, so a hidden leader keeps the foreground cadence for a visible follower. A tab that stops pinging counts as hidden after 75s. A follower the user comes back to sends `returned`, and the leader polls for it.
 
 ### Missing key version on cross-tab messages (intentional inline wait)
 

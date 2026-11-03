@@ -108,6 +108,8 @@ export class SyncWorker implements SyncApi {
   private clientEventHub = new ClientEventHub()
   /** Whether the device is online, kept between sessions. Each session's state starts from it. */
   private isOnline = true
+  /** Whether this tab is visible, kept between sessions like `isOnline` */
+  private isVisible = true
   private unsubscribeRealtimeBus: (() => void) | null = null
   private readonly subscriptions = new ItemSubscriptions(
     () => this.context.services.repo,
@@ -269,6 +271,7 @@ export class SyncWorker implements SyncApi {
         accountId,
         clientEventHub: this.clientEventHub,
         isOnline: this.isOnline,
+        isVisible: this.isVisible,
         apiClient: new SyncApiClient({ refreshAuthToken: () => this.requestAuthTokenRefresh() }),
         onDocumentReceived: itemId => this.subscriptions.subscribe([itemId]),
         onDocHandleReplaced: (itemId, handle) => this.subscriptions.rebind(itemId, handle),
@@ -440,8 +443,10 @@ export class SyncWorker implements SyncApi {
   claimLeader = () =>
     this.withContext(ctx => ctx.claimLeader())
 
-  pollIfBackingOff = () =>
-    this.withContext(ctx => ctx.pollIfBackingOff())
+  setVisibility = (visible: boolean, returned?: boolean) => {
+    this.isVisible = visible
+    return this.withContext(ctx => ctx.setVisibility(visible, returned))
+  }
 
   async shutdown(options?: { clearLocalData?: boolean }) {
     setApiAuthToken('')

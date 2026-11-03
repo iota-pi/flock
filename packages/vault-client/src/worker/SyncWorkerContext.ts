@@ -34,6 +34,7 @@ import { SnapshotFormatUpgrade } from './SnapshotFormatUpgrade'
 import { DataVersionTracker, MigrationRequiredError, readDeviceDataVersion } from './DataVersionTracker'
 import { fireAndForget } from '../utils/fireAndForget'
 import { RealtimeBus } from './RealtimeBus'
+import { ForegroundTracker } from './ForegroundTracker'
 import { SyncSessionState } from './SyncSessionState'
 import { DEFAULT_SYNC_DOMAIN, type SyncDomain } from './domain'
 import { AccountSettings, withSettingsDocPassthrough } from './AccountSettings'
@@ -102,6 +103,8 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
   clientEventHub: ClientEventHub
   /** Whether the device is online when the session starts (default true) */
   isOnline?: boolean
+  /** Whether this tab is visible when the session starts (default true) */
+  isVisible?: boolean
   /**
    * Called when a document arrives from the network, as a new document in the repo or a message
    * pulled for it, so the Comlink layer can subscribe to change events on its handle
@@ -127,6 +130,7 @@ export interface SyncWorkerContextConfig extends SyncSessionConfig {
 /** The components `initialize` builds once local storage is open */
 export interface SyncWorkerServices {
   realtimeBus: RealtimeBus
+  foregroundTracker: ForegroundTracker
   repo: Repo
   repoManager: AutomergeRepoManager
   adapter: VaultNetworkAdapter
@@ -171,6 +175,8 @@ export class SyncWorkerContext {
   private unsubscribers: Array<() => void> = []
   private isStopped = false
   private hasLocalDataAtStart = false
+  /** Whether this tab is visible, which the foreground tracker starts from */
+  private isVisible: boolean
   /** Documents whose sealed records failed to decrypt this session (see AutomergeDocStore.isLocallyUnreadable) */
   private readonly unreadableDocuments = new Set<string>()
   /** The sealed database, whose `meta` store holds the wrapped device storage key */
@@ -189,6 +195,7 @@ export class SyncWorkerContext {
     this.domain = { ...domain, codec: withSettingsDocPassthrough(domain.codec, config.accountId) }
     this.apiClient = config.apiClient
     this.session = new SyncSessionState({ isOnline: config.isOnline })
+    this.isVisible = config.isVisible ?? true
     this.statusManager = new SyncStatusManager(config.clientEventHub, this.session)
   }
 
@@ -214,6 +221,11 @@ export class SyncWorkerContext {
     const { accountId, keys, clientEventHub } = this.config
     const { session } = this
     const realtimeBus = new RealtimeBus(accountId)
+    const foregroundTracker = new ForegroundTracker({
+      bus: realtimeBus,
+      isVisible: this.isVisible,
+      onPeerReturned: () => this._services?.orchestrator.onForeground(),
+    })
     const cipherOptions = local.cipher ? { cipher: local.cipher } : undefined
     const indexStore = new IndexStore(accountId, cipherOptions)
     const cursorStore = new CursorStore(accountId)
@@ -429,6 +441,7 @@ export class SyncWorkerContext {
         this.statusManager.handlePollResult(outcome)
         syncProgress.onPollResult(outcome)
       },
+      isForeground: () => foregroundTracker.isAnyVisible,
     })
 
     const storageRecoveryService = new StorageRecoveryService({
@@ -455,6 +468,7 @@ export class SyncWorkerContext {
 
     return {
       realtimeBus,
+      foregroundTracker,
       repo,
       repoManager,
       adapter,
@@ -546,7 +560,7 @@ export class SyncWorkerContext {
 
   private registerLifecycleServices(services: SyncWorkerServices): void {
     const {
-      realtimeBus, repoManager, adapter, broker, storageRecoveryService, indexManager, recoveryManager,
+      realtimeBus, foregroundTracker, repoManager, adapter, broker, storageRecoveryService, indexManager, recoveryManager,
       docStore, snapshotManager, syncedHeadsStore, pullQueueManager, poller, manifestSyncManager,
       orchestrator, itemReencryptor, snapshotFormatUpgrade, syncProgress,
     } = services
@@ -563,6 +577,11 @@ export class SyncWorkerContext {
     // that succeeded, so releasing a component that holds work before starting is registered apart.
     const registrations: ServiceRegistration<{ clearLocalData?: boolean }>[] = [
       { name: 'RealtimeBus', onStop: () => realtimeBus.close() },
+      {
+        name: 'ForegroundTracker',
+        onStart: () => foregroundTracker.start(),
+        onStop: () => foregroundTracker.stop(),
+      },
       { name: 'RepoManager', onStop: () => repoManager.close() },
       { name: 'VaultNetworkAdapter', onStop: options => adapter.shutdown(options) },
       { name: 'SyncMessageBroker', onStop: () => broker.shutdown() },
@@ -784,8 +803,17 @@ export class SyncWorkerContext {
     this.services.orchestrator.claimLeader()
   }
 
-  pollIfBackingOff(): void {
-    this.services.orchestrator.pollIfBackingOff()
+  /**
+   * Records whether this tab is visible. `returned` says the user just came back to it (it became
+   * visible or got focus), so the leader polls now if its last poll is stale.
+   */
+  setVisibility(visible: boolean, returned = false): void {
+    this.isVisible = visible
+    if (!this._services) return
+    this._services.foregroundTracker.setVisible(visible, returned)
+    if (returned) {
+      this._services.orchestrator.onForeground()
+    }
   }
 
   /**
