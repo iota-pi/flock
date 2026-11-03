@@ -823,6 +823,80 @@ describe('SyncOrchestrator', () => {
     })
   })
 
+  describe('pollIfBackingOff (page visible again)', () => {
+    it('polls at once and resets backoff when polling is backing off', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5)
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      // The first failure waits 60s, and the second failure 120s
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+
+      orchestrator.pollIfBackingOff()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(3)
+
+      // The third failure backs off from the start (60s), not from the 300s step
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(4)
+    })
+
+    it('does nothing when polling is not backing off', async () => {
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      orchestrator.pollIfBackingOff()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('does nothing for a follower, while offline or while paused for auth', async () => {
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      setOnline(orchestrator, false)
+      orchestrator.pollIfBackingOff()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+
+      const follower = createOrchestrator({
+        accountId: 'account-2',
+        poller: mockPoller,
+        clientEventHub,
+        pullQueueManager: mockPullQueueManager,
+        manifestSyncManager: mockManifestSyncManager,
+      })
+      setOnline(follower, true)
+      follower.pollIfBackingOff()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not resume polling that is paused for auth', async () => {
+      mockPoller.executePoll.mockResolvedValueOnce('failure')
+      mockPoller.executePoll.mockResolvedValueOnce('auth-failure')
+      orchestrator.setLeader(true)
+      setOnline(orchestrator, true)
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(80000)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+
+      orchestrator.pollIfBackingOff()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPoller.executePoll).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe('manifest sync scheduling & reconnection', () => {
     it('triggers manifest sync on reconnection when leader', async () => {
       orchestrator.setLeader(true)

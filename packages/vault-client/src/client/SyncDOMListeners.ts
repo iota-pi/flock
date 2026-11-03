@@ -11,6 +11,8 @@ export interface SyncDOMListenersCallbacks {
   onOnlineChange?: (isOnline: boolean) => Promise<void> | void
   onReconnect?: () => Promise<void> | void
   onVisibilityHidden: () => void
+  /** The page is visible again while the device reports being online */
+  onVisibilityVisible?: () => void
   onKeyringChange: () => void
 }
 
@@ -37,6 +39,8 @@ export class SyncDOMListeners {
       this.visibilityHandler = () => {
         if (document.visibilityState === 'hidden') {
           this.callbacks?.onVisibilityHidden()
+        } else if (document.visibilityState === 'visible' && getOnlineState()) {
+          this.callbacks?.onVisibilityVisible?.()
         }
       }
       document.addEventListener('visibilitychange', this.visibilityHandler)

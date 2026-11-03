@@ -60,6 +60,8 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   claimLeader: () => Promise<void>
+  /** Polls now if polling is backing off after failures (the page is visible again) */
+  pollIfBackingOff: () => Promise<void>
   /**
    * Reports this device's data level and asks the server to raise the account's, which it does only
    * once the account's data has none of the app's blockers. For an app's migration app.

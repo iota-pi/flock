@@ -42,6 +42,7 @@ const mockSyncApi = {
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
   retrySave: vi.fn().mockResolvedValue({ success: true }),
   claimLeader: vi.fn().mockResolvedValue(undefined),
+  pollIfBackingOff: vi.fn().mockResolvedValue(undefined),
 }
 
 let lastEventPort: MessagePort | null = null
@@ -322,6 +323,18 @@ describe('SyncBridge', () => {
     document.dispatchEvent(new Event('visibilitychange'))
 
     expect(mockSyncApi.pushSnapshots).toHaveBeenCalledTimes(1)
+
+    visibilitySpy.mockRestore()
+  })
+
+  it('asks the worker to cut poll backoff short when the document becomes visible', async () => {
+    await SyncBridge.initialize('test-account')
+
+    const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(mockSyncApi.pollIfBackingOff).toHaveBeenCalledTimes(1)
+    expect(mockSyncApi.pushSnapshots).not.toHaveBeenCalled()
 
     visibilitySpy.mockRestore()
   })

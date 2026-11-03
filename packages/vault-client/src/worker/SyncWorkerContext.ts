@@ -784,6 +784,10 @@ export class SyncWorkerContext {
     this.services.orchestrator.claimLeader()
   }
 
+  pollIfBackingOff(): void {
+    this.services.orchestrator.pollIfBackingOff()
+  }
+
   /**
    * Counts the items whose local changes the server may not have: unpushed WAL entries or a snapshot
    * still to upload (pruned WAL entries mark their items dirty), plus quarantined items. It first

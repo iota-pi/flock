@@ -440,6 +440,9 @@ export class SyncWorker implements SyncApi {
   claimLeader = () =>
     this.withContext(ctx => ctx.claimLeader())
 
+  pollIfBackingOff = () =>
+    this.withContext(ctx => ctx.pollIfBackingOff())
+
   async shutdown(options?: { clearLocalData?: boolean }) {
     setApiAuthToken('')
     this.isShutDown = true

@@ -59,6 +59,21 @@ describe('SyncDOMListeners', () => {
     expect(callbacks.onVisibilityHidden).toHaveBeenCalledTimes(2)
   })
 
+  it('reports the page becoming visible only while online', () => {
+    const onVisibilityVisible = vi.fn<() => void>()
+    listeners.start({ ...callbacks, onVisibilityVisible })
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(onVisibilityVisible).not.toHaveBeenCalled()
+
+    onLineSpy.mockReturnValue(true)
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(onVisibilityVisible).toHaveBeenCalledTimes(1)
+    expect(callbacks.onVisibilityHidden).not.toHaveBeenCalled()
+  })
+
   it('handles storage events for the keyring cache key', () => {
     listeners.start(callbacks)
 

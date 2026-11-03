@@ -153,6 +153,17 @@ export class SyncOrchestrator {
     }
   }
 
+  /**
+   * Polls now if polling is backing off after failures. Called when the page is visible again: the
+   * connection may be back without an `online` event (captive portal, flaky network, a phone waking).
+   */
+  pollIfBackingOff(): void {
+    if (this.isShutdown || !this.deps.session.isOnline || !this.deps.session.isLeader) return
+    if (this.pollingPausedForAuth || this.pollBackoff.attempt === 0) return
+    this.pollBackoff.reset()
+    this.startPolling()
+  }
+
   flush(): void {
     if (this.isShutdown) return
     this.pollingPausedForAuth = false
