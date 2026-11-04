@@ -12,6 +12,7 @@ const tables = {
   accounts: `DeletedPayloadsTestAccounts_${suffix}`,
   items: `DeletedPayloadsTestItems_${suffix}`,
   syncMessages: `DeletedPayloadsTestSyncMessages_${suffix}`,
+  syncLog: `DeletedPayloadsTestSyncLog_${suffix}`,
 }
 const driver = new DynamoDriver({ tables }).connect({
   endpoint: process.env.DYNAMODB_ENDPOINT ?? 'http://127.0.0.1:8001',

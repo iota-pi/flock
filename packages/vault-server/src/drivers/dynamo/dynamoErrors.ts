@@ -1,4 +1,8 @@
-import { ConditionalCheckFailedException, ResourceInUseException } from '@aws-sdk/client-dynamodb'
+import {
+  ConditionalCheckFailedException,
+  ResourceInUseException,
+  TransactionCanceledException,
+} from '@aws-sdk/client-dynamodb'
 
 /** The string fields that identify an error, from the SDK or from a plain object, as '' when missing */
 function readErrorFields(error: object): { name: string, code: string, typeStr: string } {
@@ -37,6 +41,15 @@ function isDynamoError(
 
 export function isConditionalCheckFailure(error: unknown): boolean {
   return isDynamoError(error, ConditionalCheckFailedException, 'ConditionalCheckFailedException')
+}
+
+/** Whether a transaction was cancelled for a reason that another attempt could get past */
+export function isRetryableTransactionCancel(error: unknown): boolean {
+  if (!isDynamoError(error, TransactionCanceledException, 'TransactionCanceledException')) {
+    return false
+  }
+  const { CancellationReasons: reasons } = error as { CancellationReasons?: Array<{ Code?: string }> }
+  return !reasons?.some(reason => reason.Code === 'ValidationError')
 }
 
 export function isResourceInUseError(error: unknown): boolean {

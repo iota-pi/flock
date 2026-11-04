@@ -29,3 +29,8 @@ export const MAX_ITEM_CONTENT_BYTES = MAX_ITEM_CONTENT_KB * 1024
  * Larger messages fall back to snapshot sync.
  */
 export const MAX_INCREMENTAL_MESSAGE_BYTES = 256 * 1024
+
+/**
+ * How many days a row stays in an account's sync log.
+ */
+export const SYNC_LOG_TTL_DAYS = 30

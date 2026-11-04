@@ -9,16 +9,18 @@ describe('resolveVaultTableNames', () => {
     vi.stubEnv('ACCOUNTS_TABLE', 'EnvAccounts')
     vi.stubEnv('ITEMS_TABLE', 'EnvItems')
     vi.stubEnv('SYNC_MESSAGES_TABLE', '')
+    vi.stubEnv('SYNC_LOG_TABLE', '')
 
     const tables = resolveVaultTableNames(
       { accounts: 'ExplicitAccounts' },
-      { accounts: 'DefaultAccounts', items: 'DefaultItems', syncMessages: 'DefaultSyncMessages' },
+      { accounts: 'DefaultAccounts', items: 'DefaultItems', syncMessages: 'DefaultSyncMessages', syncLog: 'DefaultSyncLog' },
     )
 
     expect(tables).toEqual({
       accounts: 'ExplicitAccounts',
       items: 'EnvItems',
       syncMessages: 'DefaultSyncMessages',
+      syncLog: 'DefaultSyncLog',
     })
   })
 

@@ -5,6 +5,8 @@ import type {
   KdfParams,
   ManifestEntry,
   PageToken,
+  SyncLogEntry,
+  SyncLogMessage,
   VaultSessionRecordSchema,
   VaultAccountSchema,
   VaultAccountWithAuthSchema,
@@ -103,6 +105,28 @@ export interface GlobalSyncMessagesPage {
   scannedThroughCursor: number
 }
 
+export interface AppendLogInput {
+  account: string
+  messages: SyncLogMessage[]
+}
+
+/** Where a message landed in the account's log */
+export interface LogPushResult {
+  itemId: ItemId
+  seq: number
+}
+
+export interface ReadLogInput {
+  account: string
+  /** Returns rows strictly after this seq */
+  after: number
+}
+
+export interface SyncLogPage {
+  entries: SyncLogEntry[]
+  hasMore: boolean
+}
+
 /**
  * The storage the vault's routers and services run on. Setting a driver up (connecting, creating
  * tables) is up to each implementation.
@@ -176,4 +200,18 @@ export interface VaultDriver {
    * as in `getSyncMessages`, except that a token is not checked against `cursor`.
    */
   getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage>
+
+  /**
+   * Appends messages to the account's log, in order, and reports each one's seq. Seqs are contiguous
+   * and commit in order. A push too big for one transaction becomes several in a row, so another
+   * device's rows can fall between them, and a failure can leave the earlier ones committed. Clients
+   * resend a push that fails, which only delivers changes twice.
+   */
+  appendLog(input: AppendLogInput): Promise<LogPushResult[]>
+
+  /** Returns the account's rows after a seq, oldest first, in one strongly consistent page */
+  readLog(input: ReadLogInput): Promise<SyncLogPage>
+
+  /** Returns the last seq the account's log has used, by a strongly consistent read (0 when it's empty) */
+  readLogHead(data: BaseData): Promise<number>
 }

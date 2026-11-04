@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { hashSessionToken, SESSION_EXPIRY_MS } from '../../sessions'
 import { syncRouter } from './sync'
 import type { StoredSyncMessage } from '../../drivers/vaultDriver'
-import type { ItemId } from '@vault/shared'
+import { CLIENT_OUTDATED_MESSAGE, type ItemId } from '@vault/shared'
 import DynamoDriver from '../../drivers/dynamo'
 
 /** A page token as the Dynamo driver issues it */
@@ -29,6 +29,8 @@ function createContext(overrides?: {
     pushSyncMessagesBatch: vi.fn(async () => undefined),
     // The Dynamo driver's token checks, which need no connection
     validatePageToken: vi.fn((input: Parameters<DynamoDriver['validatePageToken']>[0]) => new DynamoDriver().validatePageToken(input)),
+    appendLog: vi.fn(async () => [{ itemId: 'item-1' as ItemId, seq: 1 }]),
+    readLog: vi.fn(async () => ({ entries: [], hasMore: false })),
   }
 
   return {
@@ -88,6 +90,61 @@ describe('syncRouter authorization & IDOR protection', () => {
     } satisfies Partial<TRPCError>)
     expect(ctx.vault.getAccountRecord).toHaveBeenCalledWith({ account: 'target-account' })
     expect(ctx.vault.pushSyncMessagesBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('pollLog', () => {
+  const input = {
+    account: 'target-account',
+    push: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv', cipher: 'cipher', format: 2 as const } }],
+    after: 0,
+  }
+
+  it('rejects a poll with no session, and stores nothing', async () => {
+    const ctx = createContext({ authToken: '' })
+    const caller = syncRouter.createCaller(ctx as any)
+
+    await expect(caller.pollLog(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' } satisfies Partial<TRPCError>)
+    expect(ctx.vault.appendLog).not.toHaveBeenCalled()
+  })
+
+  it('rejects a session of another account, and stores nothing', async () => {
+    const ctx = createContext({ sessionValid: false })
+    const caller = syncRouter.createCaller(ctx as any)
+
+    await expect(caller.pollLog(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' } satisfies Partial<TRPCError>)
+    expect(ctx.vault.appendLog).not.toHaveBeenCalled()
+  })
+
+  it('rejects a build below the minimum protocol version', async () => {
+    const ctx = createContext()
+    const caller = syncRouter.createCaller({ ...ctx, protocolVersion: 4, minProtocolVersion: 5 } as any)
+
+    await expect(caller.pollLog(input)).rejects.toMatchObject({ message: CLIENT_OUTDATED_MESSAGE })
+    expect(ctx.vault.appendLog).not.toHaveBeenCalled()
+  })
+
+  it('keeps the ciphertext format on its way to the driver', async () => {
+    const ctx = createContext()
+    const caller = syncRouter.createCaller(ctx as any)
+
+    const result = await caller.pollLog(input)
+
+    expect(ctx.vault.appendLog).toHaveBeenCalledWith({ account: 'target-account', messages: input.push })
+    expect(result).toEqual({
+      pushResults: [{ itemId: 'item-1', seq: 1 }],
+      entries: [],
+      hasMore: false,
+      serverNow: expect.any(Number),
+    })
+  })
+
+  it('requires a position to read after', async () => {
+    const ctx = createContext()
+    const caller = syncRouter.createCaller(ctx as any)
+
+    await expect(caller.pollLog({ account: 'target-account', push: [] } as any))
+      .rejects.toMatchObject({ code: 'BAD_REQUEST' } satisfies Partial<TRPCError>)
   })
 })
 

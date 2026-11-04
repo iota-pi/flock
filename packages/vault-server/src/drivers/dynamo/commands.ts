@@ -20,6 +20,8 @@ export interface DynamoContext {
   tables: VaultTableNames
   /** Most sync messages one query returns */
   syncMessagePageSize: number
+  /** Most log rows one query returns */
+  syncLogPageSize: number
 }
 
 /** Sends a conditional write. Resolves to undefined, instead of throwing, when the condition fails. */

@@ -6,6 +6,7 @@ function createMockVault(): VaultDriver {
   return {
     set: vi.fn(async () => ({ version: 1 })),
     updateAccountData: vi.fn(async () => undefined),
+    readLogHead: vi.fn(async () => 7),
   } as unknown as VaultDriver
 }
 
@@ -49,6 +50,7 @@ describe('snapshotService.persistSnapshots', () => {
         { itemId: 'item-1', version: 1 },
         { itemId: 'item-2', version: 1 },
       ],
+      logSeq: 7,
     })
 
     expect(vault.set).toHaveBeenCalledTimes(2)
@@ -137,6 +139,7 @@ describe('snapshotService.persistSnapshots', () => {
       results: [
         { itemId: 'item-1', version: 1 },
       ],
+      logSeq: 7,
     })
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -172,10 +175,38 @@ describe('snapshotService.persistSnapshots', () => {
       persisted: 0,
       total: 1,
       results: [],
+      logSeq: 7,
     })
 
     expect(vault.updateAccountData).not.toHaveBeenCalled()
     consoleErrorSpy.mockRestore()
+  })
+
+  it('reads the log head only after every write has finished', async () => {
+    const vault = createMockVault()
+    let writesInProgress = 0
+    vi.mocked(vault.set).mockImplementation(async () => {
+      writesInProgress += 1
+      await new Promise(resolve => setTimeout(resolve, 5))
+      writesInProgress -= 1
+      return { version: 2 }
+    })
+    vi.mocked(vault.readLogHead).mockImplementation(async () => {
+      expect(writesInProgress).toBe(0)
+      return 12
+    })
+
+    const snapshot = { iv: 'iv', cipher: 'cipher' }
+    const result = await persistSnapshots(vault, {
+      account: 'acct-1',
+      snapshots: [
+        { itemId: 'item-1' as ItemId, modified: 1, snapshot, snapshotCursor: 0 },
+        { itemId: 'item-2' as ItemId, modified: 2, snapshot, snapshotCursor: 0 },
+      ],
+    })
+
+    expect(vault.readLogHead).toHaveBeenCalledWith({ account: 'acct-1' })
+    expect(result.logSeq).toBe(12)
   })
 
   it('handles empty snapshots list', async () => {
@@ -193,6 +224,7 @@ describe('snapshotService.persistSnapshots', () => {
       persisted: 0,
       total: 0,
       results: [],
+      logSeq: 7,
     })
 
     expect(vault.set).not.toHaveBeenCalled()

@@ -18,6 +18,10 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Dynamo"
     }
+    "FlockSyncLog": {
+      "name": string
+      "type": "sst.aws.Dynamo"
+    }
     "FlockSyncMessages": {
       "name": string
       "type": "sst.aws.Dynamo"

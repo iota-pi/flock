@@ -1,6 +1,7 @@
 import { protectedProcedure, router } from '../trpc'
-import { SyncPollBatchSchema } from '@vault/shared'
+import { PollLogSchema, SyncPollBatchSchema } from '@vault/shared'
 import { pollSync } from '../../services/syncService'
+import { pollLog } from '../../services/syncLogService'
 import { InvalidPageTokenError } from '../../errors'
 import { toTrpcError } from '../errors'
 
@@ -17,4 +18,8 @@ export const syncRouter = router({
         ])
       }
     }),
+
+  pollLog: protectedProcedure
+    .input(PollLogSchema)
+    .mutation(async ({ ctx, input }) => pollLog(ctx.vault, input)),
 })

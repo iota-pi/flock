@@ -102,6 +102,27 @@ export const SyncPollBatchSchema = z.object({
   })).max(100).default([]),
 })
 
+const SyncLogMessageSchema = z.object({
+  itemId: ItemIdSchema,
+  encryptedMessage: SyncEncryptedMessageSchema,
+})
+/** A message on its way to the account's log */
+export type SyncLogMessage = z.infer<typeof SyncLogMessageSchema>
+
+export const SyncLogEntrySchema = SyncLogMessageSchema.extend({
+  seq: z.number().int().min(1),
+  createdAt: z.number(),
+})
+/** A message in the account's log, at the position `seq` */
+export type SyncLogEntry = z.infer<typeof SyncLogEntrySchema>
+
+/** Appends `push` to the account's log and reads the log after the seq `after` */
+export const PollLogSchema = z.object({
+  account: z.string().min(1),
+  push: z.array(SyncLogMessageSchema).max(100).default([]),
+  after: z.number().int().min(0),
+})
+
 export const PutSnapshotBatchSchema = z.object({
   account: z.string().min(1),
   snapshots: z.array(VaultSnapshotSchema).min(1).max(25),

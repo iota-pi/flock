@@ -53,5 +53,16 @@ export function getVaultTableDefinitions(tables: VaultTableNames): VaultTableDef
         },
       ],
     },
+    {
+      TableName: tables.syncLog,
+      KeySchema: [
+        { AttributeName: 'account', KeyType: 'HASH' },
+        { AttributeName: 'seq', KeyType: 'RANGE' },
+      ],
+      AttributeDefinitions: [
+        { AttributeName: 'account', AttributeType: 'S' },
+        { AttributeName: 'seq', AttributeType: 'N' },
+      ],
+    },
   ]
 }

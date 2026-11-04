@@ -84,6 +84,22 @@ export default $config({
         },
       },
     });
+    const syncLogTable = new sst.aws.Dynamo("FlockSyncLog", {
+      fields: {
+        account: "string",
+        seq: "number",
+      },
+      primaryIndex: { hashKey: "account", rangeKey: "seq" },
+      transform: {
+        table: (args) => {
+          args.name = `FlockSyncLog_${stage}`;
+          args.ttl = {
+            attributeName: "expiresAt",
+            enabled: true,
+          };
+        },
+      },
+    });
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
@@ -103,10 +119,11 @@ export default $config({
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
         SYNC_MESSAGES_TABLE: syncMessagesTable.name,
+        SYNC_LOG_TABLE: syncLogTable.name,
         SENTRY_DSN: process.env.SENTRY_DSN || process.env.VITE_SENTRY_DSN || "",
         UNKNOWN_ACCOUNT_SECRET: unknownAccountSecret.value,
       },
-      link: [accountsTable, itemsTable, syncMessagesTable, unknownAccountSecret],
+      link: [accountsTable, itemsTable, syncMessagesTable, syncLogTable, unknownAccountSecret],
     });
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)
@@ -120,8 +137,9 @@ export default $config({
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
         SYNC_MESSAGES_TABLE: syncMessagesTable.name,
+        SYNC_LOG_TABLE: syncLogTable.name,
       },
-      link: [accountsTable, itemsTable, syncMessagesTable],
+      link: [accountsTable, itemsTable, syncMessagesTable, syncLogTable],
     });
     // -----------------------------------------------------------------
     // Push Notifications (Queue + Worker)

@@ -11,6 +11,7 @@ function createContext(overrides?: { authToken?: string, sessionValid?: boolean 
     extendSession: vi.fn(async () => undefined),
     set: vi.fn(async () => ({ version: 1 })),
     updateAccountData: vi.fn(async () => undefined),
+    readLogHead: vi.fn(async () => 0),
   }
 
   return {
@@ -60,6 +61,7 @@ describe('itemsRouter.putSnapshots', () => {
         { itemId: 'item-1', version: 1 },
         { itemId: 'item-2', version: 1 },
       ],
+      logSeq: 0,
     })
 
     expect(ctx.vault.set).toHaveBeenCalledTimes(2)
@@ -101,6 +103,7 @@ describe('itemsRouter.putSnapshots', () => {
       results: [
         { itemId: 'item-1', version: 1 },
       ],
+      logSeq: 0,
     })
   })
 
@@ -129,6 +132,7 @@ describe('itemsRouter.putSnapshots', () => {
       persisted: 0,
       total: 1,
       results: [],
+      logSeq: 0,
     })
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalled()
   })
