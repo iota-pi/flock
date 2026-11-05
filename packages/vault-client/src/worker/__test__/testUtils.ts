@@ -14,6 +14,9 @@ import type { ItemSyncTimestamps } from '../stores/LastModifiedStore'
 import type { RealtimeBus, TabVisibility } from '../RealtimeBus'
 import type { VaultMetadata } from '../../shared/types'
 
+/** Snapshot coverage that lets every snapshot be built */
+export const noLogCoverage = { check: () => ({ covered: true as const }) }
+
 /** A real local cipher over a fresh one-key keyring */
 export async function createTestLocalCipher(accountId = 'test-account'): Promise<LocalCipher> {
   const keyring = new Keyring()
@@ -328,7 +331,7 @@ type TrpcProcedure = (input: any, options?: { signal?: AbortSignal }) => unknown
  * options. Call it in `beforeEach`.
  */
 export function spyOnVaultTrpc(procedures: {
-  pollSync?: TrpcProcedure
+  pollLog?: TrpcProcedure
   putSnapshots?: TrpcProcedure
   fetchManifest?: TrpcProcedure
   fetchSnapshotsByIds?: TrpcProcedure
@@ -338,7 +341,7 @@ export function spyOnVaultTrpc(procedures: {
   }
   const client = {
     sync: {
-      pollSync: { mutate: procedures.pollSync ?? notMocked('sync.pollSync') },
+      pollLog: { mutate: procedures.pollLog ?? notMocked('sync.pollLog') },
     },
     items: {
       putSnapshots: { mutate: procedures.putSnapshots ?? notMocked('items.putSnapshots') },

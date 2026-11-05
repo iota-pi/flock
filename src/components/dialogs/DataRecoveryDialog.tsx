@@ -38,6 +38,8 @@ function getRecoveryTitle(kind: ManualRecoveryKind): string {
       return 'Changes failed to upload'
     case 'localDecryption':
       return "This device's copy can't be read"
+    case 'missingChanges':
+      return 'Waiting for changes from another device'
     default:
       return 'Item requires manual recovery'
   }

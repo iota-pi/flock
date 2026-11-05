@@ -4,7 +4,7 @@ import { spyOnExports } from '../../test/moduleMocks'
 import { spyOnVaultTrpc } from './__test__/testUtils'
 
 const mockPutSnapshots = vi.fn()
-const mockPollSyncBatch = vi.fn()
+const mockPollLog = vi.fn()
 const mockFetchManifest = vi.fn()
 const mockFetchSnapshotsByIds = vi.fn()
 let runtimeToken = ''
@@ -19,7 +19,7 @@ function refreshTo(token: string | null) {
 beforeEach(() => {
   spyOnVaultTrpc({
     putSnapshots: (...args: any[]) => mockPutSnapshots(...args),
-    pollSync: (...args: any[]) => mockPollSyncBatch(...args),
+    pollLog: (...args: any[]) => mockPollLog(...args),
     fetchManifest: (...args: any[]) => mockFetchManifest(...args),
     fetchSnapshotsByIds: (...args: any[]) => mockFetchSnapshotsByIds(...args),
   })
@@ -234,21 +234,15 @@ describe('SyncApiClient', () => {
       expect(mockPutSnapshots).toHaveBeenCalledWith({ account: 'acc-1', snapshots: [] }, { signal })
     })
 
-    it('passes through pollSyncBatch successfully', async () => {
-      mockPollSyncBatch.mockResolvedValue({
-        success: true,
-        pushResults: [],
-        pullResults: [],
-      })
+    it('passes through pollLog successfully', async () => {
+      const response = { pushResults: [], entries: [], hasMore: false, serverNow: 1000 }
+      mockPollLog.mockResolvedValue(response)
       const client = new SyncApiClient()
 
-      const result = await client.pollSyncBatch({
-        account: 'acc-1',
-        pullCursors: {},
-      } as any)
+      const result = await client.pollLog({ account: 'acc-1', push: [], after: 7 })
 
-      expect(result.success).toBe(true)
-      expect(mockPollSyncBatch).toHaveBeenCalledWith({ account: 'acc-1', pullCursors: {} }, undefined)
+      expect(result).toEqual(response)
+      expect(mockPollLog).toHaveBeenCalledWith({ account: 'acc-1', push: [], after: 7 }, undefined)
     })
   })
 

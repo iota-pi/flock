@@ -6,6 +6,8 @@ import type { RecoveryManager } from './RecoveryManager'
 import type { SyncApiClient } from './SyncApiClient'
 import { uploadSnapshotBatch, type StoredSnapshotRecorder, type UploadableSnapshot } from './snapshotUpload'
 import { classifySyncError } from '../utils/errorClassifier'
+import { isClientOutdatedError } from '@vault/shared'
+import type { FirstStart } from './FirstStart'
 import { RetryStrategy, DEFAULT_RETRY_DELAYS } from '../utils/RetryStrategy'
 import { RetryTimer } from '../utils/RetryTimer'
 import { checkAlive, isAbortError, untilAborted } from '../utils/abort'
@@ -30,6 +32,14 @@ const REENCRYPT_CHUNK_SIZE = SYNC_BATCH_SIZES.reencryptChunk
 
 type FailedItem = ReencryptResult['failed'][number]
 
+/** An item that can't have a snapshot yet. It isn't broken, so a later run can retry it. */
+class DeferredBuildError extends Error {
+  constructor(itemId: ItemId, readonly canRetry: boolean) {
+    super(`The snapshot of item ${itemId} has to wait for the log`)
+    this.name = 'DeferredBuildError'
+  }
+}
+
 /** One call's options for `ItemReencryptor.run`. A scheduled retry runs with the same ones. */
 export interface ReencryptRunOptions {
   onProgress?: (done: number, total: number) => void
@@ -42,8 +52,13 @@ export interface ItemReencryptorOptions {
   indexManager: AutomergeIndexManager
   apiClient: SyncApiClient
   recoveryManager: RecoveryManager
-  /** Uploads stop while the session is offline */
+  /** Uploads stop while the session is offline, and only the leader pushes */
   session: SyncSessionState
+  /** Makes this tab the leader, which pushes */
+  claimLeader: () => void
+  firstStart: Pick<FirstStart, 'whenSynced'>
+  /** Pushes items' changes to the log, which comes before their snapshots */
+  pushToLog: (itemIds: ItemId[], signal?: AbortSignal) => Promise<void>
   retryDelays?: number[]
   batchRetryDelays?: readonly number[]
   maxBatchBytes?: number
@@ -129,6 +144,8 @@ export class ItemReencryptor {
       throw new Error('No active session token available')
     }
 
+    await this.waitUntilPushesCanRun(options.signal)
+
     const allItemIds = await this.deps.indexManager.listItemIds()
     const total = allItemIds.length
     const result: ReencryptResult = { succeeded: [], failed: [] }
@@ -158,6 +175,21 @@ export class ItemReencryptor {
     return result
   }
 
+  /**
+   * A rewrite pushes first, so it runs on the leader, once the network part of first start has
+   * finished. It doesn't wait for every first-start record to clear, or one missing key would stall
+   * it for good. Offline there's nothing to wait for: the first chunk stops the run.
+   */
+  private async waitUntilPushesCanRun(signal?: AbortSignal): Promise<void> {
+    if (!this.deps.session.isOnline) return
+    if (!this.deps.session.isLeader) {
+      this.deps.claimLeader()
+      const leadership = this.deps.session.whenLeader()
+      await (signal ? untilAborted(leadership, signal) : leadership)
+    }
+    await this.deps.firstStart.whenSynced(signal)
+  }
+
   /** Builds and uploads one chunk's snapshots, adding each item to `result` */
   private async processChunk(
     itemIds: ItemId[],
@@ -171,6 +203,8 @@ export class ItemReencryptor {
       throw new Error('Re-encryption aborted: network error (offline)')
     }
 
+    await this.deps.pushToLog(itemIds, signal)
+
     const settled = await Promise.allSettled(
       itemIds.map(itemId => this.buildSnapshotWithRetry(itemId, signal))
     )
@@ -182,6 +216,15 @@ export class ItemReencryptor {
       const itemId = itemIds[index]
       if (outcome.status === 'rejected') {
         if (signal?.aborted || isAbortError(outcome.reason)) {
+          throw outcome.reason
+        }
+        if (outcome.reason instanceof DeferredBuildError) {
+          log.warn(outcome.reason.message)
+          result.failed.push({ itemId, error: outcome.reason.message })
+          continue
+        }
+        const classified = classifySyncError(outcome.reason)
+        if (classified.isNetwork || classified.isServerError || classified.isAuth) {
           throw outcome.reason
         }
         const error = `Failed to build snapshot for item ${itemId}: ${errorMessage(outcome.reason)}`
@@ -230,12 +273,18 @@ export class ItemReencryptor {
   private buildSnapshotWithRetry(
     itemId: ItemId,
     signal?: AbortSignal
-  ): Promise<Exclude<BuildSnapshotResult, { type: 'not-ready' }>> {
+  ): Promise<Exclude<BuildSnapshotResult, { type: 'not-ready' | 'deferred' }>> {
     return RetryStrategy.executeWithRetry(
       async () => {
         const result = await this.deps.builder.build(itemId, 0, { signal })
         if (result.type === 'not-ready') {
           throw new Error(`Item ${itemId} document or vault was not ready`)
+        }
+        if (result.type === 'deferred') {
+          if (result.reason === 'unpushed') {
+            await this.deps.pushToLog([itemId], signal)
+          }
+          throw new DeferredBuildError(itemId, result.reason === 'unpushed')
         }
         return result
       },
@@ -243,6 +292,11 @@ export class ItemReencryptor {
         maxAttempts: MAX_BATCH_RETRIES,
         delays: this.batchRetryDelays,
         signal,
+        shouldRetry: err => {
+          if (err instanceof DeferredBuildError) return err.canRetry
+          const classified = classifySyncError(err)
+          return !(classified.isNetwork || classified.isServerError || classified.isAuth)
+        },
         onRetry: (err, attempt) => {
           log.warn(
             `Retry ${attempt}/${MAX_BATCH_RETRIES} building snapshot for ${itemId}:`,
@@ -285,7 +339,7 @@ export class ItemReencryptor {
         signal,
         shouldRetry: err => {
           const classified = classifySyncError(err)
-          if (classified.isAuth) return false
+          if (classified.isAuth || isClientOutdatedError(err)) return false
           return this.deps.session.isOnline || !(classified.isNetwork || classified.isServerError)
         },
         onRetry: (err, attempt) => {
@@ -296,14 +350,15 @@ export class ItemReencryptor {
   }
 
   /**
-   * Rethrows an upload error that should stop the whole run (an abort, an auth error, or a network or
-   * server error), and otherwise describes the permanent failure the batch's items are quarantined for.
+   * Rethrows an upload error that should stop the whole run (an abort, an auth error, a refused build,
+   * or a network or server error), and otherwise describes the permanent failure the batch's items are quarantined for.
    * `SyncApiClient` has already turned auth errors it couldn't recover from into `AuthExpiredError`.
    */
   private describeUploadFailure(err: unknown, signal?: AbortSignal): string {
     checkAlive(signal, true, 'Re-encryption aborted')
     const classified = classifySyncError(err)
-    if (isAbortError(err) || classified.isAuth) {
+    // A build the server refuses says nothing about these items, and a new build retries them
+    if (isAbortError(err) || classified.isAuth || isClientOutdatedError(err)) {
       throw err
     }
 

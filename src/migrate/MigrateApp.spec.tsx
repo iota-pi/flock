@@ -10,6 +10,8 @@ import {
 } from './migration'
 import { MigrationBridge } from './migrationBridge'
 import { isMigrationDeferred } from './detection'
+import { CLIENT_OUTDATED_WARNING } from '../app/vault/clientOutdated'
+import { setClientOutdatedWarning } from './clientOutdatedWarning'
 import * as migrationModule from './migration'
 import * as usePasswordStrengthModule from '../hooks/usePasswordStrength'
 import * as migrationBridgeModule from './migrationBridge'
@@ -266,6 +268,14 @@ describe('MigrateApp', () => {
 
     expect(screen.getByText(/could not be updated/)).toBeDefined()
     expect(screen.queryByRole('button', { name: /Continue to Flock/i })).toBeNull()
+  })
+
+  it('shows the warning when this page is out of date and can\'t reload itself', async () => {
+    render(<MigrateApp />)
+
+    act(() => setClientOutdatedWarning(CLIENT_OUTDATED_WARNING))
+
+    expect(screen.getByText(CLIENT_OUTDATED_WARNING)).toBeDefined()
   })
 
   it('retries with a full resync', async () => {

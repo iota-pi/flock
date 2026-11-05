@@ -29,6 +29,17 @@ export interface HydrateDocumentResult {
   isDeleted?: boolean
 }
 
+/** The doc's heads either side of applying log changes. `headsBefore` is null when they can't be known. */
+export interface AppliedHeads {
+  headsBefore: string[] | null
+  headsAfter: string[]
+}
+
+export type ApplyIncomingResult =
+  | { status: 'applied'; addedChanges: boolean }
+  /** Nothing was stored for an unloaded doc. A loaded doc keeps the changes in its own queue. */
+  | { status: 'missingDeps' }
+
 export type ChangeDocumentOptions = {
   createIfMissing?: boolean
   knownToExist?: boolean
@@ -73,6 +84,8 @@ export interface AutomergeDocStoreOptions {
   onHandleReplaced?: (itemId: ItemId, handle: DocHandle<RepoDoc>) => void
   storageAdapter: DocStorageChecker
   codec: DocCodec
+  /** Called when an indexed item turns out to have no local data, which only the server can restore */
+  onLocalDataMissing?: (itemId: ItemId) => void
   /**
    * Whether a document's sealed local records failed to decrypt. Its handle never finishes loading
    * (automerge-repo leaves it pending when storage throws), so finds give up at once instead of
@@ -199,8 +212,25 @@ export class AutomergeDocStore implements ItemLockCoordinator {
     const extendedHandle = await this.timedFind(url, SYNC_TIMEOUTS.docStoreExtended)
 
     // Final cache check — strictly require readiness before returning
-    if (extendedHandle) return extendedHandle.isReady() ? extendedHandle : undefined
-    return this.getReadyHandle(documentId)
+    if (extendedHandle?.isReady()) return extendedHandle
+    const readyHandle = this.getReadyHandle(documentId)
+    if (!readyHandle) await this.reportIfLocalDataMissing(itemId, options)
+    return readyHandle
+  }
+
+  /** The Repo has no peer to ask for a doc it can't find, so a known item with no data goes to the server */
+  private async reportIfLocalDataMissing(
+    itemId: ItemId,
+    options: Pick<ChangeDocumentOptions, 'knownToExist'>,
+  ): Promise<void> {
+    if (!options.knownToExist) return
+    try {
+      if (!await this.hasDataInStorage(itemId)) {
+        this.deps.onLocalDataMissing?.(itemId)
+      }
+    } catch (error) {
+      log.warn(`Failed to check storage for ${itemId}:`, error)
+    }
   }
 
   private async findOrCreateHandle(
@@ -332,56 +362,150 @@ export class AutomergeDocStore implements ItemLockCoordinator {
       return { hasLocalChanges: false, incomingHeads: [] }
     }
 
-    return this.withItemLock(itemId, async () => {
-      const incomingDoc = Automerge.load<RepoDoc>(binary)
-      const incomingHeads = Automerge.getHeads(incomingDoc)
+    return this.withItemLock(itemId, () => this.hydrateWithLock(itemId, binary, options))
+  }
 
-      const existingHandle = await this.findHandleInternal(itemId, options)
-      if (existingHandle?.isReady()) {
-        this.applyMerge(existingHandle, incomingDoc)
-        return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
-      }
+  private async hydrateWithLock(
+    itemId: ItemId,
+    binary: Uint8Array,
+    options: Pick<ChangeDocumentOptions, 'knownToExist'>,
+  ): Promise<HydrateDocumentResult> {
+    const incomingDoc = Automerge.load<RepoDoc>(binary)
+    const incomingHeads = Automerge.getHeads(incomingDoc)
 
-      // Document handle was not available or not ready within timeout.
-      // Check whether document exists in storage to avoid clobbering local edits.
-      const localBinary = await this.loadDocDataFromStorage(itemId)
-      // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
-      // replace an unreadable copy from the server, say), so ask storage rather than trusting the
-      // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
-      const existsInStorage = !!localBinary || await this.hasDataInStorage(itemId)
+    const existingHandle = await this.findHandleInternal(itemId, options)
+    if (existingHandle?.isReady()) {
+      this.applyMerge(existingHandle, incomingDoc)
+      return this.buildHydrateResult(existingHandle.doc(), incomingHeads)
+    }
 
-      // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
-      const { documentId } = this.resolveDocumentId(itemId)
-      const inMemoryHandle = this.getReadyHandle(documentId)
-      if (inMemoryHandle) {
-        this.applyMerge(inMemoryHandle, incomingDoc)
-        return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
-      }
+    // Document handle was not available or not ready within timeout.
+    // Check whether document exists in storage to avoid clobbering local edits.
+    const localBinary = await this.loadDocDataFromStorage(itemId)
+    // `knownToExist` only says the item is indexed. Its local copy may have been removed (to
+    // replace an unreadable copy from the server, say), so ask storage rather than trusting the
+    // hint. A failed check throws, so nothing is seeded unless storage confirms it's absent.
+    const existsInStorage = !!localBinary || await this.hasDataInStorage(itemId)
 
-      if (existsInStorage) {
-        // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
-        let mergeFailure: unknown
-        if (localBinary) {
-          try {
-            const mergedDoc = Automerge.merge(Automerge.load<RepoDoc>(localBinary), incomingDoc)
-            await this.seedImportedDocument(itemId, Automerge.save(mergedDoc))
-            return this.buildHydrateResult(mergedDoc, incomingHeads)
-          } catch (mergeError) {
-            mergeFailure = mergeError
-          }
+    // Concurrency safety check: verify whether handle in repo became ready during async storage I/O
+    const { documentId } = this.resolveDocumentId(itemId)
+    const inMemoryHandle = this.getReadyHandle(documentId)
+    if (inMemoryHandle) {
+      this.applyMerge(inMemoryHandle, incomingDoc)
+      return this.buildHydrateResult(inMemoryHandle.doc(), incomingHeads)
+    }
+
+    if (existsInStorage) {
+      // Document exists locally. Attempt non-destructive CRDT merge using raw storage binary.
+      let mergeFailure: unknown
+      if (localBinary) {
+        try {
+          const mergedDoc = Automerge.merge(Automerge.load<RepoDoc>(localBinary), incomingDoc)
+          await this.seedImportedDocument(itemId, Automerge.save(mergedDoc))
+          return this.buildHydrateResult(mergedDoc, incomingHeads)
+        } catch (mergeError) {
+          mergeFailure = mergeError
         }
-
-        throw new Error(
-          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}: ` +
-          `its handle didn't load in time and the fallback merge failed`,
-          { cause: mergeFailure },
-        )
       }
 
-      // Genuinely new document - safe to seed
-      const handle = await this.seedImportedDocument(itemId, binary, incomingDoc)
-      return this.buildHydrateResult(handle.doc(), incomingHeads)
+      throw new Error(
+        `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}: ` +
+        `its handle didn't load in time and the fallback merge failed`,
+        { cause: mergeFailure },
+      )
+    }
+
+    // Genuinely new document - safe to seed
+    const handle = await this.seedImportedDocument(itemId, binary, incomingDoc)
+    return this.buildHydrateResult(handle.doc(), incomingHeads)
+  }
+
+  /**
+   * Applies a run of Automerge change chunks from the log. `bytes` must have passed decryption:
+   * `loadIncremental` applies what it can of damaged bytes rather than throwing. `onApplied` runs in
+   * the same synchronous section as the change to a loaded doc, so no edit can land between them.
+   */
+  async applyIncomingChanges(
+    itemId: ItemId,
+    bytes: Uint8Array,
+    onApplied?: (heads: AppliedHeads) => void,
+  ): Promise<ApplyIncomingResult> {
+    return this.withItemLock(itemId, async () => {
+      const handle = await this.findHandleInternal(itemId)
+      if (handle?.isReady()) {
+        return this.applyToLoadedDoc(handle, bytes, onApplied)
+      }
+
+      // `Automerge.load` throws on a partial incremental, so the changes go through an empty doc
+      const incoming = Automerge.loadIncremental(Automerge.init<RepoDoc>(), bytes)
+      if (Automerge.getMissingDeps(incoming, []).length > 0) {
+        return { status: 'missingDeps' }
+      }
+      // Merges into any stored data, and refuses to create a doc over it (sync rule 2)
+      const hydrated = await this.hydrateWithLock(itemId, Automerge.save(incoming), {})
+      onApplied?.({ headsBefore: hydrated.hasLocalChanges ? null : [], headsAfter: hydrated.incomingHeads })
+      return { status: 'applied', addedChanges: true }
     })
+  }
+
+  private applyToLoadedDoc(
+    handle: DocHandle<RepoDoc>,
+    bytes: Uint8Array,
+    onApplied?: (heads: AppliedHeads) => void,
+  ): ApplyIncomingResult {
+    let headsBefore: string[] = []
+    handle.update(doc => {
+      headsBefore = Automerge.getHeads(doc)
+      return Automerge.loadIncremental(doc, bytes)
+    })
+    const doc = handle.doc()
+    if (!doc) throw new Error('Document data not available')
+    const headsAfter = Automerge.getHeads(doc)
+    onApplied?.({ headsBefore, headsAfter })
+    return Automerge.getMissingDeps(doc, []).length > 0
+      ? { status: 'missingDeps' }
+      : { status: 'applied', addedChanges: !areHeadsEqual(headsBefore, headsAfter) }
+  }
+
+  /**
+   * What the doc has after `serverHeads`, with the heads it was read at. Heads the doc lacks would
+   * return its whole history anyway, so they count as empty. Returns null when the doc can't be loaded.
+   */
+  async readChangesSince(
+    itemId: ItemId,
+    serverHeads: string[],
+  ): Promise<{ changes: Uint8Array[]; heads: string[] } | null> {
+    return this.withItemLock(itemId, async () => {
+      const handle = await this.findHandleInternal(itemId)
+      const doc = handle?.isReady() ? handle.doc() : undefined
+      if (!doc) return null
+      const heads = Automerge.getHeads(doc)
+      if (areHeadsEqual(heads, serverHeads)) return { changes: [], heads }
+      const since = Automerge.hasHeads(doc, serverHeads) ? serverHeads : []
+      return { changes: Automerge.getChangesSince(doc, since), heads }
+    })
+  }
+
+  /** Whether a loaded doc has anything after `serverHeads`. A doc that isn't loaded can't have changed. */
+  hasChangesSince(itemId: ItemId, serverHeads: string[]): boolean {
+    const doc = this.getReadyHandle(this.resolveDocumentId(itemId).documentId)?.doc()
+    return doc ? !areHeadsEqual(Automerge.getHeads(doc), serverHeads) : false
+  }
+
+  /** The dependencies the doc's queued changes are waiting for. Empty when it can't be loaded. */
+  async getMissingDeps(itemId: ItemId): Promise<string[]> {
+    return this.withItemLock(itemId, async () => {
+      const handle = await this.findHandleInternal(itemId)
+      const doc = handle?.isReady() ? handle.doc() : undefined
+      return doc ? Automerge.getMissingDeps(doc, []) : []
+    })
+  }
+
+  /** The heads of the item's doc, or null when it can't be loaded */
+  async readHeads(itemId: ItemId): Promise<string[] | null> {
+    const handle = await this.findHandle(itemId)
+    const doc = handle?.isReady() ? handle.doc() : undefined
+    return doc ? Automerge.getHeads(doc) : null
   }
 
   private buildHydrateResult(

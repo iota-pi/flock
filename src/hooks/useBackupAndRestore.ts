@@ -48,19 +48,22 @@ export default function useBackupAndRestore({
           metadata: currentMetadata,
           documents,
           cursors: syncState?.cursors,
-          pendingSync: syncState?.pendingSync,
           lastModified: syncState?.lastModified,
         }
 
         const data = await exportData(backupPayload)
         const json = JSON.stringify(data)
+        const unsynced = await SyncBridge.getUnsyncedChanges().catch((e: unknown) => {
+          log.error('Failed to count unsynced changes', e)
+          return null
+        })
 
         if (skipped && skipped.length > 0) {
           setMessage({
             message: `Backup created, but ${skipped.length} item${skipped.length === 1 ? '' : 's'} could not be loaded.`,
             severity: 'warning',
           })
-        } else if (syncState?.pendingSync && syncState.pendingSync.length > 0) {
+        } else if (unsynced && unsynced.pendingItems > 0) {
           setMessage({
             message: 'You have unsent offline changes. Please connect to the internet to sync before exporting a backup.',
             severity: 'warning',
@@ -87,12 +90,8 @@ export default function useBackupAndRestore({
 
         await SyncBridge.restoreFromBinaries(payload.documents)
 
-        if (payload.cursors || payload.pendingSync || payload.lastModified) {
-          await SyncBridge.restoreSyncState({
-            cursors: payload.cursors,
-            pendingSync: payload.pendingSync,
-            lastModified: payload.lastModified,
-          })
+        if (payload.lastModified) {
+          await SyncBridge.restoreSyncState({ lastModified: payload.lastModified })
         }
 
         await SyncBridge.flushSync()

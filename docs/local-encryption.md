@@ -11,7 +11,8 @@ The server only ever sees ciphertext, but the device stores plaintext:
 | Store | Contents | Today |
 |---|---|---|
 | Automerge database (`automergeDatabase` + account) | Every document's full history | **Plaintext** (`VaultIndexedDBStorageAdapter` writes raw chunks) |
-| WAL (`walDatabase` + account) | Outbound sync messages not yet pushed | **Plaintext** `data` |
+| WAL (`walDatabase` + account) | Left by older builds. Never read, and cleared at first start (see sync-design.md) | **Plaintext** `data` until cleared |
+| Sync log database (`syncLogDatabase` + account) | Pending marks, first-start records, snapshot rechecks and unconfirmed pulls (IDs, heads and counters only), and parked entries | Needs no seal: parked entries hold the server's ciphertext as it arrived, under the account's data keys, and a plaintext session uses the same store |
 | Sync metadata: `indexDoc` | Active and tombstoned item IDs, local-only settings (`sortCriteria`), last sync times | Plaintext |
 | Sync metadata: other keys | Cursors, heads, versions, device data level | Plaintext, no user content |
 | Manual recovery (`manualRecoveryDatabase` + account) | Item IDs and error reasons | Plaintext, no user content |
@@ -23,7 +24,7 @@ Locking forgets the keys and shuts the worker down (`lockVault` in `src/app/vaul
 
 ## Goals
 
-- No user content (documents, WAL messages) or user settings (the index document) is written to local storage unencrypted.
+- No user content (documents) or user settings (the index document) is written to local storage unencrypted.
 - No live data is encrypted with a key derived from a password.
 - Unlocking needs the same secret as today (password or biometric). There's no new prompt.
 - Local data survives password changes and key rotation on any device without re-encrypting it.
@@ -41,7 +42,7 @@ Locking forgets the keys and shuts the worker down (`lockVault` in `src/app/vaul
 - **Ciphertext that already exists under v1.** Sync messages (for up to 90 days), DynamoDB backups and backup files the user downloaded before the migration stay encrypted with the password-derived v1 key. They can be brute-forced at PBKDF2 cost against the *original* password. That's why the migration requires a new password.
   - **Deleted items kept theirs until cleaned up.** A deleted item's row keeps its last real snapshot, and re-encryption only walks the active index (`listItemIds`), which leaves tombstones out. The `passwordDerivedDataKey` blocker ignores deleted items too, so the migration finishes with their content still under v1. Anyone who gets that data can still guess the original password at PBKDF2 cost and read what was deleted.
   - **Cleanup:** the `dropDeletedItemPayloads` server migration (`src/vault/migrations/deletedItemPayloads.ts`) removes the snapshot and any legacy `cipher` from deleted rows. It keeps `metadata`, the top-level `deleted` flag, `version` and `modifiedAt`, so the manifest doesn't change and no device re-fetches or re-uploads anything. It doesn't wait for level 2 to be retired, because nothing reads a deleted item's content: clients learn of deletions from the manifest, the level checks skip deleted items, and the migration app never fetches them. Run `countDeletedItemPayloads` (read-only) first. Both are idempotent, so a run the Lambda cuts short can be started again.
-  - **What it can't reach:** sync messages for those items until their 90-day TTL, DynamoDB backups until they age out, and backup files users downloaded. Items deleted later still upload a full snapshot with the deletion, under whatever key is active then (not v1 once the account has migrated), so the cleanup can be run again but doesn't need to be.
+  - **What it can't reach:** log rows for those items until their 30-day TTL, DynamoDB backups until they age out, and backup files users downloaded. Items deleted later still upload a full snapshot with the deletion, under whatever key is active then (not v1 once the account has migrated), so the cleanup can be run again but doesn't need to be.
 
 ## Part 1: Argon2id and random data keys
 
@@ -159,7 +160,7 @@ Following "Backwards compatibility" in [vault-extraction.md](vault-extraction.md
 
 **After the migration:**
 - **v1 stays in the keyring permanently.** Keeping it is harmless: what matters is ciphertext under it, and the retained key is wrapped under the Argon2id master key. It's still needed for:
-  - sync messages up to their 90-day TTL;
+  - log rows up to their 30-day TTL;
   - backup files made before the migration (`exportData` encrypts with the active key, and `RestoreBackupDialog` → `importData` decrypts by `kver`);
   - any device-key wrap that predates Part 2's guard.
 
@@ -179,7 +180,7 @@ password ──Argon2id──► master key ──wraps──► keyring (data k
                                                    │
                                             AES-GCM seals
                                                    ▼
-                                Automerge chunks, WAL message bytes, index document
+                                Automerge chunks, index document
 ```
 
 - **Device storage key (DSK).** A random AES-GCM-256 key, one per account per device. It never leaves the device and is never sent to the server.
@@ -260,7 +261,7 @@ The keyring is loaded in `initGlobalPrerequisites` before the context is created
    - **What's copied:** `snapshot` and `incremental` chunks only. Their keys are content hashes (heads hash and `keyHash`), and the Repo merges every chunk it loads and compacts away superseded ones, so the copy is idempotent and resumes after a crash.
    - **`storage-adapter-id`** is copied only on the first import.
    - **`sync-state`** records are skipped. They're keyed per peer, not by content, so a copy could overwrite newer state, and the sync protocol rebuilds them.
-3. **Copies WAL entries** with `data` sealed and the descriptor fields (`id`, `itemId`, `seq`, `createdAt`) unchanged, so the WAL can still filter and order entries without opening them. The plaintext WAL is copied, not dropped: a plaintext entry may be a change no snapshot covers yet.
+3. **Leaves the WAL alone.** Nothing reads it now (see "First start" in sync-design.md), so a plaintext WAL isn't copied. It still counts as a plaintext store until it's gone: `hasWal` keeps `retired` false, because `retireLegacyStores` deletes the Automerge database first and the WAL's deletion can then time out.
 4. **Merges the plaintext index** `indexDoc` into `indexDocSealed` with `mergeIndexDocuments` (see "Index document"). On a re-import, deletions from either side win and the sealed side's settings win.
 5. **Writes `{ upgradedAt }`** to the sealed `meta` store.
 6. **Retires the plaintext stores** (next section). If that can't happen yet, the upgrade still counts as done, and the next start re-imports anything new and tries again.
@@ -286,9 +287,7 @@ Deleting a database under a live old-build tab is unsafe. The old adapter closes
 
 ### WAL
 
-`SyncWriteAheadLog` seals `entry.data` in `append` and `importEntries` and opens it in `readAll`, with the WAL associated data above. Like IndexedDB, localforage's `iterate` callback can't await, so it collects the entries first and decrypts them afterwards. Everything else about the WAL is unchanged, including pruning and in-flight tracking.
-
-- **An entry that can't be opened is skipped, not thrown.** The WAL only delivers changes, which the local document holds (sync rule 1), and throwing would stall every push. The entry stays for pruning and a snapshot is requested instead, once per entry per WAL instance, since `readAll` runs on every poll. The item isn't quarantined as `localDecryption`: only the WAL record is unreadable, and the document is fine, so the recovery UI mustn't offer to discard it.
+Earlier builds sealed WAL entries here. Nothing writes or reads them now, and first start clears the sealed store with `clearWriteAheadLog`.
 
 ### Index document
 
@@ -314,7 +313,7 @@ This is device level 3 (Part 1 is account level 2):
 
 ### Cleanup paths
 
-Every path that removes local data must include the sealed databases: `clearAccountLocalData` / `localDataCleanup.ts`, `ServiceLifecycleManager` (the Repo shuts down before its database is cleared, rule 5), `SyncWriteAheadLog.clear`, and `removeVaultFromDevice`.
+Every path that removes local data must include the sealed databases: `clearAccountLocalData` / `localDataCleanup.ts`, `ServiceLifecycleManager` (the Repo shuts down before its database is cleared, rule 5), `clearWriteAheadLog`, `clearSyncLogStorage`, and `removeVaultFromDevice`.
 
 ### Performance
 
@@ -366,7 +365,7 @@ Implemented in this order, one PR each:
 1. Open local storage before creating the Repo (`SyncWorkerContext` creates the Repo in `initialize()`).
 2. `LocalCipher`: the DSK, its wrap, and sealing with the associated data above.
 3. Sealed storage names, a record codec for the IndexedDB adapter, and cleanup of the sealed databases.
-4. The sealed WAL and index.
+4. The sealed index.
 5. `openLocalStorage`, `LocalEncryptionUpgrade` and plaintext-store retirement, with `randomDataKeys` from `getKeyring`.
 6. Re-wrapping the DSK on rotation.
 7. Unreadable local data: the `localDecryption` quarantine, "Replace from server", and the local data recovery dialog.

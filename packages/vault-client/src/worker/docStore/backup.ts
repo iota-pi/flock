@@ -3,8 +3,6 @@ import { type ItemId, ItemIdSchema } from '@vault/shared'
 import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
-import type { SyncPullQueueManager } from '../SyncPullQueueManager'
-import type { SyncWriteAheadLog } from '../SyncWriteAheadLog'
 import type { SnapshotManager } from '../SnapshotManager'
 import type { BackupSyncState } from '../../shared/backupSyncState'
 import { createLogger } from '../../utils/logger'
@@ -98,37 +96,18 @@ export async function restoreFromBinaries(
   return restoredItemIds
 }
 
-/** The sync state a backup carries: pull cursors, unpushed WAL entries and modification times */
-export async function exportSyncState(
-  pullQueueManager: SyncPullQueueManager,
-  wal: SyncWriteAheadLog,
-  snapshotManager: SnapshotManager,
-): Promise<BackupSyncState> {
-  const cursors = pullQueueManager.cursors.exportCursors()
-  const walMap = await wal.readAll()
-  const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
-    itemId,
-    entries.map(entry => entry.data.toBase64()),
-  ])
-  const lastModified = snapshotManager.tracker.exportLastModified()
-
-  return { cursors, pendingSync, lastModified }
+/** The sync state a backup carries: modification times. A restored doc holds its own unpushed changes. */
+export function exportSyncState(snapshotManager: SnapshotManager): BackupSyncState {
+  return { cursors: [], lastModified: snapshotManager.tracker.exportLastModified() }
 }
 
-/** Restores the sync state `exportSyncState` exported */
+/**
+ * Restores the sync state `exportSyncState` exported. Cursors and `pendingSync` in older backups are
+ * ignored: a backup's position says nothing about the log, and its docs hold those changes.
+ */
 export async function restoreSyncState(
-  pullQueueManager: SyncPullQueueManager,
-  wal: SyncWriteAheadLog,
   snapshotManager: SnapshotManager,
   state: Partial<BackupSyncState>,
 ): Promise<void> {
-  if (state.cursors) await pullQueueManager.importCursors(state.cursors)
-  if (state.pendingSync) {
-    for (const [itemId, base64Msgs] of state.pendingSync) {
-      for (const msg of base64Msgs) {
-        await wal.append(itemId, Uint8Array.fromBase64(msg))
-      }
-    }
-  }
   if (state.lastModified) await snapshotManager.tracker.importLastModified(state.lastModified)
 }

@@ -71,7 +71,7 @@ export function withSettingsDocPassthrough(codec: DocCodec, accountId: string): 
 
 /**
  * Account metadata as the app sees it. Keys listed in `syncedKeys` live in an encrypted settings
- * document with a fixed per-account ID, which syncs like any other document (snapshots, WAL,
+ * document with a fixed per-account ID, which syncs like any other document (snapshots, log,
  * manifest, key rotation). Other keys stay in the device's local index.
  *
  * The settings document is created on the first write, never seeded with defaults, and is never

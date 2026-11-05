@@ -86,6 +86,7 @@ beforeEach(() => {
           }),
         },
         repo: { find: mockRepoFind, handles: {} },
+        changeOutbox: { onDocChanged: vi.fn() },
         indexManager: {
           listItemIds: mockIndexManagerListItemIds,
           addItemIds: mockIndexManagerAddItemIds,
@@ -109,11 +110,6 @@ beforeEach(() => {
         orchestrator: {
           flush: mockOrchestratorFlush,
           shutdown: vi.fn().mockResolvedValue(undefined),
-        },
-        pullQueueManager: {
-          onKeyringUpdated: vi.fn(),
-          exportCursors: vi.fn().mockReturnValue([]),
-          importCursors: vi.fn(),
         },
         manifestSyncManager: {
           sync: vi.fn().mockResolvedValue(undefined),
@@ -149,6 +145,8 @@ beforeEach(() => {
       claimLeader = mockContextClaimLeader
       retrySave = mockContextRetrySave
       rewrapDeviceKey = vi.fn().mockResolvedValue(undefined)
+      markRestored = vi.fn().mockResolvedValue(undefined)
+      onKeyringUpdated = vi.fn()
     }
   })
 })

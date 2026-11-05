@@ -6,7 +6,7 @@ import { SnapshotBuilder } from './SnapshotBuilder'
 import { SyncApiClient } from './SyncApiClient'
 import { SyncSessionState } from './SyncSessionState'
 import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
-import { createMockKeyProvider, createMockVault, spyOnVaultTrpc } from './__test__/testUtils'
+import { createMockKeyProvider, createMockVault, noLogCoverage, spyOnVaultTrpc } from './__test__/testUtils'
 import { spyOnExports } from '../../test/moduleMocks'
 import { getApiAuthToken, setApiAuthToken } from '../keys/runtime'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
@@ -35,7 +35,10 @@ function stageDeps(overrides: Partial<ItemReencryptorOptions> = {}): ItemReencry
     indexManager: {} as any,
     apiClient: new SyncApiClient(),
     recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-    session: new SyncSessionState(),
+    session: new SyncSessionState({ isLeader: true }),
+    claimLeader: vi.fn(),
+    firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+    pushToLog: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -49,7 +52,7 @@ async function withSnapshotResults(input: any, response: any) {
   const persisted = resolved.persisted ?? (resolved.success ? input.snapshots.length : 0)
   const results = resolved.results
     ?? (persisted === input.snapshots.length ? input.snapshots.map((s: any) => ({ itemId: s.itemId, version: 1 })) : [])
-  return { ...resolved, persisted, results }
+  return { ...resolved, persisted, results, logSeq: 0 }
 }
 
 beforeEach(() => {
@@ -102,11 +105,14 @@ describe('ItemReencryptor.run', () => {
 
     context = {
       accountId: 'test-account',
-      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-      session: new SyncSessionState(),
+      session: new SyncSessionState({ isLeader: true }),
+      claimLeader: vi.fn(),
+      firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+      pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)
   })
@@ -193,6 +199,7 @@ describe('ItemReencryptor.run', () => {
         expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-2' }), heads: ['mock-head'] }),
       ],
       new Map([['item-1', 4], ['item-2', 9]]),
+      0,
     )
   })
 
@@ -213,6 +220,7 @@ describe('ItemReencryptor.run', () => {
     expect(recorder.recordStoredSnapshots).toHaveBeenCalledWith(
       [expect.objectContaining({ snapshot: expect.objectContaining({ itemId: 'item-2' }) })],
       new Map([['item-2', 3]]),
+      0,
     )
     expect(result.succeeded).toEqual(['item-2'])
     expect(result.failed).toEqual([
@@ -605,6 +613,73 @@ describe('ItemReencryptor.run', () => {
       consoleWarnSpy.mockRestore()
     })
 
+    it('stops without quarantining anything when the server refuses this build', async () => {
+      setApiAuthToken('mock-token')
+      mockListItemIds.mockResolvedValue(['item-1'])
+      const refused = { message: 'CLIENT_OUTDATED', data: { code: 'PRECONDITION_FAILED', httpStatus: 412 } }
+      mockPutSnapshots.mockRejectedValue(refused)
+
+      await expect(itemReencryptor.run()).rejects.toBe(refused)
+
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+      expect(mockPutSnapshots).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops and schedules a retry when a push fails on the network', async () => {
+      const scheduleRetry = vi.spyOn(itemReencryptor, 'scheduleRetry').mockReturnValue(0)
+      setApiAuthToken('mock-token')
+      mockListItemIds.mockResolvedValue(['item-1'])
+      vi.mocked(context.pushToLog).mockRejectedValue(new TypeError('Failed to fetch'))
+
+      await expect(itemReencryptor.run()).rejects.toThrow('Failed to fetch')
+
+      expect(scheduleRetry).toHaveBeenCalledTimes(1)
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+      expect(mockPutSnapshots).not.toHaveBeenCalled()
+    })
+
+    it('pushes a deferred item and builds again, leaving it for a later run after the limit', async () => {
+      setApiAuthToken('mock-token')
+      mockListItemIds.mockResolvedValue(['item-1'])
+      const builder = { build: vi.fn().mockResolvedValue({ type: 'deferred', reason: 'unpushed' }) }
+      const reencryptor = new ItemReencryptor({ ...context, builder: builder as any })
+
+      const result = await reencryptor.run()
+
+      expect(builder.build).toHaveBeenCalledTimes(3)
+      expect(vi.mocked(context.pushToLog)).toHaveBeenCalledWith(['item-1'], undefined)
+      expect(result.failed).toEqual([{ itemId: 'item-1', error: expect.stringContaining('wait for the log') }])
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+    })
+
+    it('does not retry an item waiting for its heads', async () => {
+      setApiAuthToken('mock-token')
+      mockListItemIds.mockResolvedValue(['item-1'])
+      const builder = { build: vi.fn().mockResolvedValue({ type: 'deferred', reason: 'awaitingHeads' }) }
+      const reencryptor = new ItemReencryptor({ ...context, builder: builder as any })
+
+      const result = await reencryptor.run()
+
+      expect(builder.build).toHaveBeenCalledTimes(1)
+      expect(result.failed).toHaveLength(1)
+      expect(upsertManualRecoveryEntry).not.toHaveBeenCalled()
+    })
+
+    it('claims leadership first when this tab is a follower', async () => {
+      setApiAuthToken('mock-token')
+      mockListItemIds.mockResolvedValue([])
+      const session = new SyncSessionState()
+      const claimLeader = vi.fn(() => {
+        session.setLeader(true)
+      })
+      const reencryptor = new ItemReencryptor({ ...context, session, claimLeader })
+
+      await reencryptor.run()
+
+      expect(claimLeader).toHaveBeenCalledTimes(1)
+      expect(context.firstStart.whenSynced).toHaveBeenCalled()
+    })
+
     it('aborts immediately and DOES NOT quarantine items when the session is offline', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       setApiAuthToken('mock-token')
@@ -856,11 +931,14 @@ describe('ItemReencryptor.run cancellation and event loop yielding', () => {
 
     context = {
       accountId: 'test-account',
-      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-      session: new SyncSessionState(),
+      session: new SyncSessionState({ isLeader: true }),
+      claimLeader: vi.fn(),
+      firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+      pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)
   })
@@ -944,11 +1022,14 @@ describe('concurrency and retry race safety (H11)', () => {
 
     context = {
       accountId: 'test-account',
-      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec),
+      builder: new SnapshotBuilder(mockRepo, keys, passthroughCodec, noLogCoverage),
       indexManager: mockIndexManager,
       apiClient: new SyncApiClient(),
       recoveryManager: new RecoveryManager({ accountId: 'test-account', eventHub: new ClientEventHub() }),
-      session: new SyncSessionState(),
+      session: new SyncSessionState({ isLeader: true }),
+      claimLeader: vi.fn(),
+      firstStart: { whenSynced: vi.fn().mockResolvedValue(undefined) },
+      pushToLog: vi.fn().mockResolvedValue(undefined),
     }
     itemReencryptor = new ItemReencryptor(context)
   })

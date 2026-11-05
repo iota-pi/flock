@@ -1,6 +1,6 @@
 import { LeaderElection, type LeaderElectionCallbacks } from './utils/LeaderElection'
 import type { PollOutcome, SyncPoller } from './SyncPoller'
-import type { SyncPullQueueManager } from './SyncPullQueueManager'
+import type { SyncLogPuller } from './SyncLogPuller'
 import type { ManifestSyncManager } from './ManifestSyncManager'
 import type { SyncSessionState } from './SyncSessionState'
 import type { ClientEventHub } from './SyncEventHub'
@@ -24,7 +24,7 @@ export interface SyncOrchestratorDeps {
   session: SyncSessionState
   poller: Pick<SyncPoller, 'executePoll'>
   clientEventHub: ClientEventHub
-  pullQueueManager: Pick<SyncPullQueueManager, 'loadCursors' | 'hasImmediatePendingPulls'>
+  puller: Pick<SyncLogPuller, 'loadState' | 'hasImmediatePendingPulls' | 'gapRepollDelay'>
   manifestSyncManager: Pick<ManifestSyncManager, 'sync' | 'abort' | 'waitForIdle'>
   manifestSyncIntervalMs?: number
   createLeaderElection?: (accountId: string, callbacks: LeaderElectionCallbacks) => LeaderElectionLike
@@ -260,9 +260,10 @@ export class SyncOrchestrator {
 
     const pollNow = outcome !== 'failure' && (
       wasFlushPending
-      || (outcome === 'success' && this.deps.pullQueueManager.hasImmediatePendingPulls())
+      || (outcome === 'success' && this.deps.puller.hasImmediatePendingPulls())
     )
-    this.schedulePollTimer(pollNow ? 0 : this.nextPollDelay)
+    const gapDelay = outcome === 'success' ? this.deps.puller.gapRepollDelay : undefined
+    this.schedulePollTimer(pollNow ? 0 : Math.min(this.nextPollDelay, gapDelay ?? Infinity))
     // Reported once the next poll is scheduled, so a failing receiver can't stop polling
     this.deps.onPollResult?.(outcome)
   }
@@ -340,9 +341,9 @@ export class SyncOrchestrator {
 
   private async reloadCursors(): Promise<void> {
     try {
-      await this.deps.pullQueueManager.loadCursors()
+      await this.deps.puller.loadState()
     } catch (error) {
-      log.error('Failed to reload cursors on leader promotion', error)
+      log.error('Failed to reload the log state on leader promotion', error)
     }
   }
 

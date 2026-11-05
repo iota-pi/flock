@@ -17,7 +17,7 @@ export type SyncStatus = 'idle' | 'connecting' | 'syncing' | 'offline' | 'degrad
 
 /** Local changes on this device that the server doesn't have yet, which clearing local data would lose */
 export interface UnsyncedChanges {
-  /** Items with sync messages not yet pushed or a snapshot not yet uploaded */
+  /** Items with changes not yet pushed or a snapshot not yet uploaded */
   pendingItems: number
   /** Items held for manual recovery, whose local changes aren't syncing (not counted in `pendingItems`) */
   quarantinedItems: number

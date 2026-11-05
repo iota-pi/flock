@@ -118,6 +118,10 @@ describe('ManifestSyncManager', () => {
       migrateLegacySettings: migrateLegacySettingsSpy,
       recoveryManager: new RecoveryManager({ accountId: 'acc-123', eventHub: new ClientEventHub() }),
       apiClient: new SyncApiClient(),
+      coverage: {
+        listUnconfirmedPulls: vi.fn().mockResolvedValue(new Map()),
+        confirmPulledChanges: vi.fn().mockResolvedValue(undefined),
+      },
     } as any
 
     manifestSyncManager = new ManifestSyncManager(depsObj as any)
@@ -134,6 +138,63 @@ describe('ManifestSyncManager', () => {
     mockHasVaultKey.mockReturnValue(true)
     mockWaitForKeyVersion.mockResolvedValue(true)
     mockReadManualRecoveryEntries.mockResolvedValue([])
+  })
+
+  describe('syncNow', () => {
+    it('runs inside the minimum gap and says it fetched the manifest', async () => {
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockGetLastManifestSyncTime.mockResolvedValue(Date.now())
+      mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
+      const onManifestProcessed = vi.fn().mockResolvedValue(undefined)
+      const manager = new ManifestSyncManager({ ...depsObj, onManifestProcessed } as any)
+
+      expect(await manager.syncNow()).toBe(true)
+
+      expect(mockFetchManifest).toHaveBeenCalledTimes(1)
+      expect(onManifestProcessed).toHaveBeenCalledWith([])
+    })
+
+    it('says so when it could not fetch the manifest', async () => {
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockFetchManifest.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      expect(await manifestSyncManager.syncNow()).toBe(false)
+    })
+
+    it('counts a sync that merged only some items', async () => {
+      mockFetchManifest.mockResolvedValue({
+        manifest: [{ itemId: 'item-1', version: 1, modifiedAt: 1 }],
+        serverTime: Date.now(),
+      })
+      mockFetchSnapshotsByIds.mockRejectedValue(new Error('server error'))
+
+      expect(await manifestSyncManager.syncNow()).toBe(true)
+    })
+
+    it('still counts as run when processing the manifest fails, which the next sync retries', async () => {
+      mockFetchManifest.mockResolvedValue({ manifest: [], serverTime: Date.now() })
+      const onManifestProcessed = vi.fn().mockRejectedValue(new Error('failed'))
+      const manager = new ManifestSyncManager({ ...depsObj, onManifestProcessed } as any)
+
+      expect(await manager.syncNow()).toBe(true)
+    })
+  })
+
+  describe('fetchSnapshots', () => {
+    it('hydrates the given items without the manifest', async () => {
+      mockListItemIds.mockResolvedValue(['item-1'])
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [{ item: 'item-1', version: 3, snapshot: { iv: 'iv-1', cipher: 'cipher-1', kver: '1' } }],
+        serverTime: Date.now(),
+      })
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+      mockHydrateAutomergeDocumentBinary.mockResolvedValue({ hasLocalChanges: false, incomingHeads: ['head'] })
+
+      await manifestSyncManager.fetchSnapshots(['item-1' as ItemId])
+
+      expect(mockHydrateAutomergeDocumentBinary).toHaveBeenCalledWith('item-1', new Uint8Array([1, 2, 3]), { knownToExist: true })
+      expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([['item-1', 3]])
+    })
   })
 
   describe('gating & lifecycle', () => {
@@ -849,12 +910,12 @@ describe('ManifestSyncManager', () => {
       cipher: new TextEncoder().encode(JSON.stringify(heads)),
       kver: '1',
     }) as any
-    let onItemSnapshotHydrated: ReturnType<typeof vi.fn>
+    let onSnapshotCovered: ReturnType<typeof vi.fn>
 
     beforeEach(() => {
-      onItemSnapshotHydrated = vi.fn()
+      onSnapshotCovered = vi.fn()
       depsObj.docStore.findHandle = vi.fn().mockResolvedValue({ isReady: () => true, doc: () => localDoc })
-      manifestSyncManager = new ManifestSyncManager({ ...depsObj, onItemSnapshotHydrated } as any)
+      manifestSyncManager = new ManifestSyncManager({ ...depsObj, onSnapshotCovered } as any)
       mockListItemIds.mockResolvedValue(['item-1'])
       depsObj.snapshotManager.tracker.exportLastModified.mockReturnValue([['item-1', 100]])
       mockFetchSnapshotsByIds.mockResolvedValue({ items: [], serverTime: Date.now() })
@@ -873,7 +934,7 @@ describe('ManifestSyncManager', () => {
       expect(mockFetchSnapshotsByIds).not.toHaveBeenCalled()
       expect(mockDecryptBytes).toHaveBeenCalledWith(expect.anything(), 'item-1', 'heads')
       expect(depsObj.snapshotManager.tracker.importVersions).toHaveBeenCalledWith([['item-1', 3]])
-      expect(onItemSnapshotHydrated).toHaveBeenCalledWith('item-1', heads)
+      expect(onSnapshotCovered).toHaveBeenCalledWith('item-1', heads)
     })
 
     it('fetches the snapshot when the local doc lacks its heads', async () => {
@@ -886,7 +947,7 @@ describe('ManifestSyncManager', () => {
       await manifestSyncManager.sync()
 
       expect(mockFetchSnapshotsByIds).toHaveBeenCalled()
-      expect(onItemSnapshotHydrated).not.toHaveBeenCalled()
+      expect(onSnapshotCovered).not.toHaveBeenCalled()
     })
 
     it('fetches the snapshot when its heads fail to decrypt', async () => {

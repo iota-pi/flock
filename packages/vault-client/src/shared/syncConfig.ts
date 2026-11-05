@@ -47,15 +47,30 @@ export const SYNC_TIMEOUTS = {
   syncProgressInterval: 15000,
   /** Debounce before uploading a snapshot that manifest sync found missing or newer on this device */
   upstreamSnapshotDebounce: 2000,
+  /** How long a seq may stay missing from the log before the row counts as lost */
+  gapWait: 30_000,
+  /** The first re-poll while waiting on a gap. Each one after it waits twice as long. */
+  gapRepollBase: 1000,
+  /** A device that last finished a pull this long ago may be behind the log's TTL */
+  logCatchUpAge: 25 * 24 * 60 * 60 * 1000,
+  /** How long an item's author has to upload a snapshot of pulled changes before this device does it */
+  pulledChangesGrace: 24 * 60 * 60 * 1000,
+  /** How long an item may wait on changes from another device before the user is told */
+  missingChangesQuarantine: 24 * 60 * 60 * 1000,
+  /** Debounce before checking whether doc changes (from other tabs, say) need pushing */
+  docChangeCheck: 200,
 } as const
 
+/** Delays between attempts to heal an item that still waits for changes, repeating the last */
+export const GAP_HEAL_DELAYS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const
+
 export const SYNC_BATCH_SIZES = {
-  /** Number of items to query per poll chunk from sync messages */
+  /** Number of items whose changes are read and pushed at a time */
   pollChunk: 5,
-  /** Maximum entry count in the write-ahead log before pruning */
-  walMax: 2000,
-  /** Number of oldest WAL entries to prune on buffer overflow */
-  walPrune: 100,
+  /** Most log rows in one push, which the server appends in one transaction */
+  logPushRows: 99,
+  /** Most ciphertext characters in one push, under the server's transaction limit */
+  logPushChars: 3 * 1024 * 1024,
   /** Number of snapshots to re-encrypt and upload per batch */
   reencryptChunk: 10,
   /** Maximum number of pending item updates to buffer before flushing to store */

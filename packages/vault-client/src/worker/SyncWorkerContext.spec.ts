@@ -14,23 +14,18 @@ import { SYNC_TIMEOUTS } from '../shared/syncConfig'
 import { LocalCipher, LocalKeyUnavailableError } from './localEncryption/LocalCipher'
 import { toDocumentIdFromItemId } from './utils/automerge'
 import { DSK_KEY } from './localEncryption/openLocalStorage'
-import type { SyncWriteAheadLogOptions } from './SyncWriteAheadLog'
-import type { SyncPullQueueManagerDeps } from './SyncPullQueueManager'
-import type { SyncMessageBrokerDeps } from './SyncMessageBroker'
-import type { VaultNetworkAdapterOptions } from './VaultNetworkAdapter'
+import type { ChangeOutboxDeps } from './ChangeOutbox'
+import type { GapHealerDeps } from './GapHealer'
+import type { SyncLogPullerDeps } from './SyncLogPuller'
 import type { SyncOrchestratorDeps } from './SyncOrchestrator'
 import type { ItemRecoveryServiceDeps } from './ItemRecoveryService'
 import { Keyring } from '../keys/Keyring'
 import { generateVaultKey } from '../keys/crypto'
 import * as manualRecoveryStoreModule from '../shared/manualRecoveryStore'
 import * as syncMetadataStorageModule from './stores/syncMetadataStorage'
-import * as cursorStoreModule from './stores/CursorStore'
 import * as indexStoreModule from './stores/IndexStore'
-import * as syncWriteAheadLog from './SyncWriteAheadLog'
+import * as syncLogDatabaseModule from './stores/SyncLogDatabase'
 import * as docStoreModule from './docStore'
-import * as syncPullQueueManager from './SyncPullQueueManager'
-import * as syncMessageBroker from './SyncMessageBroker'
-import * as vaultNetworkAdapter from './VaultNetworkAdapter'
 import * as automergeRepoManager from './AutomergeRepoManager'
 import * as snapshotManagerModule from './SnapshotManager'
 import * as syncOrchestrator from './SyncOrchestrator'
@@ -49,7 +44,7 @@ const mockRecoveryEntries = new Map<string, any>()
 // Shared by every IndexStore instance, so tests can set it before the context creates its own
 const mockHasIndex = vi.fn(async () => false)
 
-const mockSealedWalLength = vi.fn(async () => 0)
+const mockPendingCount = vi.fn(async () => 0)
 
 const mockOpenLocalStorage = vi.fn(async (_: unknown): Promise<any> => ({
   mode: 'plaintext',
@@ -95,11 +90,6 @@ beforeEach(() => {
   spyOnExports(syncMetadataStorageModule, {
     clearSyncMetadataStorage: vi.fn().mockResolvedValue(undefined),
   })
-  spyOnExports(cursorStoreModule, {
-    CursorStore: class MockCursorStore {
-      clear = vi.fn().mockResolvedValue(undefined)
-    },
-  })
   spyOnExports(indexStoreModule, {
     IndexStore: class MockIndexStore {
       constructor(readonly accountId: string, readonly options: { cipher?: unknown } = {}) {}
@@ -108,15 +98,15 @@ beforeEach(() => {
       getIndex = vi.fn().mockResolvedValue(null)
     },
   })
-  spyOnExports(syncWriteAheadLog, {
-    SyncWriteAheadLog: class MockSyncWriteAheadLog {
-      static getSealedStorage = () => ({ length: mockSealedWalLength })
-      constructor(readonly accountId: string, readonly deps: SyncWriteAheadLogOptions = {}) {}
-      clear = vi.fn().mockResolvedValue(undefined)
-      handleQuotaExceeded = vi.fn().mockResolvedValue(1)
-      append = vi.fn().mockResolvedValue(undefined)
-      readAll = vi.fn().mockResolvedValue(new Map())
-      pendingItemIds = vi.fn().mockResolvedValue(new Set())
+  spyOnExports(syncLogDatabaseModule, {
+    SyncLogDatabase: class MockSyncLogDatabase {
+      static countPending = mockPendingCount
+      get = vi.fn().mockResolvedValue(undefined)
+      getAll = vi.fn().mockResolvedValue([])
+      put = vi.fn().mockResolvedValue(undefined)
+      delete = vi.fn().mockResolvedValue(undefined)
+      deleteIf = vi.fn().mockResolvedValue(undefined)
+      close = vi.fn().mockResolvedValue(undefined)
     },
   })
   spyOnExports(docStoreModule, {
@@ -132,36 +122,6 @@ beforeEach(() => {
       addItemIds = vi.fn()
       getMetadata = vi.fn().mockResolvedValue({})
       close = vi.fn()
-    },
-  })
-  spyOnExports(syncPullQueueManager, {
-    SyncPullQueueManager: class MockSyncPullQueueManager {
-      constructor(readonly deps: SyncPullQueueManagerDeps) {}
-      setLockCoordinator = vi.fn()
-      cursors = { getGlobalLatestCursor: vi.fn().mockReturnValue(0), exportCursors: vi.fn().mockReturnValue([]) }
-      loadCursors = vi.fn().mockResolvedValue(undefined)
-      shutdown = vi.fn().mockResolvedValue(undefined)
-    },
-  })
-  spyOnExports(syncMessageBroker, {
-    SyncMessageBroker: class MockSyncMessageBroker {
-      constructor(readonly deps: SyncMessageBrokerDeps) {}
-      fallbackToSnapshot = vi.fn()
-      unblockAllItems = vi.fn()
-      getBlockedItemIds = vi.fn().mockReturnValue([])
-      poller = { executePoll: vi.fn().mockResolvedValue('success') }
-      shutdown = vi.fn().mockResolvedValue(undefined)
-    },
-  })
-  spyOnExports(vaultNetworkAdapter, {
-    VaultNetworkAdapter: class MockVaultNetworkAdapter {
-      constructor(readonly deps: VaultNetworkAdapterOptions) {}
-      triggerReNegotiation = vi.fn()
-      setSyncedHeads = vi.fn()
-      loadSyncedHeads = vi.fn()
-      resetReNegotiationCircuit = vi.fn()
-      shutdown = vi.fn().mockResolvedValue(undefined)
-      onLeaderChange = vi.fn()
     },
   })
   spyOnExports(automergeRepoManager, {
@@ -182,6 +142,7 @@ beforeEach(() => {
         saveLastModified: vi.fn().mockResolvedValue(undefined),
       }
 
+      constructor(readonly deps: unknown) {}
       shutdown = vi.fn().mockResolvedValue(undefined)
       flushPendingSnapshots = vi.fn().mockResolvedValue({ persisted: 0, total: 0 })
       onLeaderChange = vi.fn().mockResolvedValue(undefined)
@@ -257,62 +218,49 @@ describe('SyncWorkerContext', () => {
     await context.initialize()
   })
 
-  it('marks item dirty in SnapshotManager when adapter triggers re-negotiation', () => {
-    depsOf<VaultNetworkAdapterOptions>(context.services.adapter).onReNegotiationTriggered!('test-doc-id' as DocumentId)
-    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('test-doc-id' as ItemId, 0)
-  })
-
-  it('marks items dirty in SnapshotManager when the broker or WAL requests a snapshot', () => {
-    depsOf<SyncMessageBrokerDeps>(context.services.broker).requestSnapshot(['test-item-id' as ItemId])
-    depsOf<SyncWriteAheadLogOptions>(context.services.wal).onSnapshotNeeded!(['unreadable-item' as ItemId])
-    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('test-item-id' as ItemId, 0)
-    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('unreadable-item' as ItemId, 0)
-  })
-
-  it('routes items whose WAL entries are pruned to snapshot-only sync', () => {
-    const itemIds = ['pruned-item-1', 'pruned-item-2'] as ItemId[]
-    depsOf<SyncWriteAheadLogOptions>(context.services.wal).onEntriesPruned!(itemIds)
-    expect(context.services.broker.fallbackToSnapshot).toHaveBeenCalledWith(itemIds)
+  it('marks items dirty at once when a change can only reach the server in a snapshot', () => {
+    depsOf<ChangeOutboxDeps>(context.services.changeOutbox).requestSnapshot('oversized-item' as ItemId)
+    expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('oversized-item' as ItemId, 0)
   })
 
   it('reports poll results and pull retries to the status manager', () => {
     const pollSpy = vi.spyOn(context.statusManager, 'handlePollResult')
     const degradedSpy = vi.spyOn(context.statusManager, 'setDegradedPull')
     depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onPollResult!('failure')
-    depsOf<SyncPullQueueManagerDeps>(context.services.pullQueueManager).onRetryingChange!(true)
+    depsOf<GapHealerDeps>(context.services.gapHealer).onHealingChange!(true)
     expect(pollSpy).toHaveBeenCalledWith('failure')
     expect(degradedSpy).toHaveBeenCalledWith(true)
   })
 
-  it('forwards clearLocalData options to pullQueueManager and snapshotManager on shutdown without clearing storage directly', async () => {
+  it('forwards clearLocalData options to the puller and snapshotManager on shutdown without clearing storage directly', async () => {
+    const pullerShutdown = vi.spyOn(context.services.puller, 'shutdown')
     await context.shutdown({ clearLocalData: true })
 
-    expect(context.services.pullQueueManager.shutdown).toHaveBeenCalledWith({ clearLocalData: true })
+    expect(pullerShutdown).toHaveBeenCalledWith({ clearLocalData: true })
     expect(context.services.snapshotManager.shutdown).toHaveBeenCalledWith({ clearLocalData: true })
     expect(context.services.orchestrator.shutdown).toHaveBeenCalled()
     expect(context.services.docStore.shutdown).toHaveBeenCalled()
-    expect(context.services.wal.clear).not.toHaveBeenCalled()
     expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
     expect(context.services.indexStore.clear).not.toHaveBeenCalled()
-    expect(context.services.cursorStore.clear).not.toHaveBeenCalled()
   })
 
   it('shuts down cleanly without clearLocalData', async () => {
+    const pullerShutdown = vi.spyOn(context.services.puller, 'shutdown')
     await context.shutdown()
 
-    expect(context.services.pullQueueManager.shutdown).toHaveBeenCalledWith(undefined)
+    expect(pullerShutdown).toHaveBeenCalledWith(undefined)
     expect(context.services.snapshotManager.shutdown).toHaveBeenCalledWith(undefined)
-    expect(context.services.wal.clear).not.toHaveBeenCalled()
     expect(clearSyncMetadataStorage).not.toHaveBeenCalled()
     expect(context.services.indexStore.clear).not.toHaveBeenCalled()
-    expect(context.services.cursorStore.clear).not.toHaveBeenCalled()
   })
 
-  it('marks local edits dirty and announces them to other tabs', () => {
+  it('marks local edits dirty and pending, and announces them to other tabs', () => {
+    const markSpy = vi.spyOn(context.services.changeOutbox, 'mark')
     const { deps } = context.services.itemOperations as unknown as { deps: { markDocumentDirty: (id: ItemId) => void } }
     deps.markDocumentDirty('edited-item' as ItemId)
 
     expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('edited-item')
+    expect(markSpy).toHaveBeenCalledWith('edited-item')
     expect(realtimeBus.publishItemDirty).toHaveBeenCalledWith(['edited-item'])
   })
 
@@ -322,6 +270,7 @@ describe('SyncWorkerContext', () => {
     expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('tab-item-1')
     expect(context.services.snapshotManager.tracker.markItemDirty).toHaveBeenCalledWith('tab-item-2')
     expect(realtimeBus.publishItemDirty).not.toHaveBeenCalled()
+    expect(context.services.orchestrator.flush).toHaveBeenCalled()
   })
 
   it('closes its realtime bus on shutdown', async () => {
@@ -338,9 +287,8 @@ describe('SyncWorkerContext', () => {
     expect(shutDownFirst).toBe(true)
   })
 
-  it('tells the adapter and snapshot manager about leaderChange', () => {
+  it('tells the snapshot manager about leaderChange', () => {
     depsOf<SyncOrchestratorDeps>(context.services.orchestrator).onLeaderChange!(true)
-    expect(context.services.adapter.onLeaderChange).toHaveBeenCalledTimes(1)
     expect(context.services.snapshotManager.onLeaderChange).toHaveBeenCalledTimes(1)
   })
 
@@ -400,30 +348,20 @@ describe('SyncWorkerContext', () => {
         apiClient: new SyncApiClient(),
       })
       await ctx.initialize()
-      return { ctx, pullDeps: depsOf<SyncPullQueueManagerDeps>(ctx.services.pullQueueManager) }
+      return { ctx, pullDeps: depsOf<SyncLogPullerDeps>(ctx.services.puller) }
     }
 
     beforeEach(() => {
       mockRecoveryEntries.clear()
     })
 
-    it('resolves pullDecryption quarantines once remote messages are parsed', async () => {
+    it('resolves pullDecryption quarantines once remote changes are applied', async () => {
       const { ctx, pullDeps } = await createContext()
       const resolveSpy = vi.spyOn(ctx.services.recoveryManager, 'resolveQuarantines').mockResolvedValue(undefined)
 
-      pullDeps.onRemoteMessagesParsed!('item-1' as ItemId)
+      pullDeps.onRemoteChangesApplied!('item-1' as ItemId)
 
       expect(resolveSpy).toHaveBeenCalledWith(['item-1'], INBOUND_MESSAGE_RESOLVABLE_KINDS)
-    })
-
-    it('reports pull decryption failures as pullDecryption', async () => {
-      const { ctx, pullDeps } = await createContext()
-      const reportSpy = vi.spyOn(ctx.services.recoveryManager, 'reportDecryptionFailure').mockResolvedValue(undefined)
-      const error = new Error('bad')
-
-      pullDeps.onDecryptionFailure!('item-1' as ItemId, error)
-
-      expect(reportSpy).toHaveBeenCalledWith('item-1', 'pullDecryption', error)
     })
   })
 
@@ -437,28 +375,27 @@ describe('SyncWorkerContext', () => {
       expect(result.error).toContain('still exceeded')
     })
 
-    it('saves dirty documents, triggers renegotiation, persists timestamps, and emits quotaResolved on success', async () => {
+    it('saves dirty documents, marks them pending, persists timestamps, and emits quotaResolved on success', async () => {
       vi.spyOn(context.services.snapshotManager.tracker, 'getDirtyItemIds').mockReturnValue(['item-1' as ItemId, 'item-2' as ItemId])
       const saveDocSpy = vi.spyOn(context.services.docStore, 'saveDocToStorage').mockResolvedValue(true)
       const persistTimestampsSpy = vi.spyOn(context.services.snapshotManager.tracker, 'saveLastModified').mockResolvedValue(undefined)
       const emitSpy = vi.spyOn(context.clientEventHub, 'emit')
+      const markSpy = vi.spyOn(context.services.changeOutbox, 'markAll')
 
       const result = await context.retrySave()
 
       expect(result.success).toBe(true)
-      expect(context.services.broker.unblockAllItems).toHaveBeenCalled()
-      expect(context.services.adapter.resetReNegotiationCircuit).toHaveBeenCalled()
       expect(saveDocSpy).toHaveBeenCalledWith('item-1' as ItemId)
       expect(saveDocSpy).toHaveBeenCalledWith('item-2' as ItemId)
-      expect(context.services.adapter.triggerReNegotiation).toHaveBeenCalled()
+      expect(markSpy).toHaveBeenCalledWith(['item-1', 'item-2'])
       expect(persistTimestampsSpy).toHaveBeenCalled()
       expect(emitSpy).toHaveBeenCalledWith({ type: 'quotaResolved' })
     })
   })
 
   describe('getUnsyncedChanges', () => {
-    function stubPending(options: { wal?: string[], dirty?: string[], quarantined?: string[] }) {
-      vi.spyOn(context.services.wal, 'pendingItemIds').mockResolvedValue(new Set((options.wal ?? []) as ItemId[]))
+    function stubPending(options: { marked?: string[], dirty?: string[], quarantined?: string[] }) {
+      vi.spyOn(context.services.changeOutbox, 'listPending').mockResolvedValue((options.marked ?? []) as ItemId[])
       vi.spyOn(context.services.snapshotManager.tracker, 'getDirtyItemIds').mockReturnValue((options.dirty ?? []) as ItemId[])
       vi.spyOn(context.services.recoveryManager, 'listRecoveryItems').mockResolvedValue(
         (options.quarantined ?? []).map(itemId => ({
@@ -479,9 +416,9 @@ describe('SyncWorkerContext', () => {
       expect(context.services.snapshotManager.flushPendingSnapshots).toHaveBeenCalled()
     })
 
-    it('counts each item with unpushed WAL entries or a pending snapshot once, and quarantined items apart', async () => {
+    it('counts each item with a pending mark or a pending snapshot once, and quarantined items apart', async () => {
       stubPending({
-        wal: ['item-1', 'item-2'],
+        marked: ['item-1', 'item-2'],
         dirty: ['item-2', 'item-3', 'item-4'],
         quarantined: ['item-4', 'item-5', 'item-5'],
       })
@@ -578,7 +515,7 @@ describe('SyncWorkerContext', () => {
       }
     })
 
-    it('seals the index and WAL with the device key when storage is sealed', async () => {
+    it('seals the index with the device key when storage is sealed', async () => {
       const cipher = { seal: vi.fn() }
       mockOpenLocalStorage.mockResolvedValueOnce({
         mode: 'sealed', retired: true, cipher, storage: { close: vi.fn() },
@@ -588,7 +525,6 @@ describe('SyncWorkerContext', () => {
       await ctx.initialize()
 
       expect((ctx.services.indexStore as any).options.cipher).toBe(cipher)
-      expect((ctx.services.wal as any).deps.cipher).toBe(cipher)
       expect(ctx.localStorageState).toEqual({ mode: 'sealed', retired: true })
     })
 
@@ -605,7 +541,7 @@ describe('SyncWorkerContext', () => {
 
     it('reports local data it cannot open, with the unpushed change count, and does not start', async () => {
       mockOpenLocalStorage.mockRejectedValueOnce(new LocalKeyUnavailableError('2'))
-      mockSealedWalLength.mockResolvedValueOnce(3)
+      mockPendingCount.mockResolvedValueOnce(3)
       const { ctx } = createSealingContext()
       const emitSpy = vi.spyOn(clientEventHub, 'emit')
 
@@ -992,9 +928,9 @@ describe('SyncWorkerContext', () => {
     expect(serviceNames).toEqual([
       'RealtimeBus',
       'ForegroundTracker',
+      'SyncLogDatabase',
       'RepoManager',
-      'VaultNetworkAdapter',
-      'SyncMessageBroker',
+      'ServerHeads',
       'StorageRecoveryService',
       'IndexManager',
       'IndexDocument',
@@ -1002,9 +938,8 @@ describe('SyncWorkerContext', () => {
       'DocStore',
       'SnapshotManager',
       'LastModifiedTimestamps',
-      'SyncedHeads',
-      'PullQueueManager',
-      'SyncPoller',
+      'ChangeOutbox',
+      'SyncLogPuller',
       'ManifestSyncManager',
       'SyncOrchestrator',
       'ItemReencryptor',

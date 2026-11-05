@@ -29,7 +29,7 @@ export interface SyncProgressTrackerDeps {
 /**
  * Tells the app how many items have changes the server doesn't have yet and when this device last
  * synced, emitting `syncProgress` whenever either changes. It recounts shortly after anything that may
- * have changed the counts, and every so often anyway: the WAL, the recovery store and the last sync
+ * have changed the counts, and every so often anyway: pending marks, the recovery store and the last sync
  * time are shared by the account's tabs, so this is how a tab that isn't the leader sees its pushes.
  */
 export class SyncProgressTracker {
@@ -67,7 +67,7 @@ export class SyncProgressTracker {
     this.intervalTimer = null
   }
 
-  /** Called with every poll's outcome. A successful poll pushed the WAL and pulled from the server. */
+  /** Called with every poll's outcome. A successful poll pushed pending changes and pulled from the server. */
   onPollResult(outcome: PollOutcome): void {
     if (outcome === 'success') {
       const now = this.now()

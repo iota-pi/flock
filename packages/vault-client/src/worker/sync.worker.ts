@@ -310,7 +310,8 @@ export class SyncWorker implements SyncApi {
 
   /** Sends a subscribed item's state to the app and keeps the index in step with it */
   private handleItemChange(id: ItemId, doc: RepoDoc | null): void {
-    const { accountSettings, docStore, indexManager } = this.context.services
+    const { accountSettings, changeOutbox, docStore, indexManager } = this.context.services
+    changeOutbox.onDocChanged(id)
     if (accountSettings.isSettingsDoc(id)) {
       accountSettings.handleSettingsDoc(doc)
       return
@@ -353,7 +354,11 @@ export class SyncWorker implements SyncApi {
     this.withContext(ctx => exportAllBinaries(ctx.services.docStore, ctx.services.indexManager))
 
   restoreFromBinaries = (documents: Partial<Record<string, string>>) =>
-    this.withContext(ctx => restoreFromBinaries(ctx.services.docStore, documents, ctx.services.indexManager))
+    this.withContext(async ctx => {
+      const restored = await restoreFromBinaries(ctx.services.docStore, documents, ctx.services.indexManager)
+      await ctx.markRestored(restored)
+      return restored
+    })
 
   flushSync = (): Promise<void> =>
     this.withContext(ctx => ctx.services.orchestrator.flush())
@@ -405,9 +410,7 @@ export class SyncWorker implements SyncApi {
 
   updateVaultKey = async (vaultKey: string) => {
     await this.keyring.load(vaultKey)
-    return this.withContext(ctx => {
-      ctx.services.pullQueueManager.onKeyringUpdated()
-    })
+    return this.withContext(ctx => ctx.onKeyringUpdated())
   }
 
   /**
@@ -433,12 +436,10 @@ export class SyncWorker implements SyncApi {
     })
 
   exportSyncState = (): Promise<BackupSyncState> =>
-    this.withContext(({ services }) =>
-      exportSyncState(services.pullQueueManager, services.wal, services.snapshotManager))
+    this.withContext(({ services }) => exportSyncState(services.snapshotManager))
 
   restoreSyncState = (state: Partial<BackupSyncState>) =>
-    this.withContext(({ services }) =>
-      restoreSyncState(services.pullQueueManager, services.wal, services.snapshotManager, state))
+    this.withContext(({ services }) => restoreSyncState(services.snapshotManager, state))
 
   claimLeader = () =>
     this.withContext(ctx => ctx.claimLeader())

@@ -8,7 +8,7 @@ import {
   type VaultSnapshotInput,
   type ItemId,
   type ManifestEntry,
-  type SyncPollBatchSchema,
+  type PollLogSchema,
 } from '@vault/shared'
 import { getApiAuthToken } from '../keys/runtime'
 import { assertSuccess } from '../keys/clientUtils'
@@ -20,9 +20,7 @@ import { createLogger } from '../utils/logger'
 
 type VaultOutputs = inferRouterOutputs<VaultRouter>
 
-export type PollSyncBatchResponse = VaultOutputs['sync']['pollSync']
-export type PullSyncMessagesResponse = PollSyncBatchResponse['pullResults'][number]
-export type PushResultItem = PollSyncBatchResponse['pushResults'][number]
+export type PollLogResponse = VaultOutputs['sync']['pollLog']
 export type PutSnapshotsResponse = VaultOutputs['items']['putSnapshots']
 
 const log = createLogger('SyncApiClient')
@@ -176,10 +174,10 @@ export class SyncApiClient {
     })
   }
 
-  async pollSyncBatch(
-    input: z.infer<typeof SyncPollBatchSchema>,
+  async pollLog(
+    input: z.input<typeof PollLogSchema>,
     options?: { signal?: AbortSignal }
-  ): Promise<PollSyncBatchResponse> {
-    return this.executeWithAuth(() => getUntrackedVaultTrpcClient().sync.pollSync.mutate(input, options))
+  ): Promise<PollLogResponse> {
+    return this.executeWithAuth(() => getUntrackedVaultTrpcClient().sync.pollLog.mutate(input, options))
   }
 }

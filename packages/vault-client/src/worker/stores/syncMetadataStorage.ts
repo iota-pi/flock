@@ -1,3 +1,4 @@
+import type { ItemId } from '@vault/shared'
 import { runStorageOperation, type RunStorageOperationOptions } from '../../utils/storageManager'
 import {
   createAccountStore,
@@ -19,7 +20,23 @@ export const SYNC_METADATA_KEYS = {
   DEVICE_DATA_VERSION: 'deviceDataVersion',
   /** When this device last completed a sync with the server (see SyncProgressTracker) */
   LAST_SYNCED_AT: 'lastSyncedAt',
+  /** The highest log seq this device has processed (see SyncLogPuller) */
+  LOG_CURSOR: 'logCursor',
+  /** The server's clock at this device's last pull that reached the end of the log */
+  LOG_LAST_PULL_AT: 'logLastPullAt',
+  /** Set once this device has reset its sync state for the sync log (see FirstStart) */
+  FIRST_START_RESET: 'firstStartReset',
+  /** Set once this device has reconciled with the server for the sync log (see FirstStart) */
+  FIRST_START_SYNCED: 'firstStartSynced',
+  /** Set once the write-ahead log that older builds kept has been cleared (see FirstStart) */
+  WAL_CLEARED: 'walCleared',
 } as const
+
+/** The cursors older builds kept under `SYNC_METADATA_KEYS.CURSORS`, which first start clears */
+export interface PersistedSyncCursors {
+  globalCursor: number
+  retries?: [ItemId, number][]
+}
 
 /**
  * Returns a cached LocalForage instance for the account's consolidated sync metadata database.

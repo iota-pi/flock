@@ -6,9 +6,8 @@ import { generateVaultKey } from '../../keys/crypto'
 import { VaultIndexedDBStorageAdapter } from '../VaultIndexedDBStorageAdapter'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSealedAutomergeDBName } from '../../shared/localDatabaseNames'
-import { getAccountDatabaseName, clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
+import { createAccountStore, getAccountDatabaseName, clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 import { databaseExists } from '../../utils/databaseExists'
-import { SyncWriteAheadLog } from '../SyncWriteAheadLog'
 import { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
 import { createMockLocalForagePool, mockLocalForage } from '../__test__/testUtils'
@@ -176,9 +175,8 @@ describe('openLocalStorage', () => {
   })
 
   describe('upgrading plaintext data', () => {
-    it('copies document chunks, the storage ID, the WAL and the index, then retires the plaintext stores', async () => {
+    it('copies document chunks, the storage ID and the index, then retires the plaintext stores', async () => {
       await seedPlaintextChunks()
-      const entryId = await new SyncWriteAheadLog(ACCOUNT).append('item-1' as ItemId, INCREMENTAL)
       const index = { accountId: ACCOUNT, itemIds: ['item-1'], tombstoneIds: [], metadata: { sort: 'name' } }
       await new IndexStore(ACCOUNT).saveIndex(index as unknown as AutomergeIndexDocument)
 
@@ -189,8 +187,6 @@ describe('openLocalStorage', () => {
       expect(await local.storage.load([DOC, 'incremental', 'change-1'])).toEqual(INCREMENTAL)
       expect(await local.storage.load(['storage-adapter-id'])).toEqual(new TextEncoder().encode('storage-1'))
       expect(await local.storage.has([DOC, 'sync-state'])).toBe(false)
-      const wal = await new SyncWriteAheadLog(ACCOUNT, { cipher: local.cipher }).readAll()
-      expect(wal.get('item-1' as ItemId)).toEqual([expect.objectContaining({ id: entryId, data: INCREMENTAL })])
       expect(await new IndexStore(ACCOUNT, { cipher: local.cipher }).getIndex()).toEqual(index)
       expect(await readSealedMeta(UPGRADED_AT_KEY)).toEqual(expect.any(Number))
       expect(retire).toHaveBeenCalledWith(expect.objectContaining({ accountId: ACCOUNT }))
@@ -220,6 +216,27 @@ describe('openLocalStorage', () => {
       expect(merged.tombstoneIds).toEqual(['b'])
       expect(merged.metadata).toEqual({ sort: 'sealed' })
       expect(second.retired).toBe(false)
+    })
+
+    it('reports a plaintext WAL left after a timed-out delete as not retired, and retires it next time', async () => {
+      await createAccountStore('wal-entries', ACCOUNT).setItem('entry-1', { id: 'entry-1' })
+      retire.mockResolvedValueOnce(false)
+
+      const first = await open()
+      expect(first.retired).toBe(false)
+      await first.storage.close()
+
+      const second = await open()
+      expect(retire).toHaveBeenCalledTimes(2)
+      expect(second.retired).toBe(true)
+    })
+
+    it('reads nothing from a plaintext WAL, so it creates no copy of one', async () => {
+      const local = await open()
+
+      expect(local.retired).toBe(true)
+      expect(walExists()).toBe(false)
+      expect(pool.getInstance(getAccountDatabaseName('wal-entries-sealed', ACCOUNT), 'wal-entries-sealed')).toBeUndefined()
     })
 
     describe('running out of space', () => {

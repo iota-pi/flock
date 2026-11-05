@@ -8,6 +8,7 @@ export class SyncSessionState {
   private online: boolean
   private leader = false
   private shutDown = false
+  private leaderWaiters: Array<() => void> = []
 
   constructor(options: { isOnline?: boolean; isLeader?: boolean } = {}) {
     this.online = options.isOnline ?? true
@@ -42,7 +43,19 @@ export class SyncSessionState {
   setLeader(isLeader: boolean): boolean {
     if (this.leader === isLeader) return false
     this.leader = isLeader
+    if (isLeader) {
+      for (const resolve of this.leaderWaiters) resolve()
+      this.leaderWaiters = []
+    }
     return true
+  }
+
+  /** Resolves once this tab is the leader */
+  whenLeader(): Promise<void> {
+    if (this.leader) return Promise.resolve()
+    return new Promise(resolve => {
+      this.leaderWaiters.push(resolve)
+    })
   }
 
   markShutdown(): void {

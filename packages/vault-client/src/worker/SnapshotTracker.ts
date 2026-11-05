@@ -278,6 +278,14 @@ export class SnapshotTracker {
     return this.dirtyItems.get(itemId)
   }
 
+  isDirty(itemId: ItemId): boolean {
+    return this.dirtyItems.has(itemId)
+  }
+
+  getBaseVersion(itemId: ItemId): number {
+    return this.timestampsByItemId.get(itemId)?.baseVersion ?? 0
+  }
+
   get dirtyCount(): number {
     return this.dirtyItems.size
   }

@@ -30,9 +30,11 @@ export interface VaultStorageNames {
     leaderLock: string
     syncMetadataDatabase: string
     walDatabase: string
-    /** WAL entries sealed with the device storage key */
+    /** WAL entries older builds sealed with the device storage key. It's only cleared now. */
     sealedWalDatabase: string
     manualRecoveryDatabase: string
+    /** What the sync log needs per item: pending marks, parked entries and first-start records */
+    syncLogDatabase: string
     /** Fallback for other account stores, as `${prefix}${storeName}_${accountId}` */
     accountStoreDatabase: string
   }
@@ -80,6 +82,7 @@ export function createVaultStorageNames(appName: string): VaultStorageNames {
       walDatabase: `${prefix}-wal-`,
       sealedWalDatabase: `${prefix}-wal-sealed-`,
       manualRecoveryDatabase: `${prefix}-manual-recovery-`,
+      syncLogDatabase: `${prefix}-sync-log-`,
       accountStoreDatabase: `${prefix}-store-`,
     },
   }

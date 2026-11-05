@@ -1,7 +1,6 @@
 import { Repo, type StorageAdapterInterface, type Chunk, type DocumentId } from '@automerge/automerge-repo/slim'
 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
-import type { VaultNetworkAdapter } from './VaultNetworkAdapter'
 import { runStorageOperation } from '../utils/storageManager'
 import type { VaultIndexedDBStorageAdapter } from './VaultIndexedDBStorageAdapter'
 import { getVaultStorageNames } from '../shared/storageNames'
@@ -65,7 +64,6 @@ export class AutomergeRepoManager {
   constructor(
     private readonly accountId: string,
     keys: KeyProvider,
-    vaultNetworkAdapter: VaultNetworkAdapter,
     private readonly indexedDbAdapter: VaultIndexedDBStorageAdapter,
     options?: AutomergeRepoManagerOptions,
   ) {
@@ -81,10 +79,7 @@ export class AutomergeRepoManager {
 
     this.repo = new Repo({
       storage: this.storage,
-      network: [
-        this.broadcastAdapter,
-        vaultNetworkAdapter,
-      ],
+      network: [this.broadcastAdapter],
     })
   }
 

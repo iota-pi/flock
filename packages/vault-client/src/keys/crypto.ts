@@ -143,7 +143,7 @@ export async function decryptWithKey(key: CryptoKey, payload: CryptoResult): Pro
 }
 
 /**
- * What a doc-bound ciphertext holds: the document itself (snapshots and sync messages) or a
+ * What a doc-bound ciphertext holds: the document itself (snapshots and log rows) or a
  * snapshot's heads. Each purpose has its own associated data, so one can't stand in for the other.
  */
 export type DocBindingPurpose = 'doc' | 'heads'

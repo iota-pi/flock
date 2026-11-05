@@ -5,46 +5,111 @@ Background and rationale for the sync system (`packages/vault-client/src/{worker
 ## Data flow
 
 ```
-User edit → Automerge doc change → two outbound paths:
-  1. Incremental: VaultNetworkAdapter → WAL → SyncPoller → server push
-  2. Snapshot:    markItemDirty → SnapshotManager/SnapshotPusher → server snapshot upload
+User edit → Automerge doc change → pending mark and dirty mark → two outbound paths:
+  1. Incremental: ChangeOutbox → getChangesSince(doc, serverHeads) → SyncPoller → log append
+  2. Snapshot:    SnapshotManager/SnapshotPusher → push to the log first → server snapshot upload
 
 Server → two inbound paths:
-  1. Incremental: SyncPoller pull → SyncPullQueueManager → Automerge merge
+  1. Incremental: SyncPoller → SyncLogPuller → loadIncremental into the doc
   2. Full state:  ManifestSyncManager → calculateSyncDeltas → fetch snapshots → hydrate docs
 ```
 
-The local Automerge doc in IndexedDB is always the complete, authoritative state. The WAL, snapshots and server rows are only delivery mechanisms. The server cannot decrypt anything, so it never merges or reconciles. It only relays data.
+The local Automerge doc in IndexedDB is always the complete, authoritative state. The log, snapshots and server rows are only delivery mechanisms. The server cannot decrypt anything, so it never merges or reconciles. It only relays data.
 
-## Incremental sync (WAL)
+## Sync log
 
-- Outbound Automerge sync messages are appended to `SyncWriteAheadLog` (it has its own IndexedDB database). `SyncPoller` encrypts and pushes them via `pollSyncBatch`, and entries are removed once the server acknowledges them.
-- **Pruning is safe.** When the WAL exceeds `MAX_ENTRIES`, `performPruneOldest` drops old entries. Nothing is lost, because the local doc is authoritative and the next snapshot captures the full merged state.
-- **Batching happens at push time, not in storage.** `SyncPoller` packs each item's entries into one batched message (`packBatchedMessages`) when it pushes, and every WAL entry holds a single message. Older versions compacted entries into batched ones (`isBatched`, with the IDs they superseded in `replaces`) when the WAL filled or hit a quota error. Compaction is gone because it only cut the record count, wrote before it freed space, and a compacted entry was double-framed when a backup restored it. Their batched entries fail the push-time check below and are dropped like any other invalid entry, so nothing reads that format any more.
-- **Every entry is checked before it's pushed.** `SyncPoller` decodes each entry with `decodeSyncMessage` (once per entry, remembering the ones that passed). If any entry of an item isn't a sync message, it drops all of that item's entries and reports them as pruned, so the item goes snapshot-only and gets a snapshot, as after pruning. Bad bytes would otherwise reach every other device, which would retry them up to `MAX_PULL_RETRIES` times and then give up. A drop is logged as an error, because the snapshot heals the item and the log is the only sign of whatever wrote the entry.
-- **Pulled messages are always batches.** Every push since 2026-05-19 has been one (`BATCHED_MESSAGE_VERSION`), and the 90-day TTL has expired anything older, so `handleMessageEntry` parses every message as a batch.
-- **Quota errors prune.** A write that hits the quota prunes the oldest `walPrune` entries (`handleQuotaExceeded`), as overflow does, and retries once. Only if the retry also fails is the user told, and that report does not prune again.
-- **In-flight safety.** `SyncPoller.executePoll` calls `wal.unmarkInFlight` in a `finally` block, so entries cannot get stuck in-flight.
+Each account has one strictly ordered log, the `FlockSyncLog` table, keyed by `account` and `seq`. `sync.pollLog` pushes messages and reads the log in one mutation.
+
+### Server
+
+- **Rows are contiguous.** Every committed push uses exactly the next seqs, and a failed push uses none. One `TransactWriteItems` updates the head row (`seq: 0`, with the condition `head = :expected`) and puts each message, so a transaction for seqs `e+1…` can commit only after the one for `…e`. The head row isn't on the `FlockAccounts` record, because `extendSession` writes that on every request, and a write to an item in a running transaction fails.
+- **Reads are consistent `Query`s on the base table,** strictly `seq > after`, with no GSI, page token or lookback. DynamoDB documents `Query` as read-committed, which may show some rows of a multi-row transaction and not others. Contiguity makes that harmless, because the client never moves past a missing seq it might still see.
+- **A row's `encryptedMessage` is a run of Automerge change chunks** encrypted with the item's ID. There's only one kind of row, and an item's change set can span several rows, in dependency order.
+- **Rows expire after `SYNC_LOG_TTL_DAYS` (30).** Snapshots are the lasting copy (see "Snapshot coverage").
+
+### Outbound: from the doc
+
+There's no write-ahead log and no sync protocol against a pretend peer. The doc is the only copy of a change, so nothing can be pruned, compacted or stuck in flight.
+
+- **Server heads** (`ServerHeads`, stored by `SyncedHeadsStore`) are heads whose every ancestor is on the server, in the log or in the item's current snapshot. They must be heads the doc has: `getChangesSince` returns the whole history, without throwing, for heads it lacks.
+- **A pending mark** (`ChangeOutbox`) says an item may have changes after its server heads. It's a hint, and a false one costs an empty check. Each item has its own record, `{ itemId, tick }`, in the sync log database, so tabs never race on a shared value, and followers write marks too, so an edit survives a leader that crashes before pushing. A mark clears only if its tick is still the one the push read, in one IndexedDB transaction.
+- **A change from a follower can reach the leader after its mark is cleared:** the leader pushes, finds nothing and clears the mark, and only then does the doc change arrive. So the leader checks every doc change (`ChangeOutbox.onDocChanged`) and marks whatever it finds unpushed.
+- **Push** (`ChangeOutbox.pushItems`, leader only) reads `getChangesSince(doc, serverHeads)` under the item lock, groups the changes in order into rows of at most `MAX_INCREMENTAL_MESSAGE_BYTES`, and encrypts each row. Once the server has acknowledged every row of an item, its server heads become the heads the changes were read at, and its mark clears if its tick hasn't moved. Those are always heads the doc had at one moment, so they stay a frontier. A lost acknowledgement or a partial failure resends the same changes, which Automerge ignores as duplicates.
+- **One exchange at a time.** Pushes come from polls, snapshot uploads and rewrites, and each `pollLog` also reads the log, so `SyncPoller.exchange` runs them one by one. An acknowledgement is recorded before the entries that came with it are applied, so that a pull sees the item as no longer pending.
+- **A single change over the row limit** can't be split. The item takes the snapshot path (`snapshotOnly`), and its server heads become the snapshot's heads once it's confirmed. Other devices get the change at their next manifest sync, or sooner if a later row depends on it. A snapshot over the item limit goes to `recreateOversizedItem`.
+
+### Inbound: `SyncLogPuller`
+
+For each entry, in seq order: check contiguity, skip an own echo, decrypt, apply, then advance the cursor (debounced).
+
+- **Own echoes** are seqs this device pushed, kept in a bounded set. They only advance the cursor, and they don't count as "another device" for clearing a `pullDecryption` quarantine.
+- **Decryption always comes first.** `loadIncremental` applies what it can of truncated or garbage bytes rather than throwing, so AES-GCM authentication is what rejects a damaged row.
+- **`docStore.applyIncomingChanges`** applies a row under the item lock. A loaded doc takes `loadIncremental`. Otherwise the row goes through `Automerge.init()`: `Automerge.load` throws on a partial incremental, so a row with missing dependencies parks and no empty doc is stored, and the rest goes through `hydrateAutomergeDocumentBinary`, which merges into stored data and refuses to create a doc over it (rule 2).
+- **Applying never marks an item pending.** Server heads follow the doc only if the item isn't pending and the doc matched them before the row. A doc that didn't has changes of its own, whose mark may not have reached storage yet, and moving the heads past them would mean they're never pushed. A pending item that pulls changes resends them once, which Automerge ignores, and its acknowledgement moves its heads past them.
+
+`hasImmediatePendingPulls` is true only for `hasMore`. Waiting on a gap is never "immediate" (rule 4).
+
+### Gaps
+
+A gap is a missing seq between the cursor and the next visible row.
+
+- **Fresh gap.** The next visible row is under `gapWait` (30s) old by the server's clock (`serverNow − createdAt`), so the missing row may be part of a transaction that isn't fully visible yet. The cursor stays, and the orchestrator re-polls after 1s, 2s, 4s and so on, up to 16s. The poll still reports `'success'`.
+- **Stale gap.** The next visible row is older than that, or a fresh gap has lasted that long. The row was lost, which can't happen by design, so the puller logs an error, moves past it and asks for a manifest sync now, ignoring `manifestSyncMinGap`. Missing-dependency checks catch the items affected.
+- **Catch-up.** A device with no finished pull, or whose last one was more than `logCatchUpAge` (25 days) before `serverNow`, may be behind the TTL. It runs the same manifest sync before it reads, because the first visible row may still look contiguous. The poller checks the local clock first, and the server's once it has a response: a page that shows the device is behind is dropped and read again afterwards, because the manifest sync can't run inside an exchange. Until its first pull with `hasMore` false, a stale gap is expected, so it causes no error and no second manifest sync. Fresh gaps still wait.
+
+### Parked entries and the `GapHealer`
+
+An entry that can't be applied yet (a failed decryption, a missing key, missing dependencies or a doc that won't load) is parked and the cursor moves on. A parked entry keeps the row's ciphertext as it arrived, which the keyring can always read again, so it needs no seal, and it outlasts a reload rather than relying on Automerge's own queue of changes with missing dependencies reaching storage.
+
+The `GapHealer` owns those items. It fetches an item's snapshot at once (`ManifestSyncManager.fetchSnapshots`), re-applies its parked rows in seq order and checks for missing dependencies. Rows stay until nothing is missing. If the server doesn't have the dependencies yet, some device's doc does, and it retries after every later entry for the item, every manifest sync, every keyring update, and on a backoff (`GAP_HEAL_DELAYS`). Work runs at the end of each poll, so a failure fails the poll.
+
+- **After a day** (`missingChangesQuarantine`) the item is quarantined as `missingChanges`. It stays usable and keeps retrying, and a heal clears the quarantine.
+- **A row that won't decrypt** is dropped after `MAX_PULL_RETRIES` (5) and the item quarantined as `pullDecryption`.
+- **A row waiting for a key** is never quarantined. A keyring update retries it.
+
+The Repo has no peer to ask for a doc it can't find, so a find for an indexed item with no local data (after `replaceFromServer`, say) also goes to the healer.
 
 ### Poll result contract
 
-`executePoll` returns `'success' | 'failure' | 'noop'`, which drives `SyncOrchestrator` backoff:
+`executePoll` returns `'success' | 'failure' | 'auth-failure' | 'no-poll'`, which drives `SyncOrchestrator` backoff:
 - `'success'` resets backoff. Return it only when the whole cycle had no errors.
-- `'failure'` triggers exponential backoff. Return it whenever push or pull processing throws.
-- `'noop'` leaves backoff unchanged, for example when there was nothing to do.
+- `'failure'` triggers exponential backoff. Return it whenever push, pull processing or healing throws.
+- `'no-poll'` leaves backoff unchanged, for example when the poll was aborted.
 
-If `processPullResults` or any I/O throws and the poll still reports `'success'`, backoff resets while `hasImmediatePendingPulls()` stays true. The result is a 0ms re-poll loop.
+If any I/O throws and the poll still reports `'success'`, backoff resets while `hasImmediatePendingPulls()` stays true. The result is a 0ms re-poll loop.
 
-### Pull filtering and cursors
+## Snapshot coverage
 
-- In `pollSync`, items present in `pullCursors` (targeted per-item pulls) are filtered out of `globalPullResult` (the account-wide pull) to prevent cursor jumps. If the global pull truncates an active item, that item's own `batchPullResult` reports `hasMore` with a `nextPageToken`, and the next poll continues from there.
-- Cursors advance monotonically. `SyncPullQueueManager` sorts messages ascending and `break`s on a parse failure, so the cursor only reaches the last message that was processed successfully. It skips `cursor <= initialCursor`.
-- **Server cursor format:** `relativeTimestampSeconds * 10_000_000 + random(0, 9_999_000)` (`syncService`). The `FlockSyncMessages` key is `syncId` (`${account}#${itemId}`) plus `cursor`, so a collision needs the same account, the same item, the same second and the same random offset (P ≈ 10⁻⁷).
-- **No lookback window.** An earlier 10s overlap (`OVERLAP_CURSOR_DELTA`) plus a client LRU of seen cursors caused every client to re-download the same batch on every poll forever. Queries are now strictly `#c > :fromCursor`. A message can still become visible after one with a higher cursor: the cursor is fixed when the push starts, the write can take seconds (including `UnprocessedItems` retries), and the account-wide pull reads the `AccountCursorIndex` GSI, which is eventually consistent. A client that reads in between advances past the late message. The settle window below prevents most of these, and manifest sync recovers the rest. Do not reintroduce a lookback.
-- **Settle window.** `pollSync` limits both pulls (per-item and account-wide) to cursors stamped at least `SYNC_SETTLE_MS` (10s) ago (`settledCursorAt`, passed to the driver as `throughCursor`), so a slow write or a lagging GSI has time to land before any client can read past it. This isn't a lookback: queries stay strictly `cursor > from`, nothing is read twice, and a message only waits 10–11s longer to reach other devices. The driver returns an empty page, without a token, when the cursor or page token is already at the bound, because DynamoDB rejects an empty range. A write slower than the window can still be skipped, and manifest sync recovers it.
-- **Page tokens are opaque.** The driver issues `nextPageToken` / `globalNextPageToken` and checks them when they come back (`validatePageToken`); the Dynamo driver wraps its `LastEvaluatedKey`. The router validates every token before storing pushed messages, so a rejected poll never leaves pushed messages the client would push again. On `BAD_REQUEST` the client drops all its page tokens (`resetPagination`) and continues from its cursors. Pagination doesn't depend on the token: a client that drops it advances its cursor to the highest message received and continues with `cursor > from`.
-- Failed pull messages are retried up to `MAX_PULL_RETRIES` (5, `PullCursorState`) before the item is quarantined. The failing message is then skipped, and the item stays pending so the next per-item pull continues with the messages after it (the global scan has usually passed them).
-- Restoring a backup's cursors (`importCursors`) never moves the global scan cursor. A backup's per-item cursors can run ahead of its scan and cover only some items, so no value taken from them proves other items' messages below it were applied.
+Snapshot uploads stay unconditional last-write-wins, hydration still merges, and versions stay monotonic. Three rules (`SnapshotCoverage`) keep each server snapshot a superset of every snapshot it replaced, and keep every change in some snapshot. That matters because a device that hydrates after the TTL has only snapshots to go on.
+
+- **S1. Log before snapshot.** `SnapshotBuilder` builds a snapshot only when the doc has nothing after its server heads, checked in the same synchronous section as `Automerge.save`. Otherwise it returns `deferred`, and the caller pushes and builds again. So every change in a snapshot is already in the log. There are two exceptions: a single oversized change, and an `awaitingSnapshot` item at first start.
+- **S2. Recheck after a version jump.** When `putSnapshots` returns `version > baseVersion + 1`, another device wrote in between and its snapshot is now gone. The device records `{ itemId, uploadedHeads, logSeq }`, where `logSeq` is the log's head after the write. Once its cursor reaches `logSeq`, the doc holds every change of the replaced snapshot: by S1 they were in the log before that snapshot was written. If the doc's heads then differ from `uploadedHeads`, the item is uploaded again, and each re-upload is checked the same way. `StoredSnapshotRecorder` covers uploads and rewrites alike.
+- **S3. Backstop at manifest sync.** A device that holds a change must upload it if nobody else does. `ManifestSyncManager` marks an item dirty when its doc contains the server snapshot's heads and has other heads too. It checks snapshots newer than `baseVersion`, and items with pulled changes no snapshot has confirmed, which a device would otherwise never look at: their server version equals `baseVersion`. A pull that adds changes records `{ itemId, firstSeenAt }`, and after a day (`pulledChangesGrace`) the author has had its chance. A record goes once a snapshot's heads match the doc's.
+
+**Why a stale snapshot can't stay stale.** In the race, A and B upload snapshots that each lack the other's change, and the later one wins. The later writer jumped a version, so S2 makes it catch up the log, receive the other's change by S1, and upload again. A writer without a jump had merged, or already contained, the snapshot it replaced, so it wrote a superset.
+
+**Rewrites.** `ItemReencryptor` builds through the same `SnapshotBuilder`, so it runs on the leader once first start's network part has finished, and pushes each chunk before it builds. A deferred item is pushed and built again up to `MAX_BATCH_RETRIES`. After that, or for an `awaitingHeads` item, it goes in `failed` with no quarantine, so a later run can retry it. A push that fails on the network stops the run and schedules a retry.
+
+## First start
+
+The log started empty at the cut, and nothing was copied from `FlockSyncMessages`: snapshots carry the data across, and each device uploads what it has that they lack. `FirstStart` moves each device across once per account. Old server heads can't be trusted, because they can name changes only the old table held.
+
+- **Local part** (`runFirstStartLocalPart`): inside the `withLocalDataLock` call that opens local storage, it records every active item as `awaitingHeads`, marks it pending, clears the old server heads and cursors, and persists `firstStartReset`. The flag comes last, so an interrupted run repeats, and it never runs again, because a later tab would otherwise clear heads the leader has set.
+- **Network part** (`FirstStart.ensureSynced`, before the leader's first `pollLog`): it holds no lock, because it can wait indefinitely on an offline device. It runs catch-up's manifest sync, resolves each item from its manifest entry, pushes as normal and persists `firstStartSynced`. Then it clears any leftover WAL with `clearWriteAheadLog` and persists `walCleared`, retrying at the next start if that fails.
+
+| Manifest entry | Result |
+|---|---|
+| Heads decrypt, and the doc has them | Set server heads to them and remove the record |
+| Heads decrypt, but the doc lacks them | Stays `awaitingHeads`: the snapshot hasn't merged yet |
+| No snapshot | Move to `awaitingSnapshot` and mark it dirty |
+| No heads, or heads that fail in any other way | If the base version has reached the manifest's, move to `awaitingSnapshot` and mark it dirty. Otherwise stay, so an upload can't replace a snapshot the doc lacks |
+| Key missing | Stays `awaitingHeads` |
+| Quarantined | Stays `awaitingHeads`, with recovery |
+| Deleted | Remove the record |
+
+Records don't hold back polling or any other item. An `awaitingHeads` item goes through the table again after every manifest sync and keyring update. Until then push skips it, because it would send its whole history, and S1 defers its snapshot. An `awaitingSnapshot` item is exempt from S1 and isn't pushed, and its confirmed snapshot's heads become its server heads.
+
+Two devices can upload an `awaitingSnapshot` item at once. S2 can't help, because the loser's changes never reached the log, but S3 does: its next manifest sync merges the winner, finds it has other heads too, and uploads again.
 
 ## Snapshot sync
 
@@ -68,10 +133,10 @@ If `processPullResults` or any I/O throws and the poll still reports `'success'`
 
 Physical timestamps (`localModifiedAt`, `serverTime`, `SKEW_BUFFER_MS`) remain only as a legacy fallback for records that have no version.
 
-V_base advances only when this device pushes or hydrates a snapshot, not when sync messages deliver the same changes. So every item edited on another device looks stale, whether or not this device missed anything. **Heads in the manifest** keep that cheap:
+V_base advances only when this device pushes or hydrates a snapshot, not when the log delivers the same changes. So every item edited on another device looks stale, whether or not this device missed anything. **Heads in the manifest** keep that cheap:
 
 - Each snapshot upload carries `heads`, the Automerge heads of the saved doc, encrypted with purpose `heads` (see "Doc-bound ciphertexts"). The server stores them with the snapshot and returns them in the manifest.
-- Before computing deltas, `findSnapshotsCoveredLocally` decrypts the heads of each active, non-quarantined item with V_server > V_base and checks `Automerge.hasHeads` against the local doc. If the doc already has them, `ManifestSyncManager` raises V_base to V_server, records the heads as synced, and the table above then treats the item as up to date. A dirty item is still pushed.
+- Before computing deltas, `findSnapshotsCoveredLocally` decrypts the heads of each active, non-quarantined item with V_server > V_base and checks `Automerge.hasHeads` against the local doc. If the doc already has them, `ManifestSyncManager` raises V_base to V_server, and the table above then treats the item as up to date. A dirty item is still pushed, and a doc that holds more than the snapshot gets a new one (S3 in "Snapshot coverage").
 - Anything that can't be checked (no heads, a missing key, a doc that isn't loaded, heads that fail to decrypt) is fetched as before. A heads failure never quarantines an item. Forced syncs skip the check.
 - **Every write sets or removes `heads`** (`updateItemCommand`). Heads left from an older snapshot, paired with a newer version, would make clients skip a snapshot they need. A write without heads (older builds, tombstones, legacy writes) removes them, and the manifest leaves them out for deleted items.
 
@@ -81,7 +146,7 @@ A quarantined item's manual recovery entry records `serverVersion`, the server v
 
 `itemsRouter.putSnapshots` overwrites without a version condition. This is safe for four reasons:
 - Snapshots are recovery baselines, and overwriting one never touches any client's local doc.
-- Every edit is also kept for 90 days as incremental messages in `FlockSyncMessages`.
+- Every edit reaches the log before any snapshot holds it (S1), and S2 and S3 catch up a snapshot that replaced another device's.
 - Hydration merges rather than replaces (`existingHandle.merge(...)` / `Automerge.merge`). A stale snapshot cannot clobber newer edits, because merge(A+B, A) = A+B.
 - When a client merges a stale snapshot, `hydrationResult.hasLocalChanges` is true, so it calls `markItemDirty` and re-uploads the merged state.
 
@@ -103,16 +168,16 @@ Account settings the app syncs (`SyncDomain.syncedMetadataKeys`) live in an encr
 - **Fixed ID.** The ID is `settingsDocId(account)` (`settings-${account}`), so every device agrees on it without coordinating. This is the one exception to "never recreate a doc under an existing ID": two devices can create it concurrently, for example while migrating. Their histories merge because each setting is a top-level key. Two devices that first create the same nested object concurrently keep only one of them, so prefer flat values.
 - **Created lazily, never deleted.** The document is created on the first write of a synced key and never seeded with defaults, which would overwrite real values from other devices. `forceDeleteRecoveryItem` and `recreateOversizedItem` refuse it.
 - **Writes are diffs.** The app sends whole objects, so `AccountSettings` skips unchanged keys and edits nested maps and lists in place. Replacing a map would discard a concurrent edit to another field.
-- **An ordinary document otherwise.** It is in the item index, so the WAL, snapshots, manifest sync, key rotation and backups all handle it. The worker filters it out of the `indexUpdated` event sent to the app (`SyncWorkerContextConfig.onIndexUpdated` still sees it, so the worker subscribes to it) and routes its changes to `AccountSettings` instead of `itemUpdated`. `withSettingsDocPassthrough` keeps it away from the app's codec.
+- **An ordinary document otherwise.** It is in the item index, so the log, snapshots, manifest sync, key rotation and backups all handle it. The worker filters it out of the `indexUpdated` event sent to the app (`SyncWorkerContextConfig.onIndexUpdated` still sees it, so the worker subscribes to it) and routes its changes to `AccountSettings` instead of `itemUpdated`. `withSettingsDocPassthrough` keeps it away from the app's codec.
 - **Legacy migration.** After each manifest sync, so that the server's copy has been hydrated first, `migrateLegacySettings` copies settings from the app's `LegacySettingsSource` and from local metadata into the keys the document lacks, clears the source and then strips the local keys. Keys already in the document win, because another device migrated them first. A failure leaves everything in place for the next sync. Failures are logged and never fail the manifest sync.
 
 ## Doc-bound ciphertexts
 
-Snapshots and sync messages are encrypted with `vault-doc:<itemId>` as AES-GCM associated data and marked `format: 2`. Snapshot heads use `vault-heads:<itemId>` (purpose `heads`), so heads can't be served as a snapshot or the other way round (`DOC_BOUND_FORMAT` in `packages/vault-shared/src/crypto.ts`). Without it, the server could serve item A's snapshot as item B's, and B's device would merge A's whole history into B, which cannot be undone.
+Snapshots and log rows are encrypted with `vault-doc:<itemId>` as AES-GCM associated data and marked `format: 2`. Snapshot heads use `vault-heads:<itemId>` (purpose `heads`), so heads can't be served as a snapshot or the other way round (`DOC_BOUND_FORMAT` in `packages/vault-shared/src/crypto.ts`). Without it, the server could serve item A's snapshot as item B's, and B's device would merge A's whole history into B, which cannot be undone.
 
-- **Bind the ID the plaintext is applied to.** `snapshotBuilder` and `SyncPoller` encrypt with the item ID; `ManifestHydrator` and `SyncPullQueueManager` decrypt with the ID of the doc they apply the result to. Taking the ID from a separate field in the server's response would defeat the check.
+- **Bind the ID the plaintext is applied to.** `snapshotBuilder` and `ChangeOutbox` encrypt with the item ID; `ManifestHydrator`, `SyncLogPuller` and `GapHealer` decrypt with the ID of the doc they apply the result to. Taking the ID from a separate field in the server's response would defeat the check.
 - **The flag cannot be used to downgrade.** Stripping `format` from a bound ciphertext makes it decrypt without associated data, which fails. An unknown `format` is rejected.
-- **Unbound ciphertexts still decrypt for now**, because older snapshots and messages are unbound. Until they are rejected, a malicious server can still serve unbound ciphertexts it kept. `SnapshotFormatUpgrade` rewrites every snapshot once per device after a manifest sync without failures (or one skipped because a clean sync ran within `manifestSyncMinGap`), when local docs include everything in the server's snapshots. It runs only in the leader tab and at most once per session, so a persistently failing item doesn't re-upload everything on every sync.
+- **Unbound ciphertexts still decrypt for now**, because older snapshots are unbound. Until they are rejected, a malicious server can still serve unbound ciphertexts it kept. `SnapshotFormatUpgrade` rewrites every snapshot once per device after a manifest sync without failures (or one skipped because a clean sync ran within `manifestSyncMinGap`), when local docs include everything in the server's snapshots. It runs only in the leader tab and at most once per session, so a persistently failing item doesn't re-upload everything on every sync.
 - **Every server path must keep `format`.** zod strips unknown keys and the Dynamo driver copies snapshot fields by name, so a field missed anywhere silently makes bound ciphertexts undecryptable.
 - **Not bound:** the keyring, cross-tab BroadcastChannel messages and backup files. The server holds only one keyring per account and never sees the other two. Binding also does not stop the server replaying an older snapshot of the same item; hydration merges, so that only matters to a device that has never seen the newer state.
 
@@ -128,8 +193,8 @@ The deleted old doc still exceeds the limit. `SnapshotPusher` therefore uploads 
 ## Manual recovery store
 
 Items that can't be synced are quarantined in `manualRecoveryStore` and shown to the user.
-- `kind` is one of `pullDecryption`, `snapshotDecryption`, `oversized`, `snapshotFailure`, `pushFailure` or `unknown`. For legacy entries it is inferred from the reason text.
-- Only `pullDecryption` is auto-cleared, and only by a successfully parsed inbound message from another device. Own push echoes are excluded via `SyncPullQueueManager.recordOwnPushedMessage`.
+- `kind` is one of `pullDecryption`, `snapshotDecryption`, `oversized`, `snapshotFailure`, `pushFailure` (no longer written), `missingChanges` or `unknown`. For legacy entries it is inferred from the reason text.
+- `pullDecryption` is auto-cleared only by a successfully applied entry from another device. Own push echoes are excluded via `SyncLogPuller.recordOwnPushes`. The `GapHealer` clears `missingChanges` when it heals the item.
 - A server-confirmed snapshot upload clears every kind, as does any explicit user action (retry, overwrite, delete, recreate, dismiss).
 - `serverVersion` (optional) is the server version that failed; manifest sync skips the item until the server has a newer one (see "Monotonic versions"). An upsert keeps the highest version seen, even when a weaker kind doesn't replace the entry.
 - A weaker quarantine never overwrites an `oversized` entry. Oversized detection (`SnapshotTracker`, `DataRecoveryDialog`) checks `kind`, never reason text.
@@ -155,11 +220,12 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 ## Local storage layout
 
 - Automerge docs: `VaultIndexedDBStorageAdapter`.
-- WAL: its own IndexedDB database.
-- Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `cursors`, `indexDoc` or `indexDocSealed`, `lastModified` (including `baseVersion`), `syncedHeads`, `snapshotsDocBound` and `deviceDataVersion`. The stores only read the current layout.
+- Sync log database (`syncLogDatabase` + account), which `SyncLogDatabase` opens directly rather than through localforage: pending marks, parked entries, first-start records, S2 rechecks and S3 records. None of it needs a seal: it holds IDs, heads and counters, and parked entries hold the server's ciphertext.
+- A WAL left by an older build, in its own databases, until first start clears it. Nothing reads it.
+- Sync metadata: one database per account, `flock-sync-metadata-${accountId}` in Flock (store `sync-metadata`), opened once via `getSyncMetadataStorage(accountId)`. Its keys are `logCursor`, `logLastPullAt`, `indexDoc` or `indexDocSealed`, `lastModified` (including `baseVersion`), `syncedHeads`, `snapshotsDocBound`, `deviceDataVersion`, `firstStartReset`, `firstStartSynced` and `walCleared`. The stores only read the current layout.
 - Sealed storage (`upgradeLocalEncryption`, docs/local-encryption.md Part 2): user content is sealed with a per-device storage key (DSK), wrapped with a data key and kept in the sealed Automerge database's `meta` store (`dsk`, plus `upgradedAt`).
-  - **What's sealed:** Automerge chunks go to the sealed Automerge database (`sealedAutomergeDatabase`) as `{ key, v, iv, ct }`. WAL entries go to the sealed WAL database (`sealedWalDatabase`) with `data` sealed and the descriptor readable. The index is sealed under `indexDocSealed`.
-  - **What stays readable:** storage keys, WAL descriptors and the other metadata keys hold no user content.
+  - **What's sealed:** Automerge chunks go to the sealed Automerge database (`sealedAutomergeDatabase`) as `{ key, v, iv, ct }`. The index is sealed under `indexDocSealed`.
+  - **What stays readable:** storage keys, the sync log database and the other metadata keys hold no user content.
   - **Associated data:** each record is bound to its account, store and position, so a record moved anywhere else fails to open.
   - **`openLocalStorage`** picks sealed or plaintext storage under the `localDataMigrationLock`, after the `migrateLocalData` hook and before the Repo exists. It copies any plaintext data across and retires the plaintext stores once no other engine holds the account's sync locks.
   - **Decrypt failures:** a record that fails to decrypt is never treated as missing. The document is quarantined as `localDecryption`, and if the DSK itself can't be opened, sync stops and the app is asked (`onLocalDataUnavailable`). Nothing is ever reset automatically.
@@ -174,20 +240,19 @@ Cross-tab sync is an ephemeral optimisation. IndexedDB and the server remain the
 - The context's `RealtimeBus` (cross-tab sync pings, item-dirty, index and metadata messages) is registered first, so it closes last.
 - Shut down the Automerge Repo before clearing IndexedDB. Otherwise pending saves write data back into the cleared database.
 - Don't run `clearSyncMetadataStorage` (`dropInstance`) concurrently with per-store `.clear()` calls on the same database.
-- `wal.clear()` targets a different database, so it may run concurrently with the above.
+- The sync log database closes after everything that writes to it, because an open connection blocks `deleteDatabase`. Its connection also closes itself on `versionchange`.
 
 ## Event hub concurrency
 
 `ClientEventHub.emit` is fire-and-forget. Async listeners are not awaited, and their rejections are caught and logged. This keeps producers such as item updates and request tracking from being slowed by listener I/O. Listeners must therefore handle concurrent in-flight invocations themselves, using `SingleFlightGuard`/`KeyedSingleFlightGuard`, `AsyncMutex`/`KeyedAsyncMutex`, `ItemLockCoordinator`, `AsyncQueue` or monotonic tick counters (for example `SnapshotTracker.dirtyItemsTick`).
 
-Inside the worker, components call each other through plain callbacks that `SyncWorkerContext` wires up. A callback that starts async work runs it with `fireAndForget`, so the same applies to it: the WAL, pull processing and Repo network events aren't slowed by it, and it must synchronize itself.
+Inside the worker, components call each other through plain callbacks that `SyncWorkerContext` wires up. A callback that starts async work runs it with `fireAndForget`, so the same applies to it: pushes, pull processing and Repo network events aren't slowed by it, and it must synchronize itself.
 
 ## Server limits
 
-- `pushSyncMessagesBatch` chunks writes into groups of 25, the `BatchWriteItem` limit.
+- `appendLog` writes at most 99 rows and about 3.5 MB per transaction, under the `TransactWriteItems` limits, and retries with jitter on a conflict. `ChangeOutbox` sends requests within `logPushRows` and `logPushChars`.
 - `fetchSnapshotsByIds` chunks reads into groups of 100, the `BatchGetItem` limit.
-- `pullSyncBatch` limits per-item queries to `DEFAULT_PULL_BATCH_CONCURRENCY` (10) via `mapWithConcurrency`.
-- `UnprocessedItems` / `UnprocessedKeys` are retried with jittered exponential backoff.
+- `UnprocessedKeys` are retried with jittered exponential backoff.
 
 ## Other recovery
 
