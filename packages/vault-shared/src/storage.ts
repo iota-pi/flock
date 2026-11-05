@@ -57,15 +57,3 @@ export const VaultItemSchema = VaultKeySchema.extend({
   ttl: z.number().optional(),
   version: z.number().optional(),
 })
-
-export const StoredSyncMessageSchema = z.object({
-  cursor: z.number(),
-  encryptedMessage: z.object({
-    iv: z.string(),
-    cipher: z.string(),
-    kver: z.string().optional(),
-    format: z.literal(DOC_BOUND_FORMAT).optional(),
-    version: z.string().optional(),
-  }),
-  createdAt: z.number(),
-})

@@ -36,14 +36,18 @@ describe('createServer error reporting', () => {
     vi.restoreAllMocks()
   })
 
-  it('turns away writes from builds below the minimum protocol version', async () => {
+  it.each([
+    { path: 'items.putSnapshots', payload: { account: 'test-account', snapshots: [] } },
+    { path: 'sync.pollSync', payload: { account: 'test-account', pushMessages: [] } },
+    { path: 'sync.pollLog', payload: { account: 'test-account', after: 0 } },
+  ])('turns $path away from a build from before the sync log, so it updates', async ({ path, payload }) => {
     const server = await createServer(true)
     try {
       const response = await server.inject({
         method: 'POST',
-        url: '/trpc/items.putSnapshots',
-        headers: { 'content-type': 'application/json', [PROTOCOL_VERSION_HEADER]: '0' },
-        payload: { account: 'test-account', snapshots: [] },
+        url: `/trpc/${path}`,
+        headers: { 'content-type': 'application/json', [PROTOCOL_VERSION_HEADER]: '4' },
+        payload,
       })
 
       expect(response.statusCode).toBe(412)

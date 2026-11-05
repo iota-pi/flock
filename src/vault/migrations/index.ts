@@ -246,37 +246,6 @@ const migrations: { [name: string]: () => Promise<void> } = {
       console.info(`Oldest last access below the current version: ${lastAccess}`)
     }
   },
-  async backfillSyncMessageAccounts () {
-    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
-    let updated = 0
-    do {
-      const response = await client.send(new ScanCommand({
-        TableName: FLOCK_TABLES.syncMessages,
-        ExclusiveStartKey: lastEvaluatedKey,
-      }))
-      
-      const items = response?.Items || []
-      
-      for (const item of items) {
-        if (!item.account && item.syncId) {
-          const accountId = item.syncId.split('#')[0]
-          if (accountId) {
-            await client.send(new UpdateCommand({
-              TableName: FLOCK_TABLES.syncMessages,
-              Key: { syncId: item.syncId, cursor: item.cursor },
-              UpdateExpression: 'SET account = :account',
-              ExpressionAttributeValues: {
-                ':account': accountId,
-              },
-            }))
-            updated += 1
-          }
-        }
-      }
-      lastEvaluatedKey = response?.LastEvaluatedKey
-    } while (lastEvaluatedKey)
-    console.info(`Backfilled account attribute for ${updated} sync messages`)
-  },
 }
 
 export const handler = async (event: { migrationName: string }) => {

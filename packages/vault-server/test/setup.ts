@@ -2,5 +2,4 @@
 // creates these tables there
 process.env.ACCOUNTS_TABLE ??= 'FlockAccounts'
 process.env.ITEMS_TABLE ??= 'FlockItems'
-process.env.SYNC_MESSAGES_TABLE ??= 'FlockSyncMessages'
 process.env.SYNC_LOG_TABLE ??= 'FlockSyncLog'

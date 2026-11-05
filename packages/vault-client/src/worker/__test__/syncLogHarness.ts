@@ -5,7 +5,7 @@ import { generateVaultKey } from '../../keys/crypto'
 import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 import { ClientEventHub } from '../SyncEventHub'
 import { SyncOrchestrator } from '../SyncOrchestrator'
-import { SyncWorkerContext, type SyncSessionConfig } from '../SyncWorkerContext'
+import { SyncWorkerContext, type SyncWorkerContextConfig } from '../SyncWorkerContext'
 import type { SyncApiClient } from '../SyncApiClient'
 import type { VaultDoc } from '../../shared/types'
 import { getSyncMetadataStorage, SYNC_METADATA_KEYS } from '../stores/syncMetadataStorage'
@@ -139,7 +139,7 @@ export function installLocalStorage(): void {
 
 export interface DeviceOptions {
   isLeader?: boolean
-  config?: SyncSessionConfig
+  config?: Partial<SyncWorkerContextConfig>
 }
 
 /**

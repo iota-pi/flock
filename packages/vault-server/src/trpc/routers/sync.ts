@@ -1,22 +1,17 @@
-import { protectedProcedure, router } from '../trpc'
-import { PollLogSchema, SyncPollBatchSchema } from '@vault/shared'
-import { pollSync } from '../../services/syncService'
+import { TRPCError } from '@trpc/server'
+import { CLIENT_OUTDATED_MESSAGE, PollLogSchema } from '@vault/shared'
+import { protectedProcedure, publicProcedure, router } from '../trpc'
 import { pollLog } from '../../services/syncLogService'
-import { InvalidPageTokenError } from '../../errors'
-import { toTrpcError } from '../errors'
 
 
 export const syncRouter = router({
-  pollSync: protectedProcedure
-    .input(SyncPollBatchSchema)
-    .mutation(async ({ ctx, input }) => {
-      try {
-        return await pollSync(ctx.vault, input)
-      } catch (error) {
-        throw toTrpcError(error, [
-          { error: InvalidPageTokenError, code: 'BAD_REQUEST', message: e => e.message },
-        ])
-      }
+  /**
+   * Removed, but kept as a stub for builds from before the sync log. A removed procedure answers
+   * NOT_FOUND, which they treat as a failed poll, so they would never learn to update.
+   */
+  pollSync: publicProcedure
+    .mutation(() => {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: CLIENT_OUTDATED_MESSAGE })
     }),
 
   pollLog: protectedProcedure

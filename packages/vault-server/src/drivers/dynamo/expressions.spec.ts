@@ -1,4 +1,4 @@
-import { buildUpdateParams, cursorKeyCondition, partitionKeyCondition, projection, RawUpdateValue } from './expressions'
+import { buildUpdateParams, partitionKeyCondition, projection, RawUpdateValue } from './expressions'
 
 describe('buildUpdateParams', () => {
   it('builds a SET expression and mapped values for the given fields', () => {
@@ -98,39 +98,6 @@ describe('partitionKeyCondition', () => {
     expect(partitionKeyCondition('account', 'acct')).toEqual({
       KeyConditionExpression: 'account = :account',
       ExpressionAttributeValues: { ':account': 'acct' },
-    })
-  })
-})
-
-describe('cursorKeyCondition', () => {
-  it('matches the whole partition without a cursor', () => {
-    expect(cursorKeyCondition('syncId', 'acct#item', undefined)).toEqual({
-      KeyConditionExpression: 'syncId = :syncId',
-      ExpressionAttributeValues: { ':syncId': 'acct#item' },
-    })
-  })
-
-  it('limits the partition to cursors strictly after the given one', () => {
-    expect(cursorKeyCondition('account', 'acct', 0)).toEqual({
-      KeyConditionExpression: 'account = :account AND #c > :cursor',
-      ExpressionAttributeNames: { '#c': 'cursor' },
-      ExpressionAttributeValues: { ':account': 'acct', ':cursor': 0 },
-    })
-  })
-
-  it('adds an inclusive upper bound, starting one past the cursor', () => {
-    expect(cursorKeyCondition('account', 'acct', 10, 50)).toEqual({
-      KeyConditionExpression: 'account = :account AND #c BETWEEN :cursor AND :through',
-      ExpressionAttributeNames: { '#c': 'cursor' },
-      ExpressionAttributeValues: { ':account': 'acct', ':cursor': 11, ':through': 50 },
-    })
-  })
-
-  it('limits only the upper end without a cursor', () => {
-    expect(cursorKeyCondition('account', 'acct', undefined, 50)).toEqual({
-      KeyConditionExpression: 'account = :account AND #c <= :through',
-      ExpressionAttributeNames: { '#c': 'cursor' },
-      ExpressionAttributeValues: { ':account': 'acct', ':through': 50 },
     })
   })
 })

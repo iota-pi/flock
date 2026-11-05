@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { toTrpcError } from './errors'
-import { AuthenticationError, ExpiredSessionError, InvalidPageTokenError } from '../errors'
+import { AuthenticationError, ExpiredSessionError, TooManyLoginAttemptsError } from '../errors'
 
 describe('toTrpcError', () => {
   it('maps a matching error to its code, without sending its message', () => {
@@ -21,12 +21,12 @@ describe('toTrpcError', () => {
   })
 
   it('uses a fixed message, or one built from the error, and keeps the cause', () => {
-    const error = new InvalidPageTokenError('Bad token')
+    const error = new TooManyLoginAttemptsError('Slow down')
 
-    expect(toTrpcError(error, [{ error: InvalidPageTokenError, code: 'BAD_REQUEST', message: 'Nope' }]))
-      .toMatchObject({ code: 'BAD_REQUEST', message: 'Nope', cause: error })
-    expect(toTrpcError(error, [{ error: InvalidPageTokenError, code: 'BAD_REQUEST', message: e => e.message }]))
-      .toMatchObject({ code: 'BAD_REQUEST', message: 'Bad token', cause: error })
+    expect(toTrpcError(error, [{ error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: 'Nope' }]))
+      .toMatchObject({ code: 'TOO_MANY_REQUESTS', message: 'Nope', cause: error })
+    expect(toTrpcError(error, [{ error: TooManyLoginAttemptsError, code: 'TOO_MANY_REQUESTS', message: e => e.message }]))
+      .toMatchObject({ code: 'TOO_MANY_REQUESTS', message: 'Slow down', cause: error })
   })
 
   it('uses the first mapping that matches', () => {

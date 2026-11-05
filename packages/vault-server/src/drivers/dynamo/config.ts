@@ -3,20 +3,18 @@ import type { DynamoDBClientConfig } from '@aws-sdk/client-dynamodb'
 export interface VaultTableNames {
   accounts: string
   items: string
-  syncMessages: string
   syncLog: string
 }
 
 const TABLE_NAME_ENV_VARS: Record<keyof VaultTableNames, string> = {
   accounts: 'ACCOUNTS_TABLE',
   items: 'ITEMS_TABLE',
-  syncMessages: 'SYNC_MESSAGES_TABLE',
   syncLog: 'SYNC_LOG_TABLE',
 }
 
 /**
- * Resolves table names from explicit options, falling back to the ACCOUNTS_TABLE, ITEMS_TABLE,
- * SYNC_MESSAGES_TABLE and SYNC_LOG_TABLE environment variables, then to `defaults`.
+ * Resolves table names from explicit options, falling back to the ACCOUNTS_TABLE, ITEMS_TABLE and
+ * SYNC_LOG_TABLE environment variables, then to `defaults`.
  */
 export function resolveVaultTableNames(
   tables: Partial<VaultTableNames> = {},

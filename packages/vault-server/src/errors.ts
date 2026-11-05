@@ -15,8 +15,3 @@ export class ExpiredSessionError extends AuthenticationError {
 export class TooManyLoginAttemptsError extends Error {
   override name = 'TooManyLoginAttemptsError'
 }
-
-/** A page token that is malformed, or was issued for another account, item or query */
-export class InvalidPageTokenError extends Error {
-  override name = 'InvalidPageTokenError'
-}

@@ -11,7 +11,6 @@ const suffix = randomUUID().slice(0, 8)
 const tables = {
   accounts: `DeletedPayloadsTestAccounts_${suffix}`,
   items: `DeletedPayloadsTestItems_${suffix}`,
-  syncMessages: `DeletedPayloadsTestSyncMessages_${suffix}`,
   syncLog: `DeletedPayloadsTestSyncLog_${suffix}`,
 }
 const driver = new DynamoDriver({ tables }).connect({

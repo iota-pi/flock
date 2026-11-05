@@ -4,14 +4,12 @@ import type {
   ItemId,
   KdfParams,
   ManifestEntry,
-  PageToken,
   SyncLogEntry,
   SyncLogMessage,
   VaultSessionRecordSchema,
   VaultAccountSchema,
   VaultAccountWithAuthSchema,
   VaultItemSchema,
-  StoredSyncMessageSchema,
 } from '@vault/shared'
 import type { FailedLoginRecord } from '../loginThrottle'
 
@@ -19,7 +17,6 @@ export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
 export type VaultAccount = z.infer<typeof VaultAccountSchema>
 export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>
 export type VaultItem = z.infer<typeof VaultItemSchema>
-export type StoredSyncMessage = z.infer<typeof StoredSyncMessageSchema>
 /** An item as `fetchByIds` returns it, with any snapshot ciphertext as base64 */
 export type FetchedVaultItem = Omit<VaultItem, 'snapshot'> & {
   snapshot?: Omit<NonNullable<VaultItem['snapshot']>, 'cipher'> & { cipher?: string }
@@ -57,52 +54,6 @@ export interface ItemFormatSummary {
   snapshotKver?: string
   /** Whether the item still carries a pre-Automerge `cipher` payload */
   hasCipher: boolean
-}
-
-export interface PushSyncMessagesInput {
-  account: string
-  messages: Array<{
-    itemId: ItemId
-    entry: StoredSyncMessage
-  }>
-}
-
-export interface GetSyncMessagesInput {
-  account: string
-  itemId: ItemId
-  fromCursor?: number
-  /** Leaves out messages with a higher cursor, which may not have settled (docs/sync-design.md) */
-  throughCursor?: number
-  pageToken?: PageToken
-}
-
-export interface SyncMessagesPage {
-  messages: StoredSyncMessage[]
-  hasMore: boolean
-  nextPageToken?: PageToken
-}
-
-export interface ValidatePageTokenInput {
-  account: string
-  itemId?: ItemId
-  cursor?: number
-  pageToken: PageToken
-}
-
-export interface GetGlobalSyncMessagesInput {
-  account: string
-  cursor?: number
-  /** Leaves out messages with a higher cursor, which may not have settled (docs/sync-design.md) */
-  throughCursor?: number
-  pageToken?: PageToken
-}
-
-export interface GlobalSyncMessagesPage {
-  items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>
-  hasMore: boolean
-  nextPageToken?: PageToken
-  /** The highest cursor the page examined */
-  scannedThroughCursor: number
 }
 
 export interface AppendLogInput {
@@ -176,30 +127,6 @@ export interface VaultDriver {
 
   /** Loads the given items. Items that don't exist are left out. */
   fetchByIds(data: BaseData & { itemIds: ItemId[] }): Promise<FetchedVaultItem[]>
-
-  /** Stores sync messages, each under its own item */
-  pushSyncMessagesBatch(input: PushSyncMessagesInput): Promise<void>
-
-  /**
-   * Returns an item's messages with a cursor after `fromCursor`, in pages. Pass a page's
-   * `nextPageToken` back as `pageToken` (with the same `fromCursor`) to get the next page. Throws
-   * `InvalidPageTokenError` for a token this driver didn't issue for this item, or one that
-   * starts before `fromCursor`.
-   */
-  getSyncMessages(input: GetSyncMessagesInput): Promise<SyncMessagesPage>
-
-  /**
-   * Throws `InvalidPageTokenError` if the matching query would reject `pageToken`: the per-item
-   * query when `itemId` is given, otherwise the account-wide one. Lets callers reject a request
-   * before acting on any of it.
-   */
-  validatePageToken(input: ValidatePageTokenInput): void
-
-  /**
-   * Returns the account's messages with a cursor after `cursor`, across items, in pages. Paging works
-   * as in `getSyncMessages`, except that a token is not checked against `cursor`.
-   */
-  getGlobalSyncMessagesAfterCursor(input: GetGlobalSyncMessagesInput): Promise<GlobalSyncMessagesPage>
 
   /**
    * Appends messages to the account's log, in order, and reports each one's seq. Seqs are contiguous

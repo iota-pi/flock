@@ -8,25 +8,23 @@ describe('resolveVaultTableNames', () => {
   it('prefers explicit names, then environment variables, then defaults', () => {
     vi.stubEnv('ACCOUNTS_TABLE', 'EnvAccounts')
     vi.stubEnv('ITEMS_TABLE', 'EnvItems')
-    vi.stubEnv('SYNC_MESSAGES_TABLE', '')
     vi.stubEnv('SYNC_LOG_TABLE', '')
 
     const tables = resolveVaultTableNames(
       { accounts: 'ExplicitAccounts' },
-      { accounts: 'DefaultAccounts', items: 'DefaultItems', syncMessages: 'DefaultSyncMessages', syncLog: 'DefaultSyncLog' },
+      { accounts: 'DefaultAccounts', items: 'DefaultItems', syncLog: 'DefaultSyncLog' },
     )
 
     expect(tables).toEqual({
       accounts: 'ExplicitAccounts',
       items: 'EnvItems',
-      syncMessages: 'DefaultSyncMessages',
       syncLog: 'DefaultSyncLog',
     })
   })
 
   it('throws when a table has no name', () => {
-    vi.stubEnv('SYNC_MESSAGES_TABLE', '')
+    vi.stubEnv('SYNC_LOG_TABLE', '')
 
-    expect(() => resolveVaultTableNames({ accounts: 'A', items: 'I' })).toThrow('SYNC_MESSAGES_TABLE')
+    expect(() => resolveVaultTableNames({ accounts: 'A', items: 'I' })).toThrow('SYNC_LOG_TABLE')
   })
 })

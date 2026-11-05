@@ -80,28 +80,6 @@ const SyncEncryptedMessageSchema = (
   })
 )
 
-/**
- * Continues a paginated pull where the previous page stopped. Only the driver that issued it
- * knows what it contains; clients pass it back unchanged.
- */
-export const PageTokenSchema = z.string().min(1).max(2048)
-export type PageToken = z.infer<typeof PageTokenSchema>
-
-export const SyncPollBatchSchema = z.object({
-  account: z.string().min(1),
-  clientLatestCursor: z.number().int().min(0).optional(),
-  globalPageToken: PageTokenSchema.optional(),
-  pushMessages: z.array(z.object({
-    itemId: ItemIdSchema,
-    encryptedMessage: SyncEncryptedMessageSchema,
-  })).max(100).default([]),
-  pullCursors: z.array(z.object({
-    itemId: ItemIdSchema,
-    cursor: z.number().int().min(0).optional(),
-    pageToken: PageTokenSchema.optional(),
-  })).max(100).default([]),
-})
-
 const SyncLogMessageSchema = z.object({
   itemId: ItemIdSchema,
   encryptedMessage: SyncEncryptedMessageSchema,

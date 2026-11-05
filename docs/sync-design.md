@@ -26,6 +26,7 @@ Each account has one strictly ordered log, the `FlockSyncLog` table, keyed by `a
 - **Reads are consistent `Query`s on the base table,** strictly `seq > after`, with no GSI, page token or lookback. DynamoDB documents `Query` as read-committed, which may show some rows of a multi-row transaction and not others. Contiguity makes that harmless, because the client never moves past a missing seq it might still see.
 - **A row's `encryptedMessage` is a run of Automerge change chunks** encrypted with the item's ID. There's only one kind of row, and an item's change set can span several rows, in dependency order.
 - **Rows expire after `SYNC_LOG_TTL_DAYS` (30).** Snapshots are the lasting copy (see "Snapshot coverage").
+- **`sync.pollSync` is a stub** that answers `CLIENT_OUTDATED`, for builds from before the log. A removed procedure would answer `NOT_FOUND`, which they treat as a failed poll, so they would never update. It can go once its traffic stops.
 
 ### Outbound: from the doc
 

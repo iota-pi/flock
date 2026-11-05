@@ -18,8 +18,6 @@ import type { VaultTableNames } from './config'
 export interface DynamoContext {
   client: DynamoDBDocumentClient
   tables: VaultTableNames
-  /** Most sync messages one query returns */
-  syncMessagePageSize: number
   /** Most log rows one query returns */
   syncLogPageSize: number
 }

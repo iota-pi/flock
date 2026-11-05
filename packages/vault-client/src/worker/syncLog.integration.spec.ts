@@ -384,6 +384,31 @@ describe('sync log', () => {
     })
   })
 
+  it('strands nothing when a plaintext session seals later', async () => {
+    const a = await startDevice('device-a')
+    const itemId = await a.create('item-1', { title: 'one' })
+    await a.poll()
+    await a.edit(itemId, { title: 'two' })
+    await a.poll()
+    const plaintext = await startDevice('device-b')
+    expect(plaintext.context.localStorageState?.mode).toBe('plaintext')
+    // A row it can't apply: its parent is in a row it never sees
+    server.loseRow(1)
+    server.items.clear()
+    await plaintext.poll()
+    await plaintext.stop()
+
+    const sealed = await startDevice('device-b', {
+      config: { upgradeLocalEncryption: true, localKeys: keys, randomDataKeys: true },
+    })
+    expect(sealed.context.localStorageState?.mode).toBe('sealed')
+    await a.edit(itemId, { title: 'three' })
+    await a.uploadSnapshots()
+    await sealed.poll()
+
+    expect((await sealed.read(itemId))?.title).toBe('three')
+  })
+
   describe('first start', () => {
     /** Restarts a device as the first start of the new build, against a log that starts empty */
     async function crossTheCut(device: Device, oldHeads?: [ItemId, string[]][]): Promise<void> {
