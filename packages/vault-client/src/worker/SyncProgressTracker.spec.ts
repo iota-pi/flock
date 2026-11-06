@@ -9,7 +9,7 @@ describe('SyncProgressTracker', () => {
   let stored: number | null
   let store: LastSyncedStore
   let changes: UnsyncedChanges
-  let countUnsyncedChanges: ReturnType<typeof vi.fn<() => Promise<UnsyncedChanges>>>
+  let countUnpushedChanges: ReturnType<typeof vi.fn<() => Promise<UnsyncedChanges>>>
   let now: number
   let emitted: SyncProgress[]
   let tracker: SyncProgressTracker
@@ -29,13 +29,13 @@ describe('SyncProgressTracker', () => {
       }),
     } as unknown as LastSyncedStore
     changes = { pendingItems: 0, quarantinedItems: 0 }
-    countUnsyncedChanges = vi.fn(async () => changes)
+    countUnpushedChanges = vi.fn(async () => changes)
     now = 1_000_000
     emitted = []
     eventHub.subscribe(event => {
       if (event.type === 'syncProgress') emitted.push(event.progress)
     })
-    tracker = new SyncProgressTracker({ eventHub, store, countUnsyncedChanges, now: () => now })
+    tracker = new SyncProgressTracker({ eventHub, store, countUnpushedChanges, now: () => now })
   })
 
   afterEach(() => {
@@ -80,14 +80,14 @@ describe('SyncProgressTracker', () => {
   it('recounts after events that may change the counts, debounced', async () => {
     await tracker.start()
     await settle()
-    countUnsyncedChanges.mockClear()
+    countUnpushedChanges.mockClear()
 
     changes = { pendingItems: 1, quarantinedItems: 0 }
     eventHub.emit({ type: 'itemUpdated', id: 'item-1', item: null })
     eventHub.emit({ type: 'finishRequest' })
     await settle()
 
-    expect(countUnsyncedChanges).toHaveBeenCalledTimes(1)
+    expect(countUnpushedChanges).toHaveBeenCalledTimes(1)
     expect(emitted.at(-1)?.pendingItems).toBe(1)
   })
 
@@ -130,7 +130,7 @@ describe('SyncProgressTracker', () => {
     await settle()
 
     let release!: () => void
-    countUnsyncedChanges.mockImplementationOnce(() => new Promise(resolve => {
+    countUnpushedChanges.mockImplementationOnce(() => new Promise(resolve => {
       release = () => resolve({ pendingItems: 5, quarantinedItems: 0 })
     }))
     const first = tracker.recount()
@@ -155,7 +155,7 @@ describe('SyncProgressTracker', () => {
   })
 
   it('keeps going when counting fails', async () => {
-    countUnsyncedChanges.mockRejectedValueOnce(new Error('IndexedDB closed'))
+    countUnpushedChanges.mockRejectedValueOnce(new Error('IndexedDB closed'))
     await tracker.start()
     await settle()
     expect(emitted).toHaveLength(0)
