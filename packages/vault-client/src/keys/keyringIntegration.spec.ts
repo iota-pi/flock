@@ -329,7 +329,7 @@ describe('Vault Keyring Integration', () => {
 
     vi.mocked(getSession).mockRejectedValueOnce(new Error('Session rejected'))
 
-    await handleSessionExpired()
+    await expect(handleSessionExpired()).resolves.toBe('lost')
 
     // keyring should NOT be cleared - local operations continue
     expect(hasVaultKey('1')).toBe(true)
@@ -341,6 +341,33 @@ describe('Vault Keyring Integration', () => {
     const stored = localStorage.getItem(getVaultStorageNames().vaultMetadataKey)
     expect(stored).toBeDefined()
     expect(JSON.parse(stored!).account).toBe('test-account')
+
+    configureVaultHost({ deriveLegacyKey })
+  })
+
+  it.each([
+    ['the network fails', new TypeError('Failed to fetch')],
+    ['the server is failing', { data: { httpStatus: 503 }, message: 'Service Unavailable' }],
+    ['the server is rate limiting', { data: { httpStatus: 429 }, message: 'Too many requests' }],
+  ])('handleSessionExpired keeps the session when %s', async (_, error) => {
+    const onSessionLost = vi.fn()
+    configureVaultHost({ onSessionLost, deriveLegacyKey })
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: SALT,
+      saltVersion: 1,
+      iterations: 1000,
+    })
+    const session = getVaultSession()
+
+    vi.mocked(getSession).mockRejectedValueOnce(error)
+
+    await expect(handleSessionExpired()).resolves.toBe('unreachable')
+
+    // The server said nothing about the session, so the user has nothing to do
+    expect(onSessionLost).not.toHaveBeenCalled()
+    expect(getVaultSession()).toBe(session)
 
     configureVaultHost({ deriveLegacyKey })
   })

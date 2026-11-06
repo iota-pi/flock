@@ -81,7 +81,8 @@ export class SyncApiClient {
 
   /**
    * Gets a new session token. If the refresh fails, returns whichever token the realm holds by
-   * then, since one may have arrived in the meantime.
+   * then, since one may have arrived in the meantime. A refresh that couldn't reach the server
+   * rethrows, so callers see an outage rather than an auth failure, which would pause polling.
    */
   private async refreshToken(): Promise<string | null> {
     let refreshed: string | null = null
@@ -89,6 +90,9 @@ export class SyncApiClient {
       try {
         refreshed = await this.refreshAuth()
       } catch (refreshErr) {
+        if (classifySyncError(refreshErr).isNetwork) {
+          throw refreshErr
+        }
         log.warn('Token refresh callback failed:', refreshErr)
       }
     }

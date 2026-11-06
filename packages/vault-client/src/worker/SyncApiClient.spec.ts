@@ -1,4 +1,5 @@
 import { SyncApiClient, AuthError, AuthExpiredError, toAuthExpiredError } from './SyncApiClient'
+import { classifySyncError } from '../utils/errorClassifier'
 import * as runtimeModule from '../keys/runtime'
 import { spyOnExports } from '../../test/moduleMocks'
 import { spyOnVaultTrpc } from './__test__/testUtils'
@@ -74,6 +75,23 @@ describe('SyncApiClient', () => {
     })
   })
 
+  describe('Token Acquisition when the server is out of reach', () => {
+    it('fails as a network error, so that a poll backs off and retries instead of pausing for auth', async () => {
+      runtimeToken = ''
+      const client = new SyncApiClient({
+        refreshAuthToken: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
+      })
+
+      const error = await client.putSnapshots({
+        account: 'test-account',
+        snapshots: [{ itemId: 'item-1' } as any],
+      }).catch(err => err)
+
+      expect(classifySyncError(error)).toMatchObject({ isAuth: false, isNetwork: true })
+      expect(mockPutSnapshots).not.toHaveBeenCalled()
+    })
+  })
+
   describe('Transparent 401 Retry', () => {
     it('retries putSnapshots transparently when receiving a 401 auth error', async () => {
       runtimeToken = 'stale-token'
@@ -118,6 +136,21 @@ describe('SyncApiClient', () => {
 
       expect(result).toEqual({ success: true, persisted: 2 })
       expect(mockPutSnapshots).toHaveBeenCalledTimes(2)
+    })
+
+    it('fails as a network error if a 401 needs a refresh that cannot reach the server', async () => {
+      runtimeToken = 'stale-token'
+      const client = new SyncApiClient({
+        refreshAuthToken: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
+      })
+      mockPutSnapshots.mockRejectedValue({ status: 401 })
+
+      const error = await client.putSnapshots({
+        account: 'test-account',
+        snapshots: [{ itemId: 'item-1' } as any],
+      }).catch(err => err)
+
+      expect(classifySyncError(error)).toMatchObject({ isAuth: false, isNetwork: true })
     })
 
     it('throws AuthExpiredError if 401 occurs and token cannot be refreshed', async () => {

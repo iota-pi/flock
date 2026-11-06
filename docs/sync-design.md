@@ -75,9 +75,12 @@ The Repo has no peer to ask for a doc it can't find, so a find for an indexed it
 `executePoll` returns `'success' | 'failure' | 'auth-failure' | 'no-poll'`, which drives `SyncOrchestrator` backoff:
 - `'success'` resets backoff. Return it only when the whole cycle had no errors.
 - `'failure'` triggers exponential backoff. Return it whenever push, pull processing or healing throws.
+- `'auth-failure'` pauses polling until a flush or restart, and tells the user the session has expired. Return it only when the server refused the session.
 - `'no-poll'` leaves backoff unchanged, for example when the poll was aborted.
 
 If any I/O throws and the poll still reports `'success'`, backoff resets while `hasImmediatePendingPulls()` stays true. The result is a 0ms re-poll loop.
+
+**A refresh that gets no answer is an outage, not an auth failure.** Nothing restarts paused polling, so a device that paused because it couldn't reach the server would stop contacting it for good. So `handleSessionExpired` reports `unreachable` for a network or server error, leaving the session and telling the host nothing, and `SyncApiClient` rethrows the network error the worker's refresh fails with. The poll returns `'failure'` and keeps retrying until the server answers. The same goes for a refresh the main thread never answers, which is every refresh during startup, because the bridge can't reach the worker until the session is ready. A login during an outage depends on this: it has no token, and `navigator.onLine` may well be true, so no `online` event will come. When a refresh restores a session that had been lost, the bridge runs its reconnect steps, because any request can be the one that gets it back.
 
 ## Snapshot coverage
 

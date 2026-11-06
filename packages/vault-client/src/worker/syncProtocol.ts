@@ -56,6 +56,7 @@ export interface SyncApi<TDoc extends VaultDoc = VaultDoc, TMeta extends VaultMe
   listRecoveryItems: (options?: ReadManualRecoveryOptions) => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
   updateAuthToken: (token: string | null) => Promise<void>
+  failAuthTokenRefresh: () => Promise<void>
   reencryptAllItems: () => Promise<ReencryptResult>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>

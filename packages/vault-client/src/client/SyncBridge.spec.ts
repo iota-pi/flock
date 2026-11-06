@@ -37,6 +37,7 @@ const mockSyncApi = {
   dismissRecoveryItem: vi.fn().mockResolvedValue(undefined),
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
   updateAuthToken: vi.fn().mockResolvedValue(undefined),
+  failAuthTokenRefresh: vi.fn().mockResolvedValue(undefined),
   reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
   flushSync: vi.fn().mockResolvedValue(undefined),
   pushSnapshots: vi.fn().mockResolvedValue({ persisted: 0, total: 0 }),
@@ -122,7 +123,7 @@ beforeEach(() => {
   })
   spyOnExports(sessionModule, {
     getVaultSession: vi.fn().mockReturnValue(null),
-    handleSessionExpired: vi.fn().mockResolvedValue(undefined),
+    handleSessionExpired: vi.fn().mockResolvedValue('restored'),
     getKeyHash: vi.fn().mockReturnValue(null),
     onLateSession: vi.fn().mockReturnValue(() => undefined),
   })
@@ -342,6 +343,61 @@ describe('SyncBridge', () => {
     await vi.waitFor(() => expect(mockSyncApi.setVisibility).toHaveBeenLastCalledWith(false, false))
 
     visibilitySpy.mockRestore()
+  })
+
+  describe('session token refresh', () => {
+    const refreshTo = async (recovery: 'restored' | 'unreachable' | 'lost', before: string, after: string) => {
+      const session = vi.mocked(sessionModule.getVaultSession)
+      session.mockReturnValue(before)
+      vi.mocked(sessionModule.handleSessionExpired).mockImplementation(async () => {
+        session.mockReturnValue(after)
+        return recovery
+      })
+      await SyncBridge.initialize('test-refresh-account')
+      Object.assign(sink.state, { syncWarning: 'Sync paused' })
+      vi.clearAllMocks()
+      lastEventPort!.postMessage({ type: 'tokenRefreshNeeded' })
+    }
+
+    it('fails the refresh when the server is out of reach, and leaves the rest to the retries', async () => {
+      await refreshTo('unreachable', '', '')
+
+      await vi.waitFor(() => expect(mockSyncApi.failAuthTokenRefresh).toHaveBeenCalledTimes(1))
+
+      expect(mockSyncApi.updateAuthToken).not.toHaveBeenCalled()
+      expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
+    })
+
+    it('resumes sync when a refresh restores a session that was lost', async () => {
+      const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+
+      await refreshTo('restored', '', 'new-session')
+
+      await vi.waitFor(() => expect(mockSyncApi.flushSync).toHaveBeenCalledTimes(1))
+
+      expect(mockSyncApi.updateAuthToken).toHaveBeenCalledWith('new-session')
+      expect(sink.state.syncWarning).toBeNull()
+
+      onLineSpy.mockRestore()
+    })
+
+    it('only passes on the token when a live session is renewed', async () => {
+      await refreshTo('restored', 'old-session', 'new-session')
+
+      await vi.waitFor(() => expect(mockSyncApi.updateAuthToken).toHaveBeenCalledWith('new-session'))
+
+      expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
+      expect(sink.state.syncWarning).toBe('Sync paused')
+    })
+
+    it('settles the refresh with no token when the server rejects the session', async () => {
+      await refreshTo('lost', 'old-session', '')
+
+      await vi.waitFor(() => expect(mockSyncApi.updateAuthToken).toHaveBeenCalledWith(null))
+
+      expect(mockSyncApi.failAuthTokenRefresh).not.toHaveBeenCalled()
+      expect(mockSyncApi.flushSync).not.toHaveBeenCalled()
+    })
   })
 
   describe('keyring updates', () => {

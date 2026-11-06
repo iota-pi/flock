@@ -117,8 +117,8 @@ export class SyncWorker implements SyncApi {
   )
 
   private readonly tokenRefresh = new SingleFlightGuard<string | null>()
-  /** Settles the refresh in flight with the token the main thread sends (or null) */
-  private settleTokenRefresh: ((token: string | null) => void) | null = null
+  /** Settles the refresh in flight with the token the main thread sends (or null), or fails it */
+  private settleTokenRefresh: ((result: string | null | Error) => void) | null = null
   private readonly keyring = new Keyring()
   private readonly automergeWasmUrl: string
   /** The settings every session's context is built with */
@@ -135,19 +135,30 @@ export class SyncWorker implements SyncApi {
    * Concurrent requests share one round trip.
    */
   requestAuthTokenRefresh = (): Promise<string | null> =>
-    this.tokenRefresh.run(() => withTimeout(SYNC_TIMEOUTS.tokenRefresh, signal => new Promise<string | null>(resolve => {
+    this.tokenRefresh.run(() => withTimeout(SYNC_TIMEOUTS.tokenRefresh, signal => new Promise<string | null>((resolve, reject) => {
       signal.addEventListener('abort', () => {
         log.warn('Token refresh timed out waiting for main thread')
-        this.resolveTokenRefresh(null)
+        this.failTokenRefresh('Timed out waiting for the main thread to refresh the session')
       }, { once: true })
-      this.settleTokenRefresh = resolve
+      this.settleTokenRefresh = result => (result instanceof Error ? reject(result) : resolve(result))
       this.clientEventHub.emit({ type: 'tokenRefreshNeeded' })
     })))
 
-  private resolveTokenRefresh(token: string | null): void {
+  private resolveTokenRefresh(result: string | null | Error): void {
     const settle = this.settleTokenRefresh
     this.settleTokenRefresh = null
-    settle?.(token)
+    settle?.(result)
+  }
+
+  /**
+   * Fails the refresh in flight with a network error, because nothing has been said about the session.
+   * Requests then retry as they do in any outage, where a missing token would pause polling. A refresh
+   * during startup always ends here: the bridge can't answer until the session is ready.
+   */
+  private failTokenRefresh(message: string): void {
+    const error = new Error(message)
+    error.name = 'NetworkError'
+    this.resolveTokenRefresh(error)
   }
 
   /** Runs `fn` with the session's context, waiting for `initRepo` if it's still running */
@@ -421,6 +432,11 @@ export class SyncWorker implements SyncApi {
   updateAuthToken = async (token: string | null): Promise<void> => {
     setApiAuthToken(token || '')
     this.resolveTokenRefresh(token)
+  }
+
+  /** Tells the worker the main thread couldn't reach the server to refresh the session */
+  failAuthTokenRefresh = async (): Promise<void> => {
+    this.failTokenRefresh('The server could not be reached to refresh the session')
   }
 
   reencryptAllItems = () =>

@@ -1,5 +1,6 @@
 import { deleteStoredSessionToken } from '../shared/workerAuthStore'
 import { delay } from '../utils/abort'
+import { classifySyncError } from '../utils/errorClassifier'
 import { createLogger } from '../utils/logger'
 import { SingleFlightGuard } from '../utils/SingleFlightGuard'
 import { getSession } from './AccountClient'
@@ -13,7 +14,10 @@ const log = createLogger('session')
 /** How long a login waits for the server once the cached keyring has verified the password */
 const LOGIN_SERVER_WAIT_MS = 3000
 
-const sessionExpiry = new SingleFlightGuard()
+/** How a silent re-login ended. `unreachable` says nothing about the session, so it can be tried again. */
+export type SessionRecovery = 'restored' | 'unreachable' | 'lost'
+
+const sessionExpiry = new SingleFlightGuard<SessionRecovery>()
 const lateSessionListeners = new Set<() => void>()
 
 export function getKeyHash(): string {
@@ -38,8 +42,11 @@ export async function establishSessionFromKeyHash(account: string, nextKeyHash: 
   deleteStoredSessionToken()
 }
 
-/** Tries a silent re-login, telling the host the session is lost if that fails. Concurrent calls share one attempt. */
-export function handleSessionExpired(): Promise<void> {
+/**
+ * Tries a silent re-login, telling the host the session is lost if the server refuses it. A server
+ * that can't be reached has refused nothing, so the session stands. Concurrent calls share one attempt.
+ */
+export function handleSessionExpired(): Promise<SessionRecovery> {
   return sessionExpiry.run(async () => {
     const { keyHash } = vaultKeys
     const account = vaultKeys.activeAccount || readStoredMetadata()?.account || getHostHooks().getAccountId?.()
@@ -48,9 +55,13 @@ export function handleSessionExpired(): Promise<void> {
       try {
         await establishSessionFromKeyHash(account, keyHash)
         log.info('Session silently re-established')
-        return
+        return 'restored'
       } catch (err) {
         log.warn('Silent session re-establishment failed:', err)
+        const { isNetwork, isServerError } = classifySyncError(err)
+        if (isNetwork || isServerError) {
+          return 'unreachable'
+        }
       }
     }
 
@@ -58,6 +69,7 @@ export function handleSessionExpired(): Promise<void> {
     getHostHooks().onSessionLost?.(
       'Sync paused: unable to re-establish session. Please re-enter your password to resume syncing.'
     )
+    return 'lost'
   })
 }
 
