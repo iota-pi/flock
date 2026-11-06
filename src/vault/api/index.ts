@@ -95,8 +95,6 @@ async function createServer(devMode = false) {
     },
   })
 
-  server.get('/', async () => ({ ping: 'pong' }))
-
   return server
 }
 
