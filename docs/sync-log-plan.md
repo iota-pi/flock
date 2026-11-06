@@ -192,7 +192,7 @@ Everything below ships as one release, built on a branch in this order. There ar
   - the sync-state persistence that `isEphemeral: false` caused.
   - Keep `BaseSyncNetworkAdapter`, which the broadcast adapter extends.
   - Keep `shared/writeAheadLogStorage.ts`: `clearWriteAheadLog` clears WALs left on devices, for first start, local data cleanup and `keys/vault.ts`.
-  - `LocalEncryptionUpgrade` loses `copyWal` and keeps `hasWal` (see "The WAL at the cut").
+  - `LocalEncryptionUpgrade` loses `copyWal` and `hasWal` (see "The WAL at the cut").
 - **Storage names:** add the log cursor, parked-entry, S2, S3 and first-start names to `storageNames.ts`. Old names stay registered for cleanup (new names only; never rename one). Clear every new store in `clearAccountLocalData`.
 - **Backups:**
   - `exportSyncState` stops exporting `pendingSync`, and `restoreSyncState` ignores it. `BackupSyncStateSchema` makes the field optional, so old backups still parse.
@@ -256,8 +256,8 @@ So every device converges once it has started the new build and the devices it d
 
 The WAL isn't migrated. Its entries are never read, and nothing replays them, because snapshots and each device's doc carry the data across (see "Risks" for what that gives up). All that's left is cleanup:
 
-- **Clearing.** Step 8 calls `clearWriteAheadLog`, then persists `walCleared`. It deletes the plaintext WAL without creating it, and clears the sealed one. Don't use `retireLegacyStores`, which also deletes the plaintext Automerge database. This holds no lock, because an old tab can block the deletion until it times out. A failure is non-fatal: the flag stays unset, and the leader tries again at its next start.
-- **`LocalEncryptionUpgrade`.** `copyWal` goes, since a copy would never be read. `hasWal` stays: without it, a plaintext WAL left behind would report `retired: true` while the database still exists, because `retireLegacyStores` deletes the Automerge database first and the WAL's deletion can then time out. `retired` caps the device's recorded level, so it must stay accurate.
+- **Clearing.** Step 8 calls `clearWriteAheadLog`, then persists `walCleared`. It deletes the plaintext and sealed WAL databases, which creates neither. Don't use `retireLegacyStores`, which also deletes the plaintext Automerge database. This holds no lock, because an old tab can block the deletion until it times out. A failure is non-fatal: the flag stays unset, and the leader tries again at its next start.
+- **`LocalEncryptionUpgrade`.** `copyWal` goes, since a copy would never be read, and so does `hasWal`. `retired` caps the device's recorded level, so it must stay accurate, but the plaintext `indexDoc` does that: `retireLegacyStores` removes it only after deleting the Automerge database and the WAL, so a WAL deletion that times out reports `retired: false` and retries. Step 8 clears a WAL left on its own.
 - **The plaintext store.** No new code opens it. Opening it creates an empty database, which `hasLegacyLocalData` counts as legacy data.
 
 ### Deploying
@@ -305,7 +305,7 @@ Unit specs go next to each component. Sync integration specs go in `packages/vau
 | First start offline | The local part finishes and releases the lock with no network, and a second tab starts at once. Edits mark items pending. The network part runs when the device comes online. |
 | First-start items | Each row of step 5, including heads the doc lacks and malformed heads. A missing-key item never pushes its whole history, resolves after a keyring update and holds back no other item. An `awaitingSnapshot` item uploads despite S1, and its confirmation sets server heads. An item with no heads whose snapshot hasn't merged isn't uploaded. |
 | Rewrites | `reencryptAllItems` with an unpushed change pushes first, then rewrites, quarantining nothing and reporting nothing in `failed`. A run started before the network part waits for it. A failed push retries without quarantine. An `awaitingHeads` item goes in `failed` without quarantine. A version jump on a rewrite records S2. |
-| Plaintext WAL | A plaintext WAL left after a timed-out delete reports `retired: false` and retries. Nothing creates an empty plaintext WAL database, so `hasLegacyLocalData` stays false. |
+| Plaintext WAL | A WAL deletion that times out leaves the plaintext `indexDoc`, so the device reports `retired: false` and retries. Nothing creates an empty plaintext WAL database, so `hasLegacyLocalData` stays false. |
 | Plaintext session | With no cipher, first start and parking both work, and sealing later strands nothing. |
 | Backup restore | An old backup with `pendingSync` still parses and restores. The field is ignored, and restored items are marked pending and dirty. |
 | Two devices cross the cut | Each holds a change the other lacks and the server snapshot has neither, with and without snapshot heads. After both first starts, and a manifest sync on each in the no-heads case, both have both changes, and so does a new device. |

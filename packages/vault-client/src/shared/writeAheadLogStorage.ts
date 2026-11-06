@@ -1,16 +1,15 @@
 import { deleteDatabase } from '../utils/deleteDatabase'
-import { clearAccountStore, getAccountDatabaseName } from './createAccountStore'
+import { getSealedWalDBName, getWalDBName } from './localDatabaseNames'
 
 /**
- * Removes the account's write-ahead log entries without an active log: deletes the plaintext
- * database, without creating it when it doesn't exist, and clears the sealed store. Clearing the
- * plaintext store instead would create an empty plaintext database, which the app's legacy data
- * detection would then find.
+ * Removes the account's write-ahead logs by deleting their databases, which doesn't create one that
+ * doesn't exist. Clearing a store instead would create an empty database, and the app's legacy data
+ * detection would find an empty plaintext one.
  */
 export async function clearWriteAheadLog(accountId: string): Promise<void> {
   if (!accountId) return
   await Promise.all([
-    deleteDatabase(getAccountDatabaseName('wal-entries', accountId)),
-    clearAccountStore('wal-entries-sealed', accountId),
+    deleteDatabase(getWalDBName(accountId)),
+    deleteDatabase(getSealedWalDBName(accountId)),
   ])
 }

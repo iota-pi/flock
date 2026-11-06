@@ -1,25 +1,13 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { clearWriteAheadLog } from './writeAheadLogStorage'
-import { clearAccountStoreInstancesCacheForTesting, createAccountStore, getAccountDatabaseName } from './createAccountStore'
-import { createDatabase, createMockLocalForage, listDatabases, type MockLocalforage, mockLocalForage } from '../worker/__test__/testUtils'
-
-const activeStoreMap = new Map<string, MockLocalforage>()
-const createLocalForageInstance = (options: { name: string; storeName: string }) => {
-  const key = `${options.name}:${options.storeName}`
-  if (!activeStoreMap.has(key)) {
-    activeStoreMap.set(key, createMockLocalForage(options))
-  }
-  return activeStoreMap.get(key)
-}
+import { createDatabase, listDatabases } from '../worker/__test__/testUtils'
 
 describe('clearWriteAheadLog', () => {
-  const plaintextName = getAccountDatabaseName('wal-entries', 'test-account')
+  const plaintextName = 'test-vault-wal-test-account'
+  const sealedName = 'test-vault-wal-sealed-test-account'
   let factory: IDBFactory
 
   beforeEach(() => {
-    mockLocalForage(createLocalForageInstance)
-    activeStoreMap.clear()
-    clearAccountStoreInstancesCacheForTesting()
     factory = new IDBFactory()
     vi.stubGlobal('indexedDB', factory)
   })
@@ -28,28 +16,19 @@ describe('clearWriteAheadLog', () => {
     vi.unstubAllGlobals()
   })
 
-  it('deletes the plaintext WAL database', async () => {
+  it('deletes the plaintext and sealed WAL databases', async () => {
     await createDatabase(factory, plaintextName)
+    await createDatabase(factory, sealedName)
 
-    await clearWriteAheadLog('test-account')
-
-    expect(await listDatabases(factory)).not.toContain(plaintextName)
-  })
-
-  // An empty plaintext database would send the device to the migration app at its next start
-  it("doesn't create the plaintext WAL database when there is none", async () => {
     await clearWriteAheadLog('test-account')
 
     expect(await listDatabases(factory)).toEqual([])
-    expect([...activeStoreMap.keys()].some(key => key.endsWith(':wal-entries'))).toBe(false)
   })
 
-  it('clears the sealed WAL store', async () => {
-    const sealed = createAccountStore('wal-entries-sealed', 'test-account')
-    await sealed.setItem('entry-1', { id: 'entry-1' })
-
+  // An empty plaintext database would send the device to the migration app at its next start
+  it("doesn't create either WAL database when there is none", async () => {
     await clearWriteAheadLog('test-account')
 
-    expect(await sealed.length()).toBe(0)
+    expect(await listDatabases(factory)).toEqual([])
   })
 })

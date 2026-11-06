@@ -3,7 +3,6 @@ import { VaultIndexedDBStorageAdapter } from '../VaultIndexedDBStorageAdapter'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { IndexStore } from '../stores/IndexStore'
 import { mergeIndexDocuments } from '../docStore/AutomergeIndexManager'
-import { getAccountDatabaseName } from '../../shared/createAccountStore'
 import { databaseExists as defaultDatabaseExists } from '../../utils/databaseExists'
 import { retireLegacyStores as defaultRetireLegacyStores, type RetireLegacyStoresOptions } from './retireLegacyStores'
 import type { LocalCipher } from './LocalCipher'
@@ -46,7 +45,6 @@ export class LocalEncryptionUpgrade {
   async run(): Promise<{ retired: boolean }> {
     const { accountId, sealed } = this.deps
     const hasAutomerge = await this.databaseExists(getAutomergeDBName(accountId))
-    const hasWal = await this.databaseExists(getAccountDatabaseName('wal-entries', accountId))
     const plaintextIndex = await new IndexStore(accountId).getIndex()
 
     if (hasAutomerge) await this.copyChunks()
@@ -55,8 +53,7 @@ export class LocalEncryptionUpgrade {
       await sealed.putMeta(UPGRADED_AT_KEY, Date.now())
     }
 
-    // A plaintext WAL holds nothing anyone reads now, but it's still a plaintext store to retire
-    if (!hasAutomerge && !hasWal && !plaintextIndex) return { retired: true }
+    if (!hasAutomerge && !plaintextIndex) return { retired: true }
     const retired = await this.retireLegacyStores({ accountId, onRetiring: this.deps.onRetiring })
     return { retired }
   }

@@ -31,8 +31,6 @@ describe('createAccountStore', () => {
   describe('database name resolution', () => {
     it('resolves expected db names for known store types', () => {
       expect(getAccountDatabaseName('manual-recovery-items', 'acc-1')).toBe('test-vault-manual-recovery-acc-1')
-      expect(getAccountDatabaseName('wal-entries', 'acc-1')).toBe('test-vault-wal-acc-1')
-      expect(getAccountDatabaseName('wal-entries-sealed', 'acc-1')).toBe('test-vault-wal-sealed-acc-1')
       expect(getAccountDatabaseName('sync-metadata', 'acc-1')).toBe('test-vault-sync-metadata-acc-1')
     })
 
@@ -41,11 +39,11 @@ describe('createAccountStore', () => {
     })
 
     it('allows overriding dbName or name in options', () => {
-      const config1 = resolveAccountStoreConfig('wal-entries', 'acc-1', { dbName: 'custom-db-1' })
+      const config1 = resolveAccountStoreConfig('manual-recovery-items', 'acc-1', { dbName: 'custom-db-1' })
       expect(config1.name).toBe('custom-db-1')
-      expect(config1.storeName).toBe('wal-entries')
+      expect(config1.storeName).toBe('manual-recovery-items')
 
-      const config2 = resolveAccountStoreConfig('wal-entries', 'acc-1', { name: 'custom-db-2' })
+      const config2 = resolveAccountStoreConfig('manual-recovery-items', 'acc-1', { name: 'custom-db-2' })
       expect(config2.name).toBe('custom-db-2')
     })
 
@@ -57,20 +55,20 @@ describe('createAccountStore', () => {
 
   describe('caching and isolation', () => {
     it('caches and reuses instance for identical accountId and storeName', () => {
-      const store1 = createAccountStore('wal-entries', 'acc-1')
-      const store2 = createAccountStore('wal-entries', 'acc-1')
+      const store1 = createAccountStore('manual-recovery-items', 'acc-1')
+      const store2 = createAccountStore('manual-recovery-items', 'acc-1')
 
       expect(store1).toBe(store2)
       expect(localforage.createInstance).toHaveBeenCalledTimes(1)
       expect(createdConfigs[0]).toEqual({
-        name: 'test-vault-wal-acc-1',
-        storeName: 'wal-entries',
+        name: 'test-vault-manual-recovery-acc-1',
+        storeName: 'manual-recovery-items',
       })
     })
 
     it('creates distinct instances for different accounts', () => {
-      const store1 = createAccountStore('wal-entries', 'acc-1')
-      const store2 = createAccountStore('wal-entries', 'acc-2')
+      const store1 = createAccountStore('manual-recovery-items', 'acc-1')
+      const store2 = createAccountStore('manual-recovery-items', 'acc-2')
 
       expect(store1).not.toBe(store2)
       expect(localforage.createInstance).toHaveBeenCalledTimes(2)
@@ -93,9 +91,9 @@ describe('createAccountStore', () => {
     })
 
     it('clears instance cache when clearAccountStoreInstancesCacheForTesting is called', () => {
-      const store1 = createAccountStore('wal-entries', 'acc-1')
+      const store1 = createAccountStore('manual-recovery-items', 'acc-1')
       clearAccountStoreInstancesCacheForTesting()
-      const store2 = createAccountStore('wal-entries', 'acc-1')
+      const store2 = createAccountStore('manual-recovery-items', 'acc-1')
 
       expect(store1).not.toBe(store2)
       expect(localforage.createInstance).toHaveBeenCalledTimes(2)
@@ -104,16 +102,16 @@ describe('createAccountStore', () => {
 
   describe('clearAccountStore', () => {
     it('clears data in the account store', async () => {
-      const store = createAccountStore('wal-entries', 'acc-1') as unknown as MockLocalforage
+      const store = createAccountStore('manual-recovery-items', 'acc-1') as unknown as MockLocalforage
       await store.setItem('entry-1', { data: 'test' })
       expect(store.data.size).toBe(1)
 
-      await clearAccountStore('wal-entries', 'acc-1')
+      await clearAccountStore('manual-recovery-items', 'acc-1')
       expect(store.data.size).toBe(0)
     })
 
     it('does nothing when accountId is empty', async () => {
-      await clearAccountStore('wal-entries', '')
+      await clearAccountStore('manual-recovery-items', '')
       expect(localforage.createInstance).not.toHaveBeenCalled()
     })
   })

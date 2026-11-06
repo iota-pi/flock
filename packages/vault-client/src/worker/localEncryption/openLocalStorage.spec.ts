@@ -6,7 +6,7 @@ import { generateVaultKey } from '../../keys/crypto'
 import { VaultIndexedDBStorageAdapter } from '../VaultIndexedDBStorageAdapter'
 import { getAutomergeDBName } from '../AutomergeRepoManager'
 import { getSealedAutomergeDBName } from '../../shared/localDatabaseNames'
-import { createAccountStore, getAccountDatabaseName, clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
+import { clearAccountStoreInstancesCacheForTesting } from '../../shared/createAccountStore'
 import { databaseExists } from '../../utils/databaseExists'
 import { IndexStore } from '../stores/IndexStore'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
@@ -53,20 +53,12 @@ describe('openLocalStorage', () => {
     vi.unstubAllGlobals()
   })
 
-  /** Whether the plaintext WAL database exists, as `databaseExists` would see the localforage one */
-  function walExists(): boolean {
-    return (pool.getInstance(getAccountDatabaseName('wal-entries', ACCOUNT), 'wal-entries')?.data.size ?? 0) > 0
-  }
-
   async function open(overrides: Partial<OpenLocalStorageOptions> = {}): Promise<LocalStorage> {
     const local = await openLocalStorage({
       accountId: ACCOUNT,
       upgradeLocalEncryption: true,
       keys,
       randomDataKeys: true,
-      databaseExists: async name => (
-        name === getAccountDatabaseName('wal-entries', ACCOUNT) ? walExists() : databaseExists(name)
-      ),
       upgradeDeps: { retireLegacyStores: retire },
       ...overrides,
     })
@@ -218,8 +210,8 @@ describe('openLocalStorage', () => {
       expect(second.retired).toBe(false)
     })
 
-    it('reports a plaintext WAL left after a timed-out delete as not retired, and retires it next time', async () => {
-      await createAccountStore('wal-entries', ACCOUNT).setItem('entry-1', { id: 'entry-1' })
+    it('reports a plaintext index left after a failed retirement as not retired, and retires it next time', async () => {
+      await new IndexStore(ACCOUNT).saveIndex({ accountId: ACCOUNT, itemIds: [] })
       retire.mockResolvedValueOnce(false)
 
       const first = await open()
@@ -229,14 +221,6 @@ describe('openLocalStorage', () => {
       const second = await open()
       expect(retire).toHaveBeenCalledTimes(2)
       expect(second.retired).toBe(true)
-    })
-
-    it('reads nothing from a plaintext WAL, so it creates no copy of one', async () => {
-      const local = await open()
-
-      expect(local.retired).toBe(true)
-      expect(walExists()).toBe(false)
-      expect(pool.getInstance(getAccountDatabaseName('wal-entries-sealed', ACCOUNT), 'wal-entries-sealed')).toBeUndefined()
     })
 
     describe('running out of space', () => {

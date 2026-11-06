@@ -261,7 +261,7 @@ The keyring is loaded in `initGlobalPrerequisites` before the context is created
    - **What's copied:** `snapshot` and `incremental` chunks only. Their keys are content hashes (heads hash and `keyHash`), and the Repo merges every chunk it loads and compacts away superseded ones, so the copy is idempotent and resumes after a crash.
    - **`storage-adapter-id`** is copied only on the first import.
    - **`sync-state`** records are skipped. They're keyed per peer, not by content, so a copy could overwrite newer state, and the sync protocol rebuilds them.
-3. **Leaves the WAL alone.** Nothing reads it now (see "First start" in sync-design.md), so a plaintext WAL isn't copied. It still counts as a plaintext store until it's gone: `hasWal` keeps `retired` false, because `retireLegacyStores` deletes the Automerge database first and the WAL's deletion can then time out.
+3. **Leaves the WAL alone.** Nothing reads it now (see "First start" in sync-design.md), so a plaintext WAL isn't copied or checked for. `retireLegacyStores` deletes it with the Automerge database and removes the plaintext `indexDoc` only after both deletions, so a WAL deletion that times out keeps `retired` false and retries at the next start. First start clears a WAL left on its own.
 4. **Merges the plaintext index** `indexDoc` into `indexDocSealed` with `mergeIndexDocuments` (see "Index document"). On a re-import, deletions from either side win and the sealed side's settings win.
 5. **Writes `{ upgradedAt }`** to the sealed `meta` store.
 6. **Retires the plaintext stores** (next section). If that can't happen yet, the upgrade still counts as done, and the next start re-imports anything new and tries again.
@@ -287,7 +287,7 @@ Deleting a database under a live old-build tab is unsafe. The old adapter closes
 
 ### WAL
 
-Earlier builds sealed WAL entries here. Nothing writes or reads them now, and first start clears the sealed store with `clearWriteAheadLog`.
+Earlier builds sealed WAL entries here. Nothing writes or reads them now, and first start deletes the sealed database with `clearWriteAheadLog`.
 
 ### Index document
 
